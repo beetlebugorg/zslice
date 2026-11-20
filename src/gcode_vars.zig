@@ -280,6 +280,11 @@ pub const Key = enum {
     print_sequence,
     three,
     ten,
+    forty,
+    seventy,
+    /// The glass point of the material (°C): Bambu Studio's
+    /// temperature_vitrification of its generic filaments.
+    vitrification,
     lagrange,
     /// zslice has no value: see the header comment.
     no_value,
@@ -360,7 +365,7 @@ pub const names = std.StaticStringMap(Entry).initComptime(.{
     .{ "build_volume_temperature", just(.chamber_temp) },
     // The temperature at which the material gets soft: zslice has none.
     .{ "temperature_vitrification", each(.no_value) },
-    .{ "min_vitrification_temperature", just(.no_value) },
+    .{ "min_vitrification_temperature", just(.vitrification) },
 
     // Layers and sizes. c: layer_height_0. o: initial_layer_print_height.
     .{ "layer_height_0", just(.first_layer_height) },
@@ -478,7 +483,14 @@ pub const names = std.StaticStringMap(Entry).initComptime(.{
     .{ "cool_fan_enabled", just(.one) },
     .{ "fan_max_speed", each(.fan_max_speed) },
     .{ "fan_min_speed", each(.fan_speed) },
-    .{ "additional_cooling_fan_speed", each(.zero) },
+    // b: the fans of the chamber of a Bambu Lab printer, with the values
+    // of Bambu Studio for its generic filaments (zslice drives the part
+    // fan only).
+    .{ "additional_cooling_fan_speed", each(.seventy) },
+    .{ "max_additional_fan", just(.seventy) },
+    .{ "first_x_layer_fan_speed", each(.forty) },
+    .{ "close_additional_fan_first_x_layers", each(.one) },
+    .{ "additional_fan_full_speed_layer", each(.zero) },
     .{ "during_print_exhaust_fan_speed", each(.zero) },
     .{ "fan_speed_pwm", just(.no_value) },
 
@@ -1090,6 +1102,9 @@ const Renderer = struct {
             .print_sequence => .{ .text = "by layer" },
             .three => num(3),
             .ten => num(10),
+            .forty => num(40),
+            .seventy => num(70),
+            .vitrification => num(vitrificationOf(f.material)),
             .lagrange => .{ .text = "lagrange" },
             .no_value => .nil,
         };
@@ -1100,6 +1115,16 @@ const Renderer = struct {
         return self.ctx.first_layer_box orelse .{ m.origin_x, m.origin_y, m.origin_x + m.bed_size_x, m.origin_y + m.bed_size_y };
     }
 };
+
+/// The glass point of a material (°C), as the generic filaments of Bambu
+/// Studio give it: the chamber fans of a Bambu Lab printer use it.
+fn vitrificationOf(material: []const u8) f64 {
+    const table = [_]struct { []const u8, f64 }{
+        .{ "PLA", 45 }, .{ "PETG", 64 }, .{ "ABS", 94 }, .{ "ASA", 94 }, .{ "TPU", 30 }, .{ "PC", 110 }, .{ "PA", 60 }, .{ "PVA", 50 },
+    };
+    for (table) |e| if (std.ascii.eqlIgnoreCase(e[0], material)) return e[1];
+    return 60;
+}
 
 fn num(v: f64) Value {
     return .{ .num = v };

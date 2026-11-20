@@ -1054,6 +1054,10 @@ pub const Emitter = struct {
             try self.w.writeAll(" ; zslice: the start G-code does not heat the nozzle\n");
         }
         try self.w.writeAll(start.written());
+        // The end of the start G-code, as Bambu Studio writes it: the
+        // marker, then the units, relative extrusion, and the spaghetti
+        // detector on.
+        if (self.bambu_blocks) try self.w.writeAll("\n; MACHINE_START_GCODE_END\nM400\nG90\nG21\nM83 ; use relative distances for extrusion\nM981 S1 P20000 ;open spaghetti detector\n");
         // A start G-code that leaves another temperature: the first layer
         // sets the right one and waits (see `layer`).
         if (got.nozzle) |t| if (!got.macro_nozzle) {
@@ -1269,6 +1273,7 @@ pub const Emitter = struct {
         const s = self.lr.settings;
         if (!self.dry) try self.w.print(";LAYER:{d}\n", .{lp.index});
         self.layer_index = lp.index;
+        if (!self.dry) try self.bambuLayer(lp);
         // The temperatures: the start G-code sets the values of the first
         // layer. A layer with other values sets them, with no wait.
         const nozzle = self.toolTemp(lp.index == 0, s);
@@ -2601,6 +2606,36 @@ pub const Emitter = struct {
 
     /// Writes a start or an end G-code with the values of its variables
     /// (see gcode_vars.zig), and tells the temperatures that it sets.
+    /// The layer change of a Bambu Lab printer, as Bambu Studio writes it:
+    /// the markers of the layer, then the layer change G-code of the maker
+    /// (its fans of the chamber, and M73 L and M991, which tell the printer
+    /// each new layer: its progress and its first layer inspection).
+    fn bambuLayer(self: *Emitter, lp: *const LayerPlan) Writer.Error!void {
+        if (!self.bambu_blocks) return;
+        const s = self.r.settings;
+        const text = @import("printers.zig").bambuTemplate(s.machine.model, .layer) orelse return;
+        try self.w.writeAll("; CHANGE_LAYER\n; Z_HEIGHT: ");
+        try writeNum(self.w, lp.z, 3);
+        try self.w.writeAll("\n; LAYER_HEIGHT: ");
+        try writeNum(self.w, lp.height, 3);
+        try self.w.writeByte('\n');
+        const ctx: gcode_vars.Context = .{
+            .r = self.r,
+            .phase = .start,
+            .layer_count = self.layer_count,
+            .layer_z = lp.z,
+            .layer_index = lp.index,
+            .slots = self.slots,
+            .tool = self.tool,
+            .first_layer_box = self.first_layer_box,
+        };
+        _ = gcode_vars.render(self.gpa, self.w, text, &ctx) catch |err| switch (err) {
+            error.OutOfMemory => return error.WriteFailed,
+            error.WriteFailed => return error.WriteFailed,
+        };
+        try self.w.writeByte('\n');
+    }
+
     fn writeTemplate(self: *Emitter, w: *Writer, text: []const u8, phase: gcode_vars.Phase) Writer.Error!gcode_vars.Result {
         const s = self.r.settings;
         const n = self.layer_count;

@@ -528,10 +528,11 @@ test "printers: the facts of the Bambu Lab X2D and of a printer with one nozzle"
 /// when it is newer than the one of the presets of OrcaSlicer, or null.
 /// The X2D: Bambu Studio 02.09.01.70 (start 2026/10/20, end 2026/07/29),
 /// from the config block of a .gcode.3mf that it wrote.
-pub fn bambuTemplate(id: []const u8, which: enum { start, end }) ?[]const u8 {
+pub fn bambuTemplate(id: []const u8, which: enum { start, end, layer }) ?[]const u8 {
     if (std.mem.eql(u8, id, "bambu-lab-x2d")) return switch (which) {
         .start => @embedFile("printers/bambu/bambu-lab-x2d-start.gcode"),
         .end => @embedFile("printers/bambu/bambu-lab-x2d-end.gcode"),
+        .layer => @embedFile("printers/bambu/bambu-lab-x2d-layer.gcode"),
     };
     return null;
 }
