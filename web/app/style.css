@@ -1071,4 +1071,6 @@ button.destructive { background: #c01c28; color: #fff; }
    right corner resizes it. */
 .spatial { resize: both; overflow: auto; min-width: 200px; min-height: 90px; max-width: calc(100vw - 32px); }
 .search-box.spatial { display: flex; flex-direction: column; max-height: calc(100vh - 32px); }
+/* A search with no size from the user keeps its first height. */
+.search-box.spatial:not([style*="height"]) { max-height: min(62vh, 560px); }
 .search-box.spatial .search-list { flex: 1; min-height: 0; max-height: none; }
