@@ -2544,11 +2544,15 @@ pub const App = struct {
     fn simulateOnWorker(app: *App) void {
         const job = sim_print.Job.createFrom(app.gpa, &app.toolpaths, sim_print.paramsOf(app.slice_settings), app.sim_checkpoints) catch return;
         defer job.destroy();
+        // A change stops the run within a step of the simulation, so the
+        // shell thread waits little for this thread (see stopWorker).
+        job.setCancel(&app.cancel_flag);
         while (true) {
             if (app.cancel_flag.load(.acquire)) return;
             const done = job.advance(sim_piece) catch return;
             if (done) break;
         }
+        if (app.cancel_flag.load(.acquire)) return;
         const r = job.finish() catch return;
         if (app.cancel_flag.load(.acquire)) {
             var x = r;

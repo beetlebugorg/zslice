@@ -190,6 +190,11 @@ pub const Job = struct {
         job.gpa.destroy(job);
     }
 
+    /// Stops `advance` when the flag is set (see Runner.setCancel).
+    pub fn setCancel(job: *Job, flag: ?*const std.atomic.Value(bool)) void {
+        job.runner.setCancel(flag);
+    }
+
     /// Prints up to `count` more paths, and true when the simulation is
     /// done.
     pub fn advance(job: *Job, count: usize) Allocator.Error!bool {

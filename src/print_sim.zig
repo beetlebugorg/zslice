@@ -641,6 +641,8 @@ const Sim = struct {
     set_time: std.ArrayList(f32) = .empty,
     mass: std.ArrayList(f32) = .empty,
     stats: Stats = .{},
+    /// A flag that stops the run (see Runner.cancel), or null.
+    cancel: ?*const std.atomic.Value(bool) = null,
 
     fn deinit(s: *Sim) void {
         for (s.chains.items) |*c| c.nodes.deinit(s.gpa);
@@ -815,9 +817,18 @@ const Sim = struct {
         s.stats.peak_soft = @max(s.stats.peak_soft, s.soft);
     }
 
-    /// Runs the soft masses until time t.
+    /// True when the flag of `cancel` is set. The state of the run is
+    /// then incomplete, and the run gives no result.
+    fn stopped(s: *const Sim) bool {
+        const c = s.cancel orelse return false;
+        return c.load(.acquire);
+    }
+
+    /// Runs the soft masses until time t. A cancel ends it early (see
+    /// `stopped`).
     fn runTo(s: *Sim, t: f64) Allocator.Error!void {
         while (s.time < t) {
+            if (s.stopped()) return;
             if (s.soft == @intFromBool(s.head_soft)) {
                 s.time = t;
                 break;
@@ -1216,6 +1227,7 @@ const Sim = struct {
             if (cont and i == 0) continue;
             const rest = if (i == 0) 0 else if (cont and i == 1) len3(sub(p, last_want)) else step_len;
             try s.runTo(t);
+            if (s.stopped()) return;
             const sl = @max(seg_len, 1e-9);
             try s.emit(pi, bead_of, p, .{ (b[0] - a[0]) / sl, (b[1] - a[1]) / sl }, rest, mass_per_mm);
         }
@@ -1633,8 +1645,15 @@ pub const Runner = struct {
         r.key = cp.key;
     }
 
+    /// A flag for `advance`: when it is set, `advance` stops within a
+    /// step of the simulation and returns false. The runner then gives no
+    /// result, and its owner drops it.
+    pub fn setCancel(r: *Runner, flag: ?*const std.atomic.Value(bool)) void {
+        r.s.cancel = flag;
+    }
+
     /// Prints up to `count` more paths, and true when all the plastic has
-    /// set.
+    /// set. With the flag of `setCancel` set, false.
     pub fn advance(r: *Runner, count: usize) Allocator.Error!bool {
         if (r.done) return true;
         const s = &r.s;
@@ -1650,11 +1669,13 @@ pub const Runner = struct {
                 r.key = pathKey(r.key, path);
             }
             try s.print(@intCast(r.next), path);
+            if (s.stopped()) return false;
         }
         if (r.next < s.paths.len) return false;
         s.endStrand();
         // The last soft masses set: they cool below the set point in seconds.
         try s.runTo(s.time + 3600);
+        if (s.stopped()) return false;
         for (s.chains.items) |*c| c.head = false;
         try s.finishChains();
         r.done = true;
@@ -1778,6 +1799,30 @@ test "print sim: a line over air with no plastic under it falls to the bed" {
     var lowest: f32 = 100;
     for (r.nodes(0)) |q| lowest = @min(lowest, q[2]);
     try testing.expect(lowest < 0.2);
+}
+
+test "print sim: a set cancel flag stops advance, and a clear flag changes no mass" {
+    const gpa = testing.allocator;
+    var pts: [2][2]f32 = undefined;
+    var paths = [_]Path{line(.{ 0, 0 }, .{ 10, 0 }, 5, 24, 0, 40, 0, &pts)};
+    var flag: std.atomic.Value(bool) = .init(true);
+    {
+        var r = try Runner.init(gpa, &paths, .{});
+        defer r.deinit();
+        r.setCancel(&flag);
+        try testing.expect(!try r.advance(paths.len));
+        try testing.expect(!try r.advance(paths.len));
+    }
+    flag.store(false, .release);
+    var r = try Runner.init(gpa, &paths, .{});
+    defer r.deinit();
+    r.setCancel(&flag);
+    while (!try r.advance(paths.len)) {}
+    var got = try r.result();
+    defer got.deinit(gpa);
+    var want = try run(gpa, &paths, .{});
+    defer want.deinit(gpa);
+    try testing.expectEqualSlices(V, want.pos, got.pos);
 }
 
 /// A pad of support 10 layers high, a z gap of one layer, then a line of
