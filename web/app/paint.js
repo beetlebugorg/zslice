@@ -114,7 +114,8 @@ export class PaintTool {
     this.vstates = new Uint8Array(3 * nf);
     this.ctx.gl.setPaintMesh(pos, nrm);
     this.on = true;
-    if (this.state === this.base) this.state = filaments().length > 1 ? (this.base === 1 ? 2 : 1) : 1;
+    const count = filaments().length;
+    if (this.state === this.base || this.state > count) this.state = count > 1 ? (this.base === 1 ? 2 : 1) : 1;
     this.colors();
     this.upload();
     this.buildCard();
