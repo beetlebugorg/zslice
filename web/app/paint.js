@@ -204,7 +204,7 @@ export class PaintTool {
     if (same && same.id === id) return same;
     const p = w.u32(c);
     const n = w.u32(c + 4);
-    return { id, tris: new Uint32Array(w.x.memory.buffer.slice(p, p + 4 * n)) };
+    return { id, tris: new Uint32Array(w.x.memory.buffer, p, n).slice() };
   }
 
   fill(tris, state) {

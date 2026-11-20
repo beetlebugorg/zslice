@@ -1603,7 +1603,10 @@ const ops = {
     if (rc !== 0) return { bytes: null };
     const p = w.u32(c);
     const n = w.u32(c + 4);
-    const bytes = w.x.memory.buffer.slice(p, p + n);
+    // A copy in a plain ArrayBuffer: the memory of the threaded build is a
+    // SharedArrayBuffer, whose slice is shared too, and a shared buffer
+    // cannot go in the transfer list of the reply.
+    const bytes = new Uint8Array(w.x.memory.buffer, p, n).slice().buffer;
     w.x.zs_buffer_free(p, n);
     return { bytes };
   },
@@ -1618,7 +1621,10 @@ const ops = {
     if (rc !== 0) return { bytes: null };
     const p = w.u32(c);
     const n = w.u32(c + 4);
-    const bytes = w.x.memory.buffer.slice(p, p + n);
+    // A copy in a plain ArrayBuffer: the memory of the threaded build is a
+    // SharedArrayBuffer, whose slice is shared too, and a shared buffer
+    // cannot go in the transfer list of the reply.
+    const bytes = new Uint8Array(w.x.memory.buffer, p, n).slice().buffer;
     w.x.zs_buffer_free(p, n);
     return { bytes };
   },
