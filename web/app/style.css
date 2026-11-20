@@ -336,7 +336,8 @@ select.choice {
 
 /* ---- menus ---- */
 
-.menu-layer { position: fixed; inset: 0; z-index: 10; }
+/* Over the panel (20) and the history card (40). */
+.menu-layer { position: fixed; inset: 0; z-index: 45; }
 .menu {
   position: absolute; min-width: 180px; max-height: 70vh; overflow-y: auto;
   background: #383838; border-radius: 10px; padding: 6px;
