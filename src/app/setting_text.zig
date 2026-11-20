@@ -79,6 +79,12 @@ pub fn writeG(w: *Writer, v: f64, digits: u8) Writer.Error!void {
 
 /// The value as an editor shows it; with `with_unit`, the unit after it.
 pub fn display(s: *const SettingInfo, value: []const u8, with_unit: bool, w: *Writer) Writer.Error!void {
+    // 0 of a support filament: no slot, but the filament of the part (or
+    // the support filament, for the interface).
+    if ((number(value) orelse 1) == 0) {
+        if (std.mem.eql(u8, s.name, "project.support_filament")) return w.writeAll("the part");
+        if (std.mem.eql(u8, s.name, "project.support_interface_filament")) return w.writeAll("the support filament");
+    }
     var buf: [256]u8 = undefined;
     var shown_w: Writer = .fixed(&buf);
     var long: ?[]const u8 = null;
@@ -186,4 +192,14 @@ test "setting text: one of a count" {
         try testing.expectEqualStrings(s.unit[0 .. s.unit.len - 1], w.buffered()[2..]);
         return;
     }
+}
+
+test "display: 0 of a support filament is a filament, not a slot" {
+    var aw: Writer.Allocating = .init(std.testing.allocator);
+    defer aw.deinit();
+    try display(find("project.support_filament").?, "0", true, &aw.writer);
+    try std.testing.expectEqualStrings("the part", aw.written());
+    aw.clearRetainingCapacity();
+    try display(find("project.support_filament").?, "2", true, &aw.writer);
+    try std.testing.expectEqualStrings("2 slot", aw.written());
 }
