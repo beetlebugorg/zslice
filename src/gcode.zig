@@ -912,7 +912,8 @@ pub const Emitter = struct {
 
     /// "1h 12m 43s", as Bambu Studio writes a time.
     fn clockText(buf: []u8, seconds: f64) []const u8 {
-        const s: u64 = @intFromFloat(@max(0, @round(seconds)));
+        // An infinite time does not fit a u64: up to 1e12 s.
+        const s: u64 = @intFromFloat(@min(@max(0, @round(seconds)), 1e12));
         const h = s / 3600;
         const m = (s % 3600) / 60;
         const sec = s % 60;
@@ -3076,6 +3077,17 @@ test "maker template: an old X2D start G-code of a profile becomes the current o
     try std.testing.expectEqualStrings(mine, Emitter.makerTemplate("bambu-lab-x2d", mine, .start));
     // Another printer: as it is.
     try std.testing.expectEqualStrings(old, Emitter.makerTemplate("creality-ender-3", old, .start));
+}
+
+test "bambu header: a print time of no finite value fills its field" {
+    const head = "; HEADER_BLOCK_START\n; model printing time: " ++ Emitter.blank16 ++ "\n; HEADER_BLOCK_END\n";
+    var buf: [head.len]u8 = head.*;
+    for ([_]f64{ std.math.inf(f64), std.math.nan(f64), 1e300 }) |sec| {
+        var st: Stats = .{};
+        st.print_time_s = sec;
+        Emitter.finishBambuHeader(&buf, st, 1, 2.405, 1);
+        try std.testing.expectEqual(head.len, buf.len);
+    }
 }
 
 test "bambu header: the times, the filament, and the top fill their fields" {

@@ -363,7 +363,7 @@ fn sliceInfo(a: Allocator, info: PlateInfo) Allocator.Error![]u8 {
         \\    <metadata key="index" value="1"/>
         \\
     ) catch return error.OutOfMemory;
-    ww.print("    <metadata key=\"prediction\" value=\"{d}\"/>\n", .{@as(i64, @intFromFloat(@round(@max(0, info.seconds))))}) catch return error.OutOfMemory;
+    ww.print("    <metadata key=\"prediction\" value=\"{d}\"/>\n", .{@as(i64, @intFromFloat(@round(@min(@max(0, info.seconds), 1e12))))}) catch return error.OutOfMemory;
     ww.print("    <metadata key=\"weight\" value=\"{d:.2}\"/>\n", .{@max(0, info.grams)}) catch return error.OutOfMemory;
     if (info.model_id.len > 0) ww.print("    <metadata key=\"printer_model_id\" value=\"{s}\"/>\n", .{try xmlText(a, info.model_id)}) catch return error.OutOfMemory;
     // The lists of each extruder: types (0 direct drive, 1 Bowden), volume
@@ -973,6 +973,14 @@ test "bambu: project_settings.config names the model, the nozzles, the plate, an
     const e2 = try zipfile.readAll(gpa, plain);
     defer zipfile.freeAll(gpa, e2);
     for (e2) |e| try std.testing.expect(!std.mem.eql(u8, e.name, "Metadata/project_settings.config"));
+}
+
+test "bambu: a print time of no finite value gives a file" {
+    const gpa = std.testing.allocator;
+    for ([_]f64{ std.math.inf(f64), std.math.nan(f64), 1e300 }) |sec| {
+        const bytes = try gcode3mfPlate(gpa, "G28\n", "p", .{ .seconds = sec });
+        gpa.free(bytes);
+    }
 }
 
 test "bambu: a material or a color with quotes stays one JSON string" {
