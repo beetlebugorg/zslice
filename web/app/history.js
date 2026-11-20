@@ -220,10 +220,12 @@ export class HistoryPage {
         const tab = wl[k].indexOf("\t");
         if (tab < 0) continue;
         lines.append(el("div", "lc-line", `${wl[k].slice(0, tab)}: ${wl[k].slice(tab + 1)}`));
-        // An editor for a setting of the whole plate: its value now.
+        // An editor for a setting of the whole plate: its value now. A
+        // part ("part:"), some layers ("layers:"), and filament 2 and on
+        // ("filament 2") have values of their own.
         const [scope, key] = (cl[k] ?? "").split("\t");
         const info = this.ctx.browser?.byName.get(key);
-        if (!info || done.has(key) || (scope && scope.includes(":"))) continue;
+        if (!info || done.has(key) || (scope && (scope.includes(":") || scope.startsWith("filament ")))) continue;
         done.add(key);
         const row = el("div", "lc-row");
         const lb = el("button", "flat lc-label");
