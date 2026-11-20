@@ -3134,6 +3134,10 @@ const Bridges = struct { area: Paths, lines: Paths };
 ///    anchors into a zigzag.
 fn bridgeLines(s: Allocator, skin: Paths, below: Paths, w: i64) Allocator.Error!Bridges {
     const none: Bridges = .{ .area = .empty, .lines = .empty };
+    // No layer under the skin to hold a line: no bridge. The job of one
+    // filament of a painted part has this under the root of a feature
+    // (paint_split.zig): the part under it is of another filament.
+    if (below.isEmpty()) return none;
     const air = try clip.difference(s, skin, below);
     if (air.isEmpty()) return none;
     const wide = try offset_mod.opening(s, air, @divTrunc(w, 2), .{});
