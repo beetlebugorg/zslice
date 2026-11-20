@@ -1592,6 +1592,7 @@ pub const Emitter = struct {
     fn towerLines(self: *Emitter, pts: []const [2]f64, first: bool) Error!void {
         if (pts.len < 2) return;
         if (!self.dry) try self.w.writeAll(";TYPE:PRIME-TOWER\n");
+        if (!self.dry and self.bambu_blocks) try self.w.writeAll("; FEATURE: Prime tower\n");
         self.feature = null;
         try self.towerRetract();
         try self.move(pts[0][0], pts[0][1]);
@@ -1749,6 +1750,8 @@ pub const Emitter = struct {
             if (self.feature != path.feature) {
                 self.feature = path.feature;
                 if (!self.dry) try self.w.print(";TYPE:{s}\n", .{typeName(path.feature)});
+                // The name of Bambu Studio too, for a Bambu Lab printer.
+                if (!self.dry and self.bambu_blocks) try self.w.print("; FEATURE: {s}\n", .{studioName(path.feature)});
             }
             // The fan of a bridge, and the fan of the layer after it.
             if (!self.dry) {
@@ -2765,6 +2768,22 @@ fn oneLine(text: []const u8) OneLine {
 /// The fan value of the emitter (-1: not set yet) as a byte.
 fn fanByte(fan: i32) u8 {
     return @intCast(std.math.clamp(fan, 0, 255));
+}
+
+/// The name of a feature in the G-code of Bambu Studio ("; FEATURE: ").
+fn studioName(f: Feature) []const u8 {
+    return switch (f) {
+        .outer_wall => "Outer wall",
+        .inner_wall => "Inner wall",
+        .skin => "Internal solid infill",
+        .infill => "Sparse infill",
+        .ironing, .slope_ironing => "Ironing",
+        .skirt => "Skirt",
+        .support => "Support",
+        .support_interface => "Support interface",
+        .slope_smoothing => "Top surface",
+        .bridge => "Bridge",
+    };
 }
 
 fn typeName(f: Feature) []const u8 {
