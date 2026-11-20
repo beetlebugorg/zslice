@@ -3733,6 +3733,9 @@ $("search-open").onclick = () => search.show();
 // server), "profile" (a machine profile text, optional) }. The app adds
 // that printer, and uses it when no printer is set up yet.
 async function hostPrinter() {
+  // The public site of zslice has no printer of its own: no request (it
+  // only gave a 404 in the console at each start).
+  if (location.hostname === "zslice.beetlebug.org") return;
   let p = null;
   try {
     const r = await fetch("printer.json", { cache: "no-store" });
