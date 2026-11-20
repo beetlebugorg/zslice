@@ -462,6 +462,7 @@ Like the GTK shell, the app reads environment variables for tests and screenshot
   - `parts`: a copy of part 0, the plate arranged, and both parts selected.
   - `range lo hi [infill]`: the card of layers lo to hi, and an infill density for them.
   - `support x y [style]`: a click at x, y points, or at the first support line for `auto auto`; with a style, the support goes on first. `ZSLICE_SELECT_DEL=1` then presses Delete. `ZSLICE_SELECT_KIND=k` then runs Make It (0 grid, 1 tree, 2 pad), and logs the count of the areas before and after and the filament of the next slice.
+- `ZSLICE_PLATE_HOME=k` makes plate k active 4 s after the start, runs Fit the Part 1.5 s later, and logs the camera target and the bounds of the print (use it with `ZSLICE_ADD_PLATE`).
 - `ZSLICE_CUT=1` opens the Cut popover of a selected part; `ZSLICE_CUT=z` cuts it at z mm. `ZSLICE_MOVE=i` moves part i to a new plate. `ZSLICE_ADD_PLATE="path;path"` puts each file on a new plate after the first slice.
 - `ZSLICE_TURN=deg` turns the selected part about X, lets it settle, and logs the note; `ZSLICE_SUPPORT=1` turns support on first. Select the part with `ZSLICE_TOOL=move ZSLICE_CLICKS=center`.
 - `ZSLICE_TURN_KEYS=n` presses the Up arrow n times in the Turn tool, and logs the height of the part and the note 1.2 s later. `ZSLICE_DESELECT=1` picks the Select tool at once, as a click elsewhere does: the part must still fall.

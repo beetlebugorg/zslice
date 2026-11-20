@@ -1054,6 +1054,29 @@ final class Workspace {
             }
         }
         if env["ZSLICE_ADD_PLATE"] != nil { framePlate(-1) }
+        // ZSLICE_PLATE_HOME=k: plate k becomes active 4 s after the start,
+        // and 1.5 s later Fit the Part (the start view, as Command-0 and a
+        // double click on no side). Logs the camera target and the center
+        // of the active plate.
+        if let k = env["ZSLICE_PLATE_HOME"].flatMap({ Int($0) }) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 4) { [weak self] in
+                self?.model.select(k)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in
+                    guard let self, let v = canvas.view else { return }
+                    fit()
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in
+                        guard let self, let v = canvas.view else { return }
+                        var cam = [Float](repeating: 0, count: 8)
+                        zs_view_get_camera(v, &cam)
+                        var b = [Double](repeating: 0, count: 4)
+                        let ok = zs_view_bounds(v, &b) == 0
+                        NSLog("zslice plate home: plate %ld of %ld, target %.1f, %.1f, %.1f, print bounds %@", model.active, model.plates.count, cam[0], cam[1], cam[2],
+                              ok ? String(format: "x %.1f..%.1f y %.1f..%.1f", b[0], b[2], b[1], b[3]) : "none")
+                    }
+                    _ = v
+                }
+            }
+        }
         // ZSLICE_PROJECT=folder opens a project.
         if let p = env["ZSLICE_PROJECT"] {
             if p.hasPrefix("/") { openProject(URL(fileURLWithPath: p)) } else { openGitHub(p) }
