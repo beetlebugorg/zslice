@@ -27,6 +27,7 @@ import { el } from "./settings.js";
 import { movable } from "./drag.js";
 import { spatial, savedPlace, remember } from "./spatial.js";
 import { placeBeside, freeArea } from "./place.js";
+import { filaments, followFilaments } from "./filaments.js";
 
 export class PartCard {
   // ctx: { client, browser (SettingsBrowser), host (the element of the
@@ -38,6 +39,15 @@ export class PartCard {
     this.part = null;
     this.parts = [];
     this.many = false; // the card is for several parts
+    // A filament that goes renumbers the filaments after it: the
+    // filament of the part changes in the core, so the chips read it
+    // again.
+    let count = filaments().length;
+    followFilaments(() => {
+      const n = filaments().length;
+      if (n < count && this.node && !this.many) this.refreshSettings();
+      count = n;
+    });
   }
 
   get open() {
