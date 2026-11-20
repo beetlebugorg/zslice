@@ -195,6 +195,12 @@ pub const View = struct {
     /// The gaps of one layer (see gaps.zig): a thin red bead for each run
     /// of gap cells, and the layer, or null.
     gap_beads: std.ArrayList(vk.Instance) = .empty,
+    /// The prime tower of a print with tool changes (PlateJob.tower): its
+    /// beads, and the layer of each. The G-code writes the tower as it
+    /// writes the print, so it is in no layer plan: the view draws it as
+    /// its loop and its diagonal on each layer, among the extras.
+    tower_beads: std.ArrayList(vk.Instance) = .empty,
+    tower_layer: std.ArrayList(u32) = .empty,
     gap_layer: ?usize = null,
     /// The extra beads of a frame (max_extras), made once.
     extras_buf: ?[]vk.Instance = null,
@@ -427,6 +433,8 @@ pub const View = struct {
         v.sup_pts.deinit(gpa);
         v.sup_areas.deinit(gpa);
         v.gap_beads.deinit(gpa);
+        v.tower_beads.deinit(gpa);
+        v.tower_layer.deinit(gpa);
         if (v.extras_buf) |b| gpa.free(b);
         v.more.deinit(gpa);
         v.path_start.deinit(gpa);
@@ -791,6 +799,7 @@ pub const View = struct {
         }
         v.path_start.append(gpa, @intCast(boxes.items.len)) catch return error.OutOfMemory;
         try v.loadSimMotion(tp, center, sxy, sz);
+        try v.loadTower(app, tp, filament, center, sxy, sz);
         v.layer_path_end.clearRetainingCapacity();
         v.layer_path_end.appendSlice(gpa, tp.layer_ends.items) catch return error.OutOfMemory;
         v.path_part.clearRetainingCapacity();
@@ -1119,10 +1128,10 @@ pub const View = struct {
         /// bead_start, bead_fan, mark_rings, layer_path_end,
         /// outline_points, outline_ends, outline_layer_end, then the
         /// light beads and the layer ends of each light level, then
-        /// path_part.
-        counts: [18]u32,
+        /// path_part, then the beads of the prime tower and their layers.
+        counts: [20]u32,
     };
-    const scene_magic: u32 = 0x34637a73; // "szc4"
+    const scene_magic: u32 = 0x35637a73; // "szc5"
     /// The index of the beads and of the light beads in `sceneLists`.
     const scene_beads = 2;
     const scene_layer_end = 0;
@@ -1148,27 +1157,29 @@ pub const View = struct {
         *std.ArrayList(u32),
         *std.ArrayList(u32),
         *std.ArrayList(u32),
+        *std.ArrayList(vk.Instance),
+        *std.ArrayList(u32),
     } {
-        return .{ &v.layer_end, &v.path_start, &v.beads, &v.marks, &v.mark_layer_end, &v.bead_end, &v.bead_start, &v.bead_fan, &v.mark_rings, &v.layer_path_end, &v.outline_points, &v.outline_ends, &v.outline_layer_end, &v.lite.beads, &v.lite.layer_end[0], &v.lite.layer_end[1], &v.lite.layer_end[2], &v.path_part };
+        return .{ &v.layer_end, &v.path_start, &v.beads, &v.marks, &v.mark_layer_end, &v.bead_end, &v.bead_start, &v.bead_fan, &v.mark_rings, &v.layer_path_end, &v.outline_points, &v.outline_ends, &v.outline_layer_end, &v.lite.beads, &v.lite.layer_end[0], &v.lite.layer_end[1], &v.lite.layer_end[2], &v.path_part, &v.tower_beads, &v.tower_layer };
     }
 
     /// The place of each list of a scene in its bytes (see `writeScene`),
     /// and its head. error.InvalidScene if the bytes are too short.
-    fn sceneOffsets(bytes: []const u8) error{InvalidScene}!struct { head: SceneHead, at: [18]usize } {
+    fn sceneOffsets(bytes: []const u8) error{InvalidScene}!struct { head: SceneHead, at: [20]usize } {
         if (bytes.len < @sizeOf(SceneHead)) return error.InvalidScene;
         var head: SceneHead = undefined;
         @memcpy(std.mem.asBytes(&head), bytes[0..@sizeOf(SceneHead)]);
         if (head.magic != scene_magic) return error.InvalidScene;
         const sizes = comptime blk: {
             const T = @typeInfo(@TypeOf(sceneLists)).@"fn".return_type.?;
-            var out: [18]usize = undefined;
+            var out: [20]usize = undefined;
             for (@typeInfo(T).@"struct".fields, 0..) |f, k| {
                 const List = @typeInfo(f.type).pointer.child;
                 out[k] = @sizeOf(@typeInfo(@FieldType(List, "items")).pointer.child);
             }
             break :blk out;
         };
-        var out: [18]usize = undefined;
+        var out: [20]usize = undefined;
         var at: usize = std.mem.alignForward(usize, @sizeOf(SceneHead), 8);
         for (sizes, 0..) |size, k| {
             out[k] = at;
@@ -2216,6 +2227,42 @@ pub const View = struct {
         const t = (@as(f32, @floatCast(z)) - cam.eye[2]) / dir[2];
         if (t <= 0) return null;
         return .{ cam.eye[0] + dir[0] * t, cam.eye[1] + dir[1] * t };
+    }
+
+    /// The beads of the prime tower (see `tower_beads`): on each layer up
+    /// to its last one, the square loop and a diagonal, as the G-code
+    /// prints a light layer of it.
+    fn loadTower(v: *View, app: *const app_mod.App, tp: *const app_mod.Toolpaths, filament: [3]u8, center: [2]f32, sxy: f32, sz: f32) Error!void {
+        v.tower_beads.clearRetainingCapacity();
+        v.tower_layer.clearRetainingCapacity();
+        const job = app.job orelse return;
+        const t = job.tower() orelse return;
+        const n = @min(t.last_layer + 1, tp.layer_z.items.len);
+        const half: f32 = @floatCast(t.size / 2);
+        const tx: f32 = @floatCast(t.x);
+        const ty: f32 = @floatCast(t.y);
+        const corners = [4][2]f32{ .{ tx - half, ty - half }, .{ tx + half, ty - half }, .{ tx + half, ty + half }, .{ tx - half, ty + half } };
+        const rgb = .{ filament[0] / 4 * 3, filament[1] / 4 * 3, filament[2] / 4 * 3 };
+        for (0..n) |l| {
+            const z = tp.layer_z.items[l] * sz;
+            const h = tp.layer_height.items[l] * sz;
+            const w = (if (l < tp.layer_width.items.len) tp.layer_width.items[l] else 0.45) * sxy;
+            const segs = [5][2][2]f32{ .{ corners[0], corners[1] }, .{ corners[1], corners[2] }, .{ corners[2], corners[3] }, .{ corners[3], corners[0] }, .{ corners[0], corners[2] } };
+            for (segs) |sg| {
+                try v.tower_beads.append(gpa, .{
+                    .ax = center[0] + (sg[0][0] - center[0]) * sxy,
+                    .ay = center[1] + (sg[0][1] - center[1]) * sxy,
+                    .bx = center[0] + (sg[1][0] - center[0]) * sxy,
+                    .by = center[1] + (sg[1][1] - center[1]) * sxy,
+                    .z = z,
+                    .h = h,
+                    .w = w,
+                    // The skirt feature (5): drawn as a bead of the print.
+                    .rgba = .{ rgb[0], rgb[1], rgb[2], 5 },
+                });
+                try v.tower_layer.append(gpa, @intCast(l));
+            }
+        }
     }
 
     /// Shows the gaps of layer `layer` of the last slice of `app` (see
@@ -3971,6 +4018,13 @@ pub const View = struct {
                 // The rings of the support marks.
                 for (v.mark_rings.items) |b| {
                     if (n_extras == extras.len) break;
+                    extras[n_extras] = b;
+                    n_extras += 1;
+                }
+                // The prime tower, on the shown layers.
+                for (v.tower_beads.items, v.tower_layer.items) |b, l| {
+                    if (n_extras == extras.len) break;
+                    if (l < v.layer_lo or l > v.layer) continue;
                     extras[n_extras] = b;
                     n_extras += 1;
                 }
