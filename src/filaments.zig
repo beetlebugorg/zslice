@@ -40,6 +40,34 @@ const Filament = settings_mod.Filament;
 /// The most filaments of a plate (the limit of `project.filament`).
 pub const max_slots = 16;
 
+/// The family of a material for the prime towers: materials of one family
+/// bond to each other, so they can share a tower. The letters at the start
+/// of the material in capitals ("PLA" for "PLA-CF" and "pla+"), with ABS
+/// and ASA in one family, and PCTG with PETG. `buf` holds the name.
+pub fn family(material: []const u8, buf: *[8]u8) []const u8 {
+    var n: usize = 0;
+    for (material) |c| {
+        if (!std.ascii.isAlphabetic(c) or n == buf.len) break;
+        buf[n] = std.ascii.toUpper(c);
+        n += 1;
+    }
+    const name = buf[0..n];
+    if (std.mem.eql(u8, name, "ASA")) return "ABS";
+    if (std.mem.eql(u8, name, "PCTG") or std.mem.eql(u8, name, "PET")) return "PETG";
+    if (n == 0) return "PLA";
+    return name;
+}
+
+test "family: the materials that bond share a family" {
+    var a: [8]u8 = undefined;
+    var b: [8]u8 = undefined;
+    try std.testing.expectEqualStrings("PLA", family("PLA-CF", &a));
+    try std.testing.expectEqualStrings("PLA", family("pla+", &a));
+    try std.testing.expectEqualStrings(family("ASA", &a), family("ABS", &b));
+    try std.testing.expectEqualStrings(family("PCTG", &a), family("PETG-HF", &b));
+    try std.testing.expect(!std.mem.eql(u8, family("PLA", &a), family("PETG", &b)));
+}
+
 /// A "#rrggbb" color, or null.
 pub fn parseColor(text: []const u8) ?[3]u8 {
     if (text.len != 7 or text[0] != '#') return null;

@@ -524,13 +524,89 @@ pub const PlateJob = struct {
         return last;
     }
 
+    /// The prime towers of the print (see gcode.Towers): none with no
+    /// tower or no change; one; or with Project.prime_tower_split, one for
+    /// each family of materials that the print changes to, side by side
+    /// to the left of the first one (a gap of a tower width).
+    pub fn towers(self: *const PlateJob) @import("gcode.zig").Towers {
+        const gcode = @import("gcode.zig");
+        var out: gcode.Towers = .{};
+        const one = self.tower() orelse return out;
+        const s = self.resolved.settings;
+        const n_slots = @min(self.slots.len, filaments_mod.max_slots);
+        // The family of each slot, and the towers that a change goes to.
+        var names: [gcode.Towers.max][8]u8 = undefined;
+        var lens: [gcode.Towers.max]usize = undefined;
+        var used = [_]bool{false} ** gcode.Towers.max;
+        var fam_n: usize = 0;
+        for (self.slots[0..n_slots], 0..) |f, i| {
+            var buf: [8]u8 = undefined;
+            const name = if (s.project.prime_tower_split) filaments_mod.family(f.material, &buf) else "ALL";
+            var k: usize = 0;
+            while (k < fam_n and !std.mem.eql(u8, names[k][0..lens[k]], name)) k += 1;
+            if (k == fam_n) {
+                if (fam_n == gcode.Towers.max) k = 0 else {
+                    @memcpy(names[k][0..name.len], name);
+                    lens[k] = name.len;
+                    fam_n += 1;
+                }
+            }
+            out.of_slot[i] = @intCast(k);
+        }
+        // A family gets a tower if a filament of it is ever changed to:
+        // the support filaments (any layer), and the part changes.
+        const p = s.project;
+        const sup = filaments_mod.pathSlot(.support, p, n_slots);
+        const iface = filaments_mod.pathSlot(.support_interface, p, n_slots);
+        const own_support = p.support != .off and (p.support_filament > 0 or p.support_interface_filament > 0);
+        if (own_support) {
+            used[out.of_slot[sup]] = true;
+            used[out.of_slot[iface]] = true;
+        }
+        var tool: ?u32 = null;
+        for (self.levels) |lv| for (self.entries[lv.first..lv.end]) |e| {
+            const t = self.toolAt(self.instances[e.instance].group, e.layer);
+            if (tool != null and tool.? != t) used[out.of_slot[@min(t, n_slots - 1)]] = true;
+            tool = t;
+        };
+        if (own_support) {
+            // After the support, the print changes back to a part filament.
+            var t2: ?u32 = null;
+            for (self.levels) |lv| for (self.entries[lv.first..lv.end]) |e| {
+                t2 = self.toolAt(self.instances[e.instance].group, e.layer);
+                used[out.of_slot[@min(t2.?, n_slots - 1)]] = true;
+            };
+        }
+        // Number the used families from 0, in slot order.
+        var map = [_]u8{0} ** gcode.Towers.max;
+        var n: usize = 0;
+        for (0..fam_n) |k| if (used[k]) {
+            map[k] = @intCast(n);
+            var t = one;
+            t.x = one.x - @as(f64, @floatFromInt(n)) * 2 * one.size;
+            @memcpy(t.family[0..lens[k]], names[k][0..lens[k]]);
+            out.list[n] = t;
+            n += 1;
+        };
+        if (n == 0) {
+            out.list[0] = one;
+            n = 1;
+        }
+        out.n = n;
+        for (out.of_slot[0..n_slots]) |*k| k.* = if (used[k.*]) map[k.*] else 0;
+        out.stack = own_support;
+        return out;
+    }
+
     /// The prime tower of the print (see gcode.Tower), or null: a tool
     /// change printer with the tower on, and a filament change in the
-    /// print.
+    /// print. With own support filaments, a change can come on any layer.
     pub fn tower(self: *const PlateJob) ?@import("gcode.zig").Tower {
         const s = self.resolved.settings;
         if (s.machine.filament_change != .tool or !s.project.prime_tower) return null;
-        const last = self.lastChange() orelse return null;
+        const p = s.project;
+        const own_support = p.support != .off and (p.support_filament > 0 or p.support_interface_filament > 0) and self.slots.len > 1;
+        const last = self.lastChange() orelse (if (own_support) self.levels.len -| 1 else return null);
         const size = s.project.prime_tower_width;
         const margin = 10;
         return .{
@@ -886,7 +962,7 @@ pub const PlateJob = struct {
             .streams = if (lo == 0 and hi == self.levels.len and self.streams.len == hi) self.streams else null,
             .bind = Ctx.bind,
             .slots = self.slots,
-            .tower = if (lo == 0) self.tower() else null,
+            .towers = if (lo == 0) self.towers() else .{},
         };
         return engine.emitAll(gpa, src, self.threads, self.monitor, out, sink);
     }

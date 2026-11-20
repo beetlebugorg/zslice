@@ -84,6 +84,8 @@ pub const Stats = struct {
     /// The filament length (mm) of each slot of the plate, with the flush
     /// of the changes to it.
     slot_mm: [filaments.max_slots]f64 = @splat(0),
+    /// The layers of each prime tower (see `Towers`).
+    tower_layers: [Towers.max]u32 = @splat(0),
     /// The weight (g) of each slot (see `Emitter.end`).
     slot_g: [filaments.max_slots]f64 = @splat(0),
     /// The filament length (mm) that the changes flushed, of all slots.
@@ -422,6 +424,33 @@ pub const Tower = struct {
     y: f64,
     size: f64,
     last_layer: usize,
+    /// The family of its materials (see filaments.family), for the view.
+    family: [8]u8 = .{0} ** 8,
+    /// The number of layers with a purge into it (a tower of `Towers`
+    /// with stacked layers).
+    purges: usize = 0,
+};
+
+/// The prime towers of a print: one, or one for each family of materials
+/// (Project.prime_tower_split), and the tower of each filament slot.
+pub const Towers = struct {
+    pub const max = 4;
+    list: [max]Tower = undefined,
+    n: usize = 0,
+    /// The tower of each slot (index in `list`).
+    of_slot: [filaments.max_slots]u8 = .{0} ** filaments.max_slots,
+    /// Each tower grows only on the layers with a purge into it, and the
+    /// nozzle goes down to its top: more than one tower, or a filament
+    /// for the support (its changes are known only as the G-code is
+    /// written, so a tower with light layers cannot know its last layer).
+    stack: bool = false,
+    pub fn stacked(t: *const Towers) bool {
+        return t.stack or t.n > 1;
+    }
+
+    pub fn items(t: *const Towers) []const Tower {
+        return t.list[0..t.n];
+    }
 };
 
 /// The prime volume (mm³) of a change into the tower when the change
@@ -631,11 +660,15 @@ pub const Emitter = struct {
     tool: u32 = 0,
     /// The layer that `layer` writes, for the change G-code.
     layer_index: usize = 0,
-    /// The prime tower (see `Tower`), or null.
-    tower: ?Tower = null,
-    /// The layer whose tower rows `tower_rows` counts.
-    tower_layer: usize = std.math.maxInt(usize),
-    tower_rows: u32 = 0,
+    /// The prime towers (see `Towers`), none for no tower.
+    towers: Towers = .{},
+    /// For each tower: the layer whose rows `tower_rows` counts, the z of
+    /// its top and of the layer it prints now, and its layer count.
+    tower_layer: [Towers.max]usize = .{std.math.maxInt(usize)} ** Towers.max,
+    tower_rows: [Towers.max]u32 = .{0} ** Towers.max,
+    tower_top: [Towers.max]f64 = .{0} ** Towers.max,
+    tower_z: [Towers.max]f64 = .{0} ** Towers.max,
+    tower_count: [Towers.max]usize = .{0} ** Towers.max,
     /// The height and the line width of the layer that `paths` writes.
     layer_h: f64 = 0.2,
     layer_w: f64 = 0.4,
@@ -1550,7 +1583,7 @@ pub const Emitter = struct {
         self.stats.flush_mm += flush_mm;
         // With a tower and no change G-code, the flush goes into the tower
         // (its lines count the filament); else into the chute.
-        const into_tower = self.tower != null and m.filament_change == .tool and m.change_gcode.len == 0;
+        const into_tower = self.towers.n > 0 and m.filament_change == .tool and m.change_gcode.len == 0;
         if (!into_tower) {
             self.stats.filament_mm += flush_mm;
             self.stats.slot_mm[next] += flush_mm;
@@ -1564,8 +1597,8 @@ pub const Emitter = struct {
         self.feature = null;
         self.accel = Exit.unset;
         self.fan = -1;
-        if (self.tower != null and m.filament_change == .tool) {
-            try self.towerPurge(if (into_tower) flush_mm3 else tower_prime_mm3, first);
+        if (self.towers.n > 0 and m.filament_change == .tool) {
+            try self.towerPurge(self.towers.of_slot[@min(next, filaments.max_slots - 1)], if (into_tower) flush_mm3 else tower_prime_mm3, first);
         }
     }
 
@@ -1587,58 +1620,94 @@ pub const Emitter = struct {
         self.stop = true;
     }
 
-    /// Lines of the tower at height of the layer: a travel to (x0, y0),
-    /// then extrusions through `pts`.
-    fn towerLines(self: *Emitter, pts: []const [2]f64, first: bool) Error!void {
+    /// Lines of tower k at the z of its layer: a travel to (x0, y0) at the
+    /// z of the print, then extrusions through `pts`. A stacked tower
+    /// below the print: the nozzle goes down to its layer, and back up.
+    fn towerLines(self: *Emitter, k: usize, pts: []const [2]f64, first: bool) Error!void {
         if (pts.len < 2) return;
         if (!self.dry) try self.w.writeAll(";TYPE:PRIME-TOWER\n");
         if (!self.dry and self.bambu_blocks) try self.w.writeAll("; FEATURE: Prime tower\n");
         self.feature = null;
         try self.towerRetract();
         try self.move(pts[0][0], pts[0][1]);
+        const tz = self.tower_z[k];
+        const down = self.z - tz;
+        if (down > 1e-6) {
+            try self.zMove(down);
+            try self.w.writeAll("G0 Z");
+            try writeNum(self.w, tz, 3);
+            try self.w.writeAll("\n");
+        }
         try self.unretract();
-        const e = flow.beadArea(self.layer_w, self.layer_h) / self.r.filament_area;
-        const speed = self.lr.speed(.skirt, self.layer_w, self.layer_h, first);
+        // A stacked layer is as high as the gap to the top of the tower.
+        const h = if (self.towers.stacked()) tz - self.tower_top[k] else self.layer_h;
+        const t_first = first or (self.towers.stacked() and self.tower_count[k] == 1);
+        const e = flow.beadArea(self.layer_w, h) / self.r.filament_area;
+        const speed = self.lr.speed(.skirt, self.layer_w, h, t_first);
         for (pts[1..]) |q| try self.extrude(q[0], q[1], e, speed);
         self.extruded = true;
+        if (down > 1e-6) {
+            try self.towerRetract();
+            try self.zMove(down);
+            try self.w.writeAll("G0 Z");
+            try writeNum(self.w, self.z, 3);
+            try self.w.writeAll("\n");
+        }
     }
 
-    /// Purges `volume` mm³ into the tower: rows of lines across it, from
+    /// Starts layer `self.layer_index` of tower k, once for each layer:
+    /// its rows from 0, and its z. A stacked tower puts its layer on its
+    /// top (the first one on the bed, as high as a first layer); one tower
+    /// prints at the z of the print.
+    fn towerLayer(self: *Emitter, k: usize) void {
+        if (self.tower_layer[k] == self.layer_index) return;
+        self.tower_layer[k] = self.layer_index;
+        self.tower_rows[k] = 0;
+        self.tower_top[k] = if (self.tower_count[k] == 0) 0 else self.tower_z[k];
+        self.tower_z[k] = if (!self.towers.stacked())
+            self.z
+        else if (self.tower_count[k] == 0)
+            @min(self.z, self.r.settings.project.first_layer_height)
+        else
+            @min(self.z, self.tower_top[k] + self.layer_h);
+        self.tower_count[k] += 1;
+        self.stats.tower_layers[k] = @intCast(self.tower_count[k]);
+    }
+
+    /// Purges `volume` mm³ into tower k: rows of lines across it, from
     /// the row after the last one of this layer.
-    fn towerPurge(self: *Emitter, volume: f64, first: bool) Error!void {
-        const t = self.tower.?;
-        if (self.tower_layer != self.layer_index) {
-            self.tower_layer = self.layer_index;
-            self.tower_rows = 0;
-        }
+    fn towerPurge(self: *Emitter, k: usize, volume: f64, first: bool) Error!void {
+        const t = self.towers.list[k];
+        self.towerLayer(k);
         const w = self.layer_w;
         const x0 = t.x - t.size / 2;
         const x1 = t.x + t.size / 2;
         const y0 = t.y - t.size / 2;
         const rows_max: u32 = @max(1, @as(u32, @intFromFloat(t.size / w)));
-        var len = volume / flow.beadArea(w, self.layer_h);
+        const h = if (self.towers.stacked()) self.tower_z[k] - self.tower_top[k] else self.layer_h;
+        var len = volume / flow.beadArea(w, @max(h, 0.01));
         var pts: [2 * 64 + 2][2]f64 = undefined;
         var n: usize = 0;
         while (len > 0 and n + 2 <= pts.len) {
-            const row = self.tower_rows % rows_max;
+            const row = self.tower_rows[k] % rows_max;
             const y = y0 + (@as(f64, @floatFromInt(row)) + 0.5) * w;
             const ltr = row % 2 == 0;
             pts[n] = .{ if (ltr) x0 else x1, y };
             pts[n + 1] = .{ if (ltr) x1 else x0, y };
             n += 2;
             len -= t.size;
-            self.tower_rows += 1;
+            self.tower_rows[k] += 1;
         }
-        try self.towerLines(pts[0..n], first);
+        try self.towerLines(k, pts[0..n], first);
     }
 
     /// A light layer of the tower on a layer with no change: its loop and
     /// a diagonal.
-    fn towerSparse(self: *Emitter, first: bool) Error!void {
-        const t = self.tower.?;
+    fn towerSparse(self: *Emitter, k: usize, first: bool) Error!void {
+        const t = self.towers.list[k];
         const h = t.size / 2;
         const pts = [_][2]f64{ .{ t.x - h, t.y - h }, .{ t.x + h, t.y - h }, .{ t.x + h, t.y + h }, .{ t.x - h, t.y + h }, .{ t.x - h, t.y - h }, .{ t.x + h, t.y + h } };
-        try self.towerLines(&pts, first);
+        try self.towerLines(k, &pts, first);
     }
 
     /// Writes the change G-code of the machine with the facts of the
@@ -1839,11 +1908,14 @@ pub const Emitter = struct {
         }
         // The tower grows on each layer up to the last change: a light
         // layer where this layer had no change.
-        if (self.tower) |t| if (lp.index <= t.last_layer and self.tower_layer != lp.index) {
-            self.tower_layer = lp.index;
-            self.tower_rows = 0;
-            try self.towerSparse(first);
-        };
+        // Stacked towers have no light layers.
+        if (self.towers.n == 1 and !self.towers.stacked()) {
+            const t = self.towers.list[0];
+            if (lp.index <= t.last_layer and self.tower_layer[0] != lp.index) {
+                self.towerLayer(0);
+                try self.towerSparse(0, first);
+            }
+        }
     }
 
     /// After a closed outer wall: the nozzle moves on along the start of

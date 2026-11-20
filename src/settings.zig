@@ -829,6 +829,13 @@ pub const Project = struct {
     /// so the tower grows with the print. A Bambu Lab printer flushes into
     /// its chute (its change G-code); its tower then gets a small prime.
     prime_tower: bool = true,
+    /// A prime tower for each family of materials that bond (PLA, PETG,
+    /// ABS and ASA, and the others): a change purges into the tower of
+    /// the new filament, so PETG never prints on PLA. Each of these
+    /// towers grows only on the layers with a purge into it (no light
+    /// layers): the nozzle goes down to its top. Keep parts away from the
+    /// towers. With one family, one tower as before.
+    prime_tower_split: bool = true,
     /// The width of the square prime tower.
     prime_tower_width: f64 = 20,
     /// The x of the center of the prime tower on the bed. -1: near the
