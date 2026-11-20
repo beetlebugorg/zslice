@@ -2719,11 +2719,34 @@ pub const View = struct {
         // stops 2 mm in front of the point: it never goes into the part
         // or the bed.
         const f = @max(factor, @min(1, 2 / @max(along, 1e-3)));
+        if (factor < 1 and f > 1 - 1e-3 and hit != null) {
+            // The eye is at a bead: a zoom in goes on through it,
+            // into the inside of the part, as a step along the ray (the
+            // eye and the orbit center move together). Else the zoom
+            // stuck there.
+            var step = @max(min_zoom_step, old * (1 - factor));
+            // Never under the bed.
+            if (dir[2] < -1e-4) step = @min(step, @max(0, (cam.eye[2] - 0.5) / -dir[2]));
+            for (0..3) |k| v.target[k] += dir[k] * step;
+            return;
+        }
         v.dist = old * f;
         for (0..3) |k| v.target[k] = p[k] + (v.target[k] - p[k]) * f;
         // The orbit center stays as the zoom moves it (it does not jump to
         // the surface): the user turns the view around the same center.
+        // Close to a surface the center stays `min_orbit_dist` in front of
+        // the eye: a zoom out and a pan keep a useful speed there.
+        if (v.dist < min_orbit_dist) {
+            const c2 = v.camera();
+            v.dist = min_orbit_dist;
+            for (0..3) |k| v.target[k] = c2.eye[k] + c2.f[k] * min_orbit_dist;
+        }
     }
+
+    /// The least step of a zoom through a surface (mm).
+    const min_zoom_step: f32 = 1;
+    /// The least distance from the eye to the orbit center (mm).
+    const min_orbit_dist: f32 = 5;
 
     /// Moves the view sideways and up or down by a drag of dx, dy pixels.
     /// The scene moves with the pointer.
@@ -6142,4 +6165,34 @@ test "a load after a slice keeps the camera where the user put it" {
     try std.testing.expect(v.beads.items.len > 0);
     try std.testing.expectEqualDeep(before, v.pose());
     try std.testing.expectEqualDeep(target, v.target);
+}
+
+test "a zoom at a surface goes on into the part, and a zoom out comes back" {
+    const gpa = View.gpa;
+    var v: View = .{ .renderer = undefined, .headless = true, .width = 100, .height = 100 };
+    defer v.deinitData();
+    // A wall of beads across the view, 30 mm in front of the eye.
+    try v.beads.append(gpa, .{ .ax = 80, .ay = 110, .bx = 140, .by = 110, .z = 30, .h = 60, .w = 4, .rgba = .{ 200, 200, 200, 0 } });
+    try v.layer_end.append(gpa, 1);
+    try v.buildPickIndex(null);
+    v.target = .{ 110, 110, 15 };
+    v.setAngles(-std.math.pi / 2.0, 0);
+    v.dist = 60;
+    const eye0 = v.camera().eye;
+    var last = eye0;
+    // Many zoom steps at the middle of the view: the eye keeps moving.
+    for (0..60) |_| {
+        v.zoomAt(1.0 / 1.15, 50, 50);
+        const e = v.camera().eye;
+        const moved = @abs(e[0] - last[0]) + @abs(e[1] - last[1]) + @abs(e[2] - last[2]);
+        try std.testing.expect(moved > 1e-3);
+        try std.testing.expect(v.dist >= 5 - 1e-4);
+        last = e;
+    }
+    // It went through the wall.
+    try std.testing.expect(@abs(last[1] - 110) < @abs(eye0[1] - 110) or (last[1] - 110) * (eye0[1] - 110) < 0);
+    // And a few steps out move it back by more than a few mm.
+    for (0..10) |_| v.zoomAt(1.15, 50, 50);
+    const e = v.camera().eye;
+    try std.testing.expect(@abs(e[0] - last[0]) + @abs(e[1] - last[1]) + @abs(e[2] - last[2]) > 5);
 }
