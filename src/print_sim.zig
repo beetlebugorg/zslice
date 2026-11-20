@@ -1282,6 +1282,208 @@ pub fn run(gpa: Allocator, paths: []const Path, params: Params) Allocator.Error!
     return r.result();
 }
 
+/// The key of the paths before a path: `key` of the paths before `path`,
+/// and `path`. Two runs with the same params and the same keys before a
+/// path have the same state there (a 64-bit hash: two different lists of
+/// paths have the same key with a chance of 2^-64).
+fn pathKey(key: u64, path: Path) u64 {
+    var h = std.hash.Wyhash.init(key);
+    h.update(std.mem.sliceAsBytes(path.xy));
+    h.update(std.mem.sliceAsBytes(path.zs));
+    inline for (.{ "z", "height", "width", "area", "t0", "t1", "fan", "layer", "joined", "support" }) |name| {
+        h.update(std.mem.asBytes(&@field(path, name)));
+    }
+    // The count of points: the same bytes in two splits of xy and zs.
+    h.update(std.mem.asBytes(&path.xy.len));
+    return h.final();
+}
+
+/// If a and b have the same fields, to the bit (strings by their bytes).
+fn samePlain(comptime T: type, a: T, b: T) bool {
+    switch (@typeInfo(T)) {
+        .@"struct" => |st| {
+            inline for (st.fields) |f| if (!samePlain(f.type, @field(a, f.name), @field(b, f.name))) return false;
+            return true;
+        },
+        .pointer => return std.mem.eql(u8, a, b),
+        else => return std.mem.eql(u8, std.mem.asBytes(&a), std.mem.asBytes(&b)),
+    }
+}
+
+/// The place and the size of the height field: from the paths of a run.
+const Frame = struct { x0: f32, y0: f32, cell: f32, nx: usize, ny: usize };
+
+fn frameOf(f: *const Field) Frame {
+    return .{ .x0 = f.x0, .y0 = f.y0, .cell = f.cell, .nx = f.nx, .ny = f.ny };
+}
+
+/// The state of a run before the first path of a layer: the field, the
+/// strands, the masses so far, and the clock.
+const Checkpoint = struct {
+    /// The next path, and the key of the paths before it (`pathKey`).
+    path: usize,
+    key: u64,
+    /// The tiles of the field that have plastic, and their places.
+    slots: []u32,
+    tiles: []Field.Tile,
+    chains: []Chain,
+    /// The lengths of `pos`, `want`, and `set_time`, and of `mass`.
+    pos_len: usize,
+    mass_len: usize,
+    /// `ranges`, `drop`, and `failed` of the paths before `path`.
+    ranges: [][2]u32,
+    drop: []f32,
+    failed: []u32,
+    time: f64,
+    fan: f32,
+    soft: usize,
+    head_soft: bool,
+    fell_soft: usize,
+    stats: Stats,
+
+    fn take(s: *const Sim, path: usize, key: u64) Allocator.Error!Checkpoint {
+        const gpa = s.gpa;
+        var count: usize = 0;
+        for (s.field.tiles) |t| count += @intFromBool(t != null);
+        var cp: Checkpoint = .{ .path = path, .key = key, .slots = &.{}, .tiles = &.{}, .chains = &.{}, .pos_len = s.pos.items.len, .mass_len = s.mass.items.len, .ranges = &.{}, .drop = &.{}, .failed = &.{}, .time = s.time, .fan = s.fan, .soft = s.soft, .head_soft = s.head_soft, .fell_soft = s.fell_soft, .stats = s.stats };
+        errdefer cp.deinit(gpa);
+        cp.slots = try gpa.alloc(u32, count);
+        cp.tiles = try gpa.alloc(Field.Tile, count);
+        var i: usize = 0;
+        for (s.field.tiles, 0..) |t, slot| if (t) |tile| {
+            cp.slots[i] = @intCast(slot);
+            cp.tiles[i] = tile.*;
+            i += 1;
+        };
+        cp.chains = try gpa.alloc(Chain, s.chains.items.len);
+        for (cp.chains) |*c| c.nodes = .empty;
+        for (s.chains.items, cp.chains) |c, *copy| {
+            copy.* = c;
+            copy.nodes = .empty;
+            try copy.nodes.appendSlice(gpa, c.nodes.items);
+        }
+        cp.ranges = try gpa.dupe([2]u32, s.ranges[0..path]);
+        cp.drop = try gpa.dupe(f32, s.drop[0..path]);
+        cp.failed = try gpa.dupe(u32, s.failed[0..path]);
+        return cp;
+    }
+
+    fn clone(cp: *const Checkpoint, gpa: Allocator) Allocator.Error!Checkpoint {
+        var c = cp.*;
+        c.slots = &.{};
+        c.tiles = &.{};
+        c.chains = &.{};
+        c.ranges = &.{};
+        c.drop = &.{};
+        c.failed = &.{};
+        errdefer c.deinit(gpa);
+        c.slots = try gpa.dupe(u32, cp.slots);
+        c.tiles = try gpa.dupe(Field.Tile, cp.tiles);
+        c.chains = try gpa.alloc(Chain, cp.chains.len);
+        for (c.chains) |*x| x.nodes = .empty;
+        for (cp.chains, c.chains) |x, *y| {
+            y.* = x;
+            y.nodes = .empty;
+            try y.nodes.appendSlice(gpa, x.nodes.items);
+        }
+        c.ranges = try gpa.dupe([2]u32, cp.ranges);
+        c.drop = try gpa.dupe(f32, cp.drop);
+        c.failed = try gpa.dupe(u32, cp.failed);
+        return c;
+    }
+
+    fn bytes(cp: *const Checkpoint) usize {
+        var n = cp.tiles.len * @sizeOf(Field.Tile) + cp.path * (@sizeOf([2]u32) + 8);
+        for (cp.chains) |c| n += c.nodes.items.len * @sizeOf(Node);
+        return n;
+    }
+
+    fn deinit(cp: *Checkpoint, gpa: Allocator) void {
+        gpa.free(cp.slots);
+        gpa.free(cp.tiles);
+        for (cp.chains) |*c| c.nodes.deinit(gpa);
+        gpa.free(cp.chains);
+        gpa.free(cp.ranges);
+        gpa.free(cp.drop);
+        gpa.free(cp.failed);
+    }
+};
+
+/// The checkpoints of a run, for a later run of the same print with a
+/// change (see `Runner.initFrom`): a change of the paths of a later layer
+/// (a support area, a setting of a z range) runs only from the last
+/// checkpoint before the change. A checkpoint is before the first path of
+/// a layer, each `every` layers (about 16 over the print). Over `budget`
+/// bytes, every other checkpoint goes, and `every` doubles.
+pub const Checkpoints = struct {
+    gpa: Allocator,
+    params: Params,
+    frame: Frame,
+    list: std.ArrayList(Checkpoint) = .empty,
+    /// The masses of the run (the result lists of Sim), up to its end or
+    /// its stop.
+    pos: std.ArrayList(V) = .empty,
+    want: std.ArrayList(V) = .empty,
+    set_time: std.ArrayList(f32) = .empty,
+    mass: std.ArrayList(f32) = .empty,
+    has_masses: bool = false,
+    every: u32 = 1,
+    last_layer: u32 = 0,
+    bytes: usize = 0,
+    budget: usize = 32 << 20,
+
+    const seed: u64 = 0x5eed;
+
+    fn add(c: *Checkpoints, cp: Checkpoint) Allocator.Error!void {
+        var x = cp;
+        c.list.append(c.gpa, x) catch |e| {
+            x.deinit(c.gpa);
+            return e;
+        };
+        c.bytes += x.bytes();
+        while (c.bytes > c.budget and c.list.items.len > 1) c.thin();
+    }
+
+    /// Drops every other checkpoint (the first stays), and doubles `every`.
+    fn thin(c: *Checkpoints) void {
+        var keep: usize = 0;
+        for (c.list.items, 0..) |*cp, i| {
+            if (i % 2 == 1) {
+                c.bytes -= cp.bytes();
+                cp.deinit(c.gpa);
+            } else {
+                c.list.items[keep] = cp.*;
+                keep += 1;
+            }
+        }
+        c.list.shrinkRetainingCapacity(keep);
+        c.every *|= 2;
+    }
+
+    fn copyMasses(c: *Checkpoints, s: *const Sim) Allocator.Error!void {
+        try c.pos.appendSlice(c.gpa, s.pos.items);
+        try c.want.appendSlice(c.gpa, s.want.items);
+        try c.set_time.appendSlice(c.gpa, s.set_time.items);
+        try c.mass.appendSlice(c.gpa, s.mass.items);
+        c.has_masses = true;
+    }
+
+    /// The count of checkpoints.
+    pub fn count(c: *const Checkpoints) usize {
+        return c.list.items.len;
+    }
+
+    pub fn destroy(c: *Checkpoints) void {
+        for (c.list.items) |*cp| cp.deinit(c.gpa);
+        c.list.deinit(c.gpa);
+        c.pos.deinit(c.gpa);
+        c.want.deinit(c.gpa);
+        c.set_time.deinit(c.gpa);
+        c.mass.deinit(c.gpa);
+        c.gpa.destroy(c);
+    }
+};
+
 /// A simulation that runs in pieces: `advance` prints some paths, so a
 /// shell can run it between other work, and stop it at any piece.
 pub const Runner = struct {
@@ -1289,6 +1491,13 @@ pub const Runner = struct {
     /// The next path to print.
     next: usize = 0,
     done: bool = false,
+    /// The checkpoints of this run (see `initFrom`), or null.
+    cps: ?*Checkpoints = null,
+    /// The key of the paths before `next` (see `pathKey`).
+    key: u64 = 0,
+    /// The first path of this run: it started from a checkpoint before
+    /// it, or from the start (0).
+    first: usize = 0,
 
     pub fn init(gpa: Allocator, paths: []const Path, params: Params) Allocator.Error!Runner {
         // The field covers the paths and a margin for the strands that fall
@@ -1337,8 +1546,91 @@ pub const Runner = struct {
         return .{ .s = s };
     }
 
+    /// `init`, and the run keeps checkpoints of its state (see
+    /// `Checkpoints`) for a later run. With `old`, the checkpoints of an
+    /// earlier run: the run starts from the last checkpoint of `old` that
+    /// has the same params, the same field, and the same paths before it.
+    /// From the same state, the same paths give the same masses, so the
+    /// result is the result of a run from the start, to the bit. `old`
+    /// stays valid; this run takes no memory of it.
+    pub fn initFrom(gpa: Allocator, paths: []const Path, params: Params, old: ?*const Checkpoints) Allocator.Error!Runner {
+        var r = try init(gpa, paths, params);
+        errdefer r.deinit();
+        const cps = try gpa.create(Checkpoints);
+        cps.* = .{ .gpa = gpa, .params = params, .frame = frameOf(&r.s.field) };
+        // About 16 checkpoints over the layers.
+        if (paths.len > 0) cps.every = @max(1, paths[paths.len - 1].layer / 16);
+        r.cps = cps;
+        r.key = Checkpoints.seed;
+        const o = old orelse return r;
+        if (!samePlain(Params, o.params, params) or !samePlain(Frame, o.frame, cps.frame)) return r;
+        // The last checkpoint with the same paths before it.
+        var key: u64 = Checkpoints.seed;
+        var at: usize = 0;
+        var best: ?usize = null;
+        for (o.list.items, 0..) |*cp, i| {
+            if (cp.path > paths.len or cp.pos_len > o.pos.items.len or cp.mass_len > o.mass.items.len) break;
+            while (at < cp.path) : (at += 1) key = pathKey(key, paths[at]);
+            if (key != cp.key) break;
+            best = i;
+        }
+        const b = best orelse return r;
+        cps.every = @max(cps.every, o.every);
+        for (o.list.items[0 .. b + 1]) |*cp| try cps.add(try cp.clone(gpa));
+        const cp = &o.list.items[b];
+        try r.restore(cp, o);
+        if (cp.path < paths.len) cps.last_layer = paths[cp.path].layer;
+        return r;
+    }
+
     pub fn deinit(r: *Runner) void {
+        if (r.cps) |c| c.destroy();
         r.s.deinit();
+    }
+
+    /// The checkpoints of the run, with the masses so far. The runner
+    /// keeps none of them. Null for a runner of `init`.
+    pub fn takeCheckpoints(r: *Runner) Allocator.Error!?*Checkpoints {
+        const c = r.cps orelse return null;
+        if (!c.has_masses) try c.copyMasses(&r.s);
+        r.cps = null;
+        return c;
+    }
+
+    /// Puts the state of checkpoint `cp` of `cps` in this new runner.
+    fn restore(r: *Runner, cp: *const Checkpoint, cps: *const Checkpoints) Allocator.Error!void {
+        const s = &r.s;
+        const gpa = s.gpa;
+        const f = &s.field;
+        for (cp.slots, cp.tiles) |slot, *tile| {
+            const t = try f.arena.allocator().create(Field.Tile);
+            t.* = tile.*;
+            f.tiles[slot] = t;
+        }
+        for (cp.chains) |c| {
+            var nodes: std.ArrayList(Node) = .empty;
+            errdefer nodes.deinit(gpa);
+            try nodes.appendSlice(gpa, c.nodes.items);
+            var copy = c;
+            copy.nodes = nodes;
+            try s.chains.append(gpa, copy);
+        }
+        try s.pos.appendSlice(gpa, cps.pos.items[0..cp.pos_len]);
+        try s.want.appendSlice(gpa, cps.want.items[0..cp.pos_len]);
+        try s.set_time.appendSlice(gpa, cps.set_time.items[0..cp.pos_len]);
+        try s.mass.appendSlice(gpa, cps.mass.items[0..cp.mass_len]);
+        @memcpy(s.ranges[0..cp.path], cp.ranges);
+        @memcpy(s.drop[0..cp.path], cp.drop);
+        @memcpy(s.failed[0..cp.path], cp.failed);
+        s.time = cp.time;
+        s.fan = cp.fan;
+        s.soft = cp.soft;
+        s.head_soft = cp.head_soft;
+        s.fell_soft = cp.fell_soft;
+        s.stats = cp.stats;
+        r.next = cp.path;
+        r.first = cp.path;
+        r.key = cp.key;
     }
 
     /// Prints up to `count` more paths, and true when all the plastic has
@@ -1346,8 +1638,19 @@ pub const Runner = struct {
     pub fn advance(r: *Runner, count: usize) Allocator.Error!bool {
         if (r.done) return true;
         const s = &r.s;
-        const end = @min(r.next + count, s.paths.len);
-        while (r.next < end) : (r.next += 1) try s.print(@intCast(r.next), s.paths[r.next]);
+        const end = r.next + @min(count, s.paths.len - r.next);
+        while (r.next < end) : (r.next += 1) {
+            const path = s.paths[r.next];
+            if (r.cps) |c| {
+                // A checkpoint before the first path of a layer.
+                if (r.next > 0 and path.layer != s.paths[r.next - 1].layer and path.layer >= c.last_layer + c.every) {
+                    try c.add(try Checkpoint.take(s, r.next, r.key));
+                    c.last_layer = path.layer;
+                }
+                r.key = pathKey(r.key, path);
+            }
+            try s.print(@intCast(r.next), path);
+        }
         if (r.next < s.paths.len) return false;
         s.endStrand();
         // The last soft masses set: they cool below the set point in seconds.
@@ -1369,6 +1672,7 @@ pub const Runner = struct {
         std.debug.assert(r.done);
         const s = &r.s;
         const gpa = s.gpa;
+        if (r.cps) |c| if (!c.has_masses) try c.copyMasses(s);
         const pos = try s.pos.toOwnedSlice(gpa);
         errdefer gpa.free(pos);
         const want = try s.want.toOwnedSlice(gpa);
@@ -1544,13 +1848,23 @@ test "print sim: the pieces of one strand hold each other" {
 /// mm on it: a loop, and skin lines along x. 8 mm of each end of the slab
 /// is over air. Returns the result, the plastic (g), and the first and
 /// the end path of the slab.
+const shelf_posts = 10;
+const shelf_count = shelf_posts + 6 * (1 + 8);
+
 fn shelf(gpa: Allocator, params: Params) !struct { Result, f64, usize, usize } {
-    const post_layers = 10;
+    var pts: [shelf_count][6][2]f32 = undefined;
+    var paths: [shelf_count]Path = undefined;
+    const volume = shelfPaths(&pts, &paths);
+    const r = try run(gpa, &paths, params);
+    return .{ r, volume * params.material.density, shelf_posts, shelf_count };
+}
+
+/// The paths of a post, and of a slab on it that sticks out over air;
+/// and their plastic (mm³).
+fn shelfPaths(pts: *[shelf_count][6][2]f32, paths: *[shelf_count]Path) f64 {
+    const post_layers = shelf_posts;
     const slab_layers = 6;
     const lines = 8;
-    const count = post_layers + slab_layers * (1 + lines);
-    var pts: [count][6][2]f32 = undefined;
-    var paths: [count]Path = undefined;
     var t: f32 = 0;
     var volume: f64 = 0;
     var n: usize = 0;
@@ -1579,8 +1893,85 @@ fn shelf(gpa: Allocator, params: Params) !struct { Result, f64, usize, usize } {
         }
         t += 2;
     }
-    const r = try run(gpa, &paths, params);
-    return .{ r, volume * params.material.density, post_layers, count };
+    return volume;
+}
+
+/// Runs `paths` with checkpoints at each layer, from the checkpoints
+/// `old` if not null. The caller frees the checkpoints.
+fn runFrom(gpa: Allocator, paths: []const Path, params: Params, old: ?*const Checkpoints) !struct { Result, *Checkpoints, usize } {
+    var r = try Runner.initFrom(gpa, paths, params, old);
+    defer r.deinit();
+    r.cps.?.every = 1;
+    while (!try r.advance(3)) {}
+    var res = try r.result();
+    errdefer res.deinit(gpa);
+    return .{ res, (try r.takeCheckpoints()).?, r.first };
+}
+
+fn expectSameResult(a: Result, b: Result) !void {
+    try testing.expectEqualSlices(u8, std.mem.sliceAsBytes(a.pos), std.mem.sliceAsBytes(b.pos));
+    try testing.expectEqualSlices(u8, std.mem.sliceAsBytes(a.want), std.mem.sliceAsBytes(b.want));
+    try testing.expectEqualSlices(u8, std.mem.sliceAsBytes(a.set_time), std.mem.sliceAsBytes(b.set_time));
+    try testing.expectEqualSlices(u8, std.mem.sliceAsBytes(a.mass), std.mem.sliceAsBytes(b.mass));
+    try testing.expectEqualSlices(u8, std.mem.sliceAsBytes(a.ranges), std.mem.sliceAsBytes(b.ranges));
+    try testing.expectEqualSlices(u8, std.mem.sliceAsBytes(a.drop), std.mem.sliceAsBytes(b.drop));
+    try testing.expectEqualSlices(u32, a.failed, b.failed);
+    try testing.expectEqual(a.stats, b.stats);
+}
+
+test "print sim: a run from a checkpoint gives the masses of a run from the start" {
+    const gpa = testing.allocator;
+    const params: Params = .{ .keep_all = true };
+    var pts: [shelf_count][6][2]f32 = undefined;
+    var paths: [shelf_count]Path = undefined;
+    _ = shelfPaths(&pts, &paths);
+    var a = try runFrom(gpa, &paths, params, null);
+    defer a[0].deinit(gpa);
+    defer a[1].destroy();
+    try testing.expectEqual(@as(usize, 0), a[2]);
+    try testing.expect(a[1].count() > 10);
+    // A checkpoint has soft strands of the slab.
+    var soft = false;
+    for (a[1].list.items) |cp| soft = soft or cp.soft > 0;
+    try testing.expect(soft);
+
+    // The same paths: the run starts at the last checkpoint.
+    var same = try runFrom(gpa, &paths, params, a[1]);
+    defer same[0].deinit(gpa);
+    defer same[1].destroy();
+    try testing.expect(same[2] > 0);
+    try expectSameResult(a[0], same[0]);
+
+    // A change of a skin line of the third layer of the slab, and of the
+    // times after it: the run starts at that layer, and gives the masses
+    // of a run from the start.
+    var changed = paths;
+    var first: usize = 0;
+    for (&changed, 0..) |*p, i| if (p.layer >= shelf_posts + 2) {
+        if (first == 0) first = i;
+        p.t0 += 0.5;
+        p.t1 += 0.5;
+    };
+    pts[first + 3][1][1] += 0.05;
+    var fresh = try run(gpa, &changed, params);
+    defer fresh.deinit(gpa);
+    var from = try runFrom(gpa, &changed, params, a[1]);
+    defer from[0].deinit(gpa);
+    defer from[1].destroy();
+    try testing.expectEqual(first, from[2]);
+    try expectSameResult(fresh, from[0]);
+    // The new checkpoints serve a third run of the same paths.
+    var again = try runFrom(gpa, &changed, params, from[1]);
+    defer again[0].deinit(gpa);
+    defer again[1].destroy();
+    try testing.expect(again[2] > first);
+    try expectSameResult(fresh, again[0]);
+
+    // Other params: no checkpoint fits.
+    var hot = try runFrom(gpa, &paths, .{ .keep_all = true, .nozzle_t = 220 }, a[1]);
+    defer hot[0].deinit(gpa);
+    defer hot[1].destroy();
+    try testing.expectEqual(@as(usize, 0), hot[2]);
 }
 
 test "print sim: a slab with no support falls in strands, and later layers print on them" {
