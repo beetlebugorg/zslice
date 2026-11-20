@@ -439,19 +439,37 @@ const Field = struct {
     /// The tile and the index in it of the cell at (x, y), or null out of
     /// the field.
     fn locate(f: *const Field, x: f32, y: f32) ?struct { usize, usize } {
+        const ix = f.column(x) orelse return null;
+        const iy = f.row(y) orelse return null;
+        return f.index(ix, iy);
+    }
+
+    /// The column of the cells at x, or null out of the field. The cast
+    /// goes to u32: the field has less than 2^32 columns, and a cast to
+    /// u32 is one instruction where a cast to usize needs a test.
+    fn column(f: *const Field, x: f32) ?u32 {
         const fx = (x - f.x0) / f.cell;
+        if (!(fx >= 0 and fx < f.lim_x)) return null;
+        return @intFromFloat(fx);
+    }
+
+    /// The row of the cells at y, or null out of the field.
+    fn row(f: *const Field, y: f32) ?u32 {
         const fy = (y - f.y0) / f.cell;
-        if (!(fx >= 0 and fy >= 0)) return null;
-        if (!(fx < f.lim_x and fy < f.lim_y)) return null;
-        const ix: usize = @intFromFloat(fx);
-        const iy: usize = @intFromFloat(fy);
+        if (!(fy >= 0 and fy < f.lim_y)) return null;
+        return @intFromFloat(fy);
+    }
+
+    /// The tile and the index in it of the cell in column ix and row iy.
+    fn index(f: *const Field, ix: u32, iy: u32) struct { usize, usize } {
         return .{ (iy / n) * f.nx + ix / n, (iy % n) * n + ix % n };
     }
 
-    /// The top of the cell at (x, y): `at(x, y).top`, with no copy of the
-    /// other values (the floor test asks only this, in each step).
-    fn topAt(f: *const Field, x: f32, y: f32) f32 {
-        const l = f.locate(x, y) orelse return 0;
+    /// The top of the cell in column ix and row iy: `at(x, y).top`, with
+    /// no copy of the other values (the floor test asks only this, in
+    /// each step).
+    fn topOf(f: *const Field, ix: ?u32, iy: ?u32) f32 {
+        const l = f.index(ix orelse return 0, iy orelse return 0);
         const t = f.tiles[l[0]] orelse return 0;
         return t.top[l[1]];
     }
@@ -650,9 +668,20 @@ const Sim = struct {
     /// gap between two beads under it that is narrower than itself.
     fn floorAt(s: *const Sim, x: f32, y: f32, zc: f32, w: f32) f32 {
         const r = 0.35 * w;
+        const f = &s.field;
+        // The five points share three columns and three rows: find each
+        // once, with the same arithmetic as Field.locate.
+        const cx = f.column(x);
+        const cy = f.row(y);
+        const tops = [5]f32{
+            f.topOf(cx, cy),
+            f.topOf(f.column(x + r), cy),
+            f.topOf(f.column(x + -r), cy),
+            f.topOf(cx, f.row(y + r)),
+            f.topOf(cx, f.row(y + -r)),
+        };
         var floor: f32 = 0;
-        for ([_][2]f32{ .{ 0, 0 }, .{ r, 0 }, .{ -r, 0 }, .{ 0, r }, .{ 0, -r } }) |o| {
-            const top = s.field.topAt(x + o[0], y + o[1]);
+        for (tops) |top| {
             if (top <= zc) floor = @max(floor, top);
         }
         return floor;
