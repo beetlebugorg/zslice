@@ -315,6 +315,9 @@ enum PrinterLink {
         var slot: String
         var material: String
         var color: String
+        /// "aux": the spool feeds the second nozzle of a printer with two
+        /// (the external spool of an X2D).
+        var nozzle: String
     }
 
     /// The spools that a printdeck printer has loaded: the trays of its
@@ -329,7 +332,8 @@ enum PrinterLink {
             let j = (try? JSONSerialization.jsonObject(with: d)) as? [String: Any]
             let list = (j?["filaments"] as? [[String: Any]] ?? []).compactMap { f -> LoadedFilament? in
                 guard let m = f["material"] as? String, !m.isEmpty else { return nil }
-                return LoadedFilament(slot: f["slot"] as? String ?? "", material: m, color: f["color"] as? String ?? "")
+                return LoadedFilament(slot: f["slot"] as? String ?? "", material: m, color: f["color"] as? String ?? "",
+                                      nozzle: f["nozzle"] as? String ?? "")
             }
             if list.isEmpty { return (nil, "The printer tells no loaded filaments. Update the deck, or load a spool.") }
             return (list, "")

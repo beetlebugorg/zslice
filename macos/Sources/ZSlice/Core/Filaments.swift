@@ -40,11 +40,17 @@ extension Workspace {
     /// loaded: the same count (filaments added or removed at the end),
     /// then the material (upper case) and the color of each, in the order
     /// of the printer. Filament k prints from its spool k: the deck maps
-    /// them at the start of the print. Returns the words for a note.
+    /// them at the start of the print. The spools of a second nozzle
+    /// ("nozzle": "aux") stay out. Returns the words for a note.
     func useLoadedFilaments(_ p: Printer) async -> String {
         let r = await PrinterLink.loadedFilaments(p)
         guard let all = r.list else { return r.why }
-        let want = Array(all.prefix(16))
+        // zslice prints with one nozzle (next_hotend is 0 in the change
+        // G-code). A spool of the second nozzle stays out, or a change
+        // would ask for it in the main nozzle.
+        let aux = all.filter { $0.nozzle == "aux" }
+        let want = Array(all.filter { $0.nozzle != "aux" }.prefix(16))
+        if want.isEmpty { return "The spools of \(p.name) feed its second nozzle only. zslice prints with the main nozzle: load a spool in the AMS." }
         var have = model.filaments.count
         while have < want.count, model.addFilament() != nil { have += 1 }
         while have > want.count {
@@ -56,7 +62,9 @@ extension Workspace {
             if f.color.range(of: "^#[0-9a-fA-F]{6}$", options: .regularExpression) != nil { model.setFilament(k, "filament.color", f.color) }
         }
         let words = want.map { "\($0.slot.isEmpty ? "roll" : $0.slot) \($0.material)" }.joined(separator: ", ")
-        return "\(want.count) \(want.count == 1 ? "filament" : "filaments") from \(p.name): \(words)."
+        let skipped = aux.isEmpty ? "" : " Not used: " + aux.map { "\($0.slot.isEmpty ? "spool" : $0.slot) \($0.material)" }.joined(separator: ", ")
+            + " (the second nozzle; zslice prints with the main nozzle)."
+        return "\(want.count) \(want.count == 1 ? "filament" : "filaments") from \(p.name): \(words).\(skipped)"
     }
 }
 
