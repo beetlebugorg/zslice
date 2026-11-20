@@ -2776,12 +2776,15 @@ pub const View = struct {
     }
 
     /// The paths of layers lo to hi that are joined to path `start`, as the
-    /// smart select of the Paint tool joins faces: on the layer of `start`,
-    /// the paths of its part whose boxes touch it, or touch such a path;
-    /// on each layer above and under it, the paths of its part over or
-    /// under the joined paths of the layer next to it. So a drag over
-    /// layers lights one body of one part, not the whole plate. In
-    /// `out` (cleared first).
+    /// smart select of the Paint tool joins faces, inside its part. On the
+    /// layer of `start`: the paths of its part whose boxes touch it, or
+    /// touch such a path, inside the box of `start` grown by a wall step.
+    /// On each layer above and under it: the paths of its part over or
+    /// under the lit paths of the layer next to it whose boxes stay inside
+    /// the lit box of that layer grown by a step. So the lit region follows
+    /// one body as it grows or shrinks slowly, and stops where the shape
+    /// widens at once: a tube that rises from a lid lights alone, with no
+    /// lid. In `out` (cleared first).
     pub fn connectedPaths(v: *const View, start: usize, lo_in: usize, hi_in: usize, out: *std.ArrayList(usize)) Error!void {
         out.clearRetainingCapacity();
         const ends = v.layer_path_end.items;
@@ -2813,6 +2816,27 @@ pub const View = struct {
                 return a[0] - m <= b[2] and b[0] - m <= a[2] and a[1] - m <= b[3] and b[1] - m <= a[3];
             }
         }.f;
+        // `a` inside `b` grown by m.
+        const inside = struct {
+            fn f(a: Box, bb: Box, m: f32) bool {
+                return a[0] >= bb[0] - m and a[1] >= bb[1] - m and a[2] <= bb[2] + m and a[3] <= bb[3] + m;
+            }
+        }.f;
+        const unionOf = struct {
+            fn f(list: []const Box) Box {
+                var u: Box = .{ std.math.inf(f32), std.math.inf(f32), -std.math.inf(f32), -std.math.inf(f32) };
+                for (list) |q| {
+                    u[0] = @min(u[0], q[0]);
+                    u[1] = @min(u[1], q[1]);
+                    u[2] = @max(u[2], q[2]);
+                    u[3] = @max(u[3], q[3]);
+                }
+                return u;
+            }
+        }.f;
+        // How far the lit region may grow from one layer to the next (mm):
+        // a slope of about 60 degrees at 0.2 mm layers, and a wall line.
+        const step: f32 = 0.8;
         const samePart = struct {
             fn f(vv: *const View, p: usize, pt: ?u32) bool {
                 const want = pt orelse return true;
@@ -2838,10 +2862,15 @@ pub const View = struct {
                 taken.clearRetainingCapacity();
                 try taken.appendNTimes(gpa, false, p1 - p0);
                 cur.clearRetainingCapacity();
-                // Seeds: the paths that touch the boxes of the layer before.
+                // The region that this layer may light: the lit box of the
+                // layer before, grown by a step.
+                const region = unionOf(prev.items);
+                // Seeds: the paths that touch the boxes of the layer before,
+                // inside the region.
                 for (p0..p1) |p| {
                     if (!samePart(v, p, part)) continue;
                     const b = boxOf(v, p);
+                    if (!inside(b, region, step)) continue;
                     for (prev.items) |q| if (overlaps(b, q, margin)) {
                         taken.items[p - p0] = true;
                         try cur.append(gpa, b);
@@ -2855,6 +2884,7 @@ pub const View = struct {
                     for (p0..p1) |p| {
                         if (taken.items[p - p0] or !samePart(v, p, part)) continue;
                         const b = boxOf(v, p);
+                        if (!inside(b, region, step)) continue;
                         for (cur.items) |q| if (overlaps(b, q, margin)) {
                             taken.items[p - p0] = true;
                             try cur.append(gpa, b);
