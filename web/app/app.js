@@ -1989,7 +1989,7 @@ let keyRange = null;
 
 function onPreviewKey(e) {
   // The Support tool: Enter, Backspace, Delete, and Esc for its areas.
-  if ((tools.tool === "support" || supportTool?.lite) && !e.ctrlKey && !e.metaKey && !e.altKey && !e.target?.closest?.("input, textarea, select, [contenteditable], .panel") && supportTool.key(e)) {
+  if ((tools.tool === "support" || supportTool?.lite) && !e.ctrlKey && !e.metaKey && !e.altKey && !e.target?.closest?.("input, textarea, select, [contenteditable], .panel, .search-layer, .keys-layer") && supportTool.key(e)) {
     e.preventDefault();
     e.stopPropagation();
     return;
@@ -2001,7 +2001,8 @@ function onPreviewKey(e) {
   if ((e.ctrlKey || e.metaKey || e.altKey) && !page) return;
   if (menuOpen() || !view.loaded || layers.count === 0) return;
   const t = e.target;
-  if (t && (t.closest?.("input, textarea, select, [contenteditable]") || t.closest?.(".panel"))) return;
+  // The search and the list of keys have their own arrow keys and V.
+  if (t && (t.closest?.("input, textarea, select, [contenteditable]") || t.closest?.(".panel, .search-layer, .keys-layer"))) return;
   let dir = 0;
   let layerDir = 0;
   let jump = 1;
