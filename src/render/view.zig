@@ -2536,8 +2536,8 @@ pub const View = struct {
                     const r = b.w / 2 * pick_grow;
                     const zr = b.h / 2 * pick_grow;
                     const zc = b.z - b.h / 2;
-                    growBox(&run, .{ @min(b.ax, b.bx) - r, @min(b.ay, b.by) - r, zc - zr }, .{ @max(b.ax, b.bx) + r, @max(b.ay, b.by) + r, zc + zr });
-                    width = @max(width, b.w);
+                    growBox(&run, .{ minF(b.ax, b.bx) - r, minF(b.ay, b.by) - r, zc - zr }, .{ maxF(b.ax, b.bx) + r, maxF(b.ay, b.by) + r, zc + zr });
+                    width = maxF(width, b.w);
                 }
                 growBox(&layer, run.lo, run.hi);
                 v.pick_runs.appendAssumeCapacity(run);
@@ -2557,7 +2557,7 @@ pub const View = struct {
             if (chunk.end == 0) chunk = emptyBox(run.first, run.end);
             growBox(&chunk, run.lo, run.hi);
             chunk.end = run.end;
-            width = @max(width, rw);
+            width = maxF(width, rw);
             if (chunk.end - chunk.first >= draw_chunk or k + 1 == v.pick_runs.items.len) {
                 v.draw_chunks.append(gpa, chunk) catch return error.OutOfMemory;
                 v.chunk_width.append(gpa, width) catch return error.OutOfMemory;
@@ -2664,9 +2664,29 @@ pub const View = struct {
 
     fn growBox(box: *PickBox, lo: [3]f32, hi: [3]f32) void {
         for (0..3) |k| {
-            box.lo[k] = @min(box.lo[k], lo[k]);
-            box.hi[k] = @max(box.hi[k], hi[k]);
+            box.lo[k] = minF(box.lo[k], lo[k]);
+            box.hi[k] = maxF(box.hi[k], hi[k]);
         }
+    }
+
+    /// @min of two floats, inline. In wasm, @min of floats is a call to
+    /// fminf of compiler_rt (wasm has no instruction with its NaN rule),
+    /// and the calls were a third of the time of `buildPickIndex`. These
+    /// give the same result as fminf and fmaxf of compiler_rt, also for a
+    /// NaN and for zeros of two signs.
+    inline fn minF(x: f32, y: f32) f32 {
+        if (std.math.isNan(x)) return y;
+        if (std.math.isNan(y)) return x;
+        if (std.math.signbit(x) != std.math.signbit(y)) return if (std.math.signbit(x)) x else y;
+        return if (x < y) x else y;
+    }
+
+    /// @max of two floats, inline: see `minF`.
+    inline fn maxF(x: f32, y: f32) f32 {
+        if (std.math.isNan(x)) return y;
+        if (std.math.isNan(y)) return x;
+        if (std.math.signbit(x) != std.math.signbit(y)) return if (std.math.signbit(x)) y else x;
+        return if (x < y) y else x;
     }
 
     /// The box of all beads on the bed (x0, y0, x1, y1, in mm), or null
@@ -5226,4 +5246,22 @@ test "the hull of a box wall keeps few of its bead ends" {
     for (0..v.path_start.items.len - 1) |_| try v.path_part.append(View.gpa, 0);
     try v.setPartPreview(0, .{ 0, 0, 0, 1 }, .{ 0, 0, 0 }, .{ 0, 0, 0 }, true);
     try std.testing.expect(v.hull_sorted < 40);
+}
+
+test "minF and maxF give the values of @min and @max" {
+    const nan = std.math.nan(f32);
+    const inf = std.math.inf(f32);
+    const vals = [_]f32{ 0, -0.0, 1, -1, 2.5, -2.5, inf, -inf, nan, 1e-30, -1e-30 };
+    for (vals) |x| for (vals) |y| {
+        // Runtime values: comptime @min of floats follows other rules.
+        // The sign of a zero result can differ by target (== ignores it).
+        var a = x;
+        var b = y;
+        _ = .{ &a, &b };
+        inline for (.{ .{ @min(a, b), View.minF(a, b) }, .{ @max(a, b), View.maxF(a, b) } }) |r| {
+            if (std.math.isNan(r[0])) {
+                try std.testing.expect(std.math.isNan(r[1]));
+            } else try std.testing.expect(r[0] == r[1]);
+        }
+    };
 }
