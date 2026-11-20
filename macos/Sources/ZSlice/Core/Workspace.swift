@@ -1109,6 +1109,23 @@ final class Workspace {
         if let xy = env["ZSLICE_PICK"]?.split(separator: ",").compactMap({ Double($0) }), xy.count == 2 {
             pick(at: CGPoint(x: xy[0], y: xy[1]))
         }
+        // ZSLICE_PICK_LATER="x,y;rx,y;..." picks each point in turn, one a
+        // second from 6 s after the slice ("r": the run of the line, as a
+        // Shift-click), for the tests of the upload of a new selection
+        // (with ZSLICE_TIMING).
+        if let spec = env["ZSLICE_PICK_LATER"] {
+            for (k, item) in spec.split(separator: ";").enumerated() {
+                let run = item.hasPrefix("r")
+                let q = item.drop(while: { $0 == "r" }).split(separator: ",").compactMap { Double($0) }
+                guard q.count == 2 else { continue }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 6 + Double(k)) { [weak self] in
+                    guard let self else { return }
+                    let at = CGPoint(x: q[0], y: q[1])
+                    if run { pickRun(at: at) } else { pick(at: at) }
+                    NSLog("zslice pick later: %@%.0f, %.0f, path %ld", run ? "run " : "", q[0], q[1], selection?.path ?? -1)
+                }
+            }
+        }
         // ZSLICE_RANGE_DRAG="x0,y0;x1,y1" drags over layers from a line, as
         // a user does (press, moves, release). ZSLICE_RANGE_KEYS=n presses
         // Shift-K n times from the picked line instead. Then the infill of

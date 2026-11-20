@@ -262,6 +262,11 @@ final class LayerRenderer {
         enc.endEncoding()
         if let snapshot { r.copyOut(drawable.texture, in: cmd, then: snapshot) }
         cmd.present(drawable)
+        // The bead buffer is that of FrameRenderer: it may not change while
+        // this frame is on the GPU.
+        let onGPU = r.framesOnGPU
+        onGPU.add(1)
+        cmd.addCompletedHandler { _ in onGPU.add(-1) }
         cmd.commit()
     }
 

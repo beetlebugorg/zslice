@@ -15,6 +15,13 @@
 //! its old buffer. The scene changes only after a slice, so this costs
 //! little.
 //!
+//! A new selection changes only the beads of the yellow paths: the frame
+//! data gives their range (patch_first to patch_end) and the generation
+//! that it changes (patch_from). When the window has that generation and
+//! no frame is on the GPU, the renderer copies only those beads into its
+//! buffer. Else, or while a frame is on the GPU, it uploads all of them
+//! (5 ms for the 1.8 million beads of deck_body on an M1).
+//!
 //! Reference: the Metal documentation of Apple (see REFERENCES.md).
 //!
 //! SPDX-License-Identifier: AGPL-3.0-or-later
@@ -33,6 +40,7 @@ private struct Extra {
 }
 
 private let instanceStride = 32 // MemoryLayout<zs_web_instance>.stride
+private let timing = ProcessInfo.processInfo.environment["ZSLICE_TIMING"] != nil
 private let noHighlight: Float = 1e9
 
 @MainActor
@@ -160,7 +168,25 @@ final class FrameRenderer {
             gen.mesh = f.mesh_gen
         }
         if f.instances_gen != gen.instances {
-            instances = buffer(f.instances, Int(f.instance_count) * instanceStride)
+            let t0 = CACurrentMediaTime()
+            let first = Int(f.patch_first), end = Int(f.patch_end)
+            // A frame that is on the GPU reads the buffer: no change to it.
+            // sync runs on the main thread before the next frame, so none
+            // starts between the check and the copy.
+            if f.patch_from == gen.instances, end > first, end <= Int(f.instance_count), Int(f.instance_count) == instanceCount,
+               let buf = instances, let src = f.instances, framesOnGPU.count == 0 {
+                // Byte offsets: src is a pointer to zs_web_instance.
+                (buf.contents() + first * instanceStride).copyMemory(from: UnsafeRawPointer(src) + first * instanceStride, byteCount: (end - first) * instanceStride)
+                if timing {
+                    let ms = (CACurrentMediaTime() - t0) * 1000
+                    // The whole buffer must equal the beads of the core.
+                    let same = memcmp(buf.contents(), src, Int(f.instance_count) * instanceStride) == 0
+                    NSLog("zslice timing: instances patch beads %ld to %ld, %.2f ms, buffer %@", first, end, ms, same ? "same" : "DIFFERENT")
+                }
+            } else {
+                instances = buffer(f.instances, Int(f.instance_count) * instanceStride)
+                if timing { NSLog("zslice timing: instances upload %ld beads, %.2f ms", Int(f.instance_count), (CACurrentMediaTime() - t0) * 1000) }
+            }
             instanceCount = Int(f.instance_count)
             gen.instances = f.instances_gen
         }
@@ -252,7 +278,12 @@ final class FrameRenderer {
         if let snapshot { copyOut(drawable.texture, in: cmd, then: snapshot) }
         cmd.present(drawable)
         let gpu = gpuTime
-        cmd.addCompletedHandler { cb in gpu.set((cb.gpuEndTime - cb.gpuStartTime) * 1000) }
+        let onGPU = framesOnGPU
+        onGPU.add(1)
+        cmd.addCompletedHandler { cb in
+            gpu.set((cb.gpuEndTime - cb.gpuStartTime) * 1000)
+            onGPU.add(-1)
+        }
         cmd.commit()
     }
 
@@ -265,6 +296,8 @@ final class FrameRenderer {
     /// the frame time (ZSLICE_ORBIT_TEST).
     let gpuTime = GPUTime()
     var lastGPUms: Double { gpuTime.ms }
+    /// The frames that the GPU has not finished.
+    let framesOnGPU = FrameCount()
 
     /// Copies the texture to a buffer, and makes an image of it when the
     /// GPU is done. For development and screenshots (ZSLICE_SNAPSHOT).
@@ -521,6 +554,14 @@ final class FrameRenderer {
 }
 
 /// The GPU time of a frame, set on a thread of Metal.
+/// A count that the completed handlers of Metal change on their thread.
+final class FrameCount: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value = 0
+    var count: Int { lock.withLock { value } }
+    func add(_ d: Int) { lock.withLock { value += d } }
+}
+
 final class GPUTime: @unchecked Sendable {
     private let lock = NSLock()
     private var value = 0.0

@@ -188,6 +188,8 @@ On macOS the core does not draw. The view is a `zs_view` with no surface (`ZS_SU
 
 - The camera, the pick, the culling, and the levels of detail stay in the core.
 - A buffer goes to the GPU again only when its generation changes. Each upload makes a new `MTLBuffer`, so a frame in flight keeps its old buffer.
+- A new selection of many paths (a run, a lit body) changes only some beads: the frame gives their range (`patch_first` to `patch_end`) and the generation that it changes (`patch_from`). When the renderer has that generation and no frame of the 3D or the 2D page is on the GPU (`framesOnGPU`), it copies only those beads into its buffer: 0.01 ms, against 5 ms for the 1.8 million beads of deck_body on an M1. Else it uploads all of them.
+- The renderer reads the pointer to the instances from the frame data of each frame: the core can swap it.
 - The core makes its matrices for the clip space of Vulkan (y down, depth 0 to 1). Each Metal vertex shader turns y over.
 - The drawable format is UNORM: the shaders work in sRGB values, as in the Vulkan backend. The view draws with 4x multisampling.
 - The app compiles the shader source when it starts, so the build needs no Metal tools. The shaders compile once for the app.
@@ -431,6 +433,7 @@ Like the GTK shell, the app reads environment variables for tests and screenshot
 - `ZSLICE_LAYERS=lo,hi` sets the layer range after the first slice (layer numbers from 1). `ZSLICE_TIME=t` shows the replay at t seconds.
 - `ZSLICE_MODE=n` sets the colors (0 filament, 1 line type, 2 speed, 3 flow, 4 layer time, 5 line width).
 - `ZSLICE_PICK=x,y` picks the line at that point (in points) after the first slice, as a click does. `ZSLICE_DOUBLE_CLICK=x,y` is a double click there. `ZSLICE_CARD_LOG=1` logs the screen box of a clicked line.
+- `ZSLICE_PICK_LATER="x,y;rx,y;..."` picks each point in turn, one a second from 6 s after the start (`r`: the run of the line, as a Shift-click). With `ZSLICE_TIMING=1`, each upload of the beads is logged; a patch also checks that the whole buffer equals the beads of the core.
 - `ZSLICE_RUN_AT=x,y` (or `center`) is a Shift-click of the Select tool; `ZSLICE_RUN_LOG=1` logs the run, and a plain pick 1.5 s later logs that the run is cleared.
 - `ZSLICE_RANGE_DRAG="x0,y0;x1,y1"` drags over layers from a line with the press, move, and release of the view. `ZSLICE_RANGE_KEYS=n` presses Shift-K n times instead (with `ZSLICE_PICK` for the start line). Then the hook changes the infill of the range, so the body must light again after the slice. `ZSLICE_RANGE_LOG=1` logs each light, and `ZSLICE_RANGE_CLOSE=1` closes the card at the end.
 - `ZSLICE_SPATIAL="kind:x,y,w,h;..."` keeps a place (the top left corner) and a size for a kind of card (`line`, `part`, `range`, `history`), as a drag and a resize do.
