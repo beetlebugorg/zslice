@@ -469,6 +469,15 @@ final class Workspace {
         if let path = env["ZSLICE_SAVE"], let data = model.projectFileData(name: model.name) {
             try? data.write(to: URL(fileURLWithPath: path))
         }
+        // ZSLICE_GCODE_AFTER=s:path writes the G-code of the plate s seconds
+        // after the start (after the other hooks changed the plate).
+        if let spec = env["ZSLICE_GCODE_AFTER"], let colon = spec.firstIndex(of: ":"), let s = Double(spec[..<colon]) {
+            let path = String(spec[spec.index(after: colon)...])
+            DispatchQueue.main.asyncAfter(deadline: .now() + s) { [weak self] in
+                let ok = (try? self?.model.gcode()?.write(to: URL(fileURLWithPath: path))) != nil
+                NSLog("zslice gcode after: %@ %@", path, ok ? "written" : "FAILED")
+            }
+        }
         // ZSLICE_TEST_PRINT=path writes the test print of layers 10 to 12.
         if let path = env["ZSLICE_TEST_PRINT"] {
             var out: UnsafeMutablePointer<UInt8>?

@@ -450,6 +450,7 @@ Like the GTK shell, the app reads environment variables for tests and screenshot
 - `ZSLICE_EDIT=kind` edits the selected line (0: do not print it; 1: 90 % plastic), `ZSLICE_EDIT_UNDO=1` undoes it 3 s later, and each slice logs the edits.
 - `ZSLICE_SIM=1` logs the numbers of each simulated print, and its time after the slice. `ZSLICE_NO_SIM=1` turns off the simulation, to compare.
 - `ZSLICE_REFINE=path` keeps the store of refinements in that file, also with `ZSLICE_FRESH`. `ZSLICE_REFINE_APPLY=1` applies the first suggestion and logs it.
+- `ZSLICE_GCODE_AFTER=s:path` writes the G-code of the plate s seconds after the start, after the other hooks changed the plate (for example the prime tower of `ZSLICE_FILAMENT_TEST`).
 - `ZSLICE_TEST_PRINT=path` writes the test print of layers 10 to 12 (`zs_app_debug_gcode`).
 - `ZSLICE_SIGN_TEST=1` signs the G-code of the plate, checks it (`zs_verify_gcode`), and checks a copy with one byte changed.
 
