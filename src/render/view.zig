@@ -3709,12 +3709,12 @@ pub const View = struct {
         try v.buildPlateGrid();
     }
 
-    /// Moves the camera and the start view by d (mm): the world of the
-    /// view moved by d.
+    /// Moves the camera by d (mm): the world of the view moved by d. The
+    /// start view (`home`) stays: a load of the new active plate sets it,
+    /// and the Linux shell loads before it syncs the plates.
     fn shiftWorld(v: *View, d: [2]f32) void {
         for (0..2) |k| {
             v.target[k] += d[k];
-            v.home[k] += d[k];
             if (v.goal) |*g| g.target[k] += d[k];
         }
     }
