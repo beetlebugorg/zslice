@@ -226,6 +226,8 @@ fn sliceInfo(a: Allocator, info: PlateInfo) Allocator.Error![]u8 {
     // the bed, and no labels of objects (zslice writes no EXCLUDE_OBJECT).
     ww.writeAll("    <metadata key=\"timelapse_type\" value=\"0\"/>\n    <metadata key=\"outside\" value=\"false\"/>\n") catch return error.OutOfMemory;
     ww.print("    <metadata key=\"support_used\" value=\"{s}\"/>\n    <metadata key=\"label_object_enabled\" value=\"false\"/>\n", .{if (info.support_used) "true" else "false"}) catch return error.OutOfMemory;
+    // Each filament has one nozzle (no dynamic map), of one diameter.
+    if (info.nozzles >= 2) ww.writeAll("    <metadata key=\"enable_filament_dynamic_map\" value=\"false\"/>\n    <metadata key=\"multi_nozzle_diameter_mode\" value=\"0\"/>\n") catch return error.OutOfMemory;
     // Two nozzles: the extruder of each filament (from 1), for the ids
     // 1 to the last filament of the print; a filament that the print does
     // not use gets extruder 1.

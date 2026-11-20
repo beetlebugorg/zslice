@@ -1505,6 +1505,8 @@ test "plate job: the G-code of a Bambu Lab X2D has the config block of Bambu Stu
         "; nozzle_type = hardened_steel,hardened_steel\n",
         "; extruder_type = Direct Drive,Bowden\n",
         "; filament_map = 1,2\n",
+        "; printer_extruder_id = 1,1,1,2,2,2\n",
+        "; physical_extruder_map = 1,0\n",
         "; curr_bed_type = Textured PEI Plate\n",
         "; CONFIG_BLOCK_END\n",
     }) |want| {

@@ -890,7 +890,25 @@ pub const Emitter = struct {
             var it = std.mem.splitScalar(u8, b.variants, '|');
             var k: usize = 0;
             while (it.next()) |t| : (k += 1) try w.print("{s}\"{s}\"", .{ if (k > 0) "," else "", t });
+            // Each variant and its extruder (from 1), in the order of the
+            // lists: "Direct Drive Standard", ... and 1,1,1,2,2,2.
+            try w.writeAll("\n; printer_extruder_variant = ");
+            var vit = std.mem.splitAny(u8, b.variants, ",|");
+            var j: usize = 0;
+            while (vit.next()) |v| : (j += 1) try w.print("{s}{s}", .{ if (j > 0) "," else "", v });
+            try w.writeAll("\n; printer_extruder_id = ");
+            var eit = std.mem.splitScalar(u8, b.variants, '|');
+            var e: usize = 1;
+            j = 0;
+            while (eit.next()) |group| : (e += 1) {
+                var git = std.mem.splitScalar(u8, group, ',');
+                while (git.next()) |_| : (j += 1) try w.print("{s}{d}", .{ if (j > 0) "," else "", e });
+            }
         }
+        // Two extruders of one nozzle each (the X2D, the H2D): the firmware
+        // numbers them the other way (the start G-code heats
+        // T{filament_map % 2}). The H2C changes nozzles from a rack.
+        if (n >= 2 and !std.mem.eql(u8, b.code, "O1C2")) try w.writeAll("\n; physical_extruder_map = 1,0\n; extruder_max_nozzle_count = 1,1");
         try w.print("\n; curr_bed_type = {s}\n", .{m.bed_type.studioName()});
         try w.writeAll("; filament_map = ");
         for (fils, 0..) |f, k| try w.print("{s}{d}", .{ if (k > 0) "," else "", if (n >= 2) @as(u32, @min(f.nozzle, 1)) + 1 else 1 });
