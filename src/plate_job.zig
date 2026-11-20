@@ -1480,3 +1480,45 @@ test "plate job: no island search when the caller needs none, and the same G-cod
     defer gpa.free(c);
     try testing.expectEqualStrings(a, c);
 }
+
+test "plate job: the G-code of a Bambu Lab X2D has the config block of Bambu Studio" {
+    const gpa = testing.allocator;
+    var m = try testBox(0, 0, 10, 10, 1);
+    defer m.deinit(gpa);
+    var s: Settings = .{};
+    s.engine.threads = 1;
+    s.machine.model = "bambu-lab-x2d";
+    s.machine.filament_change = .tool;
+    var ext = s.filament;
+    ext.nozzle = 1;
+    const parts = [_]PartInput{.{ .mesh = &m, .part = 0 }};
+    var pj = try PlateJob.init(gpa, s, &parts, .{ .filaments = &.{ext} });
+    defer pj.deinit();
+    var out: Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    _ = try pj.writeGcode(&out.writer);
+    const g = out.written();
+    for ([_][]const u8{
+        "; HEADER_BLOCK_START\n",
+        "; CONFIG_BLOCK_START\n",
+        "; printer_model = Bambu Lab X2D\n",
+        "; nozzle_type = hardened_steel,hardened_steel\n",
+        "; extruder_type = Direct Drive,Bowden\n",
+        "; filament_map = 1,2\n",
+        "; curr_bed_type = Textured PEI Plate\n",
+        "; CONFIG_BLOCK_END\n",
+    }) |want| {
+        if (std.mem.indexOf(u8, g, want) == null) {
+            std.debug.print("missing: {s}", .{want});
+            return error.TestUnexpectedResult;
+        }
+    }
+    // A printer of another maker: no such block.
+    s.machine.model = "creality-ender-3";
+    var pj2 = try PlateJob.init(gpa, s, &parts, .{});
+    defer pj2.deinit();
+    var out2: Writer.Allocating = .init(gpa);
+    defer out2.deinit();
+    _ = try pj2.writeGcode(&out2.writer);
+    try testing.expect(std.mem.indexOf(u8, out2.written(), "CONFIG_BLOCK") == null);
+}

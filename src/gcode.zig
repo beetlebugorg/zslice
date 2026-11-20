@@ -839,6 +839,69 @@ pub const Emitter = struct {
         return true;
     }
 
+    /// For a Bambu Lab printer: the header block and the config block of
+    /// Bambu Studio at the top of the G-code. Its firmware reads them, and
+    /// it compares the hotends of the config block with its own (a print
+    /// stopped with "the hotend quantity or model does not match the
+    /// sliced file" when they were missing). The values are those of
+    /// Metadata/project_settings.config (see bambu.zig).
+    fn bambuBlocks(self: *Emitter, layer_count: usize) Writer.Error!void {
+        const s = self.r.settings;
+        const m = s.machine;
+        const b = @import("printers.zig").bambu(m.model) orelse return;
+        const w = self.w;
+        const n: u32 = @max(b.nozzles, m.nozzles);
+        const fils: []const settings_mod.Filament = if (self.slots.len > 0) self.slots else &.{s.filament};
+        const list = struct {
+            fn f(out: *Writer, key: []const u8, count: u32, text: []const u8) Writer.Error!void {
+                try out.print("; {s} = ", .{key});
+                for (0..count) |k| try out.print("{s}{s}", .{ if (k > 0) "," else "", text });
+                try out.writeByte('\n');
+            }
+        }.f;
+        try w.writeAll("; HEADER_BLOCK_START\n; zslice\n");
+        try w.print("; total layer number: {d}\n", .{layer_count});
+        try w.writeAll("; filament_diameter: ");
+        for (fils, 0..) |f, k| try w.print("{s}{d}", .{ if (k > 0) "," else "", f.diameter });
+        try w.writeAll("\n; filament_density: ");
+        for (fils, 0..) |f, k| try w.print("{s}{d}", .{ if (k > 0) "," else "", f.density });
+        try w.writeAll("\n; filament: ");
+        for (fils, 0..) |_, k| try w.print("{s}{d}", .{ if (k > 0) "," else "", k + 1 });
+        try w.writeAll("\n; HEADER_BLOCK_END\n\n; CONFIG_BLOCK_START\n");
+        try w.print("; printer_model = {s}\n; printer_settings_id = {s} {d} nozzle\n; printer_variant = {d}\n", .{ b.name, b.name, m.nozzle_diameter, m.nozzle_diameter });
+        var dbuf: [32]u8 = undefined;
+        try list(w, "nozzle_diameter", n, std.fmt.bufPrint(&dbuf, "{d}", .{m.nozzle_diameter}) catch "0.4");
+        try list(w, "nozzle_type", n, @tagName(m.nozzle_type));
+        try list(w, "nozzle_volume_type", n, if (m.nozzle_flow == .high_flow) "High Flow" else "Standard");
+        try w.writeAll("; extruder_type = ");
+        {
+            var it = std.mem.splitScalar(u8, b.types, ';');
+            var k: usize = 0;
+            while (it.next()) |t| : (k += 1) try w.print("{s}{s}", .{ if (k > 0) "," else "", t });
+        }
+        try w.writeAll("\n; default_nozzle_volume_type = ");
+        {
+            var it = std.mem.splitScalar(u8, b.volumes, ';');
+            var k: usize = 0;
+            while (it.next()) |t| : (k += 1) try w.print("{s}{s}", .{ if (k > 0) "," else "", t });
+        }
+        if (b.variants.len > 0) {
+            try w.writeAll("\n; extruder_variant_list = ");
+            var it = std.mem.splitScalar(u8, b.variants, '|');
+            var k: usize = 0;
+            while (it.next()) |t| : (k += 1) try w.print("{s}\"{s}\"", .{ if (k > 0) "," else "", t });
+        }
+        try w.print("\n; curr_bed_type = {s}\n", .{m.bed_type.studioName()});
+        try w.writeAll("; filament_map = ");
+        for (fils, 0..) |f, k| try w.print("{s}{d}", .{ if (k > 0) "," else "", if (n >= 2) @as(u32, @min(f.nozzle, 1)) + 1 else 1 });
+        try w.writeAll("\n; filament_type = ");
+        for (fils, 0..) |f, k| try w.print("{s}{s}", .{ if (k > 0) ";" else "", f.material });
+        try w.writeAll("\n; filament_colour = ");
+        for (fils, 0..) |f, k| try w.print("{s}{s}", .{ if (k > 0) ";" else "", f.color });
+        try w.print("\n; layer_height = {d}\n; initial_layer_print_height = {d}\n", .{ s.project.layer_height, s.project.first_layer_height });
+        try w.writeAll("; CONFIG_BLOCK_END\n\n");
+    }
+
     pub fn init(gpa: std.mem.Allocator, w: *Writer, r: *const Resolved) Emitter {
         return .{ .gpa = gpa, .w = w, .r = r, .lr = r };
     }
@@ -854,6 +917,7 @@ pub const Emitter = struct {
         }});
         try self.w.print(";MACHINE:{f}\n;FILAMENT:{f}\n", .{ oneLine(s.machine.name), oneLine(s.filament.name) });
         try self.w.print(";LAYER_COUNT:{d}\n", .{layer_count});
+        try self.bambuBlocks(layer_count);
         // The start G-code goes into a buffer first: zslice heats before
         // it if it does not heat.
         var start: Writer.Allocating = .init(self.gpa);
