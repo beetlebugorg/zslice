@@ -160,6 +160,24 @@ export fn zs_view_load(view: ?*View, a: ?*const App) c_int {
     return ok;
 }
 
+/// A load can leave the new scene waiting while a thread copies its beads
+/// into the GPU; the view draws the old scene until then. Returns 1 if
+/// the new scene went in now: then apply the selection and the other
+/// state of a load again (zs_view_load keeps the beads). Call it before
+/// each frame while zs_view_scene_pending is 1.
+export fn zs_view_scene_poll(view: ?*View) c_int {
+    if (!render_on) return 0;
+    const v = view orelse return 0;
+    return @intFromBool(v.pollScene() catch false);
+}
+
+/// 1 while a new scene waits for the copy of its beads into the GPU.
+export fn zs_view_scene_pending(view: ?*const View) c_int {
+    if (!render_on) return 0;
+    const v = view orelse return 0;
+    return @intFromBool(v.scenePending());
+}
+
 /// Builds the scene of the 3D view on the thread of the slice (on = 1):
 /// after each slice and each simulation on that thread, before
 /// ZS_EVENT_SLICED and ZS_EVENT_SIMULATED. zs_view_load then takes it, and

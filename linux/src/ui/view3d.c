@@ -97,6 +97,9 @@ typedef struct {
     gboolean run_lit;
     /* A timeout that draws again after a skipped frame, or 0. */
     guint retry;
+    /* A timeout that looks for the end of the copy of a new scene into
+     * the GPU (zs_view_scene_pending), or 0. */
+    guint scene_poll;
     gboolean menu_open;
     gboolean part_picked;
     gboolean zoomed_at;
@@ -164,6 +167,22 @@ static void bench_start(View3d *v);
 static void compute_rings(View3d *v);
 static void fall_finish(View3d *v);
 static void set_cursor(View3d *v, const char *name);
+
+static void load_data(View3d *v);
+
+/* The new scene went in after the copy of its beads into the GPU: the
+ * selection, the lit layers, and the plates again, and a frame. */
+static gboolean poll_scene(gpointer data) {
+    View3d *v = data;
+    if (v->view && zs_view_scene_pending(v->view)) {
+        if (!zs_view_scene_poll(v->view)) return G_SOURCE_CONTINUE;
+        v->scene_poll = 0;
+        load_data(v);
+        return G_SOURCE_REMOVE;
+    }
+    v->scene_poll = 0;
+    return G_SOURCE_REMOVE;
+}
 
 static gboolean retry_frame(gpointer data) {
     View3d *v = data;
@@ -397,6 +416,9 @@ static void load_data(View3d *v) {
         g_warning("zslice: the 3D view did not load the toolpaths: %s", zg_status_text(rc));
         return;
     }
+    /* A large new scene: the view draws the old one until the copy of its
+     * beads into the GPU is done (poll_scene). */
+    if (zs_view_scene_pending(v->view) && !v->scene_poll) v->scene_poll = g_timeout_add(4, poll_scene, v);
     zg_bed_model_update(v->view, zg_model_core(v->model));
     /* The other plates of the set, in a row beside the active plate. */
     zs_set_view_sync(zg_model_plate_set(v->model), v->view);
@@ -2308,6 +2330,7 @@ static void view_free(gpointer data) {
     g_signal_handlers_disconnect_by_data(v->model, v);
     if (v->idle) g_source_remove(v->idle);
     if (v->retry) g_source_remove(v->retry);
+    if (v->scene_poll) g_source_remove(v->scene_poll);
     for (guint i = 0; v->hooks && i < v->hooks->len; i++)
         g_signal_handlers_disconnect_by_data(g_array_index(v->hooks, FrameHook, i).owner, v);
     if (v->hooks) g_array_free(v->hooks, TRUE);

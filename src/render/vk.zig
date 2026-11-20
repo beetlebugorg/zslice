@@ -344,6 +344,20 @@ pub const Renderer = struct {
     msaa_mem: c.VkDeviceMemory = null,
     msaa_view: c.VkImageView = null,
     instances: Buffer = .{},
+    /// The instance buffer of the next scene (see `beginInstances`): a
+    /// thread copies the beads into it while the frames draw the old
+    /// scene. `next_until` is the last frame that can read it (it was the
+    /// instance buffer before), and `retired` a buffer that frames can
+    /// still read until frame `retired_until`.
+    next_instances: Buffer = .{},
+    next_until: u64 = 0,
+    retired: Buffer = .{},
+    retired_until: u64 = 0,
+    upload: ?*Upload = null,
+    /// The frames sent to the GPU, and the frames that the GPU is done
+    /// with (the fence was signaled after them).
+    frames_sent: u64 = 0,
+    frames_done: u64 = 0,
     grid: Buffer = .{},
     /// The other plates of the row: their bead buffers, and the grid
     /// lines of their beds (Frame.plate_grid) with its generation.
@@ -553,11 +567,12 @@ pub const Renderer = struct {
 
     pub fn deinit(r: *Renderer) void {
         const d = r.d;
+        r.cancelInstances();
         if (r.device != null) _ = d.vkDeviceWaitIdle.?(r.device);
         r.destroySwapchain();
         r.destroyTarget();
         if (r.swapchain != null) d.vkDestroySwapchainKHR.?(r.device, r.swapchain, null);
-        for ([_]*Buffer{ &r.box_mesh, &r.box_index, &r.instances, &r.grid, &r.bed, &r.readback, &r.plate_grid }) |b| r.freeBuffer(b);
+        for ([_]*Buffer{ &r.box_mesh, &r.box_index, &r.instances, &r.next_instances, &r.retired, &r.grid, &r.bed, &r.readback, &r.plate_grid }) |b| r.freeBuffer(b);
         for (&r.plate_slots) |*sl| r.freeBuffer(&sl.buf);
         r.freeTexture();
         if (r.sampler != null) d.vkDestroySampler.?(r.device, r.sampler, null);
@@ -1103,6 +1118,77 @@ pub const Renderer = struct {
         }
     }
 
+    /// The copy of the instances of a next scene on a thread (see
+    /// `beginInstances`).
+    const Upload = struct {
+        thread: std.Thread = undefined,
+        done: std.atomic.Value(bool) = .init(false),
+        count: u32,
+
+        fn run(u: *Upload, dst: [*]u8, items: []const Instance, marks: []const Instance) void {
+            const a = std.mem.sliceAsBytes(items);
+            const b = std.mem.sliceAsBytes(marks);
+            @memcpy(dst[0..a.len], a);
+            @memcpy(dst[a.len..][0..b.len], b);
+            u.done.store(true, .release);
+        }
+    };
+
+    /// Starts a copy of the beads, then the marks, of a next scene into a
+    /// second instance buffer, on a thread. The frames still draw the
+    /// instances before; `swapInstances` puts the new ones in, with no
+    /// wait for the GPU. The caller keeps `items` and `marks` until then.
+    /// False if the buffer is not free yet: then use `setInstances`.
+    pub fn beginInstances(r: *Renderer, items: []const Instance, marks: []const Instance) Error!bool {
+        r.cancelInstances();
+        if (r.retired.buf != null and r.retired_until <= r.frames_done) r.freeBuffer(&r.retired);
+        if (r.next_instances.buf != null and r.next_until > r.frames_done) {
+            // A frame on the GPU can still read it: it goes when that
+            // frame is done.
+            if (r.retired.buf != null) return false;
+            r.retired = r.next_instances;
+            r.retired_until = r.next_until;
+            r.next_instances = .{};
+        }
+        const need = (items.len + marks.len + max_extras) * @sizeOf(Instance);
+        if (need > r.next_instances.size or r.next_instances.buf == null) try r.makeBuffer(&r.next_instances, need, c.VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
+        const u = std.heap.c_allocator.create(Upload) catch return error.OutOfMemory;
+        u.* = .{ .count = @intCast(items.len + marks.len) };
+        u.thread = std.Thread.spawn(.{}, Upload.run, .{ u, r.next_instances.map.?, items, marks }) catch {
+            std.heap.c_allocator.destroy(u);
+            return false;
+        };
+        r.upload = u;
+        return true;
+    }
+
+    /// True when the copy of `beginInstances` is done.
+    pub fn instancesReady(r: *const Renderer) bool {
+        const u = r.upload orelse return false;
+        return u.done.load(.acquire);
+    }
+
+    /// Puts in the instances of `beginInstances` (it waits for the copy).
+    /// The old buffer is the next one, after the frames that read it.
+    pub fn swapInstances(r: *Renderer) void {
+        const u = r.upload orelse return;
+        u.thread.join();
+        std.mem.swap(Buffer, &r.instances, &r.next_instances);
+        r.next_until = r.frames_sent;
+        r.instance_count = u.count;
+        r.cache_valid = false;
+        std.heap.c_allocator.destroy(u);
+        r.upload = null;
+    }
+
+    /// Stops the copy of `beginInstances`: the instances stay.
+    pub fn cancelInstances(r: *Renderer) void {
+        const u = r.upload orelse return;
+        u.thread.join();
+        std.heap.c_allocator.destroy(u);
+        r.upload = null;
+    }
+
     /// The count of the beads and the marks in the instances.
     pub fn instanceCount(r: *const Renderer) usize {
         return r.instance_count;
@@ -1593,6 +1679,7 @@ pub const Renderer = struct {
         const fw = d.vkWaitForFences.?(r.device, 1, &r.fence, c.VK_TRUE, 50 * std.time.ns_per_ms);
         if (fw == c.VK_TIMEOUT) return error.FrameBusy;
         try check(fw);
+        r.frames_done = r.frames_sent;
         var index: u32 = 0;
         const acq = d.vkAcquireNextImageKHR.?(r.device, r.swapchain, 2 * std.time.ns_per_ms, r.acquired, null, &index);
         if (acq == c.VK_TIMEOUT or acq == c.VK_NOT_READY) return error.FrameBusy;
@@ -1626,6 +1713,7 @@ pub const Renderer = struct {
             .signalSemaphoreCount = 1,
             .pSignalSemaphores = &r.rendered[index],
         }, r.fence));
+        r.frames_sent += 1;
         const pres = d.vkQueuePresentKHR.?(r.queue, &.{
             .sType = c.VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,
             .waitSemaphoreCount = 1,
@@ -1950,6 +2038,7 @@ pub const Renderer = struct {
     fn drawOffscreen(r: *Renderer, frame: Frame) Error!void {
         const d = r.d;
         try check(d.vkWaitForFences.?(r.device, 1, &r.fence, c.VK_TRUE, std.math.maxInt(u64)));
+        r.frames_done = r.frames_sent;
         if (r.stale or r.target_image == null) try r.makeTarget();
         try r.syncPlates(frame);
         try check(d.vkResetFences.?(r.device, 1, &r.fence));
@@ -1998,6 +2087,7 @@ pub const Renderer = struct {
             .commandBufferCount = 1,
             .pCommandBuffers = &cmd,
         }, r.fence));
+        r.frames_sent += 1;
         r.drawn = true;
     }
 };

@@ -363,6 +363,10 @@ pub const View = struct {
     /// slice and the simulated print of a slice, and the slices of other
     /// plates. A load of them takes them back.
     spares: [max_spares]?*View = @splat(null),
+    /// A scene that waits for the copy of its beads into the GPU (see
+    /// `uploadLater`). The view draws its old beads until `pollScene`
+    /// swaps it in.
+    pending: ?*View = null,
     /// A view of `buildScene` stops its build when this goes on.
     cancel: ?*const std.atomic.Value(bool) = null,
     /// The plates of the set (see plates.zig), in the row from left to
@@ -432,6 +436,7 @@ pub const View = struct {
 
     /// Frees the data of the view, not the view and its renderer.
     pub fn deinitData(v: *View) void {
+        v.dropPending();
         v.dropStage();
         for (&v.spares) |*sp| if (sp.*) |t| {
             freeLater(t);
@@ -592,6 +597,7 @@ pub const View = struct {
     /// The beads come from `buildBeads`. A load with the input of the
     /// beads that the view has (`scene_key`) keeps them.
     pub fn load(v: *View, app: *const app_mod.App) Error!void {
+        v.dropPending();
         try v.loadDecor(app);
         const src = app.sceneSource() orelse return v.loadEmpty();
         if (v.keepBeads(src)) return;
@@ -613,11 +619,15 @@ pub const View = struct {
         const src = app.sceneSource() orelse {
             // A plate with no slice yet: the beads of the view stay as a
             // spare, for a switch back.
+            v.dropPending();
             v.stashScene();
             return v.loadEmpty();
         };
-        if (v.keepBeads(src)) return;
         const key = sceneKey(src, v.mode);
+        // The scene of this input waits for its copy into the GPU.
+        if (v.pending) |t| if (t.scene_key == key) return;
+        v.dropPending();
+        if (v.keepBeads(src)) return;
         var found: ?*View = null;
         for (&v.spares) |*sp| if (sp.*) |t| if (t.scene_key == key) {
             found = t;
@@ -629,6 +639,7 @@ pub const View = struct {
         }
         const first_load = v.layer_end.items.len == 0;
         if (found) |t| {
+            if (v.uploadLater(t, first_load)) return;
             v.swapScene(t);
             v.keepSpare(t);
         } else {
@@ -636,12 +647,76 @@ pub const View = struct {
             if (v.scene_app != src.app) v.stashScene();
             try v.buildNow(src);
         }
-        // The spares of older slices of this app go.
-        for (&v.spares) |*sp| if (sp.*) |t| if (t.scene_app == src.app and t.scene_slice != src.slice) {
+        v.dropOldSpares();
+        try v.showBeads(first_load);
+    }
+
+    /// Drops the spares of older slices of the app of the beads.
+    fn dropOldSpares(v: *View) void {
+        for (&v.spares) |*sp| if (sp.*) |t| if (t.scene_app == v.scene_app and t.scene_slice != v.scene_slice) {
             freeLater(t);
             sp.* = null;
         };
-        try v.showBeads(first_load);
+    }
+
+    /// A scene of more instances than this goes to the GPU on a thread
+    /// (see `uploadLater`); a smaller one at once.
+    const upload_later_bytes = 2 << 20;
+
+    /// Starts the copy of the beads of scene t into the GPU on a thread
+    /// (Vulkan only), and keeps t as `pending`: the frames draw the old
+    /// beads until `pollScene` swaps t in. Six 3DBenchy copies held the
+    /// UI thread for 23 ms in the copy. False: the caller swaps it in now.
+    fn uploadLater(v: *View, t: *View, first_load: bool) bool {
+        if (frame_backend or v.headless) return false;
+        if ((t.beads.items.len + t.marks.items.len) * @sizeOf(vk.Instance) < upload_later_bytes) return false;
+        if (!(v.renderer.beginInstances(t.beads.items, t.marks.items) catch false)) return false;
+        v.pending = t;
+        // The camera of a first load moves now, as a load at once does:
+        // a plate sync after the load moves it with the world.
+        if (first_load) {
+            const home = v.home;
+            const extent = v.extent;
+            v.home = t.home;
+            v.extent = t.extent;
+            v.target = v.home;
+            v.reset();
+            v.home = home;
+            v.extent = extent;
+            v.layer = if (t.layer_end.items.len > 0) t.layer_end.items.len - 1 else 0;
+        }
+        return true;
+    }
+
+    /// True while a scene waits for the copy of its beads into the GPU.
+    pub fn scenePending(v: *const View) bool {
+        return v.pending != null;
+    }
+
+    /// Swaps in the scene that waits (see `uploadLater`) when the copy of
+    /// its beads is done. True if it did: the shell then applies the
+    /// selection and the other state of a load again (zs_view_load keeps
+    /// the beads).
+    pub fn pollScene(v: *View) Error!bool {
+        if (comptime frame_backend) return false;
+        const t = v.pending orelse return false;
+        if (!v.renderer.instancesReady()) return false;
+        v.pending = null;
+        v.renderer.swapInstances();
+        v.swapScene(t);
+        v.keepSpare(t);
+        v.dropOldSpares();
+        try v.beadsShown(false);
+        return true;
+    }
+
+    /// Drops the scene that waits for its copy: it stays as a spare.
+    fn dropPending(v: *View) void {
+        if (comptime frame_backend) return;
+        const t = v.pending orelse return;
+        v.renderer.cancelInstances();
+        v.pending = null;
+        v.keepSpare(t);
     }
 
     /// The parts of a load that do not come from the toolpaths: the bed,
@@ -1086,6 +1161,11 @@ pub const View = struct {
     /// GPU, and a first load moves the camera home.
     fn showBeads(v: *View, first_load: bool) Error!void {
         if (!v.headless) try v.renderer.setInstances(v.beads.items, v.marks.items);
+        try v.beadsShown(first_load);
+    }
+
+    /// `showBeads` after the beads are in the GPU.
+    fn beadsShown(v: *View, first_load: bool) Error!void {
         v.more.clearRetainingCapacity();
         v.clearPreview();
         // The light levels: only the frame backend draws them.
@@ -1256,6 +1336,7 @@ pub const View = struct {
 
     /// Clears the beads and the lists of a slice (for a G-code file).
     fn clearScene(v: *View) void {
+        v.dropPending();
         inline for (.{ &v.layer_end, &v.path_start, &v.layer_path_end, &v.outline_points, &v.outline_ends, &v.outline_layer_end, &v.pick_runs, &v.layer_boxes, &v.draw_chunks, &v.chunk_width, &v.draws, &v.mark_rings, &v.sup_pts, &v.sup_areas, &v.gap_beads, &v.more, &v.beads, &v.marks, &v.mark_layer_end, &v.bead_end, &v.bead_start, &v.bead_fan, &v.path_part, &v.bead_run, &v.bead_len, &v.run_width, &v.sim_beads, &v.bead_settle }) |l| l.clearRetainingCapacity();
         v.layer_key.clearRetainingCapacity();
         v.scene_key = 0;
@@ -1725,6 +1806,7 @@ pub const View = struct {
 
     /// Loads the scene of a full stage (`stageScene` returned true).
     pub fn commitScene(v: *View) (Error || error{InvalidScene})!void {
+        v.dropPending();
         const s = v.stage orelse return error.InvalidScene;
         if (s.next < s.n_copies) return error.InvalidScene;
         v.stage = null;

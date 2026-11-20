@@ -1390,6 +1390,14 @@ int zs_view_load(zs_view *view, const zs_app *app);
  * GPU, and keeps the beads before it for a switch between the slice and
  * the simulated print. Call it on the UI thread. */
 int zs_app_set_auto_scene(zs_app *app, int on);
+/* zs_view_load of a scene of the worker with many beads copies them into
+ * the GPU on a thread, and the view draws the old scene until the copy is
+ * done. zs_view_scene_pending is 1 while it waits. zs_view_scene_poll,
+ * before each frame, swaps the new scene in when the copy is done, and
+ * then returns 1: apply the selection and the other state of a load again
+ * (zs_view_load keeps the beads). */
+int zs_view_scene_poll(zs_view *view);
+int zs_view_scene_pending(const zs_view *view);
 /* Shows the layers from 0 to `layer`. */
 void zs_view_set_layer(zs_view *view, size_t layer);
 /* Shows the layers lo to hi (the layers under lo do not show, so the
