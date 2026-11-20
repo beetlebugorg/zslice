@@ -1164,9 +1164,84 @@ pub const View = struct {
         return .{ &v.layer_end, &v.path_start, &v.beads, &v.marks, &v.mark_layer_end, &v.bead_end, &v.bead_start, &v.bead_fan, &v.mark_rings, &v.layer_path_end, &v.outline_points, &v.outline_ends, &v.outline_layer_end, &v.lite.beads, &v.lite.layer_end[0], &v.lite.layer_end[1], &v.lite.layer_end[2], &v.path_part, &v.tower_beads, &v.tower_layer };
     }
 
+    /// The head of the pick index after the lists of a scene (see
+    /// `writeScene`). A view that reads the scene copies the index and
+    /// makes no index of its own. The web app reads a scene on its main
+    /// thread: the index of nine Benchies (800 000 beads) took 17 ms of
+    /// the 30 ms of readScene (node, zslice.wasm). A reader of an older
+    /// build reads only the lists of SceneHead.counts, so it ignores the
+    /// index. A scene with no index, or with an index of other
+    /// constants, gets a new index from `buildPickIndex`.
+    const PickTail = extern struct {
+        magic: u32 = pick_magic,
+        run: u32 = pick_run,
+        grow: f32 = pick_grow,
+        /// pick_runs, layer_boxes, run_width, draw_chunks, chunk_width.
+        counts: [5]u32,
+    };
+    const pick_magic: u32 = 0x316b6370; // "pck1"
+
+    fn pickLists(v: *View) struct {
+        *std.ArrayList(PickBox),
+        *std.ArrayList(PickBox),
+        *std.ArrayList(f32),
+        *std.ArrayList(PickBox),
+        *std.ArrayList(f32),
+    } {
+        return .{ &v.pick_runs, &v.layer_boxes, &v.run_width, &v.draw_chunks, &v.chunk_width };
+    }
+
+    /// Reads the pick index after the lists of a scene (`bytes` starts
+    /// after the lists). False if there is none, or if it does not fit
+    /// the beads and the layers of the view: the caller then makes the
+    /// index.
+    fn readPickTail(v: *View, bytes: []const u8) Error!bool {
+        if (bytes.len < @sizeOf(PickTail)) return false;
+        var tail: PickTail = undefined;
+        @memcpy(std.mem.asBytes(&tail), bytes[0..@sizeOf(PickTail)]);
+        if (tail.magic != pick_magic or tail.run != pick_run or tail.grow != pick_grow) return false;
+        var at: usize = std.mem.alignForward(usize, @sizeOf(PickTail), 8);
+        inline for (v.pickLists(), 0..) |list, k| {
+            const T = @typeInfo(@TypeOf(list.items)).pointer.child;
+            const n = tail.counts[k];
+            const len = @as(usize, n) * @sizeOf(T);
+            if (at + len > bytes.len) return false;
+            list.resize(gpa, n) catch return error.OutOfMemory;
+            @memcpy(std.mem.sliceAsBytes(list.items), bytes[at .. at + len]);
+            at += std.mem.alignForward(usize, len, 8);
+        }
+        return v.pickIndexFits();
+    }
+
+    /// True if the pick index fits the beads and the layers: each box
+    /// in the beads, the runs of each layer in its beads, and the chunks
+    /// over all beads. Then a pick and a draw list stay in the lists.
+    fn pickIndexFits(v: *const View) bool {
+        const n_beads = v.beads.items.len;
+        const runs = v.pick_runs.items;
+        if (v.layer_boxes.items.len != v.layer_end.items.len) return false;
+        if (v.run_width.items.len != runs.len or v.chunk_width.items.len != v.draw_chunks.items.len) return false;
+        for (runs) |r| if (r.first > r.end or r.end > n_beads) return false;
+        var bead: u32 = 0;
+        var run: u32 = 0;
+        for (v.layer_boxes.items, v.layer_end.items) |l, end| {
+            if (l.first != bead or l.end < run or l.end > runs.len or end < bead) return false;
+            for (runs[run..l.end]) |r| if (r.first < bead or r.end > end) return false;
+            bead = end;
+            run = l.end;
+        }
+        if (bead != n_beads and v.layer_end.items.len > 0) return false;
+        var chunk_end: u32 = 0;
+        for (v.draw_chunks.items) |c| {
+            if (c.first != chunk_end or c.end < c.first or c.end > n_beads) return false;
+            chunk_end = c.end;
+        }
+        return v.draw_chunks.items.len == 0 or chunk_end == n_beads;
+    }
+
     /// The place of each list of a scene in its bytes (see `writeScene`),
     /// and its head. error.InvalidScene if the bytes are too short.
-    fn sceneOffsets(bytes: []const u8) error{InvalidScene}!struct { head: SceneHead, at: [20]usize } {
+    fn sceneOffsets(bytes: []const u8) error{InvalidScene}!struct { head: SceneHead, at: [20]usize, end: usize } {
         if (bytes.len < @sizeOf(SceneHead)) return error.InvalidScene;
         var head: SceneHead = undefined;
         @memcpy(std.mem.asBytes(&head), bytes[0..@sizeOf(SceneHead)]);
@@ -1188,7 +1263,7 @@ pub const View = struct {
             if (at + len > bytes.len) return error.InvalidScene;
             at += std.mem.alignForward(usize, len, 8);
         }
-        return .{ .head = head, .at = out };
+        return .{ .head = head, .at = out, .end = at };
     }
 
     /// The loaded scene as bytes, for a view in another wasm instance (see
@@ -1212,6 +1287,17 @@ pub const View = struct {
             head.counts[k] = @intCast(list.items.len);
             size += std.mem.alignForward(usize, std.mem.sliceAsBytes(list.items).len, 8);
         }
+        // The pick index of the beads, after the lists (see PickTail), if
+        // it is of these beads.
+        var tail: PickTail = .{ .counts = undefined };
+        const with_tail = v.pickIndexFits();
+        if (with_tail) {
+            size += std.mem.alignForward(usize, @sizeOf(PickTail), 8);
+            inline for (v.pickLists(), 0..) |list, k| {
+                tail.counts[k] = @intCast(list.items.len);
+                size += std.mem.alignForward(usize, std.mem.sliceAsBytes(list.items).len, 8);
+            }
+        }
         const out = alloc.alloc(u8, size) catch return error.OutOfMemory;
         @memset(out, 0);
         @memcpy(out[0..@sizeOf(SceneHead)], std.mem.asBytes(&head));
@@ -1220,6 +1306,15 @@ pub const View = struct {
             const bytes = std.mem.sliceAsBytes(list.items);
             @memcpy(out[at .. at + bytes.len], bytes);
             at += std.mem.alignForward(usize, bytes.len, 8);
+        }
+        if (with_tail) {
+            @memcpy(out[at..][0..@sizeOf(PickTail)], std.mem.asBytes(&tail));
+            at += std.mem.alignForward(usize, @sizeOf(PickTail), 8);
+            inline for (v.pickLists()) |list| {
+                const bytes = std.mem.sliceAsBytes(list.items);
+                @memcpy(out[at .. at + bytes.len], bytes);
+                at += std.mem.alignForward(usize, bytes.len, 8);
+            }
         }
         return out;
     }
@@ -1255,10 +1350,10 @@ pub const View = struct {
         v.lite.level_start = head.lite_start;
         v.lite_gen = v.nextGen();
         try v.loadGrid(head.bed[0], head.bed[1]);
-        try v.renderer.setInstances(v.beads.items, v.marks.items);
+        if (!v.headless) try v.renderer.setInstances(v.beads.items, v.marks.items);
         v.more.clearRetainingCapacity();
         v.clearPreview();
-        try v.buildPickIndex(null);
+        if (!try v.readPickTail(bytes[@min(at, bytes.len)..])) try v.buildPickIndex(null);
         if (v.layer_end.items.len == 0) return;
         if (first_load) {
             v.reset();
@@ -2482,7 +2577,7 @@ pub const View = struct {
     /// The beads in one box of the pick index: first to end, and a box
     /// around them (mm) with room for a bead radius grown by `pick_grow`.
     /// For a layer box, `end` is the end of its runs in `pick_runs`.
-    pub const PickBox = struct { lo: [3]f32, hi: [3]f32, first: u32, end: u32 };
+    pub const PickBox = extern struct { lo: [3]f32, hi: [3]f32, first: u32, end: u32 };
 
     /// The largest `grow` of `rayHit` that the pick index covers.
     const pick_grow: f32 = 1.6;
@@ -5264,4 +5359,51 @@ test "minF and maxF give the values of @min and @max" {
             } else try std.testing.expect(r[0] == r[1]);
         }
     };
+}
+
+test "a scene has the pick index of its beads, and a scene with none gets one" {
+    const g = std.testing.allocator;
+    const mesh_mod = @import("../mesh.zig");
+    var b: mesh_mod.Builder = .init(g);
+    try mesh_mod.shapes.addBox(&b, 0, 0, 0, 30, 20, 6);
+    try mesh_mod.shapes.addBox(&b, 40, 0, 0, 50, 10, 3);
+    var mesh = try b.finish();
+    defer mesh.deinit(g);
+    var stl: std.Io.Writer.Allocating = .init(g);
+    defer stl.deinit();
+    try mesh.writeStl(&stl.writer);
+    const app = try app_mod.App.create(g, null, null);
+    defer app.destroy();
+    try app.loadStl("boxes.stl", stl.written());
+    try app.startSlice();
+    app.stopWorkerForTest();
+    var src: View = .{ .renderer = undefined, .headless = true, .width = 1, .height = 1 };
+    defer src.deinitData();
+    try src.load(app);
+    try std.testing.expect(src.pick_runs.items.len > 1 and src.draw_chunks.items.len > 1);
+    const bytes = try src.writeScene(g);
+    defer g.free(bytes);
+    const names = .{ "pick_runs", "layer_boxes", "run_width", "draw_chunks", "chunk_width" };
+    // The index of the scene: the same bytes as the index of the load.
+    var v: View = .{ .renderer = undefined, .headless = true, .width = 1, .height = 1 };
+    defer v.deinitData();
+    try v.readScene(bytes);
+    inline for (names) |name| try std.testing.expectEqualSlices(u8, std.mem.sliceAsBytes(@field(src, name).items), std.mem.sliceAsBytes(@field(v, name).items));
+    // A scene of an older build ends after the lists: a new index, the
+    // same again.
+    const lists_end = (try View.sceneOffsets(bytes)).end;
+    try std.testing.expect(lists_end < bytes.len);
+    var old: View = .{ .renderer = undefined, .headless = true, .width = 1, .height = 1 };
+    defer old.deinitData();
+    try old.readScene(bytes[0..lists_end]);
+    inline for (names) |name| try std.testing.expectEqualSlices(u8, std.mem.sliceAsBytes(@field(src, name).items), std.mem.sliceAsBytes(@field(old, name).items));
+    // An index that does not fit the beads: a new index.
+    const bad = try g.dupe(u8, bytes);
+    defer g.free(bad);
+    const run0 = lists_end + std.mem.alignForward(usize, @sizeOf(View.PickTail), 8);
+    std.mem.writeInt(u32, bad[run0 + 28 ..][0..4], 0xffff_ff00, .little);
+    var fixed: View = .{ .renderer = undefined, .headless = true, .width = 1, .height = 1 };
+    defer fixed.deinitData();
+    try fixed.readScene(bad);
+    inline for (names) |name| try std.testing.expectEqualSlices(u8, std.mem.sliceAsBytes(@field(src, name).items), std.mem.sliceAsBytes(@field(fixed, name).items));
 }
