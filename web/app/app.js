@@ -2022,8 +2022,10 @@ function onPreviewKey(e) {
     const hi = Math.max(keyRange.a, keyRange.b);
     // From the selected line: its body of its part; else all the layers.
     if (keyRange.path === undefined) keyRange.path = app.sel;
-    if (keyRange.path >= 0) view.lightConnected(keyRange.path, lo, hi);
-    else view.lightLayers(lo, hi);
+    if (keyRange.path >= 0) {
+      view.lightConnected(keyRange.path, lo, hi);
+      app.rangeLight = { path: keyRange.path, layer: view.pathLayer(keyRange.path), lo, hi };
+    } else view.lightLayers(lo, hi);
     rangeCard.show(lo, hi);
     requestFrame();
     e.preventDefault();
@@ -2422,6 +2424,7 @@ var rangeCard = new RangeCard({ // var: drawFrame can run before this line
   values: async (z, names) => (await client.call("valuesAt", { z, names })).at,
   search: (text, scope) => search.show(text, scope),
   close: () => {
+    app.rangeLight = null;
     view.lightLayers(-1);
     view.lightConnected(-1);
     requestFrame();
@@ -2455,6 +2458,16 @@ function layerUnder(d, px, py) {
   return l;
 }
 
+// A new scene (a slice, or the simulated print after it) clears the lit
+// body of a range: light it again from its start line, if that line is
+// still on its layer; else all the lines of the layers.
+view.onLoad = () => {
+  const r = app.rangeLight;
+  if (!r || !rangeCard.open) return;
+  if (r.path >= 0 && view.pathLayer(r.path) === r.layer) view.lightConnected(r.path, r.lo, r.hi);
+  else view.lightLayers(r.lo, r.hi);
+};
+
 const rangeDrag = {
   // A press: on a printed line, the start of a drag over layers.
   start(px, py) {
@@ -2479,6 +2492,7 @@ const rangeDrag = {
     // The body of the part of the line where the drag started, on these
     // layers: not every line of the layers.
     view.lightConnected(d.path, d.layer, l);
+    app.rangeLight = { path: d.path, layer: d.layer, lo: d.layer, hi: l };
     requestFrame();
   },
   end(d) {

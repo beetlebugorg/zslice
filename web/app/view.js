@@ -43,6 +43,9 @@ export class View3D {
     const rc = this.w.withBytes(bytes, (p, n) => this.x.zs_view_scene_read(this.v, p, n));
     if (rc !== 0) throw new Error(`zslice: the scene did not load (${statusText(rc)})`);
     this.loaded = true;
+    // A load clears the lights of the view (the lit body of a range): the
+    // app lights them again.
+    this.onLoad?.();
   }
 
   // The bed model of model i of the printer library `lib` (a pointer in
