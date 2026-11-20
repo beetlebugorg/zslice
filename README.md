@@ -52,6 +52,14 @@ Click an overhang to put support under it. Drag the dots of tree support to move
 
 <br clear="left">
 
+### Colors and two nozzles
+
+<img align="right" width="360" src="docs/img/colors.webp" alt="A 3DBenchy in grey with its support in red: the support prints with a filament of its own">
+
+Give a part, some layers, or a painted face a filament of its own. Print the support in its own filament, so it breaks away. Take the filaments that a printer has loaded with one click. On a printer with two nozzles, such as the Bambu Lab X2D, each filament has its nozzle. See [Print in colors](docs/user/filaments.md).
+
+<br clear="right">
+
 All features: [The best features](docs/user/features.md).
 
 ## Start
