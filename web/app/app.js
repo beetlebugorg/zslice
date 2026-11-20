@@ -2020,7 +2020,10 @@ function onPreviewKey(e) {
     keyRange.b = Math.min(layers.count - 1, Math.max(0, keyRange.b + (e.key === "K" ? 1 : -1)));
     const lo = Math.min(keyRange.a, keyRange.b);
     const hi = Math.max(keyRange.a, keyRange.b);
-    view.lightLayers(lo, hi);
+    // From the selected line: its body of its part; else all the layers.
+    if (keyRange.path === undefined) keyRange.path = app.sel;
+    if (keyRange.path >= 0) view.lightConnected(keyRange.path, lo, hi);
+    else view.lightLayers(lo, hi);
     rangeCard.show(lo, hi);
     requestFrame();
     e.preventDefault();
@@ -2420,6 +2423,7 @@ var rangeCard = new RangeCard({ // var: drawFrame can run before this line
   search: (text, scope) => search.show(text, scope),
   close: () => {
     view.lightLayers(-1);
+    view.lightConnected(-1);
     requestFrame();
   },
 });
@@ -2455,10 +2459,11 @@ const rangeDrag = {
   // A press: on a printed line, the start of a drag over layers.
   start(px, py) {
     if (!app.layers || !hitAt(px, py)) return null;
-    const layer = view.pathLayer(view.hit[0]);
+    const path = view.hit[0];
+    const layer = view.pathLayer(path);
     const c = view.w.cell;
     if (!view.x.zs_view_surface_point(view.v, px, py, 0, c)) return null;
-    return { layer, cur: layer, pt: [view.w.f64(c), view.w.f64(c + 8)], lit: false };
+    return { path, layer, cur: layer, pt: [view.w.f64(c), view.w.f64(c + 8)], lit: false };
   },
   move(d, px, py) {
     const l = layerUnder(d, px, py);
@@ -2471,7 +2476,9 @@ const rangeDrag = {
     }
     d.lit = true;
     d.cur = l;
-    view.lightLayers(d.layer, l);
+    // The body of the part of the line where the drag started, on these
+    // layers: not every line of the layers.
+    view.lightConnected(d.path, d.layer, l);
     requestFrame();
   },
   end(d) {

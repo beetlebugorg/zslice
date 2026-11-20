@@ -636,6 +636,20 @@ export fn zs_view_pick_segment(view: ?*View, px: f32, py: f32, seg: ?*usize) usi
 }
 
 /// The other paths of a multiple selection (yellow), or none (n = 0).
+/// Lights the paths of layers lo to hi joined to path `start` (its body of
+/// its part, see View.connectedPaths) as a multiple selection, and gives
+/// their count in `count` (may be NULL).
+export fn zs_view_light_connected(view: ?*View, start: usize, lo: usize, hi: usize, count: ?*usize) c_int {
+    if (!render_on) return @intFromEnum(Status.not_supported);
+    const v = view orelse return @intFromEnum(Status.invalid_argument);
+    var list: std.ArrayList(usize) = .empty;
+    defer list.deinit(View.gpa);
+    v.connectedPaths(start, lo, hi, &list) catch |e| return status(e);
+    v.setMore(list.items) catch |e| return status(e);
+    if (count) |cn| cn.* = list.items.len;
+    return ok;
+}
+
 export fn zs_view_highlight_more(view: ?*View, paths: ?[*]const usize, n: usize) c_int {
     if (!render_on) return @intFromEnum(Status.not_supported);
     const v = view orelse return @intFromEnum(Status.invalid_argument);

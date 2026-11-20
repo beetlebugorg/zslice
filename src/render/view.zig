@@ -388,7 +388,7 @@ pub const View = struct {
     pub const Touch = struct { id: i64 = -1, x: f32 = 0, y: f32 = 0 };
     pub const TouchAction = enum(c_int) { down = 0, move = 1, up = 2, cancel = 3 };
 
-    const gpa = if (is_web) (if (@import("../parallel.zig").wasm_pool) @import("../wasm_heap.zig").allocator else std.heap.wasm_allocator) else std.heap.c_allocator;
+    pub const gpa = if (is_web) (if (@import("../parallel.zig").wasm_pool) @import("../wasm_heap.zig").allocator else std.heap.wasm_allocator) else std.heap.c_allocator;
 
     pub fn create(surface: Surface, width: u32, height: u32) Error!*View {
         const r = try vk.Renderer.init(surface, width, height);
@@ -2773,6 +2773,104 @@ pub const View = struct {
             if (v.bead_end.items[mid] < t) lo = mid + 1 else hi = mid;
         }
         return v.pathOfBead(@min(lo, n - 1));
+    }
+
+    /// The paths of layers lo to hi that are joined to path `start`, as the
+    /// smart select of the Paint tool joins faces: on the layer of `start`,
+    /// the paths of its part whose boxes touch it, or touch such a path;
+    /// on each layer above and under it, the paths of its part over or
+    /// under the joined paths of the layer next to it. So a drag over
+    /// layers lights one body of one part, not the whole plate. In
+    /// `out` (cleared first).
+    pub fn connectedPaths(v: *const View, start: usize, lo_in: usize, hi_in: usize, out: *std.ArrayList(usize)) Error!void {
+        out.clearRetainingCapacity();
+        const ends = v.layer_path_end.items;
+        if (ends.len == 0 or start + 1 >= v.path_start.items.len) return;
+        const lo = @min(lo_in, hi_in);
+        const hi = @min(@max(lo_in, hi_in), ends.len - 1);
+        // The layer of `start`.
+        var ls: usize = 0;
+        while (ls < ends.len and ends[ls] <= start) ls += 1;
+        if (ls >= ends.len) return;
+        const part: ?u32 = if (start < v.path_part.items.len) v.path_part.items[start] else null;
+        const Box = [4]f32;
+        const margin: f32 = 0.3;
+        const boxOf = struct {
+            fn f(vv: *const View, p: usize) Box {
+                var b: Box = .{ std.math.inf(f32), std.math.inf(f32), -std.math.inf(f32), -std.math.inf(f32) };
+                for (vv.beads.items[vv.path_start.items[p]..vv.path_start.items[p + 1]]) |q| {
+                    const r = 0.5 * q.w;
+                    b[0] = @min(b[0], @min(q.ax, q.bx) - r);
+                    b[1] = @min(b[1], @min(q.ay, q.by) - r);
+                    b[2] = @max(b[2], @max(q.ax, q.bx) + r);
+                    b[3] = @max(b[3], @max(q.ay, q.by) + r);
+                }
+                return b;
+            }
+        }.f;
+        const overlaps = struct {
+            fn f(a: Box, b: Box, m: f32) bool {
+                return a[0] - m <= b[2] and b[0] - m <= a[2] and a[1] - m <= b[3] and b[1] - m <= a[3];
+            }
+        }.f;
+        const samePart = struct {
+            fn f(vv: *const View, p: usize, pt: ?u32) bool {
+                const want = pt orelse return true;
+                return p < vv.path_part.items.len and vv.path_part.items[p] == want;
+            }
+        }.f;
+        // The joined paths of a layer, from the boxes of the layer next to
+        // it (or from `start`), then grown inside the layer.
+        var prev: std.ArrayList(Box) = .empty;
+        defer prev.deinit(gpa);
+        var cur: std.ArrayList(Box) = .empty;
+        defer cur.deinit(gpa);
+        var taken: std.ArrayList(bool) = .empty;
+        defer taken.deinit(gpa);
+        const Dir = struct { from: usize, to: usize, up: bool };
+        for ([_]Dir{ .{ .from = ls, .to = hi, .up = true }, .{ .from = ls, .to = lo, .up = false } }) |dir| {
+            prev.clearRetainingCapacity();
+            try prev.append(gpa, boxOf(v, start));
+            var l = dir.from;
+            while (true) {
+                const p0: usize = if (l == 0) 0 else ends[l - 1];
+                const p1: usize = ends[l];
+                taken.clearRetainingCapacity();
+                try taken.appendNTimes(gpa, false, p1 - p0);
+                cur.clearRetainingCapacity();
+                // Seeds: the paths that touch the boxes of the layer before.
+                for (p0..p1) |p| {
+                    if (!samePart(v, p, part)) continue;
+                    const b = boxOf(v, p);
+                    for (prev.items) |q| if (overlaps(b, q, margin)) {
+                        taken.items[p - p0] = true;
+                        try cur.append(gpa, b);
+                        break;
+                    };
+                }
+                // Grow inside the layer.
+                var grew = true;
+                while (grew) {
+                    grew = false;
+                    for (p0..p1) |p| {
+                        if (taken.items[p - p0] or !samePart(v, p, part)) continue;
+                        const b = boxOf(v, p);
+                        for (cur.items) |q| if (overlaps(b, q, margin)) {
+                            taken.items[p - p0] = true;
+                            try cur.append(gpa, b);
+                            grew = true;
+                            break;
+                        };
+                    }
+                }
+                if (cur.items.len == 0) break;
+                // The start layer once (on the way up).
+                if (dir.up or l != ls) for (p0..p1) |p| if (taken.items[p - p0]) try out.append(gpa, p);
+                std.mem.swap(std.ArrayList(Box), &prev, &cur);
+                if (l == dir.to) break;
+                l = if (dir.up) l + 1 else l - 1;
+            }
+        }
     }
 
     /// The other paths of a multiple selection: yellow, as the highlighted

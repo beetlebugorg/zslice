@@ -186,6 +186,20 @@ export class View3D {
     }
   }
 
+  // Lights the paths of layers lo to hi joined to path `start` (its body of
+  // its part, zs_view_light_connected), as the smart select of the Paint
+  // tool; start < 0: none. Returns the count of paths.
+  lightConnected(start, lo, hi) {
+    this.x.zs_view_light_layers(this.v, 1, 0);
+    if (start < 0) {
+      this.x.zs_view_highlight_more(this.v, 0, 0);
+      return 0;
+    }
+    const c = this.w.cell;
+    if (this.x.zs_view_light_connected(this.v, start, Math.min(lo, hi), Math.max(lo, hi), c) !== 0) return 0;
+    return this.w.u32(c);
+  }
+
   // Lights the layers lo to hi as a selection (a drag of the Select tool),
   // or none (lo < 0). The other beads are ghosts.
   lightLayers(lo, hi) {
