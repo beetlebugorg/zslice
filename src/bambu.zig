@@ -62,7 +62,25 @@ pub const PlateInfo = struct {
     bed_type: []const u8 = "",
     nozzle_type: []const u8 = "hardened_steel",
     nozzle_flow: []const u8 = "Standard",
+    /// The extruder types, the default volume types (";" between nozzles),
+    /// and the extruder variant lists ("|" between nozzles) of the model
+    /// (printers.Bambu).
+    extruder_types: []const u8 = "Direct Drive",
+    default_volumes: []const u8 = "Standard",
+    variants: []const u8 = "",
 };
+
+/// A JSON list of the parts of `text` between `sep`.
+fn jsonList(w: *std.Io.Writer, key: []const u8, text: []const u8, sep: u8, comma: bool) std.Io.Writer.Error!void {
+    try w.print("    \"{s}\": [", .{key});
+    var it = std.mem.splitScalar(u8, text, sep);
+    var first = true;
+    while (it.next()) |part| {
+        try w.print("{s}\"{s}\"", .{ if (first) "" else ", ", part });
+        first = false;
+    }
+    try w.print("]{s}\n", .{if (comma) "," else ""});
+}
 
 /// Metadata/project_settings.config: the settings of Bambu Studio that the
 /// printer reads to check the file (the model, the nozzles, the plate, and
@@ -89,6 +107,9 @@ fn projectSettings(a: Allocator, info: PlateInfo) Allocator.Error![]u8 {
         list(ww, "nozzle_diameter", n, ds, true) catch |e| break :blk e;
         list(ww, "nozzle_type", n, info.nozzle_type, true) catch |e| break :blk e;
         list(ww, "nozzle_volume_type", n, info.nozzle_flow, true) catch |e| break :blk e;
+        jsonList(ww, "extruder_type", info.extruder_types, ';', true) catch |e| break :blk e;
+        jsonList(ww, "default_nozzle_volume_type", info.default_volumes, ';', true) catch |e| break :blk e;
+        if (info.variants.len > 0) jsonList(ww, "extruder_variant_list", info.variants, '|', true) catch |e| break :blk e;
         ww.print("    \"curr_bed_type\": \"{s}\",\n", .{info.bed_type}) catch |e| break :blk e;
         // The filaments by id, from 1 to the last of the print.
         var last: u32 = 1;
@@ -183,7 +204,24 @@ fn sliceInfo(a: Allocator, info: PlateInfo) Allocator.Error![]u8 {
     ww.print("    <metadata key=\"prediction\" value=\"{d}\"/>\n", .{@as(i64, @intFromFloat(@round(@max(0, info.seconds))))}) catch return error.OutOfMemory;
     ww.print("    <metadata key=\"weight\" value=\"{d:.2}\"/>\n", .{@max(0, info.grams)}) catch return error.OutOfMemory;
     if (info.model_id.len > 0) ww.print("    <metadata key=\"printer_model_id\" value=\"{s}\"/>\n", .{try xmlText(a, info.model_id)}) catch return error.OutOfMemory;
-    if (info.nozzle > 0) ww.print("    <metadata key=\"nozzle_diameters\" value=\"{d}\"/>\n", .{info.nozzle}) catch return error.OutOfMemory;
+    // The lists of each extruder: types (0 direct drive, 1 Bowden), volume
+    // types (0 standard, 1 high flow), diameters ("0.4,0.4").
+    const n_noz: u32 = @max(info.nozzles, 1);
+    {
+        ww.writeAll("    <metadata key=\"extruder_type\" value=\"") catch return error.OutOfMemory;
+        var it = std.mem.splitScalar(u8, info.extruder_types, ';');
+        var k: u32 = 0;
+        while (it.next()) |t| : (k += 1) ww.print("{s}{d}", .{ if (k > 0) " " else "", @intFromBool(std.mem.eql(u8, t, "Bowden")) }) catch return error.OutOfMemory;
+        ww.writeAll("\"/>\n    <metadata key=\"nozzle_volume_type\" value=\"") catch return error.OutOfMemory;
+        const flow: u32 = @intFromBool(std.mem.eql(u8, info.nozzle_flow, "High Flow"));
+        for (0..n_noz) |j| ww.print("{s}{d}", .{ if (j > 0) " " else "", flow }) catch return error.OutOfMemory;
+        ww.writeAll("\"/>\n") catch return error.OutOfMemory;
+    }
+    if (info.nozzle > 0) {
+        ww.writeAll("    <metadata key=\"nozzle_diameters\" value=\"") catch return error.OutOfMemory;
+        for (0..n_noz) |j| ww.print("{s}{d}", .{ if (j > 0) "," else "", info.nozzle }) catch return error.OutOfMemory;
+        ww.writeAll("\"/>\n") catch return error.OutOfMemory;
+    }
     // The plate keys of Bambu Studio (bbs_3mf.cpp): no time lapse, all in
     // the bed, and no labels of objects (zslice writes no EXCLUDE_OBJECT).
     ww.writeAll("    <metadata key=\"timelapse_type\" value=\"0\"/>\n    <metadata key=\"outside\" value=\"false\"/>\n") catch return error.OutOfMemory;
@@ -654,11 +692,16 @@ test "bambu: project_settings.config names the model, the nozzles, the plate, an
         .{ .id = 1, .kind = "PLA", .color = "#898989", .meters = 1, .grams = 3 },
         .{ .id = 2, .kind = "PETG", .color = "#161616", .meters = 1, .grams = 3, .nozzle = 1 },
     };
-    const bytes = try gcode3mfInfo(gpa, "G28\n", "p", .{ .filaments = &fils, .nozzles = 2, .nozzle = 0.4, .printer_model = "Bambu Lab X2D", .bed_type = "Textured PEI Plate" });
+    const bytes = try gcode3mfInfo(gpa, "G28\n", "p", .{ .filaments = &fils, .nozzles = 2, .nozzle = 0.4, .printer_model = "Bambu Lab X2D", .bed_type = "Textured PEI Plate", .extruder_types = "Direct Drive;Bowden", .default_volumes = "Standard;Standard", .variants = "Direct Drive Standard|Bowden Standard" });
     defer gpa.free(bytes);
     const entries = try zipfile.readAll(gpa, bytes);
     defer zipfile.freeAll(gpa, entries);
     var found = false;
+    for (entries) |e| if (std.mem.eql(u8, e.name, "Metadata/slice_info.config")) {
+        try std.testing.expect(std.mem.indexOf(u8, e.data, "key=\"extruder_type\" value=\"0 1\"") != null);
+        try std.testing.expect(std.mem.indexOf(u8, e.data, "key=\"nozzle_volume_type\" value=\"0 0\"") != null);
+        try std.testing.expect(std.mem.indexOf(u8, e.data, "key=\"nozzle_diameters\" value=\"0.4,0.4\"") != null);
+    };
     for (entries) |e| if (std.mem.eql(u8, e.name, "Metadata/project_settings.config")) {
         found = true;
         const parsed = try std.json.parseFromSlice(std.json.Value, gpa, e.data, .{});
@@ -670,6 +713,8 @@ test "bambu: project_settings.config names the model, the nozzles, the plate, an
         try std.testing.expectEqualStrings("hardened_steel", o.get("nozzle_type").?.array.items[1].string);
         try std.testing.expectEqualStrings("2", o.get("filament_map").?.array.items[1].string);
         try std.testing.expectEqualStrings("PETG", o.get("filament_type").?.array.items[1].string);
+        try std.testing.expectEqualStrings("Bowden", o.get("extruder_type").?.array.items[1].string);
+        try std.testing.expectEqual(@as(usize, 2), o.get("nozzle_volume_type").?.array.items.len);
     };
     try std.testing.expect(found);
     // A printer of no known Bambu model: no such file.

@@ -462,6 +462,12 @@ pub const Bambu = struct {
     min_x: [2]f64 = .{ 0, 0 },
     max_x: [2]f64 = .{ 0, 0 },
     height: [2]f64 = .{ 0, 0 },
+    /// The extruder types and the default nozzle volume types (";"
+    /// between nozzles: "Direct Drive;Bowden"), and the extruder variant
+    /// lists ("|" between nozzles), as Bambu Studio names them.
+    types: []const u8 = "Direct Drive",
+    volumes: []const u8 = "Standard",
+    variants: []const u8 = "",
 };
 
 const bambu_text = @embedFile("printers/bambu.txt");
@@ -487,6 +493,9 @@ pub fn bambu(id: []const u8) ?Bambu {
             b.max_x[k] = v[1];
             b.height[k] = v[2];
         }
+        b.types = f.next() orelse b.types;
+        b.volumes = f.next() orelse b.volumes;
+        b.variants = f.next() orelse "";
         return b;
     }
     return null;
@@ -499,6 +508,8 @@ test "printers: the facts of the Bambu Lab X2D and of a printer with one nozzle"
     try std.testing.expectEqual(@as(u32, 2), x2d.nozzles);
     try std.testing.expectEqual(@as(f64, 20.5), x2d.min_x[1]);
     try std.testing.expectEqual(@as(f64, 256), x2d.height[1]);
+    try std.testing.expectEqualStrings("Direct Drive;Bowden", x2d.types);
+    try std.testing.expect(std.mem.startsWith(u8, x2d.variants, "Direct Drive Standard,"));
     const h2d = bambu("bambu-lab-h2d").?;
     try std.testing.expectEqual(@as(f64, 325), h2d.max_x[0]);
     const p1s = bambu("bambu-lab-p1s").?;

@@ -14,7 +14,8 @@ Each row (tab separated): B, the model id of the printer library
 model name ("Bambu Lab X2D"), the number of nozzles, then for each nozzle
 the least x, the most x, and the height that it reaches (mm; empty for a
 printer with one nozzle: the bed), the extruder types, and the default
-nozzle volume types (";" between nozzles).
+nozzle volume types (";" between nozzles), and the extruder variant
+lists ("|" between nozzles).
 
 SPDX-License-Identifier: AGPL-3.0-or-later
 """
@@ -70,7 +71,8 @@ def main():
                 reach += ["", "", ""]
         types = res(preset, "extruder_type") or ["Direct Drive"]
         volumes = res(preset, "default_nozzle_volume_type") or ["Standard"]
-        row = ["B", lib_id, j["model_id"], name, str(n)] + reach + [";".join(types[:n]), ";".join(volumes[:n])]
+        variants = res(preset, "extruder_variant_list") or [t + " Standard" for t in types[:n]]
+        row = ["B", lib_id, j["model_id"], name, str(n)] + reach + [";".join(types[:n]), ";".join(volumes[:n]), "|".join(variants[:n])]
         print("\t".join(row))
 
 

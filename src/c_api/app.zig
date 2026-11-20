@@ -599,7 +599,9 @@ fn bambuFileOf(app: *const App, g: []const u8, title: ?[*:0]const u8, out: ?*?[*
     const bytes = zs.bambu.gcode3mfInfo(gpa, g, if (title) |t| std.mem.span(t) else "zslice", .{
         .filaments = list[0..n],
         .seconds = st.print_time_s,
-        .nozzles = m.nozzles,
+        // The hotends of the model (a profile saved before zslice knew
+        // two nozzles says 1): the printer refuses a file of another count.
+        .nozzles = if (zs.printers.bambu(m.model)) |b| @max(b.nozzles, m.nozzles) else m.nozzles,
         .model_id = if (zs.printers.bambu(m.model)) |b| b.code else "",
         .nozzle = m.nozzle_diameter,
         .support_used = app.settings.project.support != .off,
@@ -607,6 +609,9 @@ fn bambuFileOf(app: *const App, g: []const u8, title: ?[*:0]const u8, out: ?*?[*
         .bed_type = m.bed_type.studioName(),
         .nozzle_type = @tagName(m.nozzle_type),
         .nozzle_flow = if (m.nozzle_flow == .high_flow) "High Flow" else "Standard",
+        .extruder_types = if (zs.printers.bambu(m.model)) |b| b.types else "Direct Drive",
+        .default_volumes = if (zs.printers.bambu(m.model)) |b| b.volumes else "Standard",
+        .variants = if (zs.printers.bambu(m.model)) |b| b.variants else "",
     }) catch return @intFromEnum(Status.out_of_memory);
     o.* = bytes.ptr;
     l.* = bytes.len;
