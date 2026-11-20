@@ -76,6 +76,13 @@ typedef struct {
 typedef void (*ZgDeckFn)(GPtrArray *printers, const char *error, gpointer data);
 void zg_link_deck_printers(const ZgPrinter *p, GCancellable *cancel, ZgDeckFn fn, gpointer data);
 
+/* The spools that a printdeck printer has loaded: GET
+ * <printer>/api/plugin/printdeck with the key, with no redirects (read
+ * the body with deck-filaments.h). fn gets the body, or an error. After a
+ * cancel, fn gets no call. */
+typedef void (*ZgLoadedFn)(const char *body, gsize len, const char *error, gpointer data);
+void zg_link_loaded_filaments(const ZgPrinter *p, GCancellable *cancel, ZgLoadedFn fn, gpointer data);
+
 /* Wraps signed G-code in another file (a .gcode.3mf of a Bambu Lab
  * printer), or returns NULL on an error. */
 typedef GBytes *(*ZgWrapFn)(GBytes *signed_gcode, gpointer data);

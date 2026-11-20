@@ -97,6 +97,7 @@ executable('zslice-gtk',
   'src/net/discovery.c',
   'src/net/project-source.c',
   'src/net/key-header.c',
+  'src/net/deck-filaments.c',
   core[1], core[2],
   link_with: core[0],
   c_args: ['-DZG_VERSION="' + meson.project_version() + '"',
@@ -115,6 +116,10 @@ test('key header', executable('key-header-test', 'tests/key-header-test.c', 'src
 test('deck target', executable('deck-target-test', 'tests/deck-target-test.c', 'src/net/printer-link.c', 'src/net/key-header.c',
                                'src/net/signing.c', 'src/prefs/printers.c', core[1], core[2], link_with: core[0],
                                dependencies: [gtk_dep, thread_dep, m_dep, soup_dep, json_dep]))
+# The nozzle codes and the loaded filaments of a printdeck printer: pure
+# logic, with no network and no core.
+test('deck filaments', executable('deck-filaments-test', 'tests/deck-filaments-test.c', 'src/net/deck-filaments.c',
+                                  dependencies: [json_dep]))
 test('bambu pin', executable('bambu-pin-test', 'tests/bambu-pin-test.c', 'src/net/bambu-link.c', 'src/prefs/printers.c',
                              core[1], core[2], link_with: core[0],
                              dependencies: [gtk_dep, thread_dep, m_dep]))

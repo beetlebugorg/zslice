@@ -4,6 +4,8 @@
  */
 #include "filaments.h"
 
+#include "../net/deck-filaments.h"
+#include "../net/printer-link.h"
 #include "../prefs/printers.h"
 
 #include <string.h>
@@ -178,6 +180,11 @@ struct Button {
     ZgModel *model;
     GtkWidget *button, *dots, *label;
     GtkWidget *popover, *head, *list, *add, *note;
+    /* "Use the filaments of <printer>" (a printdeck printer), and the
+     * result of the last use. */
+    GtkWidget *use, *use_result;
+    GCancellable *cancel;
+    gboolean reading;
     GPtrArray *rows; /* Row */
     gboolean two;    /* the rows have a nozzle choice */
     gboolean filling;
@@ -421,6 +428,15 @@ static void update_list(Button *b) {
     g_string_free(head, TRUE);
     gtk_widget_set_visible(b->add, n < MAX_FILAMENTS);
 
+    ZgPrinter *pr = zg_printers_current();
+    gtk_widget_set_visible(b->use, pr->kind == ZG_LINK_PRINTDECK);
+    gtk_widget_set_visible(b->use_result, pr->kind == ZG_LINK_PRINTDECK && gtk_label_get_text(GTK_LABEL(b->use_result))[0]);
+    if (!b->reading) {
+        char *use = g_strdup_printf("Use the filaments of %s", pr->name);
+        gtk_button_set_label(GTK_BUTTON(b->use), use);
+        g_free(use);
+    }
+
     char *change = zg_model_get(b->model, "machine.filament_change");
     if (strcmp(change, "tool") == 0) {
         char *note = g_strdup_printf("%s changes the filament by itself. Add the filaments it has, then give a part or layers a filament.",
@@ -431,6 +447,69 @@ static void update_list(Button *b) {
         gtk_label_set_text(GTK_LABEL(b->note), "Add a filament to print in more colors: the print pauses at each change.");
     }
     g_free(change);
+}
+
+/* ---- the filaments of a printdeck printer ---- */
+
+/* A value of a filament from the printer: a value that the core refuses
+ * (a material that zslice does not know) leaves the old value. */
+static void set_quiet(Button *b, size_t i, const char *name, const char *value) {
+    zg_model_filament_set(b->model, i, name, value, NULL);
+}
+
+/* Makes the filaments of the plate the spools of the printer: the same
+ * count, then the material, the color, and the nozzle of each, in the
+ * order of the printer. Then the nozzle of the printer. */
+static void apply_loaded(Button *b, const ZgDeckFilaments *d, gboolean two) {
+    size_t want = d->use->len;
+    size_t have = zs_app_filament_count(zg_model_core(b->model));
+    while (have < want && zg_model_filament_add(b->model) >= 0) have++;
+    while (have > want && zg_model_filament_remove(b->model, have - 1)) have--;
+    for (size_t k = 0; k < MIN(have, want); k++) {
+        const ZgSpool *s = g_ptr_array_index(d->use, k);
+        set_quiet(b, k, "filament.material", s->material);
+        if (s->color) set_quiet(b, k, "filament.color", s->color);
+        if (two) set_quiet(b, k, "filament.nozzle", s->aux ? "1" : "0");
+    }
+    if (d->nozzle_type) {
+        zg_model_set(b->model, "machine.nozzle_type", d->nozzle_type, NULL);
+        zg_model_set(b->model, "machine.nozzle_flow", d->nozzle_flow, NULL);
+    }
+}
+
+static void on_loaded(const char *body, gsize len, const char *error, gpointer data) {
+    Button *b = data;
+    b->reading = FALSE;
+    gtk_widget_set_sensitive(b->use, TRUE);
+    const char *name = zg_printers_current()->name;
+    char *message = NULL;
+    if (error) {
+        message = g_strdup(error);
+    } else {
+        gboolean two = two_nozzles(b->model);
+        char *why = NULL;
+        ZgDeckFilaments *d = zg_deck_filaments_parse(body, (gssize)len, two, name, &why);
+        if (d) {
+            apply_loaded(b, d, two);
+            message = zg_deck_filaments_message(d, two, name);
+            zg_deck_filaments_free(d);
+        } else {
+            message = why;
+        }
+    }
+    gtk_label_set_text(GTK_LABEL(b->use_result), message);
+    g_free(message);
+    update_list(b);
+}
+
+static void on_use(GtkButton *button, gpointer data) {
+    Button *b = data;
+    if (b->reading) return;
+    b->reading = TRUE;
+    gtk_widget_set_sensitive(b->use, FALSE);
+    gtk_button_set_label(GTK_BUTTON(b->use), "Reading the printer\u2026");
+    gtk_label_set_text(GTK_LABEL(b->use_result), "");
+    zg_link_loaded_filaments(zg_printers_current(), b->cancel, on_loaded, b);
 }
 
 static void redraw(GtkWidget *owner) {
@@ -445,6 +524,8 @@ static void on_popover_show(GtkWidget *popover, gpointer data) {
 
 static void button_free(gpointer data) {
     Button *b = data;
+    g_cancellable_cancel(b->cancel);
+    g_object_unref(b->cancel);
     g_ptr_array_unref(b->rows);
     g_free(b);
 }
@@ -456,6 +537,8 @@ static gboolean test_hook(gpointer data) {
     size_t want = (size_t)g_ascii_strtoull(g_getenv("ZSLICE_FILAMENTS"), NULL, 10);
     while (zs_app_filament_count(zg_model_core(b->model)) < want && zg_model_filament_add(b->model) >= 0) {}
     gtk_menu_button_popup(GTK_MENU_BUTTON(b->button));
+    /* ZSLICE_FILAMENTS_USE=1: then "Use the filaments of <printer>". */
+    if (g_getenv("ZSLICE_FILAMENTS_USE") && gtk_widget_get_visible(b->use)) on_use(GTK_BUTTON(b->use), b);
     return G_SOURCE_REMOVE;
 }
 
@@ -463,6 +546,7 @@ GtkWidget *zg_filament_button_new(ZgModel *model) {
     Button *b = g_new0(Button, 1);
     b->model = model;
     b->rows = g_ptr_array_new_with_free_func(row_free);
+    b->cancel = g_cancellable_new();
     b->button = gtk_menu_button_new();
     gtk_widget_set_focus_on_click(b->button, FALSE);
     GtkWidget *face = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
@@ -497,6 +581,16 @@ GtkWidget *zg_filament_button_new(ZgModel *model) {
     gtk_widget_set_tooltip_text(b->add, "Add a filament to the plate. A part or a range of layers can then print with it.");
     g_signal_connect(b->add, "clicked", G_CALLBACK(on_add), b);
     gtk_box_append(GTK_BOX(box), b->add);
+    b->use = gtk_button_new_with_label("");
+    gtk_widget_set_halign(b->use, GTK_ALIGN_START);
+    gtk_widget_set_tooltip_text(b->use, "Read the spools that the printer has loaded (the AMS trays and the external spool), and make the filaments of the plate the same: count, material, and color");
+    g_signal_connect(b->use, "clicked", G_CALLBACK(on_use), b);
+    gtk_box_append(GTK_BOX(box), b->use);
+    b->use_result = gtk_label_new("");
+    gtk_label_set_wrap(GTK_LABEL(b->use_result), TRUE);
+    gtk_label_set_max_width_chars(GTK_LABEL(b->use_result), 40);
+    gtk_label_set_xalign(GTK_LABEL(b->use_result), 0);
+    gtk_box_append(GTK_BOX(box), b->use_result);
     b->note = gtk_label_new("");
     gtk_label_set_wrap(GTK_LABEL(b->note), TRUE);
     gtk_label_set_max_width_chars(GTK_LABEL(b->note), 40);

@@ -1281,6 +1281,55 @@ void zg_link_deck_printers(const ZgPrinter *p, GCancellable *cancel, ZgDeckFn fn
     g_object_unref(msg);
 }
 
+/* ---- the loaded filaments of a printdeck printer ---- */
+
+typedef struct {
+    ZgLoadedFn fn;
+    gpointer data;
+} LoadedQuery;
+
+static void on_loaded_reply(GObject *source, GAsyncResult *res, gpointer data) {
+    LoadedQuery *q = data;
+    GError *error = NULL;
+    GBytes *body = soup_session_send_and_read_finish(SOUP_SESSION(source), res, &error);
+    SoupMessage *msg = soup_session_get_async_result_message(SOUP_SESSION(source), res);
+    guint status = body ? soup_message_get_status(msg) : 0;
+    if (!body && g_error_matches(error, G_IO_ERROR, G_IO_ERROR_CANCELLED)) {
+        /* The caller went: no call. */
+    } else if (!body) {
+        q->fn(NULL, 0, error->message, q->data);
+    } else if (status == 401 || status == 403) {
+        q->fn(NULL, 0, "The deck refused the key.", q->data);
+    } else if (status < 200 || status >= 300) {
+        char *m = g_strdup_printf("The deck answered %u.", status);
+        q->fn(NULL, 0, m, q->data);
+        g_free(m);
+    } else {
+        gsize len = 0;
+        const char *text = g_bytes_get_data(body, &len);
+        q->fn(text, len, NULL, q->data);
+    }
+    if (body) g_bytes_unref(body);
+    g_clear_error(&error);
+    g_free(q);
+}
+
+void zg_link_loaded_filaments(const ZgPrinter *p, GCancellable *cancel, ZgLoadedFn fn, gpointer data) {
+    SoupMessage *msg = p->kind == ZG_LINK_PRINTDECK && p->url && p->url[0] ? request(p, "GET", "/api/plugin/printdeck") : NULL;
+    if (!msg) {
+        fn(NULL, 0, p->kind == ZG_LINK_PRINTDECK ? "The address is not valid." : "Only a printdeck printer tells its filaments.", data);
+        return;
+    }
+    /* The key goes to the origin of the printer only: a redirect gives
+     * the 3xx status, and the request ends there. */
+    soup_message_add_flags(msg, SOUP_MESSAGE_NO_REDIRECT);
+    LoadedQuery *q = g_new0(LoadedQuery, 1);
+    q->fn = fn;
+    q->data = data;
+    soup_session_send_and_read_async(session(), msg, G_PRIORITY_DEFAULT, cancel, on_loaded_reply, q);
+    g_object_unref(msg);
+}
+
 
 gboolean zg_link_wants_3mf(const zs_app *app, const ZgPrinter *p) {
     if (!app || !p || p->kind != ZG_LINK_PRINTDECK) return FALSE;
