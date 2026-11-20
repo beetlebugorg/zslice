@@ -321,6 +321,39 @@ pub const LayerPlan = struct {
     pub const no_modifier = std.math.maxInt(u16);
 };
 
+/// The lines of `src` cut into dashes of length `dash`, one each `step`
+/// along each line, the first `phase` after its start (dots of the support
+/// interface).
+fn dashes(a: Allocator, src: Paths, dash: i64, step: i64, phase: i64) Allocator.Error!Paths {
+    var out: Paths = .empty;
+    for (0..src.count()) |k| {
+        const pts = src.get(k);
+        if (pts.len < 2) continue;
+        // The distance along the line of each point.
+        var along: f64 = 0;
+        var next: f64 = @floatFromInt(phase);
+        const d: f64 = @floatFromInt(dash);
+        const st: f64 = @floatFromInt(step);
+        for (pts[0 .. pts.len - 1], pts[1..]) |p0, p1| {
+            const len = geom.Point.dist(p0, p1);
+            if (len <= 0) continue;
+            while (next < along + len) {
+                const t0 = (next - along) / len;
+                const t1 = @min(1, (next + d - along) / len);
+                const lerp = struct {
+                    fn f(q0: Point, q1: Point, t: f64) Point {
+                        return .init(q0.x + @as(i64, @intFromFloat(@round(@as(f64, @floatFromInt(q1.x - q0.x)) * t))), q0.y + @as(i64, @intFromFloat(@round(@as(f64, @floatFromInt(q1.y - q0.y)) * t))));
+                    }
+                }.f;
+                try out.append(a, &.{ lerp(p0, p1, t0), lerp(p0, p1, t1) });
+                next += st;
+            }
+            along += len;
+        }
+    }
+    return out;
+}
+
 /// Adds the paths of `src` to `dst`, moved by (dx, dy).
 fn appendMoved(a: Allocator, dst: *Paths, src: Paths, dx: i64, dy: i64) Allocator.Error!void {
     const base: u32 = @intCast(dst.points.items.len);
@@ -1327,7 +1360,23 @@ pub fn plan(gpa: Allocator, ctx: Context, i: usize) Allocator.Error!LayerPlan {
         }
         if (!sl.interface.isEmpty()) {
             const region = try offset_mod.offset(s, sl.interface, -@divTrunc(w, 2), .{});
-            sup_iface = try infill.lines(s, region, geom.fromMm(r.line_width / p.support_interface_density), 90, w);
+            const spacing = geom.fromMm(r.line_width / p.support_interface_density);
+            sup_iface = try infill.lines(s, region, spacing, 90, w);
+            switch (p.support_interface_pattern) {
+                .lines => {},
+                // A second pass across the first.
+                .grid => {
+                    const across = try infill.lines(s, region, spacing, 0, w);
+                    for (0..across.count()) |k| try sup_iface.append(s, across.get(k));
+                },
+                // Dabs of 1.5 line widths, a line width apart, half a step
+                // further along on each odd layer.
+                .dots => {
+                    const dash: i64 = @divTrunc(3 * w, 2);
+                    const step = dash + w;
+                    sup_iface = try dashes(s, sup_iface, dash, step, if (i % 2 == 1) @divTrunc(step, 2) else 0);
+                },
+            }
         }
     }
     if (outline.isEmpty()) {
@@ -3992,4 +4041,18 @@ test "a brim in the holes, outside, or both" {
         try testing.expectEqual(c.outside, n_out);
         try testing.expectEqual(c.inside, n_in);
     }
+}
+
+test "dashes: a line of 10 mm cuts into dabs, one each step" {
+    var arena: std.heap.ArenaAllocator = .init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    var line: Paths = .empty;
+    try line.append(a, &.{ Point.init(0, 0), Point.init(geom.fromMm(10), 0) });
+    const d = try dashes(a, line, geom.fromMm(0.6), geom.fromMm(1), 0);
+    try std.testing.expectEqual(@as(usize, 10), d.count());
+    try std.testing.expectEqual(geom.fromMm(0.6), d.get(0)[1].x);
+    // Half a step along: the dabs of the next layer sit between these.
+    const e = try dashes(a, line, geom.fromMm(0.6), geom.fromMm(1), geom.fromMm(0.5));
+    try std.testing.expectEqual(geom.fromMm(0.5), e.get(0)[0].x);
 }

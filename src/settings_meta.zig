@@ -167,6 +167,7 @@ pub const all = [_]Meta{
     .{ .name = "project.support_z_gap_layers", .section = "Support", .doc = "The number of empty layers between the support and the part above it or under it, so that the support comes off." },
     .{ .name = "project.support_interface_layers", .section = "Support", .doc = "The number of dense layers at the top of the support, under the part. They make the bottom surface of the part smooth." },
     .{ .name = "project.support_interface_density", .section = "Support", .doc = "The fraction of the interface area that its lines fill, as a ratio." },
+    .{ .name = "project.support_interface_pattern", .section = "Support", .doc = "The pattern of the support interface. `lines`: parallel lines. `grid`: lines in two directions, a flatter bed for the part. `dots`: the lines cut into short dabs, in rows that shift on each layer: little contact with the part, so the support breaks off easily and leaves a cleaner surface." },
     .{ .name = "project.skirt_loops", .section = "Skirt and brim", .doc = "The number of skirt loops. A skirt is a loop around the part on the first layers, at a distance from it. It primes the nozzle before the part starts. 0 turns it off." },
     .{ .name = "project.skirt_distance", .section = "Skirt and brim", .doc = "The distance from the part (or from the brim) to the skirt." },
     .{ .name = "project.skirt_layers", .section = "Skirt and brim", .doc = "The number of layers with a skirt." },

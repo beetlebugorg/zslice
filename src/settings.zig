@@ -43,6 +43,8 @@ pub const SupportMode = enum { off, everywhere, buildplate };
 pub const CoolingMode = enum { slow_down, lap };
 /// The shape of the support. See `Project.support_style`.
 pub const SupportStyle = enum { grid, tree, bridge };
+/// The lines of the support interface. See `Project.support_interface_pattern`.
+pub const InterfacePattern = enum { lines, grid, dots };
 /// The G-code dialect for the acceleration commands. See `Machine.gcode_flavor`.
 pub const GcodeFlavor = enum { marlin, klipper, reprap, repetier };
 pub const ExtruderKind = enum { direct, bowden };
@@ -726,6 +728,12 @@ pub const Project = struct {
     support_interface_layers: u32 = 2,
     /// The fraction of the interface area that its lines fill, as a ratio.
     support_interface_density: f64 = 0.7,
+    /// The pattern of the support interface. `lines`: parallel lines.
+    /// `grid`: lines in two directions, a flatter bed for the part.
+    /// `dots`: the lines cut into short dabs, in rows that shift on each
+    /// layer: little contact with the part, so the support breaks off
+    /// easily and leaves a cleaner surface.
+    support_interface_pattern: InterfacePattern = .lines,
 
     // Skirt and brim
     /// The number of skirt loops. A skirt is a loop around the part on the

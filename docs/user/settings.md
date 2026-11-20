@@ -714,6 +714,10 @@ The number of dense layers at the top of the support, under the part. They make 
 
 The fraction of the interface area that its lines fill, as a ratio.
 
+**`project.support_interface_pattern`** (one of: `lines`, `grid`, `dots`). Default: `lines`
+
+The pattern of the support interface. `lines`: parallel lines. `grid`: lines in two directions, a flatter bed for the part. `dots`: the lines cut into short dabs, in rows that shift on each layer: little contact with the part, so the support breaks off easily and leaves a cleaner surface.
+
 ### Skirt and brim
 
 **`project.skirt_loops`** (integer). Default: `1`

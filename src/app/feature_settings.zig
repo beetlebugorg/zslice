@@ -22,7 +22,7 @@ pub const feature_settings = [_][]const []const u8{
     &.{ "project.ironing", "project.ironing_flow", "project.ironing_spacing", "project.ironing_inset", "project.skin_angle" },
     &.{ "project.skirt_loops", "project.skirt_distance", "project.skirt_layers", "project.brim_width", "project.brim_location", "project.line_width" },
     &.{ "project.support", "project.support_style", "project.support_angle", "project.support_density", "project.support_xy_gap", "project.support_z_gap_layers", "project.support_tree_angle", "project.support_tree_spacing", "project.support_tree_tip" },
-    &.{ "project.support_interface_layers", "project.support_interface_density", "project.support_z_gap_layers" },
+    &.{ "project.support_interface_layers", "project.support_interface_density", "project.support_interface_pattern", "project.support_z_gap_layers" },
     &.{ "project.slope_smoothing", "project.slope_smoothing_min_width", "project.slope_smoothing_max_width", "project.slope_smoothing_flow", "machine.nozzle_tip_radius", "machine.nozzle_cone_angle", "project.layer_height", "project.line_width" },
     &.{ "project.slope_ironing", "project.slope_ironing_passes", "project.slope_ironing_flow", "project.slope_smoothing_min_width", "project.slope_smoothing_max_width", "machine.nozzle_tip_radius", "machine.nozzle_cone_angle", "project.layer_height" },
     &.{ "project.bridges", "project.bridge_flow", "project.bridge_fan", "project.skin_overlap", "project.line_width", "project.layer_height" },
