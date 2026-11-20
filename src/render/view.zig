@@ -201,6 +201,10 @@ pub const View = struct {
     /// beads, and the layer of each. The G-code writes the tower as it
     /// writes the print, so it is in no layer plan: the view draws it as
     /// its loop and its diagonal on each layer, among the extras.
+    /// The camera framed the beads of a load once. A later load keeps the
+    /// camera where the user put it, also after a load with no beads (a
+    /// plate that slices again has no result for a moment).
+    framed: bool = false,
     tower_beads: std.ArrayList(vk.Instance) = .empty,
     tower_layer: std.ArrayList(u32) = .empty,
     gap_layer: ?usize = null,
@@ -601,7 +605,7 @@ pub const View = struct {
         try v.loadDecor(app);
         const src = app.sceneSource() orelse return v.loadEmpty();
         if (v.keepBeads(src)) return;
-        const first_load = v.layer_end.items.len == 0;
+        const first_load = !v.framed;
         try v.buildNow(src);
         try v.showBeads(first_load);
     }
@@ -637,7 +641,7 @@ pub const View = struct {
             const t: *View = @ptrCast(@alignCast(app.takeScene(kind) orelse continue));
             if (found == null and t.scene_key == key) found = t else v.keepSpare(t);
         }
-        const first_load = v.layer_end.items.len == 0;
+        const first_load = !v.framed;
         if (found) |t| {
             if (v.uploadLater(t, first_load)) return;
             v.swapScene(t);
@@ -674,7 +678,7 @@ pub const View = struct {
         v.pending = t;
         // The camera of a first load moves now, as a load at once does:
         // a plate sync after the load moves it with the world.
-        if (first_load) {
+        if (first_load and t.layer_end.items.len > 0) {
             const home = v.home;
             const extent = v.extent;
             v.home = t.home;
@@ -683,7 +687,8 @@ pub const View = struct {
             v.reset();
             v.home = home;
             v.extent = extent;
-            v.layer = if (t.layer_end.items.len > 0) t.layer_end.items.len - 1 else 0;
+            v.layer = t.layer_end.items.len - 1;
+            v.framed = true;
         }
         return true;
     }
@@ -1173,10 +1178,11 @@ pub const View = struct {
             try v.lite.build(gpa, v.beads.items, v.layer_end.items);
             v.lite_gen = v.nextGen();
         }
-        if (first_load) {
+        if (first_load and v.layer_end.items.len > 0) {
             v.target = v.home;
             v.reset();
-            v.layer = if (v.layer_end.items.len > 0) v.layer_end.items.len - 1 else 0;
+            v.layer = v.layer_end.items.len - 1;
+            v.framed = true;
         }
     }
 
@@ -1812,7 +1818,7 @@ pub const View = struct {
         v.stage = null;
         defer s.destroy();
         const head = s.head;
-        const first_load = v.layer_end.items.len == 0;
+        const first_load = !v.framed;
         // The lists of the stage go to the view, and the old lists to the
         // stage, which frees them.
         const new = s.lists.sceneLists();
@@ -1849,6 +1855,7 @@ pub const View = struct {
         if (first_load) {
             v.reset();
             v.layer = v.layer_end.items.len - 1;
+            v.framed = true;
         }
     }
 
@@ -6102,4 +6109,37 @@ test "the scenes of the worker have the lists of a load, and a load takes them" 
     want[1].mode = .print;
     try want[1].load(app);
     try std.testing.expect(want[1].scene_key != want[0].scene_key and want[1].beads.items.ptr != beads);
+}
+
+test "a load after a slice keeps the camera where the user put it" {
+    if (comptime !@import("../parallel.zig").has_threads) return error.SkipZigTest;
+    const g = std.testing.allocator;
+    var mesh = try @import("../mesh.zig").shapes.demo(g);
+    defer mesh.deinit(g);
+    var stl: std.Io.Writer.Allocating = .init(g);
+    defer stl.deinit();
+    try mesh.writeStl(&stl.writer);
+    const app = try app_mod.App.create(g, null, null);
+    defer app.destroy();
+    try app.loadStl("demo.stl", stl.written());
+    try app.startSlice();
+    app.stopWorkerForTest();
+    var v: View = .{ .renderer = undefined, .headless = true, .width = 100, .height = 100 };
+    defer v.deinitData();
+    try v.load(app);
+    // The user turns and moves the camera.
+    v.orbit(40, 25);
+    v.dist *= 0.5;
+    const before = v.pose();
+    const target = v.target;
+    // A change starts a new slice: for a moment the plate has no result,
+    // and the shell loads the view.
+    try app.setSetting("project.infill_density", "0.4");
+    try app.startSlice();
+    try v.load(app);
+    app.stopWorkerForTest();
+    try v.load(app);
+    try std.testing.expect(v.beads.items.len > 0);
+    try std.testing.expectEqualDeep(before, v.pose());
+    try std.testing.expectEqualDeep(target, v.target);
 }
