@@ -125,7 +125,7 @@ void zg_range_card_close(GtkWidget *card) {
     c->open = FALSE;
     gtk_widget_set_visible(c->card, FALSE);
     zg_model_set_scope(c->model, FALSE, 0, 0, 0);
-    zg_view3d_light_layers(zg_preview_view3d(c->preview), 1, 0);
+    zg_view3d_light_clear(zg_preview_view3d(c->preview));
 }
 
 gboolean zg_range_card_open(GtkWidget *card) {

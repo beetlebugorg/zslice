@@ -35,9 +35,14 @@ gboolean zg_view3d_moving(GtkWidget *view);
 gboolean zg_view3d_get_camera(GtkWidget *view, float out[8]);
 void zg_view3d_set_camera(GtkWidget *view, const float in[8]);
 
-/* Lights layers lo to hi as a selection (hi < lo: no light). See
- * zs_view_light_layers. */
-void zg_view3d_light_layers(GtkWidget *view, size_t lo, size_t hi);
+/* Ends the light of a range of layers (the card of the range closed): no
+ * lit layers, and no lit body (zs_view_light_connected). */
+void zg_view3d_light_clear(GtkWidget *view);
+/* Shift+K (dir 1) and Shift+J (dir -1): the range of layers grows up or
+ * down from the layer of the selected line, and its card opens. With a
+ * selected line, the body of its part lights up; else all the lines of
+ * the layers. */
+void zg_view3d_key_range(GtkWidget *view, int dir);
 /* The box of the beads on the bed (x0, y0, x1, y1 mm). FALSE if none. */
 gboolean zg_view3d_bounds(GtkWidget *view, double out[4]);
 

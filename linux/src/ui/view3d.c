@@ -74,6 +74,24 @@ typedef struct {
     gboolean range_on, range_lit;
     size_t range_layer, range_cur;
     double range_pt[2];
+    /* The line of the press of that drag. */
+    size_t range_path;
+    /* The lit range of layers (a drag, or Shift+K and Shift+J): the line
+     * that it starts from (-1: all the lines of the layers), the layer of
+     * that line, and the layers. A new load lights it again (relight).
+     * light_on while it shows. */
+    gboolean light_on;
+    gint64 light_path;
+    ptrdiff_t light_layer;
+    size_t light_lo, light_hi;
+    /* Shift+K and Shift+J: the first layer of the range, the layer that
+     * moves, and the selected line at the start. key_on while that range
+     * shows. */
+    gboolean key_on;
+    size_t key_a, key_b;
+    gint64 key_path;
+    /* TRUE while the run of a Shift+click shows. */
+    gboolean run_lit;
     /* A timeout that draws again after a skipped frame, or 0. */
     guint retry;
     gboolean menu_open;
@@ -346,6 +364,7 @@ static void ring_drag_hook(gpointer data);
 static void grab_hook(gpointer data);
 static void menu_hook(gpointer data);
 static void select_hook(gpointer data);
+static void relight(View3d *v);
 
 /* For tests: ZSLICE_DOUBLE_CLICK=x,y is a double click at that pixel. */
 static void dbl_hook_fire(gpointer data) {
@@ -382,6 +401,7 @@ static void load_data(View3d *v) {
     gint64 sel = zg_model_selected(v->model);
     zs_view_highlight(v->view, sel < 0 ? (size_t)-1 : (size_t)sel);
     zg_support_loaded(v->support);
+    relight(v);
     apply_focus(v);
     /* For tests: ZSLICE_GAPS=1 turns the gaps view on, and ZSLICE_GAP=N
      * selects gap N of the top layer after a slice. */
@@ -1169,6 +1189,45 @@ static void on_measure_changed(ZgModel *model, gpointer data) {
 
 /* ---- a range of layers: a drag of the Select tool (range-card.h) ---- */
 
+/* The other lines of the multiple selection of the model, in the view. */
+static void more_from_model(View3d *v) {
+    guint n = 0;
+    const gint64 *more = zg_model_more(v->model, &n);
+    size_t *list = g_new(size_t, n + 1);
+    size_t k = 0;
+    for (guint i = 0; i < n; i++) if (more[i] >= 0) list[k++] = (size_t)more[i];
+    zs_view_highlight_more(v->view, list, k);
+    g_free(list);
+}
+
+/* Lights layers lo to hi: from line `path`, its body of its part on them
+ * (zs_view_light_connected); with no line (-1), all their lines. */
+static void light_range(View3d *v, gint64 path, size_t lo, size_t hi) {
+    zs_view_light_layers(v->view, 1, 0);
+    v->run_lit = FALSE;
+    v->light_on = TRUE;
+    v->light_path = path;
+    v->light_layer = path >= 0 ? zs_app_path_layer(zg_model_core(v->model), (size_t)path) : -1;
+    v->light_lo = MIN(lo, hi);
+    v->light_hi = MAX(lo, hi);
+    if (path < 0 || zs_view_light_connected(v->view, (size_t)path, v->light_lo, v->light_hi, NULL) != ZS_OK)
+        zs_view_light_layers(v->view, v->light_lo, v->light_hi);
+}
+
+/* After a new load (a slice, or the simulated print after it): the lit
+ * range again, from its start line if that line is still on its layer,
+ * else all the lines of the layers. */
+static void relight(View3d *v) {
+    if (!v->light_on || !zg_range_card_open(zg_range_card_of(v->area))) return;
+    gint64 path = v->light_path;
+    if (path >= 0 && zs_app_path_layer(zg_model_core(v->model), (size_t)path) != v->light_layer) path = -1;
+    if (path < 0 || zs_view_light_connected(v->view, (size_t)path, v->light_lo, v->light_hi, NULL) != ZS_OK)
+        zs_view_light_layers(v->view, v->light_lo, v->light_hi);
+    if (g_getenv("ZSLICE_SELECT_TEST"))
+        g_message("select test: lit again after a load, %s (line %" G_GINT64_FORMAT ", layer %td)", path >= 0 ? "the body" : "the layers",
+                  v->light_path, v->light_layer);
+}
+
 /* The layer under the pointer at x, y in a drag over layers: the pointer
  * goes to the nearest point of the line on the screen from the bed to the
  * top layer shown, up through the point of the press. Two projections for
@@ -1213,6 +1272,7 @@ static gboolean range_start(View3d *v, double x, double y) {
     v->range_on = TRUE;
     v->range_lit = FALSE;
     v->range_layer = v->range_cur = zs_view_path_layer(v->view, path);
+    v->range_path = path;
     v->range_pt[0] = p[0];
     v->range_pt[1] = p[1];
     return TRUE;
@@ -1230,14 +1290,43 @@ static void range_move(View3d *v, double x, double y) {
     }
     v->range_lit = TRUE;
     v->range_cur = l;
-    zs_view_light_layers(v->view, MIN(v->range_layer, l), MAX(v->range_layer, l));
+    /* The body of the part of the line of the press, on these layers. */
+    light_range(v, (gint64)v->range_path, v->range_layer, l);
     queue_frame(v);
 }
 
-void zg_view3d_light_layers(GtkWidget *view, size_t lo, size_t hi) {
+void zg_view3d_light_clear(GtkWidget *view) {
     View3d *v = g_object_get_data(G_OBJECT(view), "zg-view3d");
     if (!v || !v->view) return;
-    zs_view_light_layers(v->view, lo, hi);
+    v->light_on = FALSE;
+    v->key_on = FALSE;
+    zs_view_light_layers(v->view, 1, 0);
+    more_from_model(v);
+    queue_frame(v);
+}
+
+/* Shift+K (dir 1) and Shift+J (dir -1): a range of layers that grows from
+ * the layer of the selected line (or the top layer shown), as a drag of
+ * the Select tool makes. The card of the range opens on it. */
+void zg_view3d_key_range(GtkWidget *view, int dir) {
+    View3d *v = g_object_get_data(G_OBJECT(view), "zg-view3d");
+    if (!v || !v->view) return;
+    zs_app *core = zg_model_core(v->model);
+    zs_toolpaths tp;
+    GtkWidget *card = zg_range_card_of(v->area);
+    if (!card || zs_app_toolpaths(core, &tp) != ZS_OK || tp.layer_count == 0) return;
+    if (!v->key_on || !zg_range_card_open(card)) {
+        gint64 sel = zg_model_selected(v->model);
+        ptrdiff_t l = sel >= 0 ? zs_app_path_layer(core, (size_t)sel) : -1;
+        v->key_a = v->key_b = l >= 0 ? (size_t)l : MIN(v->layer, tp.layer_count - 1);
+        v->key_path = l >= 0 ? sel : -1;
+    }
+    long b = (long)v->key_b + dir;
+    v->key_b = (size_t)CLAMP(b, 0, (long)tp.layer_count - 1);
+    size_t lo = MIN(v->key_a, v->key_b), hi = MAX(v->key_a, v->key_b);
+    zg_range_card_show(card, lo, hi);
+    light_range(v, v->key_path, lo, hi);
+    v->key_on = TRUE;
     queue_frame(v);
 }
 
@@ -1555,17 +1644,65 @@ void zg_view3d_measure_click(GtkWidget *view, double x, double y, gboolean shift
     zg_model_measure_add(v->model, p[0], p[1], p[2]);
 }
 
+/* The paths of a run that light up with the line, at most. */
+#define RUN_MAX 20000
+
+/* Shift+click in the Select tool: the line under x, y (points) and its
+ * whole run, from the retraction before it to the next one (one
+ * extrusion), lit together (zs_app_path_run). A note gives the count. */
+static void pick_run(View3d *v, double x, double y) {
+    int scale = gtk_widget_get_scale_factor(v->area);
+    size_t seg = 0;
+    size_t path = zs_view_pick_segment(v->view, (float)(x * scale), (float)(y * scale), &seg);
+    zg_support_clear_pick(v->support);
+    if (path == (size_t)-1) {
+        zg_model_select(v->model, -1);
+        return;
+    }
+    /* A new selection, also of the same line: no lines of an old
+     * selection of many. */
+    zg_model_select(v->model, (gint64)path);
+    zg_model_select_segment(v->model, (gint64)path, (gint64)seg);
+    size_t first = 0, last = 0;
+    if (zs_app_path_run(zg_model_core(v->model), path, &first, &last) != ZS_OK || last < first) return;
+    size_t *others = g_new(size_t, MIN(last - first + 1, RUN_MAX));
+    size_t k = 0;
+    for (size_t i = first; i <= last && k < RUN_MAX; i++)
+        if (i != path) others[k++] = i;
+    zs_view_highlight_more(v->view, others, k);
+    g_free(others);
+    v->run_lit = TRUE;
+    queue_frame(v);
+    char *text = last > first ? g_strdup_printf("A run of %zu lines: one extrusion, from a retraction to the next.", last - first + 1)
+                              : g_strdup("A run of one line: it has a retraction before and after it.");
+    GtkWidget *preview = v->area;
+    while (preview && !g_object_get_data(G_OBJECT(preview), "zg-preview")) preview = gtk_widget_get_parent(preview);
+    if (preview) zg_preview_note(preview, text, 5000);
+    if (g_getenv("ZSLICE_SELECT_TEST")) g_message("select test: %s", text);
+    g_free(text);
+}
+
 static void on_release(GtkGestureClick *g, int n, double x, double y, gpointer data) {
     View3d *v = data;
     if (n != 1 || !v->view || fabs(x - v->press_x) > 4 || fabs(y - v->press_y) > 4) return;
     int scale = gtk_widget_get_scale_factor(v->area);
     /* Ctrl+click: select a part (to move, turn, or remove it). A click: a
-     * line. Shift+click: add the part under the pointer to the selection
-     * of parts, or take it out; with no part there, add the line to the
-     * selection of lines, or take it out. */
+     * line. Shift+click in the Select tool: the run of the line. In the
+     * other tools Shift+click, and Ctrl+Shift+click in the Select tool:
+     * add the part under the pointer to the selection of parts, or take
+     * it out; with no part there, add the line to the selection of lines,
+     * or take it out. */
     GdkModifierType mods = gtk_event_controller_get_current_event_state(GTK_EVENT_CONTROLLER(g));
-    /* A click elsewhere ends a range of layers. */
+    gboolean shift = (mods & GDK_SHIFT_MASK) != 0, ctrl = (mods & GDK_CONTROL_MASK) != 0;
+    gboolean select_tool = zg_model_tool(v->model) == ZG_TOOL_SELECT;
+    /* A click elsewhere ends a range of layers, and the run of a
+     * Shift+click. */
     zg_range_card_close(zg_range_card_of(v->area));
+    if (v->run_lit) {
+        v->run_lit = FALSE;
+        more_from_model(v);
+        queue_frame(v);
+    }
     /* The measure tape: a point of the print (the end of a line near the
      * pointer), or of the bed. */
     if (zg_model_tool(v->model) == ZG_TOOL_MEASURE) {
@@ -1577,14 +1714,19 @@ static void on_release(GtkGestureClick *g, int n, double x, double y, gpointer d
         zg_support_click(v->support, x, y, (mods & GDK_SHIFT_MASK) != 0, (mods & GDK_ALT_MASK) != 0);
         return;
     }
-    if ((mods & GDK_SHIFT_MASK) && zg_model_tool(v->model) != ZG_TOOL_GRAB) {
+    if (shift && !ctrl && select_tool) {
+        pick_run(v, x, y);
+        return;
+    }
+    gboolean add = shift && (!select_tool || ctrl);
+    if (add && zg_model_tool(v->model) != ZG_TOOL_GRAB) {
         gint64 part = part_at(v, x, y, NULL, NULL);
         if (part >= 0) {
             zg_model_toggle_part(v->model, part);
             return;
         }
     }
-    if ((mods & GDK_CONTROL_MASK) || zg_model_tool(v->model) == ZG_TOOL_MOVE || zg_model_tool(v->model) == ZG_TOOL_TURN) {
+    if ((ctrl && !(add && select_tool)) || zg_model_tool(v->model) == ZG_TOOL_MOVE || zg_model_tool(v->model) == ZG_TOOL_TURN) {
         zg_model_select_part(v->model, part_at(v, x, y, NULL, NULL));
         return;
     }
@@ -1602,7 +1744,7 @@ static void on_release(GtkGestureClick *g, int n, double x, double y, gpointer d
      * go on from there). */
     size_t seg = 0;
     size_t path = zs_view_pick_segment(v->view, (float)(x * scale), (float)(y * scale), &seg);
-    if (mods & GDK_SHIFT_MASK) {
+    if (add) {
         if (path != (size_t)-1) zg_model_toggle_more(v->model, (gint64)path);
         return;
     }
@@ -1834,11 +1976,33 @@ static void menu_at(View3d *v, double x, double y) {
     show_menu(v, x, y);
 }
 
+/* For select_hook: "auto" for x is the first line in a scan from the
+ * middle of the view, in rings of 10 points. */
+static void hook_point(View3d *v, const char *xs, const char *ys, double *x, double *y) {
+    *x = g_ascii_strtod(xs, NULL);
+    *y = g_ascii_strtod(ys, NULL);
+    if (g_strcmp0(xs, "auto") != 0) return;
+    int scale = gtk_widget_get_scale_factor(v->area);
+    double cx = gtk_widget_get_width(v->area) / 2.0, cy = gtk_widget_get_height(v->area) / 2.0;
+    for (int r = 0; r < 300; r += 10)
+        for (int dy = -r; dy <= r; dy += 10)
+            for (int dx = -r; dx <= r; dx += 10) {
+                if (abs(dx) != r && abs(dy) != r) continue;
+                if (zs_view_pick(v->view, (float)((cx + dx) * scale), (float)((cy + dy) * scale)) == (size_t)-1) continue;
+                *x = cx + dx;
+                *y = cy + dy;
+                return;
+            }
+}
+
 /* ZSLICE_SELECT_TEST: "parts" (a copy of part 0, the plate arranged, and
  * both parts selected with Shift), "range lo hi" (a drag over layers lo to
- * hi), or "support x y [style]" (a click of the Select tool at x, y,
- * points, or at the first support line for x "auto"; with a style, the
- * support goes on first). The log says what the Select tool did. */
+ * hi), "run x y" (a Shift+click of the Select tool at x, y, points),
+ * "body x y n" (a click on the line at x, y, then Shift+K n times, or
+ * Shift+J for n < 0), or "support x y [style]" (a click of the Select
+ * tool at x, y, points; with a style, the support goes on first). For x
+ * "auto": the first line from the middle of the view (run, body), or the
+ * first support line (support). The log says what the Select tool did. */
 static void select_hook(gpointer data) {
     View3d *v = data;
     char **f = g_strsplit(g_getenv("ZSLICE_SELECT_TEST"), " ", 4);
@@ -1857,6 +2021,29 @@ static void select_hook(gpointer data) {
         if (card) zg_range_card_show(card, lo, hi);
         queue_frame(v);
         g_message("select test: layers %zu to %zu, card %d", lo, hi, card && zg_range_card_open(card));
+    } else if (g_strcmp0(f[0], "run") == 0 && f[1] && f[2]) {
+        double x, y;
+        hook_point(v, f[1], f[2], &x, &y);
+        pick_run(v, x, y);
+        g_message("select test: line %" G_GINT64_FORMAT ", run lit %d", zg_model_selected(v->model), v->run_lit);
+    } else if (g_strcmp0(f[0], "body") == 0 && f[1] && f[2] && f[3]) {
+        int scale = gtk_widget_get_scale_factor(v->area);
+        double x, y;
+        hook_point(v, f[1], f[2], &x, &y);
+        size_t seg = 0;
+        size_t path = zs_view_pick_segment(v->view, (float)(x * scale), (float)(y * scale), &seg);
+        if (path != (size_t)-1) zg_model_select_segment(v->model, (gint64)path, (gint64)seg);
+        int n = atoi(f[3]);
+        for (int i = 0; i < abs(n); i++) zg_view3d_key_range(v->area, n > 0 ? 1 : -1);
+        GtkWidget *card = zg_range_card_of(v->area);
+        g_message("select test: line %" G_GINT64_FORMAT ", layers %zu to %zu, from line %" G_GINT64_FORMAT ", card %d", zg_model_selected(v->model),
+                  v->light_lo, v->light_hi, v->light_path, card && zg_range_card_open(card));
+        /* ZSLICE_SELECT_SET=name=value: a change of the layers of the card,
+         * and a new slice. The log says how the range lights again. */
+        const char *set = g_getenv("ZSLICE_SELECT_SET");
+        char **kv = set ? g_strsplit(set, "=", 2) : NULL;
+        if (kv && kv[0] && kv[1]) zg_model_set(v->model, kv[0], kv[1], NULL);
+        g_strfreev(kv);
     } else if (g_strcmp0(f[0], "support") == 0 && f[1] && f[2]) {
         /* A style ("tree" or "grid"): support on in that style first; the
          * hook runs again after that slice. */
@@ -2046,14 +2233,10 @@ static void on_selection(ZgModel *model, gint64 path, gpointer data) {
     zs_view_highlight(v->view, path < 0 ? (size_t)-1 : (size_t)path);
     zs_view_isolate(v->view, zg_model_isolate(model));
     if (path >= 0) zs_view_highlight_segment(v->view, (size_t)path, (ptrdiff_t)zg_model_segment(model));
-    /* The other lines of a multiple selection. */
-    guint n = 0;
-    const gint64 *more = zg_model_more(model, &n);
-    size_t *list = g_new(size_t, n + 1);
-    size_t k = 0;
-    for (guint i = 0; i < n; i++) if (more[i] >= 0) list[k++] = (size_t)more[i];
-    zs_view_highlight_more(v->view, list, k);
-    g_free(list);
+    /* The other lines of a multiple selection. A new selection clears the
+     * run of a Shift+click. A lit range keeps its lines. */
+    v->run_lit = FALSE;
+    if (!v->light_on || !zg_range_card_open(zg_range_card_of(v->area))) more_from_model(v);
     queue_frame(v);
 }
 

@@ -1171,6 +1171,11 @@ static void show_note(Preview *p, const char *text, guint ms) {
     p->note_timer = g_timeout_add(ms, on_note_timer, p);
 }
 
+void zg_preview_note(GtkWidget *preview, const char *text, guint ms) {
+    Preview *p = g_object_get_data(G_OBJECT(preview), "zg-preview");
+    if (p) show_note(p, text, ms);
+}
+
 /* The item of the colors menu: "Show the plan" while the simulated
  * plastic shows, so the plan is one click away. */
 static void set_sim_check(Preview *p) {
@@ -1504,6 +1509,13 @@ static gboolean on_preview_key(GtkEventControllerKey *c, guint key, guint code, 
     int dir = 0;      /* -1 back, +1 forward: along the print */
     int layer_dir = 0; /* -1 down, +1 up */
     int jump = 1;
+    /* Shift+K and Shift+J: a range of layers from the layer of the
+     * selected line, as a drag of the Select tool makes (view3d.h). */
+    if ((mods & GDK_SHIFT_MASK) && (key == GDK_KEY_K || key == GDK_KEY_J || key == GDK_KEY_k || key == GDK_KEY_j)) {
+        gtk_stack_set_visible_child_name(GTK_STACK(p->stack), "3d");
+        zg_view3d_key_range(p->view3d, key == GDK_KEY_K || key == GDK_KEY_k ? 1 : -1);
+        return TRUE;
+    }
     switch (key) {
     /* The arrows step along the line (H is the Grab tool). */
     case GDK_KEY_Left: dir = -1; break;

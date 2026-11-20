@@ -36,6 +36,9 @@ void zg_preview_show_layer(GtkWidget *preview, size_t layer);
 /* The point of the last press in the preview: the point of a pick. */
 void zg_preview_pick_point(GtkWidget *preview, double *x, double *y);
 
+/* Shows `text` at the top of the view for `ms` milliseconds. */
+void zg_preview_note(GtkWidget *preview, const char *text, guint ms);
+
 /* The 3D view of the preview (view3d.h). */
 GtkWidget *zg_preview_view3d(GtkWidget *preview);
 

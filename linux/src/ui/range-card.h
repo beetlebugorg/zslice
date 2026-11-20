@@ -1,9 +1,10 @@
 /* range-card.h: the card of a range of layers (as web/app/rangecard.js).
  *
  * A left drag of the Select tool that starts on a printed line lights the
- * layers from that layer to the layer under the pointer (view3d.c,
- * zs_view_light_layers). On the release this card opens beside the lit
- * layers, never over them. It shows "Layers A–B" and the settings that
+ * body of the part of that line, from its layer to the layer under the
+ * pointer (view3d.c, zs_view_light_connected). Shift+K and Shift+J make
+ * a range from the selected line too. On the release this card opens
+ * beside the lit layers, never over them. It shows "Layers A–B" and the settings that
  * matter most of those that can change for some layers. An edit is an
  * override of the z range of the layers (the scope of the model,
  * zg_model_set_scope), and slices at once.
