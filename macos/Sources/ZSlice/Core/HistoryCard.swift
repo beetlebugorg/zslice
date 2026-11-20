@@ -70,7 +70,12 @@ extension Workspace {
         return s.changes.compactMap { line in
             // "scope\tkey\tbefore\tafter"
             let f = line.split(separator: "\t", omittingEmptySubsequences: false).map(String.init)
-            guard f.count >= 2, !f[0].contains(":"), SettingInfo.byName[f[1]] != nil, seen.insert(f[1]).inserted else { return nil }
+            // The settings of the plate only: not of some layers or a part
+            // ("layers:…", "part:…"), and not of one filament ("filament 2"),
+            // whose value the editor of the plate does not show (as
+            // web/app/history.js).
+            guard f.count >= 2, !f[0].contains(":"), !f[0].hasPrefix("filament "), SettingInfo.byName[f[1]] != nil,
+                  seen.insert(f[1]).inserted else { return nil }
             return f[1]
         }
     }
