@@ -31,8 +31,12 @@ typedef struct {
     GtkWidget *view3d;
     GtkWidget *slider;
     GtkWidget *label;
+    /* The paths of layer `paths_layer` for the 2D view. The 2D view gets
+     * them when it draws (`paths_wanted`): the plan of a layer can take
+     * 100 ms, and the 3D view does not use it. */
     zs_layer_paths paths;
-    gboolean have_paths;
+    gboolean have_paths, paths_wanted;
+    size_t paths_layer;
     size_t layer_count;
     double scale, ox, oy;
     double pointer_x, pointer_y;
@@ -100,10 +104,18 @@ typedef struct {
 
 
 static void free_paths(Preview *p) {
+    p->paths_wanted = FALSE;
     if (p->have_paths) {
         zs_layer_paths_free(&p->paths);
         p->have_paths = FALSE;
     }
+}
+
+/* The paths of the layer of load_layer, for the 2D view. */
+static void get_paths(Preview *p) {
+    if (!p->paths_wanted) return;
+    p->paths_wanted = FALSE;
+    if (zs_app_layer_paths(zg_model_core(p->model), p->paths_layer, &p->paths) == ZS_OK) p->have_paths = TRUE;
 }
 
 static double setting_mm(Preview *p, const char *key, double fallback) {
@@ -298,27 +310,24 @@ static void load_layer(Preview *p, size_t layer) {
     free_paths(p);
     update_gap_count(p);
     zs_app *core = zg_model_core(p->model);
-    if (layer < p->layer_count && zs_app_layer_paths(core, layer, &p->paths) == ZS_OK) {
-        p->have_paths = TRUE;
+    zs_toolpaths tp;
+    if (layer < p->layer_count && zs_app_toolpaths(core, &tp) == ZS_OK && layer < tp.layer_count) {
+        p->paths_layer = layer;
+        p->paths_wanted = TRUE;
         /* The time of the layer, from the move times of the G-code; a
          * mark if the layer prints slower to cool. */
-        double layer_s = 0;
-        gboolean slowed = FALSE;
-        zs_toolpaths tp;
-        if (zs_app_toolpaths(core, &tp) == ZS_OK && layer < tp.layer_count) {
-            uint32_t last = tp.layer_ends[layer];
-            uint32_t prev = layer > 0 ? tp.layer_ends[layer - 1] : 0;
-            double t1 = last > 0 ? tp.path_end_time[last - 1] : 0;
-            double t0 = prev > 0 ? tp.path_end_time[prev - 1] : 0;
-            layer_s = t1 - t0;
-            slowed = tp.layer_slowed[layer] != 0;
-        }
+        uint32_t last = tp.layer_ends[layer];
+        uint32_t prev = layer > 0 ? tp.layer_ends[layer - 1] : 0;
+        double t1 = last > 0 ? tp.path_end_time[last - 1] : 0;
+        double t0 = prev > 0 ? tp.path_end_time[prev - 1] : 0;
+        double layer_s = t1 - t0;
+        gboolean slowed = tp.layer_slowed[layer] != 0;
         /* Only the layer number on the slider; the rest is in its tooltip. */
         size_t lo = zg_layer_range_get_lo(ZG_LAYER_RANGE(p->slider));
         char *text = lo > 0 && lo < layer ? g_strdup_printf("%zu\n%s%zu", layer + 1, slowed ? "❄" : "", lo + 1)
                                           : g_strdup_printf("%s%zu", slowed ? "❄" : "", layer + 1);
         char *tip = g_strdup_printf("Layer %zu of %zu, at z %.2f mm. It prints in %.1f s%s. Drag a knob: the top knob is the top layer, and the bottom knob the lowest layer that shows. Arrow keys: the top knob; Shift+arrow keys: the bottom knob.",
-                                    layer + 1, p->layer_count, p->paths.z, layer_s,
+                                    layer + 1, p->layer_count, tp.layer_z[layer], layer_s,
                                     slowed ? ", slower than planned, so that it cools (filament minimum layer time)" : "");
         gtk_widget_set_tooltip_text(p->slider_box, tip);
         g_free(tip);
@@ -446,6 +455,7 @@ static void draw(GtkDrawingArea *area, cairo_t *cr, int w, int h, gpointer data)
 
     zg_draw_bed(cr, setting_mm(p, "machine.bed_size_x", 220), setting_mm(p, "machine.bed_size_y", 220), p->scale, dark);
 
+    get_paths(p);
     if (p->have_paths) {
         size_t layer = zg_layer_range_get_hi(ZG_LAYER_RANGE(p->slider));
         ZgLayerStyle style = {.selected = -1, .segment = zg_model_segment(p->model), .first_layer = layer == 0, .dark = dark};
