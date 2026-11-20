@@ -73,6 +73,21 @@ pub fn flushVolume(from: []const u8, to: []const u8, base: f64, multiplier: f64)
 /// The slot (from 0) of a slot number of `project.filament` (from 1), in
 /// a plate of `count` filaments. A number past the list is slot 0: the
 /// filament of the settings.
+/// The slot of the filament of a path of `feature` with the settings `p`
+/// (a Project): the support filament for support, the interface filament
+/// for the support interface, else the filament of the part. Count: the
+/// filaments of the plate.
+pub fn pathSlot(feature: @import("settings.zig").Feature, p: anytype, count: usize) u32 {
+    if (count < 2) return 0;
+    const part = slotOf(p.filament, count);
+    const support = if (p.support_filament > 0) slotOf(p.support_filament, count) else part;
+    return switch (feature) {
+        .support => support,
+        .support_interface => if (p.support_interface_filament > 0) slotOf(p.support_interface_filament, count) else support,
+        else => part,
+    };
+}
+
 pub fn slotOf(number: u32, count: usize) u32 {
     if (number == 0 or number > count) return 0;
     return number - 1;

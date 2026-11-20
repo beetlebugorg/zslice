@@ -355,6 +355,8 @@ const units = [_][2][]const u8{
     .{ "project.outer_wall_wipe", "mm" },
     .{ "project.first_layer_xy_offset", "mm" },
     .{ "project.filament", "slot" },
+    .{ "project.support_filament", "slot" },
+    .{ "project.support_interface_filament", "slot" },
     .{ "project.flush_multiplier", "%" },
     .{ "project.prime_tower_width", "mm" },
     .{ "project.prime_tower_x", "mm" },

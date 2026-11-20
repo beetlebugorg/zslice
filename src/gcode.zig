@@ -436,8 +436,9 @@ pub fn endTool(lp: *const LayerPlan, r: *const Resolved, slots: []const settings
     while (i > 0) {
         i -= 1;
         if (lp.points.get(i).len == 0) continue;
-        const pr = lp.pathResolved(lp.paths.items[i]) orelse lp.resolved orelse r;
-        return filaments.slotOf(pr.settings.project.filament, slots.len);
+        const path = lp.paths.items[i];
+        const pr = lp.pathResolved(path) orelse lp.resolved orelse r;
+        return filaments.pathSlot(path.feature, pr.settings.project, slots.len);
     }
     return 0;
 }
@@ -1228,10 +1229,11 @@ pub const Emitter = struct {
         return if (first) f.first_layer_nozzle_temp else f.nozzle_temp;
     }
 
-    /// The slot of the filament of a path with the settings `r`.
-    pub fn toolOf(self: *const Emitter, r: *const Resolved) u32 {
+    /// The slot of the filament of a path of `feature` with the settings
+    /// `r` (the support filament for support).
+    pub fn toolOf(self: *const Emitter, feature: settings_mod.Feature, r: *const Resolved) u32 {
         if (self.slots.len < 2) return 0;
-        return filaments.slotOf(r.settings.project.filament, self.slots.len);
+        return filaments.pathSlot(feature, r.settings.project, self.slots.len);
     }
 
     /// A filament change to slot `next` before a path that starts at
@@ -1460,7 +1462,7 @@ pub const Emitter = struct {
             }
             const retractions = self.stats.retractions;
             // A path of another filament: a filament change first.
-            const next_tool = self.toolOf(lp.pathResolved(path) orelse lr);
+            const next_tool = self.toolOf(path.feature, lp.pathResolved(path) orelse lr);
             if (next_tool != self.tool) try self.changeTool(next_tool, geom.toMm(pts[0].x), geom.toMm(pts[0].y), first);
             try self.setAccel(lr.accel(null, first));
             self.path_index = i;

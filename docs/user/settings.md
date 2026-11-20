@@ -754,6 +754,14 @@ Where the part goes on the bed. auto: at the X and Y of the file if the part is 
 
 The filament that prints this part, or these layers: 1 is the first filament of the plate, 2 the second, and so on. A change at a layer is a filament change in the G-code.
 
+**`project.support_filament`** (integer). Default: `0`
+
+The filament of the support: 1 is the first filament of the plate, 2 the second, and so on. 0: the filament of the part. A filament for support only (one that breaks away, or one that dissolves in water) makes support easy to take off. On a printer with two nozzles, the support prints with the nozzle of that filament.
+
+**`project.support_interface_filament`** (integer). Default: `0`
+
+The filament of the support interface (the layers that touch the part). 0: the support filament.
+
 **`project.prime_tower`** (true or false). Default: `true`
 
 A prime tower for a printer that changes the filament with a tool change (`machine.filament_change = tool`): after each change, the nozzle flushes the old color into a small tower next to the parts, and each layer up to the last change prints a light layer of it, so the tower grows with the print. A Bambu Lab printer flushes into its chute (its change G-code); its tower then gets a small prime.

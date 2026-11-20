@@ -130,6 +130,8 @@ const preview_notes = [_]struct { []const u8, [:0]const u8 }{
     .{ "project.prime_tower_x", "The place of the prime tower, in the G-code." },
     .{ "project.prime_tower_y", "The place of the prime tower, in the G-code." },
     .{ "project.filament", "The filament of the part or of the layers: the color of its lines, and the filament changes in the G-code." },
+    .{ "project.support_filament", "The filament of the support: the color of the support lines, and the filament changes in the G-code." },
+    .{ "project.support_interface_filament", "The filament of the support interface: the color of its lines, and the filament changes in the G-code." },
     .{ "engine.threads", "The number of threads of the slicer. The result is the same." },
     .{ "engine.job_name", "The name of the print, for the start G-code." },
 };

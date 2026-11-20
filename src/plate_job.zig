@@ -848,6 +848,9 @@ pub const PlateJob = struct {
                 _ = plans_made.fetchAdd(1, .monotonic);
                 var lp = try c.pj.planLevel(g, c.ctxs, c.lo + i);
                 if (c.pj.edits) |e| try e.apply(&lp);
+                // The paths of one filament together (support of another
+                // filament).
+                try lp.groupByFilament(c.pj.levelResolved(c.lo + i), c.pj.slots.len);
                 if (c.lo > 0) {
                     lp.z -= c.drop;
                     lp.index = @intCast(i);
@@ -1060,6 +1063,54 @@ test "plate job: two filaments, a tool change for each change of the filament" {
     defer out3.deinit();
     const st3 = try pj3.writeGcode(&out3.writer);
     try testing.expectEqual(@as(u32, 2), st3.changes);
+}
+
+test "plate job: support with its own filament, one change on each layer" {
+    const gpa = testing.allocator;
+    // A post with a shelf on one side, 4 mm over the bed: support under
+    // the shelf.
+    var b: mesh_mod.Builder = .init(gpa);
+    try mesh_mod.shapes.addBox(&b, 0, 0, 0, 8, 10, 6);
+    try mesh_mod.shapes.addBox(&b, 8, 0, 4, 24, 10, 6);
+    var m = try b.finish();
+    defer m.deinit(gpa);
+    var s: Settings = .{};
+    s.engine.threads = 2;
+    s.machine.filament_change = .tool;
+    s.project.support = .everywhere;
+    s.project.support_filament = 2;
+    var white = s.filament;
+    white.color = "#ffffff";
+    const parts = [_]PartInput{.{ .mesh = &m, .part = 0 }};
+    var pj = try PlateJob.init(gpa, s, &parts, .{ .filaments = &.{white} });
+    defer pj.deinit();
+    var out: Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    const st = try pj.writeGcode(&out.writer);
+    const g = out.written();
+    // The support lines print with filament 2 (T1), the part with T0.
+    try testing.expect(st.slot_g[1] > 0 and st.slot_g[0] > 0);
+    var it = std.mem.splitScalar(u8, g, '\n');
+    var tool: u8 = 0;
+    var support_t0: usize = 0;
+    var support_t1: usize = 0;
+    var feature: []const u8 = "";
+    while (it.next()) |line| {
+        if (std.mem.eql(u8, line, "T0")) tool = 0;
+        if (std.mem.eql(u8, line, "T1")) tool = 1;
+        if (std.mem.startsWith(u8, line, ";TYPE:")) feature = line[6..];
+        // A line of support: a move in X or Y that extrudes (a retraction
+        // after a change has no X).
+        if (std.mem.eql(u8, feature, "SUPPORT") and std.mem.startsWith(u8, line, "G1 X") and std.mem.indexOf(u8, line, " E") != null) {
+            if (tool == 0) support_t0 += 1 else support_t1 += 1;
+        }
+    }
+    try testing.expect(support_t1 > 0);
+    try testing.expectEqual(@as(usize, 0), support_t0);
+    // A layer with support and part changes once: no more changes than
+    // levels.
+    try testing.expect(st.changes <= pj.levels.len);
+    try testing.expect(st.changes >= 2);
 }
 
 test "plate job: a painted letter prints with its own filament" {

@@ -268,6 +268,54 @@ pub const LayerPlan = struct {
         self.height = @max(self.height, src.height);
     }
 
+    /// Puts the paths in groups of one filament each (see
+    /// filaments.pathSlot), so the layer changes the filament once for
+    /// each filament on it: the paths of the part and its support of
+    /// another filament no longer take turns. In each group the paths keep
+    /// their order. The groups go up by slot on even layers and down on odd
+    /// layers, so a layer starts with the filament that the layer below
+    /// ended with. `r`: the settings of a path with region 0 and no
+    /// `resolved`. A plan of one filament stays as it is.
+    pub fn groupByFilament(self: *LayerPlan, r: *const Resolved, slots: usize) Allocator.Error!void {
+        if (slots < 2 or self.paths.items.len < 2) return;
+        const filaments = @import("filaments.zig");
+        const n = self.paths.items.len;
+        const a = self.arena.allocator();
+        const tool = try a.alloc(u32, n);
+        var mixed = false;
+        for (self.paths.items, tool) |path, *t| {
+            const pr = self.pathResolved(path) orelse self.resolved orelse r;
+            t.* = filaments.pathSlot(path.feature, pr.settings.project, slots);
+            mixed = mixed or t.* != tool[0];
+        }
+        if (!mixed) return;
+        const order = try a.alloc(u32, n);
+        for (order, 0..) |*o, k| o.* = @intCast(k);
+        const Key = struct {
+            tool: []const u32,
+            down: bool,
+            fn lt(c: @This(), x: u32, y: u32) bool {
+                const tx = c.tool[x];
+                const ty = c.tool[y];
+                if (tx != ty) return if (c.down) tx > ty else tx < ty;
+                return x < y;
+            }
+        };
+        std.mem.sort(u32, order, Key{ .tool = tool, .down = self.index % 2 == 1 }, Key.lt);
+        var paths: std.ArrayList(Path) = .empty;
+        try paths.ensureTotalCapacity(a, n);
+        var points: Paths = .empty;
+        try points.points.ensureTotalCapacity(a, self.points.points.items.len);
+        try points.ends.ensureTotalCapacity(a, n);
+        for (order) |k| {
+            paths.appendAssumeCapacity(self.paths.items[k]);
+            points.points.appendSliceAssumeCapacity(self.points.get(k));
+            points.ends.appendAssumeCapacity(@intCast(points.points.items.len));
+        }
+        self.paths = paths;
+        self.points = points;
+    }
+
     pub const no_part = std.math.maxInt(u32);
     /// In `region_modifier`: the region of a part, not of a volume.
     pub const no_modifier = std.math.maxInt(u16);

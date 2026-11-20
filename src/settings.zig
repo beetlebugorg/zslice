@@ -763,6 +763,15 @@ pub const Project = struct {
     /// filament of the plate, 2 the second, and so on. A change at a layer
     /// is a filament change in the G-code.
     filament: u32 = 1,
+    /// The filament of the support: 1 is the first filament of the plate,
+    /// 2 the second, and so on. 0: the filament of the part. A filament
+    /// for support only (one that breaks away, or one that dissolves in
+    /// water) makes support easy to take off. On a printer with two
+    /// nozzles, the support prints with the nozzle of that filament.
+    support_filament: u32 = 0,
+    /// The filament of the support interface (the layers that touch the
+    /// part). 0: the support filament.
+    support_interface_filament: u32 = 0,
     /// A prime tower for a printer that changes the filament with a tool
     /// change (`machine.filament_change = tool`): after each change, the
     /// nozzle flushes the old color into a small tower next to the parts,
@@ -1266,6 +1275,8 @@ pub const limits = [_]struct { []const u8, f64, f64 }{
     .{ "project.support_interface_density", 0.01, 1 },
     .{ "project.skirt_loops", 0, 50 },
     .{ "project.filament", 1, 16 },
+    .{ "project.support_filament", 0, 16 },
+    .{ "project.support_interface_filament", 0, 16 },
     .{ "project.flush_multiplier", 0, 3 },
     .{ "project.prime_tower_width", 5, 100 },
     .{ "project.prime_tower_x", -1, 2000 },
