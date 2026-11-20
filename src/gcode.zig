@@ -1640,6 +1640,8 @@ pub const Emitter = struct {
         if (path.z_start != layer_mod.Path.planar or path.w_start != layer_mod.Path.planar) return false;
         const pr = lp.pathResolved(path) orelse lp.resolved orelse self.r;
         if (pr.settings.project.path_rules.len > 0) return false;
+        // A root of a painted feature: inside the part on all sides.
+        if (path.hidden) return self.sameFamily(from, to);
         return switch (path.feature) {
             .support => true,
             .infill => pr.settings.project.wall_count > 0 and self.sameFamily(from, to),

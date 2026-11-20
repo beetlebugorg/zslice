@@ -127,6 +127,10 @@ pub const Path = struct {
     /// (the settings of a modifier volume, see `Modifier`). The emitter
     /// takes the speed, the acceleration, and the infill flow from them.
     region: u16 = 0,
+    /// The path is in a root of a painted feature (see paint_split.zig):
+    /// the part covers it on all sides. The flush of a filament change
+    /// can go into it, as into the sparse infill.
+    hidden: bool = false,
 
     pub const planar = std.math.maxInt(u32);
 };

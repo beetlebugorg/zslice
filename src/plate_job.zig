@@ -125,6 +125,10 @@ pub const Group = struct {
     part: u32,
     /// The job slices one filament of a painted part.
     painted: bool = false,
+    /// The split of the painted part, and the index of the filament of
+    /// the job in it.
+    split: ?*const paint_split.Split = null,
+    paint_index: usize = 0,
     /// The level of each layer of the job.
     layer_level: []u32,
 };
@@ -315,7 +319,7 @@ pub const PlateJob = struct {
             job.keep_memos = opts.keep_memos;
             if (p.modifiers.len > 0) try job.setModifiers(p.modifiers);
             const layer_level = try gpa.alloc(u32, job.layers.len);
-            groups.appendAssumeCapacity(.{ .job = job, .part = p.part, .layer_level = layer_level, .painted = p.paint_split != null });
+            groups.appendAssumeCapacity(.{ .job = job, .part = p.part, .layer_level = layer_level, .painted = p.paint_split != null, .split = p.paint_split, .paint_index = p.paint_index });
         }
         pj.groups = try groups.toOwnedSlice(gpa);
 
@@ -882,13 +886,31 @@ pub const PlateJob = struct {
                 own.ring_band = try moved(arena.allocator(), band.?, -inst.dx, -inst.dy);
                 var p = try layer_mod.plan(gpa, own, e.layer);
                 defer p.deinit();
+                self.markRoot(&p, inst.group, e.layer);
                 try lp.append(&p, inst.dx, inst.dy, inst.part, e.layer);
                 continue;
             }
-            if (plans[inst.group] == null) plans[inst.group] = try layer_mod.plan(gpa, ctx, e.layer);
+            if (plans[inst.group] == null) {
+                plans[inst.group] = try layer_mod.plan(gpa, ctx, e.layer);
+                self.markRoot(&plans[inst.group].?, inst.group, e.layer);
+            }
             try lp.append(&plans[inst.group].?, inst.dx, inst.dy, inst.part, e.layer);
         }
         return lp;
+    }
+
+    /// Marks the paths of the plan of layer `layer` of group `g` hidden
+    /// if the layer of the group is all the root of a painted feature
+    /// (see paint_split.Split.anchor): the flush of a change can go into
+    /// them.
+    fn markRoot(self: *const PlateJob, p: *LayerPlan, g: usize, layer: usize) void {
+        const gr = &self.groups[g];
+        const sp = gr.split orelse return;
+        if (!sp.rootOnly(layer, gr.paint_index)) return;
+        for (p.paths.items) |*path| path.hidden = switch (path.feature) {
+            .outer_wall, .inner_wall, .infill, .skin => true,
+            else => false,
+        };
     }
 
     /// Writes the G-code of all levels (step 5 of the engine).

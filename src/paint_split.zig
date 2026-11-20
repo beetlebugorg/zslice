@@ -88,10 +88,14 @@ pub const Split = struct {
     /// The volume (mm³) of the roots of the anchors (see `anchor`), for
     /// the tests and the stats.
     anchor_mm3: f64 = 0,
+    /// For each layer and state (as `regions`): the region is all root
+    /// (see `anchor`). Empty with no roots.
+    root_only: []bool = &.{},
 
     pub fn deinit(s: *Split) void {
         for (s.regions) |*r| r.deinit(s.gpa);
         s.gpa.free(s.regions);
+        s.gpa.free(s.root_only);
         s.gpa.free(s.leaves);
         s.gpa.free(s.states);
         s.* = undefined;
@@ -150,6 +154,13 @@ pub const Split = struct {
     /// The region of state index k on layer i.
     pub fn region(s: *const Split, i: usize, k: usize) *const Paths {
         return &s.regions[i * s.states.len + k];
+    }
+
+    /// True if the region of state index k on layer i is all root (see
+    /// `anchor`).
+    pub fn rootOnly(s: *const Split, i: usize, k: usize) bool {
+        const j = i * s.states.len + k;
+        return j < s.root_only.len and s.root_only[j];
     }
 
     /// The index of a state in `states`, or null.
@@ -279,6 +290,8 @@ pub const Split = struct {
             }
         };
         if (!any) return;
+        s.root_only = try gpa.alloc(bool, n * k);
+        for (s.root_only, add, s.regions) |*o, r, reg| o.* = !r.isEmpty() and reg.isEmpty();
         // The roots go into the regions: a state with a lower index wins
         // where two roots overlap.
         for (0..n) |j| {
