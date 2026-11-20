@@ -249,16 +249,32 @@ export async function send(printer, filename, bytes, print, opts = {}) {
     return { ok: false, message: `The printer answered ${r.status}${text ? `: ${text}` : ""}.` };
   }
   const where = KINDS[printer.kind] ?? printer.kind;
+  // An upload of OctoPrint and printdeck answers JSON with the stored file
+  // (files.local, and done). Any other 2xx answer (a web page, a proxy) did
+  // not store the file: a send once said "sent", and no file came to the
+  // deck.
+  let reply = null;
+  let body = "";
+  if (printer.kind !== "moonraker") {
+    try {
+      body = await r.text();
+      reply = JSON.parse(body);
+    } catch {
+      reply = null;
+    }
+    if (!reply || typeof reply !== "object" || !(reply.files?.local || reply.done === true)) {
+      const at = r.url || "";
+      const head = body.replace(/\s+/g, " ").trim().slice(0, 120);
+      console.warn("zslice: the upload answer is not a stored file", { url: at, status: r.status, body: body.slice(0, 2000) });
+      return { ok: false, message: `${printer.name} answered ${r.status}${at ? ` at ${at}` : ""}, but not with a stored file${head ? ` ("${head}")` : ""}. The file may not be on the printer: check its address in Manage printers.` };
+    }
+  }
   // A printdeck with "Start prints from the slicer" off asks on its screen:
   // its reply has effectivePrint false, and the print waits for a press of
   // Print on the deck.
   let started = print;
   if (print && printer.kind === "printdeck") {
-    try {
-      started = (await r.json()).effectivePrint !== false;
-    } catch {
-      // No JSON: as asked.
-    }
+    started = reply?.effectivePrint !== false;
     if (!started) return { ok: true, message: `Sent to ${printer.name}. It waits there: press Print on the deck to start it.` };
   }
   return { ok: true, message: started ? `Sent to ${printer.name} (${where}); the print starts.` : `Uploaded to ${printer.name} (${where}).` };

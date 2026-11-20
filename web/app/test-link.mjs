@@ -8,7 +8,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { createServer } from "node:http";
-import { checkDeckTarget, loadedFilaments, deckAddress, fetchOptions, plainName, test, webAddress } from "./link.js";
+import { send, checkDeckTarget, loadedFilaments, deckAddress, fetchOptions, plainName, test, webAddress } from "./link.js";
 
 function check(ok, what) {
   if (!ok) throw new Error(`failed: ${what}`);
@@ -88,6 +88,22 @@ check(!v.ok, "an unknown name at the deck address of a deck with two printers is
 v = await checkDeckTarget({ name: "TAZ Workhorse", kind: "printdeck", url: deckUrl, apiKey: "k" });
 check(v.ok, "a name with the words of the first printer is fine");
 deck.close();
+
+// An upload that a web page answers (200, HTML) stored no file: the send
+// fails. A real upload answer (files.local) is a send.
+const page = await listen((req, res) => {
+  req.resume();
+  req.on("end", () => {
+    res.writeHead(200, { "Content-Type": req.url.startsWith("/good") ? "application/json" : "text/html", "Access-Control-Allow-Origin": "*" });
+    res.end(req.url.startsWith("/good") ? JSON.stringify({ done: true, files: { local: { name: "a.gcode", origin: "local" } }, effectivePrint: false }) : "<!doctype html><title>printdeck</title>");
+  });
+});
+const pageUrl = `http://127.0.0.1:${page.address().port}`;
+let sr = await send({ name: "P", kind: "octoprint", url: pageUrl, apiKey: "k" }, "a.gcode", new TextEncoder().encode("G28\n"), false);
+check(!sr.ok && /not with a stored file/.test(sr.message), "a web page answer is not a send");
+sr = await send({ name: "P", kind: "octoprint", url: `${pageUrl}/good`, apiKey: "k" }, "a.gcode", new TextEncoder().encode("G28\n"), false);
+check(sr.ok, "an upload answer is a send");
+page.close();
 
 // The loaded filaments of a deck printer, in the order of the printer.
 const spools = await listen((req, res) => {
