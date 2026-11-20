@@ -15,8 +15,8 @@ struct ShortcutSheet: View {
     /// The table: the groups, and in each the keys and what they do.
     static let table: [(group: String, rows: [(keys: String, what: String)])] = [
         ("View", [
-            ("Drag", "Orbit the view"),
-            ("Right-drag (two fingers clicked down on a trackpad), middle-drag, Shift-drag", "Pan the view"),
+            ("Drag, right-drag (mouse)", "Orbit the view"),
+            ("Two fingers clicked down and slid (trackpad), middle-drag, Shift-drag", "Pan the view"),
             ("Shift-click", "Select tool: the run of the line, one extrusion from a retraction to the next. Other tools: add a part to the selection, or take it out"),
             ("Command-Shift-click", "Select tool: add a part to the selection, or take it out"),
             ("Drag from a line (Select)", "Select a range of layers, and edit their settings"),

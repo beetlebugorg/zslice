@@ -1118,19 +1118,27 @@ final class Workspace {
         if let xy = env["ZSLICE_PICK"]?.split(separator: ",").compactMap({ Double($0) }), xy.count == 2 {
             pick(at: CGPoint(x: xy[0], y: xy[1]))
         }
-        // ZSLICE_RIGHT_DRAG=1 sends a right drag of 100 points to the view
-        // (as two fingers clicked down and slid on a trackpad) and logs the
-        // camera: a pan moves the target, an orbit turns the rotation.
+        // ZSLICE_RIGHT_DRAG=1 sends a right drag of 100 points of a mouse to
+        // the view, and =touch the same drag from a trackpad (the subtype
+        // of two fingers clicked down), and logs the camera: a pan moves the
+        // target, an orbit turns the rotation. The events go to the view
+        // only, not to the system.
         if env["ZSLICE_RIGHT_DRAG"] != nil {
             DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in
                 guard let self, let v = canvas.view, let win = canvas.window else { return }
                 var a = [Float](repeating: 0, count: 8), b = a
                 zs_view_get_camera(v, &a)
                 let c = CGPoint(x: canvas.bounds.midX, y: canvas.bounds.midY)
+                let touch = env["ZSLICE_RIGHT_DRAG"] == "touch"
                 func send(_ type: NSEvent.EventType, _ dx: CGFloat) {
                     let p = canvas.convert(CGPoint(x: c.x + dx, y: c.y), to: nil)
-                    guard let e = NSEvent.mouseEvent(with: type, location: p, modifierFlags: [], timestamp: 0, windowNumber: win.windowNumber,
+                    guard var e = NSEvent.mouseEvent(with: type, location: p, modifierFlags: [], timestamp: 0, windowNumber: win.windowNumber,
                                                      context: nil, eventNumber: 0, clickCount: 1, pressure: 1) else { return }
+                    // The subtype of a trackpad: 3, NSEvent.EventSubtype.touch.
+                    if touch, let cg = e.cgEvent {
+                        cg.setIntegerValueField(.mouseEventSubtype, value: Int64(NSEvent.EventSubtype.touch.rawValue))
+                        if let t = NSEvent(cgEvent: cg) { e = t }
+                    }
                     switch type {
                     case .rightMouseDown: canvas.rightMouseDown(with: e)
                     case .rightMouseDragged: canvas.rightMouseDragged(with: e)
@@ -1142,7 +1150,7 @@ final class Workspace {
                 send(.rightMouseUp, 100)
                 zs_view_get_camera(v, &b)
                 let moved = (0 ..< 3).map { abs(b[$0] - a[$0]) }.max() ?? 0, turned = (3 ..< 7).map { abs(b[$0] - a[$0]) }.max() ?? 0
-                NSLog("zslice right drag: target moved %.2f mm, rotation changed %.4f, %@", moved, turned, moved > 0.01 && turned < 1e-4 ? "pan" : turned >= 1e-4 ? "orbit" : "none")
+                NSLog("zslice right drag (%@): target moved %.2f mm, rotation changed %.4f, %@", touch ? "trackpad" : "mouse", moved, turned, moved > 0.01 && turned < 1e-4 ? "pan" : turned >= 1e-4 ? "orbit" : "none")
             }
         }
         // ZSLICE_PICK_LATER="x,y;rx,y;..." picks each point in turn, one a

@@ -13,9 +13,11 @@
 //! flipped, and it multiplies points by the backing scale.
 //!
 //! Input, as in the GTK app (linux/src/ui/view3d.c):
-//! - a left drag orbits;
-//! - a right or middle drag pans (a two-finger press and drag on a
-//!   trackpad is a right drag);
+//! - a left drag orbits, and so does a right drag of a mouse (as in Cura);
+//! - two fingers clicked down and slid on a trackpad pan: AppKit gives it
+//!   as a right drag whose subtype is .touch, so the view tells it from a
+//!   mouse by the event itself;
+//! - a middle drag, or Shift and a drag, pans;
 //! - a two-finger scroll on a trackpad zooms toward the pointer, and so do
 //!   the mouse wheel and a pinch.
 //!
@@ -553,9 +555,16 @@ final class MetalSliceView: NSView {
     override func rightMouseDown(with event: NSEvent) {
         lastDrag = convert(event.locationInWindow, from: nil)
         rightPress = lastDrag
+        rightFromTrackpad = event.subtype == .touch
+        if inputLog { NSLog("zslice input: right press, subtype %d, %@", event.subtype.rawValue, rightFromTrackpad ? "trackpad: pan" : "mouse: orbit") }
     }
 
-    /// A right click with no drag opens the context menu; a right drag pans.
+    /// The right press came from a trackpad (two fingers clicked down): its
+    /// drag pans. A right drag of a mouse orbits.
+    private var rightFromTrackpad = false
+    private let inputLog = ProcessInfo.processInfo.environment["ZSLICE_INPUT_LOG"] != nil
+
+    /// A right click with no drag opens the context menu.
     private var rightPress: NSPoint?
 
     override func rightMouseUp(with event: NSEvent) {
@@ -615,7 +624,8 @@ final class MetalSliceView: NSView {
         orbit(event)
     }
 
-    /// A left drag orbits on the 3D page, and pans on the 2D page.
+    /// A left drag (or a right drag of a mouse) orbits on the 3D page, and
+    /// pans on the 2D page.
     private func orbit(_ event: NSEvent) {
         guard let view, let (dx, dy) = dragDelta(event) else { return }
         if page == .twoD {
@@ -632,9 +642,11 @@ final class MetalSliceView: NSView {
         requestFrame()
     }
 
-    // A right drag pans (two fingers clicked down and slid on a trackpad),
-    // and so does a middle drag, as on the web and in the GTK app.
-    override func rightMouseDragged(with event: NSEvent) { pan(event) }
+    // Two fingers clicked down and slid on a trackpad pan; a right drag of
+    // a mouse orbits. A middle drag pans.
+    override func rightMouseDragged(with event: NSEvent) {
+        if rightFromTrackpad || event.subtype == .touch { pan(event) } else { orbit(event) }
+    }
     override func otherMouseDragged(with event: NSEvent) { pan(event) }
 
     private func pan(_ event: NSEvent) {

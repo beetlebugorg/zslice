@@ -95,8 +95,8 @@ With a part or a profile, the bar is in the accent color, a change goes only the
 
 ### The mouse and the trackpad
 
-- A left drag orbits the view.
-- A right drag pans, and so do a middle drag and Shift with a drag. On a trackpad, click down with two fingers and slide them.
+- A left drag orbits the view. So does a right drag of a mouse, as in Cura.
+- On a trackpad, click down with two fingers and slide them to pan. A middle drag, or Shift and a drag, pans too.
 - The wheel zooms, and so do a pinch and two fingers that rest and slide on a trackpad (with no click).
 - Control and a click, or a right click, opens the context menu.
 - Command and a click selects a part. Command and a drag moves it in any tool, and Command and the wheel turns it by 15°.
@@ -236,7 +236,7 @@ The Paint tool (P) paints filaments on the surface of a part. It shows the mesh 
 
 - **Smart Select** lights the region under the pointer, and a click paints it with the filament of the card. A region is a part of the mesh that stands out of its surface or sinks into it (a raised letter: its top and its sides), else a flat or smooth face. Shift and a click add regions; a chip of another filament then paints all of them.
 - **Brush** paints a sphere of its size along a drag. It splits the triangles on its edge, for a clean border.
-- Option and a drag turns the view, and a right drag pans it.
+- Option and a drag turns the view. A right drag of a mouse turns it too, and two fingers clicked down and slid on a trackpad pan it.
 - Each click or stroke slices again. Each painted region prints as its own part of the layer, with its walls and infill.
 - Remove All Paint gives the part its own filament again.
 - Esc, P, or another tool closes it.

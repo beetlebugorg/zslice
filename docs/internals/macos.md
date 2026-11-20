@@ -267,7 +267,7 @@ The drawer of the other apps is a SwiftUI inspector at the right of the window. 
 
 The bindings are those of the GTK app, with the keys of a Mac:
 
-- A left drag orbits. A right drag pans: a two-finger click and slide on a trackpad is a right drag (as on the web and in the GTK app).
+- A left drag orbits, and so does a right drag of a mouse, as in Cura. Two fingers clicked down and slid on a trackpad pan: AppKit gives that as a right drag with the subtype `.touch`, so the view tells a trackpad from a mouse by the event (the web and the GTK app guess it from the last scroll).
 - A middle drag, or Shift and a drag, pans too.
 - A two-finger scroll on a trackpad zooms toward the pointer. So do the mouse wheel and a pinch.
 - A double click on a side of the print turns the camera to face it (`zs_view_look_at_side`), at a distance for the size of the part there. A double click on no side resets the view.
@@ -433,7 +433,7 @@ Like the GTK shell, the app reads environment variables for tests and screenshot
 - `ZSLICE_LAYERS=lo,hi` sets the layer range after the first slice (layer numbers from 1). `ZSLICE_TIME=t` shows the replay at t seconds.
 - `ZSLICE_MODE=n` sets the colors (0 filament, 1 line type, 2 speed, 3 flow, 4 layer time, 5 line width).
 - `ZSLICE_PICK=x,y` picks the line at that point (in points) after the first slice, as a click does. `ZSLICE_DOUBLE_CLICK=x,y` is a double click there. `ZSLICE_CARD_LOG=1` logs the screen box of a clicked line.
-- `ZSLICE_RIGHT_DRAG=1` sends a right drag of 100 points to the view (as two fingers clicked down and slid on a trackpad), and logs whether the camera panned or orbited.
+- `ZSLICE_RIGHT_DRAG=1` sends a right drag of 100 points of a mouse to the view and logs whether the camera panned or orbited (it must orbit); `ZSLICE_RIGHT_DRAG=touch` sends it with the subtype of a trackpad (it must pan). `ZSLICE_INPUT_LOG=1` logs the subtype of each right press, to check a real trackpad.
 - `ZSLICE_PICK_LATER="x,y;rx,y;..."` picks each point in turn, one a second from 6 s after the start (`r`: the run of the line, as a Shift-click). With `ZSLICE_TIMING=1`, each upload of the beads is logged; a patch also checks that the whole buffer equals the beads of the core.
 - `ZSLICE_RUN_AT=x,y` (or `center`) is a Shift-click of the Select tool; `ZSLICE_RUN_LOG=1` logs the run, and a plain pick 1.5 s later logs that the run is cleared.
 - `ZSLICE_RANGE_DRAG="x0,y0;x1,y1"` drags over layers from a line with the press, move, and release of the view. `ZSLICE_RANGE_KEYS=n` presses Shift-K n times instead (with `ZSLICE_PICK` for the start line). Then the hook changes the infill of the range, so the body must light again after the slice. `ZSLICE_RANGE_LOG=1` logs each light, and `ZSLICE_RANGE_CLOSE=1` closes the card at the end.
