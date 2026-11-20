@@ -9,6 +9,8 @@
  *   boolean: a switch
  *   choice: a drop-down
  *   multi-line text (G-code): a text view, set when the focus leaves it
+ *   a filament (zg_setting_is_filament): a row of chips, one in the color
+ *     of each filament of the plate, and "+" to add a filament
  *
  * A value that the core rejects gets the "error" style, and the tooltip
  * says why. A value out of the slider range gets the "zg-unusual" style.
@@ -69,6 +71,11 @@ char *zg_setting_value_with_unit(const zs_setting_info *info, const char *value)
 
 /* The description of the setting `name`. FALSE if there is none. */
 gboolean zg_setting_find(const char *name, zs_setting_info *out);
+
+/* TRUE for a setting whose editor is a row of filament chips:
+ * project.filament, project.support_filament, and
+ * project.support_interface_filament. Its editor has no slider. */
+gboolean zg_setting_is_filament(const char *name);
 
 /* TRUE if all of `text` is a number. */
 gboolean zg_parses_as_number(const char *text);

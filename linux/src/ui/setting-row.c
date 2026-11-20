@@ -189,7 +189,7 @@ ZgSettingRow *zg_setting_row_add(GtkWidget *grid, int *row, ZgModel *model, cons
     r->widgets[0] = label;
     GtkWidget *editor = zg_setting_editor_new(model, info, compact || (flags & ZG_ROW_SCOPED));
     if (compact) gtk_widget_add_css_class(editor, "zg-compact");
-    gboolean number = info->kind == ZS_SETTING_NUMBER || info->kind == ZS_SETTING_INTEGER;
+    gboolean number = (info->kind == ZS_SETTING_NUMBER || info->kind == ZS_SETTING_INTEGER) && !zg_setting_is_filament(info->name);
     if (number) zg_setting_editor_add_scrub(editor, label);
     if (info->kind == ZS_SETTING_TEXT && info->multiline) {
         GtkWidget *scroll = gtk_scrolled_window_new();

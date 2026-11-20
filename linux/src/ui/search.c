@@ -271,7 +271,7 @@ static GtkWidget *setting_row(Search *s, const zs_setting_info *info) {
     gtk_widget_set_valign(controls, GTK_ALIGN_CENTER);
     r->editor = s->part >= 0 ? zg_setting_editor_new_for_part(s->model, info, (size_t)s->part)
                              : zg_setting_editor_new(s->model, info, FALSE);
-    gboolean number = info->kind == ZS_SETTING_NUMBER || info->kind == ZS_SETTING_INTEGER;
+    gboolean number = (info->kind == ZS_SETTING_NUMBER || info->kind == ZS_SETTING_INTEGER) && !zg_setting_is_filament(info->name);
     if (number && info->slider_max > info->slider_min) {
         r->slider = zg_setting_editor_slider_new(r->editor);
         zg_setting_editor_slider_throttle(r->slider, DRAG_MS);

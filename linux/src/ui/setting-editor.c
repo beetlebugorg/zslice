@@ -4,6 +4,8 @@
  */
 #include "setting-editor.h"
 
+#include "filaments.h"
+
 #include <math.h>
 #include <string.h>
 
@@ -58,8 +60,25 @@ static gboolean editor_set(GtkWidget *w, const char *value, GError **error) {
     return TRUE;
 }
 
+/* The chip editor of a filament setting (see zg_setting_is_filament). */
+static gboolean is_chips(GtkWidget *w) {
+    return g_object_get_data(G_OBJECT(w), "zg-chips") != NULL;
+}
+
 static gboolean is_number(GtkWidget *w) {
+    if (is_chips(w)) return FALSE;
     return info_of(w)->kind == ZS_SETTING_NUMBER || info_of(w)->kind == ZS_SETTING_INTEGER;
+}
+
+/* The label of the chip for value 0, or NULL: project.filament has no 0. */
+static const char *zero_label(const char *name) {
+    if (strcmp(name, "project.support_filament") == 0) return "Part";
+    if (strcmp(name, "project.support_interface_filament") == 0) return "Support";
+    return NULL;
+}
+
+gboolean zg_setting_is_filament(const char *name) {
+    return strcmp(name, "project.filament") == 0 || zero_label(name) != NULL;
 }
 
 gboolean zg_parses_as_number(const char *text) {
@@ -484,9 +503,94 @@ static void on_any_setting(ZgModel *model, const char *key, gpointer data) {
     g_free(value);
 }
 
+/* ---- the chips of a filament setting ----
+ *
+ * A row of round chips, one for each filament of the plate, in its color
+ * and with its number. The chip of the value has a ring. A click on a chip
+ * sets the value (k + 1 for filament k). "Part" or "Support" is the chip
+ * of value 0 of the support filaments. "+" adds a filament and picks it. */
+
+static void commit(GtkWidget *editor, const char *text);
+
+static void on_chip(GtkButton *chip, gpointer data) {
+    GtkWidget *editor = data;
+    char text[16];
+    g_snprintf(text, sizeof text, "%d", GPOINTER_TO_INT(g_object_get_data(G_OBJECT(chip), "zg-value")));
+    commit(editor, text);
+}
+
+static void on_chip_add(GtkButton *chip, gpointer data) {
+    GtkWidget *editor = data;
+    gint64 i = zg_model_filament_add(model_of(editor));
+    if (i < 0) return;
+    char text[16];
+    g_snprintf(text, sizeof text, "%d", (int)i + 1);
+    commit(editor, text);
+}
+
+static void chips_add(GtkWidget *editor, GtkWidget *chip, int value, const char *tip) {
+    g_object_set_data(G_OBJECT(chip), "zg-value", GINT_TO_POINTER(value));
+    gtk_widget_set_tooltip_text(chip, tip);
+    g_signal_connect(chip, "clicked", G_CALLBACK(on_chip), editor);
+    gtk_box_append(GTK_BOX(editor), chip);
+}
+
+static void chips_redraw(GtkWidget *editor) {
+    ZgModel *model = model_of(editor);
+    const char *zero = zero_label(key_of(editor));
+    char *text = editor_get(editor, key_of(editor));
+    int value = (int)g_ascii_strtoll(text, NULL, 10);
+    g_free(text);
+    if (value < 0 || (!zero && value < 1)) value = zero ? 0 : 1;
+    GtkWidget *c;
+    while ((c = gtk_widget_get_first_child(editor))) gtk_box_remove(GTK_BOX(editor), c);
+    if (zero) {
+        chips_add(editor, zg_filament_chip_new(NULL, zero, value == 0), 0,
+                  strcmp(zero, "Part") == 0 ? "The filament of the part" : "The support filament");
+    }
+    size_t n = zs_app_filament_count(zg_model_core(model));
+    for (size_t i = 0; i < n; i++) {
+        char *color = zg_model_filament_get(model, i, "filament.color");
+        char *mat = zg_model_filament_get(model, i, "filament.material");
+        char num[16];
+        g_snprintf(num, sizeof num, "%zu", i + 1);
+        char *tip = g_strdup_printf("Filament %zu \u00b7 %s (%s)", i + 1, mat[0] ? mat : "filament", color);
+        chips_add(editor, zg_filament_chip_new(color, num, value == (int)i + 1), (int)i + 1, tip);
+        g_free(tip);
+        g_free(mat);
+        g_free(color);
+    }
+    if (n < 16) {
+        GtkWidget *plus = zg_filament_chip_new(NULL, "+", FALSE);
+        gtk_widget_set_tooltip_text(plus, "Add a filament to the plate");
+        g_signal_connect(plus, "clicked", G_CALLBACK(on_chip_add), editor);
+        gtk_box_append(GTK_BOX(editor), plus);
+    }
+}
+
+/* The redraw waits for the main loop: a click on a chip sets the value,
+ * and the new chips must not replace the chip in its own click. */
+static gboolean on_chips_idle(gpointer data) {
+    GtkWidget *editor = data;
+    g_object_set_data(G_OBJECT(editor), "zg-chips-idle", NULL);
+    chips_redraw(editor);
+    g_object_unref(editor);
+    return G_SOURCE_REMOVE;
+}
+
+static void chips_redraw_soon(GtkWidget *editor) {
+    if (g_object_get_data(G_OBJECT(editor), "zg-chips-idle")) return;
+    g_object_set_data(G_OBJECT(editor), "zg-chips-idle", GINT_TO_POINTER(1));
+    g_idle_add(on_chips_idle, g_object_ref(editor));
+}
+
 /* Shows the value of the core in an editor, after a set from an other
  * editor of the same setting. An editor with the focus keeps its text. */
 void zg_setting_editor_refresh(GtkWidget *editor) {
+    if (is_chips(editor)) {
+        chips_redraw_soon(editor);
+        return;
+    }
     char *value = editor_get(editor, key_of(editor));
     show_ratio_speed(editor, value);
     if (GTK_IS_SWITCH(editor)) {
@@ -548,7 +652,11 @@ static GtkWidget *editor_build(ZgModel *model, const zs_setting_info *info, gboo
     if (part >= 0) value = zg_model_part_setting(model, (size_t)part, info->name);
     if (!value) value = part >= 0 ? zg_model_get(model, info->name) : zg_model_get_for(model, info->name, scoped);
     GtkWidget *editor = NULL;
-    switch (info->kind) {
+    if (zg_setting_is_filament(info->name)) {
+        editor = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 2);
+        g_object_set_data(G_OBJECT(editor), "zg-chips", GINT_TO_POINTER(1));
+        tag(editor, model, info);
+    } else switch (info->kind) {
     case ZS_SETTING_BOOLEAN:
         editor = gtk_switch_new();
         gtk_switch_set_active(GTK_SWITCH(editor), strcmp(value, "true") == 0);
@@ -603,6 +711,10 @@ static GtkWidget *editor_build(ZgModel *model, const zs_setting_info *info, gboo
     if (scoped) g_object_set_data(G_OBJECT(editor), "zg-scoped", GINT_TO_POINTER(1));
     if (part >= 0) g_object_set_data(G_OBJECT(editor), "zg-part", GINT_TO_POINTER((int)part + 1));
     gtk_widget_set_valign(editor, GTK_ALIGN_CENTER);
+    if (is_chips(editor)) {
+        chips_redraw(editor);
+        zg_filaments_follow(model, editor, FALSE, chips_redraw);
+    }
     show_unusual(editor);
     g_free(value);
     return editor;
