@@ -28,3 +28,11 @@ void zg_on_theme_changed(GtkWidget *owner, void (*fn)(gpointer), gpointer data);
 
 /* A label that wraps, aligned to the start. */
 GtkWidget *zg_wrapped_label_new(const char *text);
+
+/* The help of a setting (zs_setting_info.doc) with no `code` marks, for a
+ * tooltip or a search. The string lives as long as the app. */
+const char *zg_doc_plain(const char *doc);
+
+/* A label of the help of a setting: the text in `code` marks in a code
+ * font. */
+GtkWidget *zg_doc_label_new(const char *doc);

@@ -2,6 +2,7 @@
  *
  * SPDX-License-Identifier: AGPL-3.0-or-later
  */
+#include <string.h>
 #include "widgets.h"
 
 GtkWidget *zg_grid_new(void) {
@@ -39,6 +40,37 @@ GtkWidget *zg_wrapped_label_new(const char *text) {
     gtk_label_set_wrap(GTK_LABEL(l), TRUE);
     gtk_label_set_xalign(GTK_LABEL(l), 0);
     gtk_widget_set_hexpand(l, TRUE);
+    return l;
+}
+
+const char *zg_doc_plain(const char *doc) {
+    if (!doc || !strchr(doc, '`')) return doc ? doc : "";
+    GString *s = g_string_new(NULL);
+    for (const char *c = doc; *c; c++)
+        if (*c != '`') g_string_append_c(s, *c);
+    const char *out = g_intern_string(s->str);
+    g_string_free(s, TRUE);
+    return out;
+}
+
+GtkWidget *zg_doc_label_new(const char *doc) {
+    GtkWidget *l = zg_wrapped_label_new(NULL);
+    GString *m = g_string_new(NULL);
+    gboolean code = FALSE;
+    const char *c = doc ? doc : "";
+    while (*c) {
+        const char *next = strchr(c, '`');
+        size_t n = next ? (size_t)(next - c) : strlen(c);
+        char *esc = g_markup_escape_text(c, (gssize)n);
+        if (code) g_string_append_printf(m, "<tt>%s</tt>", esc);
+        else g_string_append(m, esc);
+        g_free(esc);
+        if (!next) break;
+        code = !code;
+        c = next + 1;
+    }
+    gtk_label_set_markup(GTK_LABEL(l), m->str);
+    g_string_free(m, TRUE);
     return l;
 }
 

@@ -502,7 +502,7 @@ static void show_detail(Browser *b, const char *key) {
     show_default(def);
     gtk_grid_attach(GTK_GRID(grid), def, 0, row++, 3, 1);
 
-    GtkWidget *doc = zg_wrapped_label_new(info->doc);
+    GtkWidget *doc = zg_doc_label_new(info->doc);
     gtk_widget_set_margin_top(doc, 6);
     gtk_grid_attach(GTK_GRID(grid), doc, 0, row++, 3, 1);
 
@@ -686,7 +686,7 @@ static GtkWidget *setting_row(Browser *b, const zs_setting_info *src, gboolean w
     g_object_set_data(G_OBJECT(more), "zg-row", row);
     g_signal_connect(more, "clicked", G_CALLBACK(on_more_clicked), b);
     gtk_box_append(GTK_BOX(box), more);
-    gtk_widget_set_tooltip_text(names, info->doc);
+    gtk_widget_set_tooltip_text(names, zg_doc_plain(info->doc));
     gtk_list_box_row_set_child(GTK_LIST_BOX_ROW(row), box);
     g_object_set_data(G_OBJECT(row), "zg-key", (gpointer)info->name);
     return row;
@@ -697,7 +697,7 @@ static gboolean matches(const zs_setting_info *info, const char *needle) {
     gboolean hit = strstr(hay, needle) != NULL;
     g_free(hay);
     if (hit) return TRUE;
-    hay = g_utf8_strdown(info->doc, -1);
+    hay = g_utf8_strdown(zg_doc_plain(info->doc), -1);
     hit = strstr(hay, needle) != NULL;
     g_free(hay);
     return hit || strstr(info->name, needle) != NULL;

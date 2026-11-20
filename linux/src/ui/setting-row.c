@@ -5,6 +5,7 @@
 #include "setting-row.h"
 
 #include "setting-editor.h"
+#include "widgets.h"
 
 #include <string.h>
 
@@ -177,7 +178,7 @@ ZgSettingRow *zg_setting_row_add(GtkWidget *grid, int *row, ZgModel *model, cons
     if (compact) {
         gtk_label_set_wrap(GTK_LABEL(label), TRUE);
         gtk_label_set_wrap_mode(GTK_LABEL(label), PANGO_WRAP_WORD);
-        char *tip = g_strdup_printf("%s (%s setting)\n\n%s", info->label, info->group, info->doc);
+        char *tip = g_strdup_printf("%s (%s setting)\n\n%s", info->label, info->group, zg_doc_plain(info->doc));
         gtk_widget_set_tooltip_text(label, tip);
         g_free(tip);
     } else {

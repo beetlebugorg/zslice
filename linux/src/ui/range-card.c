@@ -16,6 +16,7 @@
 #include "preview.h"
 #include "setting-editor.h"
 #include "view3d.h"
+#include "widgets.h"
 
 /* The settings of the card, in order, when the setting can change for
  * some layers (as RANGE_SETTINGS of web/app/rangecard.js). */
@@ -80,7 +81,7 @@ static void fill(RangeCard *c) {
         gtk_label_set_wrap(GTK_LABEL(name), TRUE);
         gtk_label_set_wrap_mode(GTK_LABEL(name), PANGO_WRAP_WORD);
         gtk_widget_set_hexpand(name, TRUE);
-        gtk_widget_set_tooltip_text(name, s.doc);
+        gtk_widget_set_tooltip_text(name, zg_doc_plain(s.doc));
         GtkWidget *editor = zg_setting_editor_new(c->model, &s, TRUE);
         gtk_grid_attach(GTK_GRID(c->settings), name, 0, row, 1, 1);
         gtk_grid_attach(GTK_GRID(c->settings), editor, 1, row, 1, 1);

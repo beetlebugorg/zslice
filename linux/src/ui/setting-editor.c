@@ -5,6 +5,7 @@
 #include "setting-editor.h"
 
 #include "filaments.h"
+#include "widgets.h"
 
 #include <math.h>
 #include <string.h>
@@ -159,7 +160,7 @@ static void show_unusual(GtkWidget *editor) {
         g_free(range);
     } else {
         gtk_widget_remove_css_class(editor, "zg-unusual");
-        gtk_widget_set_tooltip_text(editor, info->doc);
+        gtk_widget_set_tooltip_text(editor, zg_doc_plain(info->doc));
     }
 }
 
@@ -197,7 +198,7 @@ static gboolean commit_value(GtkWidget *editor, const char *text, gboolean quiet
         gtk_widget_remove_css_class(editor, "error");
     } else if (editor_set(editor, value, &error)) {
         gtk_widget_remove_css_class(editor, "error");
-        gtk_widget_set_tooltip_text(editor, info->doc);
+        gtk_widget_set_tooltip_text(editor, zg_doc_plain(info->doc));
         show_unusual(editor);
     } else {
         if (!quiet) {
@@ -423,7 +424,7 @@ GtkWidget *zg_setting_editor_slider_new(GtkWidget *entry) {
     }
     gtk_widget_set_hexpand(slider, TRUE);
     gtk_widget_add_css_class(slider, "zg-slider");
-    gtk_widget_set_tooltip_text(slider, info->doc);
+    gtk_widget_set_tooltip_text(slider, zg_doc_plain(info->doc));
     g_object_set_data(G_OBJECT(entry), "zg-slider", slider);
     /* The slider is a part of the editor of its setting (for the history:
      * a drag and the typing in the entry are one edit). */
@@ -632,7 +633,7 @@ static void tag(GtkWidget *editor, ZgModel *model, const zs_setting_info *info) 
     zs_setting_info *copy = g_new(zs_setting_info, 1);
     *copy = *info;
     g_object_set_data_full(G_OBJECT(editor), "zg-info", copy, g_free);
-    gtk_widget_set_tooltip_text(editor, info->doc);
+    gtk_widget_set_tooltip_text(editor, zg_doc_plain(info->doc));
     /* The handler goes away with the editor. It gets the changes of its
      * own setting only (the detail of the signal). */
     char *signal = g_strconcat("setting-changed::", info->name, NULL);

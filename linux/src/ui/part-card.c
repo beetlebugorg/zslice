@@ -21,6 +21,7 @@
 #include "preview.h"
 #include "setting-editor.h"
 #include "view3d.h"
+#include "widgets.h"
 
 typedef struct {
     ZgModel *model;
@@ -129,7 +130,7 @@ static void fill_settings(PartCard *c) {
         gtk_label_set_wrap(GTK_LABEL(label), TRUE);
         gtk_label_set_wrap_mode(GTK_LABEL(label), PANGO_WRAP_WORD);
         gtk_widget_set_hexpand(label, TRUE);
-        gtk_widget_set_tooltip_text(label, info->doc);
+        gtk_widget_set_tooltip_text(label, zg_doc_plain(info->doc));
         GtkWidget *editor = zg_setting_editor_new_for_part(c->model, info, (size_t)c->part);
         GtkWidget *clear = gtk_button_new_from_icon_name("window-close-symbolic");
         gtk_widget_add_css_class(clear, "flat");
