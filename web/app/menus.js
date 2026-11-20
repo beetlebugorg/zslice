@@ -124,8 +124,24 @@ function open(items, place, closed) {
   menu.querySelector("button:not(:disabled)")?.focus();
 }
 
+// A button of a vertical tool strip: the menu opens at its right, inside
+// the view of the strip, so it covers neither the strip, the header, nor
+// the bar under the view. Else null.
+function besideStrip(anchor, h) {
+  const strip = anchor.closest?.('[aria-orientation="vertical"]');
+  if (!strip) return null;
+  const r = anchor.getBoundingClientRect();
+  const host = strip.parentElement ?? strip;
+  const v = host.getBoundingClientRect();
+  // The bar under the view floats in it (app.js sets --dock-h).
+  const dock = parseFloat(getComputedStyle(host).getPropertyValue("--dock-h")) || 0;
+  return [r.right + 6, Math.max(v.top + 4, Math.min(r.top, v.bottom - dock - h - 4))];
+}
+
 export function openMenu(anchor, items) {
   open(items, (w, h) => {
+    const side = besideStrip(anchor, h);
+    if (side) return side;
     const r = anchor.getBoundingClientRect();
     let x = r.left;
     if (x + w > window.innerWidth - 4) x = Math.max(4, r.right - w);
@@ -150,6 +166,8 @@ export function openPopover(anchor, node) {
   let x = Math.max(4, Math.min(r.left + r.width / 2 - w / 2, window.innerWidth - w - 4));
   let y = r.bottom + 4;
   if (y + h > window.innerHeight - 4) y = Math.max(4, r.top - h - 4);
+  const side = besideStrip(anchor, h);
+  if (side) [x, y] = side;
   box.style.left = `${x}px`;
   box.style.top = `${y}px`;
   l.onpointerdown = (e) => {
