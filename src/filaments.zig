@@ -137,3 +137,121 @@ test "slot of a filament number" {
     try testing.expectEqual(@as(u32, 2), slotOf(3, 3));
     try testing.expectEqual(@as(u32, 0), slotOf(4, 3));
 }
+
+/// The cost of a filament change in the flush planner (see `bestOrder`):
+/// the seconds of the change and of its flush, then the count of
+/// changes for a tie.
+pub const Cost = struct {
+    seconds: f64 = 0,
+    changes: u32 = 0,
+
+    pub fn add(a: Cost, b: Cost) Cost {
+        return .{ .seconds = a.seconds + b.seconds, .changes = a.changes + b.changes };
+    }
+
+    pub fn less(a: Cost, b: Cost) bool {
+        if (a.seconds != b.seconds) return a.seconds < b.seconds;
+        return a.changes < b.changes;
+    }
+};
+
+/// The most filaments of a layer that `bestOrder` searches. A layer with
+/// more keeps the order of the rule.
+pub const max_search = 8;
+
+/// The flush planner: the order of the filaments of one layer with the
+/// least cost, into `out`. The nozzle starts with filament `entry`.
+/// `rule`: the filaments of the layer in the order of the rule (up or
+/// down by slot), and `cost(ctx, a, b)` the cost of a change from a to b.
+/// The search tries each order (at most 8! = 40320), in the order of the
+/// rule first, and keeps an order only if it costs less than the best
+/// one before it: of two orders of one cost, the one nearer to the rule
+/// wins. A layer of more than `max_search` filaments takes the order of
+/// the rule, with `entry` first if it is on the layer.
+pub fn bestOrder(entry: u32, rule: []const u32, ctx: anytype, out: []u32) void {
+    const n = rule.len;
+    @memcpy(out[0..n], rule);
+    if (n < 2) return;
+    if (n > max_search) {
+        if (std.mem.indexOfScalar(u32, out[0..n], entry)) |k| {
+            std.mem.copyBackwards(u32, out[1 .. k + 1], out[0..k]);
+            out[0] = entry;
+        }
+        return;
+    }
+    const Search = struct {
+        rule: []const u32,
+        ctx: @TypeOf(ctx),
+        best: Cost = .{ .seconds = std.math.inf(f64), .changes = std.math.maxInt(u32) },
+        best_order: [max_search]u32 = undefined,
+        now: [max_search]u32 = undefined,
+        used: [max_search]bool = @splat(false),
+
+        fn step(s: *@This(), depth: usize, last: u32, cost: Cost) void {
+            // A part of an order that costs as much as the best one cannot
+            // win: no change has a negative cost.
+            if (!cost.less(s.best)) return;
+            if (depth == s.rule.len) {
+                s.best = cost;
+                @memcpy(s.best_order[0..depth], s.now[0..depth]);
+                return;
+            }
+            for (s.rule, 0..) |t, k| {
+                if (s.used[k]) continue;
+                s.used[k] = true;
+                s.now[depth] = t;
+                const c = if (t == last) Cost{} else s.ctx.cost(last, t);
+                s.step(depth + 1, t, cost.add(c));
+                s.used[k] = false;
+            }
+        }
+    };
+    var s: Search = .{ .rule = rule, .ctx = ctx };
+    s.step(0, entry, .{});
+    @memcpy(out[0..n], s.best_order[0..n]);
+}
+
+test "flush planner: the dark filament goes before the light one" {
+    // Filaments 0 (black), 1 (white), 2 (red). From black, the order up
+    // by slot flushes black to white, then white to red. Black, red,
+    // white flushes less.
+    const colors = [_][]const u8{ "#000000", "#ffffff", "#ff0000" };
+    const Ctx = struct {
+        fn cost(_: @This(), a: u32, b: u32) Cost {
+            return .{ .seconds = flushVolume(colors[a], colors[b], 100, 1), .changes = 1 };
+        }
+    };
+    var out: [3]u32 = undefined;
+    bestOrder(0, &.{ 0, 1, 2 }, Ctx{}, &out);
+    try testing.expectEqualSlices(u32, &.{ 0, 2, 1 }, &out);
+    // The filament in the nozzle prints first: a change back costs more.
+    bestOrder(1, &.{ 0, 1, 2 }, Ctx{}, &out);
+    try testing.expectEqual(@as(u32, 1), out[0]);
+}
+
+test "flush planner: equal costs keep the order of the rule" {
+    const Ctx = struct {
+        fn cost(_: @This(), _: u32, _: u32) Cost {
+            return .{ .changes = 1 };
+        }
+    };
+    var out: [4]u32 = undefined;
+    bestOrder(9, &.{ 3, 2, 1, 0 }, Ctx{}, &out);
+    try testing.expectEqualSlices(u32, &.{ 3, 2, 1, 0 }, &out);
+    // The filament in the nozzle first, then the rule: no extra change.
+    bestOrder(1, &.{ 3, 2, 1, 0 }, Ctx{}, &out);
+    try testing.expectEqualSlices(u32, &.{ 1, 3, 2, 0 }, &out);
+}
+
+test "flush planner: a layer of more filaments than the search keeps the rule" {
+    const Ctx = struct {
+        fn cost(_: @This(), a: u32, b: u32) Cost {
+            return .{ .seconds = @floatFromInt(a * 7 + b), .changes = 1 };
+        }
+    };
+    var rule: [max_search + 1]u32 = undefined;
+    for (&rule, 0..) |*r, k| r.* = @intCast(k);
+    var out: [max_search + 1]u32 = undefined;
+    bestOrder(4, &rule, Ctx{}, &out);
+    try testing.expectEqualSlices(u32, &.{ 4, 0, 1, 2, 3, 5, 6, 7, 8 }, &out);
+}

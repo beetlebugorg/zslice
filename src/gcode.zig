@@ -1777,18 +1777,73 @@ pub const Emitter = struct {
         }
     }
 
-    /// The order of the filaments of a layer (`present`), into `buf`: up
-    /// by slot on even layers and down on odd layers (as
-    /// LayerPlan.groupByFilament).
+    /// The hidden lines of each filament of a layer (see `hiddenFor`), in
+    /// mm³: `all` after a change from a filament of the same family,
+    /// `support` (the support body) after a change from another family.
+    pub const Hidden = struct {
+        all: [filaments.max_slots]f64 = @splat(0),
+        support: [filaments.max_slots]f64 = @splat(0),
+    };
+
+    /// The hidden lines of each filament of `lp` (see `Hidden`).
+    pub fn layerHidden(self: *const Emitter, lp: *const LayerPlan) Hidden {
+        var h: Hidden = .{};
+        const lr = lp.resolved orelse self.r;
+        for (lp.paths.items, 0..) |path, i| {
+            const t = self.toolOf(path.feature, lp.pathResolved(path) orelse lr);
+            if (t >= filaments.max_slots or !self.hiddenFor(lp, path, t, t)) continue;
+            const v = self.pathVolume(lp, i);
+            h.all[t] += v;
+            if (path.feature == .support) h.support[t] += v;
+        }
+        return h;
+    }
+
+    /// The cost of a change from slot `a` to slot `b` for the flush
+    /// planner (see filaments.bestOrder), with the hidden lines `h` of the
+    /// layer: the time of the change (`change_time`) plus the time of its
+    /// flush at the flow limit of the filament (`max_flow`). The flush is
+    /// the one of `changeTool`: less by the hidden lines of `b`, down to
+    /// `min_flush_mm3`. So an order with one more change wins only if it
+    /// saves more flush than the nozzle can push out in `change_time`:
+    /// it saves time and plastic.
+    pub fn changeCost(self: *const Emitter, h: *const Hidden, a: u32, b: u32) filaments.Cost {
+        const g = self.r.settings;
+        const m = g.machine;
+        var flush: f64 = 0;
+        if (m.filament_change == .tool and a < self.slots.len and b < self.slots.len) {
+            flush = filaments.flushVolume(self.slots[a].color, self.slots[b].color, m.flush_volume, g.project.flush_multiplier);
+            if (flush > min_flush_mm3) {
+                const hidden = if (self.sameFamily(a, b)) h.all[b] else h.support[b];
+                flush -= @min(hidden, flush - min_flush_mm3);
+            }
+        }
+        const rate = @max(g.filament.max_flow, 0.5);
+        return .{ .seconds = m.change_time + flush / rate, .changes = 1 };
+    }
+
+    /// The order of the filaments of a layer (`present`), into `buf`: the
+    /// order of the flush planner (see filaments.bestOrder) from the
+    /// filament in the nozzle. The rule of LayerPlan.groupByFilament (up
+    /// by slot on even layers, down on odd layers) breaks the ties.
     fn blockOrder(self: *const Emitter, lp: *const LayerPlan, present: [filaments.max_slots]bool, buf: *[filaments.max_slots]u32) []const u32 {
-        _ = self;
+        var rule: [filaments.max_slots]u32 = undefined;
         var n: usize = 0;
         for (0..filaments.max_slots) |k| {
             const t = if (lp.index % 2 == 1) filaments.max_slots - 1 - k else k;
             if (!present[t]) continue;
-            buf[n] = @intCast(t);
+            rule[n] = @intCast(t);
             n += 1;
         }
+        const h = self.layerHidden(lp);
+        const Ctx = struct {
+            em: *const Emitter,
+            h: *const Hidden,
+            pub fn cost(c: @This(), a: u32, b: u32) filaments.Cost {
+                return c.em.changeCost(c.h, a, b);
+            }
+        };
+        filaments.bestOrder(self.tool, rule[0..n], Ctx{ .em = self, .h = &h }, buf[0..n]);
         return buf[0..n];
     }
 

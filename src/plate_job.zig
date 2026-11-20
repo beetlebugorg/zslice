@@ -1797,3 +1797,38 @@ test "plate job: a layer of two filaments from its move stream keeps its print o
     try testing.expectEqual(plans, plans_made.load(.monotonic));
     try testing.expectEqualStrings(a, b);
 }
+
+test "plate job: the flush planner puts red between black and white" {
+    const gpa = testing.allocator;
+    var m1 = try testBox(0, 0, 20, 20, 3);
+    defer m1.deinit(gpa);
+    var m2 = try testBox(30, 0, 50, 20, 3);
+    defer m2.deinit(gpa);
+    var m3 = try testBox(60, 0, 80, 20, 3);
+    defer m3.deinit(gpa);
+    var s: Settings = .{};
+    s.engine.threads = 2;
+    s.machine.filament_change = .tool;
+    s.filament.color = "#000000";
+    var white = s.filament;
+    white.color = "#ffffff";
+    var red = s.filament;
+    red.color = "#ff0000";
+    const parts = [_]PartInput{
+        .{ .mesh = &m1, .part = 0 },
+        .{ .mesh = &m2, .part = 1, .changes = &.{.{ .name = "project.filament", .value = "2" }} },
+        .{ .mesh = &m3, .part = 2, .changes = &.{.{ .name = "project.filament", .value = "3" }} },
+    };
+    var pj = try PlateJob.init(gpa, s, &parts, .{ .filaments = &.{ white, red } });
+    defer pj.deinit();
+    var out: Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    const st = try pj.writeGcode(&out.writer);
+    const g = out.written();
+    // Black to white flushes the most (see filaments.flushVolume). Each
+    // layer goes black, red, white or white, red, black: two changes, and
+    // none from black to white. The rule up and down by slot has one on
+    // each even layer.
+    try testing.expect(std.mem.indexOf(u8, g, "filament 1 to filament 2\n") == null);
+    try testing.expectEqual(@as(u32, @intCast(2 * pj.levels.len)), st.changes);
+}
