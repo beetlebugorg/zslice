@@ -38,7 +38,8 @@ struct PrintFacts: View {
         let support = v("project.support")
         let tree = v("project.support_style") == "tree" ? ", tree" : ""
         out.append(Fact(text: support.isEmpty || support == "off" ? "no support" : "support: \(support == "buildplate" ? "on the bed" : support)\(tree)",
-                        help: "Support under overhangs", settings: ["project.support", "project.support_style"]))
+                        help: "Support under overhangs, and its filaments", settings: ["project.support", "project.support_style"]
+                            + (model.filaments.count > 1 ? ["project.support_filament", "project.support_interface_filament"] : [])))
         let brim = num("project.brim_width"), skirt = num("project.skirt_loops")
         out.append(Fact(text: brim > 0 ? "brim \(mm(brim))" : skirt > 0 ? "skirt \(Int(skirt))" : "no skirt",
                         help: "The brim, or the skirt", settings: ["project.brim_width", "project.skirt_loops"]))

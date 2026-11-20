@@ -214,6 +214,8 @@ The details list the filaments too.
 
 To print a part or some layers with a filament, use the row of color chips on the part card or on the card of a range of layers.
 
+The support can print with a filament of its own (one that breaks away, or that dissolves): pick it in Support filament, in the support settings or in the support button of the details. Its first chip, Part, prints the support with the filament of the part. Support interface filament picks the filament of the layers that touch the part; its first chip, Support, uses the support filament.
+
 On a printer with two nozzles (the X2D), each filament has its nozzle: Main or 2nd. The external spool feeds the second nozzle, so Use the Filaments puts its filament there. With a printer profile of one nozzle, that spool stays out.
 
 A Bambu Lab printer gets a .gcode.3mf on Export, with the filaments of the print in it.

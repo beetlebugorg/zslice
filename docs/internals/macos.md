@@ -333,7 +333,7 @@ Measure puts a tape between two points (`zs_view_surface_point`). A click on a c
 
 `Core/Filaments.swift` reads the filaments of the plate (`zs_app_filament_*`) and the grams of each in the last slice (`zs_app_filament_stats`). The views read them again after each slice and each change of the list.
 
-- `project.filament` has a chip editor (`FilamentChips`) in `SettingEditor`: on the part card and on the card of a range of layers.
+- `project.filament` has a chip editor (`FilamentChips`) in `SettingEditor`: on the part card and on the card of a range of layers. `project.support_filament` and `project.support_interface_filament` have the same editor, with a first chip for value 0: Part (the filament of the part) or Support (the support filament).
 - On a printer with two nozzles (`machine.nozzles` = 2), each filament has its nozzle (`filament.nozzle`).
 - **Use the Filaments** reads the spools of a deck printer (GET /api/plugin/printdeck, `filaments`). It adds or removes filaments at the end to match the count, then sets the material (upper case), the color, and on two nozzles the nozzle of each. A spool of the second nozzle (`"nozzle": "aux"`) stays out on a printer of one nozzle. No tray map goes out: the deck maps the trays at the start of the print.
 - A Bambu Lab printer gets its .gcode.3mf from `zs_app_bambu_file_gcode`: the signed G-code of the shell, with the filaments, the time, and the grams of the last slice in the slice info.
@@ -470,6 +470,7 @@ Like the GTK shell, the app reads environment variables for tests and screenshot
 - `ZSLICE_FILAMENT_TEST=lo:hi` opens the card of layers lo to hi, adds a red PETG filament, gives it those layers, and logs the grams of each filament and the changes after the slice.
 - `ZSLICE_FILAMENT_LOG=1` logs the filaments of the plate (number, material, color) and their grams 5 s after the start. A painted 3MF of PrusaSlicer or Bambu Studio opens with its paint and its colors.
 - `ZSLICE_FILAMENT_POPOVER=1` opens the popover of the Filament button.
+- `ZSLICE_SUPPORT_FILAMENT=k` adds a second filament, turns support on everywhere, sets `project.support_filament` to k, and logs the grams of each filament and the changes.
 - `ZSLICE_USE_FILAMENTS=1` runs Use the Filaments of the printer of the plate 4 s after the start, and logs its note and the filaments.
 - `ZSLICE_PAINT_TEST=smart` (or `brush`) adds a red filament, opens the Paint tool, and clicks (or strokes) the middle of the view. It logs the triangles, the region under the pointer, the size of the paint text, and the grams of each filament after the slice. The tool stays open for a screenshot. `ZSLICE_PAINT_SAVE=path` saves the painted project there.
 

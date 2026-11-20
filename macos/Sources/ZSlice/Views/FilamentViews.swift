@@ -53,15 +53,34 @@ struct FilamentChip: View {
 }
 
 /// The editor of project.filament: a chip for each filament, and "+".
+/// The support filaments (project.support_filament, and
+/// project.support_interface_filament) have a first chip for value 0: the
+/// filament of the part ("Part"), or the support filament ("Support").
 struct FilamentChips: View {
     let model: SliceModel
     /// The value of the setting: 1 for filament 1.
     let value: String
+    /// The label of the chip of value 0, or nil for none.
+    var zero: String?
     let commit: (String) -> Void
 
     var body: some View {
-        let picked = max(Int(Double(value) ?? 1), 1)
+        let v = Int(Double(value) ?? 0)
+        let picked = zero != nil ? max(v, 0) : max(v, 1)
         HStack(spacing: 4) {
+            if let zero {
+                Button { commit("0") } label: {
+                    Text(zero)
+                        .font(.system(size: 11, weight: .semibold))
+                        .padding(.horizontal, 6)
+                        .frame(height: 22)
+                        .overlay(RoundedRectangle(cornerRadius: 5).strokeBorder(picked == 0 ? Color.accentColor : Color(nsColor: .separatorColor),
+                                                                                 lineWidth: picked == 0 ? 2.5 : 1))
+                }
+                .buttonStyle(.plain)
+                .help(zero == "Part" ? "The filament of the part" : "The support filament")
+                .accessibilityAddTraits(picked == 0 ? .isSelected : [])
+            }
             ForEach(model.filaments) { f in
                 Button { commit(String(f.index + 1)) } label: { FilamentChip(slot: f, selected: f.index + 1 == picked) }
                     .buttonStyle(.plain)

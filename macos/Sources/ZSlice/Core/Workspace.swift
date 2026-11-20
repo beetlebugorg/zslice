@@ -583,6 +583,23 @@ final class Workspace {
                 }
             }
         }
+        // ZSLICE_SUPPORT_FILAMENT=k: a second filament, support everywhere,
+        // and support_filament k (0: the part); logs the grams of each
+        // filament after the slice.
+        if let k = env["ZSLICE_SUPPORT_FILAMENT"] {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak self] in
+                guard let self, let i = model.addFilament() else { return }
+                model.setFilament(i, "filament.color", "#2e7d32")
+                model.set("project.support", "everywhere")
+                let err = model.set("project.support_filament", k)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 9) { [weak self] in
+                    guard let self, let st = model.filamentStats else { return }
+                    NSLog("zslice support filament: set %@ (%@), value %@, support %@, total %.2f g, grams %@, changes %ld", k, err ?? "ok",
+                          model.setting("project.support_filament"), model.setting("project.support"), model.stats?.filament_g ?? 0,
+                          st.grams.map { String(format: "%.2f", $0) }.joined(separator: ","), st.changes)
+                }
+            }
+        }
         // ZSLICE_FILAMENT_LOG=1 logs the filaments of the plate and their
         // grams, 5 s after the start (a painted file that opens).
         if env["ZSLICE_FILAMENT_LOG"] != nil {
