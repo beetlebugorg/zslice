@@ -20,6 +20,8 @@ struct FilamentSlot: Identifiable, Equatable {
     var name: String
     var material: String
     var color: String
+    /// The nozzle (filament.nozzle): 0 the main one, 1 the second.
+    var nozzle = 0
     var id: Int { index }
 }
 
@@ -40,17 +42,21 @@ extension Workspace {
     /// loaded: the same count (filaments added or removed at the end),
     /// then the material (upper case) and the color of each, in the order
     /// of the printer. Filament k prints from its spool k: the deck maps
-    /// them at the start of the print. The spools of a second nozzle
-    /// ("nozzle": "aux") stay out. Returns the words for a note.
+    /// them at the start of the print. A spool of a second nozzle ("nozzle":
+    /// "aux") prints on that nozzle on a printer with two nozzles
+    /// (machine.nozzles), and stays out on one with one. Returns the words
+    /// for a note.
     func useLoadedFilaments(_ p: Printer) async -> String {
         let r = await PrinterLink.loadedFilaments(p)
         guard let all = r.list else { return r.why }
-        // zslice prints with one nozzle (next_hotend is 0 in the change
-        // G-code). A spool of the second nozzle stays out, or a change
-        // would ask for it in the main nozzle.
-        let aux = all.filter { $0.nozzle == "aux" }
-        let want = Array(all.filter { $0.nozzle != "aux" }.prefix(16))
-        if want.isEmpty { return "The spools of \(p.name) feed its second nozzle only. zslice prints with the main nozzle: load a spool in the AMS." }
+        // A spool of the second nozzle ("nozzle": "aux", the external spool
+        // of an X2D) needs a printer with two nozzles in the settings
+        // (machine.nozzles = 2): then its filament prints on that nozzle.
+        // Else it stays out, or a change would ask for it in the main one.
+        let two = model.nozzleCount >= 2
+        let aux = two ? [] : all.filter { $0.nozzle == "aux" }
+        let want = Array(all.filter { two || $0.nozzle != "aux" }.prefix(16))
+        if want.isEmpty { return "The spools of \(p.name) feed its second nozzle only. Pick the printer profile of \(p.name) (two nozzles), or load a spool in the AMS." }
         var have = model.filaments.count
         while have < want.count, model.addFilament() != nil { have += 1 }
         while have > want.count {
@@ -60,15 +66,22 @@ extension Workspace {
         for (k, f) in want.prefix(have).enumerated() {
             model.setFilament(k, "filament.material", f.material.uppercased())
             if f.color.range(of: "^#[0-9a-fA-F]{6}$", options: .regularExpression) != nil { model.setFilament(k, "filament.color", f.color) }
+            if two { model.setFilament(k, "filament.nozzle", f.nozzle == "aux" ? "1" : "0") }
         }
-        let words = want.map { "\($0.slot.isEmpty ? "roll" : $0.slot) \($0.material)" }.joined(separator: ", ")
+        let words = want.map { "\($0.slot.isEmpty ? "roll" : $0.slot) \($0.material)" + (two && $0.nozzle == "aux" ? " (2nd nozzle)" : "") }.joined(separator: ", ")
         let skipped = aux.isEmpty ? "" : " Not used: " + aux.map { "\($0.slot.isEmpty ? "spool" : $0.slot) \($0.material)" }.joined(separator: ", ")
-            + " (the second nozzle; zslice prints with the main nozzle)."
+            + " (the second nozzle: pick the printer profile of \(p.name), with two nozzles)."
         return "\(want.count) \(want.count == 1 ? "filament" : "filaments") from \(p.name): \(words).\(skipped)"
     }
 }
 
 extension SliceModel {
+    /// The nozzles of the printer (machine.nozzles): 2 on an X2D.
+    var nozzleCount: Int {
+        _ = settingsGeneration
+        return max(Int(Double(setting("machine.nozzles")) ?? 1), 1)
+    }
+
     /// The materials that the list offers.
     static let filamentKinds = ["PLA", "PETG", "ABS", "ASA", "TPU", "PA", "PC", "PVA"]
 
@@ -80,7 +93,8 @@ extension SliceModel {
             coreString { zs_app_filament_get(app, i, name, $0, $1, $2) } ?? ""
         }
         return (0 ..< zs_app_filament_count(app)).map { i in
-            FilamentSlot(index: i, name: get(i, "filament.name"), material: get(i, "filament.material"), color: get(i, "filament.color"))
+            FilamentSlot(index: i, name: get(i, "filament.name"), material: get(i, "filament.material"), color: get(i, "filament.color"),
+                         nozzle: Int(Double(get(i, "filament.nozzle")) ?? 0))
         }
     }
 

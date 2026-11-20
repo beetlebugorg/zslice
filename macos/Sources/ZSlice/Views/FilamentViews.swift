@@ -113,6 +113,17 @@ struct FilamentList: View {
                     .controlSize(.small)
                     .frame(width: 80)
                     .help("The material of filament \(f.index + 1)")
+                    // A printer with two nozzles: the nozzle of the filament.
+                    if model.nozzleCount >= 2 {
+                        Picker("", selection: Binding(get: { f.nozzle }, set: { model.setFilament(f.index, "filament.nozzle", String($0)) })) {
+                            Text("Main").tag(0)
+                            Text("2nd").tag(1)
+                        }
+                        .labelsHidden()
+                        .controlSize(.small)
+                        .frame(width: 64)
+                        .help("The nozzle of filament \(f.index + 1): the main nozzle (fed by the AMS on the X2D), or the second nozzle (fed by the external spool)")
+                    }
                     Spacer(minLength: 0)
                     if let g = st?.grams[safe: f.index], g > 0 {
                         Text(String(format: "%.1f g", g)).font(.caption.monospacedDigit()).foregroundStyle(.secondary)

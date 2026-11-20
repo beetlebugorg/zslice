@@ -259,7 +259,7 @@ enum PrinterLink {
               let j = (try? JSONSerialization.jsonObject(with: d)) as? [String: Any] else { return nil }
         return (j["printers"] as? [[String: Any]] ?? []).map { o in
             DeckPrinter(id: o["id"] as? String ?? "", name: o["name"] as? String ?? "", label: o["label"] as? String ?? "",
-                        kind: o["kind"] as? String ?? "fdm", path: o["url"] as? String ?? "")
+                        kind: o["kind"] as? String ?? "fdm", path: o["url"] as? String ?? "", model: o["model"] as? String ?? "")
         }
     }
 
@@ -470,6 +470,8 @@ struct DeckPrinter: Identifiable, Hashable {
     var label: String
     var kind: String
     var path: String
+    /// The product name of the printer ("Bambu Lab X2D"), or "".
+    var model = ""
 
     /// "Prusa MK4 (left)", or the name.
     var title: String { label.isEmpty || label == name ? name : "\(name) (\(label))" }

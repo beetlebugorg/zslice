@@ -88,6 +88,23 @@ final class PrinterLibrary {
         return i >= 0 ? i : nil
     }
 
+    /// The model of a product name ("Bambu Lab X2D", web/app/printers.js
+    /// findModel): the first of the 8 best of the search whose brand, name,
+    /// and title have all the words of the product name. nil if none.
+    func findModel(product: String) -> Int? {
+        func words(_ s: String) -> [String] {
+            s.lowercased().split(whereSeparator: { !(("a" ... "z").contains($0) || ("0" ... "9").contains($0)) }).map(String.init)
+        }
+        let want = words(product)
+        guard !want.isEmpty else { return nil }
+        for i in search(product, brand: -1, max: 8) {
+            guard let m = model(i) else { continue }
+            let have = Set(words("\(coreText(m.brand)) \(coreText(m.name)) \(coreText(m.title))"))
+            if want.allSatisfy(have.contains) { return i }
+        }
+        return nil
+    }
+
     func find(id: String) -> Int? {
         guard let lib else { return nil }
         let i = zs_printers_find(lib, id)

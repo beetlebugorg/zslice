@@ -29,6 +29,7 @@ struct PairSheet: View {
     @State private var deck: [DeckPrinter] = []
     @State private var picked: Set<String> = []
     @State private var task: Task<Void, Never>?
+    @State private var deckAdded = false
 
     private var printer: Printer? { PrinterStore.shared.printers.first { $0.id == printerID } }
 
@@ -104,47 +105,156 @@ struct PairSheet: View {
             }
             // The other printers of the deck: the first one is the deck
             // itself, and zslice does not slice for resin.
-            let list = (await PrinterLink.deckPrinters(q) ?? []).filter { !$0.path.isEmpty && $0.kind != "resin" }
-            let have = Set(PrinterStore.shared.printers.map(\.name))
-            deck = list
-            picked = Set(list.filter { !have.contains($0.title) }.map(\.id))
-            if !list.isEmpty { text = "Connected to \(q.name). The deck drives more printers: pick the ones to add." }
+            // All the printers of the deck, the one at the address of the
+            // deck too (path ""); zslice does not slice for resin.
+            let list = (await PrinterLink.deckPrinters(q) ?? []).filter { $0.kind != "resin" }
+            let have = Set(PrinterStore.shared.printers.filter { $0.id != q.id }.map(\.name))
+            // A fresh connection lists the deck alone too: its one printer.
+            deck = workspace.pairingFresh || list.count > 1 ? list : []
+            picked = Set(deck.filter { workspace.pairingFresh || !have.contains($0.title) }.map(\.id))
+            if deck.count > 1 { text = "Connected to \(q.name). It drives \(deck.count) printers: pick the ones to add." } else if !deck.isEmpty { text = "Connected to \(q.name)." }
             NSLog("zslice pair: the deck lists %ld more printers", list.count)
             // ZSLICE_PAIR_ADD=1 (a test) presses Add.
             if ProcessInfo.processInfo.environment["ZSLICE_PAIR_ADD"] != nil, !list.isEmpty { addDeck() }
         }
     }
 
-    /// Each picked printer of the deck: a printdeck at the address of the
-    /// deck and its path, with the key and the machine settings of the deck.
+    /// Each picked printer of the deck: a printdeck at the root of the deck
+    /// and its path, with the key of the deck, its name on the deck, and the
+    /// machine profile of its model from the library (else the settings of
+    /// the printer that got the key). A fresh connection drops the entry of
+    /// the address, and the first printer picked is the printer now.
     private func addDeck() {
         guard let d = printer else { return }
-        var base = d.url
-        while base.hasSuffix("/") { base.removeLast() }
+        let base = PrinterLink.deckSplit(d.url).root
+        let hbase = d.https.isEmpty ? "" : PrinterLink.deckSplit(d.https).root
         let store = PrinterStore.shared
         let current = store.currentID
+        let lib = PrinterLibrary.shared
+        var first: Printer?
         for item in deck where picked.contains(item.id) {
             var p = Printer(name: item.title, model: d.model, machine: d.machine, kind: .printdeck, url: base + item.path)
-            if !d.https.isEmpty {
-                var h = d.https
-                while h.hasSuffix("/") { h.removeLast() }
-                p.https = h + item.path
+            let product = [item.model, item.label, item.name].first { !$0.isEmpty } ?? ""
+            if let i = lib.findModel(product: product), let m = lib.model(i), let profile = lib.profile(i) {
+                p.model = coreText(m.id)
+                p.machine = profile
             }
+            if !hbase.isEmpty { p.https = hbase + item.path }
             p.apiKey = d.apiKey
             // Its name on the deck: each send checks it (PrinterLink.checkDeckTarget).
             p.deckName = item.name
             store.add(p)
-            NSLog("zslice pair: added %@ at %@, key %d", p.name, p.url, p.apiKey == d.apiKey && !p.apiKey.isEmpty ? 1 : 0)
+            if first == nil { first = p }
+            NSLog("zslice pair: added %@ at %@, key %d, model %@", p.name, p.url, p.apiKey == d.apiKey && !p.apiKey.isEmpty ? 1 : 0, p.model)
         }
-        // Adding printers keeps the printer of the plate.
-        store.currentID = current
+        if workspace.pairingFresh {
+            // The entry of the address goes; the first printer picked is the
+            // printer now.
+            store.remove(d.id)
+            if let first { workspace.usePrinter(first) }
+        } else {
+            // Adding printers keeps the printer of the plate.
+            store.currentID = current
+        }
+        deckAdded = true
+        NSLog("zslice pair: the printers now: %@; current %@", store.printers.map { "\($0.name) [\($0.deckName)]" }.joined(separator: ", "), store.current?.name ?? "-")
         Task { await FarmMonitor.shared.refresh() }
         close()
     }
 
     private func close() {
         task?.cancel()
+        // A fresh connection that adds no printer leaves no entry.
+        if workspace.pairingFresh, let p = printer, deckAdded == false { PrinterStore.shared.remove(p.id) }
+        workspace.pairingFresh = false
         workspace.pairing = nil
         dismiss()
+    }
+}
+
+/// Connect a Printdeck (the printer menu, web/app/app.js connectDeck): the
+/// address of a deck, with no printer first. The sheet checks that the
+/// address answers as a printdeck (GET /api/version, with no key), adds an
+/// entry of that address, and opens the key sheet for it (PairSheet). The
+/// key sheet lists all the printers of the deck; the entry goes when the
+/// user adds them.
+struct ConnectDeckSheet: View {
+    let workspace: Workspace
+    @Environment(\.dismiss) private var dismiss
+    @State private var url = ProcessInfo.processInfo.environment["ZSLICE_CONNECT_DECK"] ?? ""
+    @State private var message = ""
+    @State private var busy = false
+    /// The address of a test connects once.
+    @State private var tried = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Connect a Printdeck").font(.headline)
+            Text("The address of the printdeck: on its System page. A secure address (https://….d.printdeck.beetlebug.org) works from anywhere; http://printdeck.local works on your network.")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            TextField("https://….d.printdeck.beetlebug.org or http://printdeck.local", text: $url)
+                .textFieldStyle(.roundedBorder)
+                .onSubmit { connect() }
+            if !message.isEmpty {
+                Text(message).font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            }
+            HStack {
+                if busy { ProgressView().controlSize(.small) }
+                Spacer()
+                Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
+                Button("Connect") { connect() }
+                    .keyboardShortcut(.defaultAction)
+                    .disabled(busy || url.trimmingCharacters(in: .whitespaces).isEmpty)
+            }
+        }
+        .padding(20)
+        .frame(width: 440)
+        .onAppear {
+            if !url.isEmpty, !tried {
+                tried = true
+                connect()
+            }
+        }
+    }
+
+    private func connect() {
+        guard !busy else { return }
+        var u = url.trimmingCharacters(in: .whitespaces)
+        guard !u.isEmpty else {
+            message = "Type the address of the printdeck."
+            return
+        }
+        if !u.contains("://") { u = "http://" + u }
+        while u.hasSuffix("/") { u.removeLast() }
+        // The root of the deck: an address of one of its printers works too.
+        u = PrinterLink.deckSplit(u).root
+        busy = true
+        message = "Looking for the printdeck…"
+        Task { @MainActor in
+            defer { busy = false }
+            let probe = Printer(name: "printdeck", kind: .printdeck, url: u)
+            guard let (d, r) = try? await PrinterLink.request(probe, "/api/version", key: false) else {
+                message = "No printdeck answered at \(u). Check the address, and that this Mac is on the network of the deck."
+                return
+            }
+            let text = ((try? JSONSerialization.jsonObject(with: d)) as? [String: Any])?["text"] as? String ?? ""
+            guard (200 ..< 300).contains(r.statusCode), text.lowercased().contains("printdeck") else {
+                message = (200 ..< 300).contains(r.statusCode)
+                    ? "This address is an OctoPrint printer, not a printdeck. Add it with Add a Printer…"
+                    : "The address answered \(r.statusCode): it is not a printdeck."
+                return
+            }
+            // The entry of the address, for the key; the printers of the deck
+            // take its place.
+            let host = URL(string: u)?.host ?? u
+            let entry = Printer(name: "printdeck at \(host)", kind: .printdeck, url: u)
+            PrinterStore.shared.add(entry)
+            NSLog("zslice connect deck: %@ answers as a printdeck", u)
+            dismiss()
+            workspace.pairingFresh = true
+            workspace.pairing = entry.id
+        }
     }
 }

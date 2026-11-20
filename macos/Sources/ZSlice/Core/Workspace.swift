@@ -105,6 +105,11 @@ final class Workspace {
     var pickerOpen = false
     /// The printer of the sheet that gets its key (PairSheet), or nil.
     var pairing: UUID?
+    /// The printer of the sheet is only the address of a deck (Connect a
+    /// Printdeck): it goes, and the printers that the user picks come.
+    var pairingFresh = false
+    /// The sheet of Connect a Printdeck shows.
+    var connectDeckOpen = false
 
     // The tools (Tools.swift).
     var tool = Tool.select
@@ -574,7 +579,7 @@ final class Workspace {
                 }
                 Task { @MainActor in
                     let words = await self.useLoadedFilaments(p)
-                    NSLog("zslice use filaments: %@ list %@", words, self.model.filaments.map { "\($0.index + 1) \($0.material) \($0.color)" }.joined(separator: ", "))
+                    NSLog("zslice use filaments: %@ list %@", words, self.model.filaments.map { "\($0.index + 1) \($0.material) \($0.color)" + ($0.nozzle == 1 ? " 2nd" : "") }.joined(separator: ", "))
                 }
             }
         }
@@ -994,6 +999,8 @@ final class Workspace {
         }
         // ZSLICE_PICKER=1 opens the printer picker.
         if env["ZSLICE_PICKER"] != nil { pickerOpen = true }
+        // ZSLICE_CONNECT_DECK=url opens Connect a Printdeck with that address.
+        if env["ZSLICE_CONNECT_DECK"] != nil { connectDeckOpen = true }
         // ZSLICE_PAIR=url: a printdeck at url with no key, and the sheet
         // that gets its key.
         if let url = env["ZSLICE_PAIR"] {

@@ -366,6 +366,8 @@ struct PrinterMenu: View {
                 Divider()
             }
             Button("Add a Printer…") { workspace.pickerOpen = true }
+            Button("Connect a Printdeck…") { workspace.connectDeckOpen = true }
+                .help("The address of a printdeck: zslice asks it for a key, and adds the printers that it drives")
             SettingsLink { Text("Manage Printers…") }
         } label: {
             // ZSLICE_PRINTER_LABEL=text: the label, for tests of the toolbar.
