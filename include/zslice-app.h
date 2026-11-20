@@ -727,7 +727,7 @@ int zs_app_measure(const zs_app *app, size_t path, size_t seg, zs_measure *out);
  * the bond of a part to the bed), and its text,
  * text[text_start .. text_start + text_len) of the text of the call. The
  * worst first. Valid until the next slice. */
-enum zs_issue_kind { ZS_ISSUE_FLOW = 0, ZS_ISSUE_COOLING = 1, ZS_ISSUE_OVERHANG = 2, ZS_ISSUE_ISLAND = 3, ZS_ISSUE_RETRACTIONS = 4, ZS_ISSUE_BRIDGE = 5, ZS_ISSUE_STAND = 6, ZS_ISSUE_COLOR = 7, ZS_ISSUE_CHANGES = 8, ZS_ISSUE_TOWER = 9 };
+enum zs_issue_kind { ZS_ISSUE_FLOW = 0, ZS_ISSUE_COOLING = 1, ZS_ISSUE_OVERHANG = 2, ZS_ISSUE_ISLAND = 3, ZS_ISSUE_RETRACTIONS = 4, ZS_ISSUE_BRIDGE = 5, ZS_ISSUE_STAND = 6, ZS_ISSUE_COLOR = 7, ZS_ISSUE_CHANGES = 8, ZS_ISSUE_TOWER = 9, ZS_ISSUE_REACH = 10 };
 #define ZS_NO_PATH 0xffffffffu
 typedef struct {
     uint8_t kind;

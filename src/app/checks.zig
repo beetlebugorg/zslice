@@ -41,7 +41,7 @@ const Allocator = std.mem.Allocator;
 const Toolpaths = @import("toolpaths.zig").Toolpaths;
 const geom = zs.geom;
 
-pub const Kind = enum(u8) { flow, cooling, overhang, island, retractions, bridge, stand, color, changes, tower };
+pub const Kind = enum(u8) { flow, cooling, overhang, island, retractions, bridge, stand, color, changes, tower, reach };
 
 pub const Issue = extern struct {
     kind: Kind,
@@ -110,6 +110,7 @@ pub fn run(gpa: Allocator, job: *const zs.PlateJob, t: *const Toolpaths, s: zs.S
     try standIssues(&b, stands);
     try colorIssues(&b, job);
     try changeIssues(&b, job, s, stats);
+    try reachIssues(&b, job, s);
     // The worst first: problems, then warnings, then by layer.
     std.mem.sort(Issue, b.issues.items, {}, struct {
         fn lt(_: void, x: Issue, y: Issue) bool {
@@ -445,6 +446,40 @@ fn colorIssues(b: *Builder, job: *const zs.PlateJob) Allocator.Error!void {
 
 /// The filament changes of the print (see `Kind.changes`), and the place
 /// of the prime tower (`Kind.tower`).
+/// A part (or the painted region of one) that prints with the second
+/// nozzle of a printer with two, past the reach of that nozzle: left of
+/// machine.nozzle2_min_x, or higher than machine.nozzle2_max_height. One
+/// issue for each part at its place.
+fn reachIssues(b: *Builder, pj: *const zs.PlateJob, s: zs.Settings) Allocator.Error!void {
+    const m = s.machine;
+    if (m.nozzles < 2 or pj.slots.len < 2) return;
+    for (pj.instances) |inst| {
+        const g = &pj.groups[inst.group];
+        var low_x: f64 = std.math.inf(f64);
+        var top: f64 = 0;
+        var at: [3]f64 = .{ 0, 0, 0 };
+        for (g.job.outlines, 0..) |o, i| {
+            if (o.isEmpty()) continue;
+            const t = pj.toolAt(inst.group, i);
+            if (t >= pj.slots.len or pj.slots[t].nozzle != 1) continue;
+            const box = o.bounds();
+            const x = geom.toMm(box.min.x + inst.dx);
+            if (x < low_x) {
+                low_x = x;
+                at = .{ x, geom.toMm(@divTrunc(box.min.y + box.max.y, 2) + inst.dy), @floatFromInt(g.layer_level[i]) };
+            }
+            top = @max(top, g.job.layers[i].z);
+        }
+        if (low_x == std.math.inf(f64)) continue;
+        if (m.nozzle2_min_x > 0 and low_x < m.nozzle2_min_x - 0.05) {
+            try b.add(.{ .kind = .reach, .severity = 2, .layer = @intFromFloat(at[2]), .path = Issue.no_path, .x = at[0], .y = at[1], .value = low_x, .text_start = 0, .text_len = 0 }, "A part on the second nozzle reaches x = {d:.1} mm, but the second nozzle stops at x = {d:.1} mm (machine.nozzle2_min_x). Move the part right, or give it a filament of the main nozzle.", .{ low_x, m.nozzle2_min_x });
+        }
+        if (m.nozzle2_max_height > 0 and top > m.nozzle2_max_height + 0.05) {
+            try b.add(.{ .kind = .reach, .severity = 2, .layer = 0, .path = Issue.no_path, .x = at[0], .y = at[1], .value = top, .text_start = 0, .text_len = 0 }, "A part on the second nozzle is {d:.1} mm high, but the second nozzle reaches only {d:.1} mm (machine.nozzle2_max_height). Give its top layers a filament of the main nozzle.", .{ top, m.nozzle2_max_height });
+        }
+    }
+}
+
 fn changeIssues(b: *Builder, job: *const zs.PlateJob, s: zs.Settings, stats: zs.Stats) Allocator.Error!void {
     const m = s.machine;
     if (stats.changes > 0) {
@@ -576,4 +611,39 @@ test "checks: a painted letter rests on the base of the other filament" {
     app.stopWorkerForTest();
     const r = try app.checks();
     for (r.issues) |i| try std.testing.expect(i.kind != .overhang and i.kind != .bridge);
+}
+
+test "checks: a part on the second nozzle past its reach" {
+    const gpa = std.testing.allocator;
+    var b: zs.mesh.Builder = .init(gpa);
+    try zs.mesh.shapes.addBox(&b, 0, 0, 0, 10, 10, 5);
+    var mesh = try b.finish();
+    defer mesh.deinit(gpa);
+    var stl: std.Io.Writer.Allocating = .init(gpa);
+    defer stl.deinit();
+    try mesh.writeStl(&stl.writer);
+    const app = try zs.app.App.create(gpa, null, null);
+    defer app.destroy();
+    try app.loadStl("box.stl", stl.written());
+    try app.setSetting("machine.nozzles", "2");
+    try app.setSetting("machine.nozzle2_min_x", "20.5");
+    try app.setSetting("machine.filament_change", "tool");
+    const slots = @import("filament_slots.zig");
+    _ = try slots.add(app);
+    try slots.set(app, 1, "filament.nozzle", "1");
+    try app.setPartSetting(0, "project.filament", "2");
+    // The box at the left edge of the bed: x from 1 to 11.
+    try app.movePart(0, 6, 100);
+    try app.startSlice();
+    app.stopWorkerForTest();
+    var r = try app.checks();
+    var reach: usize = 0;
+    for (r.issues) |i| reach += @intFromBool(i.kind == .reach);
+    try std.testing.expectEqual(@as(usize, 1), reach);
+    // In reach: no issue.
+    try app.movePart(0, 100, 100);
+    try app.startSlice();
+    app.stopWorkerForTest();
+    r = try app.checks();
+    for (r.issues) |i| try std.testing.expect(i.kind != .reach);
 }
