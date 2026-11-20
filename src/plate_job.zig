@@ -1676,3 +1676,124 @@ test "plate job: a PLA part with a PETG support interface, and a tower for each"
     try testing.expect(tower_x[0] != null and tower_x[1] != null);
     try testing.expect(st.tower_layers[0] > 0 and st.tower_layers[1] > 0);
 }
+
+test "plate job: a change flushes into the infill of the new filament" {
+    const gpa = testing.allocator;
+    var m1 = try testBox(0, 0, 20, 20, 6);
+    defer m1.deinit(gpa);
+    var m2 = try testBox(40, 0, 60, 20, 6);
+    defer m2.deinit(gpa);
+    var s: Settings = .{};
+    s.engine.threads = 2;
+    s.machine.filament_change = .tool;
+    s.filament.color = "#000000";
+    var white = s.filament;
+    white.color = "#ffffff";
+    const parts = [_]PartInput{
+        .{ .mesh = &m1, .part = 0 },
+        .{ .mesh = &m2, .part = 1, .changes = &.{.{ .name = "project.filament", .value = "2" }} },
+    };
+    var pj = try PlateJob.init(gpa, s, &parts, .{ .filaments = &.{white} });
+    defer pj.deinit();
+    var out: Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    const st = try pj.writeGcode(&out.writer);
+    const g = out.written();
+    const area = pj.resolved.filament_area;
+    const m = pj.resolved.settings.machine;
+    // Each change: its full flush, and the infill (FILL) right after its
+    // tower lines. The hidden lines take the flush down to
+    // gcode.min_flush_mm3, and the rest goes into the tower.
+    var full_mm: f64 = 0;
+    var hidden_mm: f64 = 0;
+    var fill_e: f64 = 0;
+    var full_mm3: f64 = 0;
+    var in_run = false;
+    var seen_tower = false;
+    var walls_after = false;
+    var it = std.mem.splitScalar(u8, g, '\n');
+    while (it.next()) |line| {
+        const change = std.mem.startsWith(u8, line, "; filament change");
+        if (change or std.mem.startsWith(u8, line, ";LAYER:")) {
+            hidden_mm += @min(fill_e, @max(0, full_mm3 - @import("gcode.zig").min_flush_mm3) / area);
+            fill_e = 0;
+            full_mm3 = 0;
+            in_run = false;
+            seen_tower = false;
+        }
+        if (change) {
+            const to_white = std.mem.endsWith(u8, line, "to filament 2");
+            full_mm3 = filaments_mod.flushVolume(if (to_white) "#000000" else "#ffffff", if (to_white) "#ffffff" else "#000000", m.flush_volume, 1);
+            full_mm += full_mm3 / area;
+            continue;
+        }
+        if (std.mem.startsWith(u8, line, ";TYPE:")) {
+            const t = line[6..];
+            if (std.mem.eql(u8, t, "PRIME-TOWER")) {
+                seen_tower = full_mm3 > 0;
+            } else if (seen_tower and std.mem.eql(u8, t, "FILL")) {
+                in_run = true;
+                seen_tower = false;
+            } else {
+                if (in_run and std.mem.startsWith(u8, t, "WALL")) walls_after = true;
+                in_run = false;
+                seen_tower = false;
+            }
+            continue;
+        }
+        if (!in_run or !std.mem.startsWith(u8, line, "G1 X")) continue;
+        const k = std.mem.indexOf(u8, line, " E") orelse continue;
+        var end = k + 2;
+        while (end < line.len and line[end] != ' ') end += 1;
+        fill_e += try std.fmt.parseFloat(f64, line[k + 2 .. end]);
+    }
+    hidden_mm += @min(fill_e, @max(0, full_mm3 - @import("gcode.zig").min_flush_mm3) / area);
+    try testing.expect(st.flush_hidden_mm > 0);
+    try testing.expect(walls_after);
+    // The full flush of each change is in the tower or in the infill.
+    try testing.expectApproxEqRel(full_mm, st.flush_mm + st.flush_hidden_mm, 1e-9);
+    // The infill takes its exact volume (E has 5 decimals).
+    try testing.expectApproxEqAbs(hidden_mm, st.flush_hidden_mm, 1e-4 * @as(f64, @floatFromInt(st.changes)));
+
+    // Off: the changes flush their full volume into the tower.
+    s.project.flush_into_hidden = false;
+    var pj2 = try PlateJob.init(gpa, s, &parts, .{ .filaments = &.{white} });
+    defer pj2.deinit();
+    var out2: Writer.Allocating = .init(gpa);
+    defer out2.deinit();
+    const st2 = try pj2.writeGcode(&out2.writer);
+    try testing.expectEqual(@as(f64, 0), st2.flush_hidden_mm);
+    try testing.expectEqual(st.changes, st2.changes);
+    try testing.expectApproxEqRel(full_mm, st2.flush_mm, 1e-9);
+}
+
+test "plate job: a layer of two filaments from its move stream keeps its print order" {
+    const gpa = testing.allocator;
+    var m1 = try testBox(0, 0, 20, 20, 4);
+    defer m1.deinit(gpa);
+    var m2 = try testBox(40, 0, 60, 20, 4);
+    defer m2.deinit(gpa);
+    var s: Settings = .{};
+    s.engine.threads = 2;
+    s.machine.filament_change = .tool;
+    s.filament.color = "#000000";
+    var white = s.filament;
+    white.color = "#ffffff";
+    const parts = [_]PartInput{
+        .{ .mesh = &m1, .part = 0 },
+        .{ .mesh = &m2, .part = 1, .changes = &.{.{ .name = "project.filament", .value = "2" }} },
+    };
+    var pj = try PlateJob.init(gpa, s, &parts, .{ .filaments = &.{white}, .streams = 0 });
+    defer pj.deinit();
+    const a = try gcodeOf(&pj);
+    defer gpa.free(a);
+    // The next job runs each layer from its stream: the paths in print
+    // order, with their ranks. It makes no plan, and the same G-code.
+    var pj2 = try PlateJob.init(gpa, s, &parts, .{ .filaments = &.{white}, .streams = 0, .old = &pj });
+    defer pj2.deinit();
+    const plans = plans_made.load(.monotonic);
+    const b = try gcodeOf(&pj2);
+    defer gpa.free(b);
+    try testing.expectEqual(plans, plans_made.load(.monotonic));
+    try testing.expectEqualStrings(a, b);
+}

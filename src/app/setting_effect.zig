@@ -130,6 +130,7 @@ const preview_notes = [_]struct { []const u8, [:0]const u8 }{
     .{ "filament.nozzle", "The nozzle of the filament on a printer with two. The lines do not move." },
     .{ "machine.flush_volume", "The plastic that a change flushes. It changes the filament weight." },
     .{ "project.flush_multiplier", "The plastic that a change flushes. It changes the filament weight." },
+    .{ "project.flush_into_hidden", "The plastic that a change flushes, and the order of the lines after a change. It changes the filament weight." },
     .{ "project.prime_tower", "The prime tower of a print with tool changes, in the G-code. The view draws it next to the parts." },
     .{ "project.prime_tower_split", "A prime tower for each family of materials, in the G-code. The view draws each tower next to the parts." },
     .{ "project.prime_tower_width", "The size of the prime tower, in the G-code." },

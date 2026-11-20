@@ -1166,6 +1166,9 @@ pub fn emitAll(gpa: Allocator, src: PlanSource, threads: usize, monitor: Monitor
             const before = em;
             const out_w = em.w;
             while (true) {
+                // The print order of a layer of many filaments, for the
+                // filament in the nozzle (see gcode.Emitter.orderLayer).
+                try em.orderLayer(&slot.plan.?, &slot.prep);
                 em.w = &discard.writer;
                 em.dry = true;
                 em.record = null;

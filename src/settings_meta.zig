@@ -189,6 +189,7 @@ pub const all = [_]Meta{
     .{ .name = "project.prime_tower_x", .section = "Filaments", .doc = "The x of the center of the prime tower on the bed. -1: near the right side." },
     .{ .name = "project.prime_tower_y", .section = "Filaments", .doc = "The y of the center of the prime tower. -1: near the back." },
     .{ .name = "project.flush_multiplier", .section = "Filaments", .doc = "A multiplier for the flush volume of each filament change (see `machine.flush_volume`). Lower wastes less plastic. Too low mixes the old color into the new one." },
+    .{ .name = "project.flush_into_hidden", .section = "Filaments", .doc = "After a change to a filament, the nozzle first prints the hidden lines of that filament on the layer: its sparse infill and its support body. The old color goes into them, so the flush of the change is less by their volume. A change between two families of materials (see `project.prime_tower_split`) flushes into the support body only. The walls and the skin print after." },
     .{ .name = "engine.resolution", .section = "Slicer", .doc = "The largest change to the shape (mm) that the slicer makes when it removes points from the mesh outlines." },
     .{ .name = "engine.gap_closing", .section = "Slicer", .doc = "The largest gap (mm) that the slicer closes in a mesh with holes." },
     .{ .name = "engine.threads", .section = "Slicer", .doc = "The number of threads. 0 uses one thread for each CPU but one, so that the app and the desktop can answer while a slice runs." },

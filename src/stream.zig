@@ -12,6 +12,8 @@
 //!   gcode.Prepared).
 //! - The regions. A region is a reference to settings: a part of the
 //!   plate and a modifier volume. The stream has no setting value.
+//! - On a layer of many filaments, the rank of each path (see
+//!   LayerPlan.rank).
 //!
 //! The emitter makes the speeds, the flow, the fan, the temperatures, and
 //! the times from the stream and the settings of the job (see gcode.zig).
@@ -63,6 +65,7 @@ pub const Stream = struct {
         regions: u32 = 0,
         region_part: u32 = 0,
         region_layer: u32 = 0,
+        rank: u32 = 0,
     };
 
     /// The lists of a stream in its block, in the order of their
@@ -79,6 +82,7 @@ pub const Stream = struct {
         region_part: []u32,
         region_layer: []u32,
         region_modifier: []u16,
+        rank: []u32,
     };
 
     fn size(h: Head) usize {
@@ -130,6 +134,7 @@ pub const Stream = struct {
         const n_paths = lp.paths.items.len;
         if (lp.points.ends.items.len != n_paths or prep.paths.items.len != n_paths or prep.lengths.items.len != pts.len) return .{};
         if (lp.region_modifier.len != lp.region_resolved.len) return .{};
+        if (lp.rank.len != 0 and lp.rank.len != n_paths) return .{};
         const lim = std.math.maxInt(i32);
         for (pts) |q| if (q.x > lim or q.x < -lim or q.y > lim or q.y < -lim) return .{};
         // The settings that `bind` gives must be the settings of the plan.
@@ -159,6 +164,7 @@ pub const Stream = struct {
             .regions = @intCast(lp.region_modifier.len),
             .region_part = @intCast(lp.region_part.len),
             .region_layer = @intCast(lp.region_layer.len),
+            .rank = @intCast(lp.rank.len),
         } };
         s.mem = try gpa.alignedAlloc(u8, .@"8", size(s.head));
         const l = s.lists();
@@ -173,6 +179,7 @@ pub const Stream = struct {
         @memcpy(l.region_part, lp.region_part);
         @memcpy(l.region_layer, lp.region_layer);
         @memcpy(l.region_modifier, lp.region_modifier);
+        @memcpy(l.rank, lp.rank);
         return s;
     }
 
@@ -194,6 +201,7 @@ pub const Stream = struct {
         lp.region_part = l.region_part;
         lp.region_layer = l.region_layer;
         lp.region_modifier = l.region_modifier;
+        lp.rank = l.rank;
         const regions = try a.alloc(*const Resolved, h.regions);
         bind(ctx, i, &lp, regions);
         lp.region_resolved = regions;

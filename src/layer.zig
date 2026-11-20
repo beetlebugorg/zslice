@@ -182,6 +182,12 @@ pub const LayerPlan = struct {
     /// along them, from `Path.w_start` on, one entry for each point of the
     /// path. The width of a segment is the mean of its two ends.
     point_w: std.ArrayList(f32) = .empty,
+    /// On a layer of many filaments (see `groupByFilament`): the place of
+    /// each path in the order of the plan. The emitter puts the paths in
+    /// print order for the filament in the nozzle (see
+    /// gcode.Emitter.orderLayer), and the paths of one filament keep the
+    /// order of their rank. Empty on a layer of one filament.
+    rank: []const u32 = &.{},
 
     pub fn deinit(self: *LayerPlan) void {
         self.arena.deinit();
@@ -274,7 +280,8 @@ pub const LayerPlan = struct {
     /// another filament no longer take turns. In each group the paths keep
     /// their order. The groups go up by slot on even layers and down on odd
     /// layers, so a layer starts with the filament that the layer below
-    /// ended with. `r`: the settings of a path with region 0 and no
+    /// ended with. Each path gets its place in this order as its rank (see
+    /// `rank`). `r`: the settings of a path with region 0 and no
     /// `resolved`. A plan of one filament stays as it is.
     pub fn groupByFilament(self: *LayerPlan, r: *const Resolved, slots: usize) Allocator.Error!void {
         if (slots < 2 or self.paths.items.len < 2) return;
@@ -314,6 +321,9 @@ pub const LayerPlan = struct {
         }
         self.paths = paths;
         self.points = points;
+        const rank = try a.alloc(u32, n);
+        for (rank, 0..) |*k, i| k.* = @intCast(i);
+        self.rank = rank;
     }
 
     pub const no_part = std.math.maxInt(u32);

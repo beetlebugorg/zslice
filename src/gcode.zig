@@ -90,6 +90,10 @@ pub const Stats = struct {
     slot_g: [filaments.max_slots]f64 = @splat(0),
     /// The filament length (mm) that the changes flushed, of all slots.
     flush_mm: f64 = 0,
+    /// The filament length (mm) of the flush that went into the hidden
+    /// lines after the changes (see `Emitter.hiddenRun`). The lines count
+    /// in `filament_mm`, and this part is not in `flush_mm`.
+    flush_hidden_mm: f64 = 0,
 };
 
 /// What the emitter records for each path of a layer, if `record` is set.
@@ -456,6 +460,12 @@ pub const Towers = struct {
 /// The prime volume (mm³) of a change into the tower when the change
 /// G-code of the machine flushes into a chute (Bambu Lab).
 pub const tower_prime_mm3 = 15;
+
+/// The least flush (mm³) of a change after the hidden lines take their
+/// part (see `Emitter.hiddenRun`): the prime of the tower of a Bambu Lab
+/// printer, so the nozzle is full before the first hidden line. A change
+/// whose flush is less than this keeps its flush.
+pub const min_flush_mm3 = tower_prime_mm3;
 
 /// The slot of the filament of the last path of a layer plan, with the
 /// settings `r` of the print and the filaments `slots` of the plate.
@@ -1543,19 +1553,24 @@ pub const Emitter = struct {
         return filaments.pathSlot(feature, r.settings.project, self.slots.len);
     }
 
-    /// A filament change to slot `next` before a path that starts at
-    /// (x, y) mm. The text is the change G-code of the machine, or the
-    /// command of the flavor (see filaments.zig). The change takes
-    /// `change_time`, and a tool change flushes the old color out.
-    fn changeTool(self: *Emitter, next: u32, x: f64, y: f64, first: bool) Error!void {
+    /// A filament change to slot `next` before path `i` of `lp`, which
+    /// starts at (x, y) mm. The text is the change G-code of the machine,
+    /// or the command of the flavor (see filaments.zig). The change takes
+    /// `change_time`, and a tool change flushes the old color out. The
+    /// hidden lines from path `i` on (see `hiddenRun`) take a part of the
+    /// flush, down to `min_flush_mm3`.
+    fn changeTool(self: *Emitter, lp: *const LayerPlan, i: usize, next: u32, x: f64, y: f64, first: bool) Error!void {
         const g = self.r.settings;
         const m = g.machine;
         const from = self.slots[self.tool];
         const to = self.slots[next];
         try self.retractHop(false);
         self.stats.changes += 1;
-        const flush_mm3 = if (m.filament_change == .tool) filaments.flushVolume(from.color, to.color, m.flush_volume, g.project.flush_multiplier) else 0;
+        const full_mm3 = if (m.filament_change == .tool) filaments.flushVolume(from.color, to.color, m.flush_volume, g.project.flush_multiplier) else 0;
+        const hidden_mm3 = if (full_mm3 > min_flush_mm3) @min(self.hiddenRun(lp, i, self.tool, next), full_mm3 - min_flush_mm3) else 0;
+        const flush_mm3 = full_mm3 - hidden_mm3;
         const flush_mm = flush_mm3 / self.r.filament_area;
+        self.stats.flush_hidden_mm += hidden_mm3 / self.r.filament_area;
         const old_temp = self.nozzle_temp orelse from.nozzle_temp;
         const new_temp = if (first) to.first_layer_nozzle_temp else to.nozzle_temp;
         if (!self.dry) {
@@ -1600,6 +1615,181 @@ pub const Emitter = struct {
         if (self.towers.n > 0 and m.filament_change == .tool) {
             try self.towerPurge(self.towers.of_slot[@min(next, filaments.max_slots - 1)], if (into_tower) flush_mm3 else tower_prime_mm3, first);
         }
+    }
+
+    /// True if path `path` of slot `to` is a hidden line for the flush of
+    /// a change from slot `from` (see Project.flush_into_hidden): the
+    /// support body, or the sparse infill of a part with walls if the two
+    /// filaments are of one family (see filaments.family). A path with
+    /// path rules, or with a z or a width that changes along it, is not.
+    fn hiddenFor(self: *const Emitter, lp: *const LayerPlan, path: layer_mod.Path, from: u32, to: u32) bool {
+        const g = self.r.settings;
+        if (!g.project.flush_into_hidden or g.machine.filament_change != .tool) return false;
+        if (path.z_start != layer_mod.Path.planar or path.w_start != layer_mod.Path.planar) return false;
+        const pr = lp.pathResolved(path) orelse lp.resolved orelse self.r;
+        if (pr.settings.project.path_rules.len > 0) return false;
+        return switch (path.feature) {
+            .support => true,
+            .infill => pr.settings.project.wall_count > 0 and self.sameFamily(from, to),
+            else => false,
+        };
+    }
+
+    fn sameFamily(self: *const Emitter, a: u32, b: u32) bool {
+        if (a >= self.slots.len or b >= self.slots.len) return false;
+        var fa: [8]u8 = undefined;
+        var fb: [8]u8 = undefined;
+        return std.mem.eql(u8, filaments.family(self.slots[a].material, &fa), filaments.family(self.slots[b].material, &fb));
+    }
+
+    /// The plastic (mm³) of path `i` of `lp`, as `paths` prints it: its
+    /// length times its bead area, with no path rule.
+    fn pathVolume(self: *const Emitter, lp: *const LayerPlan, i: usize) f64 {
+        const pts = lp.points.get(i);
+        if (pts.len < 2) return 0;
+        const path = lp.paths.items[i];
+        const lr = lp.resolved orelse self.r;
+        const path_r = lp.pathResolved(path) orelse lr;
+        const e_per_mm = flow.beadArea(lp.width, lp.height) / self.r.filament_area * lr.settings.filament.flow_ratio;
+        const e = self.pathE(lp, path, path_r, lr, e_per_mm);
+        // The lengths of the moves, as `extrude` finds them.
+        var x = geom.toMm(pts[0].x);
+        var y = geom.toMm(pts[0].y);
+        var len: f64 = 0;
+        const n = pts.len + @as(usize, @intFromBool(path.closed and pts.len > 2));
+        for (1..n) |k| {
+            const q = pts[k % pts.len];
+            const qx = geom.toMm(q.x);
+            const qy = geom.toMm(q.y);
+            const d = geom.hypot(qx - x, qy - y);
+            if (d < 1e-4) continue;
+            len += d;
+            x = qx;
+            y = qy;
+        }
+        return len * e * self.r.filament_area;
+    }
+
+    /// The plastic (mm³) of the hidden lines (see `hiddenFor`) of a change
+    /// from slot `from` to slot `to` before path `i`: the paths from `i` on
+    /// that are hidden lines of `to`, up to the first path that is not.
+    pub fn hiddenRun(self: *const Emitter, lp: *const LayerPlan, i: usize, from: u32, to: u32) f64 {
+        const lr = lp.resolved orelse self.r;
+        var v: f64 = 0;
+        for (lp.paths.items[i..], i..) |path, k| {
+            if (lp.points.get(k).len == 0) continue;
+            if (self.toolOf(path.feature, lp.pathResolved(path) orelse lr) != to) break;
+            if (!self.hiddenFor(lp, path, from, to)) break;
+            v += self.pathVolume(lp, k);
+        }
+        return v;
+    }
+
+    /// Puts the paths of a layer of many filaments (see LayerPlan.rank) in
+    /// print order, for the filament in the nozzle now (`tool`). The
+    /// filaments of the layer print one after the other, in the order of
+    /// `blockOrder`. After a change, a filament first prints its hidden
+    /// lines (see `hiddenFor`). The rest keeps the order of the plan. The
+    /// combing ways and the move lengths in `pr` move with their paths.
+    /// The result depends only on the plan and on `tool`, so a plan from a
+    /// stream gets the same order again.
+    pub fn orderLayer(self: *Emitter, lp: *LayerPlan, pr: *Prepared) std.mem.Allocator.Error!void {
+        const n = lp.paths.items.len;
+        if (self.slots.len < 2 or n < 2 or lp.rank.len != n or pr.paths.items.len != n) return;
+        if (pr.lengths.items.len != lp.points.points.items.len) return;
+        const gpa = self.gpa;
+        const lr = lp.resolved orelse self.r;
+        const tool = try gpa.alloc(u32, n);
+        defer gpa.free(tool);
+        var present = [_]bool{false} ** filaments.max_slots;
+        for (lp.paths.items, tool) |path, *t| {
+            t.* = @min(self.toolOf(path.feature, lp.pathResolved(path) orelse lr), filaments.max_slots - 1);
+            present[t.*] = true;
+        }
+        var blocks: [filaments.max_slots]u32 = undefined;
+        const order = self.blockOrder(lp, present, &blocks);
+        // The key of each path: the place of its filament in `order`, then
+        // its hidden lines first after a change, then its rank.
+        var place = [_]u32{0} ** filaments.max_slots;
+        var before = [_]u32{0} ** filaments.max_slots;
+        var prev = self.tool;
+        for (order, 0..) |t, k| {
+            place[t] = @intCast(k);
+            before[t] = prev;
+            prev = t;
+        }
+        const key = try gpa.alloc(u64, n);
+        defer gpa.free(key);
+        for (lp.paths.items, tool, lp.rank, key) |path, t, r, *k| {
+            const changed = before[t] != t;
+            const late: u64 = @intFromBool(!(changed and self.hiddenFor(lp, path, before[t], t)));
+            k.* = (@as(u64, place[t]) << 40) | (late << 32) | r;
+        }
+        const idx = try gpa.alloc(u32, n);
+        defer gpa.free(idx);
+        for (idx, 0..) |*d, k| d.* = @intCast(k);
+        std.mem.sort(u32, idx, key, struct {
+            fn lt(c: []const u64, a: u32, b: u32) bool {
+                return c[a] < c[b];
+            }
+        }.lt);
+        var same = true;
+        for (idx, 0..) |d, k| same = same and d == k;
+        if (same) return;
+        // The new lists of the plan (in its arena: a plan from a stream
+        // reads the memory of the stream), and of the prepared work.
+        const a = lp.arena.allocator();
+        const new_paths = try a.alloc(layer_mod.Path, n);
+        const rank = try a.alloc(u32, n);
+        const ends = try a.alloc(u32, n);
+        const points = try a.alloc(geom.Point, lp.points.points.items.len);
+        const preps = try gpa.alloc(Prepared.PathPrep, n);
+        defer gpa.free(preps);
+        const lengths = try gpa.alloc(f64, pr.lengths.items.len);
+        defer gpa.free(lengths);
+        var pos: usize = 0;
+        for (idx, 0..) |src, k| {
+            const p0: usize = if (src == 0) 0 else lp.points.ends.items[src - 1];
+            const p1: usize = lp.points.ends.items[src];
+            @memcpy(points[pos..][0 .. p1 - p0], lp.points.points.items[p0..p1]);
+            @memcpy(lengths[pos..][0 .. p1 - p0], pr.lengths.items[p0..p1]);
+            pos += p1 - p0;
+            ends[k] = @intCast(pos);
+            new_paths[k] = lp.paths.items[src];
+            rank[k] = lp.rank[src];
+            preps[k] = pr.paths.items[src];
+        }
+        lp.paths = .{ .items = new_paths, .capacity = n };
+        lp.points = .{ .points = .{ .items = points, .capacity = points.len }, .ends = .{ .items = ends, .capacity = n } };
+        lp.rank = rank;
+        @memcpy(pr.paths.items, preps);
+        @memcpy(pr.lengths.items, lengths);
+        // The end of the last path with points.
+        var k = n;
+        while (k > 0) {
+            k -= 1;
+            const pts = lp.points.get(k);
+            if (pts.len == 0) continue;
+            const q = if (lp.paths.items[k].closed and pts.len > 2) pts[0] else pts[pts.len - 1];
+            pr.end = .{ geom.toMm(q.x), geom.toMm(q.y) };
+            pr.end_feature = lp.paths.items[k].feature;
+            break;
+        }
+    }
+
+    /// The order of the filaments of a layer (`present`), into `buf`: up
+    /// by slot on even layers and down on odd layers (as
+    /// LayerPlan.groupByFilament).
+    fn blockOrder(self: *const Emitter, lp: *const LayerPlan, present: [filaments.max_slots]bool, buf: *[filaments.max_slots]u32) []const u32 {
+        _ = self;
+        var n: usize = 0;
+        for (0..filaments.max_slots) |k| {
+            const t = if (lp.index % 2 == 1) filaments.max_slots - 1 - k else k;
+            if (!present[t]) continue;
+            buf[n] = @intCast(t);
+            n += 1;
+        }
+        return buf[0..n];
     }
 
     /// A plain retraction before a move to the tower (no wipe, no z hop:
@@ -1807,7 +1997,7 @@ pub const Emitter = struct {
             const retractions = self.stats.retractions;
             // A path of another filament: a filament change first.
             const next_tool = self.toolOf(path.feature, lp.pathResolved(path) orelse lr);
-            if (next_tool != self.tool) try self.changeTool(next_tool, geom.toMm(pts[0].x), geom.toMm(pts[0].y), first);
+            if (next_tool != self.tool) try self.changeTool(lp, i, next_tool, geom.toMm(pts[0].x), geom.toMm(pts[0].y), first);
             try self.setAccel(lr.accel(null, first));
             self.path_index = i;
             try self.travel(geom.toMm(pts[0].x), geom.toMm(pts[0].y), path.feature);
@@ -1856,13 +2046,7 @@ pub const Emitter = struct {
             // flow.
             // The flow ratio of the part of the path (see LayerPlan.append).
             const fr = path_r.settings.filament.flow_ratio;
-            const base_e = if (path.width > 0 or path.height > 0) flow.beadArea(if (path.width > 0) path.width else lp.width, h) / self.r.filament_area * fr else if (fr == s.filament.flow_ratio) e_per_mm else flow.beadArea(lp.width, lp.height) / self.r.filament_area * fr;
-            const e = rr.flow * switch (path.feature) {
-                .ironing => base_e * path_r.settings.project.ironing_flow,
-                .infill => base_e * path_r.settings.project.infill_flow,
-                .bridge => base_e * path_r.settings.project.bridge_flow,
-                else => base_e,
-            };
+            const e = rr.flow * self.pathE(lp, path, path_r, lr, e_per_mm);
             const x0 = geom.toMm(pts[0].x);
             const y0 = geom.toMm(pts[0].y);
             if (path.z_start != layer_mod.Path.planar) {
@@ -1916,6 +2100,22 @@ pub const Emitter = struct {
                 try self.towerSparse(0, first);
             }
         }
+    }
+
+    /// The filament length (mm) for 1 mm of a planar path of one width,
+    /// before the path rules. `lr`: the settings of the layer, and
+    /// `e_per_mm` the length for 1 mm of a line of the layer with them.
+    fn pathE(self: *const Emitter, lp: *const LayerPlan, path: layer_mod.Path, path_r: *const Resolved, lr: *const Resolved, e_per_mm: f64) f64 {
+        const s = lr.settings;
+        const h: f64 = if (path.height > 0) path.height else lp.height;
+        const fr = path_r.settings.filament.flow_ratio;
+        const base_e = if (path.width > 0 or path.height > 0) flow.beadArea(if (path.width > 0) path.width else lp.width, h) / self.r.filament_area * fr else if (fr == s.filament.flow_ratio) e_per_mm else flow.beadArea(lp.width, lp.height) / self.r.filament_area * fr;
+        return switch (path.feature) {
+            .ironing => base_e * path_r.settings.project.ironing_flow,
+            .infill => base_e * path_r.settings.project.infill_flow,
+            .bridge => base_e * path_r.settings.project.bridge_flow,
+            else => base_e,
+        };
     }
 
     /// After a closed outer wall: the nozzle moves on along the start of

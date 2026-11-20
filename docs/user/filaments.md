@@ -28,7 +28,13 @@ Search for **support filament**, and pick a chip:
 
 The **support interface filament** is the filament of the layers that touch the part. **Support** means the same filament as the support.
 
-zslice prints all the lines of one filament on a layer together. So a layer changes the filament once, not for each piece of support.
+zslice prints all the lines of one filament on a layer together. So a layer changes the filament once for each filament on it.
+
+## Less plastic for each change
+
+After a change, the nozzle flushes the old color out: into the chute of a Bambu Lab printer, or into the prime tower. zslice uses less plastic for this flush:
+
+- **Flush into hidden lines.** After a change, the new filament first prints its infill and its support body on that layer. Nobody sees these lines, so the old color can go into them. The flush is less by the plastic of these lines. A change between two kinds of material (PLA and PETG) flushes into the support body only. Search for **flush into hidden** to turn it off.
 
 ## Use the filaments of the printer
 

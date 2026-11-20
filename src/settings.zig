@@ -847,6 +847,13 @@ pub const Project = struct {
     /// `machine.flush_volume`). Lower wastes less plastic. Too low mixes
     /// the old color into the new one.
     flush_multiplier: f64 = 1,
+    /// After a change to a filament, the nozzle first prints the hidden
+    /// lines of that filament on the layer: its sparse infill and its
+    /// support body. The old color goes into them, so the flush of the
+    /// change is less by their volume. A change between two families of
+    /// materials (see `prime_tower_split`) flushes into the support body
+    /// only. The walls and the skin print after.
+    flush_into_hidden: bool = true,
 };
 
 /// Options for the engine. They do not change the print.
@@ -1509,7 +1516,7 @@ pub const plate_settings = [_][]const u8{
     "project.skirt_distance",         "project.skirt_layers",       "project.brim_width",
     "project.brim_location",          "project.placement",          "project.flush_multiplier",
     "project.prime_tower",            "project.prime_tower_width",  "project.prime_tower_x",
-    "project.prime_tower_y",
+    "project.prime_tower_y",          "project.flush_into_hidden",
 };
 
 /// True for a setting that is the same for all the parts of a plate (see
