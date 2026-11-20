@@ -193,7 +193,20 @@ export class FilamentList {
       grams.className = "dim fil-g";
       const g = st?.grams?.[f.index];
       grams.textContent = g > 0 ? `${g.toFixed(1)} g` : "";
-      row.append(sw, num, mat, grams);
+      row.append(sw, num, mat);
+      // A printer with two nozzles: the nozzle of the filament.
+      if ((this.ctx.nozzles?.() ?? 1) >= 2) {
+        const nz = document.createElement("select");
+        nz.className = "choice fil-nozzle";
+        nz.title = `The nozzle of filament ${f.index + 1}: the main nozzle (fed by the AMS on the X2D), or the second nozzle (fed by the external spool)`;
+        nz.setAttribute("aria-label", `The nozzle of filament ${f.index + 1}`);
+        nz.append(new Option("Main", "0"), new Option("2nd", "1"));
+        nz.value = String(f.nozzle ?? 0);
+        nz.onchange = () => this.call("filamentSet", { index: f.index, name: "filament.nozzle", value: nz.value });
+        row.append(nz);
+        row.classList.add("two");
+      }
+      row.append(grams);
       if (f.index > 0) {
         const rm = document.createElement("button");
         rm.className = "flat icon fil-rm";

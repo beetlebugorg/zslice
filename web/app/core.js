@@ -1128,6 +1128,7 @@ export class Core {
         material: get(i, "filament.material"),
         color: get(i, "filament.color"),
         nozzleTemp: Number(get(i, "filament.nozzle_temp")),
+        nozzle: Number(get(i, "filament.nozzle")) || 0,
       });
     }
     return out;

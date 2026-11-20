@@ -840,7 +840,7 @@ function sliceAfterKeys(turned = -1) {
 
 // The card of a selected part, next to it in the view (partcard.js).
 // The filaments of the plate on the print card (filaments.js).
-var filamentList = new FilamentList({ client, applySettings: (r) => applySettings(r), toast: (t) => toast(t) });
+var filamentList = new FilamentList({ client, applySettings: (r) => applySettings(r), toast: (t) => toast(t), nozzles: () => Number(value("machine.nozzles")) || 1 });
 
 // The Paint tool (P): filaments on the surface of a part (paint.js).
 var paintTool = new PaintTool({
@@ -1339,7 +1339,7 @@ $("filament-menu").onclick = () => {
   const box = document.createElement("div");
   box.className = "fil-pop";
   const tool = value("machine.filament_change") === "tool";
-  const list = new FilamentList({ client, applySettings: (r) => applySettings(r), toast: (t) => toast(t) });
+  const list = new FilamentList({ client, applySettings: (r) => applySettings(r), toast: (t) => toast(t), nozzles: () => Number(value("machine.nozzles")) || 1 });
   const note = document.createElement("div");
   note.className = "dim fil-pop-note";
   note.textContent = tool
@@ -1402,9 +1402,14 @@ async function useLoadedFilaments(pr) {
   // G-code). A spool that feeds the second nozzle of a printer with two
   // (the external spool of an X2D: "nozzle": "aux") stays out, or the
   // change would ask for it in the main nozzle.
-  const aux = r.list.filter((f) => f.nozzle === "aux");
-  const want = r.list.filter((f) => f.nozzle !== "aux").slice(0, 16);
-  if (want.length === 0) return { ok: false, message: `The spools of ${pr.name} feed its second nozzle only. zslice prints with the main nozzle: load a spool in the AMS.` };
+  // A spool of the second nozzle ("nozzle": "aux", the external spool of
+  // an X2D) needs a printer with two nozzles in the settings
+  // (machine.nozzles = 2): then its filament prints on that nozzle. Else
+  // it stays out: the change would ask for it in the main nozzle.
+  const two = (Number(value("machine.nozzles")) || 1) >= 2;
+  const aux = two ? [] : r.list.filter((f) => f.nozzle === "aux");
+  const want = r.list.filter((f) => two || f.nozzle !== "aux").slice(0, 16);
+  if (want.length === 0) return { ok: false, message: `The spools of ${pr.name} feed its second nozzle only. Pick the printer profile of ${pr.name} (two nozzles), or load a spool in the AMS.` };
   let have = filaments().length;
   while (have < want.length) {
     const a = await client.call("filamentAdd", {});
@@ -1427,9 +1432,14 @@ async function useLoadedFilaments(pr) {
       if (c.list) setFilaments(c.list);
       if (k === 0) applySettings(c);
     }
+    if (two) {
+      const n = await client.call("filamentSet", { index: k, name: "filament.nozzle", value: f.nozzle === "aux" ? "1" : "0" });
+      if (n.list) setFilaments(n.list);
+      if (k === 0) applySettings(n);
+    }
   }
-  const words = want.map((f) => `${f.slot || "roll"} ${f.material}`).join(", ");
-  const skipped = aux.length ? ` Not used: ${aux.map((f) => `${f.slot || "spool"} ${f.material}`).join(", ")} (the second nozzle; zslice prints with the main nozzle).` : "";
+  const words = want.map((f) => `${f.slot || "roll"} ${f.material}${two && f.nozzle === "aux" ? " (2nd nozzle)" : ""}`).join(", ");
+  const skipped = aux.length ? ` Not used: ${aux.map((f) => `${f.slot || "spool"} ${f.material}`).join(", ")} (the second nozzle: pick the printer profile of ${pr.name}, with two nozzles).` : "";
   return { ok: true, message: `${want.length} ${want.length === 1 ? "filament" : "filaments"} from ${pr.name}: ${words}.${skipped}` };
 }
 
