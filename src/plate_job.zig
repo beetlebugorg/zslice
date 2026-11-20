@@ -350,6 +350,12 @@ pub const PlateJob = struct {
         for (self.groups) |*g| g.job.dropMemos();
     }
 
+    /// `dropMemos`, but the memos go to `out` (in the gpa of the job), and
+    /// the caller frees them.
+    pub fn takeMemos(self: *PlateJob, out: *std.ArrayList(layer_mod.Memo)) Allocator.Error!void {
+        for (self.groups) |*g| try g.job.takeMemos(out);
+    }
+
     pub fn deinit(self: *PlateJob) void {
         const gpa = self.gpa;
         for (self.groups) |*g| {

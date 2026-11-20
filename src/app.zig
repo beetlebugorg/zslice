@@ -2409,6 +2409,44 @@ pub const App = struct {
         app.spare_paths = .{};
     }
 
+    /// `trim`, with the free on a new thread: the app gives up the memory
+    /// at once, and the thread frees it (the unmap of the memos of a
+    /// 3DBenchy held the UI thread for 50 to 70 ms). For the thread of a
+    /// shell.
+    pub fn trimLater(app: *App) void {
+        if (comptime !has_threads) return app.trim();
+        if (app.getState() == .slicing) return;
+        const t = app.gpa.create(Trash) catch return app.trim();
+        t.* = .{ .gpa = app.gpa };
+        if (app.job) |*j| j.takeMemos(&t.memos) catch j.dropMemos();
+        t.prev_job = app.prev_job;
+        app.prev_job = null;
+        t.gcode = app.spare_gcode;
+        app.spare_gcode = &.{};
+        t.paths = app.spare_paths;
+        app.spare_paths = .{};
+        const thread = std.Thread.spawn(.{}, Trash.free, .{t}) catch return t.free();
+        thread.detach();
+    }
+
+    /// The memory of `trimLater`.
+    const Trash = struct {
+        gpa: Allocator,
+        memos: std.ArrayList(zs.layer.Memo) = .empty,
+        prev_job: ?zs.PlateJob = null,
+        gcode: []u8 = &.{},
+        paths: Toolpaths = .{},
+
+        fn free(t: *Trash) void {
+            for (t.memos.items) |*m| m.deinit();
+            t.memos.deinit(t.gpa);
+            if (t.prev_job) |*j| j.deinit();
+            t.gpa.free(t.gcode);
+            t.paths.deinit(t.gpa);
+            t.gpa.destroy(t);
+        }
+    };
+
     fn dropPrevJob(app: *App) void {
         if (app.prev_job) |*j| j.deinit();
         app.prev_job = null;

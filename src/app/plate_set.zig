@@ -487,7 +487,8 @@ pub const Set = struct {
             // The beads of the plate that was active, for the view: its
             // result goes with its next slice.
             if (set.scenes_on) set.ensureScene(old);
-            old.app.trim();
+            // The shell thread does not wait for the free (see trimLater).
+            if (set.auto) old.app.trimLater() else old.app.trim();
             set.setActive(i);
             set.markDirty();
         }

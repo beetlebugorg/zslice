@@ -772,6 +772,16 @@ pub const Job = struct {
         for (0..self.memos.len) |i| dropMemo(self.gpa, self.memos, i);
     }
 
+    /// `dropMemos`, but the memos go to `out` (in the gpa of the job), and
+    /// the caller frees them. On an error, the memos that did not go stay.
+    pub fn takeMemos(self: *Job, out: *std.ArrayList(layer_mod.Memo)) Allocator.Error!void {
+        try out.ensureUnusedCapacity(self.gpa, self.memos.len);
+        for (self.memos) |*m| {
+            out.appendAssumeCapacity(m.*);
+            m.* = .init(self.gpa);
+        }
+    }
+
     pub fn deinit(self: *Job) void {
         self.dropModifiers();
         self.gpa.free(self.groups);
