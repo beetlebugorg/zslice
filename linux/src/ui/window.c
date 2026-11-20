@@ -20,6 +20,7 @@
 #include "../net/signing.h"
 #include "../prefs/printers.h"
 #include "printer-picker.h"
+#include "filaments.h"
 #include "profile-menus.h"
 #include "preview.h"
 #include "history.h"
@@ -2121,6 +2122,7 @@ GtkWindow *zg_window_new(GtkApplication *app, ZgModel *model) {
     GtkWidget *setup = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
     gtk_widget_add_css_class(setup, "linked");
     gtk_box_append(GTK_BOX(setup), w->printer_dd);
+    gtk_box_append(GTK_BOX(setup), zg_filament_button_new(model));
     gtk_box_append(GTK_BOX(setup), zg_profile_menu_new(model, ZS_GROUP_FILAMENT));
     gtk_box_append(GTK_BOX(setup), zg_profile_menu_new(model, ZS_GROUP_PROJECT));
     w->send_button = gtk_button_new_with_label("Print");

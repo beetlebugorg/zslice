@@ -124,6 +124,16 @@ void zg_model_apply_printer_status(ZgModel *self, const zs_printer_status *statu
 gboolean zg_model_plate_arrange(ZgModel *self);
 void zg_model_plate_clear(ZgModel *self);
 
+/* The filaments of the plate (zs_app_filament_*). Each change emits
+ * "filaments-changed" and "plate-changed", and starts a new slice. A set
+ * of filament 0 also changes the filament settings. add returns the
+ * index of the new filament, or -1. */
+gint64 zg_model_filament_add(ZgModel *self);
+gboolean zg_model_filament_remove(ZgModel *self, size_t i);
+gboolean zg_model_filament_set(ZgModel *self, size_t i, const char *name, const char *value, GError **error);
+/* A value of filament i ("filament.color"), or "". Free with g_free. */
+char *zg_model_filament_get(ZgModel *self, size_t i, const char *name);
+
 /* Sets a setting and starts a new slice. */
 gboolean zg_model_set(ZgModel *self, const char *key, const char *value, GError **error);
 

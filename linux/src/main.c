@@ -191,7 +191,12 @@ static const char *ZG_CSS =
     ".zg-pick-group { font-size: 0.8em; font-weight: 700; opacity: 0.55; padding: 10px 8px 2px; }"
     ".zg-pick-facts { padding: 10px 12px; border-radius: 10px; background: alpha(@theme_fg_color, 0.04); }"
     ".zg-pick-hint { padding: 8px 12px; border-radius: 8px; background: alpha(@accent_bg_color, 0.14); }"
-    "entry { font-feature-settings: 'tnum'; }";
+    "entry { font-feature-settings: 'tnum'; }"
+    /* The filaments of the plate (ui/filaments.c). */
+    ".zg-fil-chip { padding: 0; min-width: 0; min-height: 0; }"
+    ".zg-fil-text { padding: 0 8px; border-radius: 13px; min-height: 26px; }"
+    ".zg-fil-text.zg-on { box-shadow: inset 0 0 0 2px @theme_fg_color; }"
+    ".zg-fil-note { font-size: 0.85em; opacity: 0.75; }";
 
 static ZgModel *model;
 

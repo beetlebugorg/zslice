@@ -282,7 +282,7 @@ static void load_group(ZgModel *self, int g) {
 
 G_DEFINE_FINAL_TYPE(ZgModel, zg_model, G_TYPE_OBJECT)
 
-enum { SIGNAL_PLATES_CHANGED, SIGNAL_PROJECT_CHANGED, SIGNAL_PROJECT_SENT, SIGNAL_CORE_EVENT, SIGNAL_SELECTION_CHANGED, SIGNAL_PICKED, SIGNAL_SETTING_CHANGED, SIGNAL_FOCUS_CHANGED, SIGNAL_SCOPE_CHANGED, SIGNAL_PRINTER_CHANGED, SIGNAL_PRINTERS_EDITED, SIGNAL_PART_SELECTED, SIGNAL_PLATE_CHANGED, SIGNAL_SEGMENT_CHANGED, SIGNAL_PROFILES_CHANGED, SIGNAL_OPEN_PROFILE, SIGNAL_GAPS_CHANGED, SIGNAL_UNDO_CHANGED, SIGNAL_PART_SCOPE_CHANGED, SIGNAL_TOOL_CHANGED, SIGNAL_MEASURE_CHANGED, SIGNAL_FALL, N_SIGNALS };
+enum { SIGNAL_PLATES_CHANGED, SIGNAL_PROJECT_CHANGED, SIGNAL_PROJECT_SENT, SIGNAL_CORE_EVENT, SIGNAL_SELECTION_CHANGED, SIGNAL_PICKED, SIGNAL_SETTING_CHANGED, SIGNAL_FOCUS_CHANGED, SIGNAL_SCOPE_CHANGED, SIGNAL_PRINTER_CHANGED, SIGNAL_PRINTERS_EDITED, SIGNAL_PART_SELECTED, SIGNAL_PLATE_CHANGED, SIGNAL_SEGMENT_CHANGED, SIGNAL_PROFILES_CHANGED, SIGNAL_OPEN_PROFILE, SIGNAL_GAPS_CHANGED, SIGNAL_UNDO_CHANGED, SIGNAL_PART_SCOPE_CHANGED, SIGNAL_TOOL_CHANGED, SIGNAL_MEASURE_CHANGED, SIGNAL_FALL, SIGNAL_FILAMENTS_CHANGED, N_SIGNALS };
 static guint signals[N_SIGNALS];
 
 typedef struct {
@@ -520,6 +520,10 @@ static void zg_model_class_init(ZgModelClass *klass) {
      * view shows its fall (zg_model_fall_start). */
     signals[SIGNAL_FALL] = g_signal_new("fall", G_TYPE_FROM_CLASS(klass),
         G_SIGNAL_RUN_LAST, 0, NULL, NULL, NULL, G_TYPE_NONE, 1, G_TYPE_INT64);
+    /* filaments-changed(): a filament of the plate came, went, or got a
+     * new value (zg_model_filament_add and the calls after it). */
+    signals[SIGNAL_FILAMENTS_CHANGED] = g_signal_new("filaments-changed", G_TYPE_FROM_CLASS(klass),
+        G_SIGNAL_RUN_LAST, 0, NULL, NULL, NULL, G_TYPE_NONE, 0);
 }
 
 void zg_model_select(ZgModel *self, gint64 path) {
@@ -974,7 +978,8 @@ gboolean zg_model_set_quality(ZgModel *self, const char *name, gboolean keep_edi
     g_free(dir);
     if (!ok) return FALSE;
     zg_pref_set("profile_project", name);
-    zg_model_announce(self, "project.");
+    static const char *const keys[] = {"project.filament", "project.support_filament", "project.support_interface_filament"};
+    for (size_t k = 0; k < G_N_ELEMENTS(keys); k++) g_signal_emit(self, signals[SIGNAL_SETTING_CHANGED], 0, keys[k]);
     zg_model_save_soon(self, ZS_GROUP_PROJECT);
     slice_soon(self);
     return TRUE;
@@ -1999,6 +2004,48 @@ void zg_model_set_part_scope(ZgModel *self, gint64 part) {
 
 gint64 zg_model_part_scope(ZgModel *self) {
     return self->part_scope;
+}
+
+/* ---- the filaments of the plate ---- */
+
+gint64 zg_model_filament_add(ZgModel *self) {
+    size_t i = 0;
+    if (zs_app_filament_add(self->core, &i) != ZS_OK) return -1;
+    g_signal_emit(self, signals[SIGNAL_FILAMENTS_CHANGED], 0);
+    plate_changed(self);
+    return (gint64)i;
+}
+
+gboolean zg_model_filament_remove(ZgModel *self, size_t i) {
+    if (zs_app_filament_remove(self->core, i) != ZS_OK) return FALSE;
+    g_signal_emit(self, signals[SIGNAL_FILAMENTS_CHANGED], 0);
+    /* The parts and the layers of the filaments after i have new
+     * numbers: the editors of project.filament show them. */
+    zg_model_announce(self, "project.");
+    plate_changed(self);
+    return TRUE;
+}
+
+gboolean zg_model_filament_set(ZgModel *self, size_t i, const char *name, const char *value, GError **error) {
+    int rc = zs_app_filament_set(self->core, i, name, value);
+    if (rc != ZS_OK) return fail(error, rc);
+    /* Filament 0 is the filament of the settings: the settings change
+     * too, and the filament profile saves. */
+    if (i == 0) {
+        g_signal_emit(self, signals[SIGNAL_SETTING_CHANGED], 0, name);
+        save_soon(self, name);
+    }
+    g_signal_emit(self, signals[SIGNAL_FILAMENTS_CHANGED], 0);
+    plate_changed(self);
+    return TRUE;
+}
+
+char *zg_model_filament_get(ZgModel *self, size_t i, const char *name) {
+    size_t len = 0;
+    if (zs_app_filament_get(self->core, i, name, NULL, 0, &len) != ZS_OK) return g_strdup("");
+    char *buf = g_malloc(len + 1);
+    if (zs_app_filament_get(self->core, i, name, buf, len + 1, NULL) != ZS_OK) buf[0] = 0;
+    return buf;
 }
 
 gboolean zg_model_part_setting_set(ZgModel *self, size_t i, const char *name, const char *value) {
