@@ -71,7 +71,7 @@ Press `?` in the app to see all keys. Type in the sheet to filter it. On the Mac
 
 | Mouse or touch | What it does |
 |---|---|
-| Right drag (hold the right button) | Pan. On a touchpad: click down with two fingers and slide. |
+| Right drag (hold the right button) | Orbit. On a touchpad: click down with two fingers and slide to pan. |
 | Left drag | Orbit. In the Select tool, a drag that starts on a line selects the layers from that layer to the layer under the pointer. |
 | Middle drag, or Shift and a drag | Pan |
 | Wheel, light two-finger swipe, pinch | Zoom toward the pointer |

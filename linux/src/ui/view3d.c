@@ -56,6 +56,9 @@ typedef struct {
     size_t layer, layer_lo;
     int mode; /* enum zs_view_mode */
     gboolean zoomed;
+    /* The last scroll came from a touchpad: a right drag (two fingers
+     * clicked down) pans. A mouse wheel, or no scroll yet: it orbits. */
+    gboolean touchpad;
     gboolean picked;
     gboolean timed;
     /* TRUE while the widget is unmapped: no frames, the subsurface is
@@ -906,11 +909,11 @@ static void ring_drag_hook(gpointer data) {
     g_strfreev(f);
 }
 
-/* The mouse: a left drag orbits (turn and tilt, the bed stays level); a
- * right drag, a middle drag, or Shift and a drag pans; and the scroll
- * wheel zooms toward the pointer. On a touchpad: two fingers clicked
- * down and slid pan (a right drag), and a light two-finger swipe or a
- * pinch zooms. */
+/* The mouse, as in Cura: a right drag orbits (turn and tilt, the bed
+ * stays level), as a left drag does; a middle drag, or Shift and a drag,
+ * pans; and the scroll wheel zooms toward the pointer. On a touchpad: two
+ * fingers clicked down and slid pan (a right drag after a touchpad
+ * scroll), and a light two-finger swipe or a pinch zooms. */
 enum { DRAG_ORBIT, DRAG_PAN, DRAG_RIGHT };
 
 /* ---- the fall of a part, and the hand ---- */
@@ -1546,9 +1549,10 @@ static void on_drag_update(GtkGestureDrag *g, double dx, double dy, gpointer dat
     }
     if (v->view) {
         GdkModifierType mods = gtk_event_controller_get_current_event_state(GTK_EVENT_CONTROLLER(g));
-        /* A right drag (two fingers clicked down on a touchpad, then a
-         * slide) pans, as a middle drag does. */
-        if (mode == DRAG_PAN || mode == DRAG_RIGHT || (mods & GDK_SHIFT_MASK)) zs_view_pan(v->view, ddx * scale, ddy * scale);
+        /* A right drag: a mouse orbits (as in Cura); two fingers clicked
+         * down on a touchpad pan. Both come as the right button, so the
+         * last scroll tells the device. */
+        if (mode == DRAG_PAN || (mode == DRAG_RIGHT && v->touchpad) || (mods & GDK_SHIFT_MASK)) zs_view_pan(v->view, ddx * scale, ddy * scale);
         else zs_view_orbit(v->view, ddx, ddy);
     }
     v->drag_x = dx;
@@ -1595,6 +1599,9 @@ static void on_pinch(GtkGestureZoom *g, double scale, gpointer data) {
 static gboolean on_scroll(GtkEventControllerScroll *c, double dx, double dy, gpointer data) {
     View3d *v = data;
     int scale = gtk_widget_get_scale_factor(v->area);
+    /* The device of the last scroll: a touchpad scrolls in pixels, a
+     * mouse wheel in steps (see `touchpad`). */
+    v->touchpad = gtk_event_controller_scroll_get_unit(c) == GDK_SCROLL_UNIT_SURFACE;
     /* Ctrl and the wheel: turn the selected part by 15 degrees a step. */
     GdkModifierType mods = gtk_event_controller_get_current_event_state(GTK_EVENT_CONTROLLER(c));
     /* The hand: the wheel lifts the part (10 mm a step, 0.1 mm a pixel of

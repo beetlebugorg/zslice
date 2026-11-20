@@ -107,7 +107,7 @@ export const SHORTCUTS = [
   {
     group: "Mouse and touchpad",
     keys: [
-      ["Right drag (hold the right button)", "Pan (on a touchpad: click down with two fingers and slide)"],
+      ["Right drag (hold the right button)", "Orbit with a mouse. On a touchpad, click down with two fingers and slide: pan"],
       ["Left drag", "Orbit; in the Select tool, a drag that starts on a line selects layers"],
       ["Middle drag, or Shift and a drag", "Pan"],
       ["Wheel, light two-finger swipe, pinch", "Zoom toward the pointer"],

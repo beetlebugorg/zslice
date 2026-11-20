@@ -100,7 +100,7 @@ static const Group SHORTCUTS[] = {
         {NULL, NULL}}},
     {"Mouse and touchpad", {
         {"Left drag", "Orbit; in the Select tool, a drag that starts on a line selects layers"},
-        {"Right drag (hold the right button)", "Pan (on a touchpad: click down with two fingers and slide)"},
+        {"Right drag (hold the right button)", "Orbit with a mouse. On a touchpad, click down with two fingers and slide: pan"},
         {"Middle drag, or Shift and a drag", "Pan"},
         {"Wheel, light two-finger swipe, pinch", "Zoom toward the pointer"},
         {"Double-click on a side of a part", "Turn the view to face that side"},

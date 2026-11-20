@@ -1752,7 +1752,7 @@ function showPage(page) {
 }
 $("view-2d").disabled = false;
 $("view-2d").title = "2D: one layer from the top. A drag pans, the wheel zooms, a double click fits the part.";
-$("view-3d").title = "3D: the layers up to the slider. A left drag orbits, a middle or right drag pans (on a touchpad: click down with two fingers and slide), scroll or pinch to zoom, double-click to reset.";
+$("view-3d").title = "3D: the layers up to the slider. A left drag orbits, a right drag orbits too, a middle drag pans (on a touchpad: click down with two fingers and slide to pan), scroll or pinch to zoom, double-click to reset.";
 $("view-2d").onclick = () => showPage("2d");
 $("view-3d").onclick = () => showPage("3d");
 $("view-2d").classList.toggle("checked", app.page === "2d");

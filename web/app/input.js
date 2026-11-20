@@ -1,13 +1,14 @@
 // input.js: the mouse, the touch screen, and the wheel over the view (the
 // canvas of app.js).
 //
-// The mouse. In 3D: a right drag, a middle drag, or Shift and a drag
-// pans, and the wheel zooms toward the pointer. A left drag orbits, but
-// in the Select tool a left drag that starts on a
+// The mouse, as in Cura. In 3D: a right drag orbits, a middle drag (or
+// Shift and a drag) pans, and the wheel zooms toward the pointer. A left
+// drag orbits too, but in the Select tool a left drag that starts on a
 // printed line lights the layers from that layer to the layer under the
 // pointer (app.js, rangeStart), and the release opens the card of these
 // layers (rangecard.js). On a trackpad: two fingers clicked down and
-// slid pan (a right drag), and a light two-finger swipe or a pinch zooms.
+// slid pan (a right drag after a trackpad scroll: the browser gives no
+// device for a button), and a light two-finger swipe or a pinch zooms.
 // In 2D: a drag pans, and the wheel zooms (preview.c). In both: a click (a
 // release within 4 pixels of the press) selects the line under the
 // pointer, and a right click opens the context menu there. In 3D, Shift
@@ -24,6 +25,8 @@
 export function attachViewInput(canvas, ctx) {
   const { app, view, view2d, tools, supportTool, requestFrame, pickAt, pickRun, hitAt, select, showContextMenu, activatePlate, grab, range } = ctx;
   let drag = null;
+  // The last scroll came from a touchpad (see the wheel below).
+  let touchpad = false;
   const dpr = () => window.devicePixelRatio || 1;
 
   // Two fingers on a touch screen: a pinch zooms about the point between
@@ -194,10 +197,12 @@ export function attachViewInput(canvas, ctx) {
       }
       return;
     }
-    // A right drag (two fingers clicked down on a touchpad, then a slide)
-    // pans, as a middle drag and Shift with a drag do. A left drag orbits.
+    // A right drag: a mouse orbits (as in Cura); two fingers clicked down
+    // on a touchpad pan. The browser gives both as the right button, so
+    // the last scroll tells the device (see `touchpad`). A middle drag and
+    // Shift with a drag pan; a left drag orbits.
     if (app.page === "2d") view2d.pan(dx * dpr(), dy * dpr());
-    else if (drag.button === 1 || drag.button === 2 || e.shiftKey) view.pan(dx * dpr(), dy * dpr());
+    else if (drag.button === 1 || (drag.button === 2 && touchpad) || e.shiftKey) view.pan(dx * dpr(), dy * dpr());
     else view.orbit(dx, dy);
     requestFrame();
   });
@@ -301,6 +306,12 @@ export function attachViewInput(canvas, ctx) {
     }
     return now < trackpadUntil;
   }
+  // The last scroll: from a touchpad (true) or a mouse wheel (false).
+  // Before any scroll: a mouse.
+  canvas.addEventListener("wheel", (e) => {
+    if (e.ctrlKey) return;
+    touchpad = fromTrackpad(e);
+  }, { capture: true, passive: true });
 
   canvas.addEventListener("wheel", (e) => {
     e.preventDefault();
