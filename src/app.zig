@@ -2500,6 +2500,18 @@ pub const App = struct {
             const lvl = job.levels;
             const top = if (lvl.len > 0) lvl[lvl.len - 1].z else 0;
             zs.gcode.Emitter.finishBambuHeader(bytes, stats, job.slots.len, job.resolved.filament_area, top);
+            // The progress of each layer: the start of its first path.
+            if (std.mem.startsWith(u8, bytes, "; HEADER_BLOCK_START\n")) {
+                const n = store.layer_ends.items.len;
+                if (app.gpa.alloc(f64, n)) |starts| {
+                    defer app.gpa.free(starts);
+                    for (0..n) |l| {
+                        const p0: usize = if (l == 0) 0 else store.layer_ends.items[l - 1];
+                        starts[l] = if (p0 < store.path_start_time.items.len) store.path_start_time.items[p0] else stats.print_time_s;
+                    }
+                    zs.gcode.Emitter.finishBambuProgress(bytes, starts, stats.print_time_s);
+                } else |_| {}
+            }
         }
         const buf = out.writer.buffer;
 

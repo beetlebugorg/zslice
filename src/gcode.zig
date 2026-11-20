@@ -866,6 +866,29 @@ pub const Emitter = struct {
     }
 
     const blank16 = "0" ++ " " ** 15;
+    /// The progress line of a layer before finishBambuProgress: "M73 P0 R0"
+    /// and spaces, 20 characters.
+    pub const progress_blank = "M73 P0 R0" ++ " " ** 11;
+
+    /// Fills in the progress line of each layer of a Bambu Lab G-code (see
+    /// bambuLayer): "M73 P<percent> R<minutes left>", from the start time
+    /// of each layer (s) and the print time. In place, in the order of the
+    /// layers; a text with fewer lines keeps the rest.
+    pub fn finishBambuProgress(text: []u8, layer_start: []const f64, total: f64) void {
+        if (!std.mem.startsWith(u8, text, "; HEADER_BLOCK_START\n")) return;
+        const key = "\n" ++ progress_blank ++ "\n";
+        var pos: usize = 0;
+        for (layer_start) |t| {
+            const found = std.mem.indexOfPos(u8, text, pos, key) orelse return;
+            const field = text[found + 1 ..][0..progress_blank.len];
+            const done = if (total > 0) std.math.clamp(t / total, 0, 1) else 0;
+            const pct: u32 = @intFromFloat(@floor(done * 100));
+            const left: u64 = @intFromFloat(@ceil(@max(0, @min(total - t, 1e9)) / 60));
+            @memset(field, ' ');
+            _ = std.fmt.bufPrint(field, "M73 P{d} R{d}", .{ pct, left }) catch {};
+            pos = found + key.len - 1;
+        }
+    }
     const blank64 = "0" ++ " " ** 63;
 
     /// Fills in the fields of the header block of a Bambu Lab G-code (see
@@ -2676,6 +2699,10 @@ pub const Emitter = struct {
         if (!self.bambu_blocks) return;
         const s = self.r.settings;
         const text = @import("printers.zig").bambuTemplate(s.machine.model, .layer) orelse return;
+        // The progress and the time left, for the screen of the printer: a
+        // field of fixed width that finishBambuProgress fills in after the
+        // slice, when the times of all layers are known.
+        try self.w.writeAll(progress_blank ++ "\n");
         try self.w.writeAll("; CHANGE_LAYER\n; Z_HEIGHT: ");
         try writeNum(self.w, lp.z, 3);
         try self.w.writeAll("\n; LAYER_HEIGHT: ");
@@ -3106,4 +3133,16 @@ test "bambu header: the times, the filament, and the top fill their fields" {
     try std.testing.expect(std.mem.indexOf(u8, text, "; model printing time: 1h 12m 43s") != null);
     try std.testing.expect(std.mem.indexOf(u8, text, "; total filament weight [g] : 37.26,0.68 ") != null);
     try std.testing.expect(std.mem.indexOf(u8, text, "; max_z_height: 31.08 ") != null);
+}
+
+test "bambu progress: each layer gets its percent and its minutes left" {
+    const gpa = std.testing.allocator;
+    const p = Emitter.progress_blank;
+    const head = "; HEADER_BLOCK_START\n; HEADER_BLOCK_END\n;LAYER:0\n" ++ p ++ "\nG1\n;LAYER:1\n" ++ p ++ "\nG1\n";
+    const text = try gpa.dupe(u8, head);
+    defer gpa.free(text);
+    Emitter.finishBambuProgress(text, &.{ 0, 1800 }, 3600);
+    try std.testing.expectEqual(head.len, text.len);
+    try std.testing.expect(std.mem.indexOf(u8, text, "\nM73 P0 R60 ") != null);
+    try std.testing.expect(std.mem.indexOf(u8, text, "\nM73 P50 R30 ") != null);
 }
