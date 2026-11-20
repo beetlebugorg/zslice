@@ -2784,17 +2784,20 @@ pub const View = struct {
     /// the lit box of that layer grown by a step. So the lit region follows
     /// one body as it grows or shrinks slowly, and stops where the shape
     /// widens at once: a tube that rises from a lid lights alone, with no
-    /// lid. In `out` (cleared first).
+    /// lid. A range without the layer of `start` grows to that layer. A
+    /// `start` past the last path gives none. In `out` (cleared first).
     pub fn connectedPaths(v: *const View, start: usize, lo_in: usize, hi_in: usize, out: *std.ArrayList(usize)) Error!void {
         out.clearRetainingCapacity();
         const ends = v.layer_path_end.items;
-        if (ends.len == 0 or start + 1 >= v.path_start.items.len) return;
-        const lo = @min(lo_in, hi_in);
-        const hi = @min(@max(lo_in, hi_in), ends.len - 1);
+        if (ends.len == 0 or start >= v.path_start.items.len -| 1) return;
         // The layer of `start`.
         var ls: usize = 0;
         while (ls < ends.len and ends[ls] <= start) ls += 1;
         if (ls >= ends.len) return;
+        // The range has the layer of `start`: the walk of each direction
+        // ends at its end of the range.
+        const lo = @min(lo_in, hi_in, ls);
+        const hi = @max(@min(@max(lo_in, hi_in), ends.len - 1), ls);
         const part: ?u32 = if (start < v.path_part.items.len) v.path_part.items[start] else null;
         const Box = [4]f32;
         const margin: f32 = 0.3;
@@ -4710,6 +4713,25 @@ test "the lit layers are the bead range of the layers, cut to the slice" {
     try std.testing.expectEqual(@as(?[2]f32, null), v.lightBeads());
     v.setLightLayers(null);
     try std.testing.expectEqual(@as(?[2]f32, null), v.lightBeads());
+}
+
+test "the joined paths: a start or a range of layers from outside stays in the slice" {
+    var v = try testScene(3, 4, 5);
+    defer destroyTest(&v);
+    var out: std.ArrayList(usize) = .empty;
+    defer out.deinit(View.gpa);
+    // Path 5 (layer 1, y 1): the paths at y 1 of the layers 0 to 2.
+    try v.connectedPaths(5, 0, 2, &out);
+    try std.testing.expectEqualSlices(usize, &.{ 5, 9, 1 }, out.items);
+    // No path ((size_t)-1, as a pick with no hit gives): none.
+    try v.connectedPaths(std.math.maxInt(usize), 0, 2, &out);
+    try std.testing.expectEqual(@as(usize, 0), out.items.len);
+    // A range under or over the layer of the start: the range grows to
+    // that layer.
+    try v.connectedPaths(5, 0, 0, &out);
+    try std.testing.expectEqualSlices(usize, &.{ 5, 1 }, out.items);
+    try v.connectedPaths(1, 2, 2, &out);
+    try std.testing.expectEqualSlices(usize, &.{ 1, 5, 9 }, out.items);
 }
 
 test "the steps along the print go on to the next path, and pass paths with no segment" {
