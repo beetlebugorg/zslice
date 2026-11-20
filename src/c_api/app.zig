@@ -614,6 +614,8 @@ fn bambuFileOf(app: *const App, g: []const u8, title: ?[*:0]const u8, out: ?*?[*
         .variants = if (zs.printers.bambu(m.model)) |b| b.variants else "",
         .base_project = zs.printers.bambuProject(m.model) orelse "",
         .layer_height = app.settings.project.layer_height,
+        .bbox = app.partBounds(),
+        .object_name = if (title) |t| std.mem.span(t) else "zslice",
         .first_layer_height = app.settings.project.first_layer_height,
     }) catch return @intFromEnum(Status.out_of_memory);
     o.* = bytes.ptr;

@@ -74,6 +74,13 @@ pub const PlateInfo = struct {
     base_project: []const u8 = "",
     layer_height: f64 = 0.2,
     first_layer_height: f64 = 0.2,
+    /// The box of the parts on the bed (min x, min y, max x, max y, mm),
+    /// for plate_1.json: the printer looks for foreign objects and checks
+    /// the first layer around it. Null: no box.
+    bbox: ?[4]f64 = null,
+    /// The name of the plate's object, and its area on the bed (mm²).
+    object_name: []const u8 = "zslice",
+    first_layer_time: f64 = 0,
 };
 
 /// A JSON list of the parts of `text` between `sep`.
@@ -208,6 +215,20 @@ fn overProject(a: Allocator, info: PlateInfo) ![]u8 {
     try std.json.Stringify.value(parsed.value, .{ .whitespace = .indent_4 }, &out.writer);
     try out.writer.writeByte('\n');
     return out.toOwnedSlice();
+}
+
+/// `text` with the quotes and the back slashes of a JSON string escaped.
+fn jsonText(a: Allocator, text: []const u8) Allocator.Error![]u8 {
+    var out: std.ArrayList(u8) = .empty;
+    for (text) |c| switch (c) {
+        '"', '\\' => {
+            try out.append(a, '\\');
+            try out.append(a, c);
+        },
+        0...31 => try out.append(a, ' '),
+        else => try out.append(a, c),
+    };
+    return out.toOwnedSlice(a);
 }
 
 /// The key of a build plate in plate_1.json ("textured_plate") for its
@@ -484,11 +505,19 @@ pub fn gcode3mfPlate(gpa: Allocator, gcode: []const u8, title: []const u8, info:
     }
     // plate_1.json: the plate type, the filaments, and the nozzle.
     var pj: std.Io.Writer.Allocating = .init(a);
-    try pj.writer.print("{{\"bed_type\":\"{s}\",\"filament_colors\":[", .{bedTypeKey(info.bed_type)});
-    for (info.filaments, 0..) |f, k| try pj.writer.print("{s}\"{s}\"", .{ if (k > 0) "," else "", if (f.color.len == 7) f.color else "#FFFFFF" });
-    try pj.writer.writeAll("],\"filament_ids\":[");
-    for (info.filaments, 0..) |f, k| try pj.writer.print("{s}{d}", .{ if (k > 0) "," else "", f.id - 1 });
-    try pj.writer.print("],\"first_extruder\":0,\"is_seq_print\":false,\"nozzle_diameter\":{d},\"version\":2}}", .{if (info.nozzle > 0) info.nozzle else 0.4});
+    {
+        const w = &pj.writer;
+        try w.writeByte('{');
+        if (info.bbox) |b| {
+            try w.print("\"bbox_all\":[{d},{d},{d},{d}],\"bbox_objects\":[{{\"area\":{d},\"bbox\":[{d},{d},{d},{d}],\"id\":1,\"layer_height\":{d},\"name\":\"{s}\"}}],", .{ b[0], b[1], b[2], b[3], (b[2] - b[0]) * (b[3] - b[1]), b[0], b[1], b[2], b[3], info.layer_height, try jsonText(a, info.object_name) });
+        }
+        try w.print("\"bed_type\":\"{s}\",\"filament_colors\":[", .{bedTypeKey(info.bed_type)});
+        for (info.filaments, 0..) |f, n| try w.print("{s}\"{s}\"", .{ if (n > 0) "," else "", if (f.color.len == 7) f.color else "#FFFFFF" });
+        try w.writeAll("],\"filament_ids\":[");
+        for (info.filaments, 0..) |f, n| try w.print("{s}{d}", .{ if (n > 0) "," else "", f.id - 1 });
+        const first: u32 = if (info.filaments.len > 0 and info.nozzles >= 2) @min(info.filaments[0].nozzle, 1) else 0;
+        try w.print("],\"first_extruder\":{d},\"first_layer_time\":{d},\"is_seq_print\":false,\"nozzle_diameter\":{d},\"version\":2}}", .{ first, info.first_layer_time, if (info.nozzle > 0) info.nozzle else 0.4 });
+    }
     const entries = [_]zipfile.Entry{
         .{ .name = "[Content_Types].xml", .data = @constCast(types) },
         .{ .name = "_rels/.rels", .data = @constCast(rels) },
@@ -921,6 +950,26 @@ test "bambu: filament_sequence.json lists the tool changes and their nozzles" {
     for (entries) |e| if (std.mem.eql(u8, e.name, "Metadata/filament_sequence.json")) {
         found = true;
         try std.testing.expectEqualStrings("{\"plate_1\":{\"nozzle_sequence\":[0,1,0],\"optimal_assignment\":[0,1],\"sequence\":[1,2,1]}}", e.data);
+    };
+    try std.testing.expect(found);
+}
+
+test "bambu: plate_1.json has the box of the parts, as Bambu Studio writes it" {
+    const gpa = std.testing.allocator;
+    const fils = [_]FilamentUse{.{ .id = 1, .kind = "PLA", .color = "#00AE42", .meters = 1, .grams = 3 }};
+    const bytes = try gcode3mfInfo(gpa, "G28\n", "p", .{ .filaments = &fils, .bbox = .{ 94.4, 69.4, 153.6, 163.4 }, .object_name = "Pod \"body\"", .bed_type = "Textured PEI Plate" });
+    defer gpa.free(bytes);
+    const entries = try zipfile.readAll(gpa, bytes);
+    defer zipfile.freeAll(gpa, entries);
+    var found = false;
+    for (entries) |e| if (std.mem.eql(u8, e.name, "Metadata/plate_1.json")) {
+        found = true;
+        const parsed = try std.json.parseFromSlice(std.json.Value, gpa, e.data, .{});
+        defer parsed.deinit();
+        const o = parsed.value.object;
+        try std.testing.expectEqual(@as(usize, 4), o.get("bbox_all").?.array.items.len);
+        try std.testing.expectEqualStrings("Pod \"body\"", o.get("bbox_objects").?.array.items[0].object.get("name").?.string);
+        try std.testing.expectEqualStrings("textured_plate", o.get("bed_type").?.string);
     };
     try std.testing.expect(found);
 }
