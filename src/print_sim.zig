@@ -101,6 +101,9 @@ pub const Path = struct {
     /// of the strand (no travel): one strand of plastic. A wall that the
     /// slicer splits into pieces over air and on plastic is one strand.
     joined: bool = false,
+    /// A support or support interface path: its top holds the part over
+    /// the z gap of the support (see Params.support_gap).
+    support: bool = false,
 };
 
 /// The bead of a path: half its height, its width, rho c A / P in SI
@@ -266,6 +269,11 @@ pub const Params = struct {
     /// fewer than this many beads from plastic that an earlier layer
     /// holds. A bead over air then holds the next, up to this count.
     side_reach: u8 = 2,
+    /// The z gap between the support and the part (mm): the slicer leaves
+    /// it on purpose, so the support breaks off. A bead over the top of
+    /// support that is this far under it rests on it (it bridges the small
+    /// gap onto the support, as on a real print) and does not hang.
+    support_gap: f32 = 0,
     /// A path whose masses all set within this distance (mm) of their
     /// place did not move.
     move_eps: f32 = 0.01,
@@ -399,8 +407,8 @@ pub const none = std.math.maxInt(u32);
 const Field = struct {
     const n = 32;
     const hung = std.math.maxInt(u8);
-    const Tile = struct { top: [n * n]f32, under: [n * n]f32, layer: [n * n]u32, reach: [n * n]u8 };
-    const Cell = struct { top: f32, under: f32, layer: u32, reach: u8 };
+    const Tile = struct { top: [n * n]f32, under: [n * n]f32, layer: [n * n]u32, reach: [n * n]u8, support: [n * n]bool };
+    const Cell = struct { top: f32, under: f32, layer: u32, reach: u8, support: bool = false };
 
     cell: f32,
     x0: f32,
@@ -441,10 +449,10 @@ const Field = struct {
         const l = f.locate(x, y) orelse return bed;
         const t = f.tiles[l[0]] orelse return bed;
         const i = l[1];
-        return .{ .top = t.top[i], .under = t.under[i], .layer = t.layer[i], .reach = t.reach[i] };
+        return .{ .top = t.top[i], .under = t.under[i], .layer = t.layer[i], .reach = t.reach[i], .support = t.support[i] };
     }
 
-    fn raise(f: *Field, x: f32, y: f32, top: f32, layer: u32, reach: u8) Allocator.Error!void {
+    fn raise(f: *Field, x: f32, y: f32, top: f32, layer: u32, reach: u8, support: bool) Allocator.Error!void {
         const l = f.locate(x, y) orelse return;
         const t = f.tiles[l[0]] orelse blk: {
             const t = try f.arena.allocator().create(Tile);
@@ -452,6 +460,7 @@ const Field = struct {
             @memset(&t.under, 0);
             @memset(&t.layer, none);
             @memset(&t.reach, 0);
+            @memset(&t.support, false);
             f.tiles[l[0]] = t;
             break :blk t;
         };
@@ -463,6 +472,7 @@ const Field = struct {
         t.reach[i] = if (same) @min(reach, t.reach[i]) else reach;
         t.top[i] = top;
         t.layer[i] = layer;
+        t.support[i] = support;
     }
 };
 
@@ -656,7 +666,10 @@ const Sim = struct {
             // Plastic of an earlier layer under the bead, or a heap
             // above the nozzle that the nozzle plows into.
             const base = if (q.layer == layer) q.under else q.top;
-            if (base >= bottom - tol or q.top > top + tol) return 0;
+            // The top of support of an earlier layer holds the bead over
+            // the z gap of the support.
+            const gap = if (q.support and q.layer != layer) s.p.support_gap else 0;
+            if (base >= bottom - tol - gap or q.top > top + tol) return 0;
         }
         // A bead beside it: on each side, across the path. The strand
         // before it in the path is behind it, and holds it only by its
@@ -672,9 +685,9 @@ const Sim = struct {
 
     /// Writes the bead of a solid mass into the height field, with its
     /// reach (see Field).
-    fn deposit(s: *Sim, layer: u32, b: Bead, p: V, reach: u8) Allocator.Error!void {
+    fn deposit(s: *Sim, layer: u32, b: Bead, p: V, reach: u8, support: bool) Allocator.Error!void {
         const top = p[2] + b.half_h;
-        for (try s.disk(1, 0.45 * b.width)) |o| try s.field.raise(p[0] + o[0], p[1] + o[1], top, layer, reach);
+        for (try s.disk(1, 0.45 * b.width)) |o| try s.field.raise(p[0] + o[0], p[1] + o[1], top, layer, reach, support);
     }
 
     /// The offsets (mm) of the cells of the height field in a disk of
@@ -716,7 +729,7 @@ const Sim = struct {
         if (n.fell) s.fell_soft -= 1;
         c.soft -= 1;
         s.soft -= 1;
-        try s.deposit(c.layer, s.bead(n.path), n.pos, Field.hung);
+        try s.deposit(c.layer, s.bead(n.path), n.pos, Field.hung, s.paths[n.path].support);
     }
 
     /// The temperature of the air at the height z (°C): the room, and
@@ -749,7 +762,7 @@ const Sim = struct {
         const reach = try s.supported(c.layer, b, p, dir);
         if (reach != Field.hung) {
             c.nodes.items[k].soft = false;
-            try s.deposit(c.layer, b, p, reach);
+            try s.deposit(c.layer, b, p, reach, s.paths[pi].support);
             return;
         }
         if (c.soft == 0) c.lo = k;
@@ -1420,6 +1433,32 @@ test "print sim: a line over air with no plastic under it falls to the bed" {
     var lowest: f32 = 100;
     for (r.nodes(0)) |q| lowest = @min(lowest, q[2]);
     try testing.expect(lowest < 0.2);
+}
+
+/// A pad of support 10 layers high, a z gap of one layer, then a line of
+/// the part over the pad: the lowest z of that line.
+fn overSupport(gpa: Allocator, gap: f32) !f32 {
+    var pts: [11][2][2]f32 = undefined;
+    var paths: [11]Path = undefined;
+    for (0..10) |k| {
+        const z = 0.2 * @as(f32, @floatFromInt(k + 1));
+        paths[k] = line(.{ 0, 0 }, .{ 10, 0 }, z, @intCast(k), 4 * @as(f32, @floatFromInt(k)), 40, 1, &pts[k]);
+        paths[k].support = true;
+    }
+    paths[10] = line(.{ 0, 0 }, .{ 10, 0 }, 2.4, 11, 50, 30, 1, &pts[10]);
+    var r = try run(gpa, &paths, .{ .support_gap = gap, .keep_all = true });
+    defer r.deinit(gpa);
+    var low: f32 = 100;
+    for (r.nodes(10)) |q| low = @min(low, q[2]);
+    return low;
+}
+
+test "print sim: a line over support rests on it across the z gap" {
+    const gpa = testing.allocator;
+    // The center of the bead at 2.3: it stays there over the support.
+    try testing.expect(try overSupport(gpa, 0.2) > 2.28);
+    // With no gap in the model, it hangs and drops onto the support.
+    try testing.expect(try overSupport(gpa, 0) < 2.25);
 }
 
 /// Two posts with a gap of 2 mm, 10 layers high, then a wall over them

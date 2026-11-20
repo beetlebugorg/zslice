@@ -70,6 +70,7 @@ pub fn paramsOf(s: zs.Settings) sim.Params {
         .room_t = @floatCast(s.machine.chamber_temp),
         .fan_air = @floatCast(s.machine.part_fan_air),
         .bed_t = @floatCast(@max(s.filament.bed_temp, s.machine.chamber_temp)),
+        .support_gap = @floatCast(@as(f64, @floatFromInt(s.project.support_z_gap_layers)) * s.project.layer_height),
     };
 }
 
@@ -119,6 +120,8 @@ pub fn toPaths(arena: Allocator, tp: *const Toolpaths) Allocator.Error![]sim.Pat
                 .fan = if (pi < tp.path_fan.items.len) @as(f32, @floatFromInt(tp.path_fan.items[pi])) / 255 else 1,
                 .layer = @intCast(l),
                 .joined = joined,
+                // Support (6) and the support interface (7).
+                .support = tp.path_features.items[pi] == 6 or tp.path_features.items[pi] == 7,
             };
         }
     }
