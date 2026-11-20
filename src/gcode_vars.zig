@@ -279,6 +279,7 @@ pub const Key = enum {
     empty_text,
     print_sequence,
     three,
+    ten,
     lagrange,
     /// zslice has no value: see the header comment.
     no_value,
@@ -590,6 +591,10 @@ pub const names = std.StaticStringMap(Entry).initComptime(.{
     .{ "retraction_distances_when_cut", each(.no_value) },
     .{ "retraction_distances_when_ec", each(.no_value) },
     .{ "wipe_tower_center_pos_valid", just(.off) },
+    // b: the interface of the prime tower (zslice has none), and the
+    // cooling of the nozzle before the tower (Bambu Studio: 10 °C).
+    .{ "is_prime_tower_interface", just(.off) },
+    .{ "filament_cooling_before_tower", each(.ten) },
     .{ "spiral_mode", just(.off) },
     .{ "has_tpu_in_first_layer", just(.material_tpu) },
     .{ "max_print_z", just(.max_layer_z) },
@@ -1084,6 +1089,7 @@ const Renderer = struct {
             .empty_text => .{ .text = "" },
             .print_sequence => .{ .text = "by layer" },
             .three => num(3),
+            .ten => num(10),
             .lagrange => .{ .text = "lagrange" },
             .no_value => .nil,
         };

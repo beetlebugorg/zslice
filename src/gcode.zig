@@ -842,6 +842,29 @@ pub const Emitter = struct {
         return true;
     }
 
+    /// The G-code of the maker of a Bambu Lab printer in its newest form:
+    /// a profile keeps a copy of the start, the end, and the change G-code
+    /// of the library at the time it was saved, and the firmware wants the
+    /// one of the current Bambu Studio (an X2D cancelled a print with the
+    /// older start G-code). The text of the profile, if the user wrote it
+    /// (it lacks the banner line of the maker's text), stays.
+    fn makerTemplate(model: []const u8, text: []const u8, which: enum { start, end, change }) []const u8 {
+        const printers = @import("printers.zig");
+        const now = switch (which) {
+            .start => printers.bambuTemplate(model, .start),
+            .end => printers.bambuTemplate(model, .end),
+            .change => printers.changeGcode(model),
+        } orelse return text;
+        // The banner: the first line that starts with ";=====".
+        var it = std.mem.splitScalar(u8, now, '\n');
+        while (it.next()) |line| {
+            const l = std.mem.trim(u8, line, " \r");
+            if (!std.mem.startsWith(u8, l, ";=====")) continue;
+            return if (std.mem.indexOf(u8, text, l) != null) now else text;
+        }
+        return text;
+    }
+
     /// For a Bambu Lab printer: the header block and the config block of
     /// Bambu Studio at the top of the G-code. Its firmware reads them, and
     /// it compares the hotends of the config block with its own (a print
@@ -1018,7 +1041,7 @@ pub const Emitter = struct {
         // it if it does not heat.
         var start: Writer.Allocating = .init(self.gpa);
         defer start.deinit();
-        const got = try self.writeTemplate(&start.writer, s.machine.start_gcode, .start);
+        const got = try self.writeTemplate(&start.writer, makerTemplate(m.model, s.machine.start_gcode, .start), .start);
         const first = s.filament.first_layer_nozzle_temp;
         if (got.bed == null and !got.macro_bed) {
             try self.w.writeAll("M190 S");
@@ -1197,7 +1220,7 @@ pub const Emitter = struct {
                 st.filament_g += st.slot_g[k];
             }
         } else st.slot_g[0] = st.filament_g;
-        _ = try self.writeTemplate(self.w, self.r.settings.machine.end_gcode, .end);
+        _ = try self.writeTemplate(self.w, makerTemplate(self.r.settings.machine.model, self.r.settings.machine.end_gcode, .end), .end);
         try self.w.writeAll("\n");
         try self.w.writeAll(";Filament used: ");
         try writeNum(self.w, st.filament_mm / 1000.0, 3);
@@ -1415,7 +1438,7 @@ pub const Emitter = struct {
         if (!self.dry) {
             try self.w.print("; filament change {d}: filament {d} to filament {d}\n", .{ self.stats.changes, self.tool + 1, next + 1 });
             if (m.change_gcode.len > 0) {
-                try self.writeChange(m.change_gcode, next, flush_mm, old_temp, new_temp, x, y);
+                try self.writeChange(makerTemplate(m.model, m.change_gcode, .change), next, flush_mm, old_temp, new_temp, x, y);
             } else {
                 switch (m.filament_change) {
                     .pause => try self.w.writeAll(if (m.gcode_flavor == .klipper) "PAUSE ; change the filament, then resume\n" else "M600 ; change the filament\n"),
@@ -2923,4 +2946,15 @@ test "a travel between tree support paths retracts only if it crosses the part" 
         try em.layer(&lp);
         try std.testing.expectEqual(c.retractions, em.stats.retractions);
     }
+}
+
+test "maker template: an old X2D start G-code of a profile becomes the current one" {
+    const old = ";======== X2D start gcode==========\n;===== 2026/06/05 =====\nM140 S60\n";
+    const now = Emitter.makerTemplate("bambu-lab-x2d", old, .start);
+    try std.testing.expect(std.mem.indexOf(u8, now, "2026/10/20") != null);
+    // A start G-code of the user stays.
+    const mine = "G28\nM109 S210\n";
+    try std.testing.expectEqualStrings(mine, Emitter.makerTemplate("bambu-lab-x2d", mine, .start));
+    // Another printer: as it is.
+    try std.testing.expectEqualStrings(old, Emitter.makerTemplate("creality-ender-3", old, .start));
 }
