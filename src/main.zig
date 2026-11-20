@@ -832,7 +832,7 @@ fn writeSimMasses(app: *zslice.app.App, io: Io, path: []const u8) !void {
     for (r.masses) |m| {
         while (tp.layer_ends.items[layer] <= m.path) layer += 1;
         const f: zslice.settings.Feature = @enumFromInt(tp.path_features.items[m.path]);
-        try w.print("{d},{d},{s},{d:.3},{d:.3},{d:.3},{d:.3},{d:.3},{d:.3}\n", .{ layer, m.path, @tagName(f), m.want[0], m.want[1], m.want[2], m.pos[0], m.pos[1], m.pos[2] });
+        try w.print("{d},{d},{s},{d:.3},{d:.3},{d:.3},{d:.5},{d:.5},{d:.5}\n", .{ layer, m.path, @tagName(f), m.want[0], m.want[1], m.want[2], m.pos[0], m.pos[1], m.pos[2] });
     }
     try Io.Dir.cwd().writeFile(io, .{ .sub_path = path, .data = aw.written() });
 }
