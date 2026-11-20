@@ -1443,7 +1443,7 @@ pub const View = struct {
             v.highlight = .{ 0, 0 };
             return;
         };
-        if (p + 1 >= v.path_start.items.len) {
+        if (p >= v.path_start.items.len -| 1) {
             v.highlight = .{ 0, 0 };
             return;
         }
@@ -2619,7 +2619,7 @@ pub const View = struct {
 
     /// The beads of path `path`: first to end. Bead k is segment k.
     pub fn pathBeads(v: *const View, path: usize) [2]u32 {
-        if (path + 1 >= v.path_start.items.len) return .{ 0, 0 };
+        if (path >= v.path_start.items.len -| 1) return .{ 0, 0 };
         return .{ v.path_start.items[path], v.path_start.items[path + 1] };
     }
 
@@ -2660,7 +2660,7 @@ pub const View = struct {
     /// The feature of path `path` (the alpha byte of its first bead, see
     /// app.Feature), or null for no path or a path with no bead.
     pub fn featureOfPath(v: *const View, path: usize) ?u8 {
-        if (path + 1 >= v.path_start.items.len) return null;
+        if (path >= v.path_start.items.len -| 1) return null;
         const b = v.path_start.items[path];
         if (b >= v.path_start.items[path + 1] or b >= v.beads.items.len) return null;
         return v.beads.items[b].rgba[3];
@@ -2916,7 +2916,7 @@ pub const View = struct {
         const copy = gpa.dupe(vk.Instance, v.beads.items) catch return error.OutOfMemory;
         defer gpa.free(copy);
         for (paths) |p| {
-            if (p + 1 >= v.path_start.items.len) continue;
+            if (p >= v.path_start.items.len -| 1) continue;
             for (copy[v.path_start.items[p]..v.path_start.items[p + 1]]) |*b| b.rgba = .{ 0xff, 0xc7, 0x0d, b.rgba[3] };
         }
         try v.renderer.setInstances(copy, v.marks.items);
@@ -2927,7 +2927,7 @@ pub const View = struct {
     pub fn setSegment(v: *View, path: usize, seg: ?usize) void {
         v.seg_bead = null;
         const s = seg orelse return;
-        if (path + 1 >= v.path_start.items.len) return;
+        if (path >= v.path_start.items.len -| 1) return;
         const b = v.path_start.items[path] + s;
         if (b < v.path_start.items[path + 1]) v.seg_bead = b;
     }
