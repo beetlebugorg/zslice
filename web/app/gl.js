@@ -1089,6 +1089,8 @@ export class GlRenderer {
     gl.bindVertexArray(null);
     // The index range of the triangles of each layer.
     this.outlineLayerEnd = new Uint32Array(0);
+    // The outlines of a new slice, until the next draw of the 2D view.
+    this.outlinesPending = null;
     // The gaps of the top layer: two triangles for each run of cells.
     this.gapVbo = gl.createBuffer();
     this.gapVao = gl.createVertexArray();
@@ -1121,8 +1123,15 @@ export class GlRenderer {
     gl.bufferData(gl.ARRAY_BUFFER, v, gl.DYNAMIC_DRAW);
   }
 
-  // The outlines of all layers (View3D.outlines): the fan of each ring.
+  // The outlines of all layers (View3D.outlines). The fans go to the GPU
+  // at the next draw of the 2D view: after a slice in the 3D view, the
+  // fans of nine Benchies took 20 ms of the frame of the new scene.
   setOutlines(o) {
+    this.outlinesPending = o;
+  }
+
+  // The fan of each ring of the outlines of setOutlines.
+  buildOutlines(o) {
     const gl = this.gl;
     let tris = 0;
     for (let r = 0; r < o.ringEnds.length; r++) {
@@ -1182,6 +1191,10 @@ export class GlRenderer {
   // path or [0, 0], seg (the bead of the selected segment, or -1) }.
   draw2d(s) {
     const gl = this.gl;
+    if (this.outlinesPending) {
+      this.buildOutlines(this.outlinesPending);
+      this.outlinesPending = null;
+    }
     const sx = (2 * s.scale) / s.width;
     const sy = (2 * s.scale) / s.height;
     const tx = (2 * s.ox) / s.width - 1;
