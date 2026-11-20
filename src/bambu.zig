@@ -258,6 +258,36 @@ fn overProject(a: Allocator, info: PlateInfo) ![]u8 {
         try types.append(try str(a, kind));
         try colours.append(try str(a, color));
     }
+    // The lists of each filament: as many as the print has. Studio's
+    // base has two filaments; a list of k values for each (a value for
+    // each extruder variant) gets k values for each filament of the
+    // print, the values of its first filament.
+    const base_n: usize = if (o.get("filament_colour")) |v| (if (v == .array) v.array.items.len else 0) else 0;
+    if (base_n > 0) {
+        var it = o.iterator();
+        while (it.next()) |e| {
+            if (!isFilamentKey(e.key_ptr.*)) continue;
+            if (e.value_ptr.* != .array) continue;
+            const items = e.value_ptr.array.items;
+            if (items.len == 0 or items.len % base_n != 0) continue;
+            const block = items.len / base_n;
+            var list = std.json.Array.init(a);
+            for (0..last) |i| for (0..block) |k| {
+                if (std.mem.eql(u8, e.key_ptr.*, "filament_self_index")) {
+                    var nb: [12]u8 = undefined;
+                    try list.append(try str(a, std.fmt.bufPrint(&nb, "{d}", .{i + 1}) catch "1"));
+                } else try list.append(items[k]);
+            };
+            e.value_ptr.* = .{ .array = list };
+        }
+    }
+    // The generic filament of Bambu for each material ("GFL99").
+    var ids = std.json.Array.init(a);
+    for (types.items) |t| {
+        const id = genericFilament(t.string);
+        try ids.append(try str(a, if (id.len > 0) id else "GFL99"));
+    }
+    try o.put(a, "filament_ids", .{ .array = ids });
     try o.put(a, "filament_type", .{ .array = types });
     try o.put(a, "filament_colour", .{ .array = colours });
     // The flow of the nozzles of the user (high flow), for each extruder.
@@ -278,6 +308,34 @@ fn overProject(a: Allocator, info: PlateInfo) ![]u8 {
     try std.json.Stringify.value(parsed.value, .{ .whitespace = .indent_4 }, &out.writer);
     try out.writer.writeByte('\n');
     return out.toOwnedSlice();
+}
+
+/// True for a key of Bambu Studio's project settings that has a value
+/// for each filament (or for each filament and extruder variant): the keys
+/// of a filament preset.
+fn isFilamentKey(key: []const u8) bool {
+    if (std.mem.startsWith(u8, key, "filament_")) return true;
+    const keys = [_][]const u8{
+        "activate_air_filtration",          "additional_cooling_fan_speed",            "additional_fan_full_speed_layer",
+        "chamber_temperatures",             "close_additional_fan_first_x_layers",     "close_fan_the_first_x_layers",
+        "close_optional_fan_first_x_layers", "complete_print_exhaust_fan_speed",       "cool_plate_temp",
+        "cool_plate_temp_initial_layer",    "default_filament_colour",                 "during_print_exhaust_fan_speed",
+        "enable_overhang_bridge_fan",       "enable_pressure_advance",                 "eng_plate_temp",
+        "eng_plate_temp_initial_layer",     "fan_cooling_layer_time",                  "fan_max_speed",
+        "fan_min_speed",                    "first_x_layer_fan_speed",                 "first_x_layer_optional_fan_speed",
+        "first_x_layer_part_fan_speed",     "full_fan_speed_layer",                    "hot_plate_temp",
+        "hot_plate_temp_initial_layer",     "impact_strength_z",                       "ironing_fan_speed",
+        "no_slow_down_for_cooling_on_outwalls", "nozzle_temperature",                  "nozzle_temperature_initial_layer",
+        "nozzle_temperature_range_high",    "nozzle_temperature_range_low",            "optional_cooling_fan_speed",
+        "optional_fan_full_speed_layer",    "overhang_fan_speed",                      "overhang_fan_threshold",
+        "overhang_threshold_participating_cooling", "pre_start_fan_time",              "pressure_advance",
+        "reduce_fan_stop_start_freq",       "required_nozzle_HRC",                     "slow_down_for_layer_cooling",
+        "slow_down_layer_time",             "slow_down_min_speed",                     "supertack_plate_temp",
+        "supertack_plate_temp_initial_layer", "temperature_vitrification",             "textured_plate_temp",
+        "textured_plate_temp_initial_layer", "volumetric_speed_coefficients",
+    };
+    for (keys) |k| if (std.mem.eql(u8, k, key)) return true;
+    return false;
 }
 
 /// `text` with the quotes and the back slashes of a JSON string escaped.
@@ -1131,4 +1189,32 @@ test "bambu: slice_info has the keys and elements of Studio, in its order" {
         };
         at = found + key.len;
     }
+}
+
+test "bambu: the project settings have a value for each filament of the print" {
+    const gpa = std.testing.allocator;
+    var arena = std.heap.ArenaAllocator.init(gpa);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const base =
+        \\{"filament_colour":["#FFFFFF","#FFFFFF"],"filament_type":["PLA","PLA"],"filament_map":["1","1"],
+        \\"filament_self_index":["1","1","1","2","2","2"],"nozzle_temperature":["220","221","222","220","221","222"],
+        \\"extruder_type":["Direct Drive","Bowden"],"filament_ids":["GFL99","GFL99"],"curr_bed_type":"x"}
+    ;
+    const fils = [_]FilamentUse{
+        .{ .id = 1, .kind = "PLA", .color = "#00AE42", .meters = 1, .grams = 1 },
+        .{ .id = 2, .kind = "PETG", .color = "#E03030", .meters = 1, .grams = 1 },
+        .{ .id = 3, .kind = "PLA", .color = "#FFFF00", .meters = 1, .grams = 1, .nozzle = 1 },
+    };
+    const text = try overProject(a, .{ .filaments = &fils, .nozzles = 2, .base_project = base, .bed_type = "Textured PEI Plate", .layer_height = 0.2, .first_layer_height = 0.2 });
+    const v = try std.json.parseFromSliceLeaky(std.json.Value, a, text, .{});
+    const o = v.object;
+    try std.testing.expectEqual(@as(usize, 3), o.get("filament_colour").?.array.items.len);
+    try std.testing.expectEqual(@as(usize, 3), o.get("filament_map").?.array.items.len);
+    try std.testing.expectEqual(@as(usize, 9), o.get("nozzle_temperature").?.array.items.len);
+    try std.testing.expectEqualStrings("221", o.get("nozzle_temperature").?.array.items[7].string);
+    try std.testing.expectEqualStrings("3", o.get("filament_self_index").?.array.items[8].string);
+    try std.testing.expectEqualStrings("GFG99", o.get("filament_ids").?.array.items[1].string);
+    // A key of the extruders keeps its two values.
+    try std.testing.expectEqual(@as(usize, 2), o.get("extruder_type").?.array.items.len);
 }
