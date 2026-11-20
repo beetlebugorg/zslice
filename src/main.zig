@@ -57,7 +57,9 @@ const usage =
     \\            speed, accel, flow, fan, temp, cool, cancel, or sim
     \\            (the simulated print of the plastic; sim-side and
     \\            sim-flip turn the part on its side or upside down
-    \\            first, for steep overhangs; -o FILE writes the
+    \\            first, for steep overhangs; sim-local changes the
+    \\            infill of the upper half of the part, and runs the
+    \\            simulation from a checkpoint; -o FILE writes the
     \\            masses that moved as CSV). --only
     \\            patch changes each setting that needs no new plan, and
     \\            compares the G-code with a new slice. --runs N sets
@@ -530,6 +532,7 @@ fn bench(backing: std.mem.Allocator, io: Io, err: *Io.Writer, name: []const u8, 
         if (std.mem.eql(u8, only.?, "sim-flip")) try app.turnPart(0, 0, 180);
         const sl = try benchSlice(app, io);
         try err.print("slice: {d:.1} ms wall, {d:.1} ms cpu\n", .{ sl.wall, sl.cpu });
+        if (std.mem.eql(u8, only.?, "sim-local")) return benchSimLocal(app, io, err, times);
         try benchSim(app, io, err, &counter, times);
         if (out) |path| try writeSimMasses(app, io, path);
         try err.print("peak memory: {d} MB resident (VmHWM), {d} MB allocated\n", .{ peakMb(io), counter.peak.load(.monotonic) >> 20 });
@@ -802,6 +805,8 @@ fn benchSim(app: *zslice.app.App, io: Io, err: *Io.Writer, counter: *CountingAll
     var extra: usize = 0;
     for (times) |*t| {
         try app.showSimulated(false);
+        // Each run from the start (see benchSimLocal).
+        app.dropSimCheckpoints();
         const live = counter.live.load(.monotonic);
         counter.peak.store(live, .monotonic);
         const t0 = Io.Clock.awake.now(io);
@@ -813,6 +818,51 @@ fn benchSim(app: *zslice.app.App, io: Io, err: *Io.Writer, counter: *CountingAll
     }
     try printTimes(err, "simulate", times);
     try err.print("simulate: {d} masses, {d} soft, peak {d} soft, {d} moved in {d} paths, max move {d:.2} mm, {d:.2} g, {d} steps, {d:.1} MB more at the peak\n", .{ st.masses, st.soft_masses, st.peak_soft, st.moved, st.moved_paths, st.max_move, st.mass, st.steps, @as(f64, @floatFromInt(extra)) / (1 << 20) });
+}
+
+/// The simulated print after a change of the upper half of the part (an
+/// override of the infill density): the simulation runs from the last
+/// checkpoint before the change. Prints its times, and checks the result
+/// against a simulation from the start.
+fn benchSimLocal(app: *zslice.app.App, io: Io, err: *Io.Writer, times: []Sample) !void {
+    const zs_ = app.toolpaths.layer_z.items;
+    const top: f64 = zs_[zs_.len - 1];
+    const z0 = 0.5 * top;
+    _ = try app.simulatePrint();
+    const values = [_][]const u8{ "0.21", "0.22", "0.23", "0.24", "0.25", "0.26", "0.27", "0.28" };
+    var first: usize = 0;
+    var paths: usize = 0;
+    for (times, 0..) |*t, i| {
+        try app.setOverride(z0, top + 1, "project.infill_density", values[i % values.len]);
+        _ = try benchSlice(app, io);
+        const t0 = Io.Clock.awake.now(io);
+        const c0 = cpuNow();
+        _ = try app.simulatePrint();
+        const c1 = cpuNow();
+        t.* = .{ .wall = @as(f64, @floatFromInt(t0.untilNow(io, .awake).toNanoseconds())) / 1e6, .cpu = c1[0] - c0[0], .faults = c1[1] - c0[1] };
+        first = app.sim_first_path;
+        paths = app.toolpaths.pathCount();
+    }
+    try printTimes(err, "simulate from a checkpoint", times);
+    try err.print("override of z {d:.1} to {d:.1}: the last run starts at path {d} of {d}\n", .{ z0, top, first, paths });
+    // The same slice, from the start.
+    const r = app.sim orelse return error.NoResult;
+    const masses = try app.gpa.dupe(zslice.app.sim_print.Mass, r.masses);
+    defer app.gpa.free(masses);
+    const stats = r.stats;
+    const drop = try app.gpa.dupe(f32, r.drop);
+    defer app.gpa.free(drop);
+    const failed = try app.gpa.dupe(u32, r.failed);
+    defer app.gpa.free(failed);
+    app.dropSimCheckpoints();
+    const t0 = Io.Clock.awake.now(io);
+    _ = try app.simulatePrint();
+    const ms = @as(f64, @floatFromInt(t0.untilNow(io, .awake).toNanoseconds())) / 1e6;
+    const f = app.sim.?;
+    const same = std.mem.eql(u8, std.mem.sliceAsBytes(masses), std.mem.sliceAsBytes(f.masses)) and std.meta.eql(stats, f.stats) and
+        std.mem.eql(u8, std.mem.sliceAsBytes(drop), std.mem.sliceAsBytes(f.drop)) and std.mem.eql(u32, failed, f.failed);
+    try err.print("simulate from the start: {d:.1} ms; same masses: {s}\n", .{ ms, if (same) "yes" else "NO" });
+    if (app.sim_checkpoints) |c| try err.print("checkpoints: {d}, {d:.1} MB\n", .{ c.count(), @as(f64, @floatFromInt(c.bytes)) / (1 << 20) });
 }
 
 /// Writes the masses of the simulated print that moved as CSV: the part

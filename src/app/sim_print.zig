@@ -158,6 +158,32 @@ pub const Job = struct {
         return job;
     }
 
+    /// `create`, and the job keeps checkpoints for a later job
+    /// (`takeCheckpoints`). With `old`, the checkpoints of an earlier job:
+    /// the job starts at the last of them with the same paths before it
+    /// (see print_sim.Runner.initFrom), and gives the result of a job from
+    /// the start.
+    pub fn createFrom(gpa: Allocator, tp: *const Toolpaths, params: sim.Params, old: ?*const sim.Checkpoints) Allocator.Error!*Job {
+        const job = try gpa.create(Job);
+        errdefer gpa.destroy(job);
+        job.* = .{ .gpa = gpa, .arena = .init(gpa), .tp = tp, .paths = &.{}, .runner = undefined };
+        errdefer job.arena.deinit();
+        job.paths = try toPaths(job.arena.allocator(), tp);
+        job.runner = try sim.Runner.initFrom(gpa, job.paths, params, old);
+        return job;
+    }
+
+    /// The checkpoints of a job of `createFrom`, after `finish`. The
+    /// caller owns them.
+    pub fn takeCheckpoints(job: *Job) Allocator.Error!?*sim.Checkpoints {
+        return job.runner.takeCheckpoints();
+    }
+
+    /// The path where the job started: 0, or the path of a checkpoint.
+    pub fn firstPath(job: *const Job) usize {
+        return job.runner.first;
+    }
+
     pub fn destroy(job: *Job) void {
         job.runner.deinit();
         job.arena.deinit();

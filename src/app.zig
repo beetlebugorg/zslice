@@ -206,6 +206,15 @@ pub const App = struct {
     sim_ready: std.atomic.Value(bool) = .init(false),
     /// A simulation that runs in pieces (`beginSimulation`).
     sim_job: ?*sim_print.Job = null,
+    /// The checkpoints of the last simulation that ended (see
+    /// print_sim.Checkpoints): the next simulation runs from the last
+    /// checkpoint before the first path that changed. Only the thread
+    /// that runs a simulation uses them: the thread of the slice, or the
+    /// thread of the shell after `stopWorker`.
+    sim_checkpoints: ?*zs.print_sim.Checkpoints = null,
+    /// The first path of the last simulation: 0, or the path of the
+    /// checkpoint that it started from.
+    sim_first_path: usize = 0,
     /// The strings of the last inspection (for the C API).
     inspect_arena: ?std.heap.ArenaAllocator = null,
     failure: anyerror = error.Unexpected,
@@ -286,6 +295,7 @@ pub const App = struct {
         if (app.inspect_arena) |*a| a.deinit();
         app.stopWorker();
         app.clearResults();
+        app.dropSimCheckpoints();
         app.dropPrevJob();
         app.gpa.free(app.spare_gcode);
         app.spare_paths.deinit(app.gpa);
@@ -2532,7 +2542,7 @@ pub const App = struct {
     /// it at once. The result waits in `sim_pending` for the thread of the
     /// shell (`adoptSimulation`), and the `simulated` event tells it.
     fn simulateOnWorker(app: *App) void {
-        const job = sim_print.Job.create(app.gpa, &app.toolpaths, sim_print.paramsOf(app.slice_settings)) catch return;
+        const job = sim_print.Job.createFrom(app.gpa, &app.toolpaths, sim_print.paramsOf(app.slice_settings), app.sim_checkpoints) catch return;
         defer job.destroy();
         while (true) {
             if (app.cancel_flag.load(.acquire)) return;
@@ -2545,6 +2555,7 @@ pub const App = struct {
             x.deinit(app.gpa);
             return;
         }
+        app.keepCheckpoints(job);
         app.sim_pending = r;
         app.sim_ready.store(true, .release);
         app.emit(.simulated, 1, 0);
@@ -2636,7 +2647,11 @@ pub const App = struct {
         // A simulation that runs on the thread of the slice stops.
         app.stopWorker();
         app.dropSimulation();
-        const r = try sim_print.simulate(app.gpa, &app.toolpaths, sim_print.paramsOf(app.slice_settings));
+        const job = try sim_print.Job.createFrom(app.gpa, &app.toolpaths, sim_print.paramsOf(app.slice_settings), app.sim_checkpoints);
+        defer job.destroy();
+        while (!try job.advance(std.math.maxInt(usize))) {}
+        const r = try job.finish();
+        app.keepCheckpoints(job);
         app.sim = r;
         app.show_sim = true;
         return r.stats;
@@ -2670,7 +2685,7 @@ pub const App = struct {
         if (app.getState() != .done) return error.NoResult;
         app.stopWorker();
         app.dropSimulation();
-        app.sim_job = try sim_print.Job.create(app.gpa, &app.toolpaths, sim_print.paramsOf(app.slice_settings));
+        app.sim_job = try sim_print.Job.createFrom(app.gpa, &app.toolpaths, sim_print.paramsOf(app.slice_settings), app.sim_checkpoints);
     }
 
     /// Runs a piece of the simulation of `beginSimulation`: up to `count`
@@ -2681,6 +2696,7 @@ pub const App = struct {
         errdefer app.dropSimulation();
         if (!try job.advance(count)) return false;
         const r = try job.finish();
+        app.keepCheckpoints(job);
         job.destroy();
         app.sim_job = null;
         app.sim = r;
@@ -2707,6 +2723,23 @@ pub const App = struct {
     pub fn simulatedMaterial(app: *const App) struct { name: []const u8, exact: bool } {
         const m = zs.print_sim.materialFor(app.slice_settings.filament.material);
         return .{ .name = m.material.name, .exact = m.exact };
+    }
+
+    /// Keeps the checkpoints of a simulation that ended, for the next
+    /// one. With no memory for them, the next simulation runs from the
+    /// start.
+    fn keepCheckpoints(app: *App, job: *sim_print.Job) void {
+        app.sim_first_path = job.firstPath();
+        const c = job.takeCheckpoints() catch null;
+        app.dropSimCheckpoints();
+        app.sim_checkpoints = c;
+    }
+
+    /// Drops the checkpoints of the last simulation: the next simulation
+    /// runs from the start.
+    pub fn dropSimCheckpoints(app: *App) void {
+        if (app.sim_checkpoints) |c| c.destroy();
+        app.sim_checkpoints = null;
     }
 
     fn dropSimulation(app: *App) void {
@@ -4357,12 +4390,19 @@ test "app: the simulation runs after the slice on its thread, and in pieces, wit
     const auto = app.sim.?.stats;
     try testing.expect(auto.failed > 0);
     try testing.expect(app.allToolpaths().? == &app.sim.?.paths);
-    // In pieces: the same numbers.
+    // In pieces, from the start: the same numbers.
+    app.dropSimCheckpoints();
     try app.beginSimulation();
     try testing.expect(app.sim == null);
     var pieces: usize = 0;
     while (!try app.advanceSimulation(8)) pieces += 1;
     try testing.expect(pieces > 2);
+    try testing.expectEqual(@as(usize, 0), app.sim_first_path);
+    try testing.expectEqual(auto, app.sim.?.stats);
+    // From a checkpoint of the simulation before: the same numbers.
+    try app.beginSimulation();
+    while (!try app.advanceSimulation(8)) {}
+    try testing.expect(app.sim_first_path > 0);
     try testing.expectEqual(auto, app.sim.?.stats);
     // A change drops a simulation that runs in pieces.
     try app.beginSimulation();

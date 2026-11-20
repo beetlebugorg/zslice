@@ -1413,7 +1413,7 @@ const Checkpoint = struct {
 /// change (see `Runner.initFrom`): a change of the paths of a later layer
 /// (a support area, a setting of a z range) runs only from the last
 /// checkpoint before the change. A checkpoint is before the first path of
-/// a layer, each `every` layers (about 16 over the print). Over `budget`
+/// a layer, each `every` layers (about 8 over the print). Over `budget`
 /// bytes, every other checkpoint goes, and `every` doubles.
 pub const Checkpoints = struct {
     gpa: Allocator,
@@ -1558,8 +1558,8 @@ pub const Runner = struct {
         errdefer r.deinit();
         const cps = try gpa.create(Checkpoints);
         cps.* = .{ .gpa = gpa, .params = params, .frame = frameOf(&r.s.field) };
-        // About 16 checkpoints over the layers.
-        if (paths.len > 0) cps.every = @max(1, paths[paths.len - 1].layer / 16);
+        // About 8 checkpoints over the layers.
+        if (paths.len > 0) cps.every = @max(1, paths[paths.len - 1].layer / 8);
         r.cps = cps;
         r.key = Checkpoints.seed;
         const o = old orelse return r;
