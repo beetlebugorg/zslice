@@ -1978,6 +1978,9 @@ pub const View = struct {
     }
 
     fn loadGrid(v: *View, bed_x: f32, bed_y: f32) Error!void {
+        // The same bed: the renderer has its grid (a new grid waits for
+        // the GPU).
+        if (v.grid_vertices > 0 and v.bed[0] == bed_x and v.bed[1] == bed_y) return;
         v.bed = .{ bed_x, bed_y };
         var pts: std.ArrayList(f32) = .empty;
         defer pts.deinit(gpa);
