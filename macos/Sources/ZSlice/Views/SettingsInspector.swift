@@ -577,7 +577,9 @@ struct SettingDetail: View {
                 Text("\(SettingInfo.groupTitle(info.group)) › \(info.section.isEmpty ? "General" : info.section)")
             }
             Section("What it does") {
-                Text(info.doc).textSelection(.enabled)
+                // The names and values in code marks show in a code font.
+                Text((try? AttributedString(markdown: info.docSource, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace))) ?? AttributedString(info.doc))
+                    .textSelection(.enabled)
             }
             Section("In your project") {
                 EffectList(workspace: workspace, info: info)

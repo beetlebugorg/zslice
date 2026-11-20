@@ -34,7 +34,11 @@ struct SettingInfo: Identifiable, Hashable {
     let group: String
     let section: String
     let label: String
+    /// The help text in plain words, for tooltips and the search. The
+    /// core marks names and values as code (`footprint`); docSource keeps
+    /// those marks, for the page of the setting.
     let doc: String
+    let docSource: String
     let kind: Kind
     let multiline: Bool
     let choices: [String]
@@ -53,7 +57,7 @@ struct SettingInfo: Identifiable, Hashable {
         var c = zs_setting_info()
         guard zs_setting_get_info(i, &c) == 0 else { return nil }
         return SettingInfo(name: coreText(c.name), group: coreText(c.group), section: coreText(c.section),
-                           label: coreText(c.label), doc: coreText(c.doc), kind: Kind(rawValue: c.kind) ?? .text,
+                           label: coreText(c.label), doc: coreText(c.doc).replacingOccurrences(of: "`", with: ""), docSource: coreText(c.doc), kind: Kind(rawValue: c.kind) ?? .text,
                            multiline: c.multiline != 0,
                            choices: coreText(c.choices).split(separator: "\n").map(String.init),
                            unit: coreText(c.unit), defaultValue: coreText(c.default_value),
