@@ -544,6 +544,15 @@ pub fn bambuProject(id: []const u8) ?[]const u8 {
     return null;
 }
 
+/// The config block of the G-code of a Bambu Studio file of a model (the
+/// lines between "; CONFIG_BLOCK_START" and "; CONFIG_BLOCK_END"; the X2D:
+/// Bambu Studio 02.09.01.70), the base of the config block that zslice
+/// writes, or null.
+pub fn bambuConfig(id: []const u8) ?[]const u8 {
+    if (std.mem.eql(u8, id, "bambu-lab-x2d")) return @embedFile("printers/bambu/bambu-lab-x2d-config.txt");
+    return null;
+}
+
 pub fn changeGcode(id: []const u8) ?[]const u8 {
     if (std.mem.eql(u8, id, "bambu-lab-x2d")) return @embedFile("printers/change/bambu-lab-x2d.gcode");
     return null;

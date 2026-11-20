@@ -586,6 +586,9 @@ pub const Emitter = struct {
     prep: ?*Prepared = null,
     /// The path that `layer` writes.
     path_index: usize = 0,
+    /// The G-code has the blocks of Bambu Studio (see bambuBlocks): the
+    /// end closes its executable block.
+    bambu_blocks: bool = false,
     /// The combing index of the layer, or null.
     comb_index: ?*const CombIndex = null,
     /// The travel acceleration of the layer, for the time of a combing
@@ -850,6 +853,7 @@ pub const Emitter = struct {
         const m = s.machine;
         const b = @import("printers.zig").bambu(m.model) orelse return;
         const w = self.w;
+        self.bambu_blocks = true;
         const n: u32 = @max(b.nozzles, m.nozzles);
         const fils: []const settings_mod.Filament = if (self.slots.len > 0) self.slots else &.{s.filament};
         const list = struct {
@@ -868,6 +872,13 @@ pub const Emitter = struct {
         try w.writeAll("\n; filament: ");
         for (fils, 0..) |_, k| try w.print("{s}{d}", .{ if (k > 0) "," else "", k + 1 });
         try w.writeAll("\n; HEADER_BLOCK_END\n\n; CONFIG_BLOCK_START\n");
+        // zslice's keys go to a buffer; then the config block of a Bambu
+        // Studio file of this model (printers.bambuConfig) goes out in its
+        // order, with zslice's value for each key that zslice has, and the
+        // keys of zslice that it lacks after it.
+        var ours: Writer.Allocating = .init(self.gpa);
+        defer ours.deinit();
+        const cw = &ours.writer;
         // The keys of the extruders and the hotends of a Bambu Studio file
         // (02.09, the X2D): one value for each extruder, then one for each
         // filament. No nozzle_type: Studio writes none.
@@ -882,70 +893,104 @@ pub const Emitter = struct {
         }
         var dbuf: [32]u8 = undefined;
         const dia = std.fmt.bufPrint(&dbuf, "{d}", .{m.nozzle_diameter}) catch "0.4";
-        try w.print("; curr_bed_type = {s}\n", .{m.bed_type.studioName()});
-        try w.writeAll("; default_nozzle_volume_type = ");
+        try cw.print("; curr_bed_type = {s}\n", .{m.bed_type.studioName()});
+        try cw.writeAll("; default_nozzle_volume_type = ");
         {
             var it = std.mem.splitScalar(u8, b.volumes, ';');
             var k: usize = 0;
-            while (it.next()) |t| : (k += 1) try w.print("{s}{s}", .{ if (k > 0) "," else "", t });
+            while (it.next()) |t| : (k += 1) try cw.print("{s}{s}", .{ if (k > 0) "," else "", t });
         }
-        try w.writeByte('\n');
-        try list(w, "extruder_max_nozzle_count", n, "1");
-        try list(w, "extruder_nozzle_count", n, "1");
-        try list(w, "extruder_nozzle_diameter", n, dia);
-        try w.writeAll("; extruder_nozzle_slot = ");
-        for (0..n) |k| try w.print("{s}{d}", .{ if (k > 0) "," else "", k });
-        try w.writeAll("\n; extruder_nozzle_stats = ");
-        for (0..n) |k| try w.print("{s}{s}#1", .{ if (k > 0) ";" else "", vol });
-        try w.writeAll("\n; extruder_nozzle_stats_new = ");
-        for (0..n) |k| try w.print("{s}{s}#1", .{ if (k > 0) ";" else "", vol });
-        try w.writeByte('\n');
-        try list(w, "extruder_nozzle_volume_type", n, vol);
-        try list(w, "extruder_offset", n, "0x0");
-        try w.writeAll("; extruder_type = ");
-        for (0..n) |k| try w.print("{s}{s}", .{ if (k > 0) "," else "", types[@min(k, 1)] });
-        try w.writeByte('\n');
+        try cw.writeByte('\n');
+        try list(cw, "extruder_max_nozzle_count", n, "1");
+        try list(cw, "extruder_nozzle_count", n, "1");
+        try list(cw, "extruder_nozzle_diameter", n, dia);
+        try cw.writeAll("; extruder_nozzle_slot = ");
+        for (0..n) |k| try cw.print("{s}{d}", .{ if (k > 0) "," else "", k });
+        try cw.writeAll("\n; extruder_nozzle_stats = ");
+        for (0..n) |k| try cw.print("{s}{s}#1", .{ if (k > 0) ";" else "", vol });
+        try cw.writeAll("\n; extruder_nozzle_stats_new = ");
+        for (0..n) |k| try cw.print("{s}{s}#1", .{ if (k > 0) ";" else "", vol });
+        try cw.writeByte('\n');
+        try list(cw, "extruder_nozzle_volume_type", n, vol);
+        try list(cw, "extruder_offset", n, "0x0");
+        try cw.writeAll("; extruder_type = ");
+        for (0..n) |k| try cw.print("{s}{s}", .{ if (k > 0) "," else "", types[@min(k, 1)] });
+        try cw.writeByte('\n');
         if (b.variants.len > 0) {
-            try w.writeAll("; extruder_variant_list = ");
+            try cw.writeAll("; extruder_variant_list = ");
             var it = std.mem.splitScalar(u8, b.variants, '|');
             var k: usize = 0;
-            while (it.next()) |t| : (k += 1) try w.print("{s}\"{s}\"", .{ if (k > 0) ";" else "", t });
-            try w.writeByte('\n');
+            while (it.next()) |t| : (k += 1) try cw.print("{s}\"{s}\"", .{ if (k > 0) ";" else "", t });
+            try cw.writeByte('\n');
         }
         // Each filament: the variant of its extruder, its extruder (from
         // 1), and its nozzle (from 0).
-        try w.writeAll("; filament_extruder_variant = ");
-        for (fils, 0..) |f, k| try w.print("{s}\"{s} {s}\"", .{ if (k > 0) ";" else "", types[if (n >= 2) @min(f.nozzle, 1) else 0], vol });
-        try w.writeAll("\n; filament_map = ");
-        for (fils, 0..) |f, k| try w.print("{s}{d}", .{ if (k > 0) "," else "", if (n >= 2) @as(u32, @min(f.nozzle, 1)) + 1 else 1 });
-        try w.writeAll("\n; filament_nozzle_map = ");
-        for (fils, 0..) |f, k| try w.print("{s}{d}", .{ if (k > 0) "," else "", if (n >= 2) @as(u32, @min(f.nozzle, 1)) else 0 });
-        try w.writeAll("\n; filament_type = ");
-        for (fils, 0..) |f, k| try w.print("{s}{s}", .{ if (k > 0) ";" else "", f.material });
-        try w.writeAll("\n; filament_colour = ");
-        for (fils, 0..) |f, k| try w.print("{s}{s}", .{ if (k > 0) ";" else "", f.color });
-        try w.writeAll("\n; handle_hotend_as_extruder = 0\n; has_filament_switcher = 0\n");
-        try w.print("; initial_layer_print_height = {d}\n; layer_height = {d}\n", .{ s.project.first_layer_height, s.project.layer_height });
-        try w.writeAll("; master_extruder_id = 1\n; multi_nozzle_diameter_mode = 0\n");
-        try list(w, "nozzle_diameter", n, dia);
-        try list(w, "nozzle_volume_type", n, vol);
+        try cw.writeAll("; filament_extruder_variant = ");
+        for (fils, 0..) |f, k| try cw.print("{s}\"{s} {s}\"", .{ if (k > 0) ";" else "", types[if (n >= 2) @min(f.nozzle, 1) else 0], vol });
+        try cw.writeAll("\n; filament_map = ");
+        for (fils, 0..) |f, k| try cw.print("{s}{d}", .{ if (k > 0) "," else "", if (n >= 2) @as(u32, @min(f.nozzle, 1)) + 1 else 1 });
+        try cw.writeAll("\n; filament_nozzle_map = ");
+        for (fils, 0..) |f, k| try cw.print("{s}{d}", .{ if (k > 0) "," else "", if (n >= 2) @as(u32, @min(f.nozzle, 1)) else 0 });
+        try cw.writeAll("\n; filament_type = ");
+        for (fils, 0..) |f, k| try cw.print("{s}{s}", .{ if (k > 0) ";" else "", f.material });
+        try cw.writeAll("\n; filament_colour = ");
+        for (fils, 0..) |f, k| try cw.print("{s}{s}", .{ if (k > 0) ";" else "", f.color });
+        try cw.writeAll("\n; handle_hotend_as_extruder = 0\n; has_filament_switcher = 0\n");
+        try cw.print("; initial_layer_print_height = {d}\n; layer_height = {d}\n", .{ s.project.first_layer_height, s.project.layer_height });
+        try cw.writeAll("; master_extruder_id = 1\n; multi_nozzle_diameter_mode = 0\n");
+        try list(cw, "nozzle_diameter", n, dia);
+        try list(cw, "nozzle_volume_type", n, vol);
         // Two extruders of one nozzle each (the X2D, the H2D): the firmware
         // numbers them the other way (the start G-code heats
         // T{filament_map % 2}). The H2C changes nozzles from a rack.
-        if (n >= 2 and !std.mem.eql(u8, b.code, "O1C2")) try w.writeAll("; physical_extruder_map = 1,0\n");
+        if (n >= 2 and !std.mem.eql(u8, b.code, "O1C2")) try cw.writeAll("; physical_extruder_map = 1,0\n");
         for ([_][]const u8{ "print_extruder_id", "printer_extruder_id" }) |key| {
-            try w.print("; {s} = ", .{key});
-            for (0..n) |k| try w.print("{s}{d}", .{ if (k > 0) "," else "", k + 1 });
-            try w.writeByte('\n');
+            try cw.print("; {s} = ", .{key});
+            for (0..n) |k| try cw.print("{s}{d}", .{ if (k > 0) "," else "", k + 1 });
+            try cw.writeByte('\n');
         }
         for ([_][]const u8{ "print_extruder_variant", "printer_extruder_variant" }) |key| {
-            try w.print("; {s} = ", .{key});
-            for (0..n) |k| try w.print("{s}\"{s} {s}\"", .{ if (k > 0) ";" else "", types[@min(k, 1)], vol });
+            try cw.print("; {s} = ", .{key});
+            for (0..n) |k| try cw.print("{s}\"{s} {s}\"", .{ if (k > 0) ";" else "", types[@min(k, 1)], vol });
+            try cw.writeByte('\n');
+        }
+        try cw.print("; printer_model = {s}\n; printer_settings_id = {s} {s} nozzle\n; printer_technology = FFF\n; printer_variant = {s}\n", .{ b.name, b.name, dia, dia });
+        try cw.writeAll("; single_extruder_multi_material = 1\n");
+        try mergeConfig(w, ours.written(), @import("printers.zig").bambuConfig(m.model) orelse "");
+        try w.writeAll("; CONFIG_BLOCK_END\n\n");
+    }
+
+    /// Writes the config block lines of `base` ("; key = value" lines), with
+    /// the line of `ours` for each key that `ours` has, then the lines of
+    /// `ours` whose key `base` lacks.
+    fn mergeConfig(w: *Writer, ours: []const u8, base: []const u8) Writer.Error!void {
+        const keyOf = struct {
+            fn f(line: []const u8) []const u8 {
+                if (!std.mem.startsWith(u8, line, "; ")) return "";
+                const eq = std.mem.indexOf(u8, line, " = ") orelse return "";
+                return line[2..eq];
+            }
+        }.f;
+        const find = struct {
+            fn f(text: []const u8, key: []const u8) ?[]const u8 {
+                var it = std.mem.splitScalar(u8, text, '\n');
+                while (it.next()) |l| if (key.len > 0 and std.mem.eql(u8, keyOf(l), key)) return l;
+                return null;
+            }
+        }.f;
+        var it = std.mem.splitScalar(u8, base, '\n');
+        while (it.next()) |line| {
+            if (line.len == 0) continue;
+            try w.writeAll(find(ours, keyOf(line)) orelse line);
             try w.writeByte('\n');
         }
-        try w.print("; printer_model = {s}\n; printer_settings_id = {s} {s} nozzle\n; printer_technology = FFF\n; printer_variant = {s}\n", .{ b.name, b.name, dia, dia });
-        try w.writeAll("; single_extruder_multi_material = 1\n");
-        try w.writeAll("; CONFIG_BLOCK_END\n\n");
+        var oit = std.mem.splitScalar(u8, ours, '\n');
+        while (oit.next()) |line| {
+            if (line.len == 0) continue;
+            if (base.len > 0 and find(base, keyOf(line)) != null) continue;
+            try w.writeAll(line);
+            try w.writeByte('\n');
+        }
     }
 
     pub fn init(gpa: std.mem.Allocator, w: *Writer, r: *const Resolved) Emitter {
@@ -956,6 +1001,12 @@ pub const Emitter = struct {
         const s = self.r.settings;
         const m = s.machine;
         self.layer_count = layer_count;
+        // A Bambu Lab printer reads the header and the config block from
+        // the first line of the file, as Bambu Studio writes them, then the
+        // executable block (a file that started with ";FLAVOR" stopped with
+        // "the hotend quantity or model does not match the sliced file").
+        try self.bambuBlocks(layer_count);
+        if (self.bambu_blocks) try self.w.writeAll("; EXECUTABLE_BLOCK_START\n");
         try self.w.print(";FLAVOR:{s}\n;Generated by zslice\n", .{switch (m.gcode_flavor) {
             .marlin, .klipper => "Marlin",
             .reprap => "RepRap",
@@ -963,7 +1014,6 @@ pub const Emitter = struct {
         }});
         try self.w.print(";MACHINE:{f}\n;FILAMENT:{f}\n", .{ oneLine(s.machine.name), oneLine(s.filament.name) });
         try self.w.print(";LAYER_COUNT:{d}\n", .{layer_count});
-        try self.bambuBlocks(layer_count);
         // The start G-code goes into a buffer first: zslice heats before
         // it if it does not heat.
         var start: Writer.Allocating = .init(self.gpa);
@@ -1157,6 +1207,7 @@ pub const Emitter = struct {
         try writeNum(self.w, st.print_time_s, 0);
         try self.w.writeAll("s\n");
         try self.writeSettings();
+        if (self.bambu_blocks) try self.w.writeAll("; EXECUTABLE_BLOCK_END\n");
     }
 
     /// The settings of the print that differ from the defaults, as

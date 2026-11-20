@@ -449,6 +449,39 @@ pub fn gcode3mfPlate(gpa: Allocator, gcode: []const u8, title: []const u8, info:
         \\</config>
         \\
     , .{ maps.written(), zeros.written() });
+    // filament_sequence.json: the filament (from 1) of each tool change in
+    // order, the first filament too, from the "T<n>" lines of the G-code,
+    // and the nozzle of each (as Bambu Studio writes it for a printer with
+    // two nozzles).
+    var seq: std.Io.Writer.Allocating = .init(a);
+    {
+        var tools: std.ArrayList(u32) = .empty;
+        var it = std.mem.splitScalar(u8, gcode, '\n');
+        while (it.next()) |line| {
+            if (line.len < 2 or line[0] != 'T' or !std.ascii.isDigit(line[1])) continue;
+            var e: usize = 1;
+            while (e < line.len and std.ascii.isDigit(line[e])) e += 1;
+            if (e < line.len and line[e] != ' ' and line[e] != ';' and line[e] != '\r') continue;
+            const t = std.fmt.parseInt(u32, line[1..e], 10) catch continue;
+            if (t >= 64) continue; // T65279 and T65535: the unload of the end
+            if (tools.items.len > 0 and tools.items[tools.items.len - 1] == t) continue;
+            try tools.append(a, t);
+        }
+        const nozzleOfTool = struct {
+            fn f(fs: []const FilamentUse, nozzles: u32, t: u32) u32 {
+                if (nozzles < 2) return 0;
+                for (fs) |fu| if (fu.id == t + 1) return @min(fu.nozzle, 1);
+                return 0;
+            }
+        }.f;
+        try seq.writer.writeAll("{\"plate_1\":{\"nozzle_sequence\":[");
+        for (tools.items, 0..) |t, k| try seq.writer.print("{s}{d}", .{ if (k > 0) "," else "", nozzleOfTool(info.filaments, info.nozzles, t) });
+        try seq.writer.writeAll("],\"optimal_assignment\":[");
+        for (info.filaments, 0..) |f, k| try seq.writer.print("{s}{d}", .{ if (k > 0) "," else "", if (info.nozzles >= 2) @min(f.nozzle, 1) else 0 });
+        try seq.writer.writeAll("],\"sequence\":[");
+        for (tools.items, 0..) |t, k| try seq.writer.print("{s}{d}", .{ if (k > 0) "," else "", t + 1 });
+        try seq.writer.writeAll("]}}");
+    }
     // plate_1.json: the plate type, the filaments, and the nozzle.
     var pj: std.Io.Writer.Allocating = .init(a);
     try pj.writer.print("{{\"bed_type\":\"{s}\",\"filament_colors\":[", .{bedTypeKey(info.bed_type)});
@@ -462,6 +495,7 @@ pub fn gcode3mfPlate(gpa: Allocator, gcode: []const u8, title: []const u8, info:
         .{ .name = "3D/3dmodel.model", .data = model },
         .{ .name = "Metadata/model_settings.config", .data = settings },
         .{ .name = "Metadata/plate_1.json", .data = pj.written() },
+        .{ .name = "Metadata/filament_sequence.json", .data = seq.written() },
         .{ .name = "Metadata/plate_1.gcode", .data = @constCast(gcode) },
         .{ .name = "Metadata/plate_1.gcode.md5", .data = md5 },
         .{ .name = "Metadata/slice_info.config", .data = try sliceInfo(a, info) },
@@ -870,4 +904,23 @@ test "bambu: the project settings of the X2D are those of Bambu Studio, with the
         try std.testing.expectEqual(@as(usize, 3), o.get("filament_type").?.array.items.len);
         try std.testing.expectEqualStrings("#445566", o.get("filament_colour").?.array.items[1].string);
     };
+}
+
+test "bambu: filament_sequence.json lists the tool changes and their nozzles" {
+    const gpa = std.testing.allocator;
+    const fils = [_]FilamentUse{
+        .{ .id = 1, .kind = "PLA", .color = "#00AE42", .meters = 1, .grams = 3 },
+        .{ .id = 2, .kind = "PLA", .color = "#FFFF00", .meters = 1, .grams = 1, .nozzle = 1 },
+    };
+    const g = "G28\nT0 H-1\nT0 H-1\nG1 X1\nT1 H-1\nT0 H-1\nT65279\n";
+    const bytes = try gcode3mfInfo(gpa, g, "p", .{ .filaments = &fils, .nozzles = 2 });
+    defer gpa.free(bytes);
+    const entries = try zipfile.readAll(gpa, bytes);
+    defer zipfile.freeAll(gpa, entries);
+    var found = false;
+    for (entries) |e| if (std.mem.eql(u8, e.name, "Metadata/filament_sequence.json")) {
+        found = true;
+        try std.testing.expectEqualStrings("{\"plate_1\":{\"nozzle_sequence\":[0,1,0],\"optimal_assignment\":[0,1],\"sequence\":[1,2,1]}}", e.data);
+    };
+    try std.testing.expect(found);
 }

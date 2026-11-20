@@ -1498,6 +1498,10 @@ test "plate job: the G-code of a Bambu Lab X2D has the config block of Bambu Stu
     defer out.deinit();
     _ = try pj.writeGcode(&out.writer);
     const g = out.written();
+    // The blocks come first, as Bambu Studio writes them.
+    try testing.expect(std.mem.startsWith(u8, g, "; HEADER_BLOCK_START\n"));
+    try testing.expect(std.mem.indexOf(u8, g, "; CONFIG_BLOCK_END\n\n; EXECUTABLE_BLOCK_START\n;FLAVOR:Marlin") != null);
+    try testing.expect(std.mem.endsWith(u8, g, "; EXECUTABLE_BLOCK_END\n"));
     for ([_][]const u8{
         "; HEADER_BLOCK_START\n",
         "; CONFIG_BLOCK_START\n",
