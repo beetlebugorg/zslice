@@ -90,18 +90,34 @@ function chip(f, selected, onPick) {
 // The editor of project.filament (see SettingsBrowser.makeEditor):
 // commit(value) sets the value ("1" for filament 0). add(): a new
 // filament, or null for no "+" chip. Returns { node, update(entry) }.
-export function filamentEditor(info, commit, add = null) {
+// zero: the label of value 0 ("Part": the filament of the part), for the
+// support filaments; null: the setting has no 0.
+export function filamentEditor(info, commit, add = null, zero = null) {
   const box = document.createElement("div");
   box.className = "editor fil-editor";
   box.dataset.setting = info.name;
   box.title = info.doc;
-  let value = 1;
+  let value = zero ? 0 : 1;
   const draw = () => {
     const chips = state.list.map((f) => chip(f, f.index + 1 === value, (i) => {
       value = i + 1;
       draw();
       commit(String(i + 1));
     }));
+    if (zero) {
+      const z = document.createElement("button");
+      z.className = "fil-chip fil-zero" + (value === 0 ? " on" : "");
+      z.textContent = zero;
+      z.title = zero === "Part" ? "The filament of the part" : "The support filament";
+      z.setAttribute("aria-pressed", String(value === 0));
+      z.onclick = (e) => {
+        e.stopPropagation();
+        value = 0;
+        draw();
+        commit("0");
+      };
+      chips.unshift(z);
+    }
     if (add) {
       const plus = document.createElement("button");
       plus.className = "fil-chip fil-add";
@@ -126,7 +142,7 @@ export function filamentEditor(info, commit, add = null) {
     node: box,
     update: (entry) => {
       const v = Number(entry?.value);
-      value = v >= 1 ? v : 1;
+      value = zero ? (v >= 0 ? v : 0) : v >= 1 ? v : 1;
       draw();
     },
   };
