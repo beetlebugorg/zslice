@@ -280,9 +280,11 @@ enum PrinterLink {
     /// list of the deck at its root (/slicer/printer.json). With 2 or more
     /// printers, the send stops when the path of the address is not in the
     /// list, when the saved deck name differs from the printer at that
-    /// path, or when the name of the user's printer names another printer
-    /// of the deck. A list that does not read lets the send go. Returns
-    /// why it stops, or nil.
+    /// path, when the name of the user's printer names another printer of
+    /// the deck (by its words), or when the address is the deck itself and
+    /// neither a saved deck name nor the name of the printer says that it
+    /// is the first printer of the deck. A list that does not read lets the
+    /// send go. Returns why it stops, or nil.
     @MainActor static func checkDeckTarget(_ p: Printer) async -> String? {
         let (root, path) = deckSplit(p.url.isEmpty ? p.https : p.url)
         var probe = Printer(name: p.name, kind: .printdeck, url: root)
@@ -299,12 +301,32 @@ enum PrinterLink {
         if !p.deckName.isEmpty, norm(p.deckName) != atName {
             return "This address leads to \(shown) on the deck, not to \(p.deckName). Nothing was sent. Add the printer again from the deck."
         }
-        let mine = norm(p.name)
-        let other = list.first { q in
-            (q["url"] as? String ?? "") != path && (norm(q["name"]) == mine || norm(q["label"]) == mine || (!norm(q["name"]).isEmpty && mine.hasPrefix(norm(q["name"]) + " (")))
+        // A name names a deck printer when one has all the words of the
+        // other ("Bambu Lab X2D" and "X2D"): lower case, split at each
+        // character that is not a letter or a digit.
+        func words(_ v: Any?) -> [String] {
+            norm(v).split(whereSeparator: { !(("a" ... "z").contains($0) || ("0" ... "9").contains($0)) }).map(String.init)
         }
-        if let other, atName != mine {
+        func names(_ q: [String: Any], _ n: String) -> Bool {
+            let a = words(n)
+            for t in [q["name"], q["label"]] {
+                let b = words(t)
+                if a.isEmpty || b.isEmpty { continue }
+                if b.allSatisfy(a.contains) || a.allSatisfy(b.contains) { return true }
+            }
+            return false
+        }
+        let mine = norm(p.name)
+        let other = list.first { q in (q["url"] as? String ?? "") != path && names(q, p.name) }
+        if let other, !names(at, p.name) {
             return "\(p.name) is at \(other["url"] as? String ?? "") on the deck, but this printer's address leads to \(shown). Nothing was sent. Add \(p.name) again from the deck."
+        }
+        // The address of the deck itself leads to its first printer. With
+        // more printers on the deck, that must be the printer of the user
+        // for sure: its saved deck name, or a name with the words of that
+        // printer. A print for the X2D went to the TAZ this way.
+        if path.isEmpty, p.deckName.isEmpty, !names(at, p.name), atName != mine {
+            return "The address of \(p.name) is the deck itself, which prints on \(shown). zslice cannot tell that \(p.name) is \(shown). Nothing was sent. Add the printer again from the deck, and pick it from the list of the deck."
         }
         return nil
     }
