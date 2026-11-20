@@ -81,7 +81,70 @@ pub const PlateInfo = struct {
     /// The name of the plate's object, and its area on the bed (mm²).
     object_name: []const u8 = "zslice",
     first_layer_time: f64 = 0,
+    /// The <layer_filament_lists> element of slice_info.config (see
+    /// layerFilamentLists), or "".
+    layer_lists: []const u8 = "",
 };
+
+/// The <layer_filament_lists> of Bambu Studio for a G-code: for each set
+/// of filaments that a run of layers uses (from 0, space between), the
+/// ranges of those layers ("a b", comma between). It reads the ";LAYER:n"
+/// marks and the "T<n>" tool changes. "" for a print of one filament.
+pub fn layerFilamentLists(a: Allocator, gcode: []const u8) Allocator.Error![]const u8 {
+    // The set of tools of each layer, as a bit mask.
+    var masks: std.ArrayList(u64) = .empty;
+    var tool: u32 = 0;
+    var any_change = false;
+    var it = std.mem.splitScalar(u8, gcode, '\n');
+    while (it.next()) |line| {
+        if (std.mem.startsWith(u8, line, ";LAYER:")) {
+            try masks.append(a, @as(u64, 1) << @intCast(tool));
+            continue;
+        }
+        if (line.len < 2 or line[0] != 'T' or !std.ascii.isDigit(line[1])) continue;
+        var e: usize = 1;
+        while (e < line.len and std.ascii.isDigit(line[e])) e += 1;
+        if (e < line.len and line[e] != ' ' and line[e] != ';' and line[e] != '\r') continue;
+        const t = std.fmt.parseInt(u32, line[1..e], 10) catch continue;
+        if (t >= 64) continue;
+        if (t != tool and masks.items.len > 0) any_change = true;
+        tool = t;
+        if (masks.items.len > 0) masks.items[masks.items.len - 1] |= @as(u64, 1) << @intCast(t);
+    }
+    if (!any_change or masks.items.len == 0) return "";
+    var out: std.Io.Writer.Allocating = .init(a);
+    const w = &out.writer;
+    w.writeAll("    <layer_filament_lists>\n") catch return error.OutOfMemory;
+    // Each distinct mask, in the order of its first layer.
+    var seen: std.ArrayList(u64) = .empty;
+    for (masks.items) |m| {
+        if (std.mem.indexOfScalar(u64, seen.items, m) != null) continue;
+        try seen.append(a, m);
+        w.writeAll("      <layer_filament_list filament_list=\"") catch return error.OutOfMemory;
+        var first = true;
+        for (0..64) |b| if (m & (@as(u64, 1) << @intCast(b)) != 0) {
+            w.print("{s}{d}", .{ if (first) "" else " ", b }) catch return error.OutOfMemory;
+            first = false;
+        };
+        w.writeAll("\" layer_ranges=\"") catch return error.OutOfMemory;
+        var k: usize = 0;
+        var n: usize = 0;
+        while (k < masks.items.len) {
+            if (masks.items[k] != m) {
+                k += 1;
+                continue;
+            }
+            var j = k;
+            while (j + 1 < masks.items.len and masks.items[j + 1] == m) j += 1;
+            w.print("{s}{d} {d}", .{ if (n > 0) "," else "", k, j }) catch return error.OutOfMemory;
+            n += 1;
+            k = j + 1;
+        }
+        w.writeAll("\" />\n") catch return error.OutOfMemory;
+    }
+    w.writeAll("    </layer_filament_lists>\n") catch return error.OutOfMemory;
+    return out.written();
+}
 
 /// A JSON list of the parts of `text` between `sep`.
 fn jsonList(w: *std.Io.Writer, key: []const u8, text: []const u8, sep: u8, comma: bool) std.Io.Writer.Error!void {
@@ -370,6 +433,8 @@ fn sliceInfo(a: Allocator, info: PlateInfo) Allocator.Error![]u8 {
         const color = if (info.color.len == 7 and info.color[0] == '#') info.color else "#FFFFFF";
         ww.print("    <filament id=\"1\" type=\"{s}\" color=\"{s}\" used_m=\"{d:.2}\" used_g=\"{d:.2}\"/>\n", .{ try xmlText(a, info.material), try xmlText(a, color), @max(0, info.meters), @max(0, info.grams) }) catch return error.OutOfMemory;
     }
+    // The filaments of each run of layers, after the nozzles (as Studio).
+    ww.writeAll(info.layer_lists) catch return error.OutOfMemory;
     ww.writeAll("  </plate>\n</config>\n") catch return error.OutOfMemory;
     return w.toOwnedSlice() catch error.OutOfMemory;
 }
@@ -402,6 +467,9 @@ pub fn gcode3mfNozzles(gpa: Allocator, gcode: []const u8, title: []const u8, fil
 /// filaments).
 pub fn gcode3mfInfo(gpa: Allocator, gcode: []const u8, title: []const u8, info_in: PlateInfo) (Allocator.Error || std.Io.Writer.Error)![]u8 {
     var info = info_in;
+    var lists_arena = std.heap.ArenaAllocator.init(gpa);
+    defer lists_arena.deinit();
+    if (info.layer_lists.len == 0) info.layer_lists = try layerFilamentLists(lists_arena.allocator(), gcode);
     const filaments = info.filaments;
     for (filaments) |f| {
         info.grams += f.grams;
@@ -972,4 +1040,14 @@ test "bambu: plate_1.json has the box of the parts, as Bambu Studio writes it" {
         try std.testing.expectEqualStrings("textured_plate", o.get("bed_type").?.string);
     };
     try std.testing.expect(found);
+}
+
+test "bambu: layer_filament_lists from the layers and the tool changes" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const g = "T0 H-1\n;LAYER:0\nG1\n;LAYER:1\nT1 H-1\nG1\nT0 H-1\n;LAYER:2\n;LAYER:3\nT1 H-1\nT0 H-1\n";
+    const text = try layerFilamentLists(arena.allocator(), g);
+    try std.testing.expect(std.mem.indexOf(u8, text, "filament_list=\"0\" layer_ranges=\"0 0,2 2\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, text, "filament_list=\"0 1\" layer_ranges=\"1 1,3 3\"") != null);
+    try std.testing.expectEqualStrings("", try layerFilamentLists(arena.allocator(), ";LAYER:0\n;LAYER:1\n"));
 }
