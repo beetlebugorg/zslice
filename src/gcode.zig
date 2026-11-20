@@ -1016,9 +1016,9 @@ pub const Emitter = struct {
         try cw.writeAll("\n; filament_nozzle_map = ");
         for (fils, 0..) |f, k| try cw.print("{s}{d}", .{ if (k > 0) "," else "", if (n >= 2) @as(u32, @min(f.nozzle, 1)) else 0 });
         try cw.writeAll("\n; filament_type = ");
-        for (fils, 0..) |f, k| try cw.print("{s}{s}", .{ if (k > 0) ";" else "", f.material });
+        for (fils, 0..) |f, k| try cw.print("{s}{f}", .{ if (k > 0) ";" else "", oneLine(f.material) });
         try cw.writeAll("\n; filament_colour = ");
-        for (fils, 0..) |f, k| try cw.print("{s}{s}", .{ if (k > 0) ";" else "", f.color });
+        for (fils, 0..) |f, k| try cw.print("{s}{f}", .{ if (k > 0) ";" else "", oneLine(f.color) });
         try cw.writeAll("\n; handle_hotend_as_extruder = 0\n; has_filament_switcher = 0\n");
         try cw.print("; initial_layer_print_height = {d}\n; layer_height = {d}\n", .{ s.project.first_layer_height, s.project.layer_height });
         try cw.writeAll("; master_extruder_id = 1\n; multi_nozzle_diameter_mode = 0\n");
@@ -2889,6 +2889,29 @@ test "a name with a line end stays in its comment line" {
         try std.testing.expect(!std.mem.startsWith(u8, line, "G28 X"));
     }
     try std.testing.expect(std.mem.indexOf(u8, text, ";MACHINE:TAZ M104 S350\n") != null);
+}
+
+test "a filament material or color with a line end stays in the Bambu config block" {
+    const gpa = std.testing.allocator;
+    var m = try @import("mesh.zig").shapes.box(gpa, 5, 5, 1);
+    defer m.deinit(gpa);
+    var out: std.Io.Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    var s: @import("settings.zig").Settings = .{};
+    s.engine.threads = 1;
+    s.machine.model = "bambu-lab-x2d";
+    s.filament.material = "PLA\nM104 S350";
+    s.filament.color = "#ffffff\rG28 X";
+    _ = try @import("engine.zig").slice(gpa, &m, s, &out.writer);
+    const text = out.written();
+    try std.testing.expect(std.mem.indexOf(u8, text, "; CONFIG_BLOCK_START\n") != null);
+    try std.testing.expect(std.mem.indexOfScalar(u8, text, '\r') == null);
+    var lines = std.mem.splitScalar(u8, text, '\n');
+    while (lines.next()) |line| {
+        try std.testing.expect(!std.mem.startsWith(u8, line, "M104 S350"));
+        try std.testing.expect(!std.mem.startsWith(u8, line, "G28 X"));
+    }
+    try std.testing.expect(std.mem.indexOf(u8, text, "; filament_type = PLA M104 S350\n") != null);
 }
 
 test "writeNum" {
