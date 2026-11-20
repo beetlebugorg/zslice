@@ -1720,6 +1720,15 @@ export fn zs_app_set_auto_simulate(a: ?*App, on: c_int) c_int {
     return ok;
 }
 
+/// Simulates the print of the last slice on a worker thread, with no
+/// wait: ZS_EVENT_SIMULATED tells when it is ready (see
+/// App.requestSimulation). ZS_NO_RESULT with no slice.
+export fn zs_app_sim_request(a: ?*App) c_int {
+    const app = a orelse return @intFromEnum(Status.invalid_argument);
+    app.requestSimulation() catch |e| return status(e);
+    return ok;
+}
+
 /// Shows the simulated print of the thread of the slice that waits.
 /// Returns 1 if one waited, else 0.
 export fn zs_app_sim_adopt(a: ?*App) c_int {

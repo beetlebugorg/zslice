@@ -204,6 +204,10 @@ pub const App = struct {
     /// it waits for `adoptSimulation`.
     sim_pending: ?sim_print.Result = null,
     sim_ready: std.atomic.Value(bool) = .init(false),
+    /// The worker simulates the slice after it (`auto_simulate` at the
+    /// start of the slice, or `requestSimulation`). The worker clears it
+    /// when it ends.
+    sim_coming: std.atomic.Value(bool) = .init(false),
     /// A simulation that runs in pieces (`beginSimulation`).
     sim_job: ?*sim_print.Job = null,
     /// The checkpoints of the last simulation that ended (see
@@ -2154,6 +2158,7 @@ pub const App = struct {
         app.slice_marks = app.sliceMarks() catch &.{};
         try app.makeSlicePlan();
         app.cancel_flag.store(false, .release);
+        app.sim_coming.store(app.auto_simulate, .release);
         app.state.store(.slicing, .release);
         if (comptime !has_threads) {
             // No threads: slice now, on the calling thread.
@@ -2161,6 +2166,7 @@ pub const App = struct {
             return;
         }
         app.worker = std.Thread.spawn(.{}, work, .{app}) catch {
+            app.sim_coming.store(false, .release);
             app.state.store(.ready, .release);
             return error.ThreadSpawnFailed;
         };
@@ -2444,6 +2450,7 @@ pub const App = struct {
     }
 
     fn work(app: *App) void {
+        defer app.sim_coming.store(false, .release);
         const monitor: zs.engine.Monitor = .{ .ctx = app, .progress = onProgress, .cancel = &app.cancel_flag };
         // The overrides of the whole part change the settings of the slice;
         // the others change some layers.
@@ -2534,7 +2541,33 @@ pub const App = struct {
         _ = app.done_count.fetchAdd(1, .release);
         app.state.store(.done, .release);
         app.emit(.sliced, 1, 0);
-        if (app.auto_simulate) app.simulateOnWorker();
+        if (app.sim_coming.load(.acquire)) app.simulateOnWorker();
+    }
+
+    /// Simulates the print of the last slice on a worker thread, as
+    /// `auto_simulate` does after a slice. The `simulated` event tells
+    /// when it is ready, and `adoptSimulation` shows it. No new run if a
+    /// simulation of the slice is there, waits, or runs. On the thread of
+    /// the shell: the worker has no slice left, so the call waits little
+    /// for it.
+    pub fn requestSimulation(app: *App) error{ NoResult, ThreadSpawnFailed }!void {
+        if (app.getState() != .done) return error.NoResult;
+        if (app.sim != null or app.sim_ready.load(.acquire) or app.sim_coming.load(.acquire)) return;
+        if (comptime !has_threads) return error.ThreadSpawnFailed;
+        app.stopWorker();
+        // The simulation of the old worker can be ready now.
+        if (app.sim_ready.load(.acquire)) return;
+        app.cancel_flag.store(false, .release);
+        app.sim_coming.store(true, .release);
+        app.worker = std.Thread.spawn(.{}, simulateWork, .{app}) catch {
+            app.sim_coming.store(false, .release);
+            return error.ThreadSpawnFailed;
+        };
+    }
+
+    fn simulateWork(app: *App) void {
+        defer app.sim_coming.store(false, .release);
+        app.simulateOnWorker();
     }
 
     /// The simulated print of the slice, on the thread of the slice, in
@@ -3232,6 +3265,36 @@ test "app: a coarse part slices with fewer layers, and the full slice comes back
     app.stopWorkerForTest();
     try testing.expectEqual(full, app.layerCount());
     try testing.expectEqualStrings(gcode, app.gcode().?);
+}
+
+test "app: a simulation on the worker gives the result of a simulation on the calling thread" {
+    if (comptime !has_threads) return error.SkipZigTest;
+    const gpa = testing.allocator;
+    var mesh = try zs.mesh.shapes.demo(gpa);
+    defer mesh.deinit(gpa);
+    var stl: std.Io.Writer.Allocating = .init(gpa);
+    defer stl.deinit();
+    try mesh.writeStl(&stl.writer);
+    const app = try App.create(gpa, null, null);
+    defer app.destroy();
+    try testing.expectError(error.NoResult, app.requestSimulation());
+    try app.loadStl("demo.stl", stl.written());
+    try app.startSlice();
+    app.stopWorkerForTest();
+    try app.requestSimulation();
+    // A second request while the first runs or waits starts no run.
+    try app.requestSimulation();
+    app.stopWorkerForTest();
+    try testing.expect(app.adoptSimulation());
+    const got = app.sim.?.stats;
+    app.dropSimulation();
+    const want = try app.simulatePrint();
+    try testing.expectEqual(want.masses, got.masses);
+    try testing.expectEqual(want.moved, got.moved);
+    try testing.expectEqual(want.steps, got.steps);
+    // A simulation shows: no new run.
+    try app.requestSimulation();
+    try testing.expect(app.worker == null);
 }
 
 test "app: cancel a slice" {

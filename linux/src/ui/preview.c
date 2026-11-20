@@ -77,10 +77,11 @@ typedef struct {
     GtkWidget *colors;
     /* The colors button of the tool strip, and its choices (by mode). */
     GtkWidget *colors_button, *color_choices[6];
-    /* The print as it forms (zs_app_simulate_print): on, the view shows the
+    /* The print as it forms (zs_app_sim_request): on, the view shows the
      * simulated plastic until the next slice. The check of the colors
-     * menu, and a note over the view. */
-    gboolean simulated;
+     * menu, and a note over the view. `sim_asked`: the user turned it on
+     * before the simulation was ready, and its note comes with it. */
+    gboolean simulated, sim_asked;
     GtkWidget *sim_check, *note;
     guint note_timer;
     GtkWidget *legend;
@@ -1186,33 +1187,24 @@ static void set_sim_check(Preview *p) {
     g_signal_handlers_unblock_matched(p->sim_check, G_SIGNAL_MATCH_DATA, 0, 0, NULL, NULL, p);
 }
 
-void zg_preview_simulated(GtkWidget *preview) {
-    Preview *p = g_object_get_data(G_OBJECT(preview), "zg-preview");
-    p->simulated = TRUE;
-    set_sim_check(p);
-    zg_view3d_reload(p->view3d);
-}
-
-/* The simulation runs on this thread (about 1.5 s for a 3DBenchy), after
- * the note "Simulating..." shows. */
-static gboolean run_simulation(gpointer data) {
-    Preview *p = data;
-    zs_app *core = zg_model_core(p->model);
+/* The note of a simulation that the user asked for. */
+static void show_sim_note(Preview *p) {
     zs_print_sim_stats st;
-    if (zs_app_simulate_print(core, &st) != ZS_OK) {
-        show_note(p, "Slice first: the simulation needs a slice.", 5000);
-        p->simulated = FALSE;
-        set_sim_check(p);
-        return G_SOURCE_REMOVE;
-    }
-    zs_app_show_simulated(core, 1);
-    zg_view3d_reload(p->view3d);
+    if (zs_app_sim_stats(zg_model_core(p->model), &st) != ZS_OK) return;
     char *t = st.moved > 0 ? g_strdup_printf("The plastic of %zu lines does not stay where it prints: up to %.1f mm off. Turn on support, or change the turn of the part.",
                                              st.moved_paths, st.max_move)
                            : g_strdup("All the plastic stays where it prints.");
     show_note(p, t, 8000);
     g_free(t);
-    return G_SOURCE_REMOVE;
+}
+
+void zg_preview_simulated(GtkWidget *preview) {
+    Preview *p = g_object_get_data(G_OBJECT(preview), "zg-preview");
+    p->simulated = TRUE;
+    set_sim_check(p);
+    zg_view3d_reload(p->view3d);
+    if (p->sim_asked) show_sim_note(p);
+    p->sim_asked = FALSE;
 }
 
 /* "preview.simulate": the print as it forms, on or off. It shows the
@@ -1232,17 +1224,27 @@ static void on_simulate_action(GSimpleAction *a, GVariant *v, gpointer data) {
     set_sim_check(p);
     gtk_stack_set_visible_child_name(GTK_STACK(p->stack), "3d");
     if (!p->simulated) {
+        if (p->sim_asked) on_note_timer(p);
+        p->sim_asked = FALSE;
         zs_app_show_simulated(core, 0);
         zg_view3d_reload(p->view3d);
         return;
     }
-    /* The simulation after the slice, if it is done; else a new one. */
+    /* The simulation after the slice, if it is done. Else it runs on the
+     * thread of the core, and ZS_EVENT_SIMULATED shows it (see
+     * zg_preview_simulated). */
     if (zs_app_show_simulated(core, 1) == ZS_OK) {
         zg_view3d_reload(p->view3d);
         return;
     }
+    if (zs_app_sim_request(core) != ZS_OK) {
+        show_note(p, "Slice first: the simulation needs a slice.", 5000);
+        p->simulated = FALSE;
+        set_sim_check(p);
+        return;
+    }
+    p->sim_asked = TRUE;
     show_note(p, "Simulating the plastic of the print…", 30000);
-    g_timeout_add(60, run_simulation, p);
 }
 
 static void on_sim_toggled(GtkCheckButton *b, gpointer data) {

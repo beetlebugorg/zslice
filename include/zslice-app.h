@@ -641,6 +641,11 @@ int zs_app_simulate_print(zs_app *app, zs_print_sim_stats *out);
  * slice), and zs_app_show_simulated(app, 1) or zs_app_sim_adopt on the UI
  * thread shows it. A change stops it. */
 int zs_app_set_auto_simulate(zs_app *app, int on);
+/* Simulates the print of the last slice on a worker thread, with no
+ * wait for it: ZS_EVENT_SIMULATED tells when it is ready, as for the
+ * simulation after each slice. No new run if a simulation of the slice is
+ * there, waits, or runs. ZS_NO_RESULT if there is no slice. */
+int zs_app_sim_request(zs_app *app);
 /* Shows the simulated print of the thread of the slice that waits.
  * Returns 1 if one waited, else 0. */
 int zs_app_sim_adopt(zs_app *app);
