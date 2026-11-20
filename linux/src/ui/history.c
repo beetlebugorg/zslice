@@ -69,6 +69,7 @@ static const KindLook looks[] = {
     {"remove", 0.047, 0.580, 0.620, "Part removed"},
     {"quality", 0.859, 0.153, 0.467, "Quality"},
     {"printer", 0.200, 0.255, 0.333, "Printer"},
+    {"filament", 0.310, 0.275, 0.898, "Filaments"},
     {"other", 0.500, 0.500, 0.500, "Other"},
     {"start", 0.500, 0.500, 0.500, "Start"},
 };
@@ -141,6 +142,14 @@ static void draw_glyph(cairo_t *cr, const char *k, double cx, double cy, double 
         cairo_line_to(cr, P(4, -4));
         cairo_move_to(cr, P(2.5, -1));
         cairo_line_to(cr, P(4, -1));
+    } else if (!strcmp(k, "filament")) {
+        /* A spool from the side: its two flanges and the filament. */
+        cairo_rectangle(cr, P(-6.5, -6.5), 2.5 * u, 13 * u);
+        cairo_rectangle(cr, P(4, -6.5), 2.5 * u, 13 * u);
+        for (int d = -1; d <= 1; d++) {
+            cairo_move_to(cr, P(-4, d * 2.5));
+            cairo_line_to(cr, P(4, d * 2.5));
+        }
     } else if (!strcmp(k, "support")) {
         cairo_move_to(cr, P(-6, -4.5));
         cairo_line_to(cr, P(6, -4.5));

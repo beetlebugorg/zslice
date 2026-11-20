@@ -267,7 +267,7 @@ pub const Kind = enum {
     surface,
     /// Speeds, acceleration, travel, and retraction.
     speed,
-    /// Temperatures, cooling, the filament, and the flow.
+    /// Temperatures, cooling, and the flow.
     heat,
     /// Support, skirt, and brim.
     support,
@@ -282,6 +282,9 @@ pub const Kind = enum {
     quality,
     printer,
     other,
+    /// The filaments of the plate: a color, a material, a filament added
+    /// or removed, and the filament of a part or of the support.
+    filament,
 };
 
 fn kindOfSection(group: []const u8, section: []const u8) Kind {
@@ -294,11 +297,12 @@ fn kindOfSection(group: []const u8, section: []const u8) Kind {
         .{ "Speed ratios", .speed },       .{ "Acceleration", .speed },
         .{ "Motion", .speed },             .{ "Travel", .speed },
         .{ "Retraction", .speed },         .{ "Temperatures", .heat },
-        .{ "Cooling", .heat },             .{ "Filament", .heat },
+        .{ "Cooling", .heat },             .{ "Filament", .filament },
         .{ "Flow", .heat },                .{ "Extruder", .heat },
         .{ "Support", .support },          .{ "Skirt and brim", .support },
         .{ "Layers", .layers },            .{ "First layer", .layers },
         .{ "Lines", .layers },             .{ "Placement", .move },
+        .{ "Filaments", .filament },
     };
     for (map) |m| if (eq(u8, m[0], section)) return m[1];
     return .other;
@@ -314,6 +318,8 @@ pub fn kindOf(c: Change) Kind {
         if (eq(u8, c.key, "scale")) return .scale;
     }
     if (eq(u8, c.key, "quality")) return .quality;
+    if (eq(u8, c.key, "(slot)") or std.mem.startsWith(u8, c.scope, "filament ")) return .filament;
+    if (eq(u8, c.key, "project.filament") or eq(u8, c.key, "project.support_filament") or eq(u8, c.key, "project.support_interface_filament")) return .filament;
     if (layerRange(c.scope) != null and eq(u8, c.key, "(name)")) return .layers;
     const info = infoOf(c.key) orelse return .other;
     return kindOfSection(info.group, info.section);
@@ -807,4 +813,10 @@ test "history: the kind of a step" {
     try testing.expectEqual(Kind.printer, try stepKind(a, "machine\tmachine.bed_size_x\t220\t300\n"));
     try testing.expectEqual(Kind.other, try stepKind(a, ""));
     try testing.expectEqual(Kind.quality, try stepKind(a, "print\tproject.layer_height\t0.2\t0.1\nprint\tproject.ironing\t\ttrue\nprint\tquality\tstandard\tfine\n"));
+}
+
+test "a change of a filament slot or of the filament of a part is a filament step" {
+    try testing.expectEqual(Kind.filament, kindOf(.{ .scope = "filament 2", .key = "filament.color", .old = "#d0d0cc", .new = "#d93a3a" }));
+    try testing.expectEqual(Kind.filament, kindOf(.{ .scope = "", .key = "project.support_filament", .old = "0", .new = "2" }));
+    try testing.expectEqual(Kind.heat, kindOf(.{ .scope = "", .key = "filament.nozzle_temp", .old = "", .new = "215" }));
 }

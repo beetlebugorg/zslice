@@ -36,6 +36,7 @@ const GLYPHS = {
   quality: '<path d="M9 2.2l2 4.3 4.7.6-3.4 3.2.9 4.6L9 12.6l-4.2 2.3.9-4.6-3.4-3.2 4.7-.6z"/>',
   printer: '<path d="M5 6.5V2.5h8v4M5 13H2.5V6.5h13V13H13M5 10.5h8v5H5z"/>',
   start: '<circle cx="9" cy="9" r="5.5"/><circle cx="9" cy="9" r="1.5" fill="#fff"/>',
+  filament: '<rect x="2.5" y="2.5" width="2.5" height="13" rx="1"/><rect x="13" y="2.5" width="2.5" height="13" rx="1"/><path d="M5 6.5h8M5 9h8M5 11.5h8"/>',
   other: '<circle cx="4" cy="9" r=".6"/><circle cx="9" cy="9" r=".6"/><circle cx="14" cy="9" r=".6"/>',
 };
 
@@ -65,6 +66,7 @@ const LOOKS = {
   add: ["#0c949e", "Part added"],
   remove: ["#0c949e", "Part removed"],
   quality: ["#db2777", "Quality"],
+  filament: ["#4f46e5", "Filaments"],
   printer: ["#334155", "Printer"],
   other: ["#808080", "Other"],
   start: ["#808080", "Start"],

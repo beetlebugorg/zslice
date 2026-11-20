@@ -205,7 +205,12 @@ pub fn writeFacts(app: *const App, w: *std.Io.Writer) std.Io.Writer.Error!void {
             const eq = std.mem.indexOf(u8, line, " = ") orelse continue;
             if (line.len == 0 or line[0] == '#') continue;
             try w.print("filament {d}\tfilament.{s}\t", .{ n, line[0..eq] });
-            try history.writeEscaped(w, line[eq + 3 ..]);
+            // A text value of the profile is in quotes; the facts of the
+            // print settings are not. A plain text loses them, so the
+            // history shows "Color #d0d0cc → #d93a3a".
+            var v = line[eq + 3 ..];
+            if (v.len >= 2 and v[0] == '"' and v[v.len - 1] == '"' and std.mem.indexOfScalar(u8, v[1 .. v.len - 1], '\\') == null) v = v[1 .. v.len - 1];
+            try history.writeEscaped(w, v);
             try w.writeByte('\n');
         }
     }
