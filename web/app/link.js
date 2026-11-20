@@ -424,9 +424,28 @@ export async function checkDeckTarget(printer) {
     return { ok: false, message: `This address leads to ${at.name} on the deck, not to ${printer.deckName}. Nothing was sent. Add the printer again from the deck.` };
   }
   const mine = norm(printer.name);
-  const other = dp.printers.find((q) => q !== at && (norm(q?.name) === mine || norm(q?.label) === mine || mine.startsWith(norm(q?.name) + " (")));
-  if (other && atName !== mine) {
+  // A name names a deck printer when one has the words of the other
+  // ("Bambu Lab X2D" and "X2D").
+  const words = (s) => norm(s).split(/[^a-z0-9]+/).filter(Boolean);
+  const names = (q, n) => {
+    const a = words(n);
+    for (const t of [q?.name, q?.label]) {
+      const b = words(t);
+      if (a.length === 0 || b.length === 0) continue;
+      if (b.every((w) => a.includes(w)) || a.every((w) => b.includes(w))) return true;
+    }
+    return false;
+  };
+  const other = dp.printers.find((q) => q !== at && names(q, printer.name));
+  if (other && !names(at, printer.name)) {
     return { ok: false, message: `${printer.name} is at ${other.url} on the deck, but this printer's address leads to ${at.name}. Nothing was sent. Add ${printer.name} again from the deck (Printers, Add printer).` };
+  }
+  // The address of the deck itself leads to its first printer. With more
+  // printers on the deck, that must be the printer of the user for sure:
+  // its saved deck name, or a name with the words of that printer. A
+  // print for the X2D went to the TAZ this way.
+  if (path === "" && !printer.deckName && !names(at, printer.name) && atName !== mine) {
+    return { ok: false, message: `The address of ${printer.name} is the deck itself, which prints on ${at.name}. zslice cannot tell that ${printer.name} is ${at.name}. Nothing was sent. Add the printer again from the deck (Printers, Add printer), and pick it from the list of the deck.` };
   }
   return { ok: true, model: at.model ?? "" };
 }

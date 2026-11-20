@@ -76,6 +76,17 @@ check(!v.ok, "a path that leads to another deck printer is refused");
 // A path that the deck does not have.
 v = await checkDeckTarget({ name: "Mine", kind: "printdeck", url: `${deckUrl}/printers/gone`, apiKey: "k" });
 check(!v.ok, "a path that the deck does not have is refused");
+// The queue case: "Bambu Lab X2D" with the deck address and no saved
+// deck name. It must not go to the TAZ.
+v = await checkDeckTarget({ name: "Bambu Lab X2D", kind: "printdeck", url: deckUrl, apiKey: "k" });
+check(!v.ok, "a longer name of the X2D at the deck address is refused");
+// "Printdeck" at the deck address with no deck name: zslice cannot tell
+// which printer it is.
+v = await checkDeckTarget({ name: "Printdeck", kind: "printdeck", url: deckUrl, apiKey: "k" });
+check(!v.ok, "an unknown name at the deck address of a deck with two printers is refused");
+// "TAZ Workhorse" at the deck address: the words of TAZ.
+v = await checkDeckTarget({ name: "TAZ Workhorse", kind: "printdeck", url: deckUrl, apiKey: "k" });
+check(v.ok, "a name with the words of the first printer is fine");
 deck.close();
 
 // The loaded filaments of a deck printer, in the order of the printer.
