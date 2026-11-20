@@ -107,8 +107,9 @@ vertex BoxOut box_vertex(uint vid [[vertex_id]],
     } else {
         float2 np = dir * cos(tv.y) + side * sin(tv.y);
         // A skin or interface bead is pressed square, with small round
-        // corners, against its neighbor.
-        if (feature == 2u || feature == 7u) {
+        // corners, against its neighbor. An ironing bead (4, and 9 on a
+        // slope) is a flat sheet: the core makes it wide and thin.
+        if (feature == 2u || feature == 7u || feature == 4u || feature == 9u) {
             float hw = 0.52 * w;
             float hh = 0.5 * h;
             float rr = 0.15 * min(h, w);
