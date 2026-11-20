@@ -52,6 +52,29 @@ pub const ExtruderKind = enum { direct, bowden };
 pub const FilamentChange = enum { pause, tool };
 /// How the motors move the head. See `Machine.kinematics`.
 pub const Kinematics = enum { cartesian, corexy };
+/// The build plate on the bed. See `Machine.bed_type`.
+pub const BedType = enum {
+    cool_plate,
+    engineering_plate,
+    high_temp_plate,
+    textured_pei_plate,
+    supertack_plate,
+
+    /// The name of Bambu Studio and OrcaSlicer (curr_bed_type).
+    pub fn studioName(b: BedType) []const u8 {
+        return switch (b) {
+            .cool_plate => "Cool Plate",
+            .engineering_plate => "Engineering Plate",
+            .high_temp_plate => "High Temp Plate",
+            .textured_pei_plate => "Textured PEI Plate",
+            .supertack_plate => "Supertack Plate",
+        };
+    }
+};
+/// The material of the nozzle. See `Machine.nozzle_type`.
+pub const NozzleType = enum { hardened_steel, stainless_steel, tungsten_carbide, brass };
+/// The flow of the hot end. See `Machine.nozzle_flow`.
+pub const NozzleFlow = enum { standard, high_flow };
 
 pub const Machine = struct {
 
@@ -77,10 +100,23 @@ pub const Machine = struct {
     origin_y: f64 = 0,
     /// The highest part that the printer can make.
     max_height: f64 = 250,
+    /// The build plate on the bed, for a printer with plates that change
+    /// (Bambu Lab): the start G-code of the printer uses it
+    /// ({curr_bed_type}), and the printer checks it against the plate that
+    /// it sees.
+    bed_type: BedType = .textured_pei_plate,
 
     // Nozzle
     /// The diameter of the nozzle hole. The default line width comes from it.
     nozzle_diameter: f64 = 0.4,
+    /// The material of the nozzle. A Bambu Lab printer checks it against
+    /// the nozzle that it has (the file names it), and a hard filament
+    /// (with carbon or glass fiber) needs hardened steel or tungsten
+    /// carbide.
+    nozzle_type: NozzleType = .hardened_steel,
+    /// The flow of the hot end: `standard`, or `high_flow` (a longer melt
+    /// zone). A Bambu Lab printer checks it against its nozzle.
+    nozzle_flow: NozzleFlow = .standard,
     /// The radius of the flat face at the tip of the nozzle, around the
     /// hole. A common brass nozzle has a face about 1 mm across. Slope
     /// smoothing uses it to keep the nozzle off the layer that it just

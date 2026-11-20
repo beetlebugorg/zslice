@@ -268,6 +268,8 @@ pub const Key = enum {
     hotend_next,
     /// machine.nozzles.
     nozzle_count,
+    /// The build plate, as Bambu Studio names it ("Textured PEI Plate").
+    bed_type,
     extruder_used,
     /// The first filament of each nozzle (the list index), or -1: none.
     first_filament,
@@ -554,7 +556,7 @@ pub const names = std.StaticStringMap(Entry).initComptime(.{
     // zslice does not know the name of the vendor.
     .{ "printer_model", just(.no_value) },
     .{ "printer_variant", just(.no_value) },
-    .{ "curr_bed_type", just(.no_value) },
+    .{ "curr_bed_type", just(.bed_type) },
     // b: the lidar scan of the first layer.
     .{ "scan_first_layer", just(.off) },
     // b: the printers with two nozzles and an AMS (H2D): zslice prints
@@ -1072,6 +1074,7 @@ const Renderer = struct {
             .hotend_now => num(if (c.bambu()) -1 else @floatFromInt(c.nozzleOf(c.tool))),
             .hotend_next => num(if (c.bambu()) -1 else @floatFromInt(c.nozzleOf(if (c.change) |ch| ch.next else c.tool))),
             .nozzle_count => num(@floatFromInt(@max(m.nozzles, 1))),
+            .bed_type => .{ .text = m.bed_type.studioName() },
             // An extruder (a nozzle) is in use if a filament of the plate
             // has it.
             .extruder_used => .{ .boolean = c.firstOfNozzle(index orelse 0) != null },
@@ -1993,7 +1996,7 @@ test "a variable with no value" {
     try expectRender("G28 ; {date} [weird_name]", "G28 ; {date} [weird_name]");
     try expectRender("; zslice: no value for unknown_thing: M104 S{unknown_thing}", "M104 S{unknown_thing}");
     // A condition with no value is false.
-    try expectRender("; zslice: no value for curr_bed_type, so this condition is false: {if curr_bed_type==\"Textured PEI Plate\"}\nG28", "{if curr_bed_type==\"Textured PEI Plate\"}\nG29.1 Z-0.04\n{endif}\nG28");
+    try expectRender("G29.1 Z-0.04\nG28", "{if curr_bed_type==\"Textured PEI Plate\"}\nG29.1 Z-0.04\n{endif}\nG28");
     // Text that is no variable stays.
     try expectRender("M117 [Printing] ; {not a var", "M117 [Printing] ; {not a var");
     // A broken source: a '{' with no '}'.

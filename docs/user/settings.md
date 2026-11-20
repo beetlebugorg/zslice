@@ -44,11 +44,23 @@ The G-code Y of the front left corner of the bed. See `origin_x`.
 
 The highest part that the printer can make.
 
+**`machine.bed_type`** (BedType). Default: `textured_pei_plate`
+
+The build plate on the bed, for a printer with plates that change (Bambu Lab): the start G-code of the printer uses it ({curr_bed_type}), and the printer checks it against the plate that it sees.
+
 ### Nozzle
 
 **`machine.nozzle_diameter`** (number). Default: `0.4`
 
 The diameter of the nozzle hole. The default line width comes from it.
+
+**`machine.nozzle_type`** (one of: `hardened_steel`, `stainless_steel`, `tungsten_carbide`, `brass`). Default: `hardened_steel`
+
+The material of the nozzle. A Bambu Lab printer checks it against the nozzle that it has (the file names it), and a hard filament (with carbon or glass fiber) needs hardened steel or tungsten carbide.
+
+**`machine.nozzle_flow`** (one of: `standard`, `high_flow`). Default: `standard`
+
+The flow of the hot end: `standard`, or `high_flow` (a longer melt zone). A Bambu Lab printer checks it against its nozzle.
 
 **`machine.nozzle_tip_radius`** (number). Default: `0.5`
 

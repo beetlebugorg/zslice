@@ -54,7 +54,79 @@ pub const PlateInfo = struct {
     model_id: []const u8 = "",
     /// The print has support.
     support_used: bool = false,
+    /// For Metadata/project_settings.config: the printer model as Bambu
+    /// Studio names it ("Bambu Lab X2D"), the build plate
+    /// ("Textured PEI Plate"), and the nozzle ("hardened_steel",
+    /// "Standard"). Empty printer_model: no such file.
+    printer_model: []const u8 = "",
+    bed_type: []const u8 = "",
+    nozzle_type: []const u8 = "hardened_steel",
+    nozzle_flow: []const u8 = "Standard",
 };
+
+/// Metadata/project_settings.config: the settings of Bambu Studio that the
+/// printer reads to check the file (the model, the nozzles, the plate, and
+/// the filaments). JSON, with each value a string or a list of strings.
+fn projectSettings(a: Allocator, info: PlateInfo) Allocator.Error![]u8 {
+    var w: std.Io.Writer.Allocating = .init(a);
+    const ww = &w.writer;
+    const n: u32 = @max(info.nozzles, 1);
+    const d = if (info.nozzle > 0) info.nozzle else 0.4;
+    const list = struct {
+        fn f(out: *std.Io.Writer, key: []const u8, count: u32, text: []const u8, comma: bool) !void {
+            try out.print("    \"{s}\": [", .{key});
+            for (0..count) |k| try out.print("{s}\"{s}\"", .{ if (k > 0) ", " else "", text });
+            try out.print("]{s}\n", .{if (comma) "," else ""});
+        }
+    }.f;
+    (blk: {
+        ww.writeAll("{\n") catch |e| break :blk e;
+        ww.print("    \"printer_model\": \"{s}\",\n", .{info.printer_model}) catch |e| break :blk e;
+        ww.print("    \"printer_settings_id\": \"{s} {d} nozzle\",\n", .{ info.printer_model, d }) catch |e| break :blk e;
+        ww.print("    \"printer_variant\": \"{d}\",\n", .{d}) catch |e| break :blk e;
+        var dbuf: [32]u8 = undefined;
+        const ds = std.fmt.bufPrint(&dbuf, "{d}", .{d}) catch "0.4";
+        list(ww, "nozzle_diameter", n, ds, true) catch |e| break :blk e;
+        list(ww, "nozzle_type", n, info.nozzle_type, true) catch |e| break :blk e;
+        list(ww, "nozzle_volume_type", n, info.nozzle_flow, true) catch |e| break :blk e;
+        ww.print("    \"curr_bed_type\": \"{s}\",\n", .{info.bed_type}) catch |e| break :blk e;
+        // The filaments by id, from 1 to the last of the print.
+        var last: u32 = 1;
+        for (info.filaments) |f| last = @max(last, f.id);
+        const keys = [_][]const u8{ "filament_type", "filament_colour", "filament_map" };
+        for (keys, 0..) |key, ki| {
+            ww.print("    \"{s}\": [", .{key}) catch |e| break :blk e;
+            for (1..last + 1) |id| {
+                var text: []const u8 = switch (ki) {
+                    0 => "PLA",
+                    1 => "#FFFFFF",
+                    else => "1",
+                };
+                var mb: [4]u8 = undefined;
+                for (info.filaments) |f| if (f.id == id) {
+                    text = switch (ki) {
+                        0 => f.kind,
+                        1 => if (f.color.len == 7) f.color else "#FFFFFF",
+                        else => std.fmt.bufPrint(&mb, "{d}", .{@as(u32, @min(f.nozzle, 1)) + 1}) catch "1",
+                    };
+                };
+                if (ki == 0 and info.filaments.len == 0 and info.material.len > 0) text = info.material;
+                if (ki == 1 and info.filaments.len == 0 and info.color.len == 7) text = info.color;
+                ww.print("{s}\"{s}\"", .{ if (id > 1) ", " else "", text }) catch |e| break :blk e;
+            }
+            ww.print("]{s}\n", .{if (ki + 1 < keys.len) "," else ""}) catch |e| break :blk e;
+        }
+        ww.writeAll("}\n") catch |e| break :blk e;
+    }) catch return error.OutOfMemory;
+    return w.toOwnedSlice() catch error.OutOfMemory;
+}
+
+/// The model name of Bambu Studio for a model id of the printer library
+/// (printer_model), or "".
+pub fn modelName(id: []const u8) []const u8 {
+    if (std.mem.eql(u8, id, "bambu-lab-x2d")) return "Bambu Lab X2D";
+    return "";
+}
 
 /// The model code of Bambu Studio for a model id of the printer library,
 /// or "" (printer_model_id in slice_info.config).
@@ -251,10 +323,12 @@ pub fn gcode3mfPlate(gpa: Allocator, gcode: []const u8, title: []const u8, info:
         .{ .name = "Metadata/plate_1.gcode", .data = @constCast(gcode) },
         .{ .name = "Metadata/plate_1.gcode.md5", .data = md5 },
         .{ .name = "Metadata/slice_info.config", .data = try sliceInfo(a, info) },
+        .{ .name = "Metadata/project_settings.config", .data = if (info.printer_model.len > 0) try projectSettings(a, info) else &.{} },
     };
     var out: std.Io.Writer.Allocating = .init(gpa);
     errdefer out.deinit();
-    try zipfile.write(gpa, &out.writer, &entries);
+    // The project settings only with a known printer model.
+    try zipfile.write(gpa, &out.writer, if (info.printer_model.len > 0) &entries else entries[0 .. entries.len - 1]);
     return out.toOwnedSlice();
 }
 
@@ -584,4 +658,36 @@ test "bambu: the model code of the X2D, and the keys of a plate" {
         try std.testing.expect(std.mem.indexOf(u8, e.data, "tray_info_idx=\"GFG99\"") != null);
         try std.testing.expect(std.mem.indexOf(u8, e.data, "nozzle_diameter=\"0.4\" volume_type=\"Standard\"") != null);
     };
+}
+
+test "bambu: project_settings.config names the model, the nozzles, the plate, and the filaments" {
+    const gpa = std.testing.allocator;
+    const fils = [_]FilamentUse{
+        .{ .id = 1, .kind = "PLA", .color = "#898989", .meters = 1, .grams = 3 },
+        .{ .id = 2, .kind = "PETG", .color = "#161616", .meters = 1, .grams = 3, .nozzle = 1 },
+    };
+    const bytes = try gcode3mfInfo(gpa, "G28\n", "p", .{ .filaments = &fils, .nozzles = 2, .nozzle = 0.4, .printer_model = modelName("bambu-lab-x2d"), .bed_type = "Textured PEI Plate" });
+    defer gpa.free(bytes);
+    const entries = try zipfile.readAll(gpa, bytes);
+    defer zipfile.freeAll(gpa, entries);
+    var found = false;
+    for (entries) |e| if (std.mem.eql(u8, e.name, "Metadata/project_settings.config")) {
+        found = true;
+        const parsed = try std.json.parseFromSlice(std.json.Value, gpa, e.data, .{});
+        defer parsed.deinit();
+        const o = parsed.value.object;
+        try std.testing.expectEqualStrings("Bambu Lab X2D", o.get("printer_model").?.string);
+        try std.testing.expectEqualStrings("Bambu Lab X2D 0.4 nozzle", o.get("printer_settings_id").?.string);
+        try std.testing.expectEqualStrings("Textured PEI Plate", o.get("curr_bed_type").?.string);
+        try std.testing.expectEqualStrings("hardened_steel", o.get("nozzle_type").?.array.items[1].string);
+        try std.testing.expectEqualStrings("2", o.get("filament_map").?.array.items[1].string);
+        try std.testing.expectEqualStrings("PETG", o.get("filament_type").?.array.items[1].string);
+    };
+    try std.testing.expect(found);
+    // A printer of no known Bambu model: no such file.
+    const plain = try gcode3mfInfo(gpa, "G28\n", "p", .{ .filaments = &fils });
+    defer gpa.free(plain);
+    const e2 = try zipfile.readAll(gpa, plain);
+    defer zipfile.freeAll(gpa, e2);
+    for (e2) |e| try std.testing.expect(!std.mem.eql(u8, e.name, "Metadata/project_settings.config"));
 }

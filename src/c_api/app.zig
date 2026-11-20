@@ -603,6 +603,10 @@ fn bambuFileOf(app: *const App, g: []const u8, title: ?[*:0]const u8, out: ?*?[*
         .model_id = zs.bambu.modelCode(m.model),
         .nozzle = m.nozzle_diameter,
         .support_used = app.settings.project.support != .off,
+        .printer_model = zs.bambu.modelName(m.model),
+        .bed_type = m.bed_type.studioName(),
+        .nozzle_type = @tagName(m.nozzle_type),
+        .nozzle_flow = if (m.nozzle_flow == .high_flow) "High Flow" else "Standard",
     }) catch return @intFromEnum(Status.out_of_memory);
     o.* = bytes.ptr;
     l.* = bytes.len;
