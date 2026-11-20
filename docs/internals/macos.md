@@ -337,7 +337,7 @@ Measure puts a tape between two points (`zs_view_surface_point`). A click on a c
 
 - `project.filament` has a chip editor (`FilamentChips`) in `SettingEditor`: on the part card and on the card of a range of layers. `project.support_filament` and `project.support_interface_filament` have the same editor, with a first chip for value 0: Part (the filament of the part) or Support (the support filament).
 - On a printer with two nozzles (`machine.nozzles` = 2), each filament has its nozzle (`filament.nozzle`).
-- **Use the Filaments** reads the spools of a deck printer (GET /api/plugin/printdeck, `filaments`). It adds or removes filaments at the end to match the count, then sets the material (upper case), the color, and on two nozzles the nozzle of each. A spool of the second nozzle (`"nozzle": "aux"`) stays out on a printer of one nozzle. No tray map goes out: the deck maps the trays at the start of the print.
+- **Use the Filaments** reads the spools of a deck printer (GET /api/plugin/printdeck, `filaments`). It adds or removes filaments at the end to match the count, then sets the material (upper case), the color, and on two nozzles the nozzle of each. A spool of the second nozzle (`"nozzle": "aux"`) stays out on a printer of one nozzle. No tray map goes out: the deck maps the trays at the start of the print. When the deck tells the nozzles of a Bambu Lab printer (`nozzles`, each with a code such as `HS01`), `PrinterLink.nozzleOfCode` sets `machine.nozzle_type` and `machine.nozzle_flow` from the first code it knows (as web/app/link.js): the first letter is the material (H hardened steel, S stainless steel, T tungsten carbide), the second the flow (H high flow, else standard). A code that it does not know keeps the settings.
 - A Bambu Lab printer gets its .gcode.3mf from `zs_app_bambu_file_gcode`: the signed G-code of the shell, with the filaments, the time, and the grams of the last slice in the slice info.
 
 ## Printers
@@ -475,7 +475,7 @@ Like the GTK shell, the app reads environment variables for tests and screenshot
 - `ZSLICE_FILAMENT_LOG=1` logs the filaments of the plate (number, material, color) and their grams 5 s after the start. A painted 3MF of PrusaSlicer or Bambu Studio opens with its paint and its colors.
 - `ZSLICE_FILAMENT_POPOVER=1` opens the popover of the Filament button.
 - `ZSLICE_SUPPORT_FILAMENT=k` adds a second filament, turns support on everywhere, sets `project.support_filament` to k, and logs the grams of each filament and the changes.
-- `ZSLICE_USE_FILAMENTS=1` runs Use the Filaments of the printer of the plate 4 s after the start, and logs its note and the filaments.
+- `ZSLICE_USE_FILAMENTS=1` runs Use the Filaments of the printer of the plate 4 s after the start, and logs its note, the filaments, and the nozzle type and flow.
 - `ZSLICE_PAINT_TEST=smart` (or `brush`) adds a red filament, opens the Paint tool, and clicks (or strokes) the middle of the view. It logs the triangles, the region under the pointer, the size of the paint text, and the grams of each filament after the slice. The tool stays open for a screenshot. `ZSLICE_PAINT_SAVE=path` saves the painted project there.
 
 **Printers and the farm**

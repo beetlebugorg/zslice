@@ -359,23 +359,39 @@ enum PrinterLink {
     /// The spools that a printdeck printer has loaded: the trays of its
     /// AMS and its external spool, with no empty tray. nil and why when
     /// there is none to read.
-    @MainActor static func loadedFilaments(_ p: Printer) async -> (list: [LoadedFilament]?, why: String) {
-        guard p.kind == .printdeck else { return (nil, "Only a printdeck printer tells its filaments.") }
+    /// `nozzles`: the codes of the nozzles of a Bambu Lab printer ("HS01"),
+    /// if the deck tells them.
+    @MainActor static func loadedFilaments(_ p: Printer) async -> (list: [LoadedFilament]?, nozzles: [String], why: String) {
+        guard p.kind == .printdeck else { return (nil, [], "Only a printdeck printer tells its filaments.") }
         do {
             let (d, r) = try await request(p, "/api/plugin/printdeck")
-            if r.statusCode == 401 || r.statusCode == 403 { return (nil, "The deck refused the key.") }
-            guard (200 ..< 300).contains(r.statusCode) else { return (nil, "The deck answered \(r.statusCode).") }
+            if r.statusCode == 401 || r.statusCode == 403 { return (nil, [], "The deck refused the key.") }
+            guard (200 ..< 300).contains(r.statusCode) else { return (nil, [], "The deck answered \(r.statusCode).") }
             let j = (try? JSONSerialization.jsonObject(with: d)) as? [String: Any]
+            let nozzles = (j?["nozzles"] as? [[String: Any]] ?? []).compactMap { $0["type"] as? String }
             let list = (j?["filaments"] as? [[String: Any]] ?? []).compactMap { f -> LoadedFilament? in
                 guard let m = f["material"] as? String, !m.isEmpty else { return nil }
                 return LoadedFilament(slot: f["slot"] as? String ?? "", material: m, color: f["color"] as? String ?? "",
                                       nozzle: f["nozzle"] as? String ?? "")
             }
-            if list.isEmpty { return (nil, "The printer tells no loaded filaments. Update the deck, or load a spool.") }
-            return (list, "")
+            if list.isEmpty { return (nil, nozzles, "The printer tells no loaded filaments. Update the deck, or load a spool.") }
+            return (list, nozzles, "")
         } catch {
-            return (nil, explain(error))
+            return (nil, [], explain(error))
         }
+    }
+
+    /// The nozzle of a Bambu Lab code (web/app/link.js nozzleOfCode): "HS01"
+    /// is hardened steel with standard flow, "HH01" with high flow. The
+    /// first letter is the material, the second the flow. The values are
+    /// those of machine.nozzle_type and machine.nozzle_flow; nil for a code
+    /// that zslice does not know.
+    nonisolated static func nozzleOfCode(_ code: String) -> (type: String, flow: String)? {
+        let c = code.trimmingCharacters(in: .whitespaces).uppercased()
+        guard c.range(of: "^[HST][SH][0-9]*$", options: .regularExpression) != nil else { return nil }
+        let chars = Array(c)
+        let type = ["H": "hardened_steel", "S": "stainless_steel", "T": "tungsten_carbide"][chars[0]]!
+        return (type, chars[1] == "H" ? "high_flow" : "standard")
     }
 
     /// The camera of a printer, read once: GET each path of

@@ -71,7 +71,15 @@ extension Workspace {
         let words = want.map { "\($0.slot.isEmpty ? "roll" : $0.slot) \($0.material)" + (two && $0.nozzle == "aux" ? " (2nd nozzle)" : "") }.joined(separator: ", ")
         let skipped = aux.isEmpty ? "" : " Not used: " + aux.map { "\($0.slot.isEmpty ? "spool" : $0.slot) \($0.material)" }.joined(separator: ", ")
             + " (the second nozzle: pick the printer profile of \(p.name), with two nozzles)."
-        return "\(want.count) \(want.count == 1 ? "filament" : "filaments") from \(p.name): \(words).\(skipped)"
+        // The nozzle that the printer has (both nozzles of an X2D are the
+        // same kind): the type and the flow of its file.
+        var nozzleWords = ""
+        if let nz = r.nozzles.lazy.compactMap(PrinterLink.nozzleOfCode).first {
+            model.set("machine.nozzle_type", nz.type)
+            model.set("machine.nozzle_flow", nz.flow)
+            nozzleWords = " Nozzles: \(nz.type.replacingOccurrences(of: "_", with: " ")), \(nz.flow.replacingOccurrences(of: "_", with: " "))."
+        }
+        return "\(want.count) \(want.count == 1 ? "filament" : "filaments") from \(p.name): \(words).\(skipped)\(nozzleWords)"
     }
 }
 

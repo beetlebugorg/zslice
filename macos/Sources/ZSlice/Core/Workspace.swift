@@ -582,6 +582,7 @@ final class Workspace {
                 Task { @MainActor in
                     let words = await self.useLoadedFilaments(p)
                     NSLog("zslice use filaments: %@ list %@", words, self.model.filaments.map { "\($0.index + 1) \($0.material) \($0.color)" + ($0.nozzle == 1 ? " 2nd" : "") }.joined(separator: ", "))
+                    NSLog("zslice use filaments: nozzle %@ %@", self.model.setting("machine.nozzle_type"), self.model.setting("machine.nozzle_flow"))
                 }
             }
         }

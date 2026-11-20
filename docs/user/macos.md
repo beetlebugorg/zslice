@@ -217,7 +217,7 @@ A plate can print with more than one filament. The Filament button of the toolba
 
 - **The filaments of the plate**: the color, the material, and the grams of each in the last slice, and the number of filament changes. Add a Filament adds one. × removes one; its parts and layers print with filament 1.
 - **A note** on how the printer changes the filament: by itself (a printer with an AMS), or with a pause at each change.
-- **Use the Filaments of the printer** (a printdeck printer): it reads the spools that the printer has loaded (the trays of an AMS, and the external spool). Then it makes the filaments of the plate the same: the count, and the material and the color of each, in order.
+- **Use the Filaments of the printer** (a printdeck printer): it reads the spools that the printer has loaded (the trays of an AMS, and the external spool). Then it makes the filaments of the plate the same: the count, and the material and the color of each, in order. For a Bambu Lab printer, it also sets the nozzle type and the nozzle flow from the nozzle that the printer reports (for example hardened steel, high flow), so the file names the right nozzle.
 - **The built-in material profiles** of filament 1, your filament profiles, and Save as Profile.
 
 The details list the filaments too.
