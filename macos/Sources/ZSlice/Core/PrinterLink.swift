@@ -174,6 +174,20 @@ enum PrinterLink {
                 let text = String(decoding: d.prefix(200), as: UTF8.self)
                 return LinkResult(ok: false, message: "The printer answered \(r.statusCode)\(text.isEmpty ? "" : ": \(text)").")
             }
+            // An upload of OctoPrint and printdeck answers JSON with the
+            // stored file (files.local, and done). Any other 2xx answer (a
+            // web page, a proxy) did not store the file: a send once said
+            // "sent", and no file came to the deck.
+            if p.kind != .moonraker {
+                let j = (try? JSONSerialization.jsonObject(with: d)) as? [String: Any]
+                let stored = ((j?["files"] as? [String: Any])?["local"] != nil) || (j?["done"] as? Bool == true)
+                if !stored {
+                    let at = r.url?.absoluteString ?? ""
+                    let head = String(String(decoding: d.prefix(400), as: UTF8.self).split(whereSeparator: \.isWhitespace).joined(separator: " ").prefix(120))
+                    NSLog("zslice: the upload answer is not a stored file: %@ %ld", at, r.statusCode)
+                    return LinkResult(ok: false, message: "\(p.name) answered \(r.statusCode)\(at.isEmpty ? "" : " at \(at)"), but not with a stored file\(head.isEmpty ? "" : " (\"\(head)\")"). The file may not be on the printer: check its address in Settings > Printers.")
+                }
+            }
         } catch {
             return LinkResult(ok: false, message: explain(error))
         }
