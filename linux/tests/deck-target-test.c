@@ -97,6 +97,11 @@ int main(void) {
     if (!send_to("X2D", x2d) || x2d_uploads != 1) g_error("the X2D at /printers/x2d must upload there");
     /* The TAZ at the deck address. */
     if (!send_to("TAZ", base) || root_uploads != 1) g_error("the TAZ at the deck address must upload");
+    /* The queue case: a longer name of the X2D, and an unknown name, at the
+     * address of the deck. */
+    if (send_to("Bambu Lab X2D", base)) g_error("Bambu Lab X2D at the deck address must fail");
+    if (send_to("Printdeck", base)) g_error("an unknown name at the deck address must fail");
+    if (!send_to("TAZ Workhorse", base) || root_uploads != 2) g_error("TAZ Workhorse at the deck address must upload");
     /* A path that the deck does not have. */
     char *gone = g_strconcat(base, "/printers/gone", NULL);
     if (send_to("Mine", gone)) g_error("a path that the deck does not have must fail");

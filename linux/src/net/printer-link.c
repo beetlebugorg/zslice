@@ -844,6 +844,35 @@ static const char *deck_path(const char *url, size_t *root_len) {
     return at;
 }
 
+/* TRUE when the words of one name are all in the other ("Bambu Lab X2D"
+ * and "X2D"), with no case. */
+static gboolean names_one(const char *a, const char *b) {
+    if (!a || !b) return FALSE;
+    char *x = g_utf8_casefold(a, -1), *y = g_utf8_casefold(b, -1);
+    char **wa = g_regex_split_simple("[^a-z0-9]+", x, 0, 0);
+    char **wb = g_regex_split_simple("[^a-z0-9]+", y, 0, 0);
+    gboolean a_in_b = TRUE, b_in_a = TRUE, any_a = FALSE, any_b = FALSE;
+    for (char **w = wa; *w; w++) {
+        if (!**w) continue;
+        any_a = TRUE;
+        if (!g_strv_contains((const char *const *)wb, *w)) a_in_b = FALSE;
+    }
+    for (char **w = wb; *w; w++) {
+        if (!**w) continue;
+        any_b = TRUE;
+        if (!g_strv_contains((const char *const *)wa, *w)) b_in_a = FALSE;
+    }
+    g_strfreev(wa);
+    g_strfreev(wb);
+    g_free(x);
+    g_free(y);
+    return any_a && any_b && (a_in_b || b_in_a);
+}
+
+static gboolean names_printer(const ZgDeckPrinter *d, const char *name) {
+    return names_one(d->name, name) || names_one(d->label, name);
+}
+
 static gboolean same_name(const char *a, const char *b) {
     if (!a || !b) return FALSE;
     char *x = g_utf8_casefold(a, -1);
@@ -879,13 +908,18 @@ static void on_deck_check(GPtrArray *list, const char *error, gpointer data) {
     }
     for (guint i = 0; i < list->len; i++) {
         const ZgDeckPrinter *d = g_ptr_array_index(list, i);
-        if (d != at && (same_name(d->name, u->p.name) || same_name(d->label, u->p.name))) other = d;
+        if (d != at && names_printer(d, u->p.name)) other = d;
     }
     char *why = NULL;
     if (!at) {
         why = g_strdup_printf("The deck has no printer at %s. Nothing was sent. Add the printer again from the deck.", path[0] ? path : "its own address");
-    } else if (other && !same_name(at->name, u->p.name)) {
+    } else if (other && !names_printer(at, u->p.name)) {
         why = g_strdup_printf("%s is at %s on the deck, but the address of this printer leads to %s. Nothing was sent. Add %s again from the deck.", u->p.name, other->path, at->name, u->p.name);
+    } else if (!path[0] && !names_printer(at, u->p.name) && !same_name(at->name, u->p.name)) {
+        /* The address of the deck itself leads to its first printer: with
+         * more printers on the deck, that must be the user's printer for
+         * sure. A print for the X2D went to the TAZ this way. */
+        why = g_strdup_printf("The address of %s is the deck itself, which prints on %s. zslice cannot tell that %s is %s. Nothing was sent. Add the printer again from the deck, and pick it from the list of the deck.", u->p.name, at->name, u->p.name, at->name);
     }
     g_free(path);
     if (why) {
