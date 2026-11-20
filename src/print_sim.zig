@@ -415,6 +415,10 @@ const Field = struct {
     y0: f32,
     nx: usize,
     ny: usize,
+    /// The size of the field in cells (nx * n, ny * n), as floats: the
+    /// bound of each lookup.
+    lim_x: f32,
+    lim_y: f32,
     tiles: []?*Tile,
     arena: std.heap.ArenaAllocator,
 
@@ -424,7 +428,7 @@ const Field = struct {
         const ny: usize = @intFromFloat(@ceil(@max(hi[1] - lo[1], cell) / span));
         const tiles = try gpa.alloc(?*Tile, nx * ny);
         @memset(tiles, null);
-        return .{ .cell = cell, .x0 = lo[0], .y0 = lo[1], .nx = nx, .ny = ny, .tiles = tiles, .arena = .init(gpa) };
+        return .{ .cell = cell, .x0 = lo[0], .y0 = lo[1], .nx = nx, .ny = ny, .lim_x = @floatFromInt(nx * n), .lim_y = @floatFromInt(ny * n), .tiles = tiles, .arena = .init(gpa) };
     }
 
     fn deinit(f: *Field, gpa: Allocator) void {
@@ -438,10 +442,18 @@ const Field = struct {
         const fx = (x - f.x0) / f.cell;
         const fy = (y - f.y0) / f.cell;
         if (!(fx >= 0 and fy >= 0)) return null;
-        if (!(fx < @as(f32, @floatFromInt(f.nx * n)) and fy < @as(f32, @floatFromInt(f.ny * n)))) return null;
+        if (!(fx < f.lim_x and fy < f.lim_y)) return null;
         const ix: usize = @intFromFloat(fx);
         const iy: usize = @intFromFloat(fy);
         return .{ (iy / n) * f.nx + ix / n, (iy % n) * n + ix % n };
+    }
+
+    /// The top of the cell at (x, y): `at(x, y).top`, with no copy of the
+    /// other values (the floor test asks only this, in each step).
+    fn topAt(f: *const Field, x: f32, y: f32) f32 {
+        const l = f.locate(x, y) orelse return 0;
+        const t = f.tiles[l[0]] orelse return 0;
+        return t.top[l[1]];
     }
 
     fn at(f: *const Field, x: f32, y: f32) Cell {
@@ -640,7 +652,7 @@ const Sim = struct {
         const r = 0.35 * w;
         var floor: f32 = 0;
         for ([_][2]f32{ .{ 0, 0 }, .{ r, 0 }, .{ -r, 0 }, .{ 0, r }, .{ 0, -r } }) |o| {
-            const top = s.field.at(x + o[0], y + o[1]).top;
+            const top = s.field.topAt(x + o[0], y + o[1]);
             if (top <= zc) floor = @max(floor, top);
         }
         return floor;
