@@ -219,7 +219,12 @@ export async function send(printer, filename, bytes, print, opts = {}) {
   // Each file that goes out has the signature of this browser (signing.js).
   bytes = await signGcode(bytes);
   if (opts.wrap) {
-    const wrapped = await opts.wrap(bytes);
+    let wrapped = null;
+    try {
+      wrapped = await opts.wrap(bytes);
+    } catch (e) {
+      return { ok: false, message: `zslice could not make the .gcode.3mf file of the plate: ${e.message}` };
+    }
     if (!wrapped) return { ok: false, message: "zslice could not make the .gcode.3mf file of the plate." };
     bytes = wrapped;
     filename = opts.filename ?? filename;
