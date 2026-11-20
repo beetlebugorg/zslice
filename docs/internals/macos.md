@@ -295,7 +295,9 @@ The tool strip picks the tool of the mouse; each tool has a key.
 - **The keys of a line**: Left and Right step along the print (Shift, or Shift-H and Shift-L: a whole line, `zs_view_step`). Up and Down (or k and j) go to the nearest line on the layer above or below (`zs_view_nearest_on_layer`); Control-F and Control-B go a page of layers. C shows the layers up to the line, and Esc clears the selection. The layer slider follows the selection.
 - **A run**: Shift-click selects the line and lights its run (`pickRun`): `zs_app_path_run` gives the first and the last path from the retraction before the line to the next one on its layer, and `zs_view_highlight_more` lights the others (at most 20 000). A note gives the count. The next `showSelection` clears them.
 - **Parts**: Command-Shift-click adds the part under the pointer to the selection of parts, or takes it out (`togglePart`, `zs_view_part_boxes`). In the Move and Turn tools, Shift-click does it too.
-- **A range of layers**: a left drag that starts on a line lights a range of layers (`LayerRange.swift`, `zs_view_light_layers`), and Shift-K and Shift-J grow one with the keys. The card of the range edits settings in the scope of those layers.
+- **A range of layers**: a left drag that starts on a line lights a range of layers (`LayerRange.swift`), and Shift-K and Shift-J grow one with the keys. The card of the range edits settings in the scope of those layers.
+  - From a line (the press of the drag, or the selected line of the keys), it lights only the body of that line in its part (`zs_view_light_connected`: a path joins when its box stays inside the lit box of the layer before, grown by 0.8 mm). With no line, the keys light the whole layers (`zs_view_light_layers`).
+  - The body is a selection of many paths, and each load of the view clears it (a new slice, the simulated print, the dark look). After each load, `relightRange` finds the start line again (`RangeLine`: its layer, feature, and middle point, with `zs_app_pick_feature`) and lights the body again. The close of the card clears it (`zs_view_highlight_more` with no paths).
 - **A support**: a click on a support line selects that support (`SupportPick.swift`).
 
 ### Move (M) and Turn (R)
@@ -430,6 +432,7 @@ Like the GTK shell, the app reads environment variables for tests and screenshot
 - `ZSLICE_MODE=n` sets the colors (0 filament, 1 line type, 2 speed, 3 flow, 4 layer time, 5 line width).
 - `ZSLICE_PICK=x,y` picks the line at that point (in points) after the first slice, as a click does. `ZSLICE_DOUBLE_CLICK=x,y` is a double click there. `ZSLICE_CARD_LOG=1` logs the screen box of a clicked line.
 - `ZSLICE_RUN_AT=x,y` (or `center`) is a Shift-click of the Select tool; `ZSLICE_RUN_LOG=1` logs the run, and a plain pick 1.5 s later logs that the run is cleared.
+- `ZSLICE_RANGE_DRAG="x0,y0;x1,y1"` drags over layers from a line with the press, move, and release of the view. `ZSLICE_RANGE_KEYS=n` presses Shift-K n times instead (with `ZSLICE_PICK` for the start line). Then the hook changes the infill of the range, so the body must light again after the slice. `ZSLICE_RANGE_LOG=1` logs each light, and `ZSLICE_RANGE_CLOSE=1` closes the card at the end.
 - `ZSLICE_SPATIAL="kind:x,y,w,h;..."` keeps a place (the top left corner) and a size for a kind of card (`line`, `part`, `range`, `history`), as a drag and a resize do.
 - `ZSLICE_KEYS=chars` types each key in the view, and logs the tool, the layers shown, the range card, and the selected line after it. An upper case letter has Shift, and `^x` is Control-x.
 - `ZSLICE_LAYER_LOG=1` logs the layer count, and the times and path ends of the top three layers, after each slice.

@@ -177,7 +177,7 @@ With support on, it keeps the turn that you gave it, and support holds it.
 
 ### A range of layers
 
-With the Select tool, a drag that starts on a line lights the layers from that line to the layer under the pointer. When you let go, a card opens beside them. Shift-K and Shift-J make a range with the keys.
+With the Select tool, a drag that starts on a line lights the layers from that line to the layer under the pointer. It lights only the body that the line belongs to: a drag up the outer wall of a box lights the wall, and not the posts inside it. When you let go, a card opens beside them. Shift-K and Shift-J make a range with the keys. From a selected line they light its body too; with no line selected, they light the whole layers.
 
 The card has the settings that can change for some layers: the filament, infill, walls, top thickness, speeds, fan, and nozzle temperature. A change there is for those layers only. Esc, a click elsewhere, or × closes it.
 

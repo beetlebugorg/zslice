@@ -209,7 +209,7 @@ extension Workspace {
     }
 
     /// The middle point of a path (mm), from the toolpaths of the slice.
-    private func middle(of path: Int) -> (x: Double, y: Double)? {
+    func middle(of path: Int) -> (x: Double, y: Double)? {
         var tp = zs_toolpaths()
         guard zs_app_toolpaths(model.core, &tp) == 0, path < tp.path_count, let ends = tp.path_ends, let pts = tp.points else { return nil }
         let start = path > 0 ? Int(ends[path - 1]) : 0, end = Int(ends[path])

@@ -113,5 +113,6 @@ extension Workspace {
         readLegend()
         applyRange()
         showSelection()
+        relightRange()
     }
 }

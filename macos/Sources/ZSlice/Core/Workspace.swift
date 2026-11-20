@@ -156,6 +156,9 @@ final class Workspace {
     /// The range of Shift+K and Shift+J: the first layer, and the layer
     /// that moves.
     @ObservationIgnored var keyRange: (a: Int, b: Int)?
+    /// The start line of the range of the keys, and of the open range.
+    @ObservationIgnored var keyLine: RangeLine?
+    @ObservationIgnored var rangeLine: RangeLine?
     @ObservationIgnored var partDrag: PartDrag?
     @ObservationIgnored var tapeDrag: Int?
     /// A drag of a ring of the Turn tool: its axis, and the degrees sent.
@@ -322,6 +325,8 @@ final class Workspace {
         // The bed model of the printer (it needs the bed size of the load).
         if let v = canvas.view { PrinterLibrary.shared.showBed(of: model.core, in: v) }
         readLegend()
+        // The load cleared the lit body of an open range.
+        relightRange()
         var tp = zs_toolpaths()
         guard zs_app_toolpaths(model.core, &tp) == 0 else { return }
         let n = tp.layer_count
@@ -1104,6 +1109,43 @@ final class Workspace {
         if let xy = env["ZSLICE_PICK"]?.split(separator: ",").compactMap({ Double($0) }), xy.count == 2 {
             pick(at: CGPoint(x: xy[0], y: xy[1]))
         }
+        // ZSLICE_RANGE_DRAG="x0,y0;x1,y1" drags over layers from a line, as
+        // a user does (press, moves, release). ZSLICE_RANGE_KEYS=n presses
+        // Shift-K n times from the picked line instead. Then the infill of
+        // the range changes, so a new slice and a load of the view must
+        // light the body again. ZSLICE_RANGE_LOG=1 logs each light, and
+        // ZSLICE_RANGE_CLOSE=1 closes the card at the end.
+        if env["ZSLICE_RANGE_DRAG"] != nil || env["ZSLICE_RANGE_KEYS"] != nil {
+            Task { @MainActor in
+                if let spec = env["ZSLICE_RANGE_DRAG"] {
+                    let pts = spec.split(separator: ";").map { $0.split(separator: ",").compactMap { Double($0) } }
+                    guard pts.count == 2, pts[0].count == 2, pts[1].count == 2 else { return }
+                    let a = CGPoint(x: pts[0][0], y: pts[0][1]), b = CGPoint(x: pts[1][0], y: pts[1][1])
+                    NSLog("zslice range: press %d", self.sliceViewPress(a, []) ? 1 : 0)
+                    for k in 1 ... 20 {
+                        let t = CGFloat(k) / 20
+                        self.sliceViewDrag(CGPoint(x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t), [])
+                    }
+                    _ = self.sliceViewRelease(b)
+                } else if let n = Int(env["ZSLICE_RANGE_KEYS"] ?? "") {
+                    for _ in 0 ..< n {
+                        guard let e = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: .shift, timestamp: 0, windowNumber: 0, context: nil,
+                                                       characters: "K", charactersIgnoringModifiers: "K", isARepeat: false, keyCode: 40) else { break }
+                        _ = self.rangeKey(e)
+                    }
+                }
+                NSLog("zslice range: card %@, start line %@", self.rangeCard.map { "\($0.lo + 1)-\($0.hi + 1)" } ?? "none", self.rangeLine.map { "\($0.path)" } ?? "none")
+                guard self.rangeCard != nil else { return }
+                try? await Task.sleep(for: .seconds(2))
+                NSLog("zslice range: set infill %@", self.model.set("project.infill_density", "0.4") ?? "ok")
+                try? await Task.sleep(for: .seconds(6))
+                NSLog("zslice range: after the slice, start line %@", self.rangeLine.map { "\($0.path)" } ?? "none")
+                // ZSLICE_RANGE_CLOSE=1 closes the card, which clears the body.
+                guard env["ZSLICE_RANGE_CLOSE"] != nil else { return }
+                self.closeRangeCard()
+                NSLog("zslice range: closed")
+            }
+        }
         // ZSLICE_SPATIAL="kind:x,y,w,h;..." keeps a place (the top left
         // corner) and a size for a kind of card, as a drag and a resize do.
         if let spec = env["ZSLICE_SPATIAL"] {
@@ -1522,6 +1564,7 @@ final class Workspace {
             applyRange()
             applyFocus()
             showSelection()
+            relightRange()
         }
         readLegend()
     }
@@ -2011,7 +2054,11 @@ extension Workspace: SliceViewDelegate {
     }
 
     func sliceViewAppearanceChanged() {
-        if model.state == .done { canvas.load(model.core); applyRange() }
+        if model.state == .done {
+            canvas.load(model.core)
+            applyRange()
+            relightRange()
+        }
     }
 
     /// The keys of the preview (docs/user/getting-started.md, "Keys in the

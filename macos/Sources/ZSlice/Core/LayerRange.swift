@@ -1,8 +1,10 @@
 //! A range of layers (web/app/rangecard.js, linux/src/ui/range-card.c): a
-//! left drag of the Select tool that starts on a line lights the layers
-//! from the layer of that line to the layer under the pointer
-//! (zs_view_light_layers) in the color of a selection, and the other
-//! layers show as they are. The release
+//! left drag of the Select tool that starts on a line lights, from the
+//! layer of that line to the layer under the pointer, the body of the part
+//! that the line belongs to (zs_view_light_connected): a path of a layer
+//! joins when its box stays inside the lit box of the layer before, grown
+//! by 0.8 mm, in the same part. So a drag up a post of a part lights the
+//! post, and not the whole layers. The release
 //! opens the card of the range (RangeCard.swift): settings that can change
 //! for some layers, with editors in the scope of those layers (overrides
 //! from the top of the first layer to the top of the last).
@@ -15,7 +17,14 @@
 //!
 //! Shift+K and Shift+J (as in vi) make a range from the keys: it starts at
 //! the layer of the selected line (or the top layer), grows a layer up or
-//! down each press, and its card opens.
+//! down each press, and its card opens. From a selected line it lights the
+//! body of that line; with no line, all the layers (zs_view_light_layers).
+//!
+//! The lit body is a selection of many paths, which a load of the view
+//! clears (a new slice, or the simulated print after it). After a load the
+//! window finds the start line again (zs_app_pick_feature: the nearest line
+//! of the same feature, at its middle point, on its layer) and lights the
+//! body again.
 //!
 //! A press with no move is a click. Esc, a click elsewhere, another tool,
 //! or the close button ends the range.
@@ -33,6 +42,17 @@ struct RangeDrag {
     var point: SIMD2<Double>
     var start: CGPoint
     var lit = false
+    /// The line of the press: the body of the range grows from it.
+    var line: RangeLine?
+}
+
+/// The line that a lit body grows from, and how to find it again after a
+/// new slice (its index can change).
+struct RangeLine {
+    var path: Int
+    var layer: Int
+    var feature: Int32
+    var x: Double, y: Double
 }
 
 extension Workspace {
@@ -47,8 +67,50 @@ extension Workspace {
         var q = [Double](repeating: 0, count: 3)
         guard path != noPath, zs_view_surface_point(v, px, py, 0, &q) != 0 else { return false }
         let l = Int(zs_view_path_layer(v, path))
-        rangeDrag = RangeDrag(layer: l, cur: l, point: SIMD2(q[0], q[1]), start: p)
+        rangeDrag = RangeDrag(layer: l, cur: l, point: SIMD2(q[0], q[1]), start: p, line: rangeLine(path))
         return true
+    }
+
+    /// The start line of a body: path, with its layer, feature, and middle.
+    func rangeLine(_ path: Int) -> RangeLine? {
+        guard let v = canvas.view, let m = middle(of: path) else { return nil }
+        return RangeLine(path: path, layer: Int(zs_view_path_layer(v, path)), feature: Int32(zs_view_path_feature(v, path)), x: m.x, y: m.y)
+    }
+
+    /// Lights layers lo to hi: the body of `line` when there is one, else
+    /// all of them. The count of the lit paths of a body.
+    @discardableResult
+    func lightRange(_ lo: Int, _ hi: Int, line: RangeLine?) -> Int {
+        guard let v = canvas.view else { return 0 }
+        guard let line else {
+            zs_view_highlight_more(v, nil, 0)
+            zs_view_light_layers(v, lo, hi)
+            return 0
+        }
+        zs_view_light_layers(v, 1, 0)
+        var n = 0
+        if zs_view_light_connected(v, line.path, min(lo, hi), max(lo, hi), &n) != 0 { return 0 }
+        if ProcessInfo.processInfo.environment["ZSLICE_RANGE_LOG"] != nil {
+            NSLog("zslice range: body of path %ld, layers %ld to %ld, %ld paths", line.path, min(lo, hi), max(lo, hi), n)
+        }
+        return n
+    }
+
+    /// After a load of the view: the body of the open range again, from
+    /// its start line found again.
+    func relightRange() {
+        guard let r = rangeCard, var line = rangeLine else { return }
+        let path = zs_app_pick_feature(model.core, line.layer, line.feature, line.x, line.y)
+        guard path != noPath else {
+            // The line is gone: the whole layers.
+            rangeLine = nil
+            lightRange(r.lo, r.hi, line: nil)
+            return
+        }
+        line.path = path
+        rangeLine = line
+        lightRange(r.lo, r.hi, line: line)
+        canvas.requestFrame()
     }
 
     /// The layer under the pointer in a drag over layers.
@@ -77,7 +139,7 @@ extension Workspace {
     }
 
     func rangeMoved(_ p: CGPoint) {
-        guard var d = rangeDrag, let v = canvas.view else { return }
+        guard var d = rangeDrag, canvas.view != nil else { return }
         guard d.lit || hypot(p.x - d.start.x, p.y - d.start.y) > 4 else { return }
         guard let l = rangeLayer(at: p, d), !(d.lit && l == d.cur) else { return }
         if !d.lit {
@@ -90,7 +152,9 @@ extension Workspace {
         d.lit = true
         d.cur = l
         rangeDrag = d
-        zs_view_light_layers(v, min(d.layer, l), max(d.layer, l))
+        // The body of the part of the line where the drag started, on these
+        // layers: not every line of the layers.
+        lightRange(d.layer, l, line: d.line)
         canvas.requestFrame()
     }
 
@@ -100,7 +164,7 @@ extension Workspace {
         guard let d = rangeDrag else { return true }
         rangeDrag = nil
         guard d.lit else { return false }
-        openRangeCard(min(d.layer, d.cur), max(d.layer, d.cur))
+        openRangeCard(min(d.layer, d.cur), max(d.layer, d.cur), line: d.line)
         return true
     }
 
@@ -117,10 +181,12 @@ extension Workspace {
     /// Opens the card of layers lo to hi: its editors set overrides of the
     /// layers with a top from the top of lo to the top of hi, and show the
     /// values of lo.
-    func openRangeCard(_ lo: Int, _ hi: Int) {
-        guard let a = layerTopBottom(lo), let b = layerTopBottom(hi), let v = canvas.view else { return }
+    /// `line`: light the body of that line, else the whole layers.
+    func openRangeCard(_ lo: Int, _ hi: Int, line: RangeLine? = nil) {
+        guard let a = layerTopBottom(lo), let b = layerTopBottom(hi), canvas.view != nil else { return }
         rangeCard = (lo, hi)
-        zs_view_light_layers(v, lo, hi)
+        rangeLine = line
+        lightRange(lo, hi, line: line)
         model.scope = .layers(zMin: a.top, zMax: b.top, name: lo == hi ? "Layer \(lo + 1)" : "Layers \(lo + 1)–\(hi + 1)")
         canvas.requestFrame()
     }
@@ -139,20 +205,27 @@ extension Workspace {
         if rangeCard == nil || keyRange == nil {
             let base = selection.map { Int(zs_view_path_layer(v, $0.path)) } ?? hi
             keyRange = (base, base)
+            // From the selected line: its body of its part.
+            keyLine = selection.flatMap { rangeLine($0.path) }
         }
         guard var r = keyRange else { return false }
         r.b = min(layerCount - 1, max(0, r.b + up))
         keyRange = r
-        openRangeCard(min(r.a, r.b), max(r.a, r.b))
+        openRangeCard(min(r.a, r.b), max(r.a, r.b), line: keyLine)
         return true
     }
 
     func closeRangeCard() {
         keyRange = nil
+        keyLine = nil
         guard rangeCard != nil else { return }
         rangeCard = nil
+        rangeLine = nil
         if case .layers = model.scope { model.scope = .print }
-        if let v = canvas.view { zs_view_light_layers(v, 1, 0) }
+        if let v = canvas.view {
+            zs_view_light_layers(v, 1, 0)
+            zs_view_highlight_more(v, nil, 0)
+        }
         canvas.requestFrame()
     }
 
