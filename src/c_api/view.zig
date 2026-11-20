@@ -152,9 +152,31 @@ export fn zs_view_load(view: ?*View, a: ?*const App) c_int {
     if (!render_on) return @intFromEnum(Status.not_supported);
     const v = view orelse return @intFromEnum(Status.invalid_argument);
     const app = a orelse return @intFromEnum(Status.invalid_argument);
-    v.load(app) catch |e| return status(e);
+    // With zs_app_set_auto_scene, the view takes the scenes of the worker:
+    // they change only atomic fields of the app.
+    if (app.scene_hook.load(.acquire) != null) {
+        v.loadScenes(@constCast(app)) catch |e| return status(e);
+    } else v.load(app) catch |e| return status(e);
     return ok;
 }
+
+/// Builds the scene of the 3D view on the thread of the slice (on = 1):
+/// after each slice and each simulation on that thread, before
+/// ZS_EVENT_SLICED and ZS_EVENT_SIMULATED. zs_view_load then takes it, and
+/// only sends the beads to the GPU. The scene has the color mode of the
+/// last zs_view_load.
+export fn zs_app_set_auto_scene(a: ?*App, on: c_int) c_int {
+    if (comptime !render_on) return @intFromEnum(Status.not_supported);
+    const app = a orelse return @intFromEnum(Status.invalid_argument);
+    if (on == 0) {
+        app.setSceneHook(null);
+        return ok;
+    }
+    app.setSceneHook(&scene_hook);
+    return ok;
+}
+
+const scene_hook: zs.app.SceneHook = .{ .build = View.buildScene, .free = View.freeScene };
 
 /// The bed model of model i of a library: the bytes of its mesh and
 /// texture files (see zs_printers_bed; either can be empty).

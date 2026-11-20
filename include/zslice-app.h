@@ -1380,8 +1380,16 @@ void zs_view_free(zs_view *view);
 /* The size in pixels: the logical size times the scale. */
 void zs_view_resize(zs_view *view, uint32_t width_px, uint32_t height_px);
 /* Reads the toolpaths of the last slice, and the bed size. Call it after
- * ZS_EVENT_SLICED. */
+ * ZS_EVENT_SLICED. A load of the same slice, settings, and color mode
+ * keeps the beads that the view has. */
 int zs_view_load(zs_view *view, const zs_app *app);
+/* Builds the scene of the 3D view on the thread of the slice (on = 1):
+ * after each slice and each simulation on that thread, before
+ * ZS_EVENT_SLICED and ZS_EVENT_SIMULATED, in the color mode of the last
+ * zs_view_load. zs_view_load then takes it and only sends the beads to the
+ * GPU, and keeps the beads before it for a switch between the slice and
+ * the simulated print. Call it on the UI thread. */
+int zs_app_set_auto_scene(zs_app *app, int on);
 /* Shows the layers from 0 to `layer`. */
 void zs_view_set_layer(zs_view *view, size_t layer);
 /* Shows the layers lo to hi (the layers under lo do not show, so the

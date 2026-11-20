@@ -81,6 +81,7 @@ const Push = @import("frame.zig").Push;
 const plates_mod = @import("plates.zig");
 const bed_mod = @import("../bed.zig");
 const gcode_read = @import("../gcode_read.zig");
+const PlateJob = @import("../plate_job.zig").PlateJob;
 
 /// The feature colors, in the order of the Feature enum. The same colors
 /// as the SVG preview and docs/app/README.md.
@@ -351,6 +352,19 @@ pub const View = struct {
     lite_gen: u32 = 0,
     /// A scene that the view reads in steps (see Stage).
     stage: ?*Stage = null,
+    /// The key of the beads (see `sceneKey`), or 0 if they came another
+    /// way, and the slice of the app that they are of (App.sliceId).
+    scene_key: u64 = 0,
+    scene_slice: u64 = 0,
+    /// The app of the beads (App.uid).
+    scene_app: u32 = 0,
+    /// The beads that the view had before the last loads of
+    /// `loadScenes`, as views with no renderer, the newest first: the
+    /// slice and the simulated print of a slice, and the slices of other
+    /// plates. A load of them takes them back.
+    spares: [max_spares]?*View = @splat(null),
+    /// A view of `buildScene` stops its build when this goes on.
+    cancel: ?*const std.atomic.Value(bool) = null,
     /// The plates of the set (see plates.zig), in the row from left to
     /// right. Item `active` is the plate of this view: it has no beads of
     /// its own. Empty: one plate, and no row.
@@ -419,6 +433,10 @@ pub const View = struct {
     /// Frees the data of the view, not the view and its renderer.
     pub fn deinitData(v: *View) void {
         v.dropStage();
+        for (&v.spares) |*sp| if (sp.*) |t| {
+            freeLater(t);
+            sp.* = null;
+        };
         v.lite.deinit(gpa);
         for (v.plates.items) |*p| p.deinit(gpa);
         v.plates.deinit(gpa);
@@ -571,7 +589,57 @@ pub const View = struct {
     }
 
     /// Reads the toolpaths of the last slice of `app`, and the bed size.
+    /// The beads come from `buildBeads`. A load with the input of the
+    /// beads that the view has (`scene_key`) keeps them.
     pub fn load(v: *View, app: *const app_mod.App) Error!void {
+        try v.loadDecor(app);
+        const src = app.sceneSource() orelse return v.loadEmpty();
+        if (v.keepBeads(src)) return;
+        const first_load = v.layer_end.items.len == 0;
+        try v.buildNow(src);
+        try v.showBeads(first_load);
+    }
+
+    /// `load`, with the scenes that the worker of the app built (see
+    /// App.scene_hook): a scene for the same input goes into the view
+    /// with no copy, and the thread of the caller only sends the beads to
+    /// the GPU. The view keeps the beads that it had as a spare scene
+    /// (`spares`): a switch between the slice and the simulated print,
+    /// or back to another plate, takes them back.
+    pub fn loadScenes(v: *View, app: *app_mod.App) Error!void {
+        if (v.headless) return v.load(app);
+        app.scene_mode.store(@intCast(@intFromEnum(v.mode)), .release);
+        try v.loadDecor(app);
+        const src = app.sceneSource() orelse return v.loadEmpty();
+        if (v.keepBeads(src)) return;
+        const key = sceneKey(src, v.mode);
+        var found: ?*View = null;
+        for (&v.spares) |*sp| if (sp.*) |t| if (t.scene_key == key) {
+            found = t;
+            sp.* = null;
+        };
+        for ([_]app_mod.SceneKind{ .plan, .sim }) |kind| {
+            const t: *View = @ptrCast(@alignCast(app.takeScene(kind) orelse continue));
+            if (found == null and t.scene_key == key) found = t else v.keepSpare(t);
+        }
+        const first_load = v.layer_end.items.len == 0;
+        if (found) |t| {
+            v.swapScene(t);
+            v.keepSpare(t);
+        } else {
+            try v.buildNow(src);
+        }
+        // The spares of older slices of this app go.
+        for (&v.spares) |*sp| if (sp.*) |t| if (t.scene_app == src.app and t.scene_slice != src.slice) {
+            freeLater(t);
+            sp.* = null;
+        };
+        try v.showBeads(first_load);
+    }
+
+    /// The parts of a load that do not come from the toolpaths: the bed,
+    /// the support marks and areas, and the modifier volumes.
+    fn loadDecor(v: *View, app: *const app_mod.App) Error!void {
         const s = app.settings;
         v.gcode = null;
         v.position = null;
@@ -612,7 +680,11 @@ pub const View = struct {
             try v.addVolumeRings(&pj.groups[inst.group].job, inst.dx, inst.dy);
         };
         try v.loadGrid(@floatCast(s.machine.bed_size_x), @floatCast(s.machine.bed_size_y));
-        const tp = app.allToolpaths() orelse {
+    }
+
+    /// A load with no slice.
+    fn loadEmpty(v: *View) Error!void {
+        v.scene_key = 0;
             v.layer_end.clearRetainingCapacity();
             v.path_start.clearRetainingCapacity();
             v.layer_path_end.clearRetainingCapacity();
@@ -630,22 +702,162 @@ pub const View = struct {
             v.lite_gen = v.nextGen();
             try v.buildPickIndex(null);
             return;
+    }
+
+    /// True if the view has the beads of `src` (see `scene_key`). It
+    /// still does what a load does to them: the multiple selection and
+    /// the part preview end.
+    fn keepBeads(v: *View, src: app_mod.SceneSource) bool {
+        if (v.scene_key == 0 or v.scene_key != sceneKey(src, v.mode) or v.layer_end.items.len == 0) return false;
+        if (v.more.items.len > 0) v.setMore(&.{}) catch return false;
+        v.clearPreview();
+        return true;
+    }
+
+    /// `buildBeads` on the thread of the view, with no cancel.
+    fn buildNow(v: *View, src: app_mod.SceneSource) Error!void {
+        v.buildBeads(src) catch |e| switch (e) {
+            error.Canceled => unreachable,
+            else => |x| return x,
         };
-        const first_load = v.layer_end.items.len == 0;
+    }
+
+    /// The key of the beads of `src` in a color mode: the result and all
+    /// the settings that `buildBeads` reads. Change it with them.
+    pub fn sceneKey(src: app_mod.SceneSource, mode: Mode) u64 {
+        const s = src.settings;
+        var h = std.hash.Wyhash.init(0x5ce4e1);
+        const m: u32 = @intCast(@intFromEnum(mode));
+        h.update(std.mem.asBytes(&m));
+        h.update(std.mem.asBytes(&src.result));
+        h.update(std.mem.asBytes(&src.part_box));
+        h.update(s.filament.color);
+        for (src.filaments) |f| {
+            h.update("|");
+            h.update(f.color);
+        }
+        inline for (.{ s.filament.shrinkage_xy, s.filament.shrinkage_z, s.project.ironing_spacing, s.project.first_layer_height, s.machine.bed_size_x, s.machine.bed_size_y }) |x| {
+            const f: f64 = x;
+            h.update(std.mem.asBytes(&f));
+        }
+        // 0 is "no beads".
+        return h.final() | 1;
+    }
+
+    /// A scene for App.scene_hook: a view with no renderer, with the lists
+    /// of `buildBeads` of `src`. It runs on the thread of the slice.
+    pub fn buildScene(src: app_mod.SceneSource, mode: u32) ?*anyopaque {
+        const t = gpa.create(View) catch return null;
+        t.* = .{ .renderer = undefined, .headless = true, .width = 1, .height = 1, .mode = std.enums.fromInt(Mode, mode) orelse .print, .cancel = src.cancel };
+        t.buildBeads(src) catch {
+            freeScene(t);
+            return null;
+        };
+        t.cancel = null;
+        return t;
+    }
+
+    /// Frees a scene of `buildScene`.
+    pub fn freeScene(p: *anyopaque) void {
+        const t: *View = @ptrCast(@alignCast(p));
+        t.deinitData();
+        gpa.destroy(t);
+    }
+
+    /// Frees a scene on a new thread: the free of the lists of a large
+    /// print holds a thread for some ms.
+    fn freeLater(t: *View) void {
+        if (comptime builtin.single_threaded or is_web) return freeScene(t);
+        const th = std.Thread.spawn(.{}, freeScene, .{@as(*anyopaque, t)}) catch return freeScene(t);
+        th.detach();
+    }
+
+    /// The spare scenes of a view (see `spares`).
+    const max_spares = 3;
+
+    /// Keeps scene t as the newest spare scene (see `spares`). The oldest
+    /// goes if there is no room; a scene with no key goes at once.
+    fn keepSpare(v: *View, t: *View) void {
+        if (t.scene_key == 0) return freeLater(t);
+        if (v.spares[max_spares - 1]) |old| freeLater(old);
+        var k: usize = max_spares - 1;
+        while (k > 0) : (k -= 1) v.spares[k] = v.spares[k - 1];
+        v.spares[0] = t;
+    }
+
+    /// The lists that `buildBeads` makes, and the values that it sets.
+    fn beadLists(v: *View) struct {
+        *std.ArrayList(u64),
+        *std.ArrayList(vk.Instance),
+        *std.ArrayList(u8),
+        *std.ArrayList(f32),
+        *std.ArrayList(f32),
+        *std.ArrayList(u32),
+        *std.ArrayList(u32),
+        *std.ArrayList(u32),
+        *std.ArrayList(vk.Instance),
+        *std.ArrayList(u32),
+        *std.ArrayList(PickBox),
+        *std.ArrayList(PickBox),
+        *std.ArrayList(f32),
+        *std.ArrayList(PickBox),
+        *std.ArrayList(f32),
+        *std.ArrayList(f32),
+        *std.ArrayList(f32),
+        *std.ArrayList(SimBead),
+        *std.ArrayList(f32),
+        *std.ArrayList(vk.Instance),
+        *std.ArrayList(u32),
+        *std.ArrayList(u32),
+        *std.ArrayList(f32),
+        *std.ArrayList(u32),
+        *std.ArrayList(u32),
+        *[2]f64,
+        *[2]f32,
+        *f32,
+        *f32,
+        *[3]f32,
+        *f32,
+        *u64,
+        *u64,
+        *u32,
+    } {
+        return .{ &v.layer_key, &v.beads, &v.bead_fan, &v.bead_run, &v.bead_len, &v.path_start, &v.layer_end, &v.layer_path_end, &v.marks, &v.mark_layer_end, &v.pick_runs, &v.layer_boxes, &v.run_width, &v.draw_chunks, &v.chunk_width, &v.bead_end, &v.bead_start, &v.sim_beads, &v.bead_settle, &v.tower_beads, &v.tower_layer, &v.path_part, &v.outline_points, &v.outline_ends, &v.outline_layer_end, &v.legend, &v.xf_center, &v.xf_sxy, &v.xf_sz, &v.home, &v.extent, &v.scene_key, &v.scene_slice, &v.scene_app };
+    }
+
+    /// Swaps the beads of the view with those of scene t: the view gets
+    /// the beads of t, and t the old beads of the view. No copy.
+    fn swapScene(v: *View, t: *View) void {
+        const mine = v.beadLists();
+        inline for (t.beadLists(), 0..) |item, k| std.mem.swap(@TypeOf(item.*), mine[k], item);
+    }
+
+    fn canceled(v: *const View) bool {
+        const c = v.cancel orelse return false;
+        return c.load(.acquire);
+    }
+
+    /// The beads, the marks, the times, the outlines, and the pick index
+    /// of `src`, and the place of the camera at home. It touches no
+    /// renderer, so a view with no renderer builds them on another thread
+    /// (`buildScene`). error.Canceled if `cancel` of the view went on.
+    fn buildBeads(v: *View, src: app_mod.SceneSource) (Error || error{Canceled})!void {
+        const s = src.settings;
+        const tp = src.tp;
+        v.scene_key = 0;
         const filament = parseColor(s.filament.color) orelse .{ 0xd0, 0xd0, 0xcc };
         // The color of each filament of the plate: each path has the color
         // of its filament (Toolpaths.path_tool).
         var slot_rgb: [zs_filaments.max_slots][3]u8 = @splat(filament);
-        for (1..app_mod.filament_slots.count(app)) |k| {
+        for (src.filaments, 1..) |f, k| {
             if (k >= slot_rgb.len) break;
-            const f = app_mod.filament_slots.get(app, k) orelse continue;
             slot_rgb[k] = parseColor(f.color) orelse filament;
         }
 
         // The cooled shape: the slice is larger by the shrinkage, about the
         // center of the part.
         var center = [2]f32{ 0, 0 };
-        if (app.partBounds()) |b| center = .{ @floatCast((b[0] + b[2]) / 2), @floatCast((b[1] + b[3]) / 2) };
+        if (@as(?[4]f64, src.part_box)) |b| center = .{ @floatCast((b[0] + b[2]) / 2), @floatCast((b[1] + b[3]) / 2) };
         const sxy: f32 = @floatCast(1 / s.filament.shrinkage_xy);
         const sz: f32 = @floatCast(1 / s.filament.shrinkage_z);
         v.xf_center = center;
@@ -692,6 +904,7 @@ pub const View = struct {
             same[l] = l < old.keys.items.len and old.keys.items[l] == key and l < old.layer_end.items.len and old.run.items.len == old.beads.items.len;
         }
         for (tp.layer_ends.items, 0..) |layer_end, l| {
+            if (v.canceled()) return error.Canceled;
             const p0: u32 = if (l == 0) 0 else tp.layer_ends.items[l - 1];
             const z = tp.layer_z.items[l] * sz;
             zmax = @max(zmax, z);
@@ -724,7 +937,7 @@ pub const View = struct {
                 // more, so the passes meet), thin, at the top of the layer:
                 // together they make a flat sheet over the ironed area.
                 const ironing = f == 4 or f == 9;
-                if (ironing) w = @max(w, @as(f32, @floatCast(app.settings.project.ironing_spacing * 1.3)) * sxy);
+                if (ironing) w = @max(w, @as(f32, @floatCast(s.project.ironing_spacing * 1.3)) * sxy);
                 const closed = tp.path_closed.items[pi] != 0 and end - start > 2;
                 const segs = end - start - 1 + @as(u32, @intFromBool(closed));
                 // The times of the beads: the path time, spread over its
@@ -803,40 +1016,51 @@ pub const View = struct {
         }
         v.path_start.append(gpa, @intCast(boxes.items.len)) catch return error.OutOfMemory;
         try v.loadSimMotion(tp, center, sxy, sz);
-        try v.loadTower(app, tp, filament, center, sxy, sz);
+        if (v.canceled()) return error.Canceled;
+        try v.loadTower(src.job, s.project.first_layer_height, tp, filament, center, sxy, sz);
         v.layer_path_end.clearRetainingCapacity();
         v.layer_path_end.appendSlice(gpa, tp.layer_ends.items) catch return error.OutOfMemory;
         v.path_part.clearRetainingCapacity();
         v.path_part.appendSlice(gpa, tp.path_part.items) catch return error.OutOfMemory;
-        v.clearPreview();
-        try v.loadOutlines(app, tp.layer_ends.items.len);
+        try v.loadOutlines(src.job, tp.layer_ends.items.len);
+        if (v.canceled()) return error.Canceled;
         try v.loadMarks(tp, filament, center, sxy, sz, same, &old);
-        if (!v.headless) try v.renderer.setInstances(boxes.items, v.marks.items);
-        v.more.clearRetainingCapacity();
-        // The light levels: only the frame backend draws them.
-        if (frame_backend and !v.headless) {
-            try v.lite.build(gpa, boxes.items, v.layer_end.items);
-            v.lite_gen = v.nextGen();
-        }
+        if (v.canceled()) return error.Canceled;
         // `boxes` goes back to v.beads at the end of this function.
         v.beads = boxes;
         try v.buildPickIndex(.{ .same = same, .old = &old });
+        if (v.canceled()) return error.Canceled;
 
-        if (app.partBounds()) |b| {
-            // The camera turns around the center of the bed (as in other
-            // slicers), at half the height of the part. The distance shows
-            // all of the part, also when it is not at the center.
-            const bx: f32 = @floatCast(s.machine.bed_size_x / 2);
-            const by: f32 = @floatCast(s.machine.bed_size_y / 2);
-            v.home = .{ bx, by, zmax / 2 };
-            if (first_load) v.target = v.home;
-            var reach: f32 = 0;
-            for ([_]f64{ b[0], b[2] }) |x| for ([_]f64{ b[1], b[3] }) |y| {
-                reach = @max(reach, @import("../geom.zig").hypot(@as(f32, @floatCast(x)) - bx, @as(f32, @floatCast(y)) - by));
-            };
-            v.extent = @max(2 * reach, zmax);
+        // The camera turns around the center of the bed (as in other
+        // slicers), at half the height of the part. The distance shows all
+        // of the part, also when it is not at the center.
+        const pb = src.part_box;
+        const bx: f32 = @floatCast(s.machine.bed_size_x / 2);
+        const by: f32 = @floatCast(s.machine.bed_size_y / 2);
+        v.home = .{ bx, by, zmax / 2 };
+        var reach: f32 = 0;
+        for ([_]f64{ pb[0], pb[2] }) |x| for ([_]f64{ pb[1], pb[3] }) |y| {
+            reach = @max(reach, @import("../geom.zig").hypot(@as(f32, @floatCast(x)) - bx, @as(f32, @floatCast(y)) - by));
+        };
+        v.extent = @max(2 * reach, zmax);
+        v.scene_key = sceneKey(src, v.mode);
+        v.scene_slice = src.slice;
+        v.scene_app = src.app;
+    }
+
+    /// After new beads (`buildBeads`, `swapScene`): the beads go to the
+    /// GPU, and a first load moves the camera home.
+    fn showBeads(v: *View, first_load: bool) Error!void {
+        if (!v.headless) try v.renderer.setInstances(v.beads.items, v.marks.items);
+        v.more.clearRetainingCapacity();
+        v.clearPreview();
+        // The light levels: only the frame backend draws them.
+        if (frame_backend and !v.headless) {
+            try v.lite.build(gpa, v.beads.items, v.layer_end.items);
+            v.lite_gen = v.nextGen();
         }
         if (first_load) {
+            v.target = v.home;
             v.reset();
             v.layer = if (v.layer_end.items.len > 0) v.layer_end.items.len - 1 else 0;
         }
@@ -1000,6 +1224,7 @@ pub const View = struct {
     fn clearScene(v: *View) void {
         inline for (.{ &v.layer_end, &v.path_start, &v.layer_path_end, &v.outline_points, &v.outline_ends, &v.outline_layer_end, &v.pick_runs, &v.layer_boxes, &v.draw_chunks, &v.chunk_width, &v.draws, &v.mark_rings, &v.sup_pts, &v.sup_areas, &v.gap_beads, &v.more, &v.beads, &v.marks, &v.mark_layer_end, &v.bead_end, &v.bead_start, &v.bead_fan, &v.path_part, &v.bead_run, &v.bead_len, &v.run_width, &v.sim_beads, &v.bead_settle }) |l| l.clearRetainingCapacity();
         v.layer_key.clearRetainingCapacity();
+        v.scene_key = 0;
         v.clearPreview();
         v.highlight = .{ 0, 0 };
         v.seg_bead = null;
@@ -1482,6 +1707,7 @@ pub const View = struct {
         }
         // A scene has no keys of its layers: the next load makes all.
         v.layer_key.clearRetainingCapacity();
+        v.scene_key = 0;
         v.bead_run.clearRetainingCapacity();
         v.bead_len.clearRetainingCapacity();
         v.mode = std.enums.fromInt(Mode, head.mode) orelse .print;
@@ -1558,12 +1784,12 @@ pub const View = struct {
 
     /// The outline of each of the `layers` levels of the slice of `app`
     /// (see `outline_points`), in the cooled shape of the beads.
-    fn loadOutlines(v: *View, app: *const app_mod.App, layers: usize) Error!void {
+    fn loadOutlines(v: *View, job_in: ?*const PlateJob, layers: usize) Error!void {
         const geom = @import("../geom.zig");
         v.outline_points.clearRetainingCapacity();
         v.outline_ends.clearRetainingCapacity();
         v.outline_layer_end.clearRetainingCapacity();
-        const job = if (app.job) |*j| j else null;
+        const job = job_in;
         const c = v.xf_center;
         const k = v.xf_sxy;
         for (0..layers) |l| {
@@ -1598,6 +1824,8 @@ pub const View = struct {
         const flow = @import("../flow.zig");
         const seam_rgb = if (v.mode == .print) filament else feature_rgb[code_seam];
         for (tp.layer_ends.items, 0..) |layer_end, l| {
+            // A build that stops (see `buildBeads`).
+            if (v.canceled()) return;
             if (same[l] and l < old.mark_layer_end.items.len) {
                 const m0: u32 = if (l == 0) 0 else old.mark_layer_end.items[l - 1];
                 v.marks.appendSlice(gpa, old.marks.items[m0..old.mark_layer_end.items[l]]) catch return error.OutOfMemory;
@@ -2481,10 +2709,10 @@ pub const View = struct {
     /// the filament of each path. A change into a filament gives its
     /// tower a layer on that print layer, on top of the tower (the first
     /// one as high as the first layer, none higher than the print layer).
-    fn loadTower(v: *View, app: *const app_mod.App, tp: *const app_mod.Toolpaths, filament: [3]u8, center: [2]f32, sxy: f32, sz: f32) Error!void {
+    fn loadTower(v: *View, job_in: ?*const PlateJob, first_layer_height: f64, tp: *const app_mod.Toolpaths, filament: [3]u8, center: [2]f32, sxy: f32, sz: f32) Error!void {
         v.tower_beads.clearRetainingCapacity();
         v.tower_layer.clearRetainingCapacity();
-        const job = app.job orelse return;
+        const job = job_in orelse return;
         const towers = job.towers();
         if (towers.n == 0) return;
         // Each tower in the color of its first filament, a little darker.
@@ -2503,7 +2731,7 @@ pub const View = struct {
             for (0..@min(t.last_layer + 1, n_layers)) |l| try v.towerLayerBeads(t, l, tp.layer_z.items[l], tp.layer_height.items[l], tp, colors[0], center, sxy, sz);
             return;
         }
-        const first_h = app.settings.project.first_layer_height;
+        const first_h = first_layer_height;
         var top = [_]f64{0} ** zs_gcode.Towers.max;
         var count = [_]usize{0} ** zs_gcode.Towers.max;
         var last_layer = [_]usize{std.math.maxInt(usize)} ** zs_gcode.Towers.max;
@@ -2752,6 +2980,7 @@ pub const View = struct {
         v.layer_boxes.ensureTotalCapacity(gpa, v.layer_end.items.len) catch return error.OutOfMemory;
         var first: u32 = 0;
         for (v.layer_end.items, 0..) |end, li| {
+            if (v.canceled()) return;
             if (reuse) |ru| if (li < ru.same.len and ru.same[li] and li < ru.old.layer_boxes.items.len and ru.old.run_width.items.len == ru.old.pick_runs.items.len) {
                 // The same beads as in the last load, at another place.
                 const ob = ru.old.layer_boxes.items[li];
@@ -5668,4 +5897,58 @@ test "a scene read in small steps gives the view of one read" {
     // A stage of other bytes starts again; a dropped stage frees its lists.
     _ = try steps.stageScene(bytes, 10);
     steps.dropStage();
+}
+
+test "the scenes of the worker have the lists of a load, and a load takes them" {
+    if (comptime !@import("../parallel.zig").has_threads) return error.SkipZigTest;
+    const g = std.testing.allocator;
+    var mesh = try @import("../mesh.zig").shapes.demo(g);
+    defer mesh.deinit(g);
+    var stl: std.Io.Writer.Allocating = .init(g);
+    defer stl.deinit();
+    try mesh.writeStl(&stl.writer);
+    const app = try app_mod.App.create(g, null, null);
+    defer app.destroy();
+    try app.loadStl("demo.stl", stl.written());
+    const hook: app_mod.SceneHook = .{ .build = View.buildScene, .free = View.freeScene };
+    app.setSceneHook(&hook);
+    app.scene_mode.store(@intFromEnum(Mode.features), .release);
+    app.auto_simulate = true;
+    try app.startSlice();
+    app.stopWorkerForTest();
+    try std.testing.expect(app.adoptSimulation());
+    const same = struct {
+        fn f(a: *View, b: *View) !void {
+            const la = a.beadLists();
+            inline for (b.beadLists(), 0..) |item, k| {
+                if (comptime @typeInfo(@TypeOf(item.*)) == .@"struct" and @hasField(@TypeOf(item.*), "items"))
+                    try std.testing.expectEqualSlices(u8, std.mem.sliceAsBytes(la[k].items), std.mem.sliceAsBytes(item.items))
+                else
+                    try std.testing.expectEqualSlices(u8, std.mem.asBytes(la[k]), std.mem.asBytes(item));
+            }
+        }
+    }.f;
+    var want: [2]View = undefined;
+    for (&want, [_]bool{ false, true }) |*w, sim| {
+        app.show_sim = sim;
+        w.* = .{ .renderer = undefined, .headless = true, .width = 1, .height = 1, .mode = .features };
+        try w.load(app);
+        try std.testing.expect(w.scene_key != 0 and w.beads.items.len > 0);
+    }
+    defer for (&want) |*w| w.deinitData();
+    try std.testing.expect(want[0].scene_key != want[1].scene_key);
+    try std.testing.expect(want[1].sim_beads.items.len > 0);
+    for ([_]app_mod.SceneKind{ .plan, .sim }, 0..) |kind, k| {
+        const t: *View = @ptrCast(@alignCast(app.takeScene(kind).?));
+        defer View.freeScene(t);
+        try same(&want[k], t);
+    }
+    // A load of the same input keeps the beads; another mode builds them.
+    app.show_sim = true;
+    const beads = want[1].beads.items.ptr;
+    try want[1].load(app);
+    try std.testing.expect(want[1].beads.items.ptr == beads);
+    want[1].mode = .print;
+    try want[1].load(app);
+    try std.testing.expect(want[1].scene_key != want[0].scene_key and want[1].beads.items.ptr != beads);
 }

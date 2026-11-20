@@ -141,6 +141,10 @@ static void sync_core(ZgModel *self) {
     /* The check of the print for the hints, on the thread of the slice
      * (5 to 60 ms on the UI thread). */
     zs_app_set_auto_checks(self->core, 1);
+    /* The scene of the 3D view of each slice and each simulated print, on
+     * the thread of the slice: zs_view_load then only swaps it in (25 to
+     * 110 ms on the UI thread). */
+    zs_app_set_auto_scene(self->core, 1);
 }
 
 /* The active plate changed: the set starts its slice. Notes the time for

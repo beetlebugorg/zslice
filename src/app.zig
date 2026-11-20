@@ -134,6 +134,42 @@ pub const Event = enum(c_int) {
     checked = 7,
 };
 
+/// The input of a scene of the 3D view (render/view.zig `buildBeads`):
+/// the toolpaths of a result, and the settings that the view reads.
+pub const SceneSource = struct {
+    settings: *const Settings,
+    /// The filaments of slots 1 and up (slot 0 is settings.filament).
+    filaments: []const zs.settings.Filament,
+    tp: *const Toolpaths,
+    job: ?*const zs.PlateJob,
+    part_box: [4]f64,
+    /// The result that `tp` is, its slice, and its app (see
+    /// `App.resultId`).
+    result: u64,
+    slice: u64,
+    app: u32,
+    /// A build on the worker stops when a change cancels the slice.
+    cancel: ?*const std.atomic.Value(bool) = null,
+};
+
+/// Builds a scene of the 3D view on the thread of the slice (see
+/// `App.scene_hook`). The C API of the view sets it: the app does not
+/// know the view.
+pub const SceneHook = struct {
+    /// Returns the scene, or null on a cancel or an error. `mode` is the
+    /// color mode (enum zs_view_mode).
+    build: *const fn (src: SceneSource, mode: u32) ?*anyopaque,
+    /// Frees a scene that no view took.
+    free: *const fn (scene: *anyopaque) void,
+};
+
+/// The kinds of the scenes that the worker builds: the slice, and the
+/// simulated print.
+pub const SceneKind = enum(u1) { plan = 0, sim = 1 };
+
+/// The ids of the apps (see `App.uid`).
+var next_uid: std.atomic.Value(u32) = .init(1);
+
 /// The shell callback. It runs on the worker thread.
 pub const EventFn = *const fn (user: ?*anyopaque, event: c_int, progress: f64, status: c_int) callconv(.c) void;
 
@@ -173,6 +209,19 @@ pub const App = struct {
     /// The count of the slices that ended with a result. A plate set
     /// (app/plate_set.zig) compares it to see a new result.
     done_count: std.atomic.Value(u32) = .init(0),
+    /// An id that no other app of the process has, for `resultId`.
+    uid: u32 = 0,
+    /// Builds the scenes of the 3D view on the worker: after each slice
+    /// (the slice), and after each simulation on the worker (the
+    /// simulated print), before their events. Null: no scenes. The
+    /// worker reads it, so it changes only with `setSceneHook`.
+    scene_hook: std.atomic.Value(?*const SceneHook) = .init(null),
+    /// The color mode of the scenes (enum zs_view_mode): the mode of the
+    /// last load of a view.
+    scene_mode: std.atomic.Value(u32) = .init(0),
+    /// The scenes of the worker that wait for a view (`takeScene`), for
+    /// each SceneKind.
+    scenes: [2]std.atomic.Value(?*anyopaque) = .{ .init(null), .init(null) },
 
     // The results. The worker writes them before it sets the state to
     // `done` or `failed`.
@@ -301,7 +350,7 @@ pub const App = struct {
 
     pub fn create(gpa: Allocator, event_fn: ?EventFn, user: ?*anyopaque) Allocator.Error!*App {
         const app = try gpa.create(App);
-        app.* = .{ .gpa = gpa, .event_fn = event_fn, .user = user, .strings = .init(gpa) };
+        app.* = .{ .gpa = gpa, .event_fn = event_fn, .user = user, .strings = .init(gpa), .uid = next_uid.fetchAdd(1, .monotonic) };
         return app;
     }
 
@@ -2485,6 +2534,7 @@ pub const App = struct {
     }
 
     fn clearResults(app: *App) void {
+        app.dropScenes();
         app.dropSimulation();
         app.toolpaths.deinit(app.gpa);
         if (app.job) |*j| j.deinit();
@@ -2611,6 +2661,9 @@ pub const App = struct {
         app.gcode_buf = buf;
         app.stats = stats;
         _ = app.done_count.fetchAdd(1, .release);
+        // The scene of the view, before the event: the view of the shell
+        // only takes it (see `scene_hook`).
+        app.buildScene(.plan, &app.toolpaths);
         app.state.store(.done, .release);
         app.emit(.sliced, 1, 0);
         // The check of the print (see `auto_checks`), after the slice
@@ -2675,6 +2728,7 @@ pub const App = struct {
         }
         app.keepCheckpoints(job);
         app.sim_pending = r;
+        app.buildScene(.sim, &app.sim_pending.?.paths);
         app.sim_ready.store(true, .release);
         app.emit(.simulated, 1, 0);
     }
@@ -2742,6 +2796,77 @@ pub const App = struct {
     pub fn partBounds(app: *const App) ?[4]f64 {
         if (app.getState() != .done) return null;
         return app.part_box;
+    }
+
+    /// The id of the last slice: the app, and its count of slices.
+    pub fn sliceId(app: *const App) u64 {
+        var h = std.hash.Wyhash.init(0x5ce4e);
+        h.update(std.mem.asBytes(&app.uid));
+        h.update(std.mem.asBytes(&app.done_count.load(.acquire)));
+        return h.final();
+    }
+
+    /// The id of the result that `allToolpaths` gives (with `sim`: the
+    /// simulated print of the slice): the slice and the kind. A view
+    /// compares it to see a new result.
+    pub fn resultId(app: *const App, sim: bool) u64 {
+        return std.hash.Wyhash.hash(app.sliceId(), &.{@intFromBool(sim)});
+    }
+
+    /// The input of a scene of the view from the last slice (see
+    /// `allToolpaths`) and the settings now, or null with no result.
+    pub fn sceneSource(app: *const App) ?SceneSource {
+        const tp = app.allToolpaths() orelse return null;
+        return .{
+            .settings = &app.settings,
+            .filaments = app.filaments.items,
+            .tp = tp,
+            .job = if (app.job) |*j| j else null,
+            .part_box = app.partBounds() orelse return null,
+            .result = app.resultId(tp != &app.toolpaths),
+            .slice = app.sliceId(),
+            .app = app.uid,
+        };
+    }
+
+    /// Builds the scene of `kind` on the worker (see `scene_hook`), from
+    /// the settings at the start of the slice.
+    fn buildScene(app: *App, kind: SceneKind, tp: *const Toolpaths) void {
+        const hook = app.scene_hook.load(.acquire) orelse return;
+        if (app.cancel_flag.load(.acquire)) return;
+        const scene = hook.build(.{
+            .settings = &app.slice_settings,
+            .filaments = app.slice_filaments,
+            .tp = tp,
+            .job = if (app.job) |*j| j else null,
+            .part_box = app.part_box,
+            .result = app.resultId(kind == .sim),
+            .slice = app.sliceId(),
+            .app = app.uid,
+            .cancel = &app.cancel_flag,
+        }, app.scene_mode.load(.acquire)) orelse return;
+        if (app.scenes[@intFromEnum(kind)].swap(scene, .acq_rel)) |old| hook.free(old);
+    }
+
+    /// The scene of `kind` that the worker built, or null. The caller
+    /// owns it.
+    pub fn takeScene(app: *App, kind: SceneKind) ?*anyopaque {
+        return app.scenes[@intFromEnum(kind)].swap(null, .acq_rel);
+    }
+
+    /// Sets `scene_hook` (null: no scenes). A scene that waits with the
+    /// old hook goes.
+    pub fn setSceneHook(app: *App, hook: ?*const SceneHook) void {
+        const old = app.scene_hook.swap(hook, .acq_rel);
+        if (old != null and old != hook) app.dropScenesWith(old.?);
+    }
+
+    fn dropScenes(app: *App) void {
+        app.dropScenesWith(app.scene_hook.load(.acquire) orelse return);
+    }
+
+    fn dropScenesWith(app: *App, hook: *const SceneHook) void {
+        for (&app.scenes) |*sc| if (sc.swap(null, .acq_rel)) |old| hook.free(old);
     }
 
     /// The paths of all layers, for a 3D view: the paths of the slice, or
