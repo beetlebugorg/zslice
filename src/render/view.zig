@@ -74,6 +74,7 @@ const frame_backend = is_web or builtin.os.tag == .macos;
 const vk = if (frame_backend) @import("web.zig") else @import("vk.zig");
 const app_mod = @import("../app.zig");
 const zs_filaments = @import("../filaments.zig");
+const zs_gcode = @import("../gcode.zig");
 const Draw = @import("frame.zig").Draw;
 const PlateFrame = @import("frame.zig").PlateFrame;
 const Push = @import("frame.zig").Push;
@@ -2229,39 +2230,83 @@ pub const View = struct {
         return .{ cam.eye[0] + dir[0] * t, cam.eye[1] + dir[1] * t };
     }
 
-    /// The beads of the prime tower (see `tower_beads`): on each layer up
-    /// to its last one, the square loop and a diagonal, as the G-code
-    /// prints a light layer of it.
+    /// The beads of the prime towers (see `tower_beads`): each tower
+    /// layer as its square loop and a diagonal. One tower with light
+    /// layers: a layer on each print layer up to its last one. Stacked
+    /// towers (gcode.Towers.stacked): the rule of the G-code again, from
+    /// the filament of each path. A change into a filament gives its
+    /// tower a layer on that print layer, on top of the tower (the first
+    /// one as high as the first layer, none higher than the print layer).
     fn loadTower(v: *View, app: *const app_mod.App, tp: *const app_mod.Toolpaths, filament: [3]u8, center: [2]f32, sxy: f32, sz: f32) Error!void {
         v.tower_beads.clearRetainingCapacity();
         v.tower_layer.clearRetainingCapacity();
         const job = app.job orelse return;
-        const t = job.tower() orelse return;
-        const n = @min(t.last_layer + 1, tp.layer_z.items.len);
+        const towers = job.towers();
+        if (towers.n == 0) return;
+        // Each tower in the color of its first filament, a little darker.
+        var colors: [zs_gcode.Towers.max][3]u8 = @splat(.{ filament[0] / 4 * 3, filament[1] / 4 * 3, filament[2] / 4 * 3 });
+        var seen = [_]bool{false} ** zs_gcode.Towers.max;
+        for (job.slots, 0..) |f, i| {
+            if (i >= zs_filaments.max_slots) break;
+            const k = towers.of_slot[i];
+            if (seen[k]) continue;
+            seen[k] = true;
+            if (zs_filaments.parseColor(f.color)) |c| colors[k] = .{ c[0] / 4 * 3, c[1] / 4 * 3, c[2] / 4 * 3 };
+        }
+        const n_layers = tp.layer_z.items.len;
+        if (!towers.stacked()) {
+            const t = towers.list[0];
+            for (0..@min(t.last_layer + 1, n_layers)) |l| try v.towerLayerBeads(t, l, tp.layer_z.items[l], tp.layer_height.items[l], tp, colors[0], center, sxy, sz);
+            return;
+        }
+        const first_h = app.settings.project.first_layer_height;
+        var top = [_]f64{0} ** zs_gcode.Towers.max;
+        var count = [_]usize{0} ** zs_gcode.Towers.max;
+        var last_layer = [_]usize{std.math.maxInt(usize)} ** zs_gcode.Towers.max;
+        var tool: u8 = 0;
+        var path: usize = 0;
+        for (0..n_layers) |l| {
+            const end = tp.layer_ends.items[l];
+            const lz: f64 = tp.layer_z.items[l];
+            const lh: f64 = tp.layer_height.items[l];
+            while (path < end) : (path += 1) {
+                const t = if (path < tp.path_tool.items.len) tp.path_tool.items[path] else tool;
+                if (t == tool) continue;
+                tool = t;
+                const k = towers.of_slot[@min(t, zs_filaments.max_slots - 1)];
+                if (last_layer[k] == l) continue;
+                last_layer[k] = l;
+                const z_top = if (count[k] == 0) @min(lz, first_h) else @min(lz, top[k] + lh);
+                const h = z_top - top[k];
+                top[k] = z_top;
+                count[k] += 1;
+                try v.towerLayerBeads(towers.list[k], l, @floatCast(z_top), @floatCast(h), tp, colors[k], center, sxy, sz);
+            }
+        }
+    }
+
+    /// The beads of one layer of tower `t`: its loop and a diagonal, with
+    /// its top at `z` and `h` high, shown with print layer `l`.
+    fn towerLayerBeads(v: *View, t: zs_gcode.Tower, l: usize, z: f32, h: f32, tp: *const app_mod.Toolpaths, rgb: [3]u8, center: [2]f32, sxy: f32, sz: f32) Error!void {
         const half: f32 = @floatCast(t.size / 2);
         const tx: f32 = @floatCast(t.x);
         const ty: f32 = @floatCast(t.y);
         const corners = [4][2]f32{ .{ tx - half, ty - half }, .{ tx + half, ty - half }, .{ tx + half, ty + half }, .{ tx - half, ty + half } };
-        const rgb = .{ filament[0] / 4 * 3, filament[1] / 4 * 3, filament[2] / 4 * 3 };
-        for (0..n) |l| {
-            const z = tp.layer_z.items[l] * sz;
-            const h = tp.layer_height.items[l] * sz;
-            const w = (if (l < tp.layer_width.items.len) tp.layer_width.items[l] else 0.45) * sxy;
-            const segs = [5][2][2]f32{ .{ corners[0], corners[1] }, .{ corners[1], corners[2] }, .{ corners[2], corners[3] }, .{ corners[3], corners[0] }, .{ corners[0], corners[2] } };
-            for (segs) |sg| {
-                try v.tower_beads.append(gpa, .{
-                    .ax = center[0] + (sg[0][0] - center[0]) * sxy,
-                    .ay = center[1] + (sg[0][1] - center[1]) * sxy,
-                    .bx = center[0] + (sg[1][0] - center[0]) * sxy,
-                    .by = center[1] + (sg[1][1] - center[1]) * sxy,
-                    .z = z,
-                    .h = h,
-                    .w = w,
-                    // The skirt feature (5): drawn as a bead of the print.
-                    .rgba = .{ rgb[0], rgb[1], rgb[2], 5 },
-                });
-                try v.tower_layer.append(gpa, @intCast(l));
-            }
+        const w = (if (l < tp.layer_width.items.len) tp.layer_width.items[l] else 0.45) * sxy;
+        const segs = [5][2][2]f32{ .{ corners[0], corners[1] }, .{ corners[1], corners[2] }, .{ corners[2], corners[3] }, .{ corners[3], corners[0] }, .{ corners[0], corners[2] } };
+        for (segs) |sg| {
+            try v.tower_beads.append(gpa, .{
+                .ax = center[0] + (sg[0][0] - center[0]) * sxy,
+                .ay = center[1] + (sg[0][1] - center[1]) * sxy,
+                .bx = center[0] + (sg[1][0] - center[0]) * sxy,
+                .by = center[1] + (sg[1][1] - center[1]) * sxy,
+                .z = z * sz,
+                .h = h * sz,
+                .w = w,
+                // The skirt feature (5): drawn as a bead of the print.
+                .rgba = .{ rgb[0], rgb[1], rgb[2], 5 },
+            });
+            try v.tower_layer.append(gpa, @intCast(l));
         }
     }
 
