@@ -174,6 +174,9 @@ function sendResult(i, ms, turn) {
     fits: c.w.x.zs_app_plate_fits(c.app) === 1,
     tiny: tinyParts(c),
     turn,
+    // The simulated print of this slice, if it ran (a plate that became
+    // active again).
+    sim: ms > 0 ? null : c.simStats(),
   };
   post(msg, scene ? [scene, layers.z.buffer, layers.height.buffer, layers.endTime.buffer, layers.slowed.buffer] : []);
 }
@@ -365,8 +368,12 @@ function showActive() {
   postPlates();
   const i = activeIndex();
   const p = plateInfo(i);
-  if (p.status === "done") sendResult(i, 0);
-  else if (core.state() === STATE.empty) {
+  if (p.status === "done") {
+    sendResult(i, 0);
+    // A plate switch stops the simulation of the plate before: it runs
+    // again when that plate becomes active.
+    if (!coreAt(i).simStats()) startSim(i);
+  } else if (core.state() === STATE.empty) {
     const scene = core.scene(mode);
     post({ event: "cleared", scene, plate: i }, scene ? [scene] : []);
   } else {

@@ -3049,9 +3049,9 @@ function onWorkerEvent(m) {
       app.fits = m.fits !== false;
       app.overhang = 0;
       // A new slice: the simulated print was of the slice before. The
-      // simulation sends its numbers for the Check.
-      if (m.ms > 0) app.simResult = null;
-      else if (m.sim) app.simResult = m.sim;
+      // simulation sends its numbers for the Check, and a plate that
+      // becomes active sends the numbers of its own simulation.
+      app.simResult = m.ms > 0 ? null : m.sim ?? null;
       app.tiny = m.tiny ?? [];
       checkOverhang();
       // The selection, to find it again in the new slice.
