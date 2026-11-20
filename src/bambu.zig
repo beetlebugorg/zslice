@@ -89,12 +89,11 @@ pub const PlateInfo = struct {
 /// The <layer_filament_lists> of Bambu Studio for a G-code: for each set
 /// of filaments that a run of layers uses (from 0, space between), the
 /// ranges of those layers ("a b", comma between). It reads the ";LAYER:n"
-/// marks and the "T<n>" tool changes. "" for a print of one filament.
+/// marks and the "T<n>" tool changes. "" for a G-code with no layers.
 pub fn layerFilamentLists(a: Allocator, gcode: []const u8) Allocator.Error![]const u8 {
     // The set of tools of each layer, as a bit mask.
     var masks: std.ArrayList(u64) = .empty;
     var tool: u32 = 0;
-    var any_change = false;
     var it = std.mem.splitScalar(u8, gcode, '\n');
     while (it.next()) |line| {
         if (std.mem.startsWith(u8, line, ";LAYER:")) {
@@ -107,11 +106,12 @@ pub fn layerFilamentLists(a: Allocator, gcode: []const u8) Allocator.Error![]con
         if (e < line.len and line[e] != ' ' and line[e] != ';' and line[e] != '\r') continue;
         const t = std.fmt.parseInt(u32, line[1..e], 10) catch continue;
         if (t >= 64) continue;
-        if (t != tool and masks.items.len > 0) any_change = true;
         tool = t;
         if (masks.items.len > 0) masks.items[masks.items.len - 1] |= @as(u64, 1) << @intCast(t);
     }
-    if (!any_change or masks.items.len == 0) return "";
+    // A print of one filament has one list too: Studio writes it for
+    // each print, and the X2D plans its nozzles from it.
+    if (masks.items.len == 0) return "";
     var out: std.Io.Writer.Allocating = .init(a);
     const w = &out.writer;
     w.writeAll("    <layer_filament_lists>\n") catch return error.OutOfMemory;
@@ -347,8 +347,12 @@ fn xmlText(a: Allocator, text: []const u8) Allocator.Error![]u8 {
     return out.toOwnedSlice(a);
 }
 
-/// Metadata/slice_info.config: plate 1, its time and grams, and its one
-/// filament.
+/// Metadata/slice_info.config: plate 1, its time and grams, its object,
+/// its filaments and nozzles, and the filaments of each run of layers.
+/// The keys and the elements are in the order of Bambu Studio 02.09, with
+/// its number formats: the X2D cancels a print in PREPARE when the object,
+/// the layer lists, or the load times of the filaments are missing (a
+/// test on the printer, 2026-11-20).
 fn sliceInfo(a: Allocator, info: PlateInfo) Allocator.Error![]u8 {
     var w: std.Io.Writer.Allocating = .init(a);
     const ww = &w.writer;
@@ -363,12 +367,11 @@ fn sliceInfo(a: Allocator, info: PlateInfo) Allocator.Error![]u8 {
         \\    <metadata key="index" value="1"/>
         \\
     ) catch return error.OutOfMemory;
-    ww.print("    <metadata key=\"prediction\" value=\"{d}\"/>\n", .{@as(i64, @intFromFloat(@round(@min(@max(0, info.seconds), 1e12))))}) catch return error.OutOfMemory;
-    ww.print("    <metadata key=\"weight\" value=\"{d:.2}\"/>\n", .{@max(0, info.grams)}) catch return error.OutOfMemory;
-    if (info.model_id.len > 0) ww.print("    <metadata key=\"printer_model_id\" value=\"{s}\"/>\n", .{try xmlText(a, info.model_id)}) catch return error.OutOfMemory;
-    // The lists of each extruder: types (0 direct drive, 1 Bowden), volume
-    // types (0 standard, 1 high flow), diameters ("0.4,0.4").
     const n_noz: u32 = @max(info.nozzles, 1);
+    const two = info.nozzles >= 2 and info.filaments.len > 0;
+    const nozzle = if (info.nozzle > 0) info.nozzle else 0.4;
+    // The lists of each extruder: types (0 direct drive, 1 Bowden), volume
+    // types (0 standard, 1 high flow).
     {
         ww.writeAll("    <metadata key=\"extruder_type\" value=\"") catch return error.OutOfMemory;
         var it = std.mem.splitScalar(u8, info.extruder_types, ';');
@@ -379,23 +382,26 @@ fn sliceInfo(a: Allocator, info: PlateInfo) Allocator.Error![]u8 {
         for (0..n_noz) |j| ww.print("{s}{d}", .{ if (j > 0) " " else "", flow }) catch return error.OutOfMemory;
         ww.writeAll("\"/>\n") catch return error.OutOfMemory;
     }
-    if (info.nozzle > 0) {
-        ww.writeAll("    <metadata key=\"nozzle_diameters\" value=\"") catch return error.OutOfMemory;
-        for (0..n_noz) |j| ww.print("{s}{d}", .{ if (j > 0) "," else "", info.nozzle }) catch return error.OutOfMemory;
-        ww.writeAll("\"/>\n") catch return error.OutOfMemory;
-    }
-    // The plate keys of Bambu Studio (bbs_3mf.cpp): no time lapse, all in
-    // the bed, and no labels of objects (zslice writes no EXCLUDE_OBJECT).
-    ww.writeAll("    <metadata key=\"timelapse_type\" value=\"0\"/>\n    <metadata key=\"outside\" value=\"false\"/>\n") catch return error.OutOfMemory;
-    ww.print("    <metadata key=\"support_used\" value=\"{s}\"/>\n    <metadata key=\"label_object_enabled\" value=\"false\"/>\n", .{if (info.support_used) "true" else "false"}) catch return error.OutOfMemory;
-    ww.writeAll("    <metadata key=\"pause_count\" value=\"0\"/>\n    <metadata key=\"support_material_on_wipe_tower\" value=\"false\"/>\n") catch return error.OutOfMemory;
+    if (info.model_id.len > 0) ww.print("    <metadata key=\"printer_model_id\" value=\"{s}\"/>\n", .{try xmlText(a, info.model_id)}) catch return error.OutOfMemory;
+    ww.writeAll("    <metadata key=\"nozzle_diameters\" value=\"") catch return error.OutOfMemory;
+    for (0..n_noz) |j| ww.print("{s}{d}", .{ if (j > 0) "," else "", nozzle }) catch return error.OutOfMemory;
+    ww.writeAll("\"/>\n") catch return error.OutOfMemory;
+    ww.writeAll("    <metadata key=\"timelapse_type\" value=\"0\"/>\n") catch return error.OutOfMemory;
+    ww.print("    <metadata key=\"prediction\" value=\"{d}\"/>\n", .{@as(i64, @intFromFloat(@round(@min(@max(0, info.seconds), 1e12))))}) catch return error.OutOfMemory;
+    ww.print("    <metadata key=\"weight\" value=\"{d:.2}\"/>\n", .{@max(0, info.grams)}) catch return error.OutOfMemory;
+    ww.writeAll("    <metadata key=\"pause_count\" value=\"0\"/>\n") catch return error.OutOfMemory;
+    ww.print("    <metadata key=\"first_layer_time\" value=\"{d:.6}\"/>\n", .{@max(0, @min(info.first_layer_time, 1e9))}) catch return error.OutOfMemory;
+    // The plate keys of Bambu Studio (bbs_3mf.cpp): all in the bed, and no
+    // labels of objects (zslice writes no EXCLUDE_OBJECT).
+    ww.writeAll("    <metadata key=\"outside\" value=\"false\"/>\n") catch return error.OutOfMemory;
+    ww.print("    <metadata key=\"support_used\" value=\"{s}\"/>\n", .{if (info.support_used) "true" else "false"}) catch return error.OutOfMemory;
+    ww.writeAll("    <metadata key=\"label_object_enabled\" value=\"false\"/>\n    <metadata key=\"support_material_on_wipe_tower\" value=\"false\"/>\n") catch return error.OutOfMemory;
     // Each filament has one nozzle (no dynamic map), of one diameter, and
     // no filament switcher (as Bambu Studio 02.09 writes it for the X2D).
     if (info.nozzles >= 2) ww.writeAll("    <metadata key=\"enable_filament_dynamic_map\" value=\"false\"/>\n    <metadata key=\"has_filament_switcher\" value=\"false\"/>\n    <metadata key=\"multi_nozzle_diameter_mode\" value=\"0\"/>\n") catch return error.OutOfMemory;
     // Two nozzles: the extruder of each filament (from 1), for the ids
     // 1 to the last filament of the print; a filament that the print does
     // not use gets extruder 1.
-    const two = info.nozzles >= 2 and info.filaments.len > 0;
     if (two) {
         var last: u32 = 0;
         for (info.filaments) |f| last = @max(last, f.id);
@@ -412,27 +418,36 @@ fn sliceInfo(a: Allocator, info: PlateInfo) Allocator.Error![]u8 {
         for (1..last + 1) |id| ww.print("{s}0", .{if (id > 1) " " else ""}) catch return error.OutOfMemory;
         ww.writeAll("\"/>\n") catch return error.OutOfMemory;
     }
+    // The object of the plate: the printer lists it (and can skip it).
+    ww.print("    <object identify_id=\"100\" name=\"{s}\" skipped=\"false\" />\n", .{try xmlText(a, info.object_name)}) catch return error.OutOfMemory;
     for (info.filaments) |f| {
-        const color = if (f.color.len == 7 and f.color[0] == '#') f.color else "#FFFFFF";
-        ww.print("    <filament id=\"{d}\" type=\"{s}\" color=\"{s}\" used_m=\"{d:.2}\" used_g=\"{d:.2}\"", .{ f.id, try xmlText(a, f.kind), try xmlText(a, color), @max(0, f.meters), @max(0, f.grams) }) catch return error.OutOfMemory;
+        // The color in capitals, as Studio writes it ("#00AE42").
+        var up: [7]u8 = "#FFFFFF".*;
+        if (f.color.len == 7 and f.color[0] == '#') _ = std.ascii.upperString(&up, f.color);
+        const color: []const u8 = &up;
+        ww.print("    <filament id=\"{d}\"", .{f.id}) catch return error.OutOfMemory;
         const idx = genericFilament(f.kind);
         if (idx.len > 0) ww.print(" tray_info_idx=\"{s}\"", .{idx}) catch return error.OutOfMemory;
+        ww.print(" type=\"{s}\" color=\"{s}\" used_m=\"{d:.2}\" used_g=\"{d:.2}\"", .{ try xmlText(a, f.kind), try xmlText(a, color), @max(0, f.meters), @max(0, f.grams) }) catch return error.OutOfMemory;
+        ww.print(" group_id=\"{d}\" nozzle_diameter=\"{d:.2}\" volume_type=\"Standard\"", .{ if (two) @min(f.nozzle, 1) else 0, nozzle }) catch return error.OutOfMemory;
         ww.print(" used_for_object=\"{s}\" used_for_support=\"{s}\" directly_used=\"true\"", .{ if (f.for_object) "true" else "false", if (f.for_support) "true" else "false" }) catch return error.OutOfMemory;
-        if (two) ww.print(" group_id=\"{d}\"", .{@min(f.nozzle, 1)}) catch return error.OutOfMemory;
-        if (info.nozzle > 0) ww.print(" nozzle_diameter=\"{d}\" volume_type=\"Standard\"", .{info.nozzle}) catch return error.OutOfMemory;
-        ww.writeAll("/>\n") catch return error.OutOfMemory;
+        // The time of a filament change (s), as Studio writes it for the
+        // X2D: 29 s to load, no unload.
+        ww.writeAll(" total_load_time=\"29.00\" total_unload_time=\"0.00\"/>\n") catch return error.OutOfMemory;
     }
-    // The nozzles that the print uses.
-    if (two) for (0..2) |g| {
-        var used = false;
-        for (info.filaments) |f| used = used or @min(f.nozzle, 1) == g;
-        if (!used) continue;
-        ww.print("    <nozzle id=\"{d}\" extruder_id=\"{d}\" nozzle_diameter=\"{d}\" volume_type=\"Standard\"/>\n", .{ g, g + 1, if (info.nozzle > 0) info.nozzle else 0.4 }) catch return error.OutOfMemory;
-    };
     if (info.filaments.len == 0 and info.material.len > 0) {
         const color = if (info.color.len == 7 and info.color[0] == '#') info.color else "#FFFFFF";
         ww.print("    <filament id=\"1\" type=\"{s}\" color=\"{s}\" used_m=\"{d:.2}\" used_g=\"{d:.2}\"/>\n", .{ try xmlText(a, info.material), try xmlText(a, color), @max(0, info.meters), @max(0, info.grams) }) catch return error.OutOfMemory;
     }
+    // The nozzles that the print uses (each Bambu Lab file has them).
+    if (two or info.model_id.len > 0) for (0..n_noz) |g| {
+        var used = g == 0 and !two;
+        if (two) for (info.filaments) |f| {
+            used = used or @min(f.nozzle, 1) == g;
+        };
+        if (!used) continue;
+        ww.print("    <nozzle id=\"{d}\" extruder_id=\"{d}\" nozzle_diameter=\"{d}\" volume_type=\"Standard\"/>\n", .{ g, g + 1, nozzle }) catch return error.OutOfMemory;
+    };
     // The filaments of each run of layers, after the nozzles (as Studio).
     ww.writeAll(info.layer_lists) catch return error.OutOfMemory;
     ww.writeAll("  </plate>\n</config>\n") catch return error.OutOfMemory;
@@ -832,7 +847,7 @@ test "bambu: the file lists the filaments of the print" {
     for (entries) |e| if (std.mem.eql(u8, e.name, "Metadata/slice_info.config")) {
         info = e.data;
     };
-    try std.testing.expect(std.mem.indexOf(u8, info.?, "<filament id=\"2\" type=\"PLA\" color=\"#D93A3A\" used_m=\"0.40\" used_g=\"1.20\" tray_info_idx=\"GFL99\" used_for_object=\"true\" used_for_support=\"false\" directly_used=\"true\"/>") != null);
+    try std.testing.expect(std.mem.indexOf(u8, info.?, "<filament id=\"2\" tray_info_idx=\"GFL99\" type=\"PLA\" color=\"#D93A3A\" used_m=\"0.40\" used_g=\"1.20\" group_id=\"0\" nozzle_diameter=\"0.40\" volume_type=\"Standard\" used_for_object=\"true\" used_for_support=\"false\" directly_used=\"true\" total_load_time=\"29.00\" total_unload_time=\"0.00\"/>") != null);
     try std.testing.expect(std.mem.indexOf(u8, info.?, "<metadata key=\"support_used\" value=\"false\"/>") != null);
     // The time of the slice goes with the filaments.
     const timed = try gcode3mfWithTime(gpa, "G28\n", "plaque", &fils, 754.6);
@@ -859,7 +874,7 @@ test "bambu: two nozzles: the extruder of each filament and the nozzles" {
         info = e.data;
     };
     try std.testing.expect(std.mem.indexOf(u8, info, "<metadata key=\"filament_maps\" value=\"1 1 2\"/>") != null);
-    try std.testing.expect(std.mem.indexOf(u8, info, "directly_used=\"true\" group_id=\"1\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, info, "group_id=\"1\" nozzle_diameter=\"0.40\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, info, "<nozzle id=\"0\" extruder_id=\"1\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, info, "<nozzle id=\"1\" extruder_id=\"2\"") != null);
     // One nozzle: no map.
@@ -869,7 +884,7 @@ test "bambu: two nozzles: the extruder of each filament and the nozzles" {
     defer zipfile.freeAll(gpa, e1);
     for (e1) |e| if (std.mem.eql(u8, e.name, "Metadata/slice_info.config")) {
         try std.testing.expect(std.mem.indexOf(u8, e.data, "filament_maps") == null);
-        try std.testing.expect(std.mem.indexOf(u8, e.data, "group_id") == null);
+        try std.testing.expect(std.mem.indexOf(u8, e.data, "group_id=\"1\"") == null);
     };
 }
 
@@ -1086,5 +1101,34 @@ test "bambu: layer_filament_lists from the layers and the tool changes" {
     const text = try layerFilamentLists(arena.allocator(), g);
     try std.testing.expect(std.mem.indexOf(u8, text, "filament_list=\"0\" layer_ranges=\"0 0,2 2\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, text, "filament_list=\"0 1\" layer_ranges=\"1 1,3 3\"") != null);
-    try std.testing.expectEqualStrings("", try layerFilamentLists(arena.allocator(), ";LAYER:0\n;LAYER:1\n"));
+    // One filament: one list of all the layers, as Studio writes it.
+    try std.testing.expect(std.mem.indexOf(u8, try layerFilamentLists(arena.allocator(), ";LAYER:0\n;LAYER:1\n"), "filament_list=\"0\" layer_ranges=\"0 1\"") != null);
+    try std.testing.expectEqualStrings("", try layerFilamentLists(arena.allocator(), "G28\n"));
+}
+
+test "bambu: slice_info has the keys and elements of Studio, in its order" {
+    const gpa = std.testing.allocator;
+    const fils = [_]FilamentUse{
+        .{ .id = 1, .kind = "PLA", .color = "#00AE42", .meters = 12.49, .grams = 37.26 },
+        .{ .id = 2, .kind = "PLA", .color = "#FFFF00", .meters = 0.23, .grams = 0.68, .nozzle = 1 },
+    };
+    const g = "T0\n;LAYER:0\nG1\n;LAYER:1\nT1\nG1\nT0\n;LAYER:2\n";
+    const bytes = try gcode3mfInfo(gpa, g, "p", .{ .filaments = &fils, .seconds = 4671, .nozzles = 2, .model_id = "N6", .nozzle = 0.4, .extruder_types = "Direct Drive;Bowden", .object_name = "Pod body", .first_layer_time = 241.91095 });
+    defer gpa.free(bytes);
+    const entries = try zipfile.readAll(gpa, bytes);
+    defer zipfile.freeAll(gpa, entries);
+    var info: []const u8 = "";
+    for (entries) |e| if (std.mem.eql(u8, e.name, "Metadata/slice_info.config")) {
+        info = e.data;
+    };
+    // The order of Bambu Studio 02.09 (an X2D file that prints).
+    const order = [_][]const u8{ "\"index\"", "\"extruder_type\" value=\"0 1\"", "\"nozzle_volume_type\" value=\"0 0\"", "\"printer_model_id\" value=\"N6\"", "\"nozzle_diameters\" value=\"0.4,0.4\"", "\"timelapse_type\"", "\"prediction\" value=\"4671\"", "\"weight\" value=\"37.94\"", "\"pause_count\"", "\"first_layer_time\" value=\"241.910950\"", "\"outside\"", "\"support_used\"", "\"label_object_enabled\"", "\"support_material_on_wipe_tower\"", "\"enable_filament_dynamic_map\"", "\"has_filament_switcher\"", "\"multi_nozzle_diameter_mode\"", "\"filament_maps\" value=\"1 2\"", "\"limit_filament_maps\" value=\"0 0\"", "<object identify_id=\"100\" name=\"Pod body\" skipped=\"false\" />", "<filament id=\"1\" tray_info_idx=\"GFL99\" type=\"PLA\" color=\"#00AE42\" used_m=\"12.49\" used_g=\"37.26\" group_id=\"0\" nozzle_diameter=\"0.40\" volume_type=\"Standard\" used_for_object=\"true\" used_for_support=\"false\" directly_used=\"true\" total_load_time=\"29.00\" total_unload_time=\"0.00\"/>", "<filament id=\"2\"", "<nozzle id=\"0\" extruder_id=\"1\" nozzle_diameter=\"0.4\" volume_type=\"Standard\"/>", "<nozzle id=\"1\" extruder_id=\"2\"", "<layer_filament_lists>", "filament_list=\"0\" layer_ranges=\"0 0,2 2\"", "filament_list=\"0 1\" layer_ranges=\"1 1\"", "</layer_filament_lists>" };
+    var at: usize = 0;
+    for (order) |key| {
+        const found = std.mem.indexOfPos(u8, info, at, key) orelse {
+            std.debug.print("missing or out of order: {s}\n", .{key});
+            return error.TestUnexpectedResult;
+        };
+        at = found + key.len;
+    }
 }

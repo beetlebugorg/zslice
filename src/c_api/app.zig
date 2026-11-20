@@ -570,6 +570,16 @@ export fn zs_app_bambu_file_gcode(a: ?*const App, gcode: ?[*]const u8, len: usiz
     return bambuFileOf(app, g[0..len], title, out, out_len);
 }
 
+/// The time of the first layer (s): the start of the first path of the
+/// second layer; the print time for a print of one layer.
+fn firstLayerTime(app: *const App, total: f64) f64 {
+    const tp = &app.toolpaths;
+    if (tp.layer_ends.items.len < 2) return total;
+    const p = tp.layer_ends.items[0];
+    if (p >= tp.path_start_time.items.len) return total;
+    return tp.path_start_time.items[p];
+}
+
 fn bambuFileOf(app: *const App, g: []const u8, title: ?[*:0]const u8, out: ?*?[*]u8, out_len: ?*usize) c_int {
     const o = out orelse return @intFromEnum(Status.invalid_argument);
     const l = out_len orelse return @intFromEnum(Status.invalid_argument);
@@ -617,6 +627,7 @@ fn bambuFileOf(app: *const App, g: []const u8, title: ?[*:0]const u8, out: ?*?[*
         .bbox = app.partBounds(),
         .object_name = if (title) |t| std.mem.span(t) else "zslice",
         .first_layer_height = app.settings.project.first_layer_height,
+        .first_layer_time = firstLayerTime(app, st.print_time_s),
     }) catch return @intFromEnum(Status.out_of_memory);
     o.* = bytes.ptr;
     l.* = bytes.len;
