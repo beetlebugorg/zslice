@@ -79,19 +79,25 @@ static void on_add(GtkButton *b, gpointer data) {
 
 static void on_deck(GPtrArray *printers, const char *error, gpointer data) {
     Pair *p = data;
-    if (p->closed || !printers) return;
+    /* A deck of one printer: the paired printer is that one. */
+    if (p->closed || !printers || printers->len < 2) return;
     p->checks = g_ptr_array_new();
     for (guint i = 0; i < printers->len; i++) {
         ZgDeckPrinter *d = g_ptr_array_index(printers, i);
-        /* The first printer is the deck itself; resin is not sliced here. */
-        if (!d->path[0] || g_strcmp0(d->kind, "resin") == 0) continue;
+        /* Resin is not sliced here. The printer at the address of the deck
+         * itself (path "") is in the list too: the printer that was paired
+         * has that address, but it can have the name of another printer
+         * of the deck (a print for the X2D went to the TAZ that way). */
+        if (g_strcmp0(d->kind, "resin") == 0) continue;
         char *name = d->label && g_strcmp0(d->label, d->name) != 0 ? g_strdup_printf("%s (%s)", d->name, d->label) : g_strdup(d->name);
         gboolean have = FALSE;
         for (guint k = 0; k < zg_printers_count(); k++) {
             if (g_strcmp0(zg_printers_get(k)->name, name) == 0) have = TRUE;
         }
-        GtkWidget *cb = gtk_check_button_new_with_label(name);
-        gtk_check_button_set_active(GTK_CHECK_BUTTON(cb), !have);
+        char *shown = d->path[0] ? g_strdup(name) : g_strdup_printf("%s, at the address of the deck", name);
+        GtkWidget *cb = gtk_check_button_new_with_label(shown);
+        g_free(shown);
+        gtk_check_button_set_active(GTK_CHECK_BUTTON(cb), !have && d->path[0]);
         g_object_set_data_full(G_OBJECT(cb), "zg-name", name, g_free);
         g_object_set_data_full(G_OBJECT(cb), "zg-path", g_strdup(d->path), g_free);
         gtk_box_append(GTK_BOX(p->list), cb);
