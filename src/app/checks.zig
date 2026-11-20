@@ -78,8 +78,15 @@ pub const Result = struct {
 
 const Builder = struct {
     gpa: Allocator,
+    /// The flag of `runWith`, or null.
+    cancel: ?*const std.atomic.Value(bool) = null,
     issues: std.ArrayList(Issue) = .empty,
     text: std.ArrayList(u8) = .empty,
+
+    fn canceled(b: *const Builder) bool {
+        const c = b.cancel orelse return false;
+        return c.load(.acquire);
+    }
 
     fn add(b: *Builder, issue: Issue, comptime fmt: []const u8, args: anytype) Allocator.Error!void {
         var i = issue;
@@ -97,14 +104,25 @@ const max_per_kind = 50;
 /// and the islands; `t` the lines and their times; `s` the settings of the
 /// print; `stands` the bond test of each part with support off.
 pub fn run(gpa: Allocator, job: *const zs.PlateJob, t: *const Toolpaths, s: zs.Settings, stands: []const Stand, stats: zs.Stats) Allocator.Error!Result {
-    var b: Builder = .{ .gpa = gpa };
+    return runWith(gpa, job, t, s, stands, stats, null) catch |e| switch (e) {
+        error.Canceled => unreachable,
+        else => |x| return x,
+    };
+}
+
+/// `run`, with a flag that stops it (error.Canceled) within a layer of the
+/// overhang pass, or between two passes.
+pub fn runWith(gpa: Allocator, job: *const zs.PlateJob, t: *const Toolpaths, s: zs.Settings, stands: []const Stand, stats: zs.Stats, cancel: ?*const std.atomic.Value(bool)) (Allocator.Error || error{Canceled})!Result {
+    var b: Builder = .{ .gpa = gpa, .cancel = cancel };
     errdefer {
         b.issues.deinit(gpa);
         b.text.deinit(gpa);
     }
     try flowIssues(&b, job, t);
     try coolingIssues(&b, job, t);
+    if (b.canceled()) return error.Canceled;
     try overhangIssues(&b, job, s);
+    if (b.canceled()) return error.Canceled;
     try islandIssues(&b, job);
     try retractionIssues(&b, t);
     try standIssues(&b, stands);
@@ -327,7 +345,11 @@ fn overhangIssues(b: *Builder, pj: *const zs.PlateJob, s: zs.Settings) Allocator
         items: []const Item,
         lists: []std.ArrayList(Hang),
         gpa: Allocator,
+        b: *const Builder,
         fn run(c: *const @This(), k: usize) anyerror!void {
+            // A cancel skips the layers that are left: runWith gives no
+            // result.
+            if (c.b.canceled()) return;
             const g = &c.pj.groups[c.items[k].group];
             const job = &g.job;
             const i = c.items[k].layer;
@@ -350,8 +372,9 @@ fn overhangIssues(b: *Builder, pj: *const zs.PlateJob, s: zs.Settings) Allocator
             try hangsOf(c.gpa, job, i, under, angle, &c.lists[k]);
         }
     };
-    const c: Pass = .{ .pj = pj, .items = items.items, .lists = lists, .gpa = b.gpa };
+    const c: Pass = .{ .pj = pj, .items = items.items, .lists = lists, .gpa = b.gpa, .b = b };
     zs.parallel.forEach(pj.threads, items.items.len, &c, Pass.run) catch |e| return @as(Allocator.Error, @errorCast(e));
+    if (b.canceled()) return;
     var hits: std.ArrayList(Hang) = .empty;
     defer hits.deinit(b.gpa);
     // Each part at its place, on the level of its layer.

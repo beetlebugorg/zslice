@@ -205,7 +205,8 @@ static void on_islands_clicked(GtkButton *b, gpointer data) {
 #define TINY_PART_MM 3.0
 
 /* With support off: the check of the print after each slice, for the
- * hint. It runs on the UI thread when the slice ends (5 to 60 ms). */
+ * hint. The thread of the slice runs it (zs_app_set_auto_checks), so
+ * zs_app_checks returns at once. */
 static void check_overhang(Window *w) {
     zs_app *core = zg_model_core(w->model);
     w->overhang = 0;

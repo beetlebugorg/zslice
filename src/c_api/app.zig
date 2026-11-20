@@ -1729,6 +1729,14 @@ export fn zs_app_sim_request(a: ?*App) c_int {
     return ok;
 }
 
+/// Runs the printability check after each slice (on = 1), on the thread
+/// of the slice before ZS_EVENT_SLICED, so zs_app_checks returns at once.
+export fn zs_app_set_auto_checks(a: ?*App, on: c_int) c_int {
+    const app = a orelse return @intFromEnum(Status.invalid_argument);
+    app.auto_checks = on != 0;
+    return ok;
+}
+
 /// Shows the simulated print of the thread of the slice that waits.
 /// Returns 1 if one waited, else 0.
 export fn zs_app_sim_adopt(a: ?*App) c_int {

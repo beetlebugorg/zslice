@@ -751,6 +751,10 @@ int zs_app_checks(zs_app *app, const zs_issue **issues, size_t *n, const char **
 /* 1 if the check of the last slice has run, so zs_app_checks returns at
  * once; else 0. */
 int zs_app_checks_ready(const zs_app *app);
+/* Runs the check after each slice (on = 1), on the thread of the slice
+ * before ZS_EVENT_SLICED, so zs_app_checks returns at once on the UI
+ * thread. A change stops it with the slice. */
+int zs_app_set_auto_checks(zs_app *app, int on);
 
 /* The built-in profiles of a group (enum zs_group): their number and
  * their names. Apply one with the text `extends = "name"`

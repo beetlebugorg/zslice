@@ -138,6 +138,9 @@ static void sync_core(ZgModel *self) {
     /* The print as it forms after each slice, on the thread of the slice
      * (ZS_EVENT_SIMULATED). */
     zs_app_set_auto_simulate(self->core, 1);
+    /* The check of the print for the hints, on the thread of the slice
+     * (5 to 60 ms on the UI thread). */
+    zs_app_set_auto_checks(self->core, 1);
 }
 
 /* The active plate changed: the set starts its slice. Notes the time for

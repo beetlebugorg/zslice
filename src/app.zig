@@ -235,6 +235,13 @@ pub const App = struct {
     gaps_arena: ?std.heap.ArenaAllocator = null,
     /// The printability check of the last slice (see `checks`).
     checks_result: ?checks_mod.Result = null,
+    /// The shell wants the check after each slice: the worker runs it
+    /// before the `sliced` event, so `checks` returns at once on the
+    /// thread of the shell.
+    auto_checks: bool = false,
+    /// The bond of each part for the check of the running slice (see
+    /// `auto_checks`), in `slice_arena`, or null: no check on the worker.
+    slice_stands: ?[]checks_mod.Stand = null,
     /// The names of layer ranges (layer profiles): the overrides with the
     /// same range are the changes of the profile. A profile can have no
     /// changes yet. The names are in `strings`.
@@ -1819,7 +1826,8 @@ pub const App = struct {
     /// True if the check of the last slice has run, so `checks` returns
     /// at once. A card that shows the issues of a line asks this first.
     pub fn checksReady(app: *const App) bool {
-        return app.checks_result != null;
+        // The worker writes the check before the state goes to `done`.
+        return app.getState() == .done and app.checks_result != null;
     }
 
     pub fn checks(app: *App) (Allocator.Error || error{NoResult})!*const checks_mod.Result {
@@ -1827,16 +1835,23 @@ pub const App = struct {
         if (app.checks_result) |*r| return r;
         const j = &(app.job orelse return error.NoResult);
         const t = app.allToolpaths() orelse return error.NoResult;
-        // The bond of each part on the bed, with support off.
+        var arena: std.heap.ArenaAllocator = .init(app.gpa);
+        defer arena.deinit();
+        const stands = try app.checkStands(arena.allocator());
+        app.checks_result = try checks_mod.run(app.gpa, j, t, app.settings, stands, app.stats);
+        return &app.checks_result.?;
+    }
+
+    /// The bond of each part on the bed with support off, for the check.
+    /// The names are in `a`.
+    fn checkStands(app: *App, a: Allocator) Allocator.Error![]checks_mod.Stand {
         var stands: std.ArrayList(checks_mod.Stand) = .empty;
-        defer stands.deinit(app.gpa);
         for (app.plate.parts.items, 0..) |p, i| {
             if (p.trees != null or app.settings.project.support != .off) continue;
             const m = try app.bondOf(i);
-            try stands.append(app.gpa, .{ .name = p.name, .x = p.x, .y = p.y, .result = m.result, .weak = m.stand == .weak });
+            try stands.append(a, .{ .name = try a.dupe(u8, p.name), .x = p.x, .y = p.y, .result = m.result, .weak = m.stand == .weak });
         }
-        app.checks_result = try checks_mod.run(app.gpa, j, t, app.settings, stands.items, app.stats);
-        return &app.checks_result.?;
+        return stands.items;
     }
 
     fn clearGaps(app: *App) void {
@@ -2164,6 +2179,9 @@ pub const App = struct {
         app.gpa.free(app.slice_marks);
         app.slice_marks = app.sliceMarks() catch &.{};
         try app.makeSlicePlan();
+        // The bond of the parts for the check on the worker: it reads the
+        // plate, which the shell changes while the slice runs.
+        if (app.auto_checks) app.slice_stands = try app.checkStands(app.slice_arena.?.allocator());
         app.cancel_flag.store(false, .release);
         app.sim_coming.store(app.auto_simulate, .release);
         app.state.store(.slicing, .release);
@@ -2272,6 +2290,7 @@ pub const App = struct {
         if (app.slice_arena) |*a| a.deinit();
         app.slice_arena = null;
         app.slice_parts = &.{};
+        app.slice_stands = null;
     }
 
     /// The support marks and the support areas for the next slice.
@@ -2576,7 +2595,23 @@ pub const App = struct {
             }
         }
         const buf = out.writer.buffer;
+        // The check of the print (see `auto_checks`), with the settings at
+        // the start of the slice. A change stops it within a layer.
+        var checked: ?checks_mod.Result = null;
+        if (app.slice_stands) |stands| {
+            checked = checks_mod.runWith(app.gpa, &job, &store, app.slice_settings, stands, stats, &app.cancel_flag) catch |e| switch (e) {
+                error.Canceled => {
+                    store.deinit(app.gpa);
+                    out.deinit();
+                    app.keepForRegions(job);
+                    return app.finishFailed(e);
+                },
+                // The shell runs the check later (see `checks`).
+                error.OutOfMemory => null,
+            };
+        }
 
+        app.checks_result = checked;
         app.part_box = job.bounds() orelse .{ 0, 0, 0, 0 };
         app.job = job;
         app.toolpaths = store;
@@ -3340,6 +3375,33 @@ test "app: a simulation on the worker gives the result of a simulation on the ca
     // A simulation shows: no new run.
     try app.requestSimulation();
     try testing.expect(app.worker == null);
+}
+
+test "app: the check on the worker gives the check on the calling thread" {
+    if (comptime !has_threads) return error.SkipZigTest;
+    const gpa = testing.allocator;
+    var mesh = try zs.mesh.shapes.demo(gpa);
+    defer mesh.deinit(gpa);
+    var stl: std.Io.Writer.Allocating = .init(gpa);
+    defer stl.deinit();
+    try mesh.writeStl(&stl.writer);
+    const app = try App.create(gpa, null, null);
+    defer app.destroy();
+    try app.loadStl("demo.stl", stl.written());
+    app.auto_checks = true;
+    try app.startSlice();
+    app.stopWorkerForTest();
+    try testing.expect(app.checksReady());
+    const got = try app.checks();
+    const issues = try gpa.dupe(checks_mod.Issue, got.issues);
+    defer gpa.free(issues);
+    const text = try gpa.dupe(u8, got.text);
+    defer gpa.free(text);
+    app.clearGaps();
+    try testing.expect(!app.checksReady());
+    const want = try app.checks();
+    try testing.expectEqualSlices(checks_mod.Issue, want.issues, issues);
+    try testing.expectEqualStrings(want.text, text);
 }
 
 test "app: cancel a slice" {
