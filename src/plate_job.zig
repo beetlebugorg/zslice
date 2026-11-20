@@ -1607,3 +1607,72 @@ test "plate job: the G-code of a Bambu Lab X2D has the config block of Bambu Stu
     _ = try pj2.writeGcode(&out2.writer);
     try testing.expect(std.mem.indexOf(u8, out2.written(), "CONFIG_BLOCK") == null);
 }
+
+test "plate job: a PLA part with a PETG support interface, and a tower for each" {
+    const gpa = testing.allocator;
+    // A post with a shelf on one side, 4 mm over the bed: support under
+    // the shelf, with interface layers under it.
+    var b: mesh_mod.Builder = .init(gpa);
+    try mesh_mod.shapes.addBox(&b, 0, 0, 0, 8, 10, 6);
+    try mesh_mod.shapes.addBox(&b, 8, 0, 4, 24, 10, 6);
+    var m = try b.finish();
+    defer m.deinit(gpa);
+    var s: Settings = .{};
+    s.engine.threads = 2;
+    s.machine.filament_change = .tool;
+    s.project.support = .everywhere;
+    s.project.support_interface_filament = 2;
+    var petg = s.filament;
+    petg.material = "PETG";
+    petg.color = "#2050e0";
+    const parts = [_]PartInput{.{ .mesh = &m, .part = 0 }};
+    var pj = try PlateJob.init(gpa, s, &parts, .{ .filaments = &.{petg} });
+    defer pj.deinit();
+    // Two towers: PLA and PETG, apart; filament 1 to the first.
+    const tw = pj.towers();
+    try testing.expectEqual(@as(usize, 2), tw.n);
+    try testing.expect(tw.stacked());
+    try testing.expect(@abs(tw.list[0].x - tw.list[1].x) >= tw.list[0].size * 2 - 1e-9);
+    try testing.expect(tw.of_slot[0] != tw.of_slot[1]);
+    var out: Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    const st = try pj.writeGcode(&out.writer);
+    const g = out.written();
+    // The interface prints with T1; the support body and the part with
+    // T0. Each tower line prints with the filament of its tower.
+    var it = std.mem.splitScalar(u8, g, '\n');
+    var tool: u8 = 0;
+    var feature: []const u8 = "";
+    var iface_t1: usize = 0;
+    var iface_t0: usize = 0;
+    var body_t1: usize = 0;
+    var tower_x: [2]?f64 = .{ null, null };
+    var mixed = false;
+    while (it.next()) |line| {
+        if (std.mem.eql(u8, line, "T0")) tool = 0;
+        if (std.mem.eql(u8, line, "T1")) tool = 1;
+        if (std.mem.startsWith(u8, line, ";TYPE:")) feature = line[6..];
+        const extrudes = std.mem.startsWith(u8, line, "G1 X") and std.mem.indexOf(u8, line, " E") != null;
+        if (!extrudes) continue;
+        if (std.mem.eql(u8, feature, "SUPPORT-INTERFACE")) {
+            if (tool == 1) iface_t1 += 1 else iface_t0 += 1;
+        }
+        if (std.mem.eql(u8, feature, "SUPPORT") and tool == 1) body_t1 += 1;
+        if (std.mem.eql(u8, feature, "PRIME-TOWER")) {
+            const x = std.fmt.parseFloat(f64, line[4 .. std.mem.indexOfScalarPos(u8, line, 4, ' ') orelse line.len]) catch continue;
+            // The tower of this tool: its x side of the gap between them.
+            const mid = (tw.list[0].x + tw.list[1].x) / 2;
+            const side: usize = if ((x > mid) == (tw.list[0].x > mid)) 0 else 1;
+            if (side != tw.of_slot[tool]) mixed = true;
+            tower_x[side] = x;
+        }
+    }
+    try testing.expect(iface_t1 > 0);
+    try testing.expectEqual(@as(usize, 0), iface_t0);
+    try testing.expectEqual(@as(usize, 0), body_t1);
+    try testing.expect(st.changes > 0);
+    // No PETG on the PLA tower, no PLA on the PETG tower.
+    try testing.expect(!mixed);
+    try testing.expect(tower_x[0] != null and tower_x[1] != null);
+    try testing.expect(st.tower_layers[0] > 0 and st.tower_layers[1] > 0);
+}
