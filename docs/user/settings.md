@@ -142,6 +142,18 @@ The speed of the filament during a retraction.
 
 How the printer changes to another filament of the plate. `pause`: one filament path; the print pauses (M600) and you change the filament by hand. `tool`: a unit that feeds many filaments (a Bambu Lab AMS, a Prusa MMU) changes it with a tool change (T0, T1, and on).
 
+**`machine.nozzles`** (integer). Default: `1`
+
+The number of nozzles of the print head: 1, or 2 for a head with a second nozzle (the Bambu Lab X2D and H2D). Each filament prints with its own nozzle (`filament.nozzle`). The firmware calibrates the offset between the nozzles: the G-code has one frame for both.
+
+**`machine.nozzle2_min_x`** (number). Default: `0`
+
+The left edge of the area that the second nozzle reaches, in bed X (mm). The second nozzle of the X2D stops 20.5 mm from the left side of the bed. 0: the whole bed.
+
+**`machine.nozzle2_max_height`** (number). Default: `0`
+
+The highest z that the second nozzle reaches (mm). 0: `max_height`.
+
 **`machine.change_gcode`** (text). Default: `""`
 
 The text of a filament change. Empty: zslice writes the command of the G-code flavor (M600 for a pause, Tn for a tool change). The variables of Bambu Studio and PrusaSlicer work here: {next_extruder}, {previous_extruder}, [next_filament_id], [flush_length], [new_filament_temp], [old_filament_temp], {layer_z}, {max_layer_z}, and {toolchange_count}.
@@ -205,6 +217,10 @@ The type of the plastic, for example "PLA", "PETG", "ABS", or "TPU". The Filamen
 **`filament.color`** (text). Default: `"#d0d0cc"`
 
 The color of the filament, as "#rrggbb". The 3D view draws the print in this color.
+
+**`filament.nozzle`** (integer). Default: `0`
+
+The nozzle of this filament on a printer with two nozzles (`machine.nozzles = 2`): 0 is the main nozzle, 1 is the second one. On the X2D, the AMS feeds the main nozzle, and the external spool feeds the second one. A printer with one nozzle: 0.
 
 **`filament.diameter`** (number). Default: `1.75`
 

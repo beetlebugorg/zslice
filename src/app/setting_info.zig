@@ -251,6 +251,10 @@ const units = [_][2][]const u8{
     .{ "machine.retract_length", "mm" },
     .{ "machine.retract_speed", "mm/s" },
     .{ "machine.change_time", "s" },
+    .{ "machine.nozzles", "nozzles" },
+    .{ "machine.nozzle2_min_x", "mm" },
+    .{ "machine.nozzle2_max_height", "mm" },
+    .{ "filament.nozzle", "nozzle" },
     .{ "machine.flush_volume", "mm\u{b3}" },
     // filament
     .{ "filament.diameter", "mm" },

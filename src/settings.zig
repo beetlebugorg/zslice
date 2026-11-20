@@ -165,6 +165,17 @@ pub const Machine = struct {
     /// Bambu Lab AMS, a Prusa MMU) changes it with a tool change (T0, T1,
     /// and on).
     filament_change: FilamentChange = .pause,
+    /// The number of nozzles of the print head: 1, or 2 for a head with a
+    /// second nozzle (the Bambu Lab X2D and H2D). Each filament prints
+    /// with its own nozzle (`filament.nozzle`). The firmware calibrates the
+    /// offset between the nozzles: the G-code has one frame for both.
+    nozzles: u32 = 1,
+    /// The left edge of the area that the second nozzle reaches, in bed X
+    /// (mm). The second nozzle of the X2D stops 20.5 mm from the left side
+    /// of the bed. 0: the whole bed.
+    nozzle2_min_x: f64 = 0,
+    /// The highest z that the second nozzle reaches (mm). 0: `max_height`.
+    nozzle2_max_height: f64 = 0,
     /// The text of a filament change. Empty: zslice writes the command of
     /// the G-code flavor (M600 for a pause, Tn for a tool change). The
     /// variables of Bambu Studio and PrusaSlicer work here:
@@ -227,6 +238,11 @@ pub const Filament = struct {
     /// The color of the filament, as "#rrggbb". The 3D view draws the
     /// print in this color.
     color: []const u8 = "#d0d0cc",
+    /// The nozzle of this filament on a printer with two nozzles
+    /// (`machine.nozzles = 2`): 0 is the main nozzle, 1 is the second one.
+    /// On the X2D, the AMS feeds the main nozzle, and the external spool
+    /// feeds the second one. A printer with one nozzle: 0.
+    nozzle: u32 = 0,
     /// The diameter of the filament.
     diameter: f64 = 1.75,
     /// g/cm^3. For the filament weight in the statistics.
@@ -1128,6 +1144,10 @@ test "resolve derives layers and speeds" {
 /// test checks that each number setting has a limit, and each default is
 /// in it.
 pub const limits = [_]struct { []const u8, f64, f64 }{
+    .{ "machine.nozzles", 1, 2 },
+    .{ "machine.nozzle2_min_x", 0, 1000 },
+    .{ "machine.nozzle2_max_height", 0, 1000 },
+    .{ "filament.nozzle", 0, 1 },
     // machine
     .{ "machine.bed_size_x", 10, 2000 },
     .{ "machine.bed_size_y", 10, 2000 },
@@ -1405,6 +1425,7 @@ pub const part_z: f64 = 1e5;
 /// The machine and engine settings are for the whole slice too.
 pub const plate_settings = [_][]const u8{
     "filament.name",                  "filament.material",          "filament.color",
+    "filament.nozzle",
     "filament.diameter",              "filament.density",           "filament.price_per_kg",
     "filament.nozzle_temp",           "filament.first_layer_nozzle_temp", "filament.bed_temp",
     "filament.standby_temp",          "filament.fan_speed",         "filament.fan_off_layers",

@@ -45,6 +45,10 @@ pub const PlateInfo = struct {
     /// The filaments of a print with more than one: each with its slot of
     /// the AMS. When it has any, they replace material and color.
     filaments: []const FilamentUse = &.{},
+    /// The nozzles of the printer: 2 for a head with a second nozzle (the
+    /// X2D). Then the file tells the nozzle of each filament
+    /// (filament_maps, group_id), as Bambu Studio writes it.
+    nozzles: u32 = 1,
 };
 
 /// A filament of the print, for the slice info of a .gcode.3mf file.
@@ -56,6 +60,8 @@ pub const FilamentUse = struct {
     color: []const u8,
     meters: f64,
     grams: f64,
+    /// The nozzle of the filament on a printer with two: 0 main, 1 second.
+    nozzle: u32 = 0,
 };
 
 /// `text` with the 5 special characters of XML escaped.
@@ -91,10 +97,36 @@ fn sliceInfo(a: Allocator, info: PlateInfo) Allocator.Error![]u8 {
     ww.print("    <metadata key=\"prediction\" value=\"{d}\"/>\n", .{@as(i64, @intFromFloat(@round(@max(0, info.seconds))))}) catch return error.OutOfMemory;
     ww.print("    <metadata key=\"weight\" value=\"{d:.2}\"/>\n", .{@max(0, info.grams)}) catch return error.OutOfMemory;
     if (info.nozzle > 0) ww.print("    <metadata key=\"nozzle_diameters\" value=\"{d}\"/>\n", .{info.nozzle}) catch return error.OutOfMemory;
+    // Two nozzles: the extruder of each filament (from 1), for the ids
+    // 1 to the last filament of the print; a filament that the print does
+    // not use gets extruder 1.
+    const two = info.nozzles >= 2 and info.filaments.len > 0;
+    if (two) {
+        var last: u32 = 0;
+        for (info.filaments) |f| last = @max(last, f.id);
+        ww.writeAll("    <metadata key=\"filament_maps\" value=\"") catch return error.OutOfMemory;
+        for (1..last + 1) |id| {
+            var e: u32 = 1;
+            for (info.filaments) |f| if (f.id == id) {
+                e = @as(u32, @min(f.nozzle, 1)) + 1;
+            };
+            ww.print("{s}{d}", .{ if (id > 1) " " else "", e }) catch return error.OutOfMemory;
+        }
+        ww.writeAll("\"/>\n") catch return error.OutOfMemory;
+    }
     for (info.filaments) |f| {
         const color = if (f.color.len == 7 and f.color[0] == '#') f.color else "#FFFFFF";
-        ww.print("    <filament id=\"{d}\" type=\"{s}\" color=\"{s}\" used_m=\"{d:.2}\" used_g=\"{d:.2}\"/>\n", .{ f.id, try xmlText(a, f.kind), try xmlText(a, color), @max(0, f.meters), @max(0, f.grams) }) catch return error.OutOfMemory;
+        ww.print("    <filament id=\"{d}\" type=\"{s}\" color=\"{s}\" used_m=\"{d:.2}\" used_g=\"{d:.2}\"", .{ f.id, try xmlText(a, f.kind), try xmlText(a, color), @max(0, f.meters), @max(0, f.grams) }) catch return error.OutOfMemory;
+        if (two) ww.print(" group_id=\"{d}\"", .{@min(f.nozzle, 1)}) catch return error.OutOfMemory;
+        ww.writeAll("/>\n") catch return error.OutOfMemory;
     }
+    // The nozzles that the print uses.
+    if (two) for (0..2) |g| {
+        var used = false;
+        for (info.filaments) |f| used = used or @min(f.nozzle, 1) == g;
+        if (!used) continue;
+        ww.print("    <nozzle id=\"{d}\" extruder_id=\"{d}\" nozzle_diameter=\"{d}\" volume_type=\"Standard\"/>\n", .{ g, g + 1, if (info.nozzle > 0) info.nozzle else 0.4 }) catch return error.OutOfMemory;
+    };
     if (info.filaments.len == 0 and info.material.len > 0) {
         const color = if (info.color.len == 7 and info.color[0] == '#') info.color else "#FFFFFF";
         ww.print("    <filament id=\"1\" type=\"{s}\" color=\"{s}\" used_m=\"{d:.2}\" used_g=\"{d:.2}\"/>\n", .{ try xmlText(a, info.material), try xmlText(a, color), @max(0, info.meters), @max(0, info.grams) }) catch return error.OutOfMemory;
@@ -118,7 +150,13 @@ pub fn gcode3mfWith(gpa: Allocator, gcode: []const u8, title: []const u8, filame
 /// `gcode3mfWith` and the print time that the slicer predicts (s), which
 /// a printdeck lists with the file.
 pub fn gcode3mfWithTime(gpa: Allocator, gcode: []const u8, title: []const u8, filaments: []const FilamentUse, seconds: f64) (Allocator.Error || std.Io.Writer.Error)![]u8 {
-    var info: PlateInfo = .{ .filaments = filaments, .seconds = seconds };
+    return gcode3mfNozzles(gpa, gcode, title, filaments, seconds, 1);
+}
+
+/// `gcode3mfWithTime` for a printer with `nozzles` nozzles: with 2, the
+/// file tells the nozzle of each filament (FilamentUse.nozzle).
+pub fn gcode3mfNozzles(gpa: Allocator, gcode: []const u8, title: []const u8, filaments: []const FilamentUse, seconds: f64, nozzles: u32) (Allocator.Error || std.Io.Writer.Error)![]u8 {
+    var info: PlateInfo = .{ .filaments = filaments, .seconds = seconds, .nozzles = nozzles };
     for (filaments) |f| {
         info.grams += f.grams;
         info.meters += f.meters;
@@ -413,6 +451,35 @@ test "bambu: the file lists the filaments of the print" {
     defer zipfile.freeAll(gpa, entries2);
     for (entries2) |e| if (std.mem.eql(u8, e.name, "Metadata/slice_info.config")) {
         try std.testing.expect(std.mem.indexOf(u8, e.data, "key=\"prediction\" value=\"755\"") != null);
+    };
+}
+
+test "bambu: two nozzles: the extruder of each filament and the nozzles" {
+    const gpa = std.testing.allocator;
+    const fils = [_]FilamentUse{
+        .{ .id = 1, .kind = "PLA", .color = "#898989", .meters = 3.2, .grams = 9.5 },
+        .{ .id = 3, .kind = "PLA", .color = "#DCDCDC", .meters = 0.4, .grams = 1.2, .nozzle = 1 },
+    };
+    const bytes = try gcode3mfNozzles(gpa, "G28\n", "plaque", &fils, 60, 2);
+    defer gpa.free(bytes);
+    const entries = try zipfile.readAll(gpa, bytes);
+    defer zipfile.freeAll(gpa, entries);
+    var info: []const u8 = "";
+    for (entries) |e| if (std.mem.eql(u8, e.name, "Metadata/slice_info.config")) {
+        info = e.data;
+    };
+    try std.testing.expect(std.mem.indexOf(u8, info, "<metadata key=\"filament_maps\" value=\"1 1 2\"/>") != null);
+    try std.testing.expect(std.mem.indexOf(u8, info, "used_g=\"1.20\" group_id=\"1\"/>") != null);
+    try std.testing.expect(std.mem.indexOf(u8, info, "<nozzle id=\"0\" extruder_id=\"1\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, info, "<nozzle id=\"1\" extruder_id=\"2\"") != null);
+    // One nozzle: no map.
+    const one = try gcode3mfNozzles(gpa, "G28\n", "plaque", &fils, 60, 1);
+    defer gpa.free(one);
+    const e1 = try zipfile.readAll(gpa, one);
+    defer zipfile.freeAll(gpa, e1);
+    for (e1) |e| if (std.mem.eql(u8, e.name, "Metadata/slice_info.config")) {
+        try std.testing.expect(std.mem.indexOf(u8, e.data, "filament_maps") == null);
+        try std.testing.expect(std.mem.indexOf(u8, e.data, "group_id") == null);
     };
 }
 

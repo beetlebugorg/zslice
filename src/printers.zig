@@ -430,6 +430,9 @@ pub const Library = struct {
         }
         // A printer with a unit that feeds many filaments: a tool change,
         // with the change G-code of the maker.
+        // A head with a second nozzle: its reach (the Bambu Lab printer
+        // profile, extruder_printable_area and extruder_printable_height).
+        if (nozzle2Of(m.id)) |n2| try w.print("nozzles = 2\nnozzle2_min_x = {d}\nnozzle2_max_height = {d}\n", .{ n2[0], n2[1] });
         if (changeGcode(m.id)) |g| {
             try w.writeAll("filament_change = \"tool\"\nchange_gcode = ");
             try writeMultiline(w, g);
@@ -437,6 +440,14 @@ pub const Library = struct {
         }
     }
 };
+
+/// The second nozzle of a model with two (the left edge of its area in
+/// bed X, and its highest z), or null: one nozzle. From the machine
+/// presets of the BBL profiles of OrcaSlicer (see REFERENCES.md).
+pub fn nozzle2Of(id: []const u8) ?[2]f64 {
+    if (std.mem.eql(u8, id, "bambu-lab-x2d")) return .{ 20.5, 256 };
+    return null;
+}
 
 /// The filament change G-code of a model (see Machine.change_gcode), or
 /// null. The text of the Bambu Lab X2D comes from its machine preset in

@@ -123,6 +123,25 @@ pub const Context = struct {
     };
 
     /// The filament of slot `i` (from 0), or of the tool now.
+    /// The nozzle of filament slot k: 0 on a printer with one nozzle.
+    fn nozzleOf(c: *const Context, k: u32) u32 {
+        if (c.r.settings.machine.nozzles < 2) return 0;
+        const f = if (k < c.slots.len) c.slots[k] else c.r.settings.filament;
+        return @min(f.nozzle, 1);
+    }
+
+    /// The first filament slot with nozzle `n` (a list index), or null.
+    fn firstOfNozzle(c: *const Context, n: f64) ?u32 {
+        const count: u32 = @intCast(@max(c.slots.len, 1));
+        for (0..count) |k| if (@as(f64, @floatFromInt(c.nozzleOf(@intCast(k)))) == n) return @intCast(k);
+        return null;
+    }
+
+    /// A Bambu Lab printer (machine.model "bambu-lab-...").
+    fn bambu(c: *const Context) bool {
+        return std.mem.startsWith(u8, c.r.settings.machine.model, "bambu-lab");
+    }
+
     fn slot(c: *const Context, i: ?f64) settings_mod.Filament {
         const k: usize = if (i) |v| (if (v >= 0 and v < 64) @intFromFloat(v) else 0) else c.tool;
         if (k < c.slots.len) return c.slots[k];
@@ -234,9 +253,23 @@ pub const Key = enum {
     // Extruders: zslice prints with tool 0.
     tool,
     one,
+    /// The nozzle (0 main, 1 second) of the filament now, of the next
+    /// filament in a change, and of the filament of the list index.
+    nozzle_now,
+    nozzle_next,
+    /// The extruder of each filament, from 1 (filament_map of Bambu
+    /// Studio).
+    filament_extruder,
+    /// The hotend of the filament now or next: -1 on a Bambu Lab printer
+    /// (each filament has one nozzle: Bambu Studio writes -1, and the
+    /// firmware takes the nozzle of each filament from the file), else the
+    /// nozzle.
+    hotend_now,
+    hotend_next,
+    /// machine.nozzles.
+    nozzle_count,
     extruder_used,
-    /// The first filament of each nozzle: 0 for nozzle 0, -1 (none) for
-    /// the others.
+    /// The first filament of each nozzle (the list index), or -1: none.
     first_filament,
     material_tpu,
     // Fixed values: a feature that zslice does not have.
@@ -538,12 +571,12 @@ pub const names = std.StaticStringMap(Entry).initComptime(.{
     .{ "x_after_toolchange", just(.after_x) },
     .{ "y_after_toolchange", just(.after_y) },
     .{ "z_after_toolchange", just(.after_z) },
-    .{ "next_hotend", just(.zero) },
-    .{ "current_hotend", just(.zero) },
-    .{ "next_nozzle_id", just(.zero) },
-    .{ "current_nozzle_id", just(.zero) },
-    .{ "initial_nozzle_id", just(.tool) },
-    .{ "initial_no_support_hotend", just(.tool) },
+    .{ "next_hotend", just(.hotend_next) },
+    .{ "current_hotend", just(.hotend_now) },
+    .{ "next_nozzle_id", just(.nozzle_next) },
+    .{ "current_nozzle_id", just(.nozzle_now) },
+    .{ "initial_nozzle_id", just(.nozzle_now) },
+    .{ "initial_no_support_hotend", just(.hotend_now) },
     .{ "first_non_support_filaments", each(.first_filament) },
     .{ "first_filaments", each(.first_filament) },
     .{ "nozzle_diameter_at_nozzle_id", each(.nozzle_diameter) },
@@ -585,13 +618,13 @@ pub const names = std.StaticStringMap(Entry).initComptime(.{
     .{ "extruder_nr", just(.tool) },
     .{ "next_extruder", just(.next_tool) },
     .{ "previous_extruder", just(.tool) },
-    .{ "num_extruders", just(.one) },
-    .{ "extruders_count", just(.one) },
-    .{ "machine_extruder_count", just(.one) },
+    .{ "num_extruders", just(.nozzle_count) },
+    .{ "extruders_count", just(.nozzle_count) },
+    .{ "machine_extruder_count", just(.nozzle_count) },
     .{ "parallel_printheads_count", just(.one) },
     .{ "total_toolchanges", just(.zero) },
     .{ "is_extruder_used", each(.extruder_used) },
-    .{ "filament_map", each(.one) },
+    .{ "filament_map", each(.filament_extruder) },
 });
 
 // ---- Rendering ----
@@ -1033,8 +1066,16 @@ const Renderer = struct {
             .bottom_thickness => num(p.bottom_thickness),
             .tool => num(@floatFromInt(c.tool)),
             .one => num(1),
-            .extruder_used => .{ .boolean = (index orelse 0) < @as(f64, @floatFromInt(@max(c.slots.len, 1))) },
-            .first_filament => num(if ((index orelse 0) == 0) 0 else -1),
+            .nozzle_now => num(@floatFromInt(c.nozzleOf(c.tool))),
+            .nozzle_next => num(@floatFromInt(c.nozzleOf(if (c.change) |ch| ch.next else c.tool))),
+            .filament_extruder => num(@floatFromInt(c.nozzleOf(if (index) |v| (if (v >= 0 and v < 64) @intFromFloat(v) else 0) else c.tool) + 1)),
+            .hotend_now => num(if (c.bambu()) -1 else @floatFromInt(c.nozzleOf(c.tool))),
+            .hotend_next => num(if (c.bambu()) -1 else @floatFromInt(c.nozzleOf(if (c.change) |ch| ch.next else c.tool))),
+            .nozzle_count => num(@floatFromInt(@max(m.nozzles, 1))),
+            // An extruder (a nozzle) is in use if a filament of the plate
+            // has it.
+            .extruder_used => .{ .boolean = c.firstOfNozzle(index orelse 0) != null },
+            .first_filament => num(if (c.firstOfNozzle(index orelse 0)) |k| @floatFromInt(k) else -1),
             .material_tpu => .{ .boolean = std.ascii.eqlIgnoreCase(f.material, "TPU") },
             .off => .{ .boolean = false },
             .empty_text => .{ .text = "" },
@@ -1856,6 +1897,24 @@ fn testRender(text: []const u8, ctx_in: Context) ![]u8 {
     var ctx = ctx_in;
     _ = try render(testing.allocator, &out.writer, text, &ctx);
     return out.toOwnedSlice();
+}
+
+test "gcode vars: two nozzles of the X2D: the extruder of each filament, and hotend -1" {
+    var r = try testResolved();
+    r.settings.machine.model = "bambu-lab-x2d";
+    r.settings.machine.nozzles = 2;
+    var ext = r.settings.filament;
+    ext.nozzle = 1;
+    const slots = [_]settings_mod.Filament{ r.settings.filament, ext, r.settings.filament };
+    const text = "M[filament_map[0]] M{filament_map[1]} M{filament_map[2]} N[next_nozzle_id] C[current_nozzle_id] T[next_filament_id] H[next_hotend] B[current_hotend] E{num_extruders} U{is_extruder_used[1]} F{first_filaments[1]}";
+    const out = try testRender(text, .{ .r = &r, .slots = &slots, .tool = 0, .change = .{ .next = 1 } });
+    defer testing.allocator.free(out);
+    try testing.expectEqualStrings("M1 M2 M1 N1 C0 T1 H-1 B-1 E2 U1 F1", out);
+    // One nozzle: every filament on extruder 1, and nozzle 0.
+    r.settings.machine.nozzles = 1;
+    const one = try testRender(text, .{ .r = &r, .slots = &slots, .tool = 0, .change = .{ .next = 1 } });
+    defer testing.allocator.free(one);
+    try testing.expectEqualStrings("M1 M1 M1 N0 C0 T1 H-1 B-1 E1 U0 F-1", one);
 }
 
 test "gcode vars: the change G-code of the Bambu Lab X2D" {

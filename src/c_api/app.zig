@@ -580,10 +580,11 @@ fn bambuFileOf(app: *const App, g: []const u8, title: ?[*:0]const u8, out: ?*?[*
         if (k >= list.len) break;
         const f = app_mod.filament_slots.get(app, k) orelse continue;
         if (st.slot_g[k] <= 0) continue;
-        list[n] = .{ .id = @intCast(k + 1), .kind = f.material, .color = f.color, .meters = st.slot_mm[k] / 1000, .grams = st.slot_g[k] };
+        list[n] = .{ .id = @intCast(k + 1), .kind = f.material, .color = f.color, .meters = st.slot_mm[k] / 1000, .grams = st.slot_g[k], .nozzle = f.nozzle };
         n += 1;
     }
-    const bytes = zs.bambu.gcode3mfWithTime(gpa, g, if (title) |t| std.mem.span(t) else "zslice", list[0..n], st.print_time_s) catch return @intFromEnum(Status.out_of_memory);
+    const nozzles = app.settings.machine.nozzles;
+    const bytes = zs.bambu.gcode3mfNozzles(gpa, g, if (title) |t| std.mem.span(t) else "zslice", list[0..n], st.print_time_s, nozzles) catch return @intFromEnum(Status.out_of_memory);
     o.* = bytes.ptr;
     l.* = bytes.len;
     return ok;
