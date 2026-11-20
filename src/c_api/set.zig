@@ -51,10 +51,18 @@ fn sceneOf(alloc: std.mem.Allocator, app: *const App, mode: u32) ?[]u8 {
     return View.appScene(alloc, app, m) catch null;
 }
 
+/// The key of the scene of an app (see View.bytesKey).
+fn sceneKeyOf(app: *const App, mode: u32) ?u64 {
+    if (comptime !render_on) return null;
+    const m: view_api.view_mod.Mode = if (mode <= 5) @enumFromInt(mode) else .print;
+    return View.bytesKey(app.sceneSource() orelse return null, m);
+}
+
 fn newSet(event_fn: ?plate_set.EventFn, user: ?*anyopaque, auto: bool, out: ?*?*Set) c_int {
     const o = out orelse return @intFromEnum(Status.invalid_argument);
     const set = Set.create(gpa, event_fn, user, auto) catch |e| return status(e);
     set.scene_fn = sceneOf;
+    set.scene_key_fn = sceneKeyOf;
     o.* = set;
     return ok;
 }

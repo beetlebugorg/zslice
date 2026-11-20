@@ -145,8 +145,10 @@ static void sync_core(ZgModel *self) {
     zs_app_set_auto_checks(self->core, 1);
     /* The scene of the 3D view of each slice and each simulated print, on
      * the thread of the slice: zs_view_load then only swaps it in (25 to
-     * 110 ms on the UI thread). */
-    zs_app_set_auto_scene(self->core, 1);
+     * 110 ms on the UI thread). The other plates too: their scenes wait
+     * for a switch, and their worker writes the scene bytes of the row of
+     * plates (zs_set_view_sync). */
+    for (size_t i = 0; i < zs_set_count(self->set); i++) zs_app_set_auto_scene(zs_set_app(self->set, i), 1);
 }
 
 /* The active plate changed: the set starts its slice. Notes the time for

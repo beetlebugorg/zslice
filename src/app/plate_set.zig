@@ -84,6 +84,11 @@ pub const EventFn = *const fn (user: ?*anyopaque, plate: usize, event: c_int, pr
 /// not depend on the renderer.
 pub const SceneFn = *const fn (gpa: Allocator, app: *const App, mode: u32) ?[]u8;
 
+/// The key of the scene bytes of the last slice of an app in a color
+/// mode, for the scene bytes of the worker (App.scene_bytes), or null with
+/// no slice.
+pub const SceneKeyFn = *const fn (app: *const App, mode: u32) ?u64;
+
 /// The flags of a plate in a view (enum zs_plate_flag).
 pub const flag_stale: u32 = 1;
 pub const flag_bed_model: u32 = 2;
@@ -224,6 +229,7 @@ pub const Set = struct {
     /// The list or a status changed: an `event_plates` when the lock goes.
     dirty: std.atomic.Value(bool) = .init(false),
     scene_fn: ?SceneFn = null,
+    scene_key_fn: ?SceneKeyFn = null,
     /// The color mode of the scenes (enum zs_view_mode).
     mode: u32 = 0,
     /// The shell uses the scenes: keep the beads of a plate that stops
@@ -991,6 +997,22 @@ pub const Set = struct {
         if (p.app.getState() != .done) return;
         const gen = p.app.done_count.load(.acquire);
         if (p.scene.len > 0 and p.scene_gen == gen and p.scene_mode == set.mode) return;
+        // The bytes that the worker wrote after the slice, if they are of
+        // this slice and of this input.
+        p.app.scene_bytes_on.store(true, .release);
+        if (p.app.takeSceneBytes()) |sb| {
+            const key = if (set.scene_key_fn) |kf| kf(p.app, set.mode) else null;
+            if (sb.gen == gen and key != null and sb.key == key.?) {
+                set.gpa.free(p.scene);
+                p.scene = sb.bytes;
+                set.gpa.destroy(sb);
+                p.scene_gen = gen;
+                p.scene_mode = set.mode;
+                p.scene_serial +%= 1;
+                return;
+            }
+            p.app.freeSceneBytes(sb);
+        }
         const bytes = f(set.gpa, p.app, set.mode) orelse return;
         set.gpa.free(p.scene);
         p.scene = bytes;
@@ -1044,6 +1066,10 @@ pub const Set = struct {
         const items = try arena.alloc(Plan.Item, n);
         const a = set.plates.items[set.active];
         for (set.plates.items, beds, items, set.synced.items, 0..) |p, *bed, *item, *sy, i| {
+            // The worker of each plate writes the scene bytes of its
+            // slices, in the color mode of the view.
+            p.app.scene_bytes_on.store(true, .release);
+            p.app.scene_mode.store(set.mode, .release);
             const s = &p.app.settings;
             bed.* = .{
                 if (s.machine.bed_size_x > 0) @floatCast(s.machine.bed_size_x) else default_bed,

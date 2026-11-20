@@ -176,7 +176,7 @@ export fn zs_app_set_auto_scene(a: ?*App, on: c_int) c_int {
     return ok;
 }
 
-const scene_hook: zs.app.SceneHook = .{ .build = View.buildScene, .free = View.freeScene };
+const scene_hook: zs.app.SceneHook = .{ .build = View.buildScene, .free = View.freeScene, .write = View.sceneBytes };
 
 /// The bed model of model i of a library: the bytes of its mesh and
 /// texture files (see zs_printers_bed; either can be empty).

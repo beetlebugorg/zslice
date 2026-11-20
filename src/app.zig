@@ -143,6 +143,8 @@ pub const SceneSource = struct {
     tp: *const Toolpaths,
     job: ?*const zs.PlateJob,
     part_box: [4]f64,
+    /// The support marks (their rings are in the bytes of a scene).
+    marks: []const zs.support.Mark,
     /// The result that `tp` is, its slice, and its app (see
     /// `App.resultId`).
     result: u64,
@@ -161,6 +163,18 @@ pub const SceneHook = struct {
     build: *const fn (src: SceneSource, mode: u32) ?*anyopaque,
     /// Frees a scene that no view took.
     free: *const fn (scene: *anyopaque) void,
+    /// The scene as bytes (render/view.zig appScene), in `alloc`, for a
+    /// plate set.
+    write: *const fn (alloc: Allocator, src: SceneSource, mode: u32) ?SceneBytes,
+};
+
+/// The bytes of a scene for a plate set (see `App.scene_bytes`).
+pub const SceneBytes = struct {
+    bytes: []u8,
+    /// The key of the input (render/view.zig bytesKey).
+    key: u64,
+    /// The slice (App.done_count).
+    gen: u32 = 0,
 };
 
 /// The kinds of the scenes that the worker builds: the slice, and the
@@ -222,6 +236,13 @@ pub const App = struct {
     /// The scenes of the worker that wait for a view (`takeScene`), for
     /// each SceneKind.
     scenes: [2]std.atomic.Value(?*anyopaque) = .{ .init(null), .init(null) },
+    /// A plate set wants the scene bytes of each slice: the worker writes
+    /// them after the `sliced` event, in `gpa`, and they wait in
+    /// `scene_bytes` for the set (`takeSceneBytes`).
+    scene_bytes_on: std.atomic.Value(bool) = .init(false),
+    scene_bytes: std.atomic.Value(?*SceneBytes) = .init(null),
+    /// A copy of `marks` for the running slice, for the scene bytes.
+    slice_view_marks: []zs.support.Mark = &.{},
 
     // The results. The worker writes them before it sets the state to
     // `done` or `failed`.
@@ -371,6 +392,7 @@ pub const App = struct {
         app.gpa.free(app.slice_overrides);
         app.filaments.deinit(app.gpa);
         app.gpa.free(app.slice_filaments);
+        app.gpa.free(app.slice_view_marks);
         if (app.mesh_out) |*m| m.deinit(app.gpa);
         app.gpa.free(app.file_bytes);
         app.undo.deinit(app.gpa);
@@ -2231,6 +2253,8 @@ pub const App = struct {
         app.slice_overrides = app.gpa.dupe(zs.settings.Override, app.overrides.items) catch &.{};
         app.gpa.free(app.slice_filaments);
         app.slice_filaments = app.gpa.dupe(zs.settings.Filament, app.filaments.items) catch &.{};
+        app.gpa.free(app.slice_view_marks);
+        app.slice_view_marks = app.gpa.dupe(zs.support.Mark, app.marks.items) catch &.{};
         app.gpa.free(app.slice_marks);
         app.slice_marks = app.sliceMarks() catch &.{};
         try app.makeSlicePlan();
@@ -2666,6 +2690,7 @@ pub const App = struct {
         app.buildScene(.plan, &app.toolpaths);
         app.state.store(.done, .release);
         app.emit(.sliced, 1, 0);
+        app.writeSceneBytes();
         // The check of the print (see `auto_checks`), after the slice
         // shows, with the settings at the start of the slice. A change
         // stops it within a layer; the next slice checks again.
@@ -2820,6 +2845,7 @@ pub const App = struct {
         return .{
             .settings = &app.settings,
             .filaments = app.filaments.items,
+            .marks = app.marks.items,
             .tp = tp,
             .job = if (app.job) |*j| j else null,
             .part_box = app.partBounds() orelse return null,
@@ -2837,6 +2863,7 @@ pub const App = struct {
         const scene = hook.build(.{
             .settings = &app.slice_settings,
             .filaments = app.slice_filaments,
+            .marks = app.slice_view_marks,
             .tp = tp,
             .job = if (app.job) |*j| j else null,
             .part_box = app.part_box,
@@ -2846,6 +2873,45 @@ pub const App = struct {
             .cancel = &app.cancel_flag,
         }, app.scene_mode.load(.acquire)) orelse return;
         if (app.scenes[@intFromEnum(kind)].swap(scene, .acq_rel)) |old| hook.free(old);
+    }
+
+    /// The scene bytes of the slice for a plate set (see `scene_bytes_on`),
+    /// on the worker after the `sliced` event.
+    fn writeSceneBytes(app: *App) void {
+        if (!app.scene_bytes_on.load(.acquire)) return;
+        const hook = app.scene_hook.load(.acquire) orelse return;
+        if (app.cancel_flag.load(.acquire)) return;
+        var sb = hook.write(app.gpa, .{
+            .settings = &app.slice_settings,
+            .filaments = app.slice_filaments,
+            .marks = app.slice_view_marks,
+            .tp = &app.toolpaths,
+            .job = if (app.job) |*j| j else null,
+            .part_box = app.part_box,
+            .result = app.resultId(false),
+            .slice = app.sliceId(),
+            .app = app.uid,
+            .cancel = &app.cancel_flag,
+        }, app.scene_mode.load(.acquire)) orelse return;
+        sb.gen = app.done_count.load(.acquire);
+        const p = app.gpa.create(SceneBytes) catch {
+            app.gpa.free(sb.bytes);
+            return;
+        };
+        p.* = sb;
+        if (app.scene_bytes.swap(p, .acq_rel)) |old| app.freeSceneBytes(old);
+    }
+
+    /// The scene bytes of the worker, or null. The caller owns them (in
+    /// `gpa`): free them with `freeSceneBytes`, or take `bytes`, then
+    /// free the struct with gpa.destroy.
+    pub fn takeSceneBytes(app: *App) ?*SceneBytes {
+        return app.scene_bytes.swap(null, .acq_rel);
+    }
+
+    pub fn freeSceneBytes(app: *App, sb: *SceneBytes) void {
+        app.gpa.free(sb.bytes);
+        app.gpa.destroy(sb);
     }
 
     /// The scene of `kind` that the worker built, or null. The caller
@@ -2862,6 +2928,7 @@ pub const App = struct {
     }
 
     fn dropScenes(app: *App) void {
+        if (app.scene_bytes.swap(null, .acq_rel)) |sb| app.freeSceneBytes(sb);
         app.dropScenesWith(app.scene_hook.load(.acquire) orelse return);
     }
 

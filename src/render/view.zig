@@ -647,13 +647,27 @@ pub const View = struct {
     /// The parts of a load that do not come from the toolpaths: the bed,
     /// the support marks and areas, and the modifier volumes.
     fn loadDecor(v: *View, app: *const app_mod.App) Error!void {
-        const s = app.settings;
         v.gcode = null;
         v.position = null;
         v.home_dist = 2.8;
+        // The support areas of the user.
+        v.sup_pts.clearRetainingCapacity();
+        v.sup_areas.clearRetainingCapacity();
+        for (app.areas.list.items) |a| {
+            var pts: [256][3]f32 = undefined;
+            const n = @min(a.points.len, pts.len);
+            for (a.points[0..n], pts[0..n]) |p, *q| q.* = .{ @floatCast(p[0]), @floatCast(p[1]), @floatCast(p[2]) };
+            try v.addSupportArea(pts[0..n], @intFromEnum(a.kind), SupportArea.closed);
+        }
+        try v.loadRings(app.marks.items, if (app.job) |*j| j else null, &app.settings);
+    }
+
+    /// The rings of the support marks and of the modifier volumes, and
+    /// the grid of the bed.
+    fn loadRings(v: *View, marks: []const @import("../support.zig").Mark, job: ?*const PlateJob, s: *const @import("../settings.zig").Settings) Error!void {
         // The support marks: a ring at the place and the layer of each.
         v.mark_rings.clearRetainingCapacity();
-        for (app.marks.items) |m| {
+        for (marks) |m| {
             const color: [4]u8 = if (m.kind == .block) .{ 0xe0, 0x31, 0x31, code_overlay } else .{ 0x1c, 0x7e, 0xd6, code_overlay };
             for (0..12) |k| {
                 const t0 = 2 * std.math.pi * @as(f64, @floatFromInt(k)) / 12.0;
@@ -670,19 +684,10 @@ pub const View = struct {
                 }) catch return error.OutOfMemory;
             }
         }
-        // The support areas of the user.
-        v.sup_pts.clearRetainingCapacity();
-        v.sup_areas.clearRetainingCapacity();
-        for (app.areas.list.items) |a| {
-            var pts: [256][3]f32 = undefined;
-            const n = @min(a.points.len, pts.len);
-            for (a.points[0..n], pts[0..n]) |p, *q| q.* = .{ @floatCast(p[0]), @floatCast(p[1]), @floatCast(p[2]) };
-            try v.addSupportArea(pts[0..n], @intFromEnum(a.kind), SupportArea.closed);
-        }
         // The modifier volumes: thin purple rings of their outline at a
         // few heights (they do not print, so the view has no beads for
         // them).
-        if (app.job) |*pj| for (pj.instances) |inst| {
+        if (job) |pj| for (pj.instances) |inst| {
             if (inst.group >= pj.groups.len) continue;
             try v.addVolumeRings(&pj.groups[inst.group].job, inst.dx, inst.dy);
         };
@@ -3775,9 +3780,30 @@ pub const View = struct {
         try t.load(app);
         // A headless load makes no light levels. The scene needs them: the
         // view of the page draws the active plate far from the camera with
-        // them, and a plate scene without them builds them on the UI thread.
-        if (frame_backend) try t.lite.build(gpa, t.beads.items, t.layer_end.items);
+        // them, and a plate scene without them builds them on the UI thread
+        // (readPlateScene).
+        try t.lite.build(gpa, t.beads.items, t.layer_end.items);
         return t.writeScene(alloc);
+    }
+
+    /// `appScene` from a SceneSource, on the thread of the slice (see
+    /// App.scene_hook): the bytes, and their key (`bytesKey`). Null on a
+    /// cancel or an error.
+    pub fn sceneBytes(alloc: std.mem.Allocator, src: app_mod.SceneSource, mode: u32) ?app_mod.SceneBytes {
+        const m = std.enums.fromInt(Mode, mode) orelse .print;
+        var t: View = .{ .renderer = undefined, .headless = true, .width = 1, .height = 1, .mode = m, .cancel = src.cancel };
+        defer t.deinitData();
+        t.loadRings(src.marks, src.job, src.settings) catch return null;
+        t.buildBeads(src) catch return null;
+        t.lite.build(gpa, t.beads.items, t.layer_end.items) catch return null;
+        const bytes = t.writeScene(alloc) catch return null;
+        return .{ .bytes = bytes, .key = bytesKey(src, m) };
+    }
+
+    /// The key of the bytes of `appScene`: the key of the beads
+    /// (`sceneKey`) and the support marks.
+    pub fn bytesKey(src: app_mod.SceneSource, mode: Mode) u64 {
+        return std.hash.Wyhash.hash(sceneKey(src, mode), std.mem.sliceAsBytes(src.marks));
     }
 
     pub fn loadPlate(v: *View, i: usize, app: *const app_mod.App) Error!void {
@@ -5944,7 +5970,7 @@ test "the scenes of the worker have the lists of a load, and a load takes them" 
     const app = try app_mod.App.create(g, null, null);
     defer app.destroy();
     try app.loadStl("demo.stl", stl.written());
-    const hook: app_mod.SceneHook = .{ .build = View.buildScene, .free = View.freeScene };
+    const hook: app_mod.SceneHook = .{ .build = View.buildScene, .free = View.freeScene, .write = View.sceneBytes };
     app.setSceneHook(&hook);
     app.scene_mode.store(@intFromEnum(Mode.features), .release);
     app.auto_simulate = true;
@@ -5977,6 +6003,15 @@ test "the scenes of the worker have the lists of a load, and a load takes them" 
         defer View.freeScene(t);
         try same(&want[k], t);
     }
+    // The scene bytes of the worker are the bytes of appScene.
+    app.show_sim = false;
+    const src = app.sceneSource().?;
+    const sb = View.sceneBytes(g, src, @intFromEnum(Mode.features)).?;
+    defer g.free(sb.bytes);
+    const want_bytes = try View.appScene(g, app, .features);
+    defer g.free(want_bytes);
+    try std.testing.expectEqualSlices(u8, want_bytes, sb.bytes);
+    try std.testing.expectEqual(View.bytesKey(src, .features), sb.key);
     // A load of the same input keeps the beads; another mode builds them.
     app.show_sim = true;
     const beads = want[1].beads.items.ptr;
