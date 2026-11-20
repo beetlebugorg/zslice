@@ -102,6 +102,14 @@ pub const WebFrame = extern struct {
     part: Push = .{ .mvp = @splat(0), .vec = .{ 0, 0, 0, 0 } },
     part_draws: usize = 0,
     part_draws_count: u32 = 0,
+    /// The last change of the instances, if it changed only the beads
+    /// patch_first .. patch_end of the instances of generation
+    /// patch_from. A shell with the instances of patch_from uploads only
+    /// those beads. After a change of all instances, patch_from is
+    /// instances_gen.
+    patch_from: u32 = 0,
+    patch_first: u32 = 0,
+    patch_end: u32 = 0,
 };
 
 comptime {
@@ -183,6 +191,23 @@ pub const Renderer = struct {
         r.instances.appendSliceAssumeCapacity(marks);
         r.out.instances = @intFromPtr(r.instances.items.ptr);
         r.out.instance_count = @intCast(r.instances.items.len);
+        r.newInstances();
+    }
+
+    /// A new generation of all instances.
+    fn newInstances(r: *Renderer) void {
+        r.out.instances_gen +%= 1;
+        r.out.patch_from = r.out.instances_gen;
+        r.out.patch_first = 0;
+        r.out.patch_end = 0;
+    }
+
+    /// The caller changed the instances first .. end in place (in
+    /// `instances`): a new generation, with the patch of these beads.
+    pub fn patchInstances(r: *Renderer, first: usize, end: usize) void {
+        r.out.patch_from = r.out.instances_gen;
+        r.out.patch_first = @intCast(first);
+        r.out.patch_end = @intCast(end);
         r.out.instances_gen +%= 1;
     }
 
@@ -192,7 +217,7 @@ pub const Renderer = struct {
         std.mem.swap(std.ArrayList(Instance), &r.instances, list);
         r.out.instances = @intFromPtr(r.instances.items.ptr);
         r.out.instance_count = @intCast(r.instances.items.len);
-        r.out.instances_gen +%= 1;
+        r.newInstances();
     }
 
     /// The instance buffer for `n` beads, for the caller to fill in place.
@@ -201,7 +226,7 @@ pub const Renderer = struct {
         r.instances.resize(gpa, n) catch return error.OutOfMemory;
         r.out.instances = @intFromPtr(r.instances.items.ptr);
         r.out.instance_count = @intCast(n);
-        r.out.instances_gen +%= 1;
+        r.newInstances();
         return r.instances.items;
     }
 

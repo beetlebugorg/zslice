@@ -1908,6 +1908,12 @@ typedef struct {
     zs_web_push part;
     const zs_web_draw *part_draws;
     uint32_t part_draws_count;
+    /* The last change of the instances, if it changed only the beads
+     * patch_first .. patch_end of the instances of generation patch_from
+     * (a change of the yellow paths of a selection). A shell with the
+     * instances of patch_from can upload only those beads; else it uploads
+     * all, as for any new instances_gen. */
+    uint32_t patch_from, patch_first, patch_end;
 } zs_web_frame;
 const zs_web_frame *zs_view_web_frame(const zs_view *view);
 

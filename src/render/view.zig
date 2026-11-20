@@ -3280,6 +3280,8 @@ pub const View = struct {
     /// path. The beads go to the GPU again (only on a change of the
     /// selection).
     pub fn setMore(v: *View, paths: []const usize) Error!void {
+        if (frame_backend and !v.headless and v.renderer.instances.items.len == v.beads.items.len + v.marks.items.len)
+            return v.patchMore(paths);
         v.more.clearRetainingCapacity();
         v.more.appendSlice(gpa, paths) catch return error.OutOfMemory;
         if (paths.len == 0) return v.renderer.setInstances(v.beads.items, v.marks.items);
@@ -3290,6 +3292,45 @@ pub const View = struct {
             for (copy[v.path_start.items[p]..v.path_start.items[p + 1]]) |*b| b.rgba = .{ 0xff, 0xc7, 0x0d, b.rgba[3] };
         }
         try v.renderer.setInstances(copy, v.marks.items);
+    }
+
+    /// `setMore` on a frame backend: it changes the color of the beads of
+    /// the paths that join or leave the selection, in the instances of the
+    /// renderer, and the shell uploads only the range of these beads. A
+    /// drag of the Select tool over the layers changes the selection at
+    /// each layer: on nine Benchies (800 000 beads), each step sent all
+    /// 27 MB of instances to the GPU.
+    fn patchMore(v: *View, paths: []const usize) Error!void {
+        const n_paths = v.path_start.items.len -| 1;
+        // Bit 1: in the old selection; bit 2: in the new one.
+        const state = gpa.alloc(u2, n_paths) catch return error.OutOfMemory;
+        defer gpa.free(state);
+        @memset(state, 0);
+        for (v.more.items) |p| if (p < n_paths) {
+            state[p] |= 1;
+        };
+        for (paths) |p| if (p < n_paths) {
+            state[p] |= 2;
+        };
+        const inst = v.renderer.instances.items;
+        var lo: usize = inst.len;
+        var hi: usize = 0;
+        inline for (.{ v.more.items, paths }) |list| for (list) |p| {
+            if (p >= n_paths) continue;
+            const st = state[p];
+            // A path in both selections, or done already, stays.
+            if (st == 0 or st == 3) continue;
+            state[p] = 0;
+            const a = v.path_start.items[p];
+            const b = v.path_start.items[p + 1];
+            for (inst[a..b], v.beads.items[a..b]) |*d, s| d.rgba = if (st == 2) .{ 0xff, 0xc7, 0x0d, s.rgba[3] } else s.rgba;
+            lo = @min(lo, a);
+            hi = @max(hi, b);
+        };
+        v.more.clearRetainingCapacity();
+        v.more.appendSlice(gpa, paths) catch return error.OutOfMemory;
+        if (hi < lo) lo = hi;
+        v.renderer.patchInstances(lo, hi);
     }
 
     /// Marks one segment of the highlighted path (the bead `seg` of path

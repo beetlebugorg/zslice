@@ -410,6 +410,11 @@ export class View3D {
     if (!f.part || f.part.buffer !== buf) f.part = new Float32Array(buf, p + 240 + 71 * 4, 28);
     f.partDrawsCount = m[k + 100];
     frameView(f, 20, m[k + 99], f.partDrawsCount, Uint32Array, 12, "partDraws");
+    // The last change of the instances: only the beads patchFirst ..
+    // patchEnd of the instances of generation patchFrom.
+    f.patchFrom = m[k + 101];
+    f.patchFirst = m[k + 102];
+    f.patchEnd = m[k + 103];
     f.m32 = m;
     f.mf32 = this.w.mf32;
     return f;

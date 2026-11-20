@@ -731,6 +731,13 @@ export class GlRenderer {
       // is old.
       this.stageDrop();
     }
+    if (f.instancesGen !== this.gen.instances && f.patchFrom === this.gen.instances && f.instanceCount === this.instanceCount) {
+      // A change of a few beads (the paths of a selection): only them.
+      gl.bindVertexArray(null);
+      gl.bindBuffer(gl.ARRAY_BUFFER, this.instVbo);
+      if (f.patchEnd > f.patchFirst) gl.bufferSubData(gl.ARRAY_BUFFER, f.patchFirst * STRIDE, f.instances, f.patchFirst * STRIDE, (f.patchEnd - f.patchFirst) * STRIDE);
+      this.gen.instances = f.instancesGen;
+    }
     if (f.instancesGen !== this.gen.instances) {
       gl.bindBuffer(gl.ARRAY_BUFFER, this.instVbo);
       const need = (f.instanceCount + MAX_EXTRAS) * STRIDE;
