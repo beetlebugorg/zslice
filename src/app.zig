@@ -132,6 +132,9 @@ pub const Event = enum(c_int) {
     /// The check of the slice is ready (see `auto_checks`): `checks`
     /// returns it at once.
     checked = 7,
+    /// The worker wrote the scene bytes of a slice (see
+    /// `scene_bytes_on`). Only a plate set gets it: it is not in the C API.
+    scene_bytes = 8,
 };
 
 /// The input of a scene of the 3D view (render/view.zig `buildBeads`):
@@ -240,6 +243,8 @@ pub const App = struct {
     /// them after the `sliced` event, in `gpa`, and they wait in
     /// `scene_bytes` for the set (`takeSceneBytes`).
     scene_bytes_on: std.atomic.Value(bool) = .init(false),
+    /// The worker writes scene bytes now: the `scene_bytes` event follows.
+    scene_bytes_coming: std.atomic.Value(bool) = .init(false),
     scene_bytes: [2]std.atomic.Value(?*SceneBytes) = .{ .init(null), .init(null) },
     /// A copy of `marks` for the running slice, for the scene bytes.
     slice_view_marks: []zs.support.Mark = &.{},
@@ -2688,6 +2693,9 @@ pub const App = struct {
         // The scene of the view, before the event: the view of the shell
         // only takes it (see `scene_hook`).
         app.buildScene(.plan, &app.toolpaths);
+        // A plate set waits for the scene bytes of this slice (see
+        // `writeSceneBytes`): it skips a plate whose bytes come.
+        if (app.scene_bytes_on.load(.acquire) and app.scene_hook.load(.acquire) != null) app.scene_bytes_coming.store(true, .release);
         app.state.store(.done, .release);
         app.emit(.sliced, 1, 0);
         app.writeSceneBytes(.plan, &app.toolpaths);
@@ -2757,6 +2765,7 @@ pub const App = struct {
         // The shell can take the result after the event: the lists of the
         // paths stay until the next slice stops this thread.
         const paths = app.sim_pending.?.paths;
+        if (app.scene_bytes_on.load(.acquire) and app.scene_hook.load(.acquire) != null) app.scene_bytes_coming.store(true, .release);
         app.sim_ready.store(true, .release);
         app.emit(.simulated, 1, 0);
         app.writeSceneBytes(.sim, &paths);
@@ -2882,6 +2891,7 @@ pub const App = struct {
     /// The scene bytes of the slice or of its simulated print for a plate
     /// set (see `scene_bytes_on`), on the worker after the event.
     fn writeSceneBytes(app: *App, kind: SceneKind, tp: *const Toolpaths) void {
+        defer app.scene_bytes_coming.store(false, .release);
         if (!app.scene_bytes_on.load(.acquire)) return;
         const hook = app.scene_hook.load(.acquire) orelse return;
         if (app.cancel_flag.load(.acquire)) return;
@@ -2904,6 +2914,8 @@ pub const App = struct {
         };
         p.* = sb;
         if (app.scene_bytes[@intFromEnum(kind)].swap(p, .acq_rel)) |old| app.freeSceneBytes(old);
+        app.scene_bytes_coming.store(false, .release);
+        app.emit(.scene_bytes, 1, 0);
     }
 
     /// The scene bytes of the worker with key `key` and slice `gen`, or
@@ -2941,6 +2953,7 @@ pub const App = struct {
     }
 
     fn dropScenes(app: *App) void {
+        app.scene_bytes_coming.store(false, .release);
         for (&app.scene_bytes) |*slot| if (slot.swap(null, .acq_rel)) |sb| app.freeSceneBytes(sb);
         app.dropScenesWith(app.scene_hook.load(.acquire) orelse return);
     }

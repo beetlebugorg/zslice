@@ -310,6 +310,12 @@ pub const Set = struct {
     fn onAppEvent(user: ?*anyopaque, event: c_int, progress: f64, status: c_int) callconv(.c) void {
         const p: *Plate = @ptrCast(@alignCast(user.?));
         const set = p.set;
+        // New scene bytes of the worker: a sync of the view takes them.
+        if (event == @intFromEnum(@import("../app.zig").Event.scene_bytes)) {
+            set.markDirty();
+            set.emit(no_plate, event_plates, 0, 0);
+            return;
+        }
         set.emit(p.index.load(.acquire), event, progress, status);
         // The progress and the simulated print of a slice that ended
         // change no status.
@@ -1000,6 +1006,9 @@ pub const Set = struct {
         // The bytes that the worker wrote after the slice, if they are of
         // this slice and of this input.
         p.app.scene_bytes_on.store(true, .release);
+        // The worker writes them now: the plate keeps its old bytes, and
+        // the event of the bytes brings a new sync.
+        if (p.app.scene_bytes_coming.load(.acquire)) return;
         const key = if (set.scene_key_fn) |kf| kf(p.app, set.mode) else null;
         if (key != null) if (p.app.takeSceneBytes(key.?, gen)) |sb| {
             set.gpa.free(p.scene);
