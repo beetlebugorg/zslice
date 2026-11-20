@@ -283,6 +283,14 @@ extension Workspace {
                 return true
             }
         }
+        // Command-Shift and a click in the Select tool: the part goes into
+        // the selection of parts, or out of it (Shift alone selects the run
+        // of a line there).
+        if tool == .select, flags.contains(.command), flags.contains(.shift), let i = partAt(p) {
+            clearSelection()
+            togglePart(i)
+            return true
+        }
         guard tool == .move || flags.contains(.command), let i = partAt(p), let info = part(i), let v = canvas.view else {
             return false
         }

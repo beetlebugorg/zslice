@@ -87,9 +87,10 @@ struct LineCard: View {
             .controlSize(.small)
         }
         .padding(14)
-        .frame(width: 320)
+        .spatialSize("line", width: 320)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
         .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(.separator))
+        .spatialGrip("line", size: cardSize)
         .shadow(color: .black.opacity(0.15), radius: 12, y: 4)
         .onGeometryChange(for: CGSize.self) { $0.size } action: { cardSize = $0 }
         .position(place)
@@ -119,14 +120,20 @@ struct LineCard: View {
             .help("Close (Esc)")
         }
         .contentShape(Rectangle())
-        .help("Drag to move the card")
+        .help("Drag to move the card; zslice keeps its place. A double click puts it back.")
         .gesture(DragGesture(coordinateSpace: .global)
             .onChanged { drag = $0.translation }
             .onEnded { g in
                 let c = place
-                workspace.cardMoved = CGPoint(x: c.x + g.translation.width, y: c.y + g.translation.height)
+                let to = CGPoint(x: c.x + g.translation.width, y: c.y + g.translation.height)
+                workspace.cardMoved = to
+                SpatialStore.shared.moved("line", center: to, size: cardSize)
                 drag = .zero
             })
+        .onTapGesture(count: 2) {
+            SpatialStore.shared.forget("line")
+            workspace.cardMoved = nil
+        }
     }
 
     /// Two short lines: the speed and the flow, then the size of the line,
@@ -191,6 +198,8 @@ struct LineCard: View {
     private var place: CGPoint {
         if let m = workspace.cardMoved { return m }
         let box = workspace.selection.flatMap { workspace.lineRect($0.path) }
+        // The place that the user gave the card, when it is clear of the line.
+        if let c = SpatialStore.shared.center("line", size: cardSize, area: area, bottom: workspace.dockHeight, avoiding: box) { return c }
         let (c, corner) = cardCorner(avoiding: box, near: workspace.cardAt, size: cardSize, in: area,
                                      bottom: workspace.dockHeight, keep: workspace.cardCorner, panels: workspace.panels)
         workspace.cardCorner = corner

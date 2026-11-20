@@ -139,6 +139,8 @@ final class Workspace {
     var rangeCard: (lo: Int, hi: Int)?
     /// The Paint tool (PaintTool.swift), while it is on.
     var paint: PaintSession?
+    /// The other lines of a run (Shift and a click) are lit.
+    @ObservationIgnored var runLit = false
     /// The card of a history step over its bubble (HistoryCard.swift).
     var historyCard: HistoryCardState?
     @ObservationIgnored var historyCardTask: Task<Void, Never>?
@@ -1101,6 +1103,31 @@ final class Workspace {
         if let xy = env["ZSLICE_PICK"]?.split(separator: ",").compactMap({ Double($0) }), xy.count == 2 {
             pick(at: CGPoint(x: xy[0], y: xy[1]))
         }
+        // ZSLICE_SPATIAL="kind:x,y,w,h;..." keeps a place (the top left
+        // corner) and a size for a kind of card, as a drag and a resize do.
+        if let spec = env["ZSLICE_SPATIAL"] {
+            for item in spec.split(separator: ";") {
+                let kv = item.split(separator: ":", maxSplits: 1)
+                let n = kv.count == 2 ? kv[1].split(separator: ",").compactMap { Double($0) } : []
+                guard n.count == 4 else { continue }
+                let k = String(kv[0])
+                SpatialStore.shared.resized(k, to: CGSize(width: n[2], height: n[3]))
+                SpatialStore.shared.moved(k, center: CGPoint(x: n[0] + n[2] / 2, y: n[1] + n[3] / 2), size: CGSize(width: n[2], height: n[3]))
+            }
+        }
+        // ZSLICE_RUN_AT=x,y (or center) is a Shift-click of the Select tool:
+        // the line and its run; ZSLICE_RUN_LOG=1 logs the run. 1.5 s later
+        // a plain pick at the same point checks that the run goes.
+        if let spec = env["ZSLICE_RUN_AT"] {
+            let xy = spec.split(separator: ",").compactMap { Double($0) }
+            let at = xy.count == 2 ? CGPoint(x: xy[0], y: xy[1]) : CGPoint(x: canvas.bounds.midX, y: canvas.bounds.midY)
+            pickRun(at: at)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in
+                guard let self else { return }
+                pick(at: at)
+                NSLog("zslice run: after a plain pick, run lit %d", runLit ? 1 : 0)
+            }
+        }
         // ZSLICE_LINE_PAGE=1 opens the page of the picked line.
         if env["ZSLICE_LINE_PAGE"] != nil, selection != nil { showLineSettings() }
         // ZSLICE_DOUBLE_CLICK=x,y: a double click there (as in the GTK app).
@@ -1935,11 +1962,11 @@ extension Workspace: SliceViewDelegate {
             // out); a click on a line selects it too.
             if NSEvent.modifierFlags.contains(.shift), let i = partAt(p) { togglePart(i) } else if let i = partAt(p) { selectOnlyPart(i) } else { selectPart(nil); pick(at: p) }
         case .select:
-            // Shift and a click: the part under the pointer goes into the
-            // selection of parts, or out of it (web/app/input.js).
-            if NSEvent.modifierFlags.contains(.shift), let i = partAt(p) {
-                clearSelection()
-                togglePart(i)
+            // Shift and a click: the line there and its run, from the
+            // retraction before it to the next one (web/app/input.js).
+            // Command-Shift and a click add a part (press).
+            if NSEvent.modifierFlags.contains(.shift) {
+                pickRun(at: p)
             } else if !selectSupport(at: p) {
                 clearSupportPick()
                 pick(at: p)

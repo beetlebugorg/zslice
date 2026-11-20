@@ -45,13 +45,8 @@ struct PartCard: View {
                     .help("Close (Esc)")
                 }
                 .contentShape(Rectangle())
-                .gesture(DragGesture()
-                    .onChanged { drag = $0.translation }
-                    .onEnded { g in
-                        let c = place
-                        moved = CGPoint(x: c.x + g.translation.width, y: c.y + g.translation.height)
-                        drag = .zero
-                    })
+                .gesture(headDrag)
+                .onTapGesture(count: 2) { resetPlace() }
                 HStack {
                     Text(String(format: "%.1f × %.1f × %.1f mm · turned %.0f°", p.size_x, p.size_y, p.size_z, p.rotation))
                         .font(.callout.monospacedDigit())
@@ -135,9 +130,10 @@ struct PartCard: View {
                 .fixedSize()
             }
             .padding(14)
-            .frame(width: 300)
+            .spatialSize("part", width: 300)
             .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
             .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(.separator))
+            .spatialGrip("part", size: cardSize)
             .shadow(color: .black.opacity(0.15), radius: 12, y: 4)
             .onGeometryChange(for: CGSize.self) { $0.size } action: { cardSize = $0 }
             .position(place)
@@ -162,6 +158,9 @@ struct PartCard: View {
                 .buttonStyle(.borderless)
                 .help("Close (Esc)")
             }
+            .contentShape(Rectangle())
+            .gesture(headDrag)
+            .onTapGesture(count: 2) { resetPlace() }
             Text(String(format: "%.1f × %.1f mm on the bed", x1 - x0, y1 - y0))
                 .font(.callout.monospacedDigit())
                 .foregroundStyle(.secondary)
@@ -182,9 +181,10 @@ struct PartCard: View {
                 .fixedSize(horizontal: false, vertical: true)
         }
         .padding(14)
-        .frame(width: 300)
+        .spatialSize("part", width: 300)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
         .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(.separator))
+        .spatialGrip("part", size: cardSize)
         .shadow(color: .black.opacity(0.15), radius: 12, y: 4)
         .onGeometryChange(for: CGSize.self) { $0.size } action: { cardSize = $0 }
         .position(place)
@@ -200,11 +200,32 @@ struct PartCard: View {
     /// card that the user moved stays.
     @State private var cardSize = CGSize(width: 300, height: 220)
 
+    /// A drag of the head moves the card, and zslice keeps its place.
+    private var headDrag: some Gesture {
+        DragGesture()
+            .onChanged { drag = $0.translation }
+            .onEnded { g in
+                let c = place
+                let to = CGPoint(x: c.x + g.translation.width, y: c.y + g.translation.height)
+                moved = to
+                SpatialStore.shared.moved("part", center: to, size: cardSize)
+                drag = .zero
+            }
+    }
+
+    /// A double click on the head: the place and the size go.
+    private func resetPlace() {
+        SpatialStore.shared.forget("part")
+        moved = nil
+    }
+
     private var place: CGPoint {
         if let moved { return moved }
         let at = CGPoint(x: area.width - 92 - cardSize.width / 2, y: 236)
         // Clear of all selected parts.
         let box = workspace.selectedParts.compactMap { workspace.partRect($0) }.reduce(nil as CGRect?) { acc, r in acc.map { $0.union(r) } ?? r }
+        // The place that the user gave the card, when it is clear of them.
+        if let c = SpatialStore.shared.center("part", size: cardSize, area: area, bottom: workspace.dockHeight + 12, avoiding: box) { return c }
         return cardPlace(avoiding: box, near: at, size: cardSize, in: area, bottom: workspace.dockHeight + 12, panels: workspace.panels)
     }
 }

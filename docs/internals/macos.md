@@ -243,6 +243,7 @@ A card never covers the thing that was clicked, or a panel:
 - The line card goes to a corner (`cardCorner`), and keeps its corner while that corner stays clear.
 - The panels are the details, the check panel, the gap summary, and the card of a tool. Each marks itself with `.panel()`, a preference of its frame (`PanelFramesKey`). The window keeps the frames and the origin of the layer of the cards, so the placement can compare them. This is the rule of `freeArea` in web/app/place.js.
 - The Turn, Grab, and Paint tools show no part card.
+- **Spatial cards** (`Views/SpatialCards.swift`, as web/app/spatial.js): the line card, the part card, the range card, and the history card each keep one place and one size (`SpatialStore`, in `prefs` under `spatial.v1`). A drag of the head keeps the place, and the grip at the lower right corner keeps the size; the kept height is a least height. A card opens at its kept place, moved inside the view, unless there it covers the box of the clicked thing; then `cardPlace` places it for this time. A double click on the head forgets both.
 
 ### The settings drawer
 
@@ -289,10 +290,11 @@ The tool strip picks the tool of the mouse; each tool has a key.
 ### Select (V)
 
 - **A line**: a click selects it: `zs_view_pick_segment` on the 3D page, and `zs_view_pick_layer` in mm on the 2D page. The view shows the path in yellow and the segment in orange.
-- **The line card** shows the feature and the layer, the planned speed, the real speed, and the flow, why the line is slow (`zs_inspect.slow_text`), its size (`zs_app_measure`), and the settings that matter most for it (`zs_app_inspect_picks`), each with its reason and a live editor. "Fade the Others" shows the other lines as ghosts (`zs_view_isolate`), and the app keeps the choice. "All Settings…" opens the drawer on all the settings that change the line. A drag of the head of the card moves it.
+- **The line card** shows the feature and the layer, the planned speed, the real speed, and the flow, why the line is slow (`zs_inspect.slow_text`), its size (`zs_app_measure`), and the settings that matter most for it (`zs_app_inspect_picks`), each with its reason and a live editor. "Fade the Others" shows the other lines as ghosts (`zs_view_isolate`), and the app keeps the choice. "All Settings…" opens the drawer on all the settings that change the line. A drag of the head of the card moves it (see the cards and the panels).
 - **After a new slice**, the app finds the same line again: it keeps the layer, the feature, and the middle point of the line, and `zs_app_pick_feature` gives the nearest line of the same feature there.
 - **The keys of a line**: Left and Right step along the print (Shift, or Shift-H and Shift-L: a whole line, `zs_view_step`). Up and Down (or k and j) go to the nearest line on the layer above or below (`zs_view_nearest_on_layer`); Control-F and Control-B go a page of layers. C shows the layers up to the line, and Esc clears the selection. The layer slider follows the selection.
-- **Parts**: Shift-click adds the part under the pointer to the selection of parts, or takes it out (`togglePart`, `zs_view_part_boxes`).
+- **A run**: Shift-click selects the line and lights its run (`pickRun`): `zs_app_path_run` gives the first and the last path from the retraction before the line to the next one on its layer, and `zs_view_highlight_more` lights the others (at most 20 000). A note gives the count. The next `showSelection` clears them.
+- **Parts**: Command-Shift-click adds the part under the pointer to the selection of parts, or takes it out (`togglePart`, `zs_view_part_boxes`). In the Move and Turn tools, Shift-click does it too.
 - **A range of layers**: a left drag that starts on a line lights a range of layers (`LayerRange.swift`, `zs_view_light_layers`), and Shift-K and Shift-J grow one with the keys. The card of the range edits settings in the scope of those layers.
 - **A support**: a click on a support line selects that support (`SupportPick.swift`).
 
@@ -427,6 +429,8 @@ Like the GTK shell, the app reads environment variables for tests and screenshot
 - `ZSLICE_LAYERS=lo,hi` sets the layer range after the first slice (layer numbers from 1). `ZSLICE_TIME=t` shows the replay at t seconds.
 - `ZSLICE_MODE=n` sets the colors (0 filament, 1 line type, 2 speed, 3 flow, 4 layer time, 5 line width).
 - `ZSLICE_PICK=x,y` picks the line at that point (in points) after the first slice, as a click does. `ZSLICE_DOUBLE_CLICK=x,y` is a double click there. `ZSLICE_CARD_LOG=1` logs the screen box of a clicked line.
+- `ZSLICE_RUN_AT=x,y` (or `center`) is a Shift-click of the Select tool; `ZSLICE_RUN_LOG=1` logs the run, and a plain pick 1.5 s later logs that the run is cleared.
+- `ZSLICE_SPATIAL="kind:x,y,w,h;..."` keeps a place (the top left corner) and a size for a kind of card (`line`, `part`, `range`, `history`), as a drag and a resize do.
 - `ZSLICE_KEYS=chars` types each key in the view, and logs the tool, the layers shown, the range card, and the selected line after it. An upper case letter has Shift, and `^x` is Control-x.
 - `ZSLICE_LAYER_LOG=1` logs the layer count, and the times and path ends of the top three layers, after each slice.
 - `ZSLICE_BED_BELOW=path.png` turns the view to look up from under the bed 2 s after the start, and writes the window there. Use it with `ZSLICE_PRINTER` set to a printer with a bed model.

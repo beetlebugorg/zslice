@@ -13,6 +13,18 @@ struct RangeCard: View {
     let lo: Int, hi: Int
     let area: CGSize
     @State private var cardSize = CGSize(width: 300, height: 300)
+    @State private var drag: CGSize = .zero
+    @State private var moved: CGPoint?
+
+    /// A place that the user gave the card (a drag now, or kept), when it
+    /// is clear of the lit layers; else beside them.
+    private var place: CGPoint {
+        if let moved { return moved }
+        let box = workspace.rangeRect()
+        if let c = SpatialStore.shared.center("range", size: cardSize, area: area, bottom: workspace.dockHeight + 12, avoiding: box) { return c }
+        return cardPlace(avoiding: box, near: CGPoint(x: area.width / 2, y: area.height / 2), size: cardSize, in: area, bottom: workspace.dockHeight + 12,
+                         panels: workspace.panels)
+    }
 
     /// The settings of the card, in order, when the setting can change for
     /// some layers (RANGE_SETTINGS of web/app/rangecard.js).
@@ -38,6 +50,21 @@ struct RangeCard: View {
                 .buttonStyle(.borderless)
                 .help("Close (Esc)")
             }
+            .contentShape(Rectangle())
+            .help("Drag to move the card; zslice keeps its place. A double click puts it back.")
+            .gesture(DragGesture()
+                .onChanged { drag = $0.translation }
+                .onEnded { g in
+                    let c = place
+                    let to = CGPoint(x: c.x + g.translation.width, y: c.y + g.translation.height)
+                    moved = to
+                    SpatialStore.shared.moved("range", center: to, size: cardSize)
+                    drag = .zero
+                })
+            .onTapGesture(count: 2) {
+                SpatialStore.shared.forget("range")
+                moved = nil
+            }
             if let a, let b {
                 Text(String(format: "z %.2f to %.2f mm · %d %@", a.bottom, b.top, n, n == 1 ? "layer" : "layers"))
                     .font(.callout.monospacedDigit())
@@ -58,14 +85,14 @@ struct RangeCard: View {
             }
         }
         .padding(14)
-        .frame(width: 300)
+        .spatialSize("range", width: 300)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
         .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(.separator))
+        .spatialGrip("range", size: cardSize)
         .shadow(color: .black.opacity(0.15), radius: 12, y: 4)
         .onGeometryChange(for: CGSize.self) { $0.size } action: { cardSize = $0 }
-        // Beside the lit layers.
-        .position(cardPlace(avoiding: workspace.rangeRect(), near: CGPoint(x: area.width / 2, y: area.height / 2), size: cardSize, in: area, bottom: workspace.dockHeight + 12,
-                                panels: workspace.panels))
+        .position(place)
+        .offset(drag)
         .onKeyPress(.escape) {
             workspace.closeRangeCard()
             return .handled

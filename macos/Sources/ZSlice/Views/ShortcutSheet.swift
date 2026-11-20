@@ -17,7 +17,8 @@ struct ShortcutSheet: View {
         ("View", [
             ("Drag, right-drag, two-finger press-drag", "Orbit the view"),
             ("Middle-drag, Shift-drag", "Pan the view"),
-            ("Shift-click", "Add a part to the selection, or take it out"),
+            ("Shift-click", "Select tool: the run of the line, one extrusion from a retraction to the next. Other tools: add a part to the selection, or take it out"),
+            ("Command-Shift-click", "Select tool: add a part to the selection, or take it out"),
             ("Drag from a line (Select)", "Select a range of layers, and edit their settings"),
             ("Click a support line (Select)", "Select that support: drag a tree, or Delete"),
             ("Two-finger scroll, wheel, pinch", "Zoom toward the pointer"),

@@ -111,6 +111,23 @@ extension Workspace {
         inspect()
     }
 
+    /// Shift and a click in the Select tool: the line there, and the other
+    /// lines of its run lit with it (zs_app_path_run: from the retraction
+    /// before the line to the next one on its layer, at most 20 000).
+    func pickRun(at p: CGPoint) {
+        pick(at: p)
+        guard let s = selection, let v = canvas.view else { return }
+        var first = 0, last = 0
+        guard zs_app_path_run(model.core, s.path, &first, &last) == 0, last >= first else { return }
+        let others = Array((first ... last).lazy.filter { $0 != s.path }.prefix(20000))
+        _ = others.withUnsafeBufferPointer { zs_view_highlight_more(v, $0.baseAddress, $0.count) }
+        runLit = true
+        canvas.requestFrame()
+        showNote(last > first ? "A run of \(last - first + 1) lines: one extrusion, from a retraction to the next."
+                              : "A run of one line: it has a retraction before and after it.")
+        if ProcessInfo.processInfo.environment["ZSLICE_RUN_LOG"] != nil { NSLog("zslice run: path %ld, run %ld to %ld", s.path, first, last) }
+    }
+
     func clearSelection() {
         selection = nil
         lineInfo = nil
@@ -123,6 +140,11 @@ extension Workspace {
     /// The highlight of the view (3D and 2D).
     func showSelection() {
         guard let v = canvas.view else { return }
+        // A new selection drops the other lines of a run.
+        if runLit {
+            runLit = false
+            zs_view_highlight_more(v, nil, 0)
+        }
         if let s = selection {
             zs_view_highlight(v, s.path)
             zs_view_highlight_segment(v, s.path, s.seg)

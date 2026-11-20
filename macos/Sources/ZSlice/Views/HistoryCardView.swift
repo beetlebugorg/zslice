@@ -30,6 +30,7 @@ struct HistoryCard: View {
     let origin: CGPoint
     let area: CGSize
     @State private var size = CGSize(width: 300, height: 200)
+    @State private var drag: CGSize = .zero
 
     private var model: SliceModel { workspace.model }
 
@@ -48,7 +49,18 @@ struct HistoryCard: View {
                         Text("\(look.label) · \(s.time.formatted(date: .omitted, time: .standard))" + (i == history.current ? " · now" : ""))
                             .font(.callout).foregroundStyle(.secondary)
                     }
+                    Spacer(minLength: 0)
                 }
+                .contentShape(Rectangle())
+                .help("Drag to move the card; zslice keeps its place. A double click puts it back.")
+                .gesture(DragGesture()
+                    .onChanged { drag = $0.translation }
+                    .onEnded { g in
+                        let c = place
+                        SpatialStore.shared.moved("history", center: CGPoint(x: c.x + g.translation.width, y: c.y + g.translation.height), size: size)
+                        drag = .zero
+                    })
+                .onTapGesture(count: 2) { SpatialStore.shared.forget("history") }
                 if i == 0 {
                     Text("The settings and the plate when the history started.").font(.callout).foregroundStyle(.secondary)
                 } else {
@@ -85,9 +97,10 @@ struct HistoryCard: View {
             }
             .controlSize(.small)
             .padding(14)
-            .frame(width: 300)
+            .spatialSize("history", width: 300)
             .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
             .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(.separator))
+            .spatialGrip("history", size: size)
             .shadow(color: .black.opacity(0.15), radius: 12, y: 4)
             .onGeometryChange(for: CGSize.self) { $0.size } action: { size = $0 }
             .onHover { workspace.historyCardHover($0) }
@@ -95,12 +108,15 @@ struct HistoryCard: View {
             // pointer is gone too.
             .onChange(of: history.focusKey) { if history.focusKey == nil, !workspace.historyCardHovered { workspace.historyCardLater() } }
             .position(place)
+            .offset(drag)
         }
     }
 
-    /// Over the bubble, with a gap of 10, inside the window.
+    /// The place that the user gave the card, when it is clear of the
+    /// bubble; else over the bubble, with a gap of 10, inside the window.
     private var place: CGPoint {
         let a = state.anchor.offsetBy(dx: -origin.x, dy: -origin.y)
+        if let c = SpatialStore.shared.center("history", size: size, area: area, bottom: 0, avoiding: a) { return c }
         let x = max(8 + size.width / 2, min(area.width - 8 - size.width / 2, a.midX))
         let y = max(8 + size.height / 2, a.minY - 10 - size.height / 2)
         return CGPoint(x: x, y: y)

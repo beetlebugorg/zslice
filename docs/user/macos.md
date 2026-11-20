@@ -68,7 +68,15 @@ Click the time to open the details: the notes, the totals, your usual refinement
 
 ### The cards
 
-A click opens a card for what you clicked: a line, a part, a support, or a range of layers. A card never covers the thing that you clicked. It also keeps out of the details, the check panel, and the card of a tool. Drag the head of a card to move it. Esc or × closes it.
+A click opens a card for what you clicked: a line, a part, a support, or a range of layers. A card never covers the thing that you clicked. It also keeps out of the details, the check panel, and the card of a tool. Esc or × closes it.
+
+Put a card where you want it, and zslice keeps it there:
+
+- Drag the head of a card to move it. The next card of that kind opens at the same place, unless there it would cover what you clicked. Then it opens beside that thing for this time.
+- Drag the grip at the lower right corner to resize a card. Its kind keeps the size.
+- Double-click the head to forget the place and the size.
+
+The line card, the part card, the card of a range of layers, and the card of a history step each keep their own place and size.
 
 ### The settings drawer
 
@@ -146,11 +154,13 @@ The card can also edit the line itself:
 - **−10 %** and **+10 %** plastic.
 - **Add a Drop of Plastic Here** (in the context menu of a line): a dot of 1 mm of plastic, to fill a small gap.
 
+Shift-click a line to select its whole run: one extrusion, from the retraction before the line to the next one. The other lines of the run light up with it, and a note says how many lines it has. A new selection ends the run.
+
 Each edit is a step of the history, so Command-Z takes it back, and a project file keeps it. An edit holds to its line: after a change that moves the line, the edit waits. The History page lists the edits under Line Edits, marks the ones that wait, and × removes one.
 
 ### Parts
 
-- **Several parts**: Shift and a click adds a part to the selection, or takes it out. Each selected part gets a frame on the bed. The card of several parts has Duplicate, Arrange the Plate, To a New Plate, and Remove. A drag of one of them, or the arrow keys, moves them all. D and Delete act on all of them.
+- **Several parts**: Command-Shift and a click adds a part to the selection, or takes it out. In the Move and Turn tools, Shift and a click does it too. Each selected part gets a frame on the bed. The card of several parts has Duplicate, Arrange the Plate, To a New Plate, and Remove. A drag of one of them, or the arrow keys, moves them all. D and Delete act on all of them.
 - **Scale**: the part card has the scale of the part in %. When a part is under 3 mm (a file in inches or in meters), the details ask so, with Inches (×25.4) and Meters (×1000).
 - **Copies**: Make [n] in all on the part card makes copies of the part until there are n: on its plate while they fit, then on new plates. To a New Plate moves the part to a new plate with the settings of this one.
 - **A part falls over**: when you turn a part so that it cannot stand, it falls over onto a side that holds it, and a note says so. With support on, it stays where you put it, and the note says that the support holds it.
