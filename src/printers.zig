@@ -536,6 +536,14 @@ pub fn bambuTemplate(id: []const u8, which: enum { start, end }) ?[]const u8 {
     return null;
 }
 
+/// The project_settings.config of a Bambu Studio file of a model (the
+/// X2D: Bambu Studio 02.09.01.70), the base of the project settings of
+/// its .gcode.3mf, or null.
+pub fn bambuProject(id: []const u8) ?[]const u8 {
+    if (std.mem.eql(u8, id, "bambu-lab-x2d")) return @embedFile("printers/bambu/bambu-lab-x2d-project.json");
+    return null;
+}
+
 pub fn changeGcode(id: []const u8) ?[]const u8 {
     if (std.mem.eql(u8, id, "bambu-lab-x2d")) return @embedFile("printers/change/bambu-lab-x2d.gcode");
     return null;

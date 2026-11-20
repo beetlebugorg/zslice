@@ -68,6 +68,12 @@ pub const PlateInfo = struct {
     extruder_types: []const u8 = "Direct Drive",
     default_volumes: []const u8 = "Standard",
     variants: []const u8 = "",
+    /// The project_settings.config of a Bambu Studio file of this model
+    /// (printers.bambuProject), or "": then zslice writes its own few keys.
+    /// zslice writes its values over it (see projectSettings).
+    base_project: []const u8 = "",
+    layer_height: f64 = 0.2,
+    first_layer_height: f64 = 0.2,
 };
 
 /// A JSON list of the parts of `text` between `sep`.
@@ -86,6 +92,13 @@ fn jsonList(w: *std.Io.Writer, key: []const u8, text: []const u8, sep: u8, comma
 /// printer reads to check the file (the model, the nozzles, the plate, and
 /// the filaments). JSON, with each value a string or a list of strings.
 fn projectSettings(a: Allocator, info: PlateInfo) Allocator.Error![]u8 {
+    if (info.base_project.len > 0) {
+        if (overProject(a, info)) |text| return text else |e| switch (e) {
+            error.OutOfMemory => return error.OutOfMemory,
+            // A base that does not parse: the few keys of zslice.
+            else => {},
+        }
+    }
     var w: std.Io.Writer.Allocating = .init(a);
     const ww = &w.writer;
     const n: u32 = @max(info.nozzles, 1);
@@ -142,6 +155,72 @@ fn projectSettings(a: Allocator, info: PlateInfo) Allocator.Error![]u8 {
 }
 
 
+
+/// The project_settings.config of Bambu Studio (`info.base_project`) with
+/// the values of zslice over it: the build plate, the type and the color
+/// of each filament, the layer heights, and the flow of the nozzles. All
+/// the other keys stay as Bambu Studio wrote them for this model: the
+/// printer reads its hotends and extruders from them.
+fn overProject(a: Allocator, info: PlateInfo) ![]u8 {
+    var parsed = try std.json.parseFromSlice(std.json.Value, a, info.base_project, .{});
+    const o = &parsed.value.object;
+    const str = struct {
+        fn v(al: Allocator, text: []const u8) !std.json.Value {
+            return .{ .string = try al.dupe(u8, text) };
+        }
+    }.v;
+    try o.put(a, "curr_bed_type", try str(a, info.bed_type));
+    var lh: [32]u8 = undefined;
+    try o.put(a, "layer_height", try str(a, std.fmt.bufPrint(&lh, "{d}", .{info.layer_height}) catch "0.2"));
+    try o.put(a, "initial_layer_print_height", try str(a, std.fmt.bufPrint(&lh, "{d}", .{info.first_layer_height}) catch "0.2"));
+    // The filaments by id, from 1 to the last of the print.
+    var last: u32 = 1;
+    for (info.filaments) |f| last = @max(last, f.id);
+    var types = std.json.Array.init(a);
+    var colours = std.json.Array.init(a);
+    for (1..last + 1) |id| {
+        var kind: []const u8 = if (info.material.len > 0) info.material else "PLA";
+        var color: []const u8 = if (info.color.len == 7) info.color else "#FFFFFF";
+        for (info.filaments) |f| if (f.id == id) {
+            kind = f.kind;
+            color = if (f.color.len == 7) f.color else "#FFFFFF";
+        };
+        try types.append(try str(a, kind));
+        try colours.append(try str(a, color));
+    }
+    try o.put(a, "filament_type", .{ .array = types });
+    try o.put(a, "filament_colour", .{ .array = colours });
+    // The flow of the nozzles of the user (high flow), for each extruder.
+    if (std.mem.eql(u8, info.nozzle_flow, "High Flow")) {
+        const n: u32 = @max(info.nozzles, 1);
+        var vol = std.json.Array.init(a);
+        var stats = std.json.Array.init(a);
+        for (0..n) |_| {
+            try vol.append(try str(a, "High Flow"));
+            try stats.append(try str(a, "High Flow#1"));
+        }
+        try o.put(a, "nozzle_volume_type", .{ .array = vol });
+        try o.put(a, "extruder_nozzle_volume_type", .{ .array = try vol.clone() });
+        try o.put(a, "extruder_nozzle_stats", .{ .array = stats });
+        try o.put(a, "extruder_nozzle_stats_new", .{ .array = try stats.clone() });
+    }
+    var out: std.Io.Writer.Allocating = .init(a);
+    try std.json.Stringify.value(parsed.value, .{ .whitespace = .indent_4 }, &out.writer);
+    try out.writer.writeByte('\n');
+    return out.toOwnedSlice();
+}
+
+/// The key of a build plate in plate_1.json ("textured_plate") for its
+/// name ("Textured PEI Plate").
+fn bedTypeKey(name: []const u8) []const u8 {
+    const keys = [_][2][]const u8{
+        .{ "Cool Plate", "cool_plate" },         .{ "Engineering Plate", "eng_plate" },
+        .{ "High Temp Plate", "hot_plate" },     .{ "Textured PEI Plate", "textured_plate" },
+        .{ "Supertack Plate", "supertack_plate" },
+    };
+    for (keys) |k| if (std.mem.eql(u8, k[0], name)) return k[1];
+    return "textured_plate";
+}
 
 /// The id of the generic filament of Bambu Studio for a material
 /// (tray_info_idx), or "".
@@ -337,21 +416,52 @@ pub fn gcode3mfPlate(gpa: Allocator, gcode: []const u8, title: []const u8, info:
         \\</model>
         \\
     , .{try xmlText(a, title)});
-    const settings =
+    // The plate of model_settings.config, as Bambu Studio writes it: with
+    // the extruder of each filament (filament_maps), the map mode, and
+    // the volume map, which a printer with two nozzles reads.
+    var maps: std.Io.Writer.Allocating = .init(a);
+    {
+        var last: u32 = 1;
+        for (info.filaments) |f| last = @max(last, f.id);
+        for (1..last + 1) |id| {
+            var e: u32 = 1;
+            for (info.filaments) |f| if (f.id == id and info.nozzles >= 2) {
+                e = @as(u32, @min(f.nozzle, 1)) + 1;
+            };
+            try maps.writer.print("{s}{d}", .{ if (id > 1) " " else "", e });
+        }
+    }
+    var zeros: std.Io.Writer.Allocating = .init(a);
+    for (0..std.mem.count(u8, maps.written(), " ") + 1) |k| try zeros.writer.print("{s}0", .{if (k > 0) " " else ""});
+    const settings = try std.fmt.allocPrint(a,
         \\<?xml version="1.0" encoding="UTF-8"?>
         \\<config>
         \\  <plate>
         \\    <metadata key="plater_id" value="1"/>
+        \\    <metadata key="plater_name" value=""/>
+        \\    <metadata key="locked" value="false"/>
+        \\    <metadata key="filament_map_mode" value="Manual"/>
+        \\    <metadata key="filament_maps" value="{s}"/>
+        \\    <metadata key="filament_volume_maps" value="{s}"/>
         \\    <metadata key="gcode_file" value="Metadata/plate_1.gcode"/>
+        \\    <metadata key="pattern_bbox_file" value="Metadata/plate_1.json"/>
         \\  </plate>
         \\</config>
         \\
-    ;
+    , .{ maps.written(), zeros.written() });
+    // plate_1.json: the plate type, the filaments, and the nozzle.
+    var pj: std.Io.Writer.Allocating = .init(a);
+    try pj.writer.print("{{\"bed_type\":\"{s}\",\"filament_colors\":[", .{bedTypeKey(info.bed_type)});
+    for (info.filaments, 0..) |f, k| try pj.writer.print("{s}\"{s}\"", .{ if (k > 0) "," else "", if (f.color.len == 7) f.color else "#FFFFFF" });
+    try pj.writer.writeAll("],\"filament_ids\":[");
+    for (info.filaments, 0..) |f, k| try pj.writer.print("{s}{d}", .{ if (k > 0) "," else "", f.id - 1 });
+    try pj.writer.print("],\"first_extruder\":0,\"is_seq_print\":false,\"nozzle_diameter\":{d},\"version\":2}}", .{if (info.nozzle > 0) info.nozzle else 0.4});
     const entries = [_]zipfile.Entry{
         .{ .name = "[Content_Types].xml", .data = @constCast(types) },
         .{ .name = "_rels/.rels", .data = @constCast(rels) },
         .{ .name = "3D/3dmodel.model", .data = model },
-        .{ .name = "Metadata/model_settings.config", .data = @constCast(settings) },
+        .{ .name = "Metadata/model_settings.config", .data = settings },
+        .{ .name = "Metadata/plate_1.json", .data = pj.written() },
         .{ .name = "Metadata/plate_1.gcode", .data = @constCast(gcode) },
         .{ .name = "Metadata/plate_1.gcode.md5", .data = md5 },
         .{ .name = "Metadata/slice_info.config", .data = try sliceInfo(a, info) },
@@ -732,4 +842,32 @@ test "bambu: project_settings.config names the model, the nozzles, the plate, an
     const e2 = try zipfile.readAll(gpa, plain);
     defer zipfile.freeAll(gpa, e2);
     for (e2) |e| try std.testing.expect(!std.mem.eql(u8, e.name, "Metadata/project_settings.config"));
+}
+
+test "bambu: the project settings of the X2D are those of Bambu Studio, with the values of zslice" {
+    const gpa = std.testing.allocator;
+    const fils = [_]FilamentUse{
+        .{ .id = 1, .kind = "PETG", .color = "#112233", .meters = 1, .grams = 3 },
+        .{ .id = 2, .kind = "PLA", .color = "#445566", .meters = 1, .grams = 3, .nozzle = 1 },
+        .{ .id = 3, .kind = "ABS", .color = "#778899", .meters = 1, .grams = 3 },
+    };
+    const base = @import("printers.zig").bambuProject("bambu-lab-x2d").?;
+    const bytes = try gcode3mfInfo(gpa, "G28\n", "p", .{ .filaments = &fils, .nozzles = 2, .nozzle = 0.4, .printer_model = "Bambu Lab X2D", .bed_type = "Cool Plate", .base_project = base, .layer_height = 0.16 });
+    defer gpa.free(bytes);
+    const entries = try zipfile.readAll(gpa, bytes);
+    defer zipfile.freeAll(gpa, entries);
+    for (entries) |e| if (std.mem.eql(u8, e.name, "Metadata/project_settings.config")) {
+        const parsed = try std.json.parseFromSlice(std.json.Value, gpa, e.data, .{});
+        defer parsed.deinit();
+        const o = parsed.value.object;
+        // All the keys of Bambu Studio, the hotends too.
+        try std.testing.expect(o.count() >= 637);
+        try std.testing.expectEqualStrings("Standard#1", o.get("extruder_nozzle_stats").?.array.items[1].string);
+        try std.testing.expectEqualStrings("1", o.get("physical_extruder_map").?.array.items[0].string);
+        // The values of zslice.
+        try std.testing.expectEqualStrings("Cool Plate", o.get("curr_bed_type").?.string);
+        try std.testing.expectEqualStrings("0.16", o.get("layer_height").?.string);
+        try std.testing.expectEqual(@as(usize, 3), o.get("filament_type").?.array.items.len);
+        try std.testing.expectEqualStrings("#445566", o.get("filament_colour").?.array.items[1].string);
+    };
 }

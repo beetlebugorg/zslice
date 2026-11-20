@@ -612,6 +612,9 @@ fn bambuFileOf(app: *const App, g: []const u8, title: ?[*:0]const u8, out: ?*?[*
         .extruder_types = if (zs.printers.bambu(m.model)) |b| b.types else "Direct Drive",
         .default_volumes = if (zs.printers.bambu(m.model)) |b| b.volumes else "Standard",
         .variants = if (zs.printers.bambu(m.model)) |b| b.variants else "",
+        .base_project = zs.printers.bambuProject(m.model) orelse "",
+        .layer_height = app.settings.project.layer_height,
+        .first_layer_height = app.settings.project.first_layer_height,
     }) catch return @intFromEnum(Status.out_of_memory);
     o.* = bytes.ptr;
     l.* = bytes.len;
