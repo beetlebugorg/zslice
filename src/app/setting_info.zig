@@ -361,6 +361,7 @@ const units = [_][2][]const u8{
     .{ "project.support_interface_filament", "slot" },
     .{ "project.flush_multiplier", "%" },
     .{ "project.prime_tower_width", "mm" },
+    .{ "project.paint_anchor_depth", "mm" },
     .{ "project.prime_tower_x", "mm" },
     .{ "project.prime_tower_y", "mm" },
     // engine

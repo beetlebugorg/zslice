@@ -19,6 +19,18 @@ Click the Filament button in the top bar. It shows a dot for each filament.
 
 Each change of filament is a filament change in the G-code. A printer with a unit that feeds many filaments (a Bambu Lab AMS, a Prusa MMU) changes it alone. Any other printer stops (M600), and you change the filament by hand.
 
+## Painted features hold to the part
+
+A painted feature that stands on the part, for example a raised frame or a raised letter, can break off. So zslice grows the feature down into the part as a root:
+
+- The root goes 1 mm into the part under the feature. Search for **paint anchor depth** to change the depth. 0 turns the root off.
+- The root stays inside the walls of the part. The outside of the part keeps its color.
+- The root replaces the infill of the part under the feature. Nobody sees it.
+- A feature on the bed gets no root. The part of a feature over air gets no root.
+- **Paint anchor shape**: **Footprint** fills all the area under the feature. **Core** fills only the middle. A thin feature gets no core.
+
+Each layer of the root can add a filament change. A 1 mm root on 0.2 mm layers adds up to 5 changes. A layer that already has both filaments gets no new change. After a change, the nozzle prints the root first, and the root gets a part of the flush. To see the root, look at the layers under the feature.
+
 ## Support in its own filament
 
 Search for **support filament**, and pick a chip:

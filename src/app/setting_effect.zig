@@ -139,6 +139,8 @@ const preview_notes = [_]struct { []const u8, [:0]const u8 }{
     .{ "project.filament", "The filament of the part or of the layers: the color of its lines, and the filament changes in the G-code." },
     .{ "project.support_filament", "The filament of the support: the color of the support lines, and the filament changes in the G-code." },
     .{ "project.support_interface_filament", "The filament of the support interface: the color of its lines, and the filament changes in the G-code." },
+    .{ "project.paint_anchor_depth", "The root of a painted feature in the part under it: lines of the paint color under the feature, inside the walls. Only a painted part has it. Look at the layers under the feature." },
+    .{ "project.paint_anchor_shape", "The shape of the root of a painted feature in the part under it. Only a painted part has it. Look at the layers under the feature." },
     .{ "engine.threads", "The number of threads of the slicer. The result is the same." },
     .{ "engine.job_name", "The name of the print, for the start G-code." },
 };

@@ -3314,6 +3314,19 @@ test "app: paint goes into the 3MF and comes back with undo, and the slice has t
     const st = app.result().?;
     try testing.expect(st.slot_g[1] > 0);
     try testing.expect(st.changes >= 1);
+    // The view shows the root of the letter (paint_split.zig): lines of
+    // filament 2 on the layers under the top of the base (z 3).
+    const tp = app.allToolpaths().?;
+    var root_layers: usize = 0;
+    var first: usize = 0;
+    for (tp.layer_ends.items, tp.layer_z.items) |end, z| {
+        defer first = end;
+        if (z > 3 - 1e-3) continue;
+        var white = false;
+        for (tp.path_tool.items[first..end]) |t| white = white or t == 1;
+        root_layers += @intFromBool(white);
+    }
+    try testing.expect(root_layers >= 4);
 
     // The 3MF keeps the paint in the attributes of PrusaSlicer and Bambu
     // Studio, and the filaments.

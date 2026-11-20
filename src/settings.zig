@@ -31,6 +31,9 @@ pub const SeamMode = enum { hidden, sharpest, rear, nearest, random };
 /// infill), or the origin of the bed (the infill of all parts lines up).
 pub const InfillAnchor = enum { part, bed };
 pub const WallGenerator = enum { classic, arachne };
+/// The shape of the root of a painted feature. See
+/// `Project.paint_anchor_shape`.
+pub const AnchorShape = enum { footprint, core };
 /// How the top and bottom skin is filled. See `Project.skin_pattern`.
 pub const SkinPattern = enum { lines, monotonic, concentric };
 /// Where the part goes on the bed. See `Project.placement`.
@@ -854,6 +857,20 @@ pub const Project = struct {
     /// materials (see `prime_tower_split`) flushes into the support body
     /// only. The walls and the skin print after.
     flush_into_hidden: bool = true,
+    /// A painted feature that stands on the part, for example a raised
+    /// letter or frame in another filament, grows down into the part by
+    /// this depth (mm). This hidden root of its filament replaces the
+    /// infill of the part under the feature, so the feature holds to the
+    /// part. The root stays inside the walls of the part: the outside of
+    /// the part keeps its color. Each layer of the root adds a filament
+    /// change. 0: no root.
+    paint_anchor_depth: f64 = 1.0,
+    /// The shape of the root of a painted feature (see
+    /// `paint_anchor_depth`). `footprint`: all the area where the feature
+    /// stands on the part, inside the walls of the part. `core`: only the
+    /// middle of that area, inside the walls of the feature. A thin
+    /// feature gets no core.
+    paint_anchor_shape: AnchorShape = .footprint,
 };
 
 /// Options for the engine. They do not change the print.
@@ -1345,6 +1362,7 @@ pub const limits = [_]struct { []const u8, f64, f64 }{
     .{ "project.support_interface_filament", 0, 16 },
     .{ "project.flush_multiplier", 0, 3 },
     .{ "project.prime_tower_width", 5, 100 },
+    .{ "project.paint_anchor_depth", 0, 10 },
     .{ "project.prime_tower_x", -1, 2000 },
     .{ "project.prime_tower_y", -1, 2000 },
     .{ "machine.change_time", 0, 3600 },

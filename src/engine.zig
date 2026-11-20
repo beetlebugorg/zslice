@@ -377,6 +377,10 @@ pub const Job = struct {
         paint: ?PaintClip = null,
     };
 
+    /// The gap (mm) between the walls of a part and the root of a painted
+    /// feature in it (see paint_split.Split.anchor): the walls stay whole.
+    pub const anchor_margin = 0.1;
+
     pub const PaintClip = struct {
         split: *paint_split.Split,
         /// The index of the filament in `split.states`; 0 is the filament
@@ -455,7 +459,18 @@ pub const Job = struct {
             defer gpa.free(cut);
             for (self.layers, cut) |l, *z| z.* = l.sliceZ();
             const frame: paint_split.Frame = .{ .z_base = self.z_base, .z_scale = s.filament.shrinkage_z, .dx = self.dx, .dy = self.dy, .xy_scale = s.filament.shrinkage_xy, .center = self.center };
-            pc.split.compute(self.outlines, cut, frame, self.resolved.line_width, s.project.top_thickness, s.project.bottom_thickness, self.threads) catch |e| return @as(Error, @errorCast(e));
+            // The root of a painted feature stays inside the walls of the
+            // part, and a small margin (see paint_split.Split.anchor).
+            const w = self.resolved.line_width;
+            const roots: paint_split.Anchor = .{
+                .depth = s.project.paint_anchor_depth,
+                .inset = @as(f64, @floatFromInt(s.project.wall_count)) * w + anchor_margin,
+                .shape = switch (s.project.paint_anchor_shape) {
+                    .footprint => .footprint,
+                    .core => .core,
+                },
+            };
+            pc.split.compute(self.outlines, cut, frame, w, s.project.top_thickness, s.project.bottom_thickness, self.threads, roots) catch |e| return @as(Error, @errorCast(e));
         }
         if (pc.split.layers != n) return error.InvalidSettings;
         for (0..n) |i| {

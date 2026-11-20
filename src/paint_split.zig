@@ -85,6 +85,9 @@ pub const Split = struct {
     regions: []Paths = &.{},
     layers: usize = 0,
     done: bool = false,
+    /// The volume (mm³) of the roots of the anchors (see `anchor`), for
+    /// the tests and the stats.
+    anchor_mm3: f64 = 0,
 
     pub fn deinit(s: *Split) void {
         for (s.regions) |*r| r.deinit(s.gpa);
@@ -157,8 +160,9 @@ pub const Split = struct {
     /// The regions of all layers, from the full outline of each layer.
     /// `cut_z[i]`: the cut z of layer i in the frame of the job (before
     /// the z scale). `width`: the line width (mm). `top` and `bottom`: the
-    /// depth (mm) of the color of a painted top or bottom face.
-    pub fn compute(s: *Split, outlines: []const Paths, cut_z: []const f64, frame: Frame, width: f64, top: f64, bottom: f64, threads: usize) anyerror!void {
+    /// depth (mm) of the color of a painted top or bottom face. `roots`:
+    /// the anchors of the painted features (see `anchor`).
+    pub fn compute(s: *Split, outlines: []const Paths, cut_z: []const f64, frame: Frame, width: f64, top: f64, bottom: f64, threads: usize, roots: Anchor) anyerror!void {
         if (s.done) return;
         const gpa = s.gpa;
         const n = outlines.len;
@@ -179,7 +183,123 @@ pub const Split = struct {
         };
         const ctx: Pass = .{ .s = s, .outlines = outlines, .cut_z = cut_z, .frame = frame, .w = geom.fromMm(width), .top = top, .bottom = bottom };
         try parallel.forEach(threads, n, &ctx, Pass.run);
+        if (roots.depth > 0 and s.states.len > 1) try s.anchor(outlines, cut_z, width, top, bottom, roots);
         s.done = true;
+    }
+
+    /// The anchors of the painted features: where a region of a painted
+    /// filament B stands on the region of another filament A (B starts on
+    /// a layer, over A), B grows down into A by `roots.depth`. This root
+    /// of B stays inside the walls of the part, so the outside keeps the
+    /// color of A, and the infill and the inner skin of A give way to it.
+    /// Its shape on each layer is the area where B stands on A, inside
+    /// the walls of the part on that layer and on the layers under it
+    /// (so the root never shows through a bottom face), and inside the
+    /// root of the layer over it (so it never shows through a top face).
+    ///
+    /// A region of B that is only the color of a painted top face (it
+    /// ends within `top` over its start) gets no root: it lies flat on A.
+    /// A region of B on the bed gets no root, and the part of a region of
+    /// B over air gets no root.
+    ///
+    /// Each job of a filament then prints its region as before: B prints
+    /// its walls and infill in the root, and A prints walls around it.
+    /// This is the method of zslice; Cura and OrcaSlicer join two
+    /// materials with an interlocking structure of beams instead (see
+    /// REFERENCES.md).
+    fn anchor(s: *Split, outlines: []const Paths, cut_z: []const f64, width: f64, top: f64, bottom: f64, roots: Anchor) Allocator.Error!void {
+        const gpa = s.gpa;
+        const n = s.layers;
+        const k = s.states.len;
+        if (n < 2) return;
+        var arena_state = std.heap.ArenaAllocator.init(gpa);
+        defer arena_state.deinit();
+        const a = arena_state.allocator();
+        const w = geom.fromMm(width);
+        const eps = 1e-6;
+        // The inside of the walls of the part on each layer, made when a
+        // root needs it.
+        const inner = try a.alloc(?Paths, n);
+        @memset(inner, null);
+        const inset = geom.fromMm(roots.inset);
+        const Inner = struct {
+            fn get(al: Allocator, cache: []?Paths, o: []const Paths, i: usize, d: i64) Allocator.Error!Paths {
+                if (cache[i]) |p| return p;
+                const p = try offset_mod.offset(al, o[i], -d, .{});
+                cache[i] = p;
+                return p;
+            }
+        };
+        // The roots of each layer and state, from the regions before the
+        // roots.
+        const add = try a.alloc(Paths, n * k);
+        @memset(add, .empty);
+        var any = false;
+        for (1..n) |i| for (1..k) |st| {
+            const r = s.region(i, st);
+            if (r.isEmpty()) continue;
+            // The area where B stands on the other filaments: in B on this
+            // layer, and in the part but not in B on the layer under it.
+            const other = try clip.difference(a, outlines[i - 1], s.region(i - 1, st).*);
+            if (other.isEmpty()) continue;
+            var foot = try clip.intersect(a, r.*, other);
+            if (foot.isEmpty()) continue;
+            // B must go on for more than the color of a painted top: B on
+            // the first layer at `top` or more over this layer.
+            var up = i + 1;
+            while (up < n and cut_z[up] < cut_z[i] + top - eps) up += 1;
+            if (up >= n) continue;
+            foot = try clip.intersect(a, foot, s.region(up, st).*);
+            if (roots.shape == .core) foot = try offset_mod.offset(a, foot, -inset, .{});
+            if (foot.isEmpty()) continue;
+            // Down, layer by layer, for the depth.
+            var root = foot;
+            var j = i;
+            while (j > 0 and !root.isEmpty()) {
+                j -= 1;
+                if (cut_z[i - 1] - cut_z[j] > roots.depth - eps) break;
+                // The root keeps the bottom skin under it: stop near the
+                // bed, and stay inside the walls of the layers under it.
+                if (cut_z[j] - cut_z[0] < bottom - eps) break;
+                root = try clip.intersect(a, root, try Inner.get(a, inner, outlines, j, inset));
+                var m = j;
+                while (m > 0 and !root.isEmpty()) {
+                    m -= 1;
+                    if (cut_z[j] - cut_z[m] > bottom + eps) break;
+                    root = try clip.intersect(a, root, try Inner.get(a, inner, outlines, m, inset));
+                }
+                // No piece thinner than one line: it does not print.
+                const thin = try offset_mod.offset(a, try offset_mod.offset(a, root, -@divTrunc(w, 2), .{}), @divTrunc(w, 2), .{});
+                root = try clip.intersect(a, thin, root);
+                if (root.isEmpty()) break;
+                const piece = try clip.difference(a, root, s.region(j, st).*);
+                if (piece.isEmpty()) continue;
+                add[j * k + st] = try clip.unite(a, add[j * k + st], piece);
+                any = true;
+            }
+        };
+        if (!any) return;
+        // The roots go into the regions: a state with a lower index wins
+        // where two roots overlap.
+        for (0..n) |j| {
+            var taken: Paths = .empty;
+            for (1..k) |st| {
+                const r = &add[j * k + st];
+                if (r.isEmpty()) continue;
+                if (!taken.isEmpty()) r.* = try clip.difference(a, r.*, taken);
+                taken = try clip.unite(a, taken, r.*);
+                const h = if (j > 0) cut_z[j] - cut_z[j - 1] else cut_z[1] - cut_z[0];
+                s.anchor_mm3 += r.areaMm2() * h;
+            }
+            if (taken.isEmpty()) continue;
+            for (0..k) |st| {
+                const reg = &s.regions[j * k + st];
+                const rest = try clip.difference(a, reg.*, taken);
+                const next = try clip.unite(gpa, rest, add[j * k + st]);
+                reg.deinit(gpa);
+                reg.* = next;
+            }
+        }
     }
 
     fn layer(s: *Split, i: usize, outline: Paths, z: f64, frame: Frame, w: i64, top: f64, bottom: f64) anyerror!void {
@@ -331,6 +451,18 @@ pub const Split = struct {
         out[0] = try clip.difference(gpa, outline, painted);
         for (out[1..], claimed[1..]) |*o, c| o.* = try c.clone(gpa);
     }
+};
+
+/// The anchors of the painted features (see `Split.anchor`).
+pub const Anchor = struct {
+    /// The depth of the root under the feature (mm). 0: no anchors.
+    depth: f64 = 0,
+    /// The distance (mm) from the outside of the part to the root: the
+    /// walls of the part and a margin.
+    inset: f64 = 0,
+    shape: Shape = .footprint,
+
+    pub const Shape = enum { footprint, core };
 };
 
 const Seg = struct { a: Point, b: Point, si: u8 };
@@ -515,7 +647,7 @@ test "paint split: a part painted all over prints all in its paint" {
     const x1 = geom.fromMm(b.max[0]);
     const y1 = geom.fromMm(b.max[1]);
     try outline.append(gpa, &.{ .init(x0, y0), .init(x1, y0), .init(x1, y1), .init(x0, y1) });
-    try s.compute(&.{outline}, &.{5 - b.min[2]}, .{ .z_base = b.min[2] }, 0.4, 0.8, 0.8, 1);
+    try s.compute(&.{outline}, &.{5 - b.min[2]}, .{ .z_base = b.min[2] }, 0.4, 0.8, 0.8, 1, .{});
     var area: f64 = 0;
     const red = s.region(0, 1);
     for (0..red.count()) |i| area += geom.areaMm2(red.get(i));
@@ -549,7 +681,7 @@ test "paint split: a painted side colors a strip, and the rest is the part" {
     const x1 = geom.fromMm(b.max[0]);
     const y1 = geom.fromMm(b.max[1]);
     try outline.append(gpa, &.{ .init(x0, y0), .init(x1, y0), .init(x1, y1), .init(x0, y1) });
-    try s.compute(&.{outline}, &.{5 - b.min[2]}, .{ .z_base = b.min[2] }, 0.4, 1, 1, 1);
+    try s.compute(&.{outline}, &.{5 - b.min[2]}, .{ .z_base = b.min[2] }, 0.4, 1, 1, 1, .{});
     const red = s.region(0, 1);
     const part = s.region(0, 0);
     try testing.expect(!red.isEmpty() and !part.isEmpty());

@@ -1269,6 +1269,8 @@ test "plate job: a painted letter prints with its own filament" {
     var s: Settings = .{};
     s.engine.threads = 2;
     s.machine.filament_change = .tool;
+    // No root under the letter (see the test of the anchors).
+    s.project.paint_anchor_depth = 0;
     var red = s.filament;
     red.color = "#ff0000";
     const parts = [_]PartInput{.{ .mesh = &m, .part = 0, .paint = &paint }};
@@ -1294,6 +1296,172 @@ test "plate job: a painted letter prints with its own filament" {
     // The base layers print with filament 1, the letter layers with 2.
     try testing.expectEqual(@as(u32, 1), st.changes);
     try testing.expect(st.slot_g[1] > 0);
+}
+
+/// A black plaque 40 x 30 x 4 with a white raised frame and a white
+/// cross 2 mm tall on its top, painted (see the test of the anchors). A
+/// tab of the frame hangs 4 mm out over the front edge.
+fn plaque(gpa: Allocator, paint: *paint_mod.Paint) !Mesh {
+    var b: mesh_mod.Builder = .init(gpa);
+    defer b.deinit();
+    try mesh_mod.shapes.addBox(&b, 0, 0, 0, 40, 30, 4);
+    const base_faces = 12;
+    // The frame, 3 mm wide.
+    try mesh_mod.shapes.addBox(&b, 0, 0, 4, 40, 3, 6);
+    try mesh_mod.shapes.addBox(&b, 0, 27, 4, 40, 30, 6);
+    try mesh_mod.shapes.addBox(&b, 0, 3, 4, 3, 27, 6);
+    try mesh_mod.shapes.addBox(&b, 37, 3, 4, 40, 27, 6);
+    // The cross, 4 mm wide.
+    try mesh_mod.shapes.addBox(&b, 10, 13, 4, 30, 17, 6);
+    try mesh_mod.shapes.addBox(&b, 18, 6, 4, 22, 24, 6);
+    // The tab over the front edge.
+    try mesh_mod.shapes.addBox(&b, 16, -4, 4, 24, 3, 6);
+    const m = try b.finish();
+    for (base_faces..m.faces.items.len) |i| try paint.setTriangle(gpa, i, 2);
+    return m;
+}
+
+/// The facts of the G-code of a plate for the test of the anchors.
+const AnchorFacts = struct {
+    /// The tops of the layers with white (T1) lines under the top of the
+    /// plaque (z 4).
+    root_layers: usize = 0,
+    root_min_z: f64 = 1e9,
+    /// The box of the white lines under z 4 (G-code mm).
+    box: [4]f64 = .{ 1e9, 1e9, -1e9, -1e9 },
+    /// The box of all lines on the layer at z 3.6.
+    part: [4]f64 = .{ 1e9, 1e9, -1e9, -1e9 },
+};
+
+fn anchorFacts(g: []const u8) AnchorFacts {
+    var f: AnchorFacts = .{};
+    var tool: u8 = 0;
+    var z: f64 = 0;
+    var last_root_z: f64 = -1;
+    var tower = false;
+    var it = std.mem.splitScalar(u8, g, '\n');
+    while (it.next()) |line| {
+        if (line.len == 2 and line[0] == 'T') tool = line[1] - '0';
+        if (std.mem.startsWith(u8, line, ";TYPE:")) tower = std.mem.eql(u8, line[6..], "PRIME-TOWER");
+        if (!std.mem.startsWith(u8, line, "G1") and !std.mem.startsWith(u8, line, "G0")) continue;
+        var x: ?f64 = null;
+        var y: ?f64 = null;
+        var e = false;
+        var words = std.mem.tokenizeScalar(u8, line, ' ');
+        while (words.next()) |wd| {
+            if (wd[0] == ';') break;
+            const v = std.fmt.parseFloat(f64, wd[1..]) catch continue;
+            switch (wd[0]) {
+                'X' => x = v,
+                'Y' => y = v,
+                'Z' => z = v,
+                'E' => e = v > 0,
+                else => {},
+            }
+        }
+        if (!e or x == null or y == null or std.mem.startsWith(u8, line, "G0")) continue;
+        if (tower) continue;
+        if (@abs(z - 3.6) < 1e-3) {
+            f.part = .{ @min(f.part[0], x.?), @min(f.part[1], y.?), @max(f.part[2], x.?), @max(f.part[3], y.?) };
+        }
+        if (tool != 1 or z > 4 + 1e-3) continue;
+        if (z != last_root_z) {
+            f.root_layers += 1;
+            last_root_z = z;
+        }
+        f.root_min_z = @min(f.root_min_z, z);
+        f.box = .{ @min(f.box[0], x.?), @min(f.box[1], y.?), @max(f.box[2], x.?), @max(f.box[3], y.?) };
+    }
+    return f;
+}
+
+test "plate job: a painted feature on a part grows a root into its infill" {
+    const gpa = testing.allocator;
+    var paint: paint_mod.Paint = .{};
+    defer paint.deinit(gpa);
+    var m = try plaque(gpa, &paint);
+    defer m.deinit(gpa);
+    var s: Settings = .{};
+    s.engine.threads = 2;
+    s.machine.filament_change = .tool;
+    s.filament.color = "#000000";
+    // Layer tops at 0.2, 0.4, and on: the top of the plaque is a top.
+    s.project.first_layer_height = 0.2;
+    var white = s.filament;
+    white.color = "#ffffff";
+    const parts = [_]PartInput{.{ .mesh = &m, .part = 0, .paint = &paint }};
+
+    s.project.paint_anchor_depth = 0;
+    var pj0 = try PlateJob.init(gpa, s, &parts, .{ .filaments = &.{white} });
+    defer pj0.deinit();
+    const g0 = try gcodeOf(&pj0);
+    defer gpa.free(g0);
+    const f0 = anchorFacts(g0);
+    try testing.expectEqual(@as(usize, 0), f0.root_layers);
+    try testing.expectEqual(@as(f64, 0), pj0.splits[0].anchor_mm3);
+
+    s.project.paint_anchor_depth = 1.0;
+    var pj = try PlateJob.init(gpa, s, &parts, .{ .filaments = &.{white} });
+    defer pj.deinit();
+    const g = try gcodeOf(&pj);
+    defer gpa.free(g);
+    const f = anchorFacts(g);
+    // The root: white lines on the 5 layers (1 mm) under the top of the
+    // plaque, and none deeper.
+    try testing.expectEqual(@as(usize, 5), f.root_layers);
+    try testing.expectApproxEqAbs(@as(f64, 3.2), f.root_min_z, 1e-3);
+    try testing.expect(pj.splits[0].anchor_mm3 > 50);
+    // Inside the walls of the plaque: two walls of 0.44 mm and the
+    // margin, and the half line of the root wall.
+    const r = pj.groups[0].job.resolved.line_width;
+    const inset = 2 * r + engine.Job.anchor_margin + r / 2 - 1e-3;
+    try testing.expect(f.box[0] >= f.part[0] - r / 2 + inset);
+    try testing.expect(f.box[1] >= f.part[1] - r / 2 + inset);
+    try testing.expect(f.box[2] <= f.part[2] + r / 2 - inset);
+    try testing.expect(f.box[3] <= f.part[3] + r / 2 - inset);
+    // The tab over the air gets no root out of the plaque, and the
+    // outside of the plaque is the same: the box of the layer at z 3.6.
+    for (0..4) |k| try testing.expectApproxEqAbs(f0.part[k], f.part[k], 1e-3);
+
+    // The outer walls of the black plaque on the root layers are the
+    // same as without the root.
+    var checked: usize = 0;
+    for (pj.levels, 0..) |lv, i| {
+        if (lv.z < 3.1 or lv.z > 4.01) continue;
+        var a = try pj0.planLayer(i);
+        defer a.deinit();
+        var b = try pj.planLayer(i);
+        defer b.deinit();
+        for (a.paths.items, 0..) |p, pi| {
+            if (p.feature != .outer_wall) continue;
+            const pts = a.points.get(pi);
+            var found = false;
+            for (b.paths.items, 0..) |q, qi| {
+                if (q.feature != .outer_wall) continue;
+                if (std.mem.eql(u8, std.mem.sliceAsBytes(pts), std.mem.sliceAsBytes(b.points.get(qi)))) found = true;
+            }
+            try testing.expect(found);
+            checked += 1;
+        }
+    }
+    try testing.expect(checked >= 5);
+
+    // The core: a smaller root, under the middle of the feature.
+    s.project.paint_anchor_shape = .core;
+    var pjc = try PlateJob.init(gpa, s, &parts, .{ .filaments = &.{white} });
+    defer pjc.deinit();
+    const core = pjc.splits[0].anchor_mm3;
+    try testing.expect(core > 0 and core < pj.splits[0].anchor_mm3);
+
+    // The cost: a filament change on each layer of the root.
+    var out0: Writer.Allocating = .init(gpa);
+    defer out0.deinit();
+    const st0 = try pj0.writeGcode(&out0.writer);
+    var out1: Writer.Allocating = .init(gpa);
+    defer out1.deinit();
+    const st1 = try pj.writeGcode(&out1.writer);
+    try testing.expect(st1.changes > st0.changes);
+    try testing.expect(st1.changes <= st0.changes + 5);
 }
 
 test "plate job: one part gives the G-code of one job" {
