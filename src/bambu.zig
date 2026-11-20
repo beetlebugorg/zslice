@@ -49,7 +49,30 @@ pub const PlateInfo = struct {
     /// X2D). Then the file tells the nozzle of each filament
     /// (filament_maps, group_id), as Bambu Studio writes it.
     nozzles: u32 = 1,
+    /// The model code of the printer (printer_model_id), for example "N6"
+    /// for the X2D (BambuStudio resources/printers), or "".
+    model_id: []const u8 = "",
+    /// The print has support.
+    support_used: bool = false,
 };
+
+/// The model code of Bambu Studio for a model id of the printer library,
+/// or "" (printer_model_id in slice_info.config).
+pub fn modelCode(id: []const u8) []const u8 {
+    if (std.mem.eql(u8, id, "bambu-lab-x2d")) return "N6";
+    return "";
+}
+
+/// The id of the generic filament of Bambu Studio for a material
+/// (tray_info_idx), or "".
+pub fn genericFilament(material: []const u8) []const u8 {
+    const ids = [_][2][]const u8{
+        .{ "PLA", "GFL99" }, .{ "PETG", "GFG99" }, .{ "ABS", "GFB99" }, .{ "ASA", "GFB98" },
+        .{ "TPU", "GFU99" }, .{ "PA", "GFN99" },   .{ "PC", "GFC99" },  .{ "PVA", "GFS99" },
+    };
+    for (ids) |e| if (std.ascii.eqlIgnoreCase(e[0], material)) return e[1];
+    return "";
+}
 
 /// A filament of the print, for the slice info of a .gcode.3mf file.
 pub const FilamentUse = struct {
@@ -62,6 +85,9 @@ pub const FilamentUse = struct {
     grams: f64,
     /// The nozzle of the filament on a printer with two: 0 main, 1 second.
     nozzle: u32 = 0,
+    /// The filament prints the parts, and the support.
+    for_object: bool = true,
+    for_support: bool = false,
 };
 
 /// `text` with the 5 special characters of XML escaped.
@@ -96,7 +122,12 @@ fn sliceInfo(a: Allocator, info: PlateInfo) Allocator.Error![]u8 {
     ) catch return error.OutOfMemory;
     ww.print("    <metadata key=\"prediction\" value=\"{d}\"/>\n", .{@as(i64, @intFromFloat(@round(@max(0, info.seconds))))}) catch return error.OutOfMemory;
     ww.print("    <metadata key=\"weight\" value=\"{d:.2}\"/>\n", .{@max(0, info.grams)}) catch return error.OutOfMemory;
+    if (info.model_id.len > 0) ww.print("    <metadata key=\"printer_model_id\" value=\"{s}\"/>\n", .{try xmlText(a, info.model_id)}) catch return error.OutOfMemory;
     if (info.nozzle > 0) ww.print("    <metadata key=\"nozzle_diameters\" value=\"{d}\"/>\n", .{info.nozzle}) catch return error.OutOfMemory;
+    // The plate keys of Bambu Studio (bbs_3mf.cpp): no time lapse, all in
+    // the bed, and no labels of objects (zslice writes no EXCLUDE_OBJECT).
+    ww.writeAll("    <metadata key=\"timelapse_type\" value=\"0\"/>\n    <metadata key=\"outside\" value=\"false\"/>\n") catch return error.OutOfMemory;
+    ww.print("    <metadata key=\"support_used\" value=\"{s}\"/>\n    <metadata key=\"label_object_enabled\" value=\"false\"/>\n", .{if (info.support_used) "true" else "false"}) catch return error.OutOfMemory;
     // Two nozzles: the extruder of each filament (from 1), for the ids
     // 1 to the last filament of the print; a filament that the print does
     // not use gets extruder 1.
@@ -117,7 +148,11 @@ fn sliceInfo(a: Allocator, info: PlateInfo) Allocator.Error![]u8 {
     for (info.filaments) |f| {
         const color = if (f.color.len == 7 and f.color[0] == '#') f.color else "#FFFFFF";
         ww.print("    <filament id=\"{d}\" type=\"{s}\" color=\"{s}\" used_m=\"{d:.2}\" used_g=\"{d:.2}\"", .{ f.id, try xmlText(a, f.kind), try xmlText(a, color), @max(0, f.meters), @max(0, f.grams) }) catch return error.OutOfMemory;
+        const idx = genericFilament(f.kind);
+        if (idx.len > 0) ww.print(" tray_info_idx=\"{s}\"", .{idx}) catch return error.OutOfMemory;
+        ww.print(" used_for_object=\"{s}\" used_for_support=\"{s}\"", .{ if (f.for_object) "true" else "false", if (f.for_support) "true" else "false" }) catch return error.OutOfMemory;
         if (two) ww.print(" group_id=\"{d}\"", .{@min(f.nozzle, 1)}) catch return error.OutOfMemory;
+        if (info.nozzle > 0) ww.print(" nozzle_diameter=\"{d}\" volume_type=\"Standard\"", .{info.nozzle}) catch return error.OutOfMemory;
         ww.writeAll("/>\n") catch return error.OutOfMemory;
     }
     // The nozzles that the print uses.
@@ -156,7 +191,14 @@ pub fn gcode3mfWithTime(gpa: Allocator, gcode: []const u8, title: []const u8, fi
 /// `gcode3mfWithTime` for a printer with `nozzles` nozzles: with 2, the
 /// file tells the nozzle of each filament (FilamentUse.nozzle).
 pub fn gcode3mfNozzles(gpa: Allocator, gcode: []const u8, title: []const u8, filaments: []const FilamentUse, seconds: f64, nozzles: u32) (Allocator.Error || std.Io.Writer.Error)![]u8 {
-    var info: PlateInfo = .{ .filaments = filaments, .seconds = seconds, .nozzles = nozzles };
+    return gcode3mfInfo(gpa, gcode, title, .{ .filaments = filaments, .seconds = seconds, .nozzles = nozzles });
+}
+
+/// The .gcode.3mf of `info` (the grams and meters come from its
+/// filaments).
+pub fn gcode3mfInfo(gpa: Allocator, gcode: []const u8, title: []const u8, info_in: PlateInfo) (Allocator.Error || std.Io.Writer.Error)![]u8 {
+    var info = info_in;
+    const filaments = info.filaments;
     for (filaments) |f| {
         info.grams += f.grams;
         info.meters += f.meters;
@@ -443,7 +485,8 @@ test "bambu: the file lists the filaments of the print" {
     for (entries) |e| if (std.mem.eql(u8, e.name, "Metadata/slice_info.config")) {
         info = e.data;
     };
-    try std.testing.expect(std.mem.indexOf(u8, info.?, "<filament id=\"2\" type=\"PLA\" color=\"#D93A3A\" used_m=\"0.40\" used_g=\"1.20\"/>") != null);
+    try std.testing.expect(std.mem.indexOf(u8, info.?, "<filament id=\"2\" type=\"PLA\" color=\"#D93A3A\" used_m=\"0.40\" used_g=\"1.20\" tray_info_idx=\"GFL99\" used_for_object=\"true\" used_for_support=\"false\"/>") != null);
+    try std.testing.expect(std.mem.indexOf(u8, info.?, "<metadata key=\"support_used\" value=\"false\"/>") != null);
     // The time of the slice goes with the filaments.
     const timed = try gcode3mfWithTime(gpa, "G28\n", "plaque", &fils, 754.6);
     defer gpa.free(timed);
@@ -469,7 +512,7 @@ test "bambu: two nozzles: the extruder of each filament and the nozzles" {
         info = e.data;
     };
     try std.testing.expect(std.mem.indexOf(u8, info, "<metadata key=\"filament_maps\" value=\"1 1 2\"/>") != null);
-    try std.testing.expect(std.mem.indexOf(u8, info, "used_g=\"1.20\" group_id=\"1\"/>") != null);
+    try std.testing.expect(std.mem.indexOf(u8, info, "used_for_support=\"false\" group_id=\"1\"/>") != null);
     try std.testing.expect(std.mem.indexOf(u8, info, "<nozzle id=\"0\" extruder_id=\"1\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, info, "<nozzle id=\"1\" extruder_id=\"2\"") != null);
     // One nozzle: no map.
@@ -526,4 +569,19 @@ test "bambu: the slice info of a plate, for a printdeck" {
         found = std.mem.indexOf(u8, e.data, "key=\"index\" value=\"1\"") != null and std.mem.indexOf(u8, e.data, "<filament") == null;
     };
     try testing.expect(found);
+}
+
+test "bambu: the model code of the X2D, and the keys of a plate" {
+    const gpa = std.testing.allocator;
+    const fils = [_]FilamentUse{.{ .id = 1, .kind = "PETG", .color = "#000000", .meters = 1, .grams = 3 }};
+    const bytes = try gcode3mfInfo(gpa, "G28\n", "p", .{ .filaments = &fils, .model_id = modelCode("bambu-lab-x2d"), .nozzle = 0.4, .support_used = true });
+    defer gpa.free(bytes);
+    const entries = try zipfile.readAll(gpa, bytes);
+    defer zipfile.freeAll(gpa, entries);
+    for (entries) |e| if (std.mem.eql(u8, e.name, "Metadata/slice_info.config")) {
+        try std.testing.expect(std.mem.indexOf(u8, e.data, "key=\"printer_model_id\" value=\"N6\"") != null);
+        try std.testing.expect(std.mem.indexOf(u8, e.data, "key=\"support_used\" value=\"true\"") != null);
+        try std.testing.expect(std.mem.indexOf(u8, e.data, "tray_info_idx=\"GFG99\"") != null);
+        try std.testing.expect(std.mem.indexOf(u8, e.data, "nozzle_diameter=\"0.4\" volume_type=\"Standard\"") != null);
+    };
 }

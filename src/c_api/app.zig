@@ -580,11 +580,30 @@ fn bambuFileOf(app: *const App, g: []const u8, title: ?[*:0]const u8, out: ?*?[*
         if (k >= list.len) break;
         const f = app_mod.filament_slots.get(app, k) orelse continue;
         if (st.slot_g[k] <= 0) continue;
-        list[n] = .{ .id = @intCast(k + 1), .kind = f.material, .color = f.color, .meters = st.slot_mm[k] / 1000, .grams = st.slot_g[k], .nozzle = f.nozzle };
+        const p = app.settings.project;
+        const count = app_mod.filament_slots.count(app);
+        const support = p.support != .off;
+        const sup_slot = zs.filaments.pathSlot(.support, p, count);
+        const iface_slot = zs.filaments.pathSlot(.support_interface, p, count);
+        const part_slot = zs.filaments.slotOf(p.filament, count);
+        list[n] = .{
+            .id = @intCast(k + 1), .kind = f.material, .color = f.color, .meters = st.slot_mm[k] / 1000, .grams = st.slot_g[k], .nozzle = f.nozzle,
+            // A filament for the support only does not print the parts
+            // (a part of another filament still does).
+            .for_support = support and (sup_slot == k or iface_slot == k),
+            .for_object = !(support and p.support_filament > 0 and (sup_slot == k or iface_slot == k) and part_slot != k),
+        };
         n += 1;
     }
-    const nozzles = app.settings.machine.nozzles;
-    const bytes = zs.bambu.gcode3mfNozzles(gpa, g, if (title) |t| std.mem.span(t) else "zslice", list[0..n], st.print_time_s, nozzles) catch return @intFromEnum(Status.out_of_memory);
+    const m = app.settings.machine;
+    const bytes = zs.bambu.gcode3mfInfo(gpa, g, if (title) |t| std.mem.span(t) else "zslice", .{
+        .filaments = list[0..n],
+        .seconds = st.print_time_s,
+        .nozzles = m.nozzles,
+        .model_id = zs.bambu.modelCode(m.model),
+        .nozzle = m.nozzle_diameter,
+        .support_used = app.settings.project.support != .off,
+    }) catch return @intFromEnum(Status.out_of_memory);
     o.* = bytes.ptr;
     l.* = bytes.len;
     return ok;
