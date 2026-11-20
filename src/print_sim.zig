@@ -1638,6 +1638,33 @@ test "print sim: the same input gives the same output" {
     try testing.expectEqual(a[0].stats, b[0].stats);
 }
 
+test "print sim: floorAt gives the floor of five lookups of the field" {
+    const gpa = testing.allocator;
+    var pts: [1][2][2]f32 = undefined;
+    const paths = [_]Path{line(.{ 0, 0 }, .{ 10, 10 }, 0.2, 0, 0, 40, 1, &pts[0])};
+    var r = try Runner.init(gpa, &paths, .{});
+    defer r.deinit();
+    const s = &r.s;
+    var prng: std.Random.DefaultPrng = .init(7);
+    const rand = prng.random();
+    // Random tops in the field, and points on it and past its edges.
+    for (0..4000) |_| try s.field.raise(rand.float(f32) * 40 - 15, rand.float(f32) * 40 - 15, rand.float(f32) * 2, 0, 0, false);
+    for (0..20000) |_| {
+        const x = rand.float(f32) * 60 - 25;
+        const y = rand.float(f32) * 60 - 25;
+        const zc = rand.float(f32) * 2;
+        const w = 0.2 + rand.float(f32);
+        // The floor as five lookups of `locate` give it.
+        const rr = 0.35 * w;
+        var want: f32 = 0;
+        for ([_][2]f32{ .{ 0, 0 }, .{ rr, 0 }, .{ -rr, 0 }, .{ 0, rr }, .{ 0, -rr } }) |o| {
+            const top = s.field.at(x + o[0], y + o[1]).top;
+            if (top <= zc) want = @max(want, top);
+        }
+        try testing.expectEqual(want, s.floorAt(x, y, zc, w));
+    }
+}
+
 test "print sim: the viscosity grows as PLA cools, and sets above the glass point" {
     const p: Params = .{};
     try testing.expectApproxEqRel(@as(f32, 3546), viscosity(p, 200), 1e-4);
