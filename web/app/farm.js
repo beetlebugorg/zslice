@@ -341,6 +341,11 @@ export class FarmPage {
       };
       const order = names.filter(fits).sort((a, b) => Number(this.free(b)) - Number(this.free(a)));
       for (const n of order) pick.append(new Option(`${n}${this.free(n) ? " (ready)" : ` (busy${this.freeIn(n)})`}`, n));
+      // No printer fits: the list says so, in place of an empty list.
+      if (order.length === 0) {
+        pick.append(new Option("No printer", ""));
+        pick.disabled = true;
+      }
       const go = el("button", "farm-qsend", "Send");
       go.disabled = p.status !== "done" || order.length === 0;
       go.title = order.length === 0 ? "No printer with a connection fits this plate" : p.status !== "done" ? "Slice the plate first" : "Send this plate to the printer, after you confirm that its bed is clear";
