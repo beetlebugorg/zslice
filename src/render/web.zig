@@ -186,6 +186,15 @@ pub const Renderer = struct {
         r.out.instances_gen +%= 1;
     }
 
+    /// The beads, then the marks, from a list of the caller: the renderer
+    /// swaps its list with `list` (no copy): `list` then has the old items.
+    pub fn swapInstances(r: *Renderer, list: *std.ArrayList(Instance)) void {
+        std.mem.swap(std.ArrayList(Instance), &r.instances, list);
+        r.out.instances = @intFromPtr(r.instances.items.ptr);
+        r.out.instance_count = @intCast(r.instances.items.len);
+        r.out.instances_gen +%= 1;
+    }
+
     /// The instance buffer for `n` beads, for the caller to fill in place.
     /// The marks are none.
     pub fn instanceBuffer(r: *Renderer, n: usize) Error![]Instance {

@@ -231,6 +231,8 @@ let frameCount = 0;
 function drawFrame(now) {
   frameQueued = false;
   const t0 = performance.now();
+  // A new scene in steps: one step in each frame.
+  const staging = stageStep();
   const dt = lastFrameTime ? Math.min(0.1, (now - lastFrameTime) / 1000) : 1 / 60;
   lastFrameTime = now;
   let more = app.page === "3d" && view.animate(dt);
@@ -258,7 +260,7 @@ function drawFrame(now) {
   if (rangeCard?.open) rangeCard.place();
   placePlateLabels();
   frameTimes[frameCount++ % frameTimes.length] = performance.now() - t0;
-  if (more) requestFrame();
+  if (more || staging) requestFrame();
   else lastFrameTime = 0;
 }
 
@@ -2992,9 +2994,100 @@ $("send-menu").onclick = () => openMenu($("send-menu"), [
 
 // ---- the worker events ----
 
+// A new scene of a large plate goes to the view in steps, so that each
+// frame stays short while it comes. Until the last step, the frames draw
+// the old scene, so the picture stays the old one. Each frame does one
+// step of each kind:
+// 1. It sends up to STAGE_UPLOAD bytes of the instances and of the light
+//    beads to new GPU buffers (gl.stagePut).
+// 2. It copies up to STAGE_COPY bytes of the scene to wasm memory, and
+//    when all are there, the view reads up to STAGE_COPY bytes of them
+//    into the lists of its stage (view.stageScene).
+// Then a frame loads the scene (view.commitScene swaps the lists, and the
+// sync of the frame uses the new GPU buffers) and handles the "sliced"
+// event. With the read and the upload in one step, the frames around a
+// new scene of nine Benchies were up to 0.56 s apart (Chromium, Intel HD
+// 530).
+const STAGE_UPLOAD = 4 << 20;
+const STAGE_COPY = 16 << 20;
+let staged = null;
+
+// Starts the steps for event m, or returns false for a small scene.
+function stageScene(m) {
+  const inst = view.sceneSpan(m.scene, 0);
+  const light = view.sceneSpan(m.scene, 1);
+  if (!inst || !light || inst.count * 32 <= STAGE_UPLOAD) return false;
+  const n = m.scene.byteLength;
+  gl.stageBegin(inst.count, light.count);
+  const up = [[inst.offset, inst.count * 32, false]];
+  if (light.count > 0) up.push([light.offset, light.count * 32, true]);
+  staged = { m, n, ptr: view.w.alloc(n), copied: 0, read: false, up, upAt: 0, upDone: 0 };
+  requestFrame();
+  return true;
+}
+
+// One step of each kind. With `all`, the rest at once (another event
+// came, and the events keep their order). Returns true while steps are
+// left.
+function stageStep(all = false) {
+  const s = staged;
+  if (!s) return false;
+  try {
+    if (stageWork(s, all)) return true;
+  } catch (e) {
+    // The steps failed: the event reads the scene in one step.
+    staged = null;
+    if (!s.read) view.w.free(s.ptr, s.n);
+    gl.stageDrop();
+    gl.stageDropLight();
+    s.m.noStage = true;
+    onWorkerEvent(s.m);
+    return false;
+  }
+  staged = null;
+  s.m.staged = true;
+  onWorkerEvent(s.m);
+  return false;
+}
+
+// The steps of stageStep: true while steps are left.
+function stageWork(s, all) {
+  const budget = all ? Infinity : STAGE_UPLOAD;
+  let left = budget;
+  while (s.upAt < s.up.length && left > 0) {
+    const [off, len, light] = s.up[s.upAt];
+    const k = Math.min(left, len - s.upDone);
+    gl.stagePut(new Uint8Array(s.m.scene, off + s.upDone, k), s.upDone, light);
+    s.upDone += k;
+    left -= k;
+    if (s.upDone === len) {
+      s.upAt++;
+      s.upDone = 0;
+    }
+  }
+  if (s.copied < s.n) {
+    const c = Math.min(all ? Infinity : STAGE_COPY, s.n - s.copied);
+    view.w.u8.set(new Uint8Array(s.m.scene, s.copied, c), s.ptr + s.copied);
+    s.copied += c;
+    if (!all) return true;
+  }
+  if (!s.read) {
+    s.read = view.stageScene(s.ptr, s.n, all ? 0xffffffff : STAGE_COPY);
+    if (s.read) view.w.free(s.ptr, s.n);
+    if (!all) return true;
+  }
+  return s.upAt < s.up.length;
+}
+
 function onWorkerEvent(m) {
   // The slices of the other plates of the set show only on their labels.
   if ((m.event === "slicing" || m.event === "progress" || m.event === "failed") && m.plate !== undefined && m.plate !== app.activePlate) return;
+  // A scene in steps comes first, so the events keep their order. The
+  // history, and the plates with the same active plate, leave the view
+  // of the active plate as it is: they come after each slice, and they
+  // do not wait.
+  const passes = m.event === "history" || (m.event === "plates" && m.active === app.activePlate);
+  if (staged && staged.m !== m && !passes) stageStep(true);
   switch (m.event) {
     case "plates":
       onPlates(m);
@@ -3025,6 +3118,8 @@ function onWorkerEvent(m) {
       $("sum-progress").firstElementChild.style.width = `${(m.progress * 100).toFixed(1)}%`;
       break;
     case "sliced": {
+      // A large scene: the steps first (stageScene), then this event again.
+      if (m.scene && !m.staged && !m.noStage && stageScene(m)) break;
       app.slicing = false;
       app.simulated = !!m.simulated;
       // A plate with a slice is not empty (also a plate that became active).
@@ -3059,7 +3154,10 @@ function onWorkerEvent(m) {
       const key = refindKey();
       const first = !view.loaded;
       if (m.scene) {
-        view.readScene(m.scene);
+        if (m.staged) {
+          view.commitScene();
+          gl.stageEnd(view.instancesGen(), view.lightGen());
+        } else view.readScene(m.scene);
         gl.setOutlines(view.outlines());
         // A live turn: the preview goes on from the turn of this slice.
         turnRings.sliced(m.turn);

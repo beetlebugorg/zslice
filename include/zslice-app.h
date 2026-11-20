@@ -1804,6 +1804,25 @@ int zs_view_segment_at_time(const zs_view *view, double t, size_t *path, size_t 
  * that slice. The same build writes and reads them. */
 int zs_view_scene_write(zs_view *view, uint8_t **out, size_t *out_len);
 int zs_view_scene_read(zs_view *view, const uint8_t *data, size_t len);
+/* A span of instances in the bytes of a scene: its byte offset and its
+ * count. head is the first head_len bytes of a scene of len bytes (1024
+ * bytes are enough). A shell can send them to the GPU before it reads the
+ * scene. */
+enum zs_scene_span {
+    ZS_SCENE_INSTANCES = 0, /* the beads, then the marks, as the instance buffer of zs_web_frame */
+    ZS_SCENE_LIGHT = 1,     /* the light beads: the buffer of the light levels of the active plate */
+};
+int zs_view_scene_span(const uint8_t *head, size_t head_len, size_t len, uint32_t which, size_t *offset, uint32_t *count);
+/* Reads a scene in steps, so that no frame copies all of it: each call
+ * copies up to budget bytes, and sets *done to 1 when all is copied. Each
+ * call gets the same bytes. zs_view_scene_commit then loads the scene at
+ * once; until then the view draws its old scene. zs_view_scene_read drops
+ * a scene in steps. */
+int zs_view_scene_stage(zs_view *view, const uint8_t *data, size_t len, size_t budget, int *done);
+int zs_view_scene_commit(zs_view *view);
+/* The generation of the light beads of the active plate (zs_web_plate.gen
+ * of its light levels). */
+uint32_t zs_view_light_gen(const zs_view *view);
 
 /* wasm and macOS: the frame data of a ZS_SURFACE_WEB view, after
  * zs_view_draw. The pointers point into the memory of the core and stay

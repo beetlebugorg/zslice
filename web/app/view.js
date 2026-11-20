@@ -48,6 +48,43 @@ export class View3D {
     this.onLoad?.();
   }
 
+  // A span of instances in the bytes of a scene (an ArrayBuffer): which
+  // 0 is the instance buffer of a frame (the beads, then the marks), 1
+  // the light beads. Returns { offset, count } (offset in bytes), or null
+  // if the bytes are not a scene.
+  sceneSpan(buffer, which) {
+    const head = new Uint8Array(buffer, 0, Math.min(buffer.byteLength, 1024));
+    const w = this.w;
+    const rc = w.withBytes(head, (p, n) => this.x.zs_view_scene_span(p, n, buffer.byteLength, which, w.cell, w.cell + 4));
+    if (rc !== 0) return null;
+    return { offset: w.u32(w.cell), count: w.u32(w.cell + 4) };
+  }
+
+  // Reads up to `budget` bytes of a scene in wasm memory (at p, n bytes):
+  // true when all of it is read. commitScene then loads it.
+  stageScene(p, n, budget) {
+    const w = this.w;
+    const rc = this.x.zs_view_scene_stage(this.v, p, n, budget, w.cell);
+    if (rc !== 0) throw new Error(`zslice: the scene did not load (${statusText(rc)})`);
+    return w.u32(w.cell) === 1;
+  }
+
+  commitScene() {
+    const rc = this.x.zs_view_scene_commit(this.v);
+    if (rc !== 0) throw new Error(`zslice: the scene did not load (${statusText(rc)})`);
+    this.loaded = true;
+    this.onLoad?.();
+  }
+
+  // The generations of the instance buffer (zs_web_frame.instances_gen)
+  // and of the light beads of the active plate.
+  instancesGen() {
+    const p = this.x.zs_view_web_frame(this.v);
+    return this.w.m32[((p + 240) >>> 2) + 10];
+  }
+
+  lightGen() { return this.x.zs_view_light_gen(this.v); }
+
   // The bed model of model i of the printer library `lib` (a pointer in
   // this instance): the bytes of its files (Uint8Array or null).
   setBed(lib, i, mesh, texture) {

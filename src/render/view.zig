@@ -349,6 +349,8 @@ pub const View = struct {
     /// from the plate. Only the web backend draws them.
     lite: plates_mod.Lite = .{},
     lite_gen: u32 = 0,
+    /// A scene that the view reads in steps (see Stage).
+    stage: ?*Stage = null,
     /// The plates of the set (see plates.zig), in the row from left to
     /// right. Item `active` is the plate of this view: it has no beads of
     /// its own. Empty: one plate, and no row.
@@ -416,6 +418,7 @@ pub const View = struct {
 
     /// Frees the data of the view, not the view and its renderer.
     pub fn deinitData(v: *View) void {
+        v.dropStage();
         v.lite.deinit(gpa);
         for (v.plates.items) |*p| p.deinit(gpa);
         v.plates.deinit(gpa);
@@ -1135,6 +1138,7 @@ pub const View = struct {
     const scene_magic: u32 = 0x35637a73; // "szc5"
     /// The index of the beads and of the light beads in `sceneLists`.
     const scene_beads = 2;
+    const scene_marks = 3;
     const scene_layer_end = 0;
     const scene_lite = 13;
 
@@ -1191,26 +1195,25 @@ pub const View = struct {
         return .{ &v.pick_runs, &v.layer_boxes, &v.run_width, &v.draw_chunks, &v.chunk_width };
     }
 
-    /// Reads the pick index after the lists of a scene (`bytes` starts
-    /// after the lists). False if there is none, or if it does not fit
-    /// the beads and the layers of the view: the caller then makes the
-    /// index.
-    fn readPickTail(v: *View, bytes: []const u8) Error!bool {
-        if (bytes.len < @sizeOf(PickTail)) return false;
+    /// The pick index after the lists of a scene (`bytes` starts after
+    /// the lists): the count of each list of `pickLists`, and its offset
+    /// in `bytes`. Null if there is none, or if it has other constants.
+    /// The index must still fit the beads (`pickIndexFits`).
+    fn pickTailPlan(bytes: []const u8) ?struct { counts: [5]u32, at: [5]usize } {
+        if (bytes.len < @sizeOf(PickTail)) return null;
         var tail: PickTail = undefined;
         @memcpy(std.mem.asBytes(&tail), bytes[0..@sizeOf(PickTail)]);
-        if (tail.magic != pick_magic or tail.run != pick_run or tail.grow != pick_grow) return false;
+        if (tail.magic != pick_magic or tail.run != pick_run or tail.grow != pick_grow) return null;
+        const sizes = [5]usize{ @sizeOf(PickBox), @sizeOf(PickBox), @sizeOf(f32), @sizeOf(PickBox), @sizeOf(f32) };
+        var out: [5]usize = undefined;
         var at: usize = std.mem.alignForward(usize, @sizeOf(PickTail), 8);
-        inline for (v.pickLists(), 0..) |list, k| {
-            const T = @typeInfo(@TypeOf(list.items)).pointer.child;
-            const n = tail.counts[k];
-            const len = @as(usize, n) * @sizeOf(T);
-            if (at + len > bytes.len) return false;
-            list.resize(gpa, n) catch return error.OutOfMemory;
-            @memcpy(std.mem.sliceAsBytes(list.items), bytes[at .. at + len]);
+        for (sizes, 0..) |size, k| {
+            const len = @as(usize, tail.counts[k]) * size;
+            if (at + len > bytes.len) return null;
+            out[k] = at;
             at += std.mem.alignForward(usize, len, 8);
         }
-        return v.pickIndexFits();
+        return .{ .counts = tail.counts, .at = out };
     }
 
     /// True if the pick index fits the beads and the layers: each box
@@ -1241,8 +1244,16 @@ pub const View = struct {
 
     /// The place of each list of a scene in its bytes (see `writeScene`),
     /// and its head. error.InvalidScene if the bytes are too short.
-    fn sceneOffsets(bytes: []const u8) error{InvalidScene}!struct { head: SceneHead, at: [20]usize, end: usize } {
-        if (bytes.len < @sizeOf(SceneHead)) return error.InvalidScene;
+    fn sceneOffsets(bytes: []const u8) error{InvalidScene}!SceneOffsets {
+        return sceneOffsetsIn(bytes, bytes.len);
+    }
+
+    const SceneOffsets = struct { head: SceneHead, at: [20]usize, end: usize };
+
+    /// `sceneOffsets` of a scene of `total` bytes from its first bytes
+    /// (`bytes`, the head at least).
+    fn sceneOffsetsIn(bytes: []const u8, total: usize) error{InvalidScene}!SceneOffsets {
+        if (bytes.len < @sizeOf(SceneHead) or bytes.len > total) return error.InvalidScene;
         var head: SceneHead = undefined;
         @memcpy(std.mem.asBytes(&head), bytes[0..@sizeOf(SceneHead)]);
         if (head.magic != scene_magic) return error.InvalidScene;
@@ -1260,10 +1271,37 @@ pub const View = struct {
         for (sizes, 0..) |size, k| {
             out[k] = at;
             const len = head.counts[k] * size;
-            if (at + len > bytes.len) return error.InvalidScene;
+            if (at + len > total) return error.InvalidScene;
             at += std.mem.alignForward(usize, len, 8);
         }
         return .{ .head = head, .at = out, .end = at };
+    }
+
+    /// The parts of a scene that a shell sends to the GPU (see `sceneSpan`).
+    pub const SceneSpan = enum(u32) {
+        /// The beads, then the marks, as `setInstances` has them (the two
+        /// lists follow each other).
+        instances = 0,
+        /// The light beads (Lite.beads), the bead buffer of the light
+        /// levels of the active plate.
+        light = 1,
+    };
+
+    /// The byte offset and the count of a span of instances in the bytes of
+    /// a scene. `head` is the start of the bytes (the head at least),
+    /// `total` the length of all of them. The web app sends them to the
+    /// GPU before the view reads the scene (see web/app/app.js,
+    /// stageScene).
+    pub fn sceneSpan(head: []const u8, total: usize, which: SceneSpan) error{InvalidScene}!struct { offset: usize, count: u32 } {
+        const s = try sceneOffsetsIn(head, total);
+        return switch (which) {
+            .instances => blk: {
+                const beads = s.head.counts[scene_beads];
+                if (s.at[scene_marks] != s.at[scene_beads] + beads * @sizeOf(vk.Instance)) return error.InvalidScene;
+                break :blk .{ .offset = s.at[scene_beads], .count = beads + s.head.counts[scene_marks] };
+            },
+            .light => .{ .offset = s.at[scene_lite], .count = s.head.counts[scene_lite] },
+        };
     }
 
     /// The loaded scene as bytes, for a view in another wasm instance (see
@@ -1321,20 +1359,126 @@ pub const View = struct {
 
     /// Reads a scene of `writeScene`: the same as `load` of that slice.
     pub fn readScene(v: *View, bytes: []const u8) (Error || error{InvalidScene})!void {
-        if (bytes.len < @sizeOf(SceneHead)) return error.InvalidScene;
-        var head: SceneHead = undefined;
-        @memcpy(std.mem.asBytes(&head), bytes[0..@sizeOf(SceneHead)]);
-        if (head.magic != scene_magic) return error.InvalidScene;
+        v.dropStage();
+        errdefer v.dropStage();
+        _ = try v.stageScene(bytes, std.math.maxInt(usize));
+        try v.commitScene();
+    }
+
+    /// A scene that the view reads in steps (`stageScene`) and then loads
+    /// at once (`commitScene`). The lists of the scene go to a second,
+    /// headless view, and the instances of the renderer to a list of their
+    /// own. The commit swaps the lists: it copies no bead. So the web app
+    /// spreads the copies of a large scene over some frames, and the frame
+    /// of the new scene stays short. Until the commit, the view draws its
+    /// old scene.
+    pub const Stage = struct {
+        lists: *View,
+        head: SceneHead,
+        /// The beads, then the marks, for the renderer (a frame backend
+        /// with a GPU only).
+        inst: std.ArrayList(vk.Instance) = .empty,
+        /// The scene has a pick index (PickTail).
+        tail: bool = false,
+        /// The length of the bytes: the later steps get the same bytes.
+        len: usize,
+        /// The copies from the bytes: `src` is the byte offset of `dst`.
+        copies: [32]Copy = undefined,
+        n_copies: usize = 0,
+        /// The copy of the next step, and its bytes done.
+        next: usize = 0,
+        done: usize = 0,
+
+        const Copy = struct { dst: []u8, src: usize };
+
+        fn add(s: *Stage, dst: []u8, src: usize) void {
+            s.copies[s.n_copies] = .{ .dst = dst, .src = src };
+            s.n_copies += 1;
+        }
+
+        fn destroy(s: *Stage) void {
+            s.lists.deinitData();
+            gpa.destroy(s.lists);
+            s.inst.deinit(gpa);
+            gpa.destroy(s);
+        }
+    };
+
+    /// Frees a scene in steps, if there is one.
+    pub fn dropStage(v: *View) void {
+        if (v.stage) |s| s.destroy();
+        v.stage = null;
+    }
+
+    /// Copies up to `budget` bytes of a scene into the stage (see Stage).
+    /// The first call makes the stage. Returns true when all is copied:
+    /// then `commitScene` loads the scene. Each call gets the same bytes.
+    pub fn stageScene(v: *View, bytes: []const u8, budget: usize) (Error || error{InvalidScene})!bool {
+        if (v.stage) |s| if (s.len != bytes.len) v.dropStage();
+        if (v.stage == null) try v.beginStage(bytes);
+        const s = v.stage.?;
+        var left = budget;
+        while (s.next < s.n_copies) {
+            const c = s.copies[s.next];
+            const n = @min(left, c.dst.len - s.done);
+            @memcpy(c.dst[s.done..][0..n], bytes[c.src + s.done ..][0..n]);
+            s.done += n;
+            left -= n;
+            if (s.done < c.dst.len) break;
+            s.next += 1;
+            s.done = 0;
+        }
+        return s.next == s.n_copies;
+    }
+
+    /// Makes the stage of a scene: its lists at their sizes, and the
+    /// copies into them.
+    fn beginStage(v: *View, bytes: []const u8) (Error || error{InvalidScene})!void {
+        const o = try sceneOffsets(bytes);
+        const s = gpa.create(Stage) catch return error.OutOfMemory;
+        const lists = gpa.create(View) catch {
+            gpa.destroy(s);
+            return error.OutOfMemory;
+        };
+        lists.* = .{ .renderer = undefined, .headless = true, .width = 1, .height = 1 };
+        s.* = .{ .lists = lists, .head = o.head, .len = bytes.len };
+        errdefer s.destroy();
+        inline for (lists.sceneLists(), 0..) |list, k| {
+            list.resize(gpa, o.head.counts[k]) catch return error.OutOfMemory;
+            s.add(std.mem.sliceAsBytes(list.items), o.at[k]);
+        }
+        // The instances of the renderer: the beads and the marks follow
+        // each other in the bytes.
+        if (frame_backend and !v.headless) {
+            const span = try sceneSpan(bytes, bytes.len, .instances);
+            s.inst.resize(gpa, span.count) catch return error.OutOfMemory;
+            s.add(std.mem.sliceAsBytes(s.inst.items), span.offset);
+        }
+        if (pickTailPlan(bytes[@min(o.end, bytes.len)..])) |plan| {
+            inline for (lists.pickLists(), 0..) |list, k| {
+                list.resize(gpa, plan.counts[k]) catch return error.OutOfMemory;
+                s.add(std.mem.sliceAsBytes(list.items), o.end + plan.at[k]);
+            }
+            s.tail = true;
+        }
+        v.stage = s;
+    }
+
+    /// Loads the scene of a full stage (`stageScene` returned true).
+    pub fn commitScene(v: *View) (Error || error{InvalidScene})!void {
+        const s = v.stage orelse return error.InvalidScene;
+        if (s.next < s.n_copies) return error.InvalidScene;
+        v.stage = null;
+        defer s.destroy();
+        const head = s.head;
         const first_load = v.layer_end.items.len == 0;
-        var at: usize = std.mem.alignForward(usize, @sizeOf(SceneHead), 8);
-        inline for (v.sceneLists(), 0..) |list, k| {
-            const T = @typeInfo(@TypeOf(list.items)).pointer.child;
-            const n = head.counts[k];
-            const len = n * @sizeOf(T);
-            if (at + len > bytes.len) return error.InvalidScene;
-            list.resize(gpa, n) catch return error.OutOfMemory;
-            @memcpy(std.mem.sliceAsBytes(list.items), bytes[at .. at + len]);
-            at += std.mem.alignForward(usize, len, 8);
+        // The lists of the stage go to the view, and the old lists to the
+        // stage, which frees them.
+        const new = s.lists.sceneLists();
+        inline for (v.sceneLists(), 0..) |list, k| std.mem.swap(@TypeOf(list.*), list, new[k]);
+        if (s.tail) {
+            const tail = s.lists.pickLists();
+            inline for (v.pickLists(), 0..) |list, k| std.mem.swap(@TypeOf(list.*), list, tail[k]);
         }
         // A scene has no keys of its layers: the next load makes all.
         v.layer_key.clearRetainingCapacity();
@@ -1350,10 +1494,15 @@ pub const View = struct {
         v.lite.level_start = head.lite_start;
         v.lite_gen = v.nextGen();
         try v.loadGrid(head.bed[0], head.bed[1]);
-        if (!v.headless) try v.renderer.setInstances(v.beads.items, v.marks.items);
+        if (!v.headless) {
+            if (frame_backend and s.inst.items.len == v.beads.items.len + v.marks.items.len)
+                v.renderer.swapInstances(&s.inst)
+            else
+                try v.renderer.setInstances(v.beads.items, v.marks.items);
+        }
         v.more.clearRetainingCapacity();
         v.clearPreview();
-        if (!try v.readPickTail(bytes[@min(at, bytes.len)..])) try v.buildPickIndex(null);
+        if (!s.tail or !v.pickIndexFits()) try v.buildPickIndex(null);
         if (v.layer_end.items.len == 0) return;
         if (first_load) {
             v.reset();
@@ -5406,4 +5555,67 @@ test "a scene has the pick index of its beads, and a scene with none gets one" {
     defer fixed.deinitData();
     try fixed.readScene(bad);
     inline for (names) |name| try std.testing.expectEqualSlices(u8, std.mem.sliceAsBytes(@field(src, name).items), std.mem.sliceAsBytes(@field(fixed, name).items));
+}
+
+test "the instances of a scene are its beads, then its marks" {
+    var v = try testScene(3, 2, 5);
+    defer destroyTest(&v);
+    v.headless = true;
+    defer v.marks.deinit(View.gpa);
+    try v.marks.append(View.gpa, .{ .ax = 1, .ay = 2, .bx = 3, .by = 4, .z = 0.2, .h = 0.2, .w = 0.4, .rgba = .{ 1, 2, 3, 4 } });
+    const bytes = try v.writeScene(std.testing.allocator);
+    defer std.testing.allocator.free(bytes);
+    const r = try View.sceneSpan(bytes[0..@min(1024, bytes.len)], bytes.len, .instances);
+    try std.testing.expectEqual(@as(u32, @intCast(v.beads.items.len + 1)), r.count);
+    const inst = bytes[r.offset..][0 .. r.count * @sizeOf(vk.Instance)];
+    try std.testing.expectEqualSlices(u8, std.mem.sliceAsBytes(v.beads.items), inst[0 .. v.beads.items.len * @sizeOf(vk.Instance)]);
+    try std.testing.expectEqualSlices(u8, std.mem.sliceAsBytes(v.marks.items), inst[v.beads.items.len * @sizeOf(vk.Instance) ..]);
+    try std.testing.expectError(error.InvalidScene, View.sceneSpan(bytes[0..16], bytes.len, .instances));
+    try std.testing.expectError(error.InvalidScene, View.sceneSpan(bytes[0..@min(1024, bytes.len)], r.offset + 8, .instances));
+}
+
+test "a scene read in small steps gives the view of one read" {
+    const g = std.testing.allocator;
+    const mesh_mod = @import("../mesh.zig");
+    var b: mesh_mod.Builder = .init(g);
+    try mesh_mod.shapes.addBox(&b, 0, 0, 0, 20, 20, 4);
+    var mesh = try b.finish();
+    defer mesh.deinit(g);
+    var stl: std.Io.Writer.Allocating = .init(g);
+    defer stl.deinit();
+    try mesh.writeStl(&stl.writer);
+    const app = try app_mod.App.create(g, null, null);
+    defer app.destroy();
+    try app.loadStl("box.stl", stl.written());
+    try app.startSlice();
+    app.stopWorkerForTest();
+    var src: View = .{ .renderer = undefined, .headless = true, .width = 1, .height = 1 };
+    defer src.deinitData();
+    try src.load(app);
+    const bytes = try src.writeScene(g);
+    defer g.free(bytes);
+    var one: View = .{ .renderer = undefined, .headless = true, .width = 1, .height = 1 };
+    defer one.deinitData();
+    try one.readScene(bytes);
+    // In steps of 1000 bytes, over a view with another scene.
+    var steps: View = .{ .renderer = undefined, .headless = true, .width = 1, .height = 1 };
+    defer steps.deinitData();
+    try steps.readScene(bytes[0 .. (try View.sceneOffsets(bytes)).end]);
+    try std.testing.expectError(error.InvalidScene, steps.commitScene());
+    var calls: usize = 0;
+    while (!try steps.stageScene(bytes, 1000)) calls += 1;
+    try std.testing.expect(calls > 10);
+    // The old scene stays until the commit.
+    try std.testing.expect(steps.stage != null);
+    try steps.commitScene();
+    try std.testing.expect(steps.stage == null);
+    const lists = one.sceneLists();
+    inline for (steps.sceneLists(), 0..) |list, k| try std.testing.expectEqualSlices(u8, std.mem.sliceAsBytes(lists[k].items), std.mem.sliceAsBytes(list.items));
+    const index = one.pickLists();
+    inline for (steps.pickLists(), 0..) |list, k| try std.testing.expectEqualSlices(u8, std.mem.sliceAsBytes(index[k].items), std.mem.sliceAsBytes(list.items));
+    try std.testing.expectEqual(one.lite.level_start, steps.lite.level_start);
+    try std.testing.expectEqual(one.extent, steps.extent);
+    // A stage of other bytes starts again; a dropped stage frees its lists.
+    _ = try steps.stageScene(bytes, 10);
+    steps.dropStage();
 }

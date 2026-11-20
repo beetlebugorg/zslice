@@ -819,6 +819,53 @@ export fn zs_view_scene_read(view: ?*View, data: ?[*]const u8, len: usize) c_int
     return ok;
 }
 
+/// A span of instances in the bytes of zs_view_scene_write (enum
+/// zs_scene_span): its byte offset and its count. `head` is the first
+/// head_len bytes of a scene of len bytes (1024 bytes are enough).
+export fn zs_view_scene_span(head: ?[*]const u8, head_len: usize, len: usize, which: u32, offset: ?*usize, count: ?*u32) c_int {
+    if (!render_on) return @intFromEnum(Status.not_supported);
+    const h = head orelse return @intFromEnum(Status.invalid_argument);
+    const o = offset orelse return @intFromEnum(Status.invalid_argument);
+    const n = count orelse return @intFromEnum(Status.invalid_argument);
+    const w = std.enums.fromInt(View.SceneSpan, which) orelse return @intFromEnum(Status.invalid_argument);
+    const r = View.sceneSpan(h[0..@min(head_len, len)], len, w) catch |e| return status(e);
+    o.* = r.offset;
+    n.* = r.count;
+    return ok;
+}
+
+/// Reads a scene in steps: copies up to `budget` bytes of it, and sets
+/// *done to 1 when all is copied. Each call gets the same bytes. Then
+/// zs_view_scene_commit loads the scene; until then the view draws its old
+/// scene. zs_view_scene_read drops a scene in steps.
+export fn zs_view_scene_stage(view: ?*View, data: ?[*]const u8, len: usize, budget: usize, done: ?*c_int) c_int {
+    if (!render_on) return @intFromEnum(Status.not_supported);
+    const v = view orelse return @intFromEnum(Status.invalid_argument);
+    const d = data orelse return @intFromEnum(Status.invalid_argument);
+    const r = v.stageScene(d[0..len], budget) catch |e| {
+        v.dropStage();
+        return status(e);
+    };
+    if (done) |p| p.* = @intFromBool(r);
+    return ok;
+}
+
+/// Loads the scene of zs_view_scene_stage, after it set *done.
+export fn zs_view_scene_commit(view: ?*View) c_int {
+    if (!render_on) return @intFromEnum(Status.not_supported);
+    const v = view orelse return @intFromEnum(Status.invalid_argument);
+    v.commitScene() catch |e| return status(e);
+    return ok;
+}
+
+/// The generation of the light beads of the active plate (zs_web_plate.gen
+/// of its light levels).
+export fn zs_view_light_gen(view: ?*const View) u32 {
+    if (!render_on) return 0;
+    const v = view orelse return 0;
+    return v.lite_gen;
+}
+
 /// wasm and macOS: the frame data of the frame backend (zs_web_frame in
 /// zslice-app.h). NULL on the other targets.
 export fn zs_view_web_frame(view: ?*View) ?*const anyopaque {

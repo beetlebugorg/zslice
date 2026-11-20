@@ -542,6 +542,10 @@ export class GlRenderer {
     this.push2 = new Float32Array(28);
     this.instanceCount = 0;
     this.instCapacity = 0;
+    // The instance buffer and the light bead buffer of a new scene while
+    // they fill (see stageBegin).
+    this.stage = null;
+    this.stageLight = null;
     // The bead buffers of the plates: slot -> { vbo, gen }.
     this.slots = new Map();
     // The grid lines of the other plates.
@@ -712,6 +716,21 @@ export class GlRenderer {
       this.lod[3] = f.lod2Count;
       this.gen.mesh = f.meshGen;
     }
+    const st = this.stage;
+    if (st && st.gen >= 0 && st.gen === f.instancesGen && st.count === f.instanceCount) {
+      // The buffer of a new scene, filled in steps: it has these
+      // instances already.
+      gl.deleteBuffer(this.instVbo);
+      this.instVbo = st.vbo;
+      this.instCapacity = st.capacity;
+      this.instanceCount = f.instanceCount;
+      this.gen.instances = f.instancesGen;
+      this.stage = null;
+    } else if (st && st.gen >= 0) {
+      // The instances changed again after the scene: the staged buffer
+      // is old.
+      this.stageDrop();
+    }
     if (f.instancesGen !== this.gen.instances) {
       gl.bindBuffer(gl.ARRAY_BUFFER, this.instVbo);
       const need = (f.instanceCount + MAX_EXTRAS) * STRIDE;
@@ -750,6 +769,17 @@ export class GlRenderer {
         s = { vbo: gl.createBuffer(), gen: -1 };
         this.slots.set(slot, s);
       }
+      const light = this.stageLight;
+      if (s.gen !== gen && light && light.gen >= 0 && m[q + 38] & 6) {
+        // The light beads of the active plate: the staged buffer if it
+        // has them, else it is old.
+        if (light.gen === gen && light.count === m[q + 33]) {
+          gl.deleteBuffer(s.vbo);
+          s.vbo = light.vbo;
+          s.gen = gen;
+          this.stageLight = null;
+        } else this.stageDropLight();
+      }
       if (s.gen !== gen) {
         gl.bindVertexArray(null);
         gl.bindBuffer(gl.ARRAY_BUFFER, s.vbo);
@@ -779,6 +809,63 @@ export class GlRenderer {
       this.bed[0] = bx;
       this.bed[1] = by;
     }
+  }
+
+  // ---- a new scene in steps (app.js, stageScene) ----
+  //
+  // The instances of a large new scene go to a second buffer in pieces,
+  // a few MB in each frame, while the frames draw the old scene from the
+  // first buffer. One upload of all of them blocks the main thread until
+  // the GPU process has them all.
+
+  // Buffers for `count` instances (and the spare slots of the extras),
+  // and for `lightCount` light beads (the bead buffer of the light levels
+  // of the active plate).
+  stageBegin(count, lightCount) {
+    const gl = this.gl;
+    this.stageDrop();
+    this.stageDropLight();
+    gl.bindVertexArray(null);
+    const capacity = (count + MAX_EXTRAS) * STRIDE;
+    const vbo = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
+    gl.bufferData(gl.ARRAY_BUFFER, capacity, gl.DYNAMIC_DRAW);
+    this.stage = { vbo, count, capacity, gen: -1 };
+    if (lightCount > 0) {
+      const lvbo = gl.createBuffer();
+      gl.bindBuffer(gl.ARRAY_BUFFER, lvbo);
+      gl.bufferData(gl.ARRAY_BUFFER, lightCount * STRIDE, gl.STATIC_DRAW);
+      this.stageLight = { vbo: lvbo, count: lightCount, gen: -1 };
+    }
+  }
+
+  // Bytes at byte `at` of the staged instance buffer, or of the staged
+  // light bead buffer (`light`).
+  stagePut(bytes, at, light = false) {
+    const gl = this.gl;
+    gl.bindVertexArray(null);
+    gl.bindBuffer(gl.ARRAY_BUFFER, light ? this.stageLight.vbo : this.stage.vbo);
+    gl.bufferSubData(gl.ARRAY_BUFFER, at, bytes);
+  }
+
+  // The view has read the scene: its instances are of generation `gen`,
+  // and its light beads of `lightGen`. The next sync with these
+  // generations uses the staged buffers.
+  stageEnd(gen, lightGen) {
+    if (this.stage) this.stage.gen = gen;
+    if (this.stageLight) this.stageLight.gen = lightGen;
+  }
+
+  stageDrop() {
+    if (!this.stage) return;
+    this.gl.deleteBuffer(this.stage.vbo);
+    this.stage = null;
+  }
+
+  stageDropLight() {
+    if (!this.stageLight) return;
+    this.gl.deleteBuffer(this.stageLight.vbo);
+    this.stageLight = null;
   }
 
   // The bed model, after the beads: blended (its parts over the plate are
