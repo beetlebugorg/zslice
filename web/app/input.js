@@ -1,14 +1,13 @@
 // input.js: the mouse, the touch screen, and the wheel over the view (the
 // canvas of app.js).
 //
-// The mouse, as in Cura. In 3D: a right drag orbits, a middle drag (or
-// Shift and a drag) pans, and the wheel zooms toward the pointer. A left
-// drag orbits too, but in the Select tool a left drag that starts on a
+// The mouse. In 3D: a right drag, a middle drag, or Shift and a drag
+// pans, and the wheel zooms toward the pointer. A left drag orbits, but
+// in the Select tool a left drag that starts on a
 // printed line lights the layers from that layer to the layer under the
 // pointer (app.js, rangeStart), and the release opens the card of these
-// layers (rangecard.js). On a trackpad: two fingers pressed down and
-// dragged orbit (a right drag), with Shift they pan, and a light
-// two-finger swipe or a pinch zooms.
+// layers (rangecard.js). On a trackpad: two fingers clicked down and
+// slid pan (a right drag), and a light two-finger swipe or a pinch zooms.
 // In 2D: a drag pans, and the wheel zooms (preview.c). In both: a click (a
 // release within 4 pixels of the press) selects the line under the
 // pointer, and a right click opens the context menu there. In 3D, Shift
@@ -195,10 +194,10 @@ export function attachViewInput(canvas, ctx) {
       }
       return;
     }
-    // A right drag (two fingers pressed down on a touchpad) orbits, as a
-    // left drag does. A middle drag pans, as Shift with a drag does.
+    // A right drag (two fingers clicked down on a touchpad, then a slide)
+    // pans, as a middle drag and Shift with a drag do. A left drag orbits.
     if (app.page === "2d") view2d.pan(dx * dpr(), dy * dpr());
-    else if (drag.button === 1 || e.shiftKey) view.pan(dx * dpr(), dy * dpr());
+    else if (drag.button === 1 || drag.button === 2 || e.shiftKey) view.pan(dx * dpr(), dy * dpr());
     else view.orbit(dx, dy);
     requestFrame();
   });

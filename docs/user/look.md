@@ -9,7 +9,7 @@ Turn the view, go down through the layers, and replay the print as the printer p
 | Mouse or touch | What it does |
 |---|---|
 | Left drag | Orbit around the part. The bed stays level. |
-| Middle or right drag | Pan. On a touchpad: press down two fingers and drag. |
+| Middle or right drag | Pan. On a touchpad: click down with two fingers and slide. |
 | Wheel, light two-finger swipe, or pinch | Zoom toward the pointer. |
 | One finger (touch screen) | Orbit. |
 | Two fingers (touch screen) | Pinch to zoom. Move them to pan. |
