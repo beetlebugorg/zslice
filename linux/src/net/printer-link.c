@@ -393,6 +393,7 @@ typedef struct {
     ZgDoneFn done;
     gpointer data;
     char *id; /* the printer, for the pin */
+    ZgLinkKind kind;
 } Send;
 
 static void on_sent(GObject *source, GAsyncResult *res, gpointer data) {
@@ -414,8 +415,29 @@ static void on_sent(GObject *source, GAsyncResult *res, gpointer data) {
         g_bytes_unref(body);
     } else {
         guint status = soup_message_get_status(msg);
-        if (status >= 200 && status < 300) {
+        /* An upload of OctoPrint and printdeck answers JSON with the stored
+         * file (files.local, or done). Another 2xx answer (a web page, a
+         * proxy) stored nothing: a send once said "sent", and no file came
+         * to the deck. */
+        gboolean stored = TRUE;
+        if (status >= 200 && status < 300 && s->kind != ZG_LINK_MOONRAKER) {
+            JsonParser *parser = json_parser_new();
+            gsize len = 0;
+            const char *text = g_bytes_get_data(body, &len);
+            stored = FALSE;
+            if (json_parser_load_from_data(parser, text, (gssize)len, NULL)) {
+                JsonNode *root = json_parser_get_root(parser);
+                JsonNode *done = path_get(root, "done");
+                stored = path_get(root, "files.local") != NULL || (done && JSON_NODE_HOLDS_VALUE(done) && json_node_get_value_type(done) == G_TYPE_BOOLEAN && json_node_get_boolean(done));
+            }
+            g_object_unref(parser);
+        }
+        if (status >= 200 && status < 300 && stored) {
             s->done(TRUE, NULL, s->data);
+        } else if (status >= 200 && status < 300) {
+            char *m = g_strdup_printf("The printer answered %u, but not with a stored file. The file may not be on the printer: check its address in Preferences › Printers.", status);
+            s->done(FALSE, m, s->data);
+            g_free(m);
         } else {
             /* The OctoPrint API has the reason in {"error": "..."}. */
             char *reason = NULL;
@@ -782,6 +804,7 @@ static void upload_now(Upload *u) {
     s->done = u->done;
     s->data = u->data;
     s->id = g_strdup(p->id);
+    s->kind = p->kind;
     soup_session_send_and_read_async(session(), msg, G_PRIORITY_DEFAULT, u->cancel, on_sent, s);
     g_object_unref(msg);
     upload_free(u);

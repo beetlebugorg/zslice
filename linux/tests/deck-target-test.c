@@ -40,8 +40,10 @@ static void handle(SoupServer *server, SoupServerMessage *msg, const char *path,
         if (g_strstr_len(d, (gssize)n, "x.gcode.3mf") && g_strstr_len(d, (gssize)n, "WRAPPED-G-CODE")) saw_wrapped = TRUE;
         g_bytes_unref(all);
     }
+    /* The answer of an upload: the stored file. */
+    static const char stored[] = "{\"done\":true,\"files\":{\"local\":{\"name\":\"a.gcode\"}}}";
     soup_server_message_set_status(msg, 201, NULL);
-    soup_server_message_set_response(msg, "application/json", SOUP_MEMORY_STATIC, "{}", 2);
+    soup_server_message_set_response(msg, "application/json", SOUP_MEMORY_STATIC, stored, strlen(stored));
 }
 
 typedef struct {
