@@ -583,7 +583,6 @@ pub const PlateJob = struct {
         for (0..fam_n) |k| if (used[k]) {
             map[k] = @intCast(n);
             var t = one;
-            t.x = one.x - @as(f64, @floatFromInt(n)) * 2 * one.size;
             @memcpy(t.family[0..lens[k]], names[k][0..lens[k]]);
             out.list[n] = t;
             n += 1;
@@ -594,24 +593,57 @@ pub const PlateJob = struct {
         }
         out.n = n;
         for (out.of_slot[0..n_slots]) |*k| k.* = if (used[k.*]) map[k.*] else 0;
-        // The depth of each tower: room for the most purge of one layer.
-        // Each filament of a layer changes in at most once (the layer
-        // prints each filament in one run), so a layer purges into tower k
-        // at most the largest flush into each of its filaments.
+        // The size of each tower: room for the most purge of one layer.
+        // A layer changes into each of its filaments at most once (it
+        // prints each filament in one run), and into none when it prints
+        // only the filament that the layer before ended with. So a layer
+        // purges into tower k at most the largest flush into each filament
+        // of k that it prints, and the tower holds the most of all layers.
         const m = s.machine;
         const w = if (self.resolved.line_width > 0) self.resolved.line_width else 0.45;
         const h = @max(0.01, @min(p.layer_height, p.first_layer_height));
-        var most = [_]f64{0} ** gcode.Towers.max;
+        var into = [_]f64{0} ** filaments_mod.max_slots;
         for (self.slots[0..n_slots], 0..) |to, i| {
-            var into: f64 = gcode.tower_prime_mm3;
-            if (m.change_gcode.len == 0) for (self.slots[0..n_slots], 0..) |from, j| {
-                if (i != j) into = @max(into, filaments_mod.flushVolume(from.color, to.color, m.flush_volume, p.flush_multiplier));
+            into[i] = gcode.tower_prime_mm3;
+            if (m.change_gcode.len == 0) for (self.slots[0..n_slots], 0..) |from, j2| {
+                if (i != j2) into[i] = @max(into[i], filaments_mod.flushVolume(from.color, to.color, m.flush_volume, p.flush_multiplier));
             };
-            most[out.of_slot[i]] += into;
         }
+        var support_mask: u32 = 0;
+        if (own_support) support_mask = (@as(u32, 1) << @intCast(sup)) | (@as(u32, 1) << @intCast(iface));
+        var most = [_]f64{0} ** gcode.Towers.max;
+        var prev: u32 = 1; // The start G-code loads filament 1.
+        for (self.levels) |lv| {
+            var mask: u32 = support_mask;
+            for (self.entries[lv.first..lv.end]) |e| {
+                const t = self.toolAt(self.instances[e.instance].group, e.layer);
+                mask |= @as(u32, 1) << @intCast(@min(t, n_slots - 1));
+            }
+            if (mask != prev or @popCount(mask) > 1) {
+                var need = [_]f64{0} ** gcode.Towers.max;
+                for (0..n_slots) |i| if (mask & (@as(u32, 1) << @intCast(i)) != 0) {
+                    need[out.of_slot[i]] += into[i];
+                };
+                for (0..n) |k| most[k] = @max(most[k], need[k]);
+            }
+            prev = mask;
+        }
+        // A tower as wide as Project.prime_tower_width, or wider for a
+        // large purge: a square of the area of the purge, then as deep as
+        // its rows (at most `max_tower_rows`). Side by side to the left,
+        // a gap of one width between them.
+        var right = if (n > 0) out.list[0].x + out.list[0].size / 2 else 0;
         for (out.list[0..n], 0..) |*t, k| {
+            const area = most[k] / (flowArea(w, h) / w);
+            t.size = @max(t.size, @sqrt(area));
             const rows = @ceil(most[k] / (t.size * flowArea(w, h)));
             t.depth = @min(@max(t.size, rows * w), @as(f64, @floatFromInt(gcode.max_tower_rows)) * w);
+            if (k > 0) t.x = right - t.size / 2;
+            right = t.x - t.size / 2 - @max(t.size, 10);
+            if (p.prime_tower_x < 0 and k == 0) {
+                t.x = m.bed_size_x - t.size / 2 - 10;
+                right = t.x - t.size / 2 - @max(t.size, 10);
+            }
             if (p.prime_tower_y < 0) t.y = m.bed_size_y - t.depth / 2 - 10;
         }
         out.stack = own_support;
@@ -1657,7 +1689,8 @@ test "plate job: a PLA part with a PETG support interface, and a tower for each"
     const tw = pj.towers();
     try testing.expectEqual(@as(usize, 2), tw.n);
     try testing.expect(tw.stacked());
-    try testing.expect(@abs(tw.list[0].x - tw.list[1].x) >= tw.list[0].size * 2 - 1e-9);
+    // A gap of at least 10 mm between their edges.
+    try testing.expect(@abs(tw.list[0].x - tw.list[1].x) - (tw.list[0].size + tw.list[1].size) / 2 >= 10 - 1e-9);
     try testing.expect(tw.of_slot[0] != tw.of_slot[1]);
     var out: Writer.Allocating = .init(gpa);
     defer out.deinit();
@@ -1918,4 +1951,37 @@ test "plate job: a tower holds the whole purge of a layer, row by row" {
         }
         last_y = key;
     }
+}
+
+test "plate job: one change late in the print gives a small tower" {
+    const gpa = testing.allocator;
+    // A plaque: filament 2 from z 2 mm, one change.
+    var b: mesh_mod.Builder = .init(gpa);
+    try mesh_mod.shapes.addBox(&b, 0, 0, 0, 40, 20, 3);
+    var m = try b.finish();
+    defer m.deinit(gpa);
+    var s: Settings = .{};
+    s.engine.threads = 2;
+    s.machine.filament_change = .tool;
+    s.project.flush_into_hidden = false;
+    var red = s.filament;
+    red.color = "#e03030";
+    const ov = [_]settings_mod.Override{.{ .z_min = 2, .z_max = 10, .name = "project.filament", .value = "2" }};
+    const parts = [_]PartInput{.{ .mesh = &m, .part = 0 }};
+    var pj = try PlateJob.init(gpa, s, &parts, .{ .filaments = &.{red}, .overrides = &ov });
+    defer pj.deinit();
+    const tw = pj.towers();
+    try testing.expectEqual(@as(usize, 1), tw.n);
+    // Room for one flush into red on one layer, as near a square as it
+    // can be: no long column.
+    const t = tw.list[0];
+    const flush = filaments_mod.flushVolume(s.filament.color, red.color, s.machine.flush_volume, s.project.flush_multiplier);
+    const area = flush / s.project.layer_height;
+    try testing.expect(t.size * t.ySize() <= @max(area * 1.5, s.project.prime_tower_width * s.project.prime_tower_width) + 1e-9);
+    try testing.expect(t.ySize() <= t.size + 1);
+    var out: Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    const st = try pj.writeGcode(&out.writer);
+    try testing.expectEqual(@as(u32, 1), st.changes);
+    try testing.expectEqual(@as(f64, 0), st.tower_short_mm3);
 }
