@@ -55,38 +55,81 @@ fn stateText(gpa: Allocator, app: *const App, g: zs.profile.Group) (Allocator.Er
     return aw.toOwnedSlice();
 }
 
+/// A copy of a plate for `saveCopies`: what `save` reads from its App.
+pub const PlateCopy = struct {
+    name: []const u8,
+    printer: []const u8,
+    machine: []const u8,
+    filament: []const u8,
+    project: []const u8,
+    /// The parts (Plate.cloneForFile), or null for a plate with no parts.
+    plate: ?zs.plate.Plate,
+    /// The lines of the overrides file (App.writeFileLines).
+    lines: []const u8,
+
+    pub fn deinit(c: *PlateCopy, gpa: Allocator) void {
+        if (c.plate) |*p| p.deinit(gpa);
+        c.plate = null;
+    }
+};
+
+/// Copies a plate for `saveCopies`. The strings are in `arena`, and the
+/// parts in gpa (PlateCopy.deinit frees them).
+pub fn copyPlate(gpa: Allocator, arena: Allocator, p: PlateIn) (Allocator.Error || error{WriteFailed})!PlateCopy {
+    var lines: std.Io.Writer.Allocating = .init(arena);
+    if (p.app.plate.count() > 0) try p.app.writeFileLines(&lines.writer);
+    return .{
+        .name = try arena.dupe(u8, p.name),
+        .printer = try arena.dupe(u8, p.printer),
+        .machine = try stateText(arena, p.app, .machine),
+        .filament = try stateText(arena, p.app, .filament),
+        .project = try stateText(arena, p.app, .project),
+        .plate = if (p.app.plate.count() > 0) try p.app.plate.cloneForFile(gpa) else null,
+        .lines = lines.written(),
+    };
+}
+
 /// The project file of the plates, in gpa.
 pub fn save(gpa: Allocator, name: []const u8, plates: []const PlateIn, active: usize) (Allocator.Error || error{WriteFailed})![]u8 {
+    var arena_state = std.heap.ArenaAllocator.init(gpa);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    var copies: std.ArrayList(PlateCopy) = .empty;
+    defer for (copies.items) |*c| c.deinit(gpa);
+    for (plates) |p| try copies.append(a, try copyPlate(gpa, a, p));
+    return saveCopies(gpa, name, copies.items, active);
+}
+
+/// The project file of copies of the plates (`copyPlate`), in gpa. It
+/// reads no App, so it can run on another thread.
+pub fn saveCopies(gpa: Allocator, name: []const u8, plates: []const PlateCopy, active: usize) (Allocator.Error || error{WriteFailed})![]u8 {
     var arena_state = std.heap.ArenaAllocator.init(gpa);
     defer arena_state.deinit();
     const a = arena_state.allocator();
     var entries: std.ArrayList(zip.Entry) = .empty;
     var index: std.ArrayList(PlateJson) = .empty;
     var base_done = false;
-    for (plates, 0..) |p, n| {
+    for (plates, 0..) |*p, n| {
         var pj: PlateJson = .{
             .name = p.name,
             .printer = p.printer,
-            .machine = try stateText(a, p.app, .machine),
-            .filament = try stateText(a, p.app, .filament),
-            .project = try stateText(a, p.app, .project),
+            .machine = p.machine,
+            .filament = p.filament,
+            .project = p.project,
         };
-        if (p.app.plate.count() > 0) {
-            const bytes = p.app.write3mfAlloc(a) catch |e| switch (e) {
-                error.NoModel => null,
-                else => |x| return x,
-            };
-            if (bytes) |b| {
-                pj.file = try std.fmt.allocPrint(a, "Metadata/zslice_plate_{d}.3mf", .{n + 1});
-                try entries.append(a, .{ .name = pj.file, .data = b });
-                // The first plate with parts is the model of the file.
-                if (!base_done) {
-                    const inner = zip.readAll(a, b) catch null;
-                    if (inner) |list| for (list) |e| try entries.append(a, e);
-                    base_done = inner != null;
-                }
+        if (p.plate) |*plate| if (plate.count() > 0) {
+            var out: std.Io.Writer.Allocating = .init(a);
+            try zs.threemf.write(a, &out.writer, plate, p.lines);
+            const b = out.written();
+            pj.file = try std.fmt.allocPrint(a, "Metadata/zslice_plate_{d}.3mf", .{n + 1});
+            try entries.append(a, .{ .name = pj.file, .data = b });
+            // The first plate with parts is the model of the file.
+            if (!base_done) {
+                const inner = zip.readAll(a, b) catch null;
+                if (inner) |list| for (list) |e| try entries.append(a, e);
+                base_done = inner != null;
             }
-        }
+        };
         try index.append(a, pj);
     }
     const json = try std.json.Stringify.valueAlloc(a, IndexJson{ .name = name, .active = active, .plates = index.items }, .{ .whitespace = .indent_1 });

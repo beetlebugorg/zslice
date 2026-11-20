@@ -2132,6 +2132,16 @@ int zs_set_project_save(zs_set *set, const char *name, uint8_t **out, size_t *le
  * app (its own state: pages, scroll, focus). Free the bytes with
  * zs_buffer_free. */
 int zs_session_write(zs_set *set, const float *camera, const char *app_text, uint8_t **out, size_t *len);
+/* zs_session_write in two steps, so that the UI thread does not wait for
+ * the slow step: zs_session_snapshot_take copies the plates and scenes of
+ * the set (on the UI thread, a few ms), and zs_session_snapshot_write
+ * makes the same bytes from the copy on any thread (the 3MF text of the
+ * meshes and the deflate: about 300 ms for a 3DBenchy). Free the bytes
+ * with zs_buffer_free, and the snapshot with zs_session_snapshot_free. */
+typedef struct zs_session_snapshot zs_session_snapshot;
+int zs_session_snapshot_take(zs_set *set, const float *camera, const char *app_text, zs_session_snapshot **out);
+int zs_session_snapshot_write(zs_session_snapshot *snap, uint8_t **out, size_t *len);
+void zs_session_snapshot_free(zs_session_snapshot *snap);
 /* Puts a session back: its plates replace the plates of the set, each plate
  * shows its last scene until it slices again, camera_out gets the camera
  * (*has_camera = 1), and *app_text the text of the app (free it with

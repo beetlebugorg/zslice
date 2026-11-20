@@ -1587,15 +1587,12 @@ static void plate_changed(ZgModel *self) {
     if (zs_app_part_count(self->core) > 0) slice_plate_soon(self);
 }
 
-/* The session (zs_session_write): the plates, their scenes, the camera
- * (or NULL), and the text of the app. NULL on failure. */
-GBytes *zg_model_session_bytes(ZgModel *self, const float *camera, const char *app_text) {
-    uint8_t *out = NULL;
-    size_t len = 0;
-    if (zs_session_write(self->set, camera, app_text, &out, &len) != ZS_OK) return NULL;
-    GBytes *b = g_bytes_new(out, len);
-    zs_buffer_free(out, len);
-    return b;
+/* A copy of the session (zs_session_snapshot_take): the plates, their scenes,
+ * the camera (or NULL), and the text of the app. NULL on failure. */
+zs_session_snapshot *zg_model_session_snapshot(ZgModel *self, const float *camera, const char *app_text) {
+    zs_session_snapshot *snap = NULL;
+    if (zs_session_snapshot_take(self->set, camera, app_text, &snap) != ZS_OK) return NULL;
+    return snap;
 }
 
 /* Puts a session back: the plates, the camera (*has_camera), and the text

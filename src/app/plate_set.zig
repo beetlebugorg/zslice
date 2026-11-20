@@ -915,6 +915,21 @@ pub const Set = struct {
         return project_file.save(gpa, name, list.items, set.active);
     }
 
+    /// Copies of the plates for project_file.saveCopies: the strings in
+    /// `arena`, and the parts in gpa (PlateCopy.deinit frees them).
+    pub fn copyPlates(set: *Set, gpa: Allocator, arena: Allocator) (Allocator.Error || error{WriteFailed})!struct { plates: []project_file.PlateCopy, active: usize } {
+        set.enter();
+        defer set.leave();
+        const out = try arena.alloc(project_file.PlateCopy, set.plates.items.len);
+        var n: usize = 0;
+        errdefer for (out[0..n]) |*c| c.deinit(gpa);
+        for (set.plates.items) |p| {
+            out[n] = try project_file.copyPlate(gpa, arena, .{ .app = p.app, .name = p.name, .printer = p.printer });
+            n += 1;
+        }
+        return .{ .plates = out, .active = set.active };
+    }
+
     /// Opens a project file: its plates replace the plates of the set. A
     /// file that is not a project changes nothing (error.NotProject).
     pub fn openProject(set: *Set, bytes: []const u8, diag: *project_file.Diagnostic) project_file.Error!void {
@@ -1531,4 +1546,33 @@ test "plate set: a session brings back the plates, the camera, and the app text"
     try testing.expectEqual(@as(f64, 0.35), back.appOf(1).?.settings.project.infill_density);
     try testing.expectEqual(cam, r.camera.?);
     try testing.expectEqualStrings("panel=settings;scroll=120", r.app_text);
+}
+
+test "plate set: a session snapshot gives the bytes of the set when it was taken" {
+    const session = @import("session.zig");
+    const gpa = testing.allocator;
+    var ev: Events = .{};
+    const set = try Set.create(gpa, Events.f, &ev, false);
+    defer set.destroy();
+    var b: zs.mesh.Builder = .init(gpa);
+    try zs.mesh.shapes.addBox(&b, 0, 0, 0, 30, 30, 5);
+    var m = try b.finish();
+    defer m.deinit(gpa);
+    var stl: std.Io.Writer.Allocating = .init(gpa);
+    defer stl.deinit();
+    try m.writeStl(&stl.writer);
+    _ = try set.appOf(0).?.addStl("box", stl.written());
+    _ = try set.add();
+    const cam = [8]f32{ 1, 2, 3, 0, 0, 0, 1, 250 };
+    const want = try session.write(gpa, set, cam, "panel=settings");
+    defer gpa.free(want);
+    const snap = try session.Snapshot.take(gpa, set, cam, "panel=settings");
+    defer snap.destroy();
+    // The changes after the snapshot are not in its bytes.
+    try set.appOf(0).?.setSetting("project.infill_density", "0.35");
+    try set.appOf(0).?.clearPlate();
+    try set.remove(1);
+    const got = try snap.encode(gpa);
+    defer gpa.free(got);
+    try testing.expectEqualSlices(u8, want, got);
 }

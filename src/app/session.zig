@@ -29,27 +29,70 @@ const Json = struct {
 
 /// The session file of the set, in gpa.
 pub fn write(gpa: Allocator, set: *Set, camera: ?[8]f32, app_text: []const u8) (Allocator.Error || error{WriteFailed})![]u8 {
-    var arena_state = std.heap.ArenaAllocator.init(gpa);
-    defer arena_state.deinit();
-    const a = arena_state.allocator();
-    var entries: std.ArrayList(zip.Entry) = .empty;
-    const proj = try set.saveProject(a, "session");
-    // The project file is a zip already, and a scene must load fast:
-    // both go in as they are.
-    try entries.append(a, .{ .name = "project.zslice", .data = proj, .store = true });
-    for (0..set.count()) |i| {
-        const sc = set.scene(i) orelse continue;
-        const name = try std.fmt.allocPrint(a, "scene-{d}.bin", .{i});
-        try entries.append(a, .{ .name = name, .data = try a.dupe(u8, sc), .store = true });
-    }
-    const json = try std.json.Stringify.valueAlloc(a, Json{ .camera = camera }, .{});
-    try entries.append(a, .{ .name = "session.json", .data = json });
-    try entries.append(a, .{ .name = "app.txt", .data = try a.dupe(u8, app_text) });
-    var out: std.Io.Writer.Allocating = .init(gpa);
-    errdefer out.deinit();
-    try zip.write(gpa, &out.writer, entries.items);
-    return out.toOwnedSlice();
+    const snap = try Snapshot.take(gpa, set, camera, app_text);
+    defer snap.destroy();
+    return snap.encode(gpa);
 }
+
+/// What `write` reads from the set, copied on the thread of the shell, so
+/// that `encode` runs on another thread while the plates change. `encode`
+/// makes the 3MF text of the meshes and the deflate (about 300 ms for a
+/// 3DBenchy); `take` copies the meshes and the scenes.
+pub const Snapshot = struct {
+    gpa: Allocator,
+    arena: std.heap.ArenaAllocator,
+    plates: []project_file.PlateCopy = &.{},
+    active: usize = 0,
+    /// The last scene of each plate, or null.
+    scenes: []?[]const u8 = &.{},
+    camera: ?[8]f32 = null,
+    app_text: []const u8 = "",
+
+    pub fn take(gpa: Allocator, set: *Set, camera: ?[8]f32, app_text: []const u8) (Allocator.Error || error{WriteFailed})!*Snapshot {
+        const snap = try gpa.create(Snapshot);
+        snap.* = .{ .gpa = gpa, .arena = .init(gpa), .camera = camera };
+        errdefer snap.destroy();
+        const a = snap.arena.allocator();
+        snap.app_text = try a.dupe(u8, app_text);
+        const copies = try set.copyPlates(gpa, a);
+        snap.plates = copies.plates;
+        snap.active = copies.active;
+        snap.scenes = try a.alloc(?[]const u8, set.count());
+        for (snap.scenes, 0..) |*sc, i| sc.* = if (set.scene(i)) |b| try a.dupe(u8, b) else null;
+        return snap;
+    }
+
+    pub fn destroy(snap: *Snapshot) void {
+        for (snap.plates) |*p| p.deinit(snap.gpa);
+        snap.arena.deinit();
+        snap.gpa.destroy(snap);
+    }
+
+    /// The session file, in gpa. It reads no App, so it can run on any
+    /// thread, once at a time.
+    pub fn encode(snap: *const Snapshot, gpa: Allocator) (Allocator.Error || error{WriteFailed})![]u8 {
+        var arena_state = std.heap.ArenaAllocator.init(gpa);
+        defer arena_state.deinit();
+        const a = arena_state.allocator();
+        var entries: std.ArrayList(zip.Entry) = .empty;
+        const proj = try project_file.saveCopies(a, "session", snap.plates, snap.active);
+        // The project file is a zip already, and a scene must load fast:
+        // both go in as they are.
+        try entries.append(a, .{ .name = "project.zslice", .data = proj, .store = true });
+        for (snap.scenes, 0..) |sc, i| {
+            const bytes = sc orelse continue;
+            const name = try std.fmt.allocPrint(a, "scene-{d}.bin", .{i});
+            try entries.append(a, .{ .name = name, .data = @constCast(bytes), .store = true });
+        }
+        const json = try std.json.Stringify.valueAlloc(a, Json{ .camera = snap.camera }, .{});
+        try entries.append(a, .{ .name = "session.json", .data = json });
+        try entries.append(a, .{ .name = "app.txt", .data = @constCast(snap.app_text) });
+        var out: std.Io.Writer.Allocating = .init(gpa);
+        errdefer out.deinit();
+        try zip.write(gpa, &out.writer, entries.items);
+        return out.toOwnedSlice();
+    }
+};
 
 pub const Restored = struct {
     camera: ?[8]f32,

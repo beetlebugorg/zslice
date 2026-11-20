@@ -275,10 +275,19 @@ static void on_startup(GApplication *app, gpointer data) {
 
 /* ---- the session: the app comes back as it was after a quit ----
  *
- * The session file of the core (zs_session_write) in the state folder:
- * the plates, the camera, and the window (its size, maximized). It is
+ * The session file of the core (zs_session_snapshot_take) in the state
+ * folder: the plates, the camera, and the window (its size, maximized). It is
  * written 1.5 s after a slice, at the close of the window, and at quit
- * (atomically: g_file_set_contents writes a new file, then renames it). */
+ * (atomically: g_file_set_contents writes a new file, then renames it).
+ *
+ * The UI thread copies the session (a few ms). The bytes of the copy (the
+ * 3MF text of the meshes and the deflate: about 300 ms for a 3DBenchy)
+ * come on a thread of a GTask after a slice, and at once at the close and
+ * at quit. Each save has a number: a thread writes the file only if no
+ * later save started, so an old copy does not replace a newer file. */
+
+static GMutex session_lock;
+static guint session_serial;
 
 static char *session_path(void) {
     char *dir = zg_config_dir();
@@ -288,7 +297,44 @@ static char *session_path(void) {
     return p;
 }
 
-static void session_save(GtkWindow *w) {
+typedef struct {
+    zs_session_snapshot *snap;
+    char *path;
+    guint serial;
+} SessionWrite;
+
+static void session_write_free(gpointer data) {
+    SessionWrite *sw = data;
+    zs_session_snapshot_free(sw->snap);
+    g_free(sw->path);
+    g_free(sw);
+}
+
+/* Makes the bytes of the copy, and writes them if no later save started.
+ * On the thread of a GTask, or on the UI thread at the close and at quit. */
+static void session_write(SessionWrite *sw) {
+    uint8_t *out = NULL;
+    size_t len = 0;
+    if (zs_session_snapshot_write(sw->snap, &out, &len) != ZS_OK) {
+        g_message("zslice: the session did not save: no memory");
+        return;
+    }
+    g_mutex_lock(&session_lock);
+    GError *error = NULL;
+    if (sw->serial == session_serial && !g_file_set_contents(sw->path, (const char *)out, (gssize)len, &error)) {
+        g_message("zslice: the session did not save: %s", error->message);
+        g_error_free(error);
+    }
+    g_mutex_unlock(&session_lock);
+    zs_buffer_free(out, len);
+}
+
+static void session_write_thread(GTask *task, gpointer source, gpointer data, GCancellable *cancel) {
+    session_write(data);
+}
+
+/* wait: write the file before the return (the close and quit). */
+static void session_save(GtkWindow *w, gboolean wait) {
     if (!model || !w) return;
     gint64 t0 = g_get_monotonic_time();
     GtkWidget *view = zg_window_view3d(w);
@@ -302,34 +348,39 @@ static void session_save(GtkWindow *w) {
     char *text = g_strdup_printf("{\"width\":%d,\"height\":%d,\"maximized\":%s,\"refine\":\"%s\"}", width, height,
                                  gtk_window_is_maximized(w) ? "true" : "false", refine);
     g_free(refine);
-    GBytes *b = zg_model_session_bytes(model, has_cam ? cam : NULL, text);
+    zs_session_snapshot *snap = zg_model_session_snapshot(model, has_cam ? cam : NULL, text);
     g_free(text);
-    if (!b) return;
-    char *path = session_path();
-    gsize len = 0;
-    const char *data = g_bytes_get_data(b, &len);
-    GError *error = NULL;
-    if (!g_file_set_contents(path, data, (gssize)len, &error)) {
-        g_message("zslice: the session did not save: %s", error->message);
-        g_error_free(error);
+    if (!snap) return;
+    SessionWrite *sw = g_new0(SessionWrite, 1);
+    sw->snap = snap;
+    sw->path = session_path();
+    g_mutex_lock(&session_lock);
+    sw->serial = ++session_serial;
+    g_mutex_unlock(&session_lock);
+    if (g_getenv("ZSLICE_BENCH")) g_message("bench: the session copy, %.0f ms", (g_get_monotonic_time() - t0) / 1000.0);
+    if (wait) {
+        session_write(sw);
+        session_write_free(sw);
+        return;
     }
-    g_free(path);
-    g_bytes_unref(b);
-    if (g_getenv("ZSLICE_BENCH")) g_message("bench: the session save, %.0f ms", (g_get_monotonic_time() - t0) / 1000.0);
+    GTask *task = g_task_new(NULL, NULL, NULL, NULL);
+    g_task_set_task_data(task, sw, session_write_free);
+    g_task_run_in_thread(task, session_write_thread);
+    g_object_unref(task);
 }
 
 static guint session_timer;
 /* The time of the last input to the window (g_get_monotonic_time). */
 static gint64 last_input;
 
-/* The save takes a moment of the UI thread (a 3DBenchy: about 200 ms):
- * it waits for a pause of 2 s in the input and in the moves of the
- * view, so no drag or orbit stops for it. */
+/* The copy of the save holds the UI thread for a few ms: it waits for a
+ * pause of 2 s in the input and in the moves of the view, so no drag or
+ * orbit has a late frame for it. */
 static gboolean on_session_timer(gpointer data) {
     GtkWidget *view = zg_window_view3d(GTK_WINDOW(data));
     if (g_get_monotonic_time() - last_input < 2 * G_USEC_PER_SEC || (view && zg_view3d_moving(view))) return G_SOURCE_CONTINUE;
     session_timer = 0;
-    session_save(GTK_WINDOW(data));
+    session_save(GTK_WINDOW(data), FALSE);
     return G_SOURCE_REMOVE;
 }
 
@@ -358,7 +409,7 @@ static gboolean on_close_session(GtkWindow *w, gpointer data) {
         g_source_remove(session_timer);
         session_timer = 0;
     }
-    session_save(w);
+    session_save(w, TRUE);
     return FALSE;
 }
 
@@ -443,7 +494,7 @@ static void on_open(GApplication *app, GFile **files, int n, const char *hint, g
 
 static void on_shutdown(GApplication *app, gpointer data) {
     GtkWindow *w = gtk_application_get_active_window(GTK_APPLICATION(app));
-    if (w) session_save(w);
+    if (w) session_save(w, TRUE);
     g_clear_object(&model);
 }
 

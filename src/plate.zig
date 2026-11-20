@@ -335,6 +335,40 @@ pub const Plate = struct {
         return self.parts.items.len - 1;
     }
 
+    /// A copy of the plate with what a 3MF file of it has (threemf.write):
+    /// the names, meshes, metadata, paint, places, and modifier volumes of
+    /// the parts. The source meshes and the support trees stay out. A
+    /// thread can write the copy while the plate changes.
+    pub fn cloneForFile(self: *const Plate, gpa: Allocator) Allocator.Error!Plate {
+        var out: Plate = .{};
+        errdefer out.deinit(gpa);
+        try out.parts.ensureTotalCapacity(gpa, self.parts.items.len);
+        for (self.parts.items) |*src| {
+            var p: Part = src.*;
+            p.source = null;
+            p.trees = null;
+            p.name = try gpa.dupeZ(u8, src.name);
+            p.mesh = .empty;
+            p.meta = &.{};
+            p.paint = .{};
+            p.volumes = .empty;
+            // The part is in `out` from here, so an error frees it.
+            out.parts.appendAssumeCapacity(p);
+            const c = &out.parts.items[out.parts.items.len - 1];
+            c.mesh = try src.mesh.clone(gpa);
+            c.meta = try threemf.cloneMeta(gpa, src.meta);
+            c.paint = try src.paint.clone(gpa);
+            try c.volumes.ensureTotalCapacity(gpa, src.volumes.items.len);
+            for (src.volumes.items) |v| {
+                c.volumes.appendAssumeCapacity(.{ .name = try gpa.dupeZ(u8, v.name), .mesh = .empty });
+                const cv = &c.volumes.items[c.volumes.items.len - 1];
+                cv.mesh = try v.mesh.clone(gpa);
+                cv.meta = try threemf.cloneMeta(gpa, v.meta);
+            }
+        }
+        return out;
+    }
+
     /// Splits part i into its separate bodies (Mesh.components), each a
     /// part at its place on the bed, with the settings of part i. The
     /// modifier volumes of the part go. Returns the count of the new parts

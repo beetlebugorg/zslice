@@ -530,16 +530,23 @@ pub const App = struct {
         app.state.store(.ready, .release);
     }
 
+    /// The lines of Metadata/zslice_overrides.txt in the 3MF file of the
+    /// plate: the layer profiles, the support areas, the filament slots,
+    /// the support trees, the edits of lines, and the overrides.
+    pub fn writeFileLines(app: *const App, w: *std.Io.Writer) (Allocator.Error || error{WriteFailed})!void {
+        for (app.profiles.items) |p| try w.print("profile\t{d}\t{d}\t{s}\n", .{ p.z_min, p.z_max, p.name });
+        try app.areas.write3mfLines(w);
+        try filament_slots.write3mfLines(app, w);
+        try support_trees.write3mfLines(app, w);
+        for (app.edits.list.items) |e| try w.print("edit\t{x}\t{d}\t{d}\t{d}\t{d}\t{d}\t{d}\n", .{ e.key, @intFromEnum(e.kind), e.value, e.layer, e.x, e.y, e.z });
+        for (app.overrides.items) |o| try w.print("{d}\t{d}\t{s}\t{s}\n", .{ o.z_min, o.z_max, o.name, o.value });
+    }
+
     fn writePlateAlloc(app: *const App, gpa: Allocator, snapshot: bool) (Allocator.Error || error{WriteFailed} || error{NoModel})![]u8 {
         if (app.plate.count() == 0) return error.NoModel;
         var text: std.Io.Writer.Allocating = .init(gpa);
         defer text.deinit();
-        for (app.profiles.items) |p| try text.writer.print("profile\t{d}\t{d}\t{s}\n", .{ p.z_min, p.z_max, p.name });
-        try app.areas.write3mfLines(&text.writer);
-        try filament_slots.write3mfLines(app, &text.writer);
-        try support_trees.write3mfLines(app, &text.writer);
-        for (app.edits.list.items) |e| try text.writer.print("edit\t{x}\t{d}\t{d}\t{d}\t{d}\t{d}\t{d}\n", .{ e.key, @intFromEnum(e.kind), e.value, e.layer, e.x, e.y, e.z });
-        for (app.overrides.items) |o| try text.writer.print("{d}\t{d}\t{s}\t{s}\n", .{ o.z_min, o.z_max, o.name, o.value });
+        try app.writeFileLines(&text.writer);
         var out: std.Io.Writer.Allocating = .init(gpa);
         errdefer out.deinit();
         if (snapshot) try zs.threemf.writeSnapshot(gpa, &out.writer, &app.plate, text.written()) else try zs.threemf.write(gpa, &out.writer, &app.plate, text.written());

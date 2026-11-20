@@ -306,6 +306,33 @@ export fn zs_session_write(set: ?*Set, camera: ?[*]const f32, app_text: ?[*:0]co
     return ok;
 }
 
+/// zs_session_write in two steps: zs_session_snapshot_take copies the set
+/// on the thread of the shell (a few ms), and zs_session_snapshot_write makes
+/// the bytes on any thread (the 3MF text and the deflate). Free the
+/// snapshot with zs_session_snapshot_free.
+export fn zs_session_snapshot_take(set: ?*Set, camera: ?[*]const f32, app_text: ?[*:0]const u8, out: ?*?*zs.app.session.Snapshot) c_int {
+    const s = set orelse return @intFromEnum(Status.invalid_argument);
+    const o = out orelse return @intFromEnum(Status.invalid_argument);
+    const cam: ?[8]f32 = if (camera) |c8| c8[0..8].* else null;
+    o.* = zs.app.session.Snapshot.take(gpa, s, cam, if (app_text) |t| std.mem.span(t) else "") catch return @intFromEnum(Status.out_of_memory);
+    return ok;
+}
+
+/// The session file of a snapshot. Free the bytes with zs_buffer_free.
+export fn zs_session_snapshot_write(snap: ?*zs.app.session.Snapshot, out: ?*?[*]u8, out_len: ?*usize) c_int {
+    const sn = snap orelse return @intFromEnum(Status.invalid_argument);
+    const o = out orelse return @intFromEnum(Status.invalid_argument);
+    const l = out_len orelse return @intFromEnum(Status.invalid_argument);
+    const bytes = sn.encode(gpa) catch return @intFromEnum(Status.out_of_memory);
+    o.* = bytes.ptr;
+    l.* = bytes.len;
+    return ok;
+}
+
+export fn zs_session_snapshot_free(snap: ?*zs.app.session.Snapshot) void {
+    if (snap) |sn| sn.destroy();
+}
+
 /// Puts a session back: its plates replace those of the set, each plate
 /// shows its last scene at once, camera_out gets the camera (has_camera:
 /// 1) or stays, and app_text gets the text of the app (free it with
