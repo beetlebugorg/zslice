@@ -868,55 +868,83 @@ pub const Emitter = struct {
         try w.writeAll("\n; filament: ");
         for (fils, 0..) |_, k| try w.print("{s}{d}", .{ if (k > 0) "," else "", k + 1 });
         try w.writeAll("\n; HEADER_BLOCK_END\n\n; CONFIG_BLOCK_START\n");
-        try w.print("; printer_model = {s}\n; printer_settings_id = {s} {d} nozzle\n; printer_variant = {d}\n", .{ b.name, b.name, m.nozzle_diameter, m.nozzle_diameter });
-        var dbuf: [32]u8 = undefined;
-        try list(w, "nozzle_diameter", n, std.fmt.bufPrint(&dbuf, "{d}", .{m.nozzle_diameter}) catch "0.4");
-        try list(w, "nozzle_type", n, @tagName(m.nozzle_type));
-        try list(w, "nozzle_volume_type", n, if (m.nozzle_flow == .high_flow) "High Flow" else "Standard");
-        try w.writeAll("; extruder_type = ");
+        // The keys of the extruders and the hotends of a Bambu Studio file
+        // (02.09, the X2D): one value for each extruder, then one for each
+        // filament. No nozzle_type: Studio writes none.
+        const vol = if (m.nozzle_flow == .high_flow) "High Flow" else "Standard";
+        var types: [2][]const u8 = .{ "Direct Drive", "Direct Drive" };
         {
             var it = std.mem.splitScalar(u8, b.types, ';');
             var k: usize = 0;
-            while (it.next()) |t| : (k += 1) try w.print("{s}{s}", .{ if (k > 0) "," else "", t });
+            while (it.next()) |t| : (k += 1) if (k < 2) {
+                types[k] = t;
+            };
         }
-        try w.writeAll("\n; default_nozzle_volume_type = ");
+        var dbuf: [32]u8 = undefined;
+        const dia = std.fmt.bufPrint(&dbuf, "{d}", .{m.nozzle_diameter}) catch "0.4";
+        try w.print("; curr_bed_type = {s}\n", .{m.bed_type.studioName()});
+        try w.writeAll("; default_nozzle_volume_type = ");
         {
             var it = std.mem.splitScalar(u8, b.volumes, ';');
             var k: usize = 0;
             while (it.next()) |t| : (k += 1) try w.print("{s}{s}", .{ if (k > 0) "," else "", t });
         }
+        try w.writeByte('\n');
+        try list(w, "extruder_max_nozzle_count", n, "1");
+        try list(w, "extruder_nozzle_count", n, "1");
+        try list(w, "extruder_nozzle_diameter", n, dia);
+        try w.writeAll("; extruder_nozzle_slot = ");
+        for (0..n) |k| try w.print("{s}{d}", .{ if (k > 0) "," else "", k });
+        try w.writeAll("\n; extruder_nozzle_stats = ");
+        for (0..n) |k| try w.print("{s}{s}#1", .{ if (k > 0) ";" else "", vol });
+        try w.writeAll("\n; extruder_nozzle_stats_new = ");
+        for (0..n) |k| try w.print("{s}{s}#1", .{ if (k > 0) ";" else "", vol });
+        try w.writeByte('\n');
+        try list(w, "extruder_nozzle_volume_type", n, vol);
+        try list(w, "extruder_offset", n, "0x0");
+        try w.writeAll("; extruder_type = ");
+        for (0..n) |k| try w.print("{s}{s}", .{ if (k > 0) "," else "", types[@min(k, 1)] });
+        try w.writeByte('\n');
         if (b.variants.len > 0) {
-            try w.writeAll("\n; extruder_variant_list = ");
+            try w.writeAll("; extruder_variant_list = ");
             var it = std.mem.splitScalar(u8, b.variants, '|');
             var k: usize = 0;
-            while (it.next()) |t| : (k += 1) try w.print("{s}\"{s}\"", .{ if (k > 0) "," else "", t });
-            // Each variant and its extruder (from 1), in the order of the
-            // lists: "Direct Drive Standard", ... and 1,1,1,2,2,2.
-            try w.writeAll("\n; printer_extruder_variant = ");
-            var vit = std.mem.splitAny(u8, b.variants, ",|");
-            var j: usize = 0;
-            while (vit.next()) |v| : (j += 1) try w.print("{s}{s}", .{ if (j > 0) "," else "", v });
-            try w.writeAll("\n; printer_extruder_id = ");
-            var eit = std.mem.splitScalar(u8, b.variants, '|');
-            var e: usize = 1;
-            j = 0;
-            while (eit.next()) |group| : (e += 1) {
-                var git = std.mem.splitScalar(u8, group, ',');
-                while (git.next()) |_| : (j += 1) try w.print("{s}{d}", .{ if (j > 0) "," else "", e });
-            }
+            while (it.next()) |t| : (k += 1) try w.print("{s}\"{s}\"", .{ if (k > 0) ";" else "", t });
+            try w.writeByte('\n');
         }
-        // Two extruders of one nozzle each (the X2D, the H2D): the firmware
-        // numbers them the other way (the start G-code heats
-        // T{filament_map % 2}). The H2C changes nozzles from a rack.
-        if (n >= 2 and !std.mem.eql(u8, b.code, "O1C2")) try w.writeAll("\n; physical_extruder_map = 1,0\n; extruder_max_nozzle_count = 1,1");
-        try w.print("\n; curr_bed_type = {s}\n", .{m.bed_type.studioName()});
-        try w.writeAll("; filament_map = ");
+        // Each filament: the variant of its extruder, its extruder (from
+        // 1), and its nozzle (from 0).
+        try w.writeAll("; filament_extruder_variant = ");
+        for (fils, 0..) |f, k| try w.print("{s}\"{s} {s}\"", .{ if (k > 0) ";" else "", types[if (n >= 2) @min(f.nozzle, 1) else 0], vol });
+        try w.writeAll("\n; filament_map = ");
         for (fils, 0..) |f, k| try w.print("{s}{d}", .{ if (k > 0) "," else "", if (n >= 2) @as(u32, @min(f.nozzle, 1)) + 1 else 1 });
+        try w.writeAll("\n; filament_nozzle_map = ");
+        for (fils, 0..) |f, k| try w.print("{s}{d}", .{ if (k > 0) "," else "", if (n >= 2) @as(u32, @min(f.nozzle, 1)) else 0 });
         try w.writeAll("\n; filament_type = ");
         for (fils, 0..) |f, k| try w.print("{s}{s}", .{ if (k > 0) ";" else "", f.material });
         try w.writeAll("\n; filament_colour = ");
         for (fils, 0..) |f, k| try w.print("{s}{s}", .{ if (k > 0) ";" else "", f.color });
-        try w.print("\n; layer_height = {d}\n; initial_layer_print_height = {d}\n", .{ s.project.layer_height, s.project.first_layer_height });
+        try w.writeAll("\n; handle_hotend_as_extruder = 0\n; has_filament_switcher = 0\n");
+        try w.print("; initial_layer_print_height = {d}\n; layer_height = {d}\n", .{ s.project.first_layer_height, s.project.layer_height });
+        try w.writeAll("; master_extruder_id = 1\n; multi_nozzle_diameter_mode = 0\n");
+        try list(w, "nozzle_diameter", n, dia);
+        try list(w, "nozzle_volume_type", n, vol);
+        // Two extruders of one nozzle each (the X2D, the H2D): the firmware
+        // numbers them the other way (the start G-code heats
+        // T{filament_map % 2}). The H2C changes nozzles from a rack.
+        if (n >= 2 and !std.mem.eql(u8, b.code, "O1C2")) try w.writeAll("; physical_extruder_map = 1,0\n");
+        for ([_][]const u8{ "print_extruder_id", "printer_extruder_id" }) |key| {
+            try w.print("; {s} = ", .{key});
+            for (0..n) |k| try w.print("{s}{d}", .{ if (k > 0) "," else "", k + 1 });
+            try w.writeByte('\n');
+        }
+        for ([_][]const u8{ "print_extruder_variant", "printer_extruder_variant" }) |key| {
+            try w.print("; {s} = ", .{key});
+            for (0..n) |k| try w.print("{s}\"{s} {s}\"", .{ if (k > 0) ";" else "", types[@min(k, 1)], vol });
+            try w.writeByte('\n');
+        }
+        try w.print("; printer_model = {s}\n; printer_settings_id = {s} {s} nozzle\n; printer_technology = FFF\n; printer_variant = {s}\n", .{ b.name, b.name, dia, dia });
+        try w.writeAll("; single_extruder_multi_material = 1\n");
         try w.writeAll("; CONFIG_BLOCK_END\n\n");
     }
 

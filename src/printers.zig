@@ -418,12 +418,14 @@ pub const Library = struct {
             try w.print("# Cooling: {s}. The air speed is an estimate from the size of the fans.\n", .{c.what});
             try w.print("chamber_temp = {d}\npart_fan_air = {d}\n", .{ c.chamber_temp, c.part_fan_air });
         }
-        if (self.gcode(m.start)) |g| {
+        // The start and the end G-code of Bambu Studio for a model that has
+        // newer ones than the presets of the library (see bambuTemplate).
+        if (bambuTemplate(m.id, .start) orelse self.gcode(m.start)) |g| {
             try w.writeAll("start_gcode = ");
             try writeMultiline(w, g);
             try w.writeByte('\n');
         }
-        if (self.gcode(m.end)) |g| {
+        if (bambuTemplate(m.id, .end) orelse self.gcode(m.end)) |g| {
             try w.writeAll("end_gcode = ");
             try writeMultiline(w, g);
             try w.writeByte('\n');
@@ -522,6 +524,18 @@ test "printers: the facts of the Bambu Lab X2D and of a printer with one nozzle"
 /// null. The text of the Bambu Lab X2D comes from its machine preset in
 /// the BBL profiles of OrcaSlicer (see REFERENCES.md); gcode_vars.zig
 /// fills in its variables.
+/// The start or the end G-code of a Bambu Lab printer from Bambu Studio,
+/// when it is newer than the one of the presets of OrcaSlicer, or null.
+/// The X2D: Bambu Studio 02.09.01.70 (start 2026/10/20, end 2026/07/29),
+/// from the config block of a .gcode.3mf that it wrote.
+pub fn bambuTemplate(id: []const u8, which: enum { start, end }) ?[]const u8 {
+    if (std.mem.eql(u8, id, "bambu-lab-x2d")) return switch (which) {
+        .start => @embedFile("printers/bambu/bambu-lab-x2d-start.gcode"),
+        .end => @embedFile("printers/bambu/bambu-lab-x2d-end.gcode"),
+    };
+    return null;
+}
+
 pub fn changeGcode(id: []const u8) ?[]const u8 {
     if (std.mem.eql(u8, id, "bambu-lab-x2d")) return @embedFile("printers/change/bambu-lab-x2d.gcode");
     return null;

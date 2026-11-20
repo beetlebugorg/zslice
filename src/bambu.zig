@@ -105,7 +105,6 @@ fn projectSettings(a: Allocator, info: PlateInfo) Allocator.Error![]u8 {
         var dbuf: [32]u8 = undefined;
         const ds = std.fmt.bufPrint(&dbuf, "{d}", .{d}) catch "0.4";
         list(ww, "nozzle_diameter", n, ds, true) catch |e| break :blk e;
-        list(ww, "nozzle_type", n, info.nozzle_type, true) catch |e| break :blk e;
         list(ww, "nozzle_volume_type", n, info.nozzle_flow, true) catch |e| break :blk e;
         jsonList(ww, "extruder_type", info.extruder_types, ';', true) catch |e| break :blk e;
         jsonList(ww, "default_nozzle_volume_type", info.default_volumes, ';', true) catch |e| break :blk e;
@@ -226,8 +225,10 @@ fn sliceInfo(a: Allocator, info: PlateInfo) Allocator.Error![]u8 {
     // the bed, and no labels of objects (zslice writes no EXCLUDE_OBJECT).
     ww.writeAll("    <metadata key=\"timelapse_type\" value=\"0\"/>\n    <metadata key=\"outside\" value=\"false\"/>\n") catch return error.OutOfMemory;
     ww.print("    <metadata key=\"support_used\" value=\"{s}\"/>\n    <metadata key=\"label_object_enabled\" value=\"false\"/>\n", .{if (info.support_used) "true" else "false"}) catch return error.OutOfMemory;
-    // Each filament has one nozzle (no dynamic map), of one diameter.
-    if (info.nozzles >= 2) ww.writeAll("    <metadata key=\"enable_filament_dynamic_map\" value=\"false\"/>\n    <metadata key=\"multi_nozzle_diameter_mode\" value=\"0\"/>\n") catch return error.OutOfMemory;
+    ww.writeAll("    <metadata key=\"pause_count\" value=\"0\"/>\n    <metadata key=\"support_material_on_wipe_tower\" value=\"false\"/>\n") catch return error.OutOfMemory;
+    // Each filament has one nozzle (no dynamic map), of one diameter, and
+    // no filament switcher (as Bambu Studio 02.09 writes it for the X2D).
+    if (info.nozzles >= 2) ww.writeAll("    <metadata key=\"enable_filament_dynamic_map\" value=\"false\"/>\n    <metadata key=\"has_filament_switcher\" value=\"false\"/>\n    <metadata key=\"multi_nozzle_diameter_mode\" value=\"0\"/>\n") catch return error.OutOfMemory;
     // Two nozzles: the extruder of each filament (from 1), for the ids
     // 1 to the last filament of the print; a filament that the print does
     // not use gets extruder 1.
@@ -244,13 +245,16 @@ fn sliceInfo(a: Allocator, info: PlateInfo) Allocator.Error![]u8 {
             ww.print("{s}{d}", .{ if (id > 1) " " else "", e }) catch return error.OutOfMemory;
         }
         ww.writeAll("\"/>\n") catch return error.OutOfMemory;
+        ww.writeAll("    <metadata key=\"limit_filament_maps\" value=\"") catch return error.OutOfMemory;
+        for (1..last + 1) |id| ww.print("{s}0", .{if (id > 1) " " else ""}) catch return error.OutOfMemory;
+        ww.writeAll("\"/>\n") catch return error.OutOfMemory;
     }
     for (info.filaments) |f| {
         const color = if (f.color.len == 7 and f.color[0] == '#') f.color else "#FFFFFF";
         ww.print("    <filament id=\"{d}\" type=\"{s}\" color=\"{s}\" used_m=\"{d:.2}\" used_g=\"{d:.2}\"", .{ f.id, try xmlText(a, f.kind), try xmlText(a, color), @max(0, f.meters), @max(0, f.grams) }) catch return error.OutOfMemory;
         const idx = genericFilament(f.kind);
         if (idx.len > 0) ww.print(" tray_info_idx=\"{s}\"", .{idx}) catch return error.OutOfMemory;
-        ww.print(" used_for_object=\"{s}\" used_for_support=\"{s}\"", .{ if (f.for_object) "true" else "false", if (f.for_support) "true" else "false" }) catch return error.OutOfMemory;
+        ww.print(" used_for_object=\"{s}\" used_for_support=\"{s}\" directly_used=\"true\"", .{ if (f.for_object) "true" else "false", if (f.for_support) "true" else "false" }) catch return error.OutOfMemory;
         if (two) ww.print(" group_id=\"{d}\"", .{@min(f.nozzle, 1)}) catch return error.OutOfMemory;
         if (info.nozzle > 0) ww.print(" nozzle_diameter=\"{d}\" volume_type=\"Standard\"", .{info.nozzle}) catch return error.OutOfMemory;
         ww.writeAll("/>\n") catch return error.OutOfMemory;
@@ -587,7 +591,7 @@ test "bambu: the file lists the filaments of the print" {
     for (entries) |e| if (std.mem.eql(u8, e.name, "Metadata/slice_info.config")) {
         info = e.data;
     };
-    try std.testing.expect(std.mem.indexOf(u8, info.?, "<filament id=\"2\" type=\"PLA\" color=\"#D93A3A\" used_m=\"0.40\" used_g=\"1.20\" tray_info_idx=\"GFL99\" used_for_object=\"true\" used_for_support=\"false\"/>") != null);
+    try std.testing.expect(std.mem.indexOf(u8, info.?, "<filament id=\"2\" type=\"PLA\" color=\"#D93A3A\" used_m=\"0.40\" used_g=\"1.20\" tray_info_idx=\"GFL99\" used_for_object=\"true\" used_for_support=\"false\" directly_used=\"true\"/>") != null);
     try std.testing.expect(std.mem.indexOf(u8, info.?, "<metadata key=\"support_used\" value=\"false\"/>") != null);
     // The time of the slice goes with the filaments.
     const timed = try gcode3mfWithTime(gpa, "G28\n", "plaque", &fils, 754.6);
@@ -614,7 +618,7 @@ test "bambu: two nozzles: the extruder of each filament and the nozzles" {
         info = e.data;
     };
     try std.testing.expect(std.mem.indexOf(u8, info, "<metadata key=\"filament_maps\" value=\"1 1 2\"/>") != null);
-    try std.testing.expect(std.mem.indexOf(u8, info, "used_for_support=\"false\" group_id=\"1\"/>") != null);
+    try std.testing.expect(std.mem.indexOf(u8, info, "directly_used=\"true\" group_id=\"1\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, info, "<nozzle id=\"0\" extruder_id=\"1\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, info, "<nozzle id=\"1\" extruder_id=\"2\"") != null);
     // One nozzle: no map.
@@ -703,6 +707,8 @@ test "bambu: project_settings.config names the model, the nozzles, the plate, an
         try std.testing.expect(std.mem.indexOf(u8, e.data, "key=\"extruder_type\" value=\"0 1\"") != null);
         try std.testing.expect(std.mem.indexOf(u8, e.data, "key=\"nozzle_volume_type\" value=\"0 0\"") != null);
         try std.testing.expect(std.mem.indexOf(u8, e.data, "key=\"nozzle_diameters\" value=\"0.4,0.4\"") != null);
+        try std.testing.expect(std.mem.indexOf(u8, e.data, "key=\"has_filament_switcher\" value=\"false\"") != null);
+        try std.testing.expect(std.mem.indexOf(u8, e.data, "key=\"limit_filament_maps\" value=\"0 0\"") != null);
     };
     for (entries) |e| if (std.mem.eql(u8, e.name, "Metadata/project_settings.config")) {
         found = true;
@@ -712,7 +718,8 @@ test "bambu: project_settings.config names the model, the nozzles, the plate, an
         try std.testing.expectEqualStrings("Bambu Lab X2D", o.get("printer_model").?.string);
         try std.testing.expectEqualStrings("Bambu Lab X2D 0.4 nozzle", o.get("printer_settings_id").?.string);
         try std.testing.expectEqualStrings("Textured PEI Plate", o.get("curr_bed_type").?.string);
-        try std.testing.expectEqualStrings("hardened_steel", o.get("nozzle_type").?.array.items[1].string);
+        // Bambu Studio writes no nozzle_type.
+        try std.testing.expect(o.get("nozzle_type") == null);
         try std.testing.expectEqualStrings("2", o.get("filament_map").?.array.items[1].string);
         try std.testing.expectEqualStrings("PETG", o.get("filament_type").?.array.items[1].string);
         try std.testing.expectEqualStrings("Bowden", o.get("extruder_type").?.array.items[1].string);
