@@ -177,7 +177,10 @@ export class Wasm {
           group: s(1),
           section: s(2),
           label: s(3),
-          doc: s(4),
+          // The help as plain text (tooltips, search), and with its
+          // `code` marks (the settings page shows them in a code font).
+          doc: s(4).replace(/`([^`]*)`/g, "$1"),
+          docSource: s(4),
           kind: kinds[this.i32(p + 20)] ?? "text",
           multiline: this.i32(p + 24) !== 0,
           choices: s(7).split("\n").filter((c) => c !== ""),

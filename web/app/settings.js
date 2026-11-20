@@ -15,6 +15,19 @@ import { filamentEditor } from "./filaments.js";
 const GROUP_ORDER = ["project", "filament", "machine", "engine"];
 const LIVE_DELAY_MS = 450;
 
+// The help of a setting: the text in `backticks` in a code font, the rest
+// as text (no HTML from the help).
+function docText(text) {
+  const box = el("div", "doc");
+  const parts = text.split("`");
+  parts.forEach((part, k) => {
+    if (part === "") return;
+    if (k % 2 === 1) box.append(el("code", "", part));
+    else box.append(document.createTextNode(part));
+  });
+  return box;
+}
+
 function el(tag, cls, text) {
   const e = document.createElement(tag);
   if (cls) e.className = cls;
@@ -502,7 +515,7 @@ export class SettingsBrowser {
     def.append(defText, reset);
     col.append(def);
 
-    col.append(el("div", "doc", info.doc));
+    col.append(docText(info.docSource ?? info.doc));
     col.append(el("h4", "", "In your project"));
     this.effectBox = el("div", "");
     col.append(this.effectBox);
