@@ -215,7 +215,7 @@ fn projectSettings(a: Allocator, info: PlateInfo) Allocator.Error![]u8 {
                 };
                 if (ki == 0 and info.filaments.len == 0 and info.material.len > 0) text = info.material;
                 if (ki == 1 and info.filaments.len == 0 and info.color.len == 7) text = info.color;
-                ww.print("{s}\"{s}\"", .{ if (id > 1) ", " else "", text }) catch |e| break :blk e;
+                ww.print("{s}\"{s}\"", .{ if (id > 1) ", " else "", try jsonText(a, text) }) catch |e| break :blk e;
             }
             ww.print("]{s}\n", .{if (ki + 1 < keys.len) "," else ""}) catch |e| break :blk e;
         }
@@ -580,7 +580,7 @@ pub fn gcode3mfPlate(gpa: Allocator, gcode: []const u8, title: []const u8, info:
             try w.print("\"bbox_all\":[{d},{d},{d},{d}],\"bbox_objects\":[{{\"area\":{d},\"bbox\":[{d},{d},{d},{d}],\"id\":1,\"layer_height\":{d},\"name\":\"{s}\"}}],", .{ b[0], b[1], b[2], b[3], (b[2] - b[0]) * (b[3] - b[1]), b[0], b[1], b[2], b[3], info.layer_height, try jsonText(a, info.object_name) });
         }
         try w.print("\"bed_type\":\"{s}\",\"filament_colors\":[", .{bedTypeKey(info.bed_type)});
-        for (info.filaments, 0..) |f, n| try w.print("{s}\"{s}\"", .{ if (n > 0) "," else "", if (f.color.len == 7) f.color else "#FFFFFF" });
+        for (info.filaments, 0..) |f, n| try w.print("{s}\"{s}\"", .{ if (n > 0) "," else "", try jsonText(a, if (f.color.len == 7) f.color else "#FFFFFF") });
         try w.writeAll("],\"filament_ids\":[");
         for (info.filaments, 0..) |f, n| try w.print("{s}{d}", .{ if (n > 0) "," else "", f.id - 1 });
         const first: u32 = if (info.filaments.len > 0 and info.nozzles >= 2) @min(info.filaments[0].nozzle, 1) else 0;
@@ -973,6 +973,35 @@ test "bambu: project_settings.config names the model, the nozzles, the plate, an
     const e2 = try zipfile.readAll(gpa, plain);
     defer zipfile.freeAll(gpa, e2);
     for (e2) |e| try std.testing.expect(!std.mem.eql(u8, e.name, "Metadata/project_settings.config"));
+}
+
+test "bambu: a material or a color with quotes stays one JSON string" {
+    const gpa = std.testing.allocator;
+    const fils = [_]FilamentUse{
+        .{ .id = 1, .kind = "PLA\", \"x\": \"y", .color = "#\"],\"ab", .meters = 1, .grams = 3 },
+    };
+    const bytes = try gcode3mfInfo(gpa, "G28\n", "p", .{ .filaments = &fils, .printer_model = "Bambu Lab X1 Carbon", .bbox = .{ 0, 0, 1, 1 } });
+    defer gpa.free(bytes);
+    const entries = try zipfile.readAll(gpa, bytes);
+    defer zipfile.freeAll(gpa, entries);
+    var n: usize = 0;
+    for (entries) |e| {
+        if (std.mem.eql(u8, e.name, "Metadata/project_settings.config")) {
+            const parsed = try std.json.parseFromSlice(std.json.Value, gpa, e.data, .{});
+            defer parsed.deinit();
+            const o = parsed.value.object;
+            try std.testing.expectEqualStrings(fils[0].kind, o.get("filament_type").?.array.items[0].string);
+            try std.testing.expectEqualStrings(fils[0].color, o.get("filament_colour").?.array.items[0].string);
+            n += 1;
+        }
+        if (std.mem.eql(u8, e.name, "Metadata/plate_1.json")) {
+            const parsed = try std.json.parseFromSlice(std.json.Value, gpa, e.data, .{});
+            defer parsed.deinit();
+            try std.testing.expectEqualStrings(fils[0].color, parsed.value.object.get("filament_colors").?.array.items[0].string);
+            n += 1;
+        }
+    }
+    try std.testing.expectEqual(@as(usize, 2), n);
 }
 
 test "bambu: the project settings of the X2D are those of Bambu Studio, with the values of zslice" {
