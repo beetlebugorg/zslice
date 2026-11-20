@@ -24,7 +24,21 @@ Use the Select tool (V), and click a line in the 2D or the 3D view. The line tur
 | **Don't print** | Takes the line out of the print. Delete does the same. |
 | **−10 % plastic**, **+10 % plastic** | Gives the line less or more plastic. |
 
-Esc, ×, or a click on no line closes the card. Drag the top row of the card to move it.
+Esc, ×, or a click on no line closes the card.
+
+## Move and size the cards
+
+The cards remember where you put them:
+
+- Drag the top row of a card to move it. The next card of that kind opens there.
+- Drag the lower right corner to make it larger or smaller. The size stays too.
+- Double-click the top row to give the card its automatic place and size again.
+
+A card never covers the line that you clicked. If its place is over the line, the card goes beside it for this time only. The line card, the layers card, the part card, and the search keep their places in this browser.
+
+## Select a run
+
+Shift+click a line: the line and its whole run turn yellow. A run is one extrusion, from one retraction to the next. Use it to see where the nozzle prints without a pause.
 
 ## Go along the print
 
@@ -36,7 +50,12 @@ With a line selected:
 
 ## Select layers
 
-Use the Select tool (V). Press on a line, and drag up or down. The layers from that line to the layer under the pointer turn yellow, and the other lines fade. Release the button: a card opens beside the layers, and it covers no part of them. It shows "Layers A–B" and the settings that can change for some layers: the infill density and pattern, the walls, the speeds, the fan, and the temperature. "+ Add a setting for these layers" finds the others. A change is for these layers only, and the part slices at once. Esc, ×, or a click elsewhere ends the selection.
+Use the Select tool (V). Press on a line, and drag up or down. The body of that line turns yellow, from its layer to the layer under the pointer:
+
+- Only the part that you pressed on. The other parts on the plate stay as they are.
+- Only the body joined to that line. A tube that rises from a lid lights alone, with no lid. The light stops where the shape gets much wider at once.
+
+Shift+J and Shift+K do the same from a selected line. Release the button: a card opens beside the layers, and it covers no part of them. It shows "Layers A–B" and the settings that can change for some layers: the infill density and pattern, the walls, the speeds, the fan, and the temperature. "+ Add a setting for these layers" finds the others. A change is for these layers, on all the parts of the plate, and the part slices at once. Esc, ×, or a click elsewhere ends the selection.
 
 A drag that starts on the bed or in the air turns the view.
 

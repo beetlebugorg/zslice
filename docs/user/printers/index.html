@@ -27,15 +27,16 @@
 <a href="../../user/change-settings/"><span class="n">4</span>Change a setting</a>
 <a href="../../user/parts/"><span class="n">5</span>Place the parts</a>
 <a href="../../user/support/"><span class="n">6</span>Add support</a>
-<a href="../../user/check/"><span class="n">7</span>Check the print</a>
-<a href="../../user/plates/"><span class="n">8</span>Plates and files</a>
-<a href="../../user/printers/" aria-current="page"><span class="n">9</span>Send to a printer</a>
-<a href="../../user/history/"><span class="n">10</span>Undo and history</a>
+<a href="../../user/filaments/"><span class="n">7</span>Print in colors</a>
+<a href="../../user/check/"><span class="n">8</span>Check the print</a>
+<a href="../../user/plates/"><span class="n">9</span>Plates and files</a>
+<a href="../../user/printers/" aria-current="page"><span class="n">10</span>Send to a printer</a>
+<a href="../../user/history/"><span class="n">11</span>Undo and history</a>
 <div class="group">Features</div>
-<a href="../../user/features/"><span class="n">11</span>The best features</a>
-<a href="../../user/print-as-it-forms/"><span class="n">12</span>The print as it forms</a>
-<a href="../../user/projects/"><span class="n">13</span>printdeck projects</a>
-<a href="../../user/farm/"><span class="n">14</span>A print farm</a>
+<a href="../../user/features/"><span class="n">12</span>The best features</a>
+<a href="../../user/print-as-it-forms/"><span class="n">13</span>The print as it forms</a>
+<a href="../../user/projects/"><span class="n">14</span>printdeck projects</a>
+<a href="../../user/farm/"><span class="n">15</span>A print farm</a>
 <div class="group">Reference</div>
 <a href="../../user/keys/">Keys and mouse</a>
 <a href="../../user/settings/">Settings</a>
@@ -69,17 +70,22 @@
 <a href="../../privacy/">Privacy</a></nav></aside>
 <main>
 <p class="eyebrow">Everyday tasks</p>
-<h1><span class="num">9</span>Send to a printer</h1>
+<h1><span class="num">10</span>Send to a printer</h1>
 <p class="lede">Add your printer once. Then <strong>Print</strong> sends each plate to it, signed.</p>
-<nav class="onpage"><b>On this page</b><ol><li><a href="#add-a-printer">Add a printer</a></li><li><a href="#connections">Connections</a></li><li><a href="#the-printers-page">The Printers page</a></li><li><a href="#print">Print</a></li><li><a href="#signed-prints">Signed prints</a></li><li><a href="#the-start-and-end-g-code">The start and end G-code</a></li><li><a href="#where-to-go-next">Where to go next</a></li></ol></nav><figure class="shot"><img src="../../img/start-picker.webp" alt="The printer picker: the search for mk4s found the Prusa MK4S. Its card draws its build volume and lists its nozzle, its filament, and its motion limits" loading="lazy"><figcaption>The printer picker: more than 1000 printers of more than 180 brands.</figcaption></figure>
+<nav class="onpage"><b>On this page</b><ol><li><a href="#add-a-printer">Add a printer</a></li><li><a href="#connect-a-printdeck">Connect a printdeck</a></li><li><a href="#connections">Connections</a></li><li><a href="#the-printers-page">The Printers page</a></li><li><a href="#print">Print</a></li><li><a href="#signed-prints">Signed prints</a></li><li><a href="#the-start-and-end-g-code">The start and end G-code</a></li><li><a href="#where-to-go-next">Where to go next</a></li></ol></nav><figure class="shot"><img src="../../img/start-picker.webp" alt="The printer picker: the search for mk4s found the Prusa MK4S. Its card draws its build volume and lists its nozzle, its filament, and its motion limits" loading="lazy"><figcaption>The printer picker: more than 1000 printers of more than 180 brands.</figcaption></figure>
 <h2 id="add-a-printer">Add a printer</h2>
 <ol><li>Pick <strong>Add a printer…</strong> at the end of the printer menu.</li><li>Type a part of a name: "ender 3", "mk4", "voron 2.4". Or pick a brand at the left.</li><li>Click a model. Its card draws its build volume to scale. The red dot is X0 Y0 of the G-code.</li><li>Click <strong>Next</strong>. Check the name, the nozzle, the filament, and the size. Set the connection.</li><li>Click <strong>Add printer</strong>.</li></ol>
 <p>The library comes from the printer definitions of Cura, PrusaSlicer, and OrcaSlicer. Not in the list? Pick <strong>My printer is not in the list</strong>, and enter its size.</p>
+<h2 id="connect-a-printdeck">Connect a printdeck</h2>
+<p>A printdeck can drive many printers. Connect to it once:</p>
+<ol><li>Pick <strong>Connect a printdeck…</strong> in the printer menu.</li><li>Type the address of the printdeck. A secure address (<code>https://….d.printdeck.beetlebug.org</code>, on its System page) works from the web app in any browser.</li><li>Tap <strong>Allow</strong> on the screen of the printdeck.</li><li>Tick the printers to add, and click <strong>Add</strong>.</li></ol>
+<p>Each printer gets its own address on the printdeck, its name, and the profile of its model. zslice checks the address before each send: it refuses a send that would go to another printer of the printdeck.</p>
+<p>A send counts only when the printer stored the file. Any other answer shows as an error, with the address and the start of the answer.</p>
 <h2 id="connections">Connections</h2>
 <div class="table-wrap"><table><thead><tr><th>Connection</th><th>What you need</th></tr></thead><tbody><tr><td>None</td><td>Export a G-code file, and copy it to the printer.</td></tr><tr><td>printdeck, OctoPrint</td><td>The address of the printer. zslice gets its API key: tap Allow on the printer.</td></tr><tr><td>Moonraker (Klipper)</td><td>The address of Moonraker.</td></tr><tr><td>USB (Linux app)</td><td>The serial port and the speed. The computer must stay on while it prints.</td></tr><tr><td>Bambu Lab (LAN mode)</td><td>The IP address, the serial number, and the access code. The Linux app reads the status and the camera; the Mac app also sends prints (see <a href="../../user/macos/">The macOS app</a>).</td></tr></tbody></table></div>
 <p>When you add a printdeck or an OctoPrint printer, zslice asks it for a key at once. A printer whose key stops working shows <strong>Get a key</strong> on its card on the Printers page. <strong>Get a key</strong> asks the printer for a key. The printer asks you to allow zslice: on its screen (printdeck), or in its web page (OctoPrint, with the App Keys plugin). Allow it within 2 minutes. Check that the printer shows the same key id as zslice.</p>
 <p>The Linux and Mac apps find printers on your network. The web app cannot: enter the address. A printdeck with a secure address (<code>https://….d.printdeck.beetlebug.org</code>, on its System page) works from the web app in any browser.</p>
-<p>A printdeck that drives more than one printer lists them after you allow zslice. Pick the ones to add. Each one uses the key of the deck.</p>
+<p>A printdeck that drives more than one printer lists them after you allow zslice, the one at the address of the printdeck too. Pick the ones to add. Each one uses the key of the deck.</p>
 <h3 id="a-bambu-lab-printer-linux-app">A Bambu Lab printer (Linux app)</h3>
 <ol><li>On the printer, turn on <strong>LAN Only Mode</strong>, and <strong>LAN Only Liveview</strong> for the camera.</li><li>In <strong>Preferences › Printers</strong>, add a printer, and choose <strong>Bambu Lab (LAN mode)</strong>.</li><li>Enter its IP address. Click <strong>Read</strong> to get the serial number from the printer, or type it from the screen of the printer.</li><li>Enter the access code from the screen of the printer. zslice keeps it in <code>~/.config/zslice/bambu/&lt;serial&gt;.code</code>, readable only by you.</li></ol>
 <p>The printer has a certificate of its own. zslice trusts the certificate that it sees at the first connection, or when you click <strong>Read</strong>. Later, zslice sends the access code only to a printer with the same certificate: a device on the network that claims the address of the printer gets no code. After a reset of the printer, its certificate can change: click <strong>Read</strong> again to trust the new one.</p>
@@ -95,7 +101,7 @@
 <h2 id="the-start-and-end-g-code">The start and end G-code</h2>
 <p>Search <code>start gcode</code>. The editor spans the panel. Under it, each variable is a button: a click puts it at the cursor. <strong>Show the result</strong> shows the G-code of the last slice, with the values. Look at it before the first print on a new printer.</p>
 <h2 id="where-to-go-next">Where to go next</h2>
-<nav class="goto"><a class="go" href="../../user/farm/"><span class="num">14</span><b>A print farm</b><span>all your printers on one page.</span></a><a class="go" href="../../user/history/"><span class="num">10</span><b>Undo and history</b><span>go back to any change.</span></a></nav><nav class="pager"><a class="prev" href="../../user/plates/"><span>Back to 8</span><b>Plates and files</b></a><a class="next" href="../../user/history/"><span>Go to 10</span><b>Undo and history</b></a></nav>
+<nav class="goto"><a class="go" href="../../user/farm/"><span class="num">15</span><b>A print farm</b><span>all your printers on one page.</span></a><a class="go" href="../../user/history/"><span class="num">11</span><b>Undo and history</b><span>go back to any change.</span></a></nav><nav class="pager"><a class="prev" href="../../user/plates/"><span>Back to 9</span><b>Plates and files</b></a><a class="next" href="../../user/history/"><span>Go to 11</span><b>Undo and history</b></a></nav>
 </main>
 </div>
 <footer>zslice is free software (AGPL-3.0-or-later). <a href="../../privacy/">Privacy</a>: no analytics, no cookies, nothing from other sites. <a href="https://github.com/beetlebugorg/zslice/blob/main/docs/build.py">docs/build.py</a> writes this site from <a href="https://github.com/beetlebugorg/zslice/blob/main/docs/user/printers.md">docs/user/printers.md</a>.</footer>

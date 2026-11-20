@@ -14,6 +14,19 @@ Add your printer once. Then **Print** sends each plate to it, signed.
 
 The library comes from the printer definitions of Cura, PrusaSlicer, and OrcaSlicer. Not in the list? Pick **My printer is not in the list**, and enter its size.
 
+## Connect a printdeck
+
+A printdeck can drive many printers. Connect to it once:
+
+1. Pick **Connect a printdeck…** in the printer menu.
+2. Type the address of the printdeck. A secure address (`https://….d.printdeck.beetlebug.org`, on its System page) works from the web app in any browser.
+3. Tap **Allow** on the screen of the printdeck.
+4. Tick the printers to add, and click **Add**.
+
+Each printer gets its own address on the printdeck, its name, and the profile of its model. zslice checks the address before each send: it refuses a send that would go to another printer of the printdeck.
+
+A send counts only when the printer stored the file. Any other answer shows as an error, with the address and the start of the answer.
+
 ## Connections
 
 | Connection | What you need |
@@ -28,7 +41,7 @@ When you add a printdeck or an OctoPrint printer, zslice asks it for a key at on
 
 The Linux and Mac apps find printers on your network. The web app cannot: enter the address. A printdeck with a secure address (`https://….d.printdeck.beetlebug.org`, on its System page) works from the web app in any browser.
 
-A printdeck that drives more than one printer lists them after you allow zslice. Pick the ones to add. Each one uses the key of the deck.
+A printdeck that drives more than one printer lists them after you allow zslice, the one at the address of the printdeck too. Pick the ones to add. Each one uses the key of the deck.
 
 ### A Bambu Lab printer (Linux app)
 

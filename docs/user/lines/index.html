@@ -27,15 +27,16 @@
 <a href="../../user/change-settings/"><span class="n">4</span>Change a setting</a>
 <a href="../../user/parts/"><span class="n">5</span>Place the parts</a>
 <a href="../../user/support/"><span class="n">6</span>Add support</a>
-<a href="../../user/check/"><span class="n">7</span>Check the print</a>
-<a href="../../user/plates/"><span class="n">8</span>Plates and files</a>
-<a href="../../user/printers/"><span class="n">9</span>Send to a printer</a>
-<a href="../../user/history/"><span class="n">10</span>Undo and history</a>
+<a href="../../user/filaments/"><span class="n">7</span>Print in colors</a>
+<a href="../../user/check/"><span class="n">8</span>Check the print</a>
+<a href="../../user/plates/"><span class="n">9</span>Plates and files</a>
+<a href="../../user/printers/"><span class="n">10</span>Send to a printer</a>
+<a href="../../user/history/"><span class="n">11</span>Undo and history</a>
 <div class="group">Features</div>
-<a href="../../user/features/"><span class="n">11</span>The best features</a>
-<a href="../../user/print-as-it-forms/"><span class="n">12</span>The print as it forms</a>
-<a href="../../user/projects/"><span class="n">13</span>printdeck projects</a>
-<a href="../../user/farm/"><span class="n">14</span>A print farm</a>
+<a href="../../user/features/"><span class="n">12</span>The best features</a>
+<a href="../../user/print-as-it-forms/"><span class="n">13</span>The print as it forms</a>
+<a href="../../user/projects/"><span class="n">14</span>printdeck projects</a>
+<a href="../../user/farm/"><span class="n">15</span>A print farm</a>
 <div class="group">Reference</div>
 <a href="../../user/keys/">Keys and mouse</a>
 <a href="../../user/settings/">Settings</a>
@@ -71,17 +72,25 @@
 <p class="eyebrow">Everyday tasks</p>
 <h1><span class="num">3</span>Click a line</h1>
 <p class="lede">Click any line of the print. A card says what the line is, how fast it really prints, and why.</p>
-<nav class="onpage"><b>On this page</b><ol><li><a href="#the-card-of-a-line">The card of a line</a></li><li><a href="#go-along-the-print">Go along the print</a></li><li><a href="#select-layers">Select layers</a></li><li><a href="#select-a-support">Select a support</a></li><li><a href="#the-menu-of-the-view">The menu of the view</a></li><li><a href="#where-to-go-next">Where to go next</a></li></ol></nav><figure class="shot"><img src="../../img/line-card.webp" alt="A click on the edge of the cabin roof: the card says Outer wall, layer 201, 76 mm/s planned, 17 mm/s real, and why: the layer is short, so it prints slower to cool" loading="lazy"><figcaption>The card of a line: the speeds, the reason, and the settings that change the line.</figcaption></figure>
+<nav class="onpage"><b>On this page</b><ol><li><a href="#the-card-of-a-line">The card of a line</a></li><li><a href="#move-and-size-the-cards">Move and size the cards</a></li><li><a href="#select-a-run">Select a run</a></li><li><a href="#go-along-the-print">Go along the print</a></li><li><a href="#select-layers">Select layers</a></li><li><a href="#select-a-support">Select a support</a></li><li><a href="#the-menu-of-the-view">The menu of the view</a></li><li><a href="#where-to-go-next">Where to go next</a></li></ol></nav><figure class="shot"><img src="../../img/line-card.webp" alt="A click on the edge of the cabin roof: the card says Outer wall, layer 201, 76 mm/s planned, 17 mm/s real, and why: the layer is short, so it prints slower to cool" loading="lazy"><figcaption>The card of a line: the speeds, the reason, and the settings that change the line.</figcaption></figure>
 <h2 id="the-card-of-a-line">The card of a line</h2>
 <p>Use the Select tool (V), and click a line in the 2D or the 3D view. The line turns yellow. The card opens in a corner of the view, away from the line, so it covers no part of the line. It stays in that corner from click to click. It moves only when the next line is under it. The card shows:</p>
 <ul><li>the feature, the layer, and the z, for example "Outer wall" and "Layer 201 · z 40.30 mm";</li><li>the speed, and the planned speed when the line is slower;</li><li>the flow, and how much of the flow limit of the filament it uses;</li><li>the line width and height, the time of the layer, and the fan;</li><li>why the line is slow, in plain words: a short layer, short segments, or the flow limit;</li><li>a warning of the check at the line, for example a bridge or an overhang, after the check has run;</li><li>for a support line: the part line that it holds up, and how many layers up;</li><li>the settings that matter for this line, each with its field. Change one, and the part slices at once. Click the name of a setting to show it in the panel.</li></ul>
 <div class="table-wrap"><table><thead><tr><th>Button</th><th>What it does</th></tr></thead><tbody><tr><td><strong>Fade the others</strong></td><td>Shows the line solid and the other lines as faint ghosts.</td></tr><tr><td><strong>All settings…</strong></td><td>Opens the long form of the line in the panel: each number, and how it comes about.</td></tr><tr><td><strong>Don't print</strong></td><td>Takes the line out of the print. Delete does the same.</td></tr><tr><td><strong>−10 % plastic</strong>, <strong>+10 % plastic</strong></td><td>Gives the line less or more plastic.</td></tr></tbody></table></div>
-<p>Esc, ×, or a click on no line closes the card. Drag the top row of the card to move it.</p>
+<p>Esc, ×, or a click on no line closes the card.</p>
+<h2 id="move-and-size-the-cards">Move and size the cards</h2>
+<p>The cards remember where you put them:</p>
+<ul><li>Drag the top row of a card to move it. The next card of that kind opens there.</li><li>Drag the lower right corner to make it larger or smaller. The size stays too.</li><li>Double-click the top row to give the card its automatic place and size again.</li></ul>
+<p>A card never covers the line that you clicked. If its place is over the line, the card goes beside it for this time only. The line card, the layers card, the part card, and the search keep their places in this browser.</p>
+<h2 id="select-a-run">Select a run</h2>
+<p>Shift+click a line: the line and its whole run turn yellow. A run is one extrusion, from one retraction to the next. Use it to see where the nozzle prints without a pause.</p>
 <h2 id="go-along-the-print">Go along the print</h2>
 <p>With a line selected:</p>
 <ul><li>← and → go to the segment before or after it, in print order. Shift goes one line.</li><li>↑ and ↓ (or K and J) go to the nearest line on the layer above or below.</li><li>C shows the layers up to the line. Shift+C shows all layers.</li></ul>
 <h2 id="select-layers">Select layers</h2>
-<p>Use the Select tool (V). Press on a line, and drag up or down. The layers from that line to the layer under the pointer turn yellow, and the other lines fade. Release the button: a card opens beside the layers, and it covers no part of them. It shows "Layers A–B" and the settings that can change for some layers: the infill density and pattern, the walls, the speeds, the fan, and the temperature. "+ Add a setting for these layers" finds the others. A change is for these layers only, and the part slices at once. Esc, ×, or a click elsewhere ends the selection.</p>
+<p>Use the Select tool (V). Press on a line, and drag up or down. The body of that line turns yellow, from its layer to the layer under the pointer:</p>
+<ul><li>Only the part that you pressed on. The other parts on the plate stay as they are.</li><li>Only the body joined to that line. A tube that rises from a lid lights alone, with no lid. The light stops where the shape gets much wider at once.</li></ul>
+<p>Shift+J and Shift+K do the same from a selected line. Release the button: a card opens beside the layers, and it covers no part of them. It shows "Layers A–B" and the settings that can change for some layers: the infill density and pattern, the walls, the speeds, the fan, and the temperature. "+ Add a setting for these layers" finds the others. A change is for these layers, on all the parts of the plate, and the part slices at once. Esc, ×, or a click elsewhere ends the selection.</p>
 <p>A drag that starts on the bed or in the air turns the view.</p>
 <h2 id="select-a-support">Select a support</h2>
 <p>Use the Select tool (V), and click a support line:</p>
@@ -91,7 +100,7 @@
 <ul><li><strong>Preview to this layer</strong>, and <strong>Show all layers</strong>;</li><li><strong>Add support here</strong> and <strong>Block support here</strong>. See <a href="../../user/support/">Add support</a>;</li><li><strong>Copy for AI</strong>: a report of the line, its settings, and its G-code, for a chat with an AI model;</li><li><strong>Add a drop of plastic here</strong>: a dot of plastic on the top layer, to fill a small gap;</li><li><strong>Test print: the top layer…</strong>: the G-code of this layer alone, to print as a test;</li><li><strong>Put this side on the bed</strong>, and <strong>Placement</strong>. See <a href="../../user/parts/">Place the parts</a>.</li></ul>
 <p>Each edit of a line is one step of the history. Ctrl+Z undoes it. The project file keeps it.</p>
 <h2 id="where-to-go-next">Where to go next</h2>
-<nav class="goto"><a class="go" href="../../user/change-settings/"><span class="num">4</span><b>Change a setting</b><span>search, the panel, and settings for some layers.</span></a><a class="go" href="../../user/check/"><span class="num">7</span><b>Check the print</b><span>gaps, the check list, and the measure tape.</span></a></nav><nav class="pager"><a class="prev" href="../../user/look/"><span>Back to 2</span><b>Look at the print</b></a><a class="next" href="../../user/change-settings/"><span>Go to 4</span><b>Change a setting</b></a></nav>
+<nav class="goto"><a class="go" href="../../user/change-settings/"><span class="num">4</span><b>Change a setting</b><span>search, the panel, and settings for some layers.</span></a><a class="go" href="../../user/check/"><span class="num">8</span><b>Check the print</b><span>gaps, the check list, and the measure tape.</span></a></nav><nav class="pager"><a class="prev" href="../../user/look/"><span>Back to 2</span><b>Look at the print</b></a><a class="next" href="../../user/change-settings/"><span>Go to 4</span><b>Change a setting</b></a></nav>
 </main>
 </div>
 <footer>zslice is free software (AGPL-3.0-or-later). <a href="../../privacy/">Privacy</a>: no analytics, no cookies, nothing from other sites. <a href="https://github.com/beetlebugorg/zslice/blob/main/docs/build.py">docs/build.py</a> writes this site from <a href="https://github.com/beetlebugorg/zslice/blob/main/docs/user/lines.md">docs/user/lines.md</a>.</footer>
