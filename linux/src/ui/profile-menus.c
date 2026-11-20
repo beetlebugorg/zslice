@@ -23,6 +23,9 @@ typedef struct {
     /* A switch that waits for the answer to "save the changes first?". */
     char *pending_name;
     char *pending_text;
+    /* The update of the label after a change of a setting (see
+     * on_setting_changed), or 0. */
+    guint label_idle;
 } Menu;
 
 static char *profiles_dir(int group) {
@@ -430,13 +433,24 @@ static void fill_menu(GtkMenuButton *button, gpointer data) {
     g_object_unref(menu);
 }
 
+static gboolean on_label_idle(gpointer data) {
+    Menu *m = data;
+    m->label_idle = 0;
+    update_label(m);
+    return G_SOURCE_REMOVE;
+}
+
+/* A switch of the plate announces each setting: one update of the label
+ * for all of them, as each update writes the settings of the group. */
 static void on_setting_changed(ZgModel *model, const char *key, gpointer data) {
     Menu *m = data;
-    if (g_str_has_prefix(key, group_dirs[m->group])) update_label(m);
+    if (g_str_has_prefix(key, group_dirs[m->group]) && !m->label_idle)
+        m->label_idle = g_idle_add_full(G_PRIORITY_HIGH_IDLE, on_label_idle, m, NULL);
 }
 
 static void menu_free(gpointer data) {
     Menu *m = data;
+    if (m->label_idle) g_source_remove(m->label_idle);
     g_signal_handlers_disconnect_by_data(m->model, m);
     g_free(m->name);
     g_free(m->loaded);
