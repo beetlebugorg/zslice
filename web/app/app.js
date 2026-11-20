@@ -3198,7 +3198,7 @@ async function activatePlate(i, frame) {
   const name = p?.name || "zslice";
   app.modelName = p?.name ?? "";
   $("title").textContent = name;
-  document.title = `${name} · zslice`;
+  document.title = p?.name ? `${name} · zslice` : "zslice";
   history.refresh();
 }
 
@@ -3224,7 +3224,7 @@ async function removePlate(i) {
   const name = q?.name || "zslice";
   app.modelName = q?.name ?? "";
   $("title").textContent = name;
-  document.title = `${name} · zslice`;
+  document.title = q?.name ? `${name} · zslice` : "zslice";
   history.refresh();
 }
 
