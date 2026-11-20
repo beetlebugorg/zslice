@@ -182,6 +182,11 @@ pub const Renderer = struct {
         r.out.mesh_gen +%= 1;
     }
 
+    /// The count of the beads and the marks in the instances.
+    pub fn instanceCount(r: *const Renderer) usize {
+        return r.instances.items.len;
+    }
+
     /// The beads, then the marks, in one buffer: Frame.mark_first is
     /// beads.len.
     pub fn setInstances(r: *Renderer, items: []const Instance, marks: []const Instance) Error!void {

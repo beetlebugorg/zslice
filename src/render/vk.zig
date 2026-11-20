@@ -1103,6 +1103,11 @@ pub const Renderer = struct {
         }
     }
 
+    /// The count of the beads and the marks in the instances.
+    pub fn instanceCount(r: *const Renderer) usize {
+        return r.instance_count;
+    }
+
     /// Replaces the boxes. Waits for the GPU, because the buffer can be in
     /// use by the frame before.
     /// The buffer has one spare slot after the items, for the bead that

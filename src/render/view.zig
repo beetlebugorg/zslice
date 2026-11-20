@@ -3510,6 +3510,8 @@ pub const View = struct {
     /// path. Only the beads of the paths that join or leave the selection
     /// change in the instances of the renderer (see `patchMore`).
     pub fn setMore(v: *View, paths: []const usize) Error!void {
+        // The same selection: no wait for the GPU.
+        if (!v.headless and std.mem.eql(usize, v.more.items, paths) and v.renderer.instanceCount() == v.beads.items.len + v.marks.items.len) return;
         if (!v.headless) if (v.patchTarget()) |inst| return v.patchMore(paths, inst);
         v.more.clearRetainingCapacity();
         v.more.appendSlice(gpa, paths) catch return error.OutOfMemory;
