@@ -496,7 +496,9 @@ static void show_detail(Browser *b, const char *key) {
     g_object_set_data(G_OBJECT(def), "zg-label", def_label);
     g_object_set_data(G_OBJECT(def), "zg-reset", reset);
     g_signal_connect(reset, "clicked", G_CALLBACK(on_reset), def);
-    g_signal_connect_object(b->model, "setting-changed", G_CALLBACK(on_default_setting_changed), def, 0);
+    char *signal = g_strconcat("setting-changed::", info->name, NULL);
+    g_signal_connect_object(b->model, signal, G_CALLBACK(on_default_setting_changed), def, 0);
+    g_free(signal);
     show_default(def);
     gtk_grid_attach(GTK_GRID(grid), def, 0, row++, 3, 1);
 
@@ -634,7 +636,9 @@ static GtkWidget *setting_row(Browser *b, const zs_setting_info *src, gboolean w
     gtk_widget_add_css_class(v, "numeric");
     gtk_widget_add_css_class(v, "zg-browser-value");
     g_object_set_data_full(G_OBJECT(v), "zg-info", info, free_info);
-    g_signal_connect_object(b->model, "setting-changed", G_CALLBACK(on_row_value_changed), v, 0);
+    char *signal = g_strconcat("setting-changed::", info->name, NULL);
+    g_signal_connect_object(b->model, signal, G_CALLBACK(on_row_value_changed), v, 0);
+    g_free(signal);
     update_tag(b, tag, info->name);
     gtk_box_append(GTK_BOX(box), names);
     GtkWidget *row = gtk_list_box_row_new();

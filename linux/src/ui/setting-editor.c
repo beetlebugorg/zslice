@@ -633,8 +633,11 @@ static void tag(GtkWidget *editor, ZgModel *model, const zs_setting_info *info) 
     *copy = *info;
     g_object_set_data_full(G_OBJECT(editor), "zg-info", copy, g_free);
     gtk_widget_set_tooltip_text(editor, info->doc);
-    /* The handler goes away with the editor. */
-    g_signal_connect_object(model, "setting-changed", G_CALLBACK(on_setting_changed), editor, 0);
+    /* The handler goes away with the editor. It gets the changes of its
+     * own setting only (the detail of the signal). */
+    char *signal = g_strconcat("setting-changed::", info->name, NULL);
+    g_signal_connect_object(model, signal, G_CALLBACK(on_setting_changed), editor, 0);
+    g_free(signal);
 }
 
 static void add_focus_commit(GtkWidget *editor) {

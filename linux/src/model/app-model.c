@@ -288,6 +288,11 @@ G_DEFINE_FINAL_TYPE(ZgModel, zg_model, G_TYPE_OBJECT)
 enum { SIGNAL_PLATES_CHANGED, SIGNAL_PROJECT_CHANGED, SIGNAL_PROJECT_SENT, SIGNAL_CORE_EVENT, SIGNAL_SELECTION_CHANGED, SIGNAL_PICKED, SIGNAL_SETTING_CHANGED, SIGNAL_FOCUS_CHANGED, SIGNAL_SCOPE_CHANGED, SIGNAL_PRINTER_CHANGED, SIGNAL_PRINTERS_EDITED, SIGNAL_PART_SELECTED, SIGNAL_PLATE_CHANGED, SIGNAL_SEGMENT_CHANGED, SIGNAL_PROFILES_CHANGED, SIGNAL_OPEN_PROFILE, SIGNAL_GAPS_CHANGED, SIGNAL_UNDO_CHANGED, SIGNAL_PART_SCOPE_CHANGED, SIGNAL_TOOL_CHANGED, SIGNAL_MEASURE_CHANGED, SIGNAL_FALL, SIGNAL_FILAMENTS_CHANGED, N_SIGNALS };
 static guint signals[N_SIGNALS];
 
+/* "setting-changed" with the key as its detail. */
+static void emit_setting(ZgModel *self, const char *key) {
+    g_signal_emit(self, signals[SIGNAL_SETTING_CHANGED], g_quark_from_string(key), key);
+}
+
 typedef struct {
     Bridge *bridge;
     size_t plate;
@@ -515,9 +520,12 @@ static void zg_model_class_init(ZgModelClass *klass) {
     signals[SIGNAL_PROJECT_SENT] = g_signal_new("project-sent", G_TYPE_FROM_CLASS(klass),
         G_SIGNAL_RUN_LAST, 0, NULL, NULL, NULL, G_TYPE_NONE, 0);
     /* setting-changed(const char *key): after zg_model_set changes a value,
-     * so that each editor of the setting shows the new value. */
+     * so that each editor of the setting shows the new value. The detail
+     * is the key: an editor of one setting connects to
+     * "setting-changed::<key>", so a switch of the plate (each setting
+     * changes) calls each editor once, and not once for each setting. */
     signals[SIGNAL_SETTING_CHANGED] = g_signal_new("setting-changed", G_TYPE_FROM_CLASS(klass),
-        G_SIGNAL_RUN_LAST, 0, NULL, NULL, NULL, G_TYPE_NONE, 1, G_TYPE_STRING);
+        G_SIGNAL_RUN_LAST | G_SIGNAL_DETAILED, 0, NULL, NULL, NULL, G_TYPE_NONE, 1, G_TYPE_STRING);
     /* fall(gint64 part): the part cannot stand as it is now, and nothing
      * holds it (for example, support went off under a turned part). The
      * view shows its fall (zg_model_fall_start). */
@@ -661,7 +669,7 @@ gboolean zg_model_set_for(ZgModel *self, const char *key, const char *value, gbo
             g_set_error(error, G_IO_ERROR, G_IO_ERROR_INVALID_DATA, "not a valid value");
             return FALSE;
         }
-        g_signal_emit(self, signals[SIGNAL_SETTING_CHANGED], 0, key);
+        emit_setting(self, key);
         return TRUE;
     }
     if (!scoped || !self->scope_on || !per_layer) return zg_model_set(self, key, value, error);
@@ -695,7 +703,7 @@ gboolean zg_model_set_for(ZgModel *self, const char *key, const char *value, gbo
         }
     }
     if (rc != ZS_OK) return fail(error, rc);
-    g_signal_emit(self, signals[SIGNAL_SETTING_CHANGED], 0, key);
+    emit_setting(self, key);
     g_signal_emit(self, signals[SIGNAL_PROFILES_CHANGED], 0);
     slice_soon(self);
     return TRUE;
@@ -711,7 +719,7 @@ void zg_model_clear_override(ZgModel *self, const char *key) {
     if (!zs_app_override_remove(self->core, self->scope_min, self->scope_max, key) &&
         zs_app_override_clear_at(self->core, self->scope_show, key) == 0)
         return;
-    g_signal_emit(self, signals[SIGNAL_SETTING_CHANGED], 0, key);
+    emit_setting(self, key);
     g_signal_emit(self, signals[SIGNAL_PROFILES_CHANGED], 0);
     slice_soon(self);
 }
@@ -735,7 +743,7 @@ void zg_model_profile_remove(ZgModel *self, double z_min, double z_max) {
             g_ptr_array_add(names, g_strndup(o.name, o.name_len));
     }
     size_t removed = zs_app_profile_remove(self->core, z_min, z_max);
-    for (guint i = 0; i < names->len; i++) g_signal_emit(self, signals[SIGNAL_SETTING_CHANGED], 0, (const char *)names->pdata[i]);
+    for (guint i = 0; i < names->len; i++) emit_setting(self, (const char *)names->pdata[i]);
     g_ptr_array_free(names, TRUE);
     g_signal_emit(self, signals[SIGNAL_PROFILES_CHANGED], 0);
     if (removed) slice_soon(self);
@@ -760,7 +768,7 @@ void zg_model_announce(ZgModel *self, const char *prefix) {
     for (size_t i = 0; i < n; i++) {
         zs_setting_info info;
         if (zs_setting_get_info(i, &info) == ZS_OK && g_str_has_prefix(info.name, prefix)) {
-            g_signal_emit(self, signals[SIGNAL_SETTING_CHANGED], 0, info.name);
+            emit_setting(self, info.name);
         }
     }
 }
@@ -982,7 +990,7 @@ gboolean zg_model_set_quality(ZgModel *self, const char *name, gboolean keep_edi
     if (!ok) return FALSE;
     zg_pref_set("profile_project", name);
     static const char *const keys[] = {"project.filament", "project.support_filament", "project.support_interface_filament"};
-    for (size_t k = 0; k < G_N_ELEMENTS(keys); k++) g_signal_emit(self, signals[SIGNAL_SETTING_CHANGED], 0, keys[k]);
+    for (size_t k = 0; k < G_N_ELEMENTS(keys); k++) emit_setting(self, keys[k]);
     zg_model_save_soon(self, ZS_GROUP_PROJECT);
     slice_soon(self);
     return TRUE;
@@ -1374,7 +1382,7 @@ gboolean zg_model_refine_apply(ZgModel *self, const char *line) {
     char **f = g_strsplit(line, "\t", 4);
     if (f[0] && f[1] && f[2]) {
         if (strcmp(f[0], "print") == 0) save_soon(self, f[2]);
-        g_signal_emit(self, signals[SIGNAL_SETTING_CHANGED], 0, f[2]);
+        emit_setting(self, f[2]);
     }
     g_strfreev(f);
     g_signal_emit(self, signals[SIGNAL_PROFILES_CHANGED], 0);
@@ -1391,12 +1399,12 @@ gboolean zg_model_history_revert(ZgModel *self, const char *line) {
         if (g_str_has_prefix(f[0], "part:")) {
             plate_changed(self);
         } else if (g_str_has_prefix(f[0], "layers:")) {
-            g_signal_emit(self, signals[SIGNAL_SETTING_CHANGED], 0, f[1]);
+            emit_setting(self, f[1]);
             g_signal_emit(self, signals[SIGNAL_PROFILES_CHANGED], 0);
             slice_soon(self);
         } else {
             save_soon(self, f[1]);
-            g_signal_emit(self, signals[SIGNAL_SETTING_CHANGED], 0, f[1]);
+            emit_setting(self, f[1]);
             slice_soon(self);
         }
     }
@@ -2032,7 +2040,7 @@ gboolean zg_model_filament_set(ZgModel *self, size_t i, const char *name, const 
     /* Filament 0 is the filament of the settings: the settings change
      * too, and the filament profile saves. */
     if (i == 0) {
-        g_signal_emit(self, signals[SIGNAL_SETTING_CHANGED], 0, name);
+        emit_setting(self, name);
         save_soon(self, name);
     }
     g_signal_emit(self, signals[SIGNAL_FILAMENTS_CHANGED], 0);
@@ -2125,7 +2133,7 @@ static void save_soon(ZgModel *self, const char *key) {
 gboolean zg_model_set(ZgModel *self, const char *key, const char *value, GError **error) {
     int rc = zs_app_setting_set(self->core, key, value);
     if (rc != ZS_OK) return fail(error, rc);
-    g_signal_emit(self, signals[SIGNAL_SETTING_CHANGED], 0, key);
+    emit_setting(self, key);
     /* The settings with a formula can change with this one. */
     size_t flen = 0;
     if (zs_app_formulas_write(self->core, NULL, 0, &flen) == ZS_OK && flen > 0) {
@@ -2136,7 +2144,7 @@ gboolean zg_model_set(ZgModel *self, const char *key, const char *value, GError 
             char *eq = strstr(lines[i], " = ");
             if (!eq) continue;
             *eq = 0;
-            if (strcmp(lines[i], key) != 0) g_signal_emit(self, signals[SIGNAL_SETTING_CHANGED], 0, lines[i]);
+            if (strcmp(lines[i], key) != 0) emit_setting(self, lines[i]);
         }
         g_strfreev(lines);
         g_free(text);

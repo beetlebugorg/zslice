@@ -215,7 +215,9 @@ ZgSettingRow *zg_setting_row_add(GtkWidget *grid, int *row, ZgModel *model, cons
         g_object_set_data(G_OBJECT(editor), "zg-label", label);
         g_object_set_data(G_OBJECT(editor), "zg-reset", reset);
         g_signal_connect_object(model, "scope-changed", G_CALLBACK(on_scope_changed), editor, 0);
-        g_signal_connect_object(model, "setting-changed", G_CALLBACK(on_scope_setting), editor, 0);
+        char *signal = g_strconcat("setting-changed::", zg_setting_editor_info(editor)->name, NULL);
+        g_signal_connect_object(model, signal, G_CALLBACK(on_scope_setting), editor, 0);
+        g_free(signal);
         show_scope(editor);
     }
     if (number) {
