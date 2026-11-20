@@ -25,6 +25,7 @@
 
 import { el } from "./settings.js";
 import { movable } from "./drag.js";
+import { spatial, savedPlace, remember } from "./spatial.js";
 import { placeCorner, freeArea, GAP as PLACE_GAP } from "./place.js";
 import { FEATURE_TITLES } from "./format.js";
 
@@ -201,6 +202,12 @@ export class LineCard {
     head.title = "Drag to move the card";
     movable(card, head, this.ctx.host, (x, y) => {
       this.userAt = [x, y];
+      remember("line-card", { x, y });
+    });
+    // Its place and size stay for the next card (spatial.js).
+    spatial(card, "line-card", head, () => {
+      this.userAt = null;
+      this.place();
     });
     this.stats = el("div", "lc-stats");
     this.notes = el("div", "lc-notes");
@@ -341,6 +348,14 @@ export class LineCard {
     box[1] = Math.min(box[1], this.at[1]) - CLEAR;
     box[2] = Math.max(box[2], this.at[0]) + CLEAR;
     box[3] = Math.max(box[3], this.at[1]) + CLEAR;
+    // The place where the user put the card before, if it is clear of the
+    // line.
+    const kept = savedPlace("line-card", card, this.ctx.host, box);
+    if (kept) {
+      card.style.left = `${kept[0]}px`;
+      card.style.top = `${kept[1]}px`;
+      return;
+    }
     const area = freeArea(this.ctx.host);
     card.style.maxHeight = "";
     let [x, y, corner, over] = placeCorner(box, area, card.offsetWidth, card.offsetHeight, this.corner);

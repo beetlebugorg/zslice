@@ -22,6 +22,7 @@
 
 import { el } from "./settings.js";
 import { movable } from "./drag.js";
+import { spatial, savedPlace, remember } from "./spatial.js";
 import { placeBeside, freeArea } from "./place.js";
 
 // The settings that the card shows first, in order, when the setting can
@@ -105,6 +106,12 @@ export class RangeCard {
     head.title = "Drag to move the card";
     movable(card, head, this.ctx.host, (x, y) => {
       this.userAt = [x, y];
+      remember("range-card", { x, y });
+    });
+    // Its place and size stay for the next card (spatial.js).
+    spatial(card, "range-card", head, () => {
+      this.userAt = null;
+      this.place();
     });
     this.facts = el("div", "lc-size");
     this.box = el("div", "lc-settings");
@@ -214,6 +221,14 @@ export class RangeCard {
       box[1] = Math.min(box[1], q[1] / dpr);
       box[2] = Math.max(box[2], q[0] / dpr);
       box[3] = Math.max(box[3], q[1] / dpr);
+    }
+    // The place where the user put the card before, if it is clear of
+    // what the card is about.
+    const kept = savedPlace("range-card", card, this.ctx.host, box[0] <= box[2] ? box : null);
+    if (kept) {
+      card.style.left = `${kept[0]}px`;
+      card.style.top = `${kept[1]}px`;
+      return;
     }
     const area = freeArea(this.ctx.host);
     const [x, y] = box[0] <= box[2] ? placeBeside(box, area, card.offsetWidth, card.offsetHeight) : [area[2] - card.offsetWidth, area[1] + 52];

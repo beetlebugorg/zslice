@@ -25,6 +25,7 @@
 
 import { el } from "./settings.js";
 import { movable } from "./drag.js";
+import { spatial, savedPlace, remember } from "./spatial.js";
 import { placeBeside, freeArea } from "./place.js";
 
 export class PartCard {
@@ -103,6 +104,12 @@ export class PartCard {
     head.title = "Drag to move the card";
     movable(card, head, this.ctx.host, (x, y) => {
       this.userAt = [x, y];
+      remember("part-card", { x, y });
+    });
+    // Its place and size stay for the next card (spatial.js).
+    spatial(card, "part-card", head, () => {
+      this.userAt = null;
+      this.place();
     });
     this.facts = el("div", "lc-size");
     const actions = el("div", "pc-actions");
@@ -170,6 +177,12 @@ export class PartCard {
     head.title = "Drag to move the card";
     movable(card, head, this.ctx.host, (x, y) => {
       this.userAt = [x, y];
+      remember("part-card", { x, y });
+    });
+    // Its place and size stay for the next card (spatial.js).
+    spatial(card, "part-card", head, () => {
+      this.userAt = null;
+      this.place();
     });
     this.facts = el("div", "lc-size");
     const actions = el("div", "pc-actions");
@@ -467,6 +480,14 @@ export class PartCard {
     const dpr = window.devicePixelRatio || 1;
     const box = [Infinity, Infinity, -Infinity, -Infinity];
     for (const p of this.parts.length > 0 ? this.parts : [this.part]) this.addBox(p, box, dpr);
+    // The place where the user put the card before, if it is clear of
+    // what the card is about.
+    const kept = savedPlace("part-card", card, this.ctx.host, box[0] <= box[2] ? box : null);
+    if (kept) {
+      card.style.left = `${kept[0]}px`;
+      card.style.top = `${kept[1]}px`;
+      return;
+    }
     const area = freeArea(this.ctx.host);
     const [x, y] = box[0] <= box[2] ? placeBeside(box, area, card.offsetWidth, card.offsetHeight) : [area[2] - card.offsetWidth, area[1] + 52];
     card.style.left = `${x}px`;

@@ -21,6 +21,7 @@
 import { el } from "./settings.js";
 import { searchSettings } from "./format.js";
 import { ALL_FEATURES, GROUP_TITLES, isNumber, isRatio, displayValue, toCore, formatNumber, sourceText } from "./format.js";
+import { spatial } from "./spatial.js";
 
 const MAX_SETTINGS = 14;
 
@@ -162,6 +163,8 @@ export class SearchOverlay {
     closeBtn.onclick = () => this.close();
     head.append(input, closeBtn);
     this.movable(box, head);
+    // Its size stays for the next search (spatial.js).
+    spatial(box, "search");
     const list = el("div", "search-list");
     box.append(head, list);
     box.addEventListener("keydown", (e) => this.key(e));
