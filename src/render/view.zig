@@ -3278,11 +3278,10 @@ pub const View = struct {
     }
 
     /// The other paths of a multiple selection: yellow, as the highlighted
-    /// path. The beads go to the GPU again (only on a change of the
-    /// selection).
+    /// path. Only the beads of the paths that join or leave the selection
+    /// change in the instances of the renderer (see `patchMore`).
     pub fn setMore(v: *View, paths: []const usize) Error!void {
-        if (frame_backend and !v.headless and v.renderer.instances.items.len == v.beads.items.len + v.marks.items.len)
-            return v.patchMore(paths);
+        if (!v.headless) if (v.patchTarget()) |inst| return v.patchMore(paths, inst);
         v.more.clearRetainingCapacity();
         v.more.appendSlice(gpa, paths) catch return error.OutOfMemory;
         if (paths.len == 0) return v.renderer.setInstances(v.beads.items, v.marks.items);
@@ -3295,13 +3294,23 @@ pub const View = struct {
         try v.renderer.setInstances(copy, v.marks.items);
     }
 
-    /// `setMore` on a frame backend: it changes the color of the beads of
-    /// the paths that join or leave the selection, in the instances of the
-    /// renderer, and the shell uploads only the range of these beads. A
-    /// drag of the Select tool over the layers changes the selection at
-    /// each layer: on nine Benchies (800 000 beads), each step sent all
-    /// 27 MB of instances to the GPU.
-    fn patchMore(v: *View, paths: []const usize) Error!void {
+    /// The instances of the renderer, to change in place: the beads and
+    /// the marks of the view, or null if the renderer has other ones.
+    fn patchTarget(v: *View) ?[]vk.Instance {
+        const n = v.beads.items.len + v.marks.items.len;
+        if (frame_backend) return if (v.renderer.instances.items.len == n) v.renderer.instances.items else null;
+        const inst = v.renderer.instancesInPlace() orelse return null;
+        return if (inst.len == n) inst else null;
+    }
+
+    /// `setMore` in place: it changes the color of the beads of the paths
+    /// that join or leave the selection in `inst`, the instances of the
+    /// renderer. A frame backend then uploads only the range of these
+    /// beads; the Vulkan backend has them in its buffer at once. A drag of
+    /// the Select tool over the layers changes the selection at each
+    /// layer: on nine Benchies (800 000 beads), each step sent all 27 MB
+    /// of instances to the GPU.
+    fn patchMore(v: *View, paths: []const usize, inst: []vk.Instance) Error!void {
         const n_paths = v.path_start.items.len -| 1;
         // Bit 1: in the old selection; bit 2: in the new one.
         const state = gpa.alloc(u2, n_paths) catch return error.OutOfMemory;
@@ -3313,7 +3322,6 @@ pub const View = struct {
         for (paths) |p| if (p < n_paths) {
             state[p] |= 2;
         };
-        const inst = v.renderer.instances.items;
         var lo: usize = inst.len;
         var hi: usize = 0;
         inline for (.{ v.more.items, paths }) |list| for (list) |p| {
@@ -3331,7 +3339,7 @@ pub const View = struct {
         v.more.clearRetainingCapacity();
         v.more.appendSlice(gpa, paths) catch return error.OutOfMemory;
         if (hi < lo) lo = hi;
-        v.renderer.patchInstances(lo, hi);
+        if (frame_backend) v.renderer.patchInstances(lo, hi);
     }
 
     /// Marks one segment of the highlighted path (the bead `seg` of path

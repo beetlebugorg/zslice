@@ -1121,6 +1121,18 @@ pub const Renderer = struct {
         r.instance_count = @intCast(items.len + marks.len);
     }
 
+    /// The beads and the marks in the instance buffer, for the caller to
+    /// change some of them in place (the colors of a changed selection):
+    /// no copy of the other beads. Waits for the GPU. Null with no buffer.
+    /// The slice stays valid until the next call that changes the beads.
+    pub fn instancesInPlace(r: *Renderer) ?[]Instance {
+        const map = r.instances.map orelse return null;
+        r.cache_valid = false;
+        _ = r.d.vkDeviceWaitIdle.?(r.device);
+        const p: [*]Instance = @ptrCast(@alignCast(map));
+        return p[0..r.instance_count];
+    }
+
     /// The instance buffer for `n` beads, for the caller to fill in place
     /// (no copy in host memory). The marks are none. Waits for the GPU.
     /// The slice stays valid until the next call that changes the beads.
