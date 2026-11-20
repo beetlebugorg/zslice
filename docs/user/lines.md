@@ -64,7 +64,7 @@ A drag that starts on the bed or in the air turns the view.
 Use the Select tool (V), and click a support line:
 
 - Tree support: the dots of that tree show. Drag a dot, its ring, or a segment to pull it, as in the Support tool. Right-click a dot for **Delete branch**.
-- Grid support: the overhang that the support holds up shows in blue. Delete, or **Remove this support** on the card, takes the support away there.
+- Grid support: the overhang that the support holds up shows in blue. Delete, or **Remove this support** on the card, removes the support there.
 
 ## The menu of the view
 

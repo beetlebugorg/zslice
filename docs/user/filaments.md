@@ -6,7 +6,7 @@ A plate can print with more than one filament. Each filament has a color, a mate
 
 Click the Filament button in the top bar. It shows a dot for each filament.
 
-- **+ Add a filament** adds one. × takes one away. Its parts and layers go to filament 1.
+- **+ Add a filament** adds one. × removes one. Its parts and layers go to filament 1.
 - Click a color to change it.
 - Pick the material of each one: PLA, PETG, ABS, and others.
 - The grams of each filament show after the slice.

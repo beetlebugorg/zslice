@@ -23,7 +23,7 @@ A printdeck can drive many printers. Connect to it once:
 3. Tap **Allow** on the screen of the printdeck.
 4. Tick the printers to add, and click **Add**.
 
-Each printer gets its own address on the printdeck, its name, and the profile of its model. zslice checks the address before each send: it refuses a send that would go to another printer of the printdeck.
+Each printer gets its own address on the printdeck, its name, and the profile of its model. zslice checks the address before each send: it refuses a send to an address that leads to another printer of the printdeck.
 
 A send counts only when the printer stored the file. Any other answer shows as an error, with the address and the start of the answer.
 
