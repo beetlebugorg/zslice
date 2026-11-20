@@ -610,7 +610,12 @@ pub const View = struct {
         if (v.headless) return v.load(app);
         app.scene_mode.store(@intCast(@intFromEnum(v.mode)), .release);
         try v.loadDecor(app);
-        const src = app.sceneSource() orelse return v.loadEmpty();
+        const src = app.sceneSource() orelse {
+            // A plate with no slice yet: the beads of the view stay as a
+            // spare, for a switch back.
+            v.stashScene();
+            return v.loadEmpty();
+        };
         if (v.keepBeads(src)) return;
         const key = sceneKey(src, v.mode);
         var found: ?*View = null;
@@ -627,6 +632,8 @@ pub const View = struct {
             v.swapScene(t);
             v.keepSpare(t);
         } else {
+            // The beads of another plate stay as a spare.
+            if (v.scene_app != src.app) v.stashScene();
             try v.buildNow(src);
         }
         // The spares of older slices of this app go.
@@ -779,10 +786,32 @@ pub const View = struct {
     /// goes if there is no room; a scene with no key goes at once.
     fn keepSpare(v: *View, t: *View) void {
         if (t.scene_key == 0) return freeLater(t);
-        if (v.spares[max_spares - 1]) |old| freeLater(old);
-        var k: usize = max_spares - 1;
-        while (k > 0) : (k -= 1) v.spares[k] = v.spares[k - 1];
-        v.spares[0] = t;
+        var list: [max_spares + 1]?*View = @splat(null);
+        list[0] = t;
+        var n: usize = 1;
+        for (v.spares) |sp| if (sp) |x| {
+            list[n] = x;
+            n += 1;
+        };
+        if (list[max_spares]) |old| freeLater(old);
+        v.spares = list[0..max_spares].*;
+    }
+
+    /// Moves the beads of the view to a new spare scene (see `spares`):
+    /// the view then has no beads. No effect for beads with no key.
+    fn stashScene(v: *View) void {
+        if (v.scene_key == 0) return;
+        const t = gpa.create(View) catch return;
+        t.* = .{ .renderer = undefined, .headless = true, .width = 1, .height = 1, .mode = v.mode };
+        v.swapScene(t);
+        // The camera home and the ramp of the view stay.
+        v.legend = t.legend;
+        v.xf_center = t.xf_center;
+        v.xf_sxy = t.xf_sxy;
+        v.xf_sz = t.xf_sz;
+        v.home = t.home;
+        v.extent = t.extent;
+        v.keepSpare(t);
     }
 
     /// The lists that `buildBeads` makes, and the values that it sets.
