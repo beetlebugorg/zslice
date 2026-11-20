@@ -137,6 +137,7 @@ static void send_now(Window *w);
 static void send_checked(Window *w);
 static void fill_facts(Window *w);
 static void action_hook(gpointer data);
+static void stress_hook(gpointer data);
 
 enum PanelMode { PANEL_HIDDEN, PANEL_OVER, PANEL_PINNED };
 static const char *panel_modes[] = {"hidden", "overlay", "pinned"};
@@ -829,6 +830,11 @@ static void on_core_event(ZgModel *model, int event, double progress, int status
     }
     if (w->batch.on && event == ZS_EVENT_SLICED) batch_take(w);
     if (event == ZS_EVENT_SLICED) deck_estimate_soon(w);
+    static gboolean stress_hooked;
+    if (event == ZS_EVENT_SLICED && !stress_hooked && g_getenv("ZSLICE_STRESS")) {
+        stress_hooked = TRUE;
+        g_timeout_add_once(1500, stress_hook, w);
+    }
     static gboolean action_hooked;
     if (event == ZS_EVENT_SLICED && !action_hooked && g_getenv("ZSLICE_ACTION")) {
         action_hooked = TRUE;
@@ -1532,6 +1538,73 @@ static void action_hook(gpointer data) {
     }
     gtk_widget_activate_action_variant(w->preview, name, target);
     g_free(name);
+}
+
+/* For tests of the frame rate (with ZSLICE_STALLS): ZSLICE_STRESS=n makes
+ * n fast changes after the first slice, 20 to 400 ms apart: values of the
+ * infill density and the wall count, the simulated print on and off, and
+ * plate switches. ZSLICE_STRESS_FILE=path first adds a second plate with
+ * that file. ZSLICE_STRESS_ONLY=set, sim, or plate makes one kind of
+ * change. */
+typedef struct {
+    Window *w;
+    int left;
+    guint32 seed;
+} Stress;
+
+static guint32 stress_rand(Stress *s) {
+    s->seed = s->seed * 1103515245u + 12345u;
+    return s->seed >> 8;
+}
+
+static gboolean stress_step(gpointer data) {
+    Stress *s = data;
+    Window *w = s->w;
+    if (s->left-- <= 0) {
+        g_message("stress: done");
+        g_free(s);
+        return G_SOURCE_REMOVE;
+    }
+    zs_set *set = zg_model_plate_set(w->model);
+    guint32 r = stress_rand(s) % 100;
+    const char *only = g_getenv("ZSLICE_STRESS_ONLY");
+    if (g_strcmp0(only, "set") == 0) r = r * 60 / 100;
+    else if (g_strcmp0(only, "sim") == 0) r = 70;
+    else if (g_strcmp0(only, "plate") == 0) r = 90;
+    if (r < 45) {
+        char v[16];
+        g_snprintf(v, sizeof v, "%u", 5 + stress_rand(s) % 40);
+        zg_model_set(w->model, "project.infill_density", v, NULL);
+    } else if (r < 60) {
+        char v[16];
+        g_snprintf(v, sizeof v, "%u", 1 + stress_rand(s) % 4);
+        zg_model_set(w->model, "project.wall_count", v, NULL);
+    } else if (r < 80) {
+        gtk_widget_activate_action(w->preview, "preview.simulate", NULL);
+    } else if (zs_set_count(set) > 1) {
+        zg_model_plate_select(w->model, (zs_set_active(set) + 1) % zs_set_count(set));
+    }
+    g_timeout_add(20 + stress_rand(s) % 380, stress_step, s);
+    return G_SOURCE_REMOVE;
+}
+
+static void stress_hook(gpointer data) {
+    Window *w = data;
+    Stress *s = g_new0(Stress, 1);
+    s->w = w;
+    s->left = atoi(g_getenv("ZSLICE_STRESS"));
+    s->seed = 7;
+    const char *file = g_getenv("ZSLICE_STRESS_FILE");
+    guint wait = 0;
+    if (file && zs_set_count(zg_model_plate_set(w->model)) == 1) {
+        zg_model_plate_add(w->model);
+        GFile *f = g_file_new_for_path(file);
+        zg_window_open_file(w->window, f);
+        g_object_unref(f);
+        wait = 4000;
+    }
+    g_message("stress: %d changes", s->left);
+    g_timeout_add(wait + 100, stress_step, s);
 }
 
 /* For tests: ZSLICE_PREFS=1 opens Preferences at the start. */

@@ -5,9 +5,16 @@
  *
  * SPDX-License-Identifier: AGPL-3.0-or-later
  */
+#define _GNU_SOURCE
 #include <gtk/gtk.h>
+#include <dlfcn.h>
+#include <execinfo.h>
+#include <pthread.h>
+#include <signal.h>
+#include <stdatomic.h>
 #include <stdlib.h>
 #include <sys/prctl.h>
+#include <sys/syscall.h>
 #include <unistd.h>
 
 #include "model/app-model.h"
@@ -499,6 +506,126 @@ static gboolean test_hang(gpointer data) {
     return G_SOURCE_REMOVE;
 }
 
+/* ---- the stall log ----
+ *
+ * For tests of the frame rate: ZSLICE_STALLS=<ms> logs each gap of the UI
+ * thread over <ms> ms. A timer of high priority sets a tick every 2 ms. A
+ * second thread looks at the tick each ms. When the UI thread is late, it
+ * sends SIGPROF to the UI thread every 10 ms, and the signal handler keeps
+ * the stack. ZSLICE_STALLS_ALL=1 also gets the stacks of all other threads
+ * once in each gap. At the end of the gap, the thread logs the gap and the
+ * stacks as module+offset (for addr2line). */
+
+#define STALL_FRAMES 48
+#define STALL_SAMPLES 48
+
+static pthread_t stall_ui;
+static _Atomic gint64 stall_tick;
+static gint64 stall_limit_us;
+static void *stall_stack[STALL_SAMPLES][STALL_FRAMES];
+static int stall_depth[STALL_SAMPLES];
+static int stall_tid[STALL_SAMPLES];
+static atomic_int stall_done[STALL_SAMPLES];
+static atomic_int stall_taken;
+
+static void on_stall_signal(int sig) {
+    int i = atomic_fetch_add(&stall_taken, 1);
+    if (i >= STALL_SAMPLES) return;
+    stall_tid[i] = (int)gettid();
+    stall_depth[i] = backtrace(stall_stack[i], STALL_FRAMES);
+    atomic_store(&stall_done[i], 1);
+}
+
+static gboolean on_stall_tick(gpointer data) {
+    atomic_store(&stall_tick, g_get_monotonic_time());
+    return G_SOURCE_CONTINUE;
+}
+
+static void stall_print(gint64 gap) {
+    int n = MIN(atomic_load(&stall_taken), STALL_SAMPLES);
+    GString *s = g_string_new(NULL);
+    g_string_append_printf(s, "stall: %.1f ms\n", gap / 1000.0);
+    int ui = (int)getpid();
+    for (int i = 0; i < n; i++) {
+        if (!atomic_load(&stall_done[i])) continue;
+        if (stall_tid[i] == ui) g_string_append_printf(s, "  sample %d:", i);
+        else g_string_append_printf(s, "  thread %d:", stall_tid[i]);
+        for (int k = 2; k < stall_depth[i]; k++) {
+            Dl_info info;
+            if (dladdr(stall_stack[i][k], &info) && info.dli_fname) {
+                const char *base = strrchr(info.dli_fname, '/');
+                g_string_append_printf(s, " %s+0x%lx", base ? base + 1 : info.dli_fname,
+                                       (unsigned long)((char *)stall_stack[i][k] - (char *)info.dli_fbase - 1));
+            } else {
+                g_string_append_printf(s, " %p", stall_stack[i][k]);
+            }
+        }
+        g_string_append_c(s, '\n');
+    }
+    fputs(s->str, stderr);
+    g_string_free(s, TRUE);
+}
+
+static gpointer stall_watch(gpointer data) {
+    gint64 next_sample;
+    gboolean in_stall = FALSE;
+    gint64 start = 0;
+    for (;;) {
+        g_usleep(1000);
+        gint64 tick = atomic_load(&stall_tick);
+        gint64 now = g_get_monotonic_time();
+        if (in_stall && tick >= start) {
+            stall_print(tick - start);
+            in_stall = FALSE;
+            continue;
+        }
+        if (in_stall || now - tick < stall_limit_us) continue;
+        in_stall = TRUE;
+        start = tick;
+        for (int i = 0; i < STALL_SAMPLES; i++) atomic_store(&stall_done[i], 0);
+        atomic_store(&stall_taken, 0);
+        next_sample = now;
+        if (g_getenv("ZSLICE_STALLS_ALL")) {
+            GDir *d = g_dir_open("/proc/self/task", 0, NULL);
+            const char *name;
+            int self = (int)gettid(), ui = (int)getpid();
+            while (d && (name = g_dir_read_name(d))) {
+                int tid = atoi(name);
+                if (tid != self && tid != ui) syscall(SYS_tgkill, ui, tid, SIGPROF);
+            }
+            if (d) g_dir_close(d);
+        }
+        while (atomic_load(&stall_tick) == tick) {
+            now = g_get_monotonic_time();
+            if (now >= next_sample) {
+                pthread_kill(stall_ui, SIGPROF);
+                next_sample = now + 10000;
+            }
+            g_usleep(500);
+        }
+    }
+    return NULL;
+}
+
+static void stall_start(void) {
+    const char *env = g_getenv("ZSLICE_STALLS");
+    if (!env) return;
+    stall_limit_us = (gint64)(atof(env) * 1000);
+    if (stall_limit_us <= 0) stall_limit_us = 20000;
+    stall_ui = pthread_self();
+    /* backtrace loads libgcc on the first call: do it here, and not in the
+     * signal handler. */
+    void *warm[4];
+    backtrace(warm, 4);
+    struct sigaction sa = {0};
+    sa.sa_handler = on_stall_signal;
+    sa.sa_flags = SA_RESTART;
+    sigaction(SIGPROF, &sa, NULL);
+    atomic_store(&stall_tick, g_get_monotonic_time());
+    g_timeout_add_full(G_PRIORITY_HIGH, 2, on_stall_tick, NULL, NULL);
+    g_thread_unref(g_thread_new("zslice-stalls", stall_watch, NULL));
+}
+
 int main(int argc, char **argv) {
     heartbeat = g_get_monotonic_time();
     zg_start_us = heartbeat;
@@ -509,6 +636,7 @@ int main(int argc, char **argv) {
     prctl(PR_SET_PTRACER, PR_SET_PTRACER_ANY, 0, 0, 0);
 #endif
     g_thread_unref(g_thread_new("zslice-watchdog", watchdog, NULL));
+    stall_start();
     /* For a test of the watchdog: ZSLICE_TEST_HANG=4 stops the UI thread
      * for 4 s, 3 s after the start. */
     if (g_getenv("ZSLICE_TEST_HANG")) g_timeout_add_seconds(3, test_hang, NULL);
