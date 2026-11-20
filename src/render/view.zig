@@ -703,8 +703,16 @@ pub const View = struct {
                 // height of all the layers of combined infill.
                 const ph = tp.pathHeight(pi, l);
                 const h = ph * sz;
-                const w: f32 = @floatCast(@import("../flow.zig").beadWidth(tp.path_area.items[pi], ph) * sxy);
+                var w: f32 = @floatCast(@import("../flow.zig").beadWidth(tp.path_area.items[pi], ph) * sxy);
                 if (!(w > 0)) continue;
+                // Ironing (4) and slope ironing (9) flatten the top skin:
+                // the hot nozzle smooths it as it passes. Its little plastic
+                // would draw as thin threads, hidden in the skin under it.
+                // Each pass is drawn as wide as the ironing step (and a bit
+                // more, so the passes meet), thin, at the top of the layer:
+                // together they make a flat sheet over the ironed area.
+                const ironing = f == 4 or f == 9;
+                if (ironing) w = @max(w, @as(f32, @floatCast(app.settings.project.ironing_spacing * 1.3)) * sxy);
                 const closed = tp.path_closed.items[pi] != 0 and end - start > 2;
                 const segs = end - start - 1 + @as(u32, @intFromBool(closed));
                 // The times of the beads: the path time, spread over its
@@ -735,6 +743,12 @@ pub const View = struct {
                     var bz = z;
                     var bh = h;
                     var bw = w;
+                    if (ironing) {
+                        // A sheet 0.06 mm thick, a hair over the top of the
+                        // skin.
+                        bh = @min(h, 0.06 * sz);
+                        bz = z + 0.01 * sz;
+                    }
                     var seg_rgb = rgb;
                     if (z_start != app_mod.Toolpaths.no_z) {
                         const ia = z_start + (a - start);

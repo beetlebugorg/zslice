@@ -112,7 +112,7 @@ void main() {
         vec2 np = dir * cos(tv.y) + side * sin(tv.y);
         vsec = vec4(np, tv.z / 3.14159265, 0.0);
         uint feat = uint(color.a * 255.0 + 0.5);
-        if (feat == 2u || feat == 7u) {
+        if (feat == 2u || feat == 7u || feat == 4u || feat == 9u) {
             float hw = 0.52 * w;
             float hh = 0.5 * h;
             float rr = 0.15 * min(h, w);

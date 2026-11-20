@@ -112,7 +112,7 @@ void main() {
         // with small round corners (a superellipse), and the surface is
         // continuous. A free bead (a wall, infill) keeps its round sides.
         uint feat = uint(color.a * 255.0 + 0.5);
-        if (feat == 2u || feat == 7u) {
+        if (feat == 2u || feat == 7u || feat == 4u || feat == 9u) {
             // A rounded rectangle: a flat top out to hw - rr, flat sides,
             // and corner arcs of radius rr. The profile angles of the mesh
             // fall on the corner arcs, so the top stays flat. 4 % wider:
