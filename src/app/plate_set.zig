@@ -1000,19 +1000,16 @@ pub const Set = struct {
         // The bytes that the worker wrote after the slice, if they are of
         // this slice and of this input.
         p.app.scene_bytes_on.store(true, .release);
-        if (p.app.takeSceneBytes()) |sb| {
-            const key = if (set.scene_key_fn) |kf| kf(p.app, set.mode) else null;
-            if (sb.gen == gen and key != null and sb.key == key.?) {
-                set.gpa.free(p.scene);
-                p.scene = sb.bytes;
-                set.gpa.destroy(sb);
-                p.scene_gen = gen;
-                p.scene_mode = set.mode;
-                p.scene_serial +%= 1;
-                return;
-            }
-            p.app.freeSceneBytes(sb);
-        }
+        const key = if (set.scene_key_fn) |kf| kf(p.app, set.mode) else null;
+        if (key != null) if (p.app.takeSceneBytes(key.?, gen)) |sb| {
+            set.gpa.free(p.scene);
+            p.scene = sb.bytes;
+            set.gpa.destroy(sb);
+            p.scene_gen = gen;
+            p.scene_mode = set.mode;
+            p.scene_serial +%= 1;
+            return;
+        };
         const bytes = f(set.gpa, p.app, set.mode) orelse return;
         set.gpa.free(p.scene);
         p.scene = bytes;
