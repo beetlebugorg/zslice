@@ -74,13 +74,13 @@ import { attachViewInput } from "./input.js";
 import { FarmPage } from "./farm.js";
 import { Tools } from "./tools.js";
 import { SupportTool } from "./support.js";
-import { KINDS, send as sendToPrinter, test as testPrinter, requestKey, trustText, status as printerStatus, camera as printerCamera, detectKind, deckPrinters, deckAddress, plainName, loadedFilaments } from "./link.js";
+import { KINDS, send as sendToPrinter, test as testPrinter, requestKey, trustText, status as printerStatus, camera as printerCamera, detectKind, deckPrinters, deckAddress, plainName, loadedFilaments, webAddress } from "./link.js";
 import { CameraView } from "./camera.js";
 import { signGcode, keyId as signingKeyId, supported as canSign, UNSUPPORTED as NO_SIGNATURES } from "./signing.js";
 import { contextItems } from "./context-menu.js";
 import { openMenu, openMenuAt, menuOpen, openPopover, closeMenu } from "./menus.js";
 import { formatClock, formatTime, useCore } from "./format.js";
-import { openPrinterPicker, bedFiles } from "./printers.js";
+import { openPrinterPicker, bedFiles, findModel } from "./printers.js";
 
 const $ = (id) => document.getElementById(id);
 const STORE_KEY = "zslice.web.v1";
@@ -1025,7 +1025,7 @@ async function loadProfile(group, name, text) {
 // printdeck that drives more than one printer lists them
 // (/slicer/printer.json), and the user picks the ones to add: each one has
 // the key of the deck and the path of its API under the deck.
-function pairPrinter(name) {
+function pairPrinter(name, fresh = false) {
   const p = store.printers?.[name];
   if (!p || (p.kind !== "printdeck" && p.kind !== "octoprint")) return Promise.resolve(false);
   return new Promise((done) => {
@@ -1086,13 +1086,15 @@ function pairPrinter(name) {
         const httpsBase = (p.https || dp.https || "").replace(/\/$/, "");
         // The deck names the printers and their paths: a path must stay on
         // the deck (the key goes there), and a name must be a plain key.
-        const others = dp.ok ? dp.printers.filter((q) => q?.url && plainName(q.name) && q.kind !== "resin" && deckAddress(base, q.url)) : [];
-        if (others.length) {
-          text.textContent = `Connected to ${name}. The deck drives more printers: pick the ones to add.`;
+        // All the printers of the deck, the one at its own address too
+        // (url ""): each gets its own address and the name of the deck.
+        const others = dp.ok ? dp.printers.filter((q) => q && plainName(q.name) && q.kind !== "resin" && (q.url === "" || q.url == null || deckAddress(base, q.url))) : [];
+        if (others.length > 1 || (fresh && others.length)) {
+          text.textContent = others.length > 1 ? `Connected to ${dp.name || name}. It drives ${others.length} printers: pick the ones to add.` : `Connected to ${dp.name || name}.`;
           const boxes = others.map((q) => {
             const label = q.label && q.label !== q.name ? `${q.name} (${q.label})` : q.name;
             const row = Object.assign(document.createElement("label"), { className: "pair-row" });
-            const cb = Object.assign(document.createElement("input"), { type: "checkbox", checked: !store.printers[label] });
+            const cb = Object.assign(document.createElement("input"), { type: "checkbox", checked: fresh || !store.printers[label] });
             const dot = Object.assign(document.createElement("span"), { className: "menu-dot" });
             if (/^#[0-9a-f]{6}$/i.test(q.color ?? "")) dot.style.background = q.color;
             row.append(cb, dot, label);
@@ -1100,19 +1102,29 @@ function pairPrinter(name) {
             return { cb, q, label };
           });
           add.hidden = false;
-          add.onclick = () => {
+          add.onclick = async () => {
+            add.disabled = true;
+            let first = null;
             for (const { cb, q, label } of boxes) {
               if (!cb.checked) continue;
               const had = store.printers[label];
+              // The profile of the printer: the library model of its
+              // product name, else the one it had.
+              const m = had?.profile ? null : await findModel(wasm, q.model || q.label || q.name).catch(() => null);
               store.printers[label] = {
-                profile: had?.profile ?? p.profile ?? "", url: deckAddress(base, q.url), kind: "printdeck", apiKey: r.key,
-                https: deckAddress(httpsBase, q.url), color: q.color || "", label: q.label || "",
+                profile: had?.profile ?? m?.profile ?? (fresh ? "" : p.profile ?? ""),
+                url: q.url ? deckAddress(base, q.url) : base, kind: "printdeck", apiKey: r.key,
+                https: httpsBase ? (q.url ? deckAddress(httpsBase, q.url) : httpsBase) : "", color: q.color || "", label: q.label || "",
                 // The name of the printer on the deck: a send checks it.
                 deckName: q.name,
                 files: q.files || "", model: q.model || "",
               };
+              first ??= label;
             }
+            // The entry that only held the address of the deck goes.
+            if (fresh && !boxes.some((b) => b.cb.checked && b.label === name)) delete store.printers[name];
             saveStore();
+            if (fresh && first) await usePrinter(first);
             updateMenus();
             close();
           };
@@ -1124,6 +1136,83 @@ function pairPrinter(name) {
     d.showModal();
     run();
   });
+}
+
+// Makes printer `name` of the store the printer now: its profile, if it
+// has one.
+async function usePrinter(name) {
+  const pr = store.printers?.[name];
+  if (!pr) return;
+  if (pr.profile) await loadProfile(0, name, pr.profile);
+  else store.printer = name;
+  saveStore();
+  updateMenus();
+}
+
+// Connects to a printdeck by its address, with no printer first: the deck
+// asks "Allow zslice?" on its screen, then lists its printers, and the
+// user picks the ones to add. Each one gets its own address on the deck,
+// its name on the deck, and the profile of its model.
+function connectDeck() {
+  const d = document.createElement("dialog");
+  d.className = "printers-dialog pair-dialog";
+  const title = Object.assign(document.createElement("h3"), { textContent: "Connect a printdeck" });
+  const text = Object.assign(document.createElement("p"), { className: "pair-text", textContent: "The address of the printdeck: on its System page. A secure address (https://….d.printdeck.beetlebug.org) works from this site in any browser." });
+  const url = Object.assign(document.createElement("input"), { placeholder: "https://….d.printdeck.beetlebug.org or http://printdeck.local", autocomplete: "off", spellcheck: false });
+  url.className = "pair-url";
+  const msg = Object.assign(document.createElement("p"), { className: "dim pair-count" });
+  const bar = Object.assign(document.createElement("div"), { className: "pair-actions" });
+  const cancel = Object.assign(document.createElement("button"), { textContent: "Cancel" });
+  const go = Object.assign(document.createElement("button"), { className: "suggested", textContent: "Connect" });
+  bar.append(cancel, go);
+  d.append(title, text, url, msg, bar);
+  document.body.append(d);
+  const close = () => {
+    d.close();
+    d.remove();
+  };
+  cancel.onclick = close;
+  const connect = async () => {
+    const u = webAddress(url.value.trim());
+    if (!u) {
+      msg.textContent = "Type the address of the printdeck.";
+      return;
+    }
+    go.disabled = true;
+    msg.textContent = "Looking for the printdeck…";
+    const k = await detectKind(u);
+    go.disabled = false;
+    if (!k.ok) {
+      msg.textContent = k.message;
+      return;
+    }
+    if (k.kind !== "printdeck") {
+      msg.textContent = `This address is ${k.kind === "moonraker" ? "a Klipper printer (Moonraker)" : "an OctoPrint printer"}, not a printdeck. Add it with Add a printer…`;
+      return;
+    }
+    // A name for the entry while it pairs: the host of the address.
+    let name = "printdeck";
+    try {
+      name = new URL(u).hostname || name;
+    } catch {}
+    store.printers = store.printers ?? {};
+    if (!store.printers[name]) store.printers[name] = { profile: "", url: /^https:/i.test(u) ? "" : u, https: /^https:/i.test(u) ? u : "", kind: "printdeck" };
+    if (!store.printers[name].url) store.printers[name].url = u;
+    saveStore();
+    close();
+    await pairPrinter(name, true);
+    updateMenus();
+  };
+  go.onclick = connect;
+  url.onkeydown = (e) => {
+    if (e.key === "Enter") connect();
+  };
+  d.oncancel = (e) => {
+    e.preventDefault();
+    close();
+  };
+  d.showModal();
+  url.focus();
 }
 
 async function addPrinter(p) {
@@ -1325,6 +1414,7 @@ $("printer-menu").onclick = () => {
     { sep: true },
     { label: "Printer settings and G-code…", tip: "The bed, the nozzle, the speeds, and the start and end G-code of this printer.", action: openPrinterSettings },
     { label: "Manage printers…", disabled: mine.length === 0, tip: "Rename your printers, set their addresses, or remove them.", action: managePrinters },
+    { label: "Connect a printdeck…", action: () => connectDeck() },
     { label: "Add a printer…", action: () => showPrinterPicker() },
   );
   openMenu($("printer-menu"), items);

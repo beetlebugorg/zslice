@@ -136,6 +136,24 @@ export function search(wasm, query, brand) {
 
 const text = (wasm, fn, i, ...args) => wasm.readText((buf, cap, len) => fn(lib, i, ...args, buf, cap, len));
 
+// The library model of a product name that a printer tells ("Bambu Lab
+// X2D", "LulzBot TAZ Workhorse"): { model, profile } with its machine
+// profile, or null when no model has all the words of the name.
+export async function findModel(wasm, product) {
+  const words = (s) => String(s ?? "").toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
+  const want = words(product);
+  if (want.length === 0) return null;
+  await load(wasm);
+  const { idx } = search(wasm, product, -1);
+  for (const i of idx.slice(0, 8)) {
+    const m = model(wasm, i);
+    if (!m) continue;
+    const have = words(`${m.brand} ${m.name} ${m.title}`);
+    if (want.every((w) => have.includes(w))) return { model: m, profile: profileText(wasm, i, m.nozzle) };
+  }
+  return null;
+}
+
 // The machine profile of model i (zs_printers_profile).
 export function profileText(wasm, i, nozzle) {
   return text(wasm, wasm.x.zs_printers_profile, i, nozzle);
