@@ -73,6 +73,25 @@ pub const Toolpaths = struct {
     point_set_time: std.ArrayList(f32) = .empty,
     gpa: ?Allocator = null,
 
+    /// The run of path `p`: the first and the last path of the paths
+    /// around it with no retraction between them, on its layer (one
+    /// extrusion from one retraction to the next). Null: no such path.
+    pub fn runOf(t: *const Toolpaths, p: usize) ?[2]usize {
+        if (p >= t.path_retract.items.len) return null;
+        var lo: usize = 0;
+        var hi: usize = t.path_retract.items.len;
+        for (t.layer_ends.items, 0..) |end, l| if (p < end) {
+            lo = if (l == 0) 0 else t.layer_ends.items[l - 1];
+            hi = end;
+            break;
+        };
+        var first = p;
+        while (first > lo and t.path_retract.items[first] == 0) first -= 1;
+        var last = p;
+        while (last + 1 < hi and t.path_retract.items[last + 1] == 0) last += 1;
+        return .{ first, last };
+    }
+
     pub const no_z = std.math.maxInt(u32);
 
     pub fn deinit(t: *Toolpaths, gpa: Allocator) void {
@@ -392,4 +411,19 @@ fn segmentDistance(x: f64, y: f64, ax: f32, ay: f32, bx: f32, by: f32) f64 {
     const len2 = dx * dx + dy * dy;
     const t = if (len2 == 0) 0 else std.math.clamp(((x - ax) * dx + (y - ay) * dy) / len2, 0, 1);
     return @import("../geom.zig").hypot(x - (ax + t * dx), y - (ay + t * dy));
+}
+
+test "toolpaths: the run of a path goes from retraction to retraction on its layer" {
+    var t: Toolpaths = .{};
+    defer t.deinit(std.testing.allocator);
+    const gpa = std.testing.allocator;
+    t.gpa = gpa;
+    // Layer 0: paths 0..4, retractions before 0 and 3. Layer 1: 5..6.
+    try t.path_retract.appendSlice(gpa, &.{ 1, 0, 0, 1, 0, 0, 0 });
+    try t.layer_ends.appendSlice(gpa, &.{ 5, 7 });
+    try std.testing.expectEqual([2]usize{ 0, 2 }, t.runOf(1).?);
+    try std.testing.expectEqual([2]usize{ 3, 4 }, t.runOf(4).?);
+    // The run stops at the layer: path 5 has no retraction before it.
+    try std.testing.expectEqual([2]usize{ 5, 6 }, t.runOf(6).?);
+    try std.testing.expect(t.runOf(9) == null);
 }

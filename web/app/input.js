@@ -23,7 +23,7 @@
 //        activatePlate(i, frame), range: { start(px, py) -> drag state
 //        or null, move(state, px, py), end(state), clear() } }
 export function attachViewInput(canvas, ctx) {
-  const { app, view, view2d, tools, supportTool, requestFrame, pickAt, hitAt, select, showContextMenu, activatePlate, grab, range } = ctx;
+  const { app, view, view2d, tools, supportTool, requestFrame, pickAt, pickRun, hitAt, select, showContextMenu, activatePlate, grab, range } = ctx;
   let drag = null;
   const dpr = () => window.devicePixelRatio || 1;
 
@@ -232,9 +232,11 @@ export function attachViewInput(canvas, ctx) {
     }
     if (d.button === 0 && tools.tool === "support" && app.page === "3d") supportTool.click(px, py, e.shiftKey, e.altKey);
     else if (d.button === 0 && tools.tool === "measure") tools.measureClick(px, py, e.shiftKey);
-    // Shift with a click adds the part under the pointer to the
-    // selection, or takes it out (in the Select tool too). Ctrl with a
-    // click selects that part alone.
+    // The Select tool: Shift with a click selects the run of the line there
+    // (from one retraction to the next), and Ctrl+Shift adds the part to
+    // the selection. Ctrl with a click selects that part alone. In the
+    // other tools, Shift with a click adds the part, or takes it out.
+    else if (d.button === 0 && e.shiftKey && !e.ctrlKey && tools.tool === "select") pickRun(px, py);
     else if (d.button === 0 && app.page === "3d" && e.shiftKey && tools.tool !== "grab") tools.addPart(px, py);
     else if (d.button === 0 && app.page === "3d" && (tools.tool === "move" || tools.tool === "turn" || e.ctrlKey)) tools.pickPart(px, py);
     else if (d.button === 0) pickAt(px, py, true);

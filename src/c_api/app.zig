@@ -1430,6 +1430,20 @@ export fn zs_app_edit_add_dot_z(a: ?*App, layer: usize, z: f64, x: f64, y: f64, 
 }
 
 /// The layer of path `path` of the last slice, or -1.
+/// The run of a path: the first and the last path of the extrusion it is
+/// in, from one retraction to the next, on its layer (Shift+click selects
+/// it). Not ok when the slice has no such path.
+export fn zs_app_path_run(a: ?*const App, path: usize, first: ?*usize, last: ?*usize) c_int {
+    const app = a orelse return @intFromEnum(Status.invalid_argument);
+    // The retractions of the slice (the simulated paths have the same
+    // paths, in the same order).
+    if (app.getState() != .done) return @intFromEnum(Status.no_result);
+    const r = app.toolpaths.runOf(path) orelse return @intFromEnum(Status.invalid_argument);
+    if (first) |f| f.* = r[0];
+    if (last) |l| l.* = r[1];
+    return ok;
+}
+
 export fn zs_app_path_layer(a: ?*const App, path: usize) isize {
     const app = a orelse return -1;
     const l = app.layerOfPath(path) orelse return -1;

@@ -172,6 +172,20 @@ export class View3D {
     this.x.zs_view_isolate(this.v, isolate && path >= 0 ? 1 : 0);
   }
 
+  // The other paths of a selection of many (a run of Shift+click), in the
+  // color of the highlight too; [] for none.
+  highlightMore(paths) {
+    const w = this.w;
+    const n = paths.length;
+    const p = n ? w.alloc(4 * n) : 0;
+    try {
+      if (n) new Uint32Array(this.x.memory.buffer, p, n).set(paths);
+      this.x.zs_view_highlight_more(this.v, p, n);
+    } finally {
+      if (p) w.free(p, 4 * n);
+    }
+  }
+
   // Lights the layers lo to hi as a selection (a drag of the Select tool),
   // or none (lo < 0). The other beads are ghosts.
   lightLayers(lo, hi) {

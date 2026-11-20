@@ -1239,6 +1239,15 @@ const ops = {
   // The support marks of the user near the line go too.
   // The feature of line `path` (0 outer wall … 6 support, 7 support
   // interface; see gaps.js), or -1.
+  // The run of a path: the first and the last path of its extrusion, from
+  // one retraction to the next (zs_app_path_run), or null.
+  pathRun({ path }) {
+    const w = core.w;
+    const c = w.cell;
+    if (w.x.zs_app_path_run(core.app, path, c, c + 4) !== 0) return { run: null };
+    return { run: [w.u32(c), w.u32(c + 4)] };
+  },
+
   lineFeature({ path }) {
     const info = core.inspect(path);
     return { feature: info ? info.feature : -1 };

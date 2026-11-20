@@ -511,6 +511,10 @@ uint64_t zs_app_path_key(const zs_app *app, size_t path);
 int zs_app_edit_add_key(zs_app *app, uint64_t key, size_t layer, int kind, double value);
 /* A drop with the z of its layer (read when the layer shows). */
 int zs_app_edit_add_dot_z(zs_app *app, size_t layer, double z, double x, double y, double d);
+/* The run of a path: the first and the last path of the extrusion that it
+ * is in, from one retraction to the next, on its layer. Shift+click
+ * selects it. */
+int zs_app_path_run(const zs_app *app, size_t path, size_t *first, size_t *last);
 /* The layer of path `path` of the last slice, or -1. */
 ptrdiff_t zs_app_path_layer(const zs_app *app, size_t path);
 /* applied: 1 if the last slice found the line of the edit, 0 if the line

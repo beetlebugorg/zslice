@@ -32,7 +32,8 @@ Press `?` in the app to see all keys. Type in the sheet to filter it. On the Mac
 | P | Paint: paint filaments on a part (Smart select or Brush) |
 | G | Gaps of the top layer |
 | Ctrl+click, Ctrl+drag, Ctrl+wheel | Select, move, and turn a part with any tool |
-| Shift+click | Add a part to the selection, or take it out |
+| Shift+click (Select tool) | Select the run of the line: one extrusion, from a retraction to the next |
+| Ctrl+Shift+click (Select tool), Shift+click (other tools) | Add a part to the selection, or take it out |
 | Tab, Shift+Tab | The next part, or the part before |
 | Arrow keys (selected parts) | Move the parts 1 mm (Shift: 10 mm) |
 | ←, → (Turn tool) | Turn the part on the bed, 15° (Shift: 5°) |

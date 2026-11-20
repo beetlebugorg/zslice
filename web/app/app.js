@@ -405,6 +405,26 @@ async function pickAt(px, py, picked) {
   else select(-1, -1, false);
 }
 
+// Shift+click in the Select tool: the line there and its whole run, from
+// the retraction before it to the next one (one extrusion), lit together.
+async function pickRun(px, py) {
+  app.pickPoint = [px / dpr(), py / dpr()];
+  if (!hitAt(px, py)) {
+    select(-1, -1, false);
+    return;
+  }
+  const [path, seg] = view.hit;
+  select(path, seg, true);
+  const r = await client.call("pathRun", { path });
+  if (!r.run || app.sel !== path) return;
+  const others = [];
+  for (let k = r.run[0]; k <= r.run[1] && others.length < 20000; k++) if (k !== path) others.push(k);
+  view.highlightMore(others);
+  app.run = r.run;
+  requestFrame();
+  toast(r.run[1] > r.run[0] ? `A run of ${r.run[1] - r.run[0] + 1} lines: one extrusion, from a retraction to the next.` : "A run of one line: it has a retraction before and after it.");
+}
+
 // The point (mm) under a device pixel on the top of the top shown layer,
 // or null.
 function topLayerPoint(px, py) {
@@ -1735,6 +1755,11 @@ function select(path, seg, picked) {
   app.sel = path;
   app.seg = path >= 0 ? seg : -1;
   view.highlight(path, app.seg, app.isolate);
+  // A new selection drops the other lines of a run.
+  if (app.run) {
+    app.run = null;
+    view.highlightMore([]);
+  }
   requestFrame();
   if (picked && path >= 0) {
     // The card of the line opens at the click; a panel that shows also
@@ -2450,7 +2475,7 @@ const rangeDrag = {
 
 // ---- the mouse, the touch screen, and the wheel over the view ----
 
-attachViewInput(canvas, { app, view, view2d, tools, supportTool, requestFrame, pickAt, hitAt, select, showContextMenu, activatePlate, range: rangeDrag, grab: { start: grabStart, move: grabMove, end: grabEnd, lift: grabLift, turn: grabTurn, holding: () => hand.on } });
+attachViewInput(canvas, { app, view, view2d, tools, supportTool, requestFrame, pickAt, pickRun, hitAt, select, showContextMenu, activatePlate, range: rangeDrag, grab: { start: grabStart, move: grabMove, end: grabEnd, lift: grabLift, turn: grabTurn, holding: () => hand.on } });
 
 // ---- gaps ----
 
