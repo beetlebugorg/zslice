@@ -1730,7 +1730,8 @@ export fn zs_app_sim_request(a: ?*App) c_int {
 }
 
 /// Runs the printability check after each slice (on = 1), on the thread
-/// of the slice before ZS_EVENT_SLICED, so zs_app_checks returns at once.
+/// of the slice after ZS_EVENT_SLICED: zs_app_checks gives ZS_BUSY until
+/// ZS_EVENT_CHECKED, then returns the check at once.
 export fn zs_app_set_auto_checks(a: ?*App, on: c_int) c_int {
     const app = a orelse return @intFromEnum(Status.invalid_argument);
     app.auto_checks = on != 0;
@@ -1849,6 +1850,7 @@ export fn zs_app_checks(a: ?*App, issues: ?*?[*]const zs.app.checks_mod.Issue, n
     const app = a orelse return @intFromEnum(Status.invalid_argument);
     const r = app.checks() catch |e| return switch (e) {
         error.NoResult => @intFromEnum(Status.no_result),
+        error.Pending => @intFromEnum(Status.busy),
         else => status(e),
     };
     if (issues) |o| o.* = r.issues.ptr;

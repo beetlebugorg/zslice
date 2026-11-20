@@ -129,6 +129,9 @@ pub const Event = enum(c_int) {
     /// The simulated print of the slice is ready (see `auto_simulate`):
     /// `adoptSimulation` shows it.
     simulated = 6,
+    /// The check of the slice is ready (see `auto_checks`): `checks`
+    /// returns it at once.
+    checked = 7,
 };
 
 /// The shell callback. It runs on the worker thread.
@@ -236,9 +239,11 @@ pub const App = struct {
     /// The printability check of the last slice (see `checks`).
     checks_result: ?checks_mod.Result = null,
     /// The shell wants the check after each slice: the worker runs it
-    /// before the `sliced` event, so `checks` returns at once on the
-    /// thread of the shell.
+    /// after the `sliced` event (the slice shows at once), then sends
+    /// `checked`, so `checks` returns at once on the thread of the shell.
+    /// While it runs, `checks` gives error.Pending.
     auto_checks: bool = false,
+    checks_pending: std.atomic.Value(bool) = .init(false),
     /// The bond of each part for the check of the running slice (see
     /// `auto_checks`), in `slice_arena`, or null: no check on the worker.
     slice_stands: ?[]checks_mod.Stand = null,
@@ -1830,8 +1835,9 @@ pub const App = struct {
         return app.getState() == .done and app.checks_result != null;
     }
 
-    pub fn checks(app: *App) (Allocator.Error || error{NoResult})!*const checks_mod.Result {
+    pub fn checks(app: *App) (Allocator.Error || error{ NoResult, Pending })!*const checks_mod.Result {
         if (app.getState() != .done) return error.NoResult;
+        if (app.checks_pending.load(.acquire)) return error.Pending;
         if (app.checks_result) |*r| return r;
         const j = &(app.job orelse return error.NoResult);
         const t = app.allToolpaths() orelse return error.NoResult;
@@ -2595,23 +2601,9 @@ pub const App = struct {
             }
         }
         const buf = out.writer.buffer;
-        // The check of the print (see `auto_checks`), with the settings at
-        // the start of the slice. A change stops it within a layer.
-        var checked: ?checks_mod.Result = null;
-        if (app.slice_stands) |stands| {
-            checked = checks_mod.runWith(app.gpa, &job, &store, app.slice_settings, stands, stats, &app.cancel_flag) catch |e| switch (e) {
-                error.Canceled => {
-                    store.deinit(app.gpa);
-                    out.deinit();
-                    app.keepForRegions(job);
-                    return app.finishFailed(e);
-                },
-                // The shell runs the check later (see `checks`).
-                error.OutOfMemory => null,
-            };
-        }
-
-        app.checks_result = checked;
+        app.checks_result = null;
+        const stands_now = app.slice_stands;
+        if (stands_now != null) app.checks_pending.store(true, .release);
         app.part_box = job.bounds() orelse .{ 0, 0, 0, 0 };
         app.job = job;
         app.toolpaths = store;
@@ -2621,6 +2613,15 @@ pub const App = struct {
         _ = app.done_count.fetchAdd(1, .release);
         app.state.store(.done, .release);
         app.emit(.sliced, 1, 0);
+        // The check of the print (see `auto_checks`), after the slice
+        // shows, with the settings at the start of the slice. A change
+        // stops it within a layer; the next slice checks again.
+        if (stands_now) |stands| {
+            const r = checks_mod.runWith(app.gpa, &app.job.?, &app.toolpaths, app.slice_settings, stands, app.stats, &app.cancel_flag) catch null;
+            app.checks_result = r;
+            app.checks_pending.store(false, .release);
+            if (r != null) app.emit(.checked, 1, 0);
+        }
         if (app.sim_coming.load(.acquire)) app.simulateOnWorker();
     }
 

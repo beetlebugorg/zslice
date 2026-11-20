@@ -205,8 +205,8 @@ static void on_islands_clicked(GtkButton *b, gpointer data) {
 #define TINY_PART_MM 3.0
 
 /* With support off: the check of the print after each slice, for the
- * hint. The thread of the slice runs it (zs_app_set_auto_checks), so
- * zs_app_checks returns at once. */
+ * hint. The thread of the slice runs it after the slice shows
+ * (zs_app_set_auto_checks): ZS_BUSY until ZS_EVENT_CHECKED, then at once. */
 static void check_overhang(Window *w) {
     zs_app *core = zg_model_core(w->model);
     w->overhang = 0;
@@ -821,7 +821,7 @@ static void on_core_event(ZgModel *model, int event, double progress, int status
         g_free(w->last_error);
         w->last_error = g_strdup(zg_status_text(status));
     }
-    if (event == ZS_EVENT_SLICED) check_overhang(w);
+    if (event == ZS_EVENT_SLICED || event == ZS_EVENT_CHECKED) check_overhang(w);
     /* The simulated print of the slice: the view and the hint show it. */
     if (event == ZS_EVENT_SIMULATED && zs_app_sim_adopt(zg_model_core(model))) zg_preview_simulated(w->preview);
     update(w);

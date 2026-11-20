@@ -257,8 +257,12 @@ static void fill_check(Preview *p) {
     zs_app *core = zg_model_core(p->model);
     const char *empty = NULL;
     if (zs_app_state(core) != ZS_STATE_DONE) empty = "Slice the plate first.";
-    else if (zs_app_checks(core, &issues, &n, &text) != ZS_OK) empty = "The check failed.";
-    else if (n == 0) empty = "No issues found.";
+    else {
+        int rc = zs_app_checks(core, &issues, &n, &text);
+        if (rc == ZS_BUSY) empty = "Checking the print…";
+        else if (rc != ZS_OK) empty = "The check failed.";
+    }
+    if (!empty && n == 0) empty = "No issues found.";
     if (empty) {
         GtkWidget *l = gtk_label_new(empty);
         gtk_widget_add_css_class(l, "dim-label");

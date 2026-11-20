@@ -49,8 +49,10 @@ enum zs_event {
     ZS_EVENT_FAILED = 3,   /* status has the error code */
     ZS_EVENT_CANCELED = 4,
     ZS_EVENT_PLATES = 5,   /* a plate set: the list or a status changed */
-    ZS_EVENT_SIMULATED = 6 /* the simulated print of the slice is ready
+    ZS_EVENT_SIMULATED = 6, /* the simulated print of the slice is ready
                               (zs_app_set_auto_simulate) */
+    ZS_EVENT_CHECKED = 7 /* the check of the slice is ready (zs_app_set_auto_checks):
+                            zs_app_checks returns it at once */
 };
 
 /* Runs on the worker thread. */
@@ -752,8 +754,9 @@ int zs_app_checks(zs_app *app, const zs_issue **issues, size_t *n, const char **
  * once; else 0. */
 int zs_app_checks_ready(const zs_app *app);
 /* Runs the check after each slice (on = 1), on the thread of the slice
- * before ZS_EVENT_SLICED, so zs_app_checks returns at once on the UI
- * thread. A change stops it with the slice. */
+ * after ZS_EVENT_SLICED, so the slice shows at once. zs_app_checks gives
+ * ZS_BUSY until ZS_EVENT_CHECKED, then returns the check at once on the
+ * UI thread. A change stops it with the slice. */
 int zs_app_set_auto_checks(zs_app *app, int on);
 
 /* The built-in profiles of a group (enum zs_group): their number and
