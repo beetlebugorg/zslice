@@ -158,6 +158,14 @@ How the printer changes to another filament of the plate. `pause`: one filament 
 
 The number of nozzles of the print head: 1, or 2 for a head with a second nozzle (the Bambu Lab X2D and H2D). Each filament prints with its own nozzle (`filament.nozzle`). The firmware calibrates the offset between the nozzles: the G-code has one frame for both.
 
+**`machine.nozzle1_max_x`** (number). Default: `0`
+
+The right edge of the area that the first nozzle reaches, in bed X (mm). The left nozzle of the H2D stops 25 mm from the right side. 0: the whole bed.
+
+**`machine.nozzle1_max_height`** (number). Default: `0`
+
+The highest z that the first nozzle reaches (mm). 0: `max_height`.
+
 **`machine.nozzle2_min_x`** (number). Default: `0`
 
 The left edge of the area that the second nozzle reaches, in bed X (mm). The second nozzle of the X2D stops 20.5 mm from the left side of the bed. 0: the whole bed.

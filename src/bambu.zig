@@ -121,19 +121,7 @@ fn projectSettings(a: Allocator, info: PlateInfo) Allocator.Error![]u8 {
     return w.toOwnedSlice() catch error.OutOfMemory;
 }
 
-/// The model name of Bambu Studio for a model id of the printer library
-/// (printer_model), or "".
-pub fn modelName(id: []const u8) []const u8 {
-    if (std.mem.eql(u8, id, "bambu-lab-x2d")) return "Bambu Lab X2D";
-    return "";
-}
 
-/// The model code of Bambu Studio for a model id of the printer library,
-/// or "" (printer_model_id in slice_info.config).
-pub fn modelCode(id: []const u8) []const u8 {
-    if (std.mem.eql(u8, id, "bambu-lab-x2d")) return "N6";
-    return "";
-}
 
 /// The id of the generic filament of Bambu Studio for a material
 /// (tray_info_idx), or "".
@@ -648,7 +636,7 @@ test "bambu: the slice info of a plate, for a printdeck" {
 test "bambu: the model code of the X2D, and the keys of a plate" {
     const gpa = std.testing.allocator;
     const fils = [_]FilamentUse{.{ .id = 1, .kind = "PETG", .color = "#000000", .meters = 1, .grams = 3 }};
-    const bytes = try gcode3mfInfo(gpa, "G28\n", "p", .{ .filaments = &fils, .model_id = modelCode("bambu-lab-x2d"), .nozzle = 0.4, .support_used = true });
+    const bytes = try gcode3mfInfo(gpa, "G28\n", "p", .{ .filaments = &fils, .model_id = "N6", .nozzle = 0.4, .support_used = true });
     defer gpa.free(bytes);
     const entries = try zipfile.readAll(gpa, bytes);
     defer zipfile.freeAll(gpa, entries);
@@ -666,7 +654,7 @@ test "bambu: project_settings.config names the model, the nozzles, the plate, an
         .{ .id = 1, .kind = "PLA", .color = "#898989", .meters = 1, .grams = 3 },
         .{ .id = 2, .kind = "PETG", .color = "#161616", .meters = 1, .grams = 3, .nozzle = 1 },
     };
-    const bytes = try gcode3mfInfo(gpa, "G28\n", "p", .{ .filaments = &fils, .nozzles = 2, .nozzle = 0.4, .printer_model = modelName("bambu-lab-x2d"), .bed_type = "Textured PEI Plate" });
+    const bytes = try gcode3mfInfo(gpa, "G28\n", "p", .{ .filaments = &fils, .nozzles = 2, .nozzle = 0.4, .printer_model = "Bambu Lab X2D", .bed_type = "Textured PEI Plate" });
     defer gpa.free(bytes);
     const entries = try zipfile.readAll(gpa, bytes);
     defer zipfile.freeAll(gpa, entries);

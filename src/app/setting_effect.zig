@@ -123,6 +123,8 @@ const preview_notes = [_]struct { []const u8, [:0]const u8 }{
     .{ "machine.nozzle_type", "The material of the nozzle, in the file of a Bambu Lab printer. The lines do not move." },
     .{ "machine.nozzle_flow", "The flow of the hot end, in the file of a Bambu Lab printer. The lines do not move." },
     .{ "machine.nozzles", "The nozzles of the print head. The lines do not move: each filament prints with its nozzle." },
+    .{ "machine.nozzle1_max_x", "The reach of the first nozzle. The Check tells a part on it that goes past this edge." },
+    .{ "machine.nozzle1_max_height", "The reach of the first nozzle. The Check tells a part on it that goes higher." },
     .{ "machine.nozzle2_min_x", "The reach of the second nozzle. The Check tells a part on it that goes past this edge." },
     .{ "machine.nozzle2_max_height", "The reach of the second nozzle. The Check tells a part on it that goes higher." },
     .{ "filament.nozzle", "The nozzle of the filament on a printer with two. The lines do not move." },

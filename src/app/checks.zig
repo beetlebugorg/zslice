@@ -446,36 +446,52 @@ fn colorIssues(b: *Builder, job: *const zs.PlateJob) Allocator.Error!void {
 
 /// The filament changes of the print (see `Kind.changes`), and the place
 /// of the prime tower (`Kind.tower`).
-/// A part (or the painted region of one) that prints with the second
-/// nozzle of a printer with two, past the reach of that nozzle: left of
-/// machine.nozzle2_min_x, or higher than machine.nozzle2_max_height. One
-/// issue for each part at its place.
+/// A part (or the painted region of one) that prints with a nozzle of a
+/// printer with two, past the reach of that nozzle: the second nozzle left
+/// of machine.nozzle2_min_x or above nozzle2_max_height, the first right
+/// of nozzle1_max_x or above nozzle1_max_height. One issue for each part,
+/// nozzle, and limit.
 fn reachIssues(b: *Builder, pj: *const zs.PlateJob, s: zs.Settings) Allocator.Error!void {
     const m = s.machine;
-    if (m.nozzles < 2 or pj.slots.len < 2) return;
+    if (m.nozzles < 2 or pj.slots.len < 1) return;
     for (pj.instances) |inst| {
         const g = &pj.groups[inst.group];
-        var low_x: f64 = std.math.inf(f64);
-        var top: f64 = 0;
-        var at: [3]f64 = .{ 0, 0, 0 };
+        // For each nozzle: the least x, the most x, the top, and a place.
+        var low = [2]f64{ std.math.inf(f64), std.math.inf(f64) };
+        var high = [2]f64{ -std.math.inf(f64), -std.math.inf(f64) };
+        var top = [2]f64{ 0, 0 };
+        var at = [2][3]f64{ .{ 0, 0, 0 }, .{ 0, 0, 0 } };
         for (g.job.outlines, 0..) |o, i| {
             if (o.isEmpty()) continue;
             const t = pj.toolAt(inst.group, i);
-            if (t >= pj.slots.len or pj.slots[t].nozzle != 1) continue;
+            const f = if (t < pj.slots.len) pj.slots[t] else s.filament;
+            const nz: usize = @min(f.nozzle, 1);
             const box = o.bounds();
-            const x = geom.toMm(box.min.x + inst.dx);
-            if (x < low_x) {
-                low_x = x;
-                at = .{ x, geom.toMm(@divTrunc(box.min.y + box.max.y, 2) + inst.dy), @floatFromInt(g.layer_level[i]) };
+            const x0 = geom.toMm(box.min.x + inst.dx);
+            const x1 = geom.toMm(box.max.x + inst.dx);
+            const y = geom.toMm(@divTrunc(box.min.y + box.max.y, 2) + inst.dy);
+            const lv: f64 = @floatFromInt(g.layer_level[i]);
+            if (x0 < low[nz]) {
+                low[nz] = x0;
+                if (nz == 1) at[1] = .{ x0, y, lv };
             }
-            top = @max(top, g.job.layers[i].z);
+            if (x1 > high[nz]) {
+                high[nz] = x1;
+                if (nz == 0) at[0] = .{ x1, y, lv };
+            }
+            top[nz] = @max(top[nz], g.job.layers[i].z);
         }
-        if (low_x == std.math.inf(f64)) continue;
-        if (m.nozzle2_min_x > 0 and low_x < m.nozzle2_min_x - 0.05) {
-            try b.add(.{ .kind = .reach, .severity = 2, .layer = @intFromFloat(at[2]), .path = Issue.no_path, .x = at[0], .y = at[1], .value = low_x, .text_start = 0, .text_len = 0 }, "A part on the second nozzle reaches x = {d:.1} mm, but the second nozzle stops at x = {d:.1} mm (machine.nozzle2_min_x). Move the part right, or give it a filament of the main nozzle.", .{ low_x, m.nozzle2_min_x });
+        if (high[0] > -std.math.inf(f64)) {
+            if (m.nozzle1_max_x > 0 and high[0] > m.nozzle1_max_x + 0.05)
+                try b.add(.{ .kind = .reach, .severity = 2, .layer = @intFromFloat(at[0][2]), .path = Issue.no_path, .x = at[0][0], .y = at[0][1], .value = high[0], .text_start = 0, .text_len = 0 }, "A part on the first nozzle reaches x = {d:.1} mm, but the first nozzle stops at x = {d:.1} mm (machine.nozzle1_max_x). Move the part left, or give it a filament of the second nozzle.", .{ high[0], m.nozzle1_max_x });
+            if (m.nozzle1_max_height > 0 and top[0] > m.nozzle1_max_height + 0.05)
+                try b.add(.{ .kind = .reach, .severity = 2, .layer = 0, .path = Issue.no_path, .x = at[0][0], .y = at[0][1], .value = top[0], .text_start = 0, .text_len = 0 }, "A part on the first nozzle is {d:.1} mm high, but the first nozzle reaches only {d:.1} mm (machine.nozzle1_max_height). Give its top layers a filament of the second nozzle.", .{ top[0], m.nozzle1_max_height });
         }
-        if (m.nozzle2_max_height > 0 and top > m.nozzle2_max_height + 0.05) {
-            try b.add(.{ .kind = .reach, .severity = 2, .layer = 0, .path = Issue.no_path, .x = at[0], .y = at[1], .value = top, .text_start = 0, .text_len = 0 }, "A part on the second nozzle is {d:.1} mm high, but the second nozzle reaches only {d:.1} mm (machine.nozzle2_max_height). Give its top layers a filament of the main nozzle.", .{ top, m.nozzle2_max_height });
+        if (low[1] < std.math.inf(f64)) {
+            if (m.nozzle2_min_x > 0 and low[1] < m.nozzle2_min_x - 0.05)
+                try b.add(.{ .kind = .reach, .severity = 2, .layer = @intFromFloat(at[1][2]), .path = Issue.no_path, .x = at[1][0], .y = at[1][1], .value = low[1], .text_start = 0, .text_len = 0 }, "A part on the second nozzle reaches x = {d:.1} mm, but the second nozzle stops at x = {d:.1} mm (machine.nozzle2_min_x). Move the part right, or give it a filament of the main nozzle.", .{ low[1], m.nozzle2_min_x });
+            if (m.nozzle2_max_height > 0 and top[1] > m.nozzle2_max_height + 0.05)
+                try b.add(.{ .kind = .reach, .severity = 2, .layer = 0, .path = Issue.no_path, .x = at[1][0], .y = at[1][1], .value = top[1], .text_start = 0, .text_len = 0 }, "A part on the second nozzle is {d:.1} mm high, but the second nozzle reaches only {d:.1} mm (machine.nozzle2_max_height). Give its top layers a filament of the main nozzle.", .{ top[1], m.nozzle2_max_height });
         }
     }
 }

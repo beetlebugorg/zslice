@@ -253,6 +253,8 @@ const units = [_][2][]const u8{
     .{ "machine.change_time", "s" },
     .{ "machine.nozzles", "nozzles" },
     .{ "machine.nozzle2_min_x", "mm" },
+    .{ "machine.nozzle1_max_x", "mm" },
+    .{ "machine.nozzle1_max_height", "mm" },
     .{ "machine.nozzle2_max_height", "mm" },
     .{ "filament.nozzle", "nozzle" },
     .{ "machine.flush_volume", "mm\u{b3}" },

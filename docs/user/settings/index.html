@@ -91,9 +91,15 @@
 <p>The G-code Y of the front left corner of the bed. See <code>origin_x</code>.</p>
 <p><strong><code>machine.max_height</code></strong> (number). Default: <code>250</code></p>
 <p>The highest part that the printer can make.</p>
+<p><strong><code>machine.bed_type</code></strong> (BedType). Default: <code>textured_pei_plate</code></p>
+<p>The build plate on the bed, for a printer with plates that change (Bambu Lab): the start G-code of the printer uses it ({curr_bed_type}), and the printer checks it against the plate that it sees.</p>
 <h3 id="nozzle">Nozzle</h3>
 <p><strong><code>machine.nozzle_diameter</code></strong> (number). Default: <code>0.4</code></p>
 <p>The diameter of the nozzle hole. The default line width comes from it.</p>
+<p><strong><code>machine.nozzle_type</code></strong> (one of: <code>hardened_steel</code>, <code>stainless_steel</code>, <code>tungsten_carbide</code>, <code>brass</code>). Default: <code>hardened_steel</code></p>
+<p>The material of the nozzle. A Bambu Lab printer checks it against the nozzle that it has (the file names it), and a hard filament (with carbon or glass fiber) needs hardened steel or tungsten carbide.</p>
+<p><strong><code>machine.nozzle_flow</code></strong> (one of: <code>standard</code>, <code>high_flow</code>). Default: <code>standard</code></p>
+<p>The flow of the hot end: <code>standard</code>, or <code>high_flow</code> (a longer melt zone). A Bambu Lab printer checks it against its nozzle.</p>
 <p><strong><code>machine.nozzle_tip_radius</code></strong> (number). Default: <code>0.5</code></p>
 <p>The radius of the flat face at the tip of the nozzle, around the hole. A common brass nozzle has a face about 1 mm across. Slope smoothing uses it to keep the nozzle off the layer that it just printed.</p>
 <p><strong><code>machine.nozzle_cone_angle</code></strong> (number). Default: <code>45</code></p>
@@ -142,6 +148,10 @@
 <p>How the printer changes to another filament of the plate. <code>pause</code>: one filament path; the print pauses (M600) and you change the filament by hand. <code>tool</code>: a unit that feeds many filaments (a Bambu Lab AMS, a Prusa MMU) changes it with a tool change (T0, T1, and on).</p>
 <p><strong><code>machine.nozzles</code></strong> (integer). Default: <code>1</code></p>
 <p>The number of nozzles of the print head: 1, or 2 for a head with a second nozzle (the Bambu Lab X2D and H2D). Each filament prints with its own nozzle (<code>filament.nozzle</code>). The firmware calibrates the offset between the nozzles: the G-code has one frame for both.</p>
+<p><strong><code>machine.nozzle1_max_x</code></strong> (number). Default: <code>0</code></p>
+<p>The right edge of the area that the first nozzle reaches, in bed X (mm). The left nozzle of the H2D stops 25 mm from the right side. 0: the whole bed.</p>
+<p><strong><code>machine.nozzle1_max_height</code></strong> (number). Default: <code>0</code></p>
+<p>The highest z that the first nozzle reaches (mm). 0: <code>max_height</code>.</p>
 <p><strong><code>machine.nozzle2_min_x</code></strong> (number). Default: <code>0</code></p>
 <p>The left edge of the area that the second nozzle reaches, in bed X (mm). The second nozzle of the X2D stops 20.5 mm from the left side of the bed. 0: the whole bed.</p>
 <p><strong><code>machine.nozzle2_max_height</code></strong> (number). Default: <code>0</code></p>
@@ -430,6 +440,8 @@ M84</code></pre>
 <p>The number of dense layers at the top of the support, under the part. They make the bottom surface of the part smooth.</p>
 <p><strong><code>project.support_interface_density</code></strong> (number; per layer). Default: <code>0.7</code></p>
 <p>The fraction of the interface area that its lines fill, as a ratio.</p>
+<p><strong><code>project.support_interface_pattern</code></strong> (one of: <code>lines</code>, <code>grid</code>, <code>dots</code>). Default: <code>lines</code></p>
+<p>The pattern of the support interface. <code>lines</code>: parallel lines. <code>grid</code>: lines in two directions, a flatter bed for the part. <code>dots</code>: the lines cut into short dabs, in rows that shift on each layer: little contact with the part, so the support breaks off easily and leaves a cleaner surface.</p>
 <h3 id="skirt-and-brim">Skirt and brim</h3>
 <p><strong><code>project.skirt_loops</code></strong> (integer). Default: <code>1</code></p>
 <p>The number of skirt loops. A skirt is a loop around the part on the first layers, at a distance from it. It primes the nozzle before the part starts. 0 turns it off.</p>

@@ -430,9 +430,16 @@ pub const Library = struct {
         }
         // A printer with a unit that feeds many filaments: a tool change,
         // with the change G-code of the maker.
-        // A head with a second nozzle: its reach (the Bambu Lab printer
-        // profile, extruder_printable_area and extruder_printable_height).
-        if (nozzle2Of(m.id)) |n2| try w.print("nozzles = 2\nnozzle2_min_x = {d}\nnozzle2_max_height = {d}\n", .{ n2[0], n2[1] });
+        // A head with two nozzles: the reach of each (the Bambu Lab
+        // printer presets, extruder_printable_area and
+        // extruder_printable_height). Only the limits inside the bed.
+        if (bambu(m.id)) |b| if (b.nozzles >= 2) {
+            try w.writeAll("nozzles = 2\n");
+            if (b.max_x[0] > 0 and b.max_x[0] < m.bed_x) try w.print("nozzle1_max_x = {d}\n", .{b.max_x[0]});
+            if (b.height[0] > 0 and b.height[0] < m.height) try w.print("nozzle1_max_height = {d}\n", .{b.height[0]});
+            if (b.min_x[1] > 0) try w.print("nozzle2_min_x = {d}\n", .{b.min_x[1]});
+            if (b.height[1] > 0 and b.height[1] < m.height) try w.print("nozzle2_max_height = {d}\n", .{b.height[1]});
+        };
         if (changeGcode(m.id)) |g| {
             try w.writeAll("filament_change = \"tool\"\nchange_gcode = ");
             try writeMultiline(w, g);
@@ -441,12 +448,63 @@ pub const Library = struct {
     }
 };
 
-/// The second nozzle of a model with two (the left edge of its area in
-/// bed X, and its highest z), or null: one nozzle. From the machine
-/// presets of the BBL profiles of OrcaSlicer (see REFERENCES.md).
-pub fn nozzle2Of(id: []const u8) ?[2]f64 {
-    if (std.mem.eql(u8, id, "bambu-lab-x2d")) return .{ 20.5, 256 };
+/// The facts of a Bambu Lab printer that its file and its nozzles need
+/// (src/printers/bambu.txt, made by tools/bambu_facts.py from the machine
+/// presets of OrcaSlicer).
+pub const Bambu = struct {
+    /// The model code of Bambu Studio ("N6"), and its model name
+    /// ("Bambu Lab X2D").
+    code: []const u8,
+    name: []const u8,
+    nozzles: u32,
+    /// The reach of each nozzle on a printer with two: the least x, the
+    /// most x, and the height (mm); 0 for none (the bed).
+    min_x: [2]f64 = .{ 0, 0 },
+    max_x: [2]f64 = .{ 0, 0 },
+    height: [2]f64 = .{ 0, 0 },
+};
+
+const bambu_text = @embedFile("printers/bambu.txt");
+
+/// The facts of the Bambu Lab printer with the model id `id` of the
+/// printer library ("bambu-lab-x2d"), or null.
+pub fn bambu(id: []const u8) ?Bambu {
+    var lines = std.mem.splitScalar(u8, bambu_text, '\n');
+    while (lines.next()) |line| {
+        if (!std.mem.startsWith(u8, line, "B\t")) continue;
+        var f = std.mem.splitScalar(u8, line, '\t');
+        _ = f.next();
+        if (!std.mem.eql(u8, f.next() orelse continue, id)) continue;
+        var b: Bambu = .{ .code = f.next() orelse return null, .name = f.next() orelse return null, .nozzles = std.fmt.parseInt(u32, f.next() orelse "1", 10) catch 1 };
+        for (0..b.nozzles) |k| {
+            if (k >= 2) break;
+            const v = [3]f64{
+                std.fmt.parseFloat(f64, f.next() orelse "") catch 0,
+                std.fmt.parseFloat(f64, f.next() orelse "") catch 0,
+                std.fmt.parseFloat(f64, f.next() orelse "") catch 0,
+            };
+            b.min_x[k] = v[0];
+            b.max_x[k] = v[1];
+            b.height[k] = v[2];
+        }
+        return b;
+    }
     return null;
+}
+
+test "printers: the facts of the Bambu Lab X2D and of a printer with one nozzle" {
+    const x2d = bambu("bambu-lab-x2d").?;
+    try std.testing.expectEqualStrings("N6", x2d.code);
+    try std.testing.expectEqualStrings("Bambu Lab X2D", x2d.name);
+    try std.testing.expectEqual(@as(u32, 2), x2d.nozzles);
+    try std.testing.expectEqual(@as(f64, 20.5), x2d.min_x[1]);
+    try std.testing.expectEqual(@as(f64, 256), x2d.height[1]);
+    const h2d = bambu("bambu-lab-h2d").?;
+    try std.testing.expectEqual(@as(f64, 325), h2d.max_x[0]);
+    const p1s = bambu("bambu-lab-p1s").?;
+    try std.testing.expectEqualStrings("C12", p1s.code);
+    try std.testing.expectEqual(@as(u32, 1), p1s.nozzles);
+    try std.testing.expect(bambu("creality-ender-3") == null);
 }
 
 /// The filament change G-code of a model (see Machine.change_gcode), or

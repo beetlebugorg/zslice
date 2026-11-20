@@ -208,6 +208,12 @@ pub const Machine = struct {
     /// with its own nozzle (`filament.nozzle`). The firmware calibrates the
     /// offset between the nozzles: the G-code has one frame for both.
     nozzles: u32 = 1,
+    /// The right edge of the area that the first nozzle reaches, in bed X
+    /// (mm). The left nozzle of the H2D stops 25 mm from the right side.
+    /// 0: the whole bed.
+    nozzle1_max_x: f64 = 0,
+    /// The highest z that the first nozzle reaches (mm). 0: `max_height`.
+    nozzle1_max_height: f64 = 0,
     /// The left edge of the area that the second nozzle reaches, in bed X
     /// (mm). The second nozzle of the X2D stops 20.5 mm from the left side
     /// of the bed. 0: the whole bed.
@@ -1199,6 +1205,8 @@ test "resolve derives layers and speeds" {
 pub const limits = [_]struct { []const u8, f64, f64 }{
     .{ "machine.nozzles", 1, 2 },
     .{ "machine.nozzle2_min_x", 0, 1000 },
+    .{ "machine.nozzle1_max_x", 0, 1000 },
+    .{ "machine.nozzle1_max_height", 0, 1000 },
     .{ "machine.nozzle2_max_height", 0, 1000 },
     .{ "filament.nozzle", 0, 1 },
     // machine
