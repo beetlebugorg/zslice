@@ -594,6 +594,26 @@ pub const PlateJob = struct {
         }
         out.n = n;
         for (out.of_slot[0..n_slots]) |*k| k.* = if (used[k.*]) map[k.*] else 0;
+        // The depth of each tower: room for the most purge of one layer.
+        // Each filament of a layer changes in at most once (the layer
+        // prints each filament in one run), so a layer purges into tower k
+        // at most the largest flush into each of its filaments.
+        const m = s.machine;
+        const w = if (self.resolved.line_width > 0) self.resolved.line_width else 0.45;
+        const h = @max(0.01, @min(p.layer_height, p.first_layer_height));
+        var most = [_]f64{0} ** gcode.Towers.max;
+        for (self.slots[0..n_slots], 0..) |to, i| {
+            var into: f64 = gcode.tower_prime_mm3;
+            if (m.change_gcode.len == 0) for (self.slots[0..n_slots], 0..) |from, j| {
+                if (i != j) into = @max(into, filaments_mod.flushVolume(from.color, to.color, m.flush_volume, p.flush_multiplier));
+            };
+            most[out.of_slot[i]] += into;
+        }
+        for (out.list[0..n], 0..) |*t, k| {
+            const rows = @ceil(most[k] / (t.size * flowArea(w, h)));
+            t.depth = @min(@max(t.size, rows * w), @as(f64, @floatFromInt(gcode.max_tower_rows)) * w);
+            if (p.prime_tower_y < 0) t.y = m.bed_size_y - t.depth / 2 - 10;
+        }
         out.stack = own_support;
         return out;
     }
@@ -967,6 +987,11 @@ pub const PlateJob = struct {
         return engine.emitAll(gpa, src, self.threads, self.monitor, out, sink);
     }
 };
+
+/// The area of a bead of width `w` and height `h` (see flow.beadArea).
+fn flowArea(w: f64, h: f64) f64 {
+    return @import("flow.zig").beadArea(w, h);
+}
 
 /// The progress of one job of `n`, as a part of the progress of all.
 const Scaled = struct {
@@ -1831,4 +1856,66 @@ test "plate job: the flush planner puts red between black and white" {
     // each even layer.
     try testing.expect(std.mem.indexOf(u8, g, "filament 1 to filament 2\n") == null);
     try testing.expectEqual(@as(u32, @intCast(2 * pj.levels.len)), st.changes);
+}
+
+test "plate job: a tower holds the whole purge of a layer, row by row" {
+    const gpa = testing.allocator;
+    var b: mesh_mod.Builder = .init(gpa);
+    try mesh_mod.shapes.addBox(&b, 0, 0, 0, 10, 10, 3);
+    var m = try b.finish();
+    defer m.deinit(gpa);
+    var s: Settings = .{};
+    s.engine.threads = 2;
+    s.machine.filament_change = .tool;
+    s.project.flush_into_hidden = false;
+    s.filament.color = "#000000";
+    var white = s.filament;
+    white.color = "#ffffff";
+    // A black part and a white part: a black-white change on each layer,
+    // the most flush.
+    var b2: mesh_mod.Builder = .init(gpa);
+    try mesh_mod.shapes.addBox(&b2, 30, 0, 0, 40, 10, 3);
+    var m2 = try b2.finish();
+    defer m2.deinit(gpa);
+    const on2 = [_]settings_mod.Change{.{ .name = "project.filament", .value = "2" }};
+    const parts = [_]PartInput{ .{ .mesh = &m, .part = 0 }, .{ .mesh = &m2, .part = 1, .changes = &on2 } };
+    var pj = try PlateJob.init(gpa, s, &parts, .{ .filaments = &.{white} });
+    defer pj.deinit();
+    const tw = pj.towers();
+    try testing.expect(tw.n == 1);
+    var out: Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    const st = try pj.writeGcode(&out.writer);
+    try testing.expect(st.changes > 2);
+    try testing.expect(st.flush_mm > 0);
+    // The whole purge fits: nothing is short, and the tower is deeper
+    // than wide when one layer needs more rows than a square holds.
+    try testing.expectEqual(@as(f64, 0), st.tower_short_mm3);
+    const per_layer = 2 * filaments_mod.flushVolume("#000000", "#ffffff", s.machine.flush_volume, s.project.flush_multiplier);
+    const square = tw.list[0].size * tw.list[0].size * s.project.layer_height;
+    if (per_layer > square) try testing.expect(tw.list[0].ySize() > tw.list[0].size);
+    // No two purge rows of one layer at one y.
+    var it = std.mem.splitScalar(u8, out.written(), '\n');
+    var feature: []const u8 = "";
+    var ys: std.ArrayList(i64) = .empty;
+    defer ys.deinit(gpa);
+    var last_y: i64 = std.math.minInt(i64);
+    while (it.next()) |line| {
+        if (std.mem.startsWith(u8, line, ";LAYER:")) ys.clearRetainingCapacity();
+        if (std.mem.startsWith(u8, line, "G0 ")) last_y = std.math.minInt(i64);
+        if (std.mem.startsWith(u8, line, ";TYPE:")) feature = line[6..];
+        if (!std.mem.eql(u8, feature, "PRIME-TOWER")) continue;
+        if (!std.mem.startsWith(u8, line, "G1 X") or std.mem.indexOf(u8, line, " E") == null) continue;
+        const yi = std.mem.indexOf(u8, line, " Y") orelse continue;
+        var e = yi + 2;
+        while (e < line.len and line[e] != ' ') e += 1;
+        const y = std.fmt.parseFloat(f64, line[yi + 2 .. e]) catch continue;
+        // A row: a line along x, at the y of the line before it.
+        const key: i64 = @intFromFloat(@round(y * 100));
+        if (key == last_y) {
+            try testing.expect(std.mem.indexOfScalar(i64, ys.items, key) == null);
+            try ys.append(gpa, key);
+        }
+        last_y = key;
+    }
 }

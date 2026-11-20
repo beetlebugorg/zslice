@@ -86,6 +86,8 @@ pub const Stats = struct {
     slot_mm: [filaments.max_slots]f64 = @splat(0),
     /// The layers of each prime tower (see `Towers`).
     tower_layers: [Towers.max]u32 = @splat(0),
+    /// The purge (mm³) that did not fit in the rows of a tower layer.
+    tower_short_mm3: f64 = 0,
     /// The weight (g) of each slot (see `Emitter.end`).
     slot_g: [filaments.max_slots]f64 = @splat(0),
     /// The filament length (mm) that the changes flushed, of all slots.
@@ -433,6 +435,13 @@ pub const Tower = struct {
     /// The number of layers with a purge into it (a tower of `Towers`
     /// with stacked layers).
     purges: usize = 0,
+    /// Its depth in y (mm): `size`, or more for the rows that the most
+    /// purge of one layer needs (see PlateJob.towers). 0: `size`.
+    depth: f64 = 0,
+
+    pub fn ySize(t: Tower) f64 {
+        return if (t.depth > t.size) t.depth else t.size;
+    }
 };
 
 /// The prime towers of a print: one, or one for each family of materials
@@ -456,6 +465,9 @@ pub const Towers = struct {
         return t.list[0..t.n];
     }
 };
+
+/// The most rows of a tower on one layer.
+pub const max_tower_rows = 512;
 
 /// The prime volume (mm³) of a change into the tower when the change
 /// G-code of the machine flushes into a chute (Bambu Lab).
@@ -1927,22 +1939,30 @@ pub const Emitter = struct {
         const w = self.layer_w;
         const x0 = t.x - t.size / 2;
         const x1 = t.x + t.size / 2;
-        const y0 = t.y - t.size / 2;
-        const rows_max: u32 = @max(1, @as(u32, @intFromFloat(t.size / w)));
+        const y0 = t.y - t.ySize() / 2;
+        // The rows of one layer: a row never prints over another one of
+        // the same layer. A purge past the last row stops there (counted
+        // in Stats.tower_short_mm3); the depth of the tower makes room
+        // for the most purge of a layer (PlateJob.towers).
+        const rows_max: u32 = @min(max_tower_rows, @max(1, @as(u32, @intFromFloat(t.ySize() / w))));
         const h = if (self.towers.stacked()) self.tower_z[k] - self.tower_top[k] else self.layer_h;
-        var len = volume / flow.beadArea(w, @max(h, 0.01));
-        var pts: [2 * 64 + 2][2]f64 = undefined;
+        const area = flow.beadArea(w, @max(h, 0.01));
+        var len = volume / area;
+        var pts: [2 * max_tower_rows + 2][2]f64 = undefined;
         var n: usize = 0;
-        while (len > 0 and n + 2 <= pts.len) {
-            const row = self.tower_rows[k] % rows_max;
+        while (len > 1e-9 and self.tower_rows[k] < rows_max) {
+            const row = self.tower_rows[k];
             const y = y0 + (@as(f64, @floatFromInt(row)) + 0.5) * w;
             const ltr = row % 2 == 0;
+            // The last row is as long as the purge that is left.
+            const run = @min(len, t.size);
             pts[n] = .{ if (ltr) x0 else x1, y };
-            pts[n + 1] = .{ if (ltr) x1 else x0, y };
+            pts[n + 1] = .{ if (ltr) x0 + run else x1 - run, y };
             n += 2;
-            len -= t.size;
+            len -= run;
             self.tower_rows[k] += 1;
         }
+        if (len > 1e-9) self.stats.tower_short_mm3 += len * area;
         try self.towerLines(k, pts[0..n], first);
     }
 
@@ -1951,7 +1971,8 @@ pub const Emitter = struct {
     fn towerSparse(self: *Emitter, k: usize, first: bool) Error!void {
         const t = self.towers.list[k];
         const h = t.size / 2;
-        const pts = [_][2]f64{ .{ t.x - h, t.y - h }, .{ t.x + h, t.y - h }, .{ t.x + h, t.y + h }, .{ t.x - h, t.y + h }, .{ t.x - h, t.y - h }, .{ t.x + h, t.y + h } };
+        const d = t.ySize() / 2;
+        const pts = [_][2]f64{ .{ t.x - h, t.y - d }, .{ t.x + h, t.y - d }, .{ t.x + h, t.y + d }, .{ t.x - h, t.y + d }, .{ t.x - h, t.y - d }, .{ t.x + h, t.y + d } };
         try self.towerLines(k, &pts, first);
     }
 

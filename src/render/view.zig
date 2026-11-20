@@ -2533,9 +2533,10 @@ pub const View = struct {
     /// its top at `z` and `h` high, shown with print layer `l`.
     fn towerLayerBeads(v: *View, t: zs_gcode.Tower, l: usize, z: f32, h: f32, tp: *const app_mod.Toolpaths, rgb: [3]u8, center: [2]f32, sxy: f32, sz: f32) Error!void {
         const half: f32 = @floatCast(t.size / 2);
+        const hd: f32 = @floatCast(t.ySize() / 2);
         const tx: f32 = @floatCast(t.x);
         const ty: f32 = @floatCast(t.y);
-        const corners = [4][2]f32{ .{ tx - half, ty - half }, .{ tx + half, ty - half }, .{ tx + half, ty + half }, .{ tx - half, ty + half } };
+        const corners = [4][2]f32{ .{ tx - half, ty - hd }, .{ tx + half, ty - hd }, .{ tx + half, ty + hd }, .{ tx - half, ty + hd } };
         const w = (if (l < tp.layer_width.items.len) tp.layer_width.items[l] else 0.45) * sxy;
         const segs = [5][2][2]f32{ .{ corners[0], corners[1] }, .{ corners[1], corners[2] }, .{ corners[2], corners[3] }, .{ corners[3], corners[0] }, .{ corners[0], corners[2] } };
         for (segs) |sg| {
