@@ -8,7 +8,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { createServer } from "node:http";
-import { send, checkDeckTarget, loadedFilaments, deckAddress, fetchOptions, plainName, test, webAddress } from "./link.js";
+import { send, nozzleOfCode, checkDeckTarget, loadedFilaments, deckAddress, fetchOptions, plainName, test, webAddress } from "./link.js";
 
 function check(ok, what) {
   if (!ok) throw new Error(`failed: ${what}`);
@@ -121,6 +121,10 @@ check(lf.ok && lf.list.length === 3 && lf.list[1].material === "PETG" && lf.list
 lf = await loadedFilaments({ name: "TAZ", kind: "printdeck", url: spoolsUrl, apiKey: "k" });
 check(!lf.ok, "a deck that tells no spools");
 spools.close();
+
+check(JSON.stringify(nozzleOfCode("HS01")) === JSON.stringify({ type: "hardened_steel", flow: "standard" }), "HS01 is hardened steel, standard");
+check(nozzleOfCode("HH01")?.flow === "high_flow", "HH01 is high flow");
+check(nozzleOfCode("XX9") === null && nozzleOfCode("") === null, "an unknown code");
 
 printer.close();
 other.close();

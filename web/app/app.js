@@ -74,7 +74,7 @@ import { attachViewInput } from "./input.js";
 import { FarmPage } from "./farm.js";
 import { Tools } from "./tools.js";
 import { SupportTool } from "./support.js";
-import { KINDS, send as sendToPrinter, test as testPrinter, requestKey, trustText, status as printerStatus, camera as printerCamera, detectKind, deckPrinters, deckAddress, plainName, loadedFilaments, webAddress } from "./link.js";
+import { KINDS, send as sendToPrinter, test as testPrinter, requestKey, trustText, status as printerStatus, camera as printerCamera, detectKind, deckPrinters, deckAddress, plainName, loadedFilaments, webAddress, nozzleOfCode } from "./link.js";
 import { CameraView } from "./camera.js";
 import { signGcode, keyId as signingKeyId, supported as canSign, UNSUPPORTED as NO_SIGNATURES } from "./signing.js";
 import { contextItems } from "./context-menu.js";
@@ -1549,8 +1549,17 @@ async function useLoadedFilaments(pr) {
     }
   }
   const words = want.map((f) => `${f.slot || "roll"} ${f.material}${two && f.nozzle === "aux" ? " (2nd nozzle)" : ""}`).join(", ");
+  // The nozzle that the printer has (both nozzles of an X2D are the same
+  // kind): the type and the flow of its file.
+  let nozzleWords = "";
+  const nz = (r.nozzles ?? []).map((n) => nozzleOfCode(n.type)).find(Boolean);
+  if (nz) {
+    await setSetting("machine.nozzle_type", nz.type);
+    await setSetting("machine.nozzle_flow", nz.flow);
+    nozzleWords = ` Nozzles: ${nz.type.replace("_", " ")}, ${nz.flow.replace("_", " ")}.`;
+  }
   const skipped = aux.length ? ` Not used: ${aux.map((f) => `${f.slot || "spool"} ${f.material}`).join(", ")} (the second nozzle: pick the printer profile of ${pr.name}, with two nozzles).` : "";
-  return { ok: true, message: `${want.length} ${want.length === 1 ? "filament" : "filaments"} from ${pr.name}: ${words}.${skipped}` };
+  return { ok: true, message: `${want.length} ${want.length === 1 ? "filament" : "filaments"} from ${pr.name}: ${words}.${skipped}${nozzleWords}` };
 }
 
 // The filament button: a dot in the color of each filament of the plate,

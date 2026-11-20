@@ -488,11 +488,27 @@ export async function loadedFilaments(printer) {
     if (!r.ok) return { ok: false, message: `The deck answered ${r.status}.` };
     const j = await r.json();
     const list = Array.isArray(j.filaments) ? j.filaments.filter((f) => f && typeof f.material === "string" && f.material) : [];
-    if (list.length === 0) return { ok: false, message: "The printer tells no loaded filaments. Update the deck, or load a spool." };
-    return { ok: true, list };
+    // The nozzles of a Bambu Lab printer ([{ id, role, diameter, type }])
+    // and its plate, if the deck tells them.
+    const nozzles = Array.isArray(j.nozzles) ? j.nozzles.filter((n) => n && typeof n.type === "string") : [];
+    if (list.length === 0) return { ok: false, message: "The printer tells no loaded filaments. Update the deck, or load a spool.", nozzles };
+    return { ok: true, list, nozzles, plate: typeof j.plate === "string" ? j.plate : "" };
   } catch (e) {
     return { ok: false, message: explain(e, printer) };
   }
+}
+
+// The nozzle of a Bambu Lab code ("HS01": hardened steel, standard flow;
+// "HH01": hardened steel, high flow), as the settings name it:
+// { type, flow } (machine.nozzle_type, machine.nozzle_flow), or null for a
+// code that zslice does not know. The first letter is the material, the
+// second the flow.
+export function nozzleOfCode(code) {
+  const m = /^([HST])([SH])\d*$/i.exec(String(code ?? "").trim());
+  if (!m) return null;
+  const type = { H: "hardened_steel", S: "stainless_steel", T: "tungsten_carbide" }[m[1].toUpperCase()];
+  const flow = m[2].toUpperCase() === "H" ? "high_flow" : "standard";
+  return { type, flow };
 }
 
 export async function deckPrinters(printer) {
