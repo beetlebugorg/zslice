@@ -668,7 +668,9 @@ static void fill_facts(Window *w) {
     }
 }
 
-static void update(Window *w) {
+/* The window after a change of the state. With refresh, the preview and
+ * the 3D view too. */
+static void update_window(Window *w, gboolean refresh) {
     zs_app *core = zg_model_core(w->model);
     int state = zs_app_state(core);
     const char *name = zg_model_name(w->model);
@@ -761,10 +763,14 @@ static void update(Window *w) {
     gtk_label_set_text(GTK_LABEL(w->status), text);
     update_summary(w, state);
     show_hint(w, state, fits);
-    zg_preview_refresh(w->preview);
+    if (refresh) zg_preview_refresh(w->preview);
     show_islands(w, state);
     update_badge(w);
     if (state == ZS_STATE_DONE) refine_soon(w);
+}
+
+static void update(Window *w) {
+    update_window(w, TRUE);
 }
 
 static void batch_take(Window *w);
@@ -824,7 +830,9 @@ static void on_core_event(ZgModel *model, int event, double progress, int status
     if (event == ZS_EVENT_SLICED || event == ZS_EVENT_CHECKED) check_overhang(w);
     /* The simulated print of the slice: the view and the hint show it. */
     if (event == ZS_EVENT_SIMULATED && zs_app_sim_adopt(zg_model_core(model))) zg_preview_simulated(w->preview);
-    update(w);
+    /* A switch of the active plate: its "plate-changed" refreshed the
+     * preview and loaded the view of the new plate. */
+    update_window(w, !zg_model_plate_switching(model));
     if (w->send_pending && zs_app_state(zg_model_core(model)) != ZS_STATE_SLICING) {
         w->send_pending = FALSE;
         if (zs_app_state(zg_model_core(model)) == ZS_STATE_DONE) send_checked(w);

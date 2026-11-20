@@ -115,6 +115,8 @@ struct _ZgModel {
      * updates its editors after an undo, and these signals start no step. */
     guint undo_timer;
     gboolean undo_restoring;
+    /* TRUE while plate_switched emits the core-event of the new plate. */
+    gboolean switching;
     /* The rolls of the current printer (zg_model_set_rolls). */
     ZgRoll *rolls;
     size_t n_rolls;
@@ -1882,7 +1884,9 @@ static void plate_switched(ZgModel *self) {
     g_signal_emit(self, signals[SIGNAL_PLATES_CHANGED], 0);
     /* The view: the slice of the plate, or no slice yet. */
     int state = zs_app_state(self->core);
+    self->switching = TRUE;
     g_signal_emit(self, signals[SIGNAL_CORE_EVENT], 0, state == ZS_STATE_DONE ? ZS_EVENT_SLICED : ZS_EVENT_CANCELED, 0.0, 0);
+    self->switching = FALSE;
     fall_check(self);
 }
 
@@ -1893,6 +1897,10 @@ static void plate_leave(ZgModel *self) {
     zg_model_select_part(self, -1);
     zg_model_select(self, -1);
     self->slice_pending = FALSE;
+}
+
+gboolean zg_model_plate_switching(ZgModel *self) {
+    return self->switching;
 }
 
 void zg_model_plate_select(ZgModel *self, size_t i) {

@@ -95,6 +95,9 @@ gboolean zg_model_plate_smart_place(ZgModel *self);
 /* Plates (see zs_set): each plate has its own app, settings, undo list,
  * and slice. The set slices the plates in the background. */
 void zg_model_plate_select(ZgModel *self, size_t i);
+/* TRUE while a switch of the active plate emits the core-event with the
+ * state of the new plate. Its "plate-changed" came first. */
+gboolean zg_model_plate_switching(ZgModel *self);
 void zg_model_plate_add(ZgModel *self);
 void zg_model_plate_remove(ZgModel *self, size_t i);
 void zg_model_part_remove(ZgModel *self, size_t i);
