@@ -379,3 +379,18 @@ summary: `project.support_speed` and `project.support_interface_speed` have the 
 ```
 
 In `fdmprinter.def.json`, `speed_support` is `speed_print`, `speed_support_infill` is `speed_support`, and `speed_support_interface` is `speed_support / 1.5`. The importer gives a profile these values when it does not set them (`prepareProfile` in `src/import_cura.zig`). In zslice, 0 keeps the infill speed and the skin speed, the speeds of the support before these settings.
+
+### Wall order and an extra wall on alternate layers
+
+```ref
+kind: setting
+source: Cura, OrcaSlicer
+license: AGPL-3.0
+link: https://github.com/Ultimaker/Cura
+version: Cura commit 1a221ec29a86960d16a412940becc1f63534c41f; OrcaSlicer commit 5a1ffc6a631ead5886f1c22920deb341fc1a0106
+files: src/settings.zig, src/layer.zig
+area: walls
+summary: `project.wall_order` has the meaning of `inset_direction` (Cura) and `wall_sequence` (OrcaSlicer), and `project.alternate_extra_wall` of `alternate_extra_perimeter` (Cura) and `alternate_extra_wall` (OrcaSlicer).
+```
+
+Cura and OrcaSlicer let the user print the outer wall first, for a more exact outer surface, or last, for better overhangs. Both can add one wall on every other layer, so that the infill lies between the extra walls. zslice has the two orders (no inner-outer-inner order) and the extra wall on the odd layers. The settings only; no code is copied.

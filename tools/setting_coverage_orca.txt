@@ -193,6 +193,8 @@ adaptive_layer_height | missing | adaptive layers
 line_width | same | project.line_width
 initial_layer_line_width | same | project.first_layer_line_width
 wall_loops | same | project.wall_count
+wall_sequence | derived | project.wall_order (inner first or outer first; no inner-outer-inner order)
+alternate_extra_wall | same | project.alternate_extra_wall
 wall_generator | same | project.wall_generator
 wall_transition_length | same | project.wall_transition_length
 wall_transition_filter_deviation | derived | zslice uses the default (a quarter of the nozzle)

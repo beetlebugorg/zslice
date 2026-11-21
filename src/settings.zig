@@ -34,6 +34,8 @@ pub const SeamCorner = enum { auto, none, inner, outer, any, weighted };
 /// infill), or the origin of the bed (the infill of all parts lines up).
 pub const InfillAnchor = enum { part, bed };
 pub const WallGenerator = enum { classic, arachne };
+/// The order of the walls of an island (see `Project.wall_order`).
+pub const WallOrder = enum { inner_first, outer_first };
 /// The shape of the root of a painted feature. See
 /// `Project.paint_anchor_shape`.
 pub const AnchorShape = enum { footprint, core };
@@ -440,6 +442,17 @@ pub const Project = struct {
     /// this thickness divided by the line width, rounded (at least 1). 0:
     /// use `wall_count`.
     wall_thickness: f64 = 0,
+    /// The order of the walls of each island. `inner_first`: the inner
+    /// walls from the inside out, then the outer wall. The outer wall then
+    /// lies against plastic, and an overhang prints better. `outer_first`:
+    /// the outer wall first, then the inner walls from the outside in. The
+    /// outer surface is then more exact (a better fit of holes and of
+    /// parts that join), but an overhang can curl.
+    wall_order: WallOrder = .inner_first,
+    /// One more wall on each odd layer (layers 1, 3, 5, and so on). The
+    /// walls of two layers then interlock with the infill, and the part
+    /// is stronger across its layers. Off by default.
+    alternate_extra_wall: bool = false,
     /// Print parts of the outline that are thinner than one line width
     /// (a thin fin, a sheet, a label): a loop inside each thin part, with a
     /// narrower line, so that its two sides fill the thickness. Without
@@ -931,6 +944,13 @@ pub const Project = struct {
     /// middle of that area, inside the walls of the feature. A thin
     /// feature gets no core.
     paint_anchor_shape: AnchorShape = .footprint,
+
+    /// The number of walls on layer `layer`: `wall_count`, and one more on
+    /// an odd layer with `alternate_extra_wall`.
+    pub fn wallCountAt(p: Project, layer: usize) u32 {
+        if (p.alternate_extra_wall and p.wall_count > 0 and layer % 2 == 1) return p.wall_count + 1;
+        return p.wall_count;
+    }
 };
 
 /// Options for the engine. They do not change the print.
@@ -1702,6 +1722,8 @@ pub fn isMovedName(name: []const u8) bool {
 pub const layer_settings = [_][]const u8{
     "project.filament",
     "project.wall_count",
+    "project.wall_order",
+    "project.alternate_extra_wall",
     "project.seam",
     "project.seam_corner",
     "project.top_thickness",

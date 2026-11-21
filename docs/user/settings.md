@@ -422,6 +422,14 @@ The number of walls (loops) around the outline of each layer.
 
 The thickness of the walls, in mm, as in Cura: the wall count is this thickness divided by the line width, rounded (at least 1). 0: use `wall_count`.
 
+**`project.wall_order`** (one of: `inner_first`, `outer_first`; per layer). Default: `inner_first`
+
+The order of the walls of each island. `inner_first`: the inner walls from the inside out, then the outer wall. The outer wall then lies against plastic, and an overhang prints better. `outer_first`: the outer wall first, then the inner walls from the outside in. The outer surface is then more exact (a better fit of holes and of parts that join), but an overhang can curl.
+
+**`project.alternate_extra_wall`** (true or false; per layer). Default: `false`
+
+One more wall on each odd layer (layers 1, 3, 5, and so on). The walls of two layers then interlock with the infill, and the part is stronger across its layers. Off by default.
+
 **`project.thin_walls`** (true or false; per layer). Default: `false`
 
 Print parts of the outline that are thinner than one line width (a thin fin, a sheet, a label): a loop inside each thin part, with a narrower line, so that its two sides fill the thickness. Without it, these parts print nothing. Off by default.

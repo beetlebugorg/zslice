@@ -11,14 +11,14 @@ The status of a setting:
 - **Missing**: zslice does not have it yet.
 - **Not for zslice**: a setting for other hardware, for the app of the other slicer, or for a method that zslice does in another way.
 
-The lists come from Cura `resources/definitions/fdmprinter.def.json` and `fdmextruder.def.json` (commit `1a221ec29a86`) and OrcaSlicer `src/libslic3r/PrintConfig.cpp` (commit `5a1ffc6a631e`).
+The lists come from Cura `resources/definitions/fdmprinter.def.json` and `fdmextruder.def.json` (commit `1a221ec29a86`) and OrcaSlicer `src/libslic3r/PrintConfig.cpp` (commit `97e2d0a6e687`).
 
 ## Totals
 
 | Slicer | Settings | Same | Covered | Missing | Not for zslice |
 |---|---|---|---|---|---|
-| Cura | 762 | 162 | 84 | 453 | 63 |
-| OrcaSlicer | 1013 | 155 | 111 | 515 | 232 |
+| Cura | 762 | 164 | 84 | 451 | 63 |
+| OrcaSlicer | 1013 | 156 | 112 | 513 | 232 |
 
 ## Cura
 
@@ -60,9 +60,9 @@ The lists come from Cura `resources/definitions/fdmprinter.def.json` and `fdmext
 | `wall_0_inset` (Outer Wall Inset) | Missing | move the outer wall in |
 | `wall_x_inset` (Inner Wall Inset) | Missing | move the inner walls in |
 | `optimize_wall_printing_order` (Optimize Wall Printing Order) | Covered | zslice prints the walls of an island in the nearest order |
-| `inset_direction` (Wall Ordering) | Missing | outer wall first, or inner walls first (zslice prints the inner walls first) |
+| `inset_direction` (Wall Ordering) | Same | `project.wall_order` |
 | `initial_layer_inset_direction` (Initial Layer Wall Ordering) | Missing | the wall order of the first layer |
-| `alternate_extra_perimeter` (Alternate Extra Wall) | Missing | an extra wall on every other layer |
+| `alternate_extra_perimeter` (Alternate Extra Wall) | Same | `project.alternate_extra_wall` |
 | `min_wall_line_width` (Minimum Wall Line Width) | Same | `project.min_wall_line_width` |
 | `min_even_wall_line_width` (Minimum Even Wall Line Width) | Covered | `project.min_wall_line_width` |
 | `min_odd_wall_line_width` (Minimum Odd Wall Line Width) | Covered | `project.min_wall_line_width` |
@@ -877,6 +877,7 @@ The print, printer, and filament settings first, by status. The settings of resi
 
 | OrcaSlicer setting | zslice |
 |---|---|
+| `alternate_extra_wall` (Alternate extra wall) | `project.alternate_extra_wall` |
 | `auxiliary_fan` (Auxiliary part cooling fan) | `machine.part_fan_air` (the simulation counts the air of all fans) |
 | `bottom_shell_layers` (Bottom shell layers) | `project.bottom_thickness` (a count of layers) |
 | `bottom_shell_thickness` (Bottom shell thickness) | `project.bottom_thickness` |
@@ -1105,6 +1106,7 @@ The print, printer, and filament settings first, by status. The settings of resi
 | `tree_support_branch_diameter_angle` (Branch Diameter Angle) | zslice computes the branch diameter from the load |
 | `tree_support_branch_diameter_organic` (Tree support branch diameter) | zslice computes the branch diameter from the load |
 | `use_relative_e_distances` (Use relative E distances) | zslice writes relative extrusion (M83) |
+| `wall_sequence` (Walls printing order) | `project.wall_order` (inner first or outer first; no inner-outer-inner order) |
 | `wall_transition_filter_deviation` (Wall transitioning filter margin) | zslice uses the default (a quarter of the nozzle) |
 | `wipe_distance` (Wipe distance) | `project.retract_wipe` |
 | `z_hop_types` (Z-hop type) | `project.z_hop` (a straight lift) |
@@ -1133,7 +1135,6 @@ The print, printer, and filament settings first, by status. The settings of resi
 | `additional_cooling_fan_speed` (Fan speed) | Fan speed |
 | `additional_fan_full_speed_layer` (Full fan speed at layer) | Full fan speed at layer |
 | `align_infill_direction_to_model` (Align directions to model) | Align directions to model |
-| `alternate_extra_wall` (Alternate extra wall) | Alternate extra wall |
 | `bed_exclude_area` (Excluded bed area) | areas of the bed where no part can go |
 | `bed_exclude_volume_mode` (Collision volume behavior) | volumes where no part can go |
 | `bed_exclude_volumes` (Toolhead collision volumes) | volumes where no part can go |
@@ -1584,7 +1585,6 @@ The print, printer, and filament settings first, by status. The settings of resi
 | `wall_direction` (Wall loop direction) | Wall loop direction |
 | `wall_maximum_deviation` (Maximum wall deviation) | Maximum wall deviation |
 | `wall_maximum_resolution` (Maximum wall resolution) | Maximum wall resolution |
-| `wall_sequence` (Walls printing order) | Walls printing order |
 | `wipe_before_external_loop` (Wipe before external loop) | Wipe before external loop |
 | `wipe_inward` (Wipe inward) | Wipe inward |
 | `wipe_inward_distance` (Wipe inward distance) | Wipe inward distance |
