@@ -741,6 +741,24 @@ const zs_setting_info *zg_setting_editor_info(GtkWidget *editor) {
     return info_of(editor);
 }
 
+GtkWidget *zg_setting_editor_of(GtkWidget *w) {
+    for (; w; w = gtk_widget_get_parent(w))
+        if (model_of(w) && info_of(w)) return w;
+    return NULL;
+}
+
+char *zg_setting_editor_value(GtkWidget *editor) {
+    return editor_get(editor, key_of(editor));
+}
+
+gboolean zg_setting_editor_set_value(GtkWidget *editor, const char *value) {
+    char *v = to_core(editor, value);
+    gboolean ok = editor_set(editor, v, NULL);
+    g_free(v);
+    if (ok) zg_setting_editor_refresh(editor);
+    return ok;
+}
+
 void zg_setting_editor_show_speed(GtkWidget *editor, GtkWidget *unit) {
     ZgModel *model = model_of(editor);
     double probe;

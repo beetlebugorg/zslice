@@ -1913,6 +1913,141 @@ void zg_model_parts_duplicate(ZgModel *self) {
     g_array_free(copies, TRUE);
 }
 
+/* ---- the clipboard of parts (zs_app_parts_copy) ---- */
+
+gboolean zg_model_parts_copy(ZgModel *self) {
+    guint n = 0;
+    const gint64 *list = zg_model_parts(self, &n);
+    if (n == 0) return FALSE;
+    size_t *idx = g_new(size_t, n);
+    for (guint k = 0; k < n; k++) idx[k] = (size_t)list[k];
+    int rc = zs_app_parts_copy(self->core, idx, n, 0);
+    g_free(idx);
+    return rc == ZS_OK;
+}
+
+gboolean zg_model_parts_cut(ZgModel *self) {
+    if (!zg_model_parts_copy(self)) return FALSE;
+    zg_model_parts_remove(self);
+    return TRUE;
+}
+
+gboolean zg_model_plate_copy(ZgModel *self) {
+    if (zs_app_part_count(self->core) == 0) return FALSE;
+    return zs_app_parts_copy(self->core, NULL, 0, 1) == ZS_OK;
+}
+
+/* The new parts from index `first` on are the selection. */
+static void select_from(ZgModel *self, size_t first) {
+    size_t n = zs_app_part_count(self->core);
+    if (first >= n) return;
+    zg_model_select_part(self, (gint64)first);
+    for (size_t k = first + 1; k < n; k++) zg_model_toggle_part(self, (gint64)k);
+}
+
+gint64 zg_model_parts_paste(ZgModel *self, gboolean at_point, double x, double y) {
+    zg_model_fall_cancel(self);
+    ptrdiff_t first = zs_app_parts_paste(self->core, at_point ? 1 : 0, x, y);
+    if (first < 0) return -1;
+    plate_changed(self);
+    select_from(self, (size_t)first);
+    return (gint64)(zs_app_part_count(self->core) - (size_t)first);
+}
+
+/* A new plate after the others (with the settings of the active plate),
+ * and the parts of `from` on it: the clipboard, or a copy of plate
+ * `from` (with no change of the clipboard). */
+static gboolean plate_new_from(ZgModel *self, zs_app *from) {
+    if (!from && zs_clipboard_parts() == 0) return FALSE;
+    if (from && zs_app_part_count(from) == 0) return FALSE;
+    plate_leave(self);
+    if (zs_set_add(self->set) < 0) return FALSE;
+    plate_switched(self);
+    ptrdiff_t first = from ? zs_app_plate_copy_to(from, self->core) : zs_app_parts_paste(self->core, 0, 0, 0);
+    if (first < 0) return FALSE;
+    plate_changed(self);
+    g_signal_emit(self, signals[SIGNAL_PLATES_CHANGED], 0);
+    return TRUE;
+}
+
+gboolean zg_model_plate_paste_new(ZgModel *self) {
+    return plate_new_from(self, NULL);
+}
+
+gboolean zg_model_plate_duplicate(ZgModel *self) {
+    return plate_new_from(self, self->core);
+}
+
+GPtrArray *zg_model_scope_changes(ZgModel *self) {
+    GPtrArray *out = g_ptr_array_new_with_free_func(g_free);
+    if (!self->scope_on) return out;
+    GHashTable *seen = g_hash_table_new(g_str_hash, g_str_equal);
+    size_t n = zs_app_override_count(self->core);
+    for (size_t i = 0; i < n; i++) {
+        zs_override o;
+        if (zs_app_override_get(self->core, i, &o) != ZS_OK) continue;
+        if (o.z_min > self->scope_show + 1e-4 || o.z_max < self->scope_show - 1e-4) continue;
+        char *name = g_strndup(o.name, o.name_len);
+        char *line = g_strdup_printf("%s\t%.*s", name, (int)o.value_len, o.value);
+        /* The last change of a setting wins. */
+        gpointer at = g_hash_table_lookup(seen, name);
+        if (at) {
+            guint k = GPOINTER_TO_UINT(at) - 1;
+            g_free(g_ptr_array_index(out, k));
+            g_ptr_array_index(out, k) = line;
+            g_free(name);
+        } else {
+            g_ptr_array_add(out, line);
+            g_hash_table_insert(seen, name, GUINT_TO_POINTER(out->len));
+        }
+    }
+    GHashTableIter it;
+    gpointer key;
+    g_hash_table_iter_init(&it, seen);
+    while (g_hash_table_iter_next(&it, &key, NULL)) g_free(key);
+    g_hash_table_destroy(seen);
+    return out;
+}
+
+guint zg_model_scope_paste(ZgModel *self, GPtrArray *changes) {
+    if (!self->scope_on) return 0;
+    guint ok = 0;
+    for (guint k = 0; k < changes->len; k++) {
+        const char *line = g_ptr_array_index(changes, k);
+        const char *tab = strchr(line, '\t');
+        if (!tab) continue;
+        char *name = g_strndup(line, (gsize)(tab - line));
+        if (zs_app_override_set(self->core, self->scope_min, self->scope_max, name, tab + 1) == ZS_OK) {
+            emit_setting(self, name);
+            ok++;
+        }
+        g_free(name);
+    }
+    if (ok == 0) return 0;
+    g_signal_emit(self, signals[SIGNAL_PROFILES_CHANGED], 0);
+    slice_soon(self);
+    return ok;
+}
+
+guint zg_model_scope_clear(ZgModel *self, GPtrArray *changes) {
+    if (!self->scope_on) return 0;
+    guint ok = 0;
+    for (guint k = 0; k < changes->len; k++) {
+        const char *line = g_ptr_array_index(changes, k);
+        const char *tab = strchr(line, '\t');
+        char *name = tab ? g_strndup(line, (gsize)(tab - line)) : g_strdup(line);
+        if (zs_app_override_remove(self->core, self->scope_min, self->scope_max, name) || zs_app_override_clear_at(self->core, self->scope_show, name) > 0) {
+            emit_setting(self, name);
+            ok++;
+        }
+        g_free(name);
+    }
+    if (ok == 0) return 0;
+    g_signal_emit(self, signals[SIGNAL_PROFILES_CHANGED], 0);
+    slice_soon(self);
+    return ok;
+}
+
 gint64 zg_model_parts_to_new_plate(ZgModel *self) {
     GArray *a = parts_desc(self);
     ptrdiff_t to = -1;

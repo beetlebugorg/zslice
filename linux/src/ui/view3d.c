@@ -39,9 +39,11 @@
 #include <math.h>
 
 #include "bed-model.h"
+#include "clipboard.h"
 #include "label-tool.h"
 #include "native-surface.h"
 #include "range-card.h"
+#include "setting-editor.h"
 #include "support-tool.h"
 #include "widgets.h"
 
@@ -118,8 +120,10 @@ typedef struct {
     /* The place of the last right click (points), for a drop. */
     double menu_x, menu_y;
     double pointer_x, pointer_y;
+    /* The pointer is over the view (a paste goes to it). */
+    gboolean pointer_in;
     gboolean gaps_hook, gap_hook; /* the test hooks ran */
-    gboolean dbl_hook, ring_hook, grab_hook, menu_hook, select_hook;
+    gboolean dbl_hook, ring_hook, grab_hook, menu_hook, select_hook, clip_hook;
     /* ZSLICE_BENCH: the step (0 off, 1 wait for the first frame, 2 orbit,
      * 3 wait for the slice of an edit, 4 done), the frames of the orbit,
      * their draw times (ms), the time of the last tick, and the time of
@@ -422,6 +426,8 @@ static void ring_drag_hook(gpointer data);
 static void grab_hook(gpointer data);
 static void menu_hook(gpointer data);
 static void select_hook(gpointer data);
+static void clip_hook(gpointer data);
+static void label_focus(gpointer data);
 static void relight(View3d *v);
 
 /* For tests: ZSLICE_DOUBLE_CLICK=x,y is a double click at that pixel. */
@@ -552,6 +558,12 @@ static void load_data(View3d *v) {
     if (g_getenv("ZSLICE_SELECT_TEST") && !v->select_hook && zs_app_state(zg_model_core(v->model)) == ZS_STATE_DONE) {
         v->select_hook = TRUE;
         g_timeout_add_once(1000, select_hook, v);
+    }
+    /* For tests: ZSLICE_CLIP_TEST selects for the keys of the clipboard
+     * 1 s after the first slice (see clip_hook). */
+    if (g_getenv("ZSLICE_CLIP_TEST") && !v->clip_hook && zs_app_state(zg_model_core(v->model)) == ZS_STATE_DONE) {
+        v->clip_hook = TRUE;
+        g_timeout_add_once(1000, clip_hook, v);
     }
     if (g_getenv("ZSLICE_MENU") && !v->menu_hook && zs_app_state(zg_model_core(v->model)) == ZS_STATE_DONE) {
         v->menu_hook = TRUE;
@@ -1784,10 +1796,16 @@ static void on_drag_update(GtkGestureDrag *g, double dx, double dy, gpointer dat
     queue_frame(v);
 }
 
+static void on_leave(GtkEventControllerMotion *c, gpointer data) {
+    View3d *v = data;
+    v->pointer_in = FALSE;
+}
+
 static void on_motion(GtkEventControllerMotion *c, double x, double y, gpointer data) {
     View3d *v = data;
     v->pointer_x = x;
     v->pointer_y = y;
+    v->pointer_in = TRUE;
     if (v->hand) {
         hand_pointer(v, x, y, gtk_event_controller_get_current_event_state(GTK_EVENT_CONTROLLER(c)));
         return;
@@ -2286,6 +2304,33 @@ static void hook_point(View3d *v, const char *xs, const char *ys, double *x, dou
  * tool at x, y, points; with a style, the support goes on first). For x
  * "auto": the first line from the middle of the view (run, body), or the
  * first support line (support). The log says what the Select tool did. */
+/* ZSLICE_CLIP_TEST: "parts" selects part 0; "label" puts a label on
+ * part 0 and selects it in the Label tool; "range" opens the range card
+ * of layers 5 to 10 with a change of the wall count. The view gets the
+ * focus, so the keys of a test go to it. */
+static void clip_hook(gpointer data) {
+    View3d *v = data;
+    const char *mode = g_getenv("ZSLICE_CLIP_TEST");
+    zs_app *core = zg_model_core(v->model);
+    if (zs_app_part_count(core) == 0) return;
+    if (strcmp(mode, "label") == 0) {
+        zs_part p;
+        zs_app_part_get(core, 0, &p);
+        char *json = g_strdup_printf("{\"origin\":[%g,%g,10],\"normal\":[0,-1,0],\"right\":[1,0,0],\"filament\":2,\"items\":[{\"kind\":\"text\",\"text\":\"AB\",\"size\":5}]}", p.x, p.y - p.size_y / 2);
+        gint64 id = zg_model_label_add(v->model, 0, json);
+        g_free(json);
+        if (id >= 0) zg_label_tool_open(v->label, 0, (guint32)id);
+    } else if (strcmp(mode, "range") == 0) {
+        GtkWidget *card = zg_range_card_of(v->area);
+        zg_range_card_show(card, 5, 10);
+        zg_model_set_for(v->model, "project.wall_count", "4", TRUE, NULL);
+    } else {
+        zg_model_select_part(v->model, 0);
+    }
+    label_focus(v);
+    g_message("clip test: %s ready", mode);
+}
+
 static void select_hook(gpointer data) {
     View3d *v = data;
     char **f = g_strsplit(g_getenv("ZSLICE_SELECT_TEST"), " ", 4);
@@ -2399,6 +2444,281 @@ static void on_add_drop(GSimpleAction *a, GVariant *p, gpointer data) {
     if (zs_app_edit_add_dot(core, (size_t)layer, pt[0], pt[1], 1.0) == ZS_OK) zg_model_edits_changed(v->model);
 }
 
+/* ---- copy and paste (clipboard.h, as web/app/clipboard.js) ---- */
+
+static void note(View3d *v, const char *text) {
+    GtkWidget *preview = v->area;
+    while (preview && !g_object_get_data(G_OBJECT(preview), "zg-preview")) preview = gtk_widget_get_parent(preview);
+    if (preview) zg_preview_note(preview, text, 4000);
+}
+
+/* What a copy takes now (the first that applies). */
+typedef enum { SEL_NONE, SEL_VALUE, SEL_LABEL, SEL_AREA, SEL_RANGE, SEL_PARTS, SEL_LINE } ClipSel;
+
+static ClipSel clip_selection(View3d *v, GtkWidget *focus, GtkWidget **editor) {
+    GtkWidget *ed = focus ? zg_setting_editor_of(focus) : NULL;
+    if (ed) {
+        *editor = ed;
+        return SEL_VALUE;
+    }
+    ZgTool tool = zg_model_tool(v->model);
+    if (tool == ZG_TOOL_LABEL && zg_label_tool_label(v->label)) return SEL_LABEL;
+    if (tool == ZG_TOOL_SUPPORT && zg_support_has_selection(v->support)) return SEL_AREA;
+    if (zg_range_card_open(zg_range_card_of(v->area))) return SEL_RANGE;
+    guint n = 0;
+    zg_model_parts(v->model, &n);
+    if (n > 0) return SEL_PARTS;
+    if (zg_model_selected(v->model) >= 0) return SEL_LINE;
+    return SEL_NONE;
+}
+
+static gboolean clip_copy(View3d *v, ClipSel sel, GtkWidget *ed) {
+    switch (sel) {
+    case SEL_VALUE: {
+        char *val = zg_setting_editor_value(ed);
+        if (!val) return FALSE;
+        /* The system clipboard too: a text field or another app takes it. */
+        gdk_clipboard_set_text(gdk_display_get_clipboard(gtk_widget_get_display(v->area)), val);
+        zg_clip_set_value(val);
+        note(v, "Copied the value.");
+        return TRUE;
+    }
+    case SEL_LABEL: {
+        char *json = zg_label_tool_copy(v->label);
+        if (!json) return FALSE;
+        zg_clip_set_label(json, -1);
+        note(v, "Copied the label.");
+        return TRUE;
+    }
+    case SEL_AREA: {
+        ZgSupportArea *a = zg_support_copy(v->support);
+        if (!a) return FALSE;
+        zg_clip_set_area(a);
+        note(v, "Copied the support area.");
+        return TRUE;
+    }
+    case SEL_RANGE: {
+        GPtrArray *c = zg_model_scope_changes(v->model);
+        if (c->len == 0) {
+            g_ptr_array_unref(c);
+            note(v, "These layers have no changes to copy.");
+            return FALSE;
+        }
+        char *text = g_strdup_printf("Copied %u %s of the layers.", c->len, c->len == 1 ? "change" : "changes");
+        zg_clip_set_range(c);
+        note(v, text);
+        g_free(text);
+        return TRUE;
+    }
+    case SEL_PARTS: {
+        guint n = 0;
+        zg_model_parts(v->model, &n);
+        if (!zg_model_parts_copy(v->model)) return FALSE;
+        zg_clip_set_parts(FALSE);
+        char *text = n == 1 ? g_strdup("Copied the part.") : g_strdup_printf("Copied %u parts.", n);
+        note(v, text);
+        g_free(text);
+        return TRUE;
+    }
+    case SEL_LINE:
+        on_copy_for_ai(NULL, NULL, v);
+        note(v, "The report of the line is on the clipboard.");
+        return TRUE;
+    default:
+        note(v, "Select a part, a label, a support area, or layers to copy.");
+        return FALSE;
+    }
+}
+
+/* A copy, then the selection goes (a setting and a line stay). */
+static void clip_cut(View3d *v, ClipSel sel, GtkWidget *ed) {
+    switch (sel) {
+    case SEL_LABEL:
+        if (clip_copy(v, sel, ed)) zg_label_tool_remove(v->label);
+        return;
+    case SEL_AREA:
+        if (clip_copy(v, sel, ed)) zg_support_remove_selected(v->support);
+        return;
+    case SEL_RANGE:
+        if (clip_copy(v, sel, ed)) zg_model_scope_clear(v->model, zg_clip_range());
+        return;
+    case SEL_PARTS: {
+        guint n = 0;
+        zg_model_parts(v->model, &n);
+        if (!zg_model_parts_cut(v->model)) return;
+        zg_clip_set_parts(FALSE);
+        char *text = n == 1 ? g_strdup("Cut the part. Ctrl+V pastes it.") : g_strdup_printf("Cut %u parts. Ctrl+V pastes them.", n);
+        note(v, text);
+        g_free(text);
+        return;
+    }
+    default:
+        clip_copy(v, sel, ed);
+    }
+}
+
+/* A copy next to the selection; the clipboard stays. */
+static void clip_duplicate(View3d *v, ClipSel sel) {
+    if (sel == SEL_PARTS) {
+        zg_model_parts_duplicate(v->model);
+    } else if (sel == SEL_LABEL) {
+        char *json = zg_label_tool_copy(v->label);
+        zg_label_tool_paste(v->label, json, FALSE, 0, 0, -1);
+        g_free(json);
+    } else {
+        note(v, "Ctrl+D duplicates parts and labels.");
+    }
+}
+
+static void on_value_text(GObject *source, GAsyncResult *res, gpointer data) {
+    GtkWidget *editor = data;
+    char *text = gdk_clipboard_read_text_finish(GDK_CLIPBOARD(source), res, NULL);
+    if (text && !zg_setting_editor_set_value(editor, g_strstrip(text))) gtk_widget_error_bell(editor);
+    g_free(text);
+    g_object_unref(editor);
+}
+
+/* Pastes the clipboard. at: x, y (points of the view) is a place for it
+ * (the pointer, or the right click). here: at x, y also with parts
+ * selected (the context menu). as_plate: parts go onto a new plate. */
+static void clip_paste(View3d *v, GtkWidget *ed, gboolean at, double x, double y, gboolean here, gboolean as_plate) {
+    if (ed) {
+        /* A setting: the text of the system clipboard (the copy of a
+         * value put it there too). */
+        gdk_clipboard_read_text_async(gdk_display_get_clipboard(gtk_widget_get_display(v->area)), NULL, on_value_text, g_object_ref(ed));
+        return;
+    }
+    gboolean in3d = at && v->view && !v->hidden;
+    switch (zg_clip_kind()) {
+    case ZG_CLIP_PARTS:
+    case ZG_CLIP_PLATE: {
+        if (as_plate) {
+            if (!zg_model_plate_paste_new(v->model)) note(v, "The plate did not paste.");
+            return;
+        }
+        guint n = 0;
+        zg_model_parts(v->model, &n);
+        double bx = 0, by = 0;
+        gboolean point = FALSE;
+        if ((here || n == 0) && in3d) {
+            int s = gtk_widget_get_scale_factor(v->area);
+            point = zs_view_bed_point(v->view, (float)(x * s), (float)(y * s), &bx, &by);
+        }
+        if (zg_model_parts_paste(v->model, point, bx, by) < 0) note(v, "The parts did not paste.");
+        else if (zs_app_plate_fits(zg_model_core(v->model)) != 1) note(v, "The parts do not all fit on the bed. Move some, or paste on another plate.");
+        return;
+    }
+    case ZG_CLIP_LABEL: {
+        gint64 part = -1;
+        const char *json = zg_clip_label(&part);
+        if (!v->view || v->hidden) {
+            note(v, "Paste a label in the 3D view.");
+            return;
+        }
+        zg_label_tool_paste(v->label, json, in3d, x, y, part);
+        return;
+    }
+    case ZG_CLIP_AREA:
+        if (!in3d || !zg_support_paste(v->support, zg_clip_area(), x, y)) note(v, "Point at a part to paste the support area there.");
+        else note(v, "Pasted the support area.");
+        return;
+    case ZG_CLIP_RANGE:
+        if (!zg_range_card_open(zg_range_card_of(v->area))) note(v, "Select layers first (drag up or down over the print), then paste the changes.");
+        else zg_model_scope_paste(v->model, zg_clip_range());
+        return;
+    case ZG_CLIP_VALUE:
+        note(v, "Click a setting, then paste the value into it.");
+        return;
+    default:
+        note(v, "The clipboard is empty: copy a part, a label, a support area, or layers first.");
+    }
+}
+
+/* The count of labels of part 0, for the log of a test. */
+static int label_count(zs_app *core) {
+    char buf[8192];
+    size_t len = 0;
+    if (zs_app_part_count(core) == 0 || zs_app_part_labels_get(core, 0, buf, sizeof buf, &len) != ZS_OK) return -1;
+    int n = 0;
+    for (const char *p = buf; (p = strstr(p, "\"origin\"")); p++) n++;
+    return n;
+}
+
+gboolean zg_view3d_clip_key(GtkWidget *view, guint key, GdkModifierType mods, GtkWidget *focus) {
+    View3d *v = view ? g_object_get_data(G_OBJECT(view), "zg-view3d") : NULL;
+    if (!v || !(mods & GDK_CONTROL_MASK) || (mods & (GDK_ALT_MASK | GDK_SUPER_MASK))) return FALSE;
+    if (focus && (GTK_IS_EDITABLE(focus) || GTK_IS_TEXT_VIEW(focus))) return FALSE;
+    gboolean shift = (mods & GDK_SHIFT_MASK) != 0;
+    guint k = gdk_keyval_to_lower(key);
+    if (k != GDK_KEY_c && k != GDK_KEY_x && k != GDK_KEY_v && k != GDK_KEY_d) return FALSE;
+    if (shift && k != GDK_KEY_v) return FALSE;
+    GtkWidget *ed = NULL;
+    ClipSel sel = clip_selection(v, focus, &ed);
+    if (k == GDK_KEY_v) clip_paste(v, sel == SEL_VALUE ? ed : NULL, v->pointer_in, v->pointer_x, v->pointer_y, FALSE, shift);
+    else if (k == GDK_KEY_c) clip_copy(v, sel, ed);
+    else if (k == GDK_KEY_x) clip_cut(v, sel, ed);
+    else clip_duplicate(v, sel);
+    /* The test hook: the state after the key, to the log. */
+    if (g_getenv("ZSLICE_CLIP_LOG")) {
+        zs_app *core = zg_model_core(v->model);
+        guint n = 0;
+        zg_model_parts(v->model, &n);
+        g_message("clip: key %s, sel %d, clip %d, parts %zu, selected %u, plates %zu, label selected %d, labels of part 0 %d, overrides %zu", gdk_keyval_name(key), (int)sel, (int)zg_clip_kind(),
+                  zs_app_part_count(core), n, zs_set_count(zg_model_plate_set(v->model)), zg_label_tool_label(v->label) ? 1 : 0, label_count(core), zs_app_override_count(core));
+    }
+    return TRUE;
+}
+
+/* The items of the context menu. */
+static void on_paste_here(GSimpleAction *a, GVariant *p, gpointer data) {
+    View3d *v = data;
+    clip_paste(v, NULL, TRUE, v->menu_x, v->menu_y, TRUE, FALSE);
+}
+
+/* The part of the selected line becomes the selection. */
+static gboolean select_line_part(View3d *v) {
+    gint64 path = zg_model_selected(v->model);
+    ptrdiff_t i = path >= 0 ? zs_app_part_of_path(zg_model_core(v->model), (size_t)path) : -1;
+    if (i < 0) return FALSE;
+    zg_model_select_part(v->model, i);
+    return TRUE;
+}
+
+static void on_copy_part(GSimpleAction *a, GVariant *p, gpointer data) {
+    View3d *v = data;
+    if (select_line_part(v)) clip_copy(v, SEL_PARTS, NULL);
+}
+
+static void on_cut_part(GSimpleAction *a, GVariant *p, gpointer data) {
+    View3d *v = data;
+    if (select_line_part(v)) clip_cut(v, SEL_PARTS, NULL);
+}
+
+static void on_duplicate_part(GSimpleAction *a, GVariant *p, gpointer data) {
+    View3d *v = data;
+    if (select_line_part(v)) clip_duplicate(v, SEL_PARTS);
+}
+
+static void on_copy_plate(GSimpleAction *a, GVariant *p, gpointer data) {
+    View3d *v = data;
+    if (!zg_model_plate_copy(v->model)) {
+        note(v, "The plate has no parts to copy.");
+        return;
+    }
+    zg_clip_set_parts(TRUE);
+    note(v, "Copied the plate.");
+}
+
+static void on_duplicate_plate(GSimpleAction *a, GVariant *p, gpointer data) {
+    View3d *v = data;
+    if (!zg_model_plate_duplicate(v->model)) note(v, "The plate has no parts to duplicate.");
+}
+
+static void on_paste_plate(GSimpleAction *a, GVariant *p, gpointer data) {
+    View3d *v = data;
+    clip_paste(v, NULL, FALSE, 0, 0, FALSE, TRUE);
+}
+
 static void show_menu(View3d *v, double x, double y) {
     v->menu_x = x;
     v->menu_y = y;
@@ -2414,6 +2734,16 @@ static void show_menu(View3d *v, double x, double y) {
     gboolean on_part = path >= 0 && !on_support;
     gboolean marks = zs_app_mark_count(core) > 0;
     GMenu *menu = g_menu_new();
+    ZgClipKind clip = zg_clip_kind();
+    if (clip != ZG_CLIP_EMPTY) {
+        GMenu *paste = g_menu_new();
+        GMenuItem *here = g_menu_item_new("Paste here", "view3d.paste-here");
+        g_menu_item_set_attribute(here, "accel", "s", "<Control>v");
+        g_menu_append_item(paste, here);
+        g_object_unref(here);
+        g_menu_append_section(menu, NULL, G_MENU_MODEL(paste));
+        g_object_unref(paste);
+    }
     if (on_support) {
         GMenu *sup = g_menu_new();
         g_menu_append(sup, "Remove this support", "view3d.remove-support");
@@ -2449,6 +2779,23 @@ static void show_menu(View3d *v, double x, double y) {
         g_object_unref(prof);
         g_object_unref(kinds);
         g_object_unref(here);
+        /* The part of the line: copy, cut, duplicate. */
+        GMenu *edit = g_menu_new();
+        static const struct {
+            const char *label, *action, *accel;
+        } EDIT[] = {
+            {"Copy the part", "view3d.copy-part", "<Control>c"},
+            {"Cut the part", "view3d.cut-part", "<Control>x"},
+            {"Duplicate the part", "view3d.duplicate-part", "<Control>d"},
+        };
+        for (size_t k = 0; k < G_N_ELEMENTS(EDIT); k++) {
+            GMenuItem *it = g_menu_item_new(EDIT[k].label, EDIT[k].action);
+            g_menu_item_set_attribute(it, "accel", "s", EDIT[k].accel);
+            g_menu_append_item(edit, it);
+            g_object_unref(it);
+        }
+        g_menu_append_section(menu, NULL, G_MENU_MODEL(edit));
+        g_object_unref(edit);
         /* The part of the line: its placement. */
         GMenu *part = g_menu_new();
         g_menu_append(part, "Put this side on the bed", "view3d.put-down");
@@ -2472,6 +2819,17 @@ static void show_menu(View3d *v, double x, double y) {
         g_menu_append(plate, "Remove this plate", "win.remove-plate");
         g_menu_append_section(menu, NULL, G_MENU_MODEL(plate));
         g_object_unref(plate);
+        GMenu *copies = g_menu_new();
+        g_menu_append(copies, "Copy the plate", "view3d.copy-plate");
+        g_menu_append(copies, "Duplicate the plate", "view3d.duplicate-plate");
+        if (clip == ZG_CLIP_PARTS || clip == ZG_CLIP_PLATE) {
+            GMenuItem *it = g_menu_item_new("Paste as a new plate", "view3d.paste-plate");
+            g_menu_item_set_attribute(it, "accel", "s", "<Control><Shift>v");
+            g_menu_append_item(copies, it);
+            g_object_unref(it);
+        }
+        g_menu_append_section(menu, NULL, G_MENU_MODEL(copies));
+        g_object_unref(copies);
     }
     GMenu *general = g_menu_new();
     if (marks) g_menu_append(general, "Clear all support marks", "view3d.clear-marks");
@@ -2665,6 +3023,7 @@ GtkWidget *zg_view3d_new(ZgModel *model) {
     }
     GtkEventController *motion = gtk_event_controller_motion_new();
     g_signal_connect(motion, "motion", G_CALLBACK(on_motion), v);
+    g_signal_connect(motion, "leave", G_CALLBACK(on_leave), v);
     gtk_widget_add_controller(v->area, motion);
     GtkGesture *pinch = gtk_gesture_zoom_new();
     g_signal_connect(pinch, "begin", G_CALLBACK(on_pinch_begin), v);
@@ -2688,6 +3047,13 @@ GtkWidget *zg_view3d_new(ZgModel *model) {
         {.name = "place", .activate = on_place, .parameter_type = "i"},
         {.name = "reset-view", .activate = on_reset_view},
         {.name = "delete-branch", .activate = on_delete_branch},
+        {.name = "paste-here", .activate = on_paste_here},
+        {.name = "copy-part", .activate = on_copy_part},
+        {.name = "cut-part", .activate = on_cut_part},
+        {.name = "duplicate-part", .activate = on_duplicate_part},
+        {.name = "copy-plate", .activate = on_copy_plate},
+        {.name = "duplicate-plate", .activate = on_duplicate_plate},
+        {.name = "paste-plate", .activate = on_paste_plate},
     };
     GSimpleActionGroup *group = g_simple_action_group_new();
     g_action_map_add_action_entries(G_ACTION_MAP(group), menu_actions, G_N_ELEMENTS(menu_actions), v);

@@ -109,6 +109,30 @@ gint64 zg_model_part_duplicate(ZgModel *self, size_t i);
 gint64 zg_model_part_split(ZgModel *self, size_t i);
 /* All plates as one project file (zs_set_project_save), or NULL. */
 GBytes *zg_model_project_bytes(ZgModel *self, const char *name);
+/* The clipboard of parts (zs_app_parts_copy, zs_app_parts_paste): one
+ * for the process, so a paste works on each plate and in each window.
+ * copy and cut take the selected parts; a cut removes them after the
+ * copy. paste adds the copies as one step of the history, and they
+ * become the selection: at_point puts the center of the group at x, y
+ * (mm on the bed); else each copy goes to a free place (on an empty
+ * plate: to the places of the copy). It returns the count of new parts,
+ * or -1 (an empty clipboard). plate_copy copies the whole plate.
+ * plate_paste_new and plate_duplicate make a new plate after the others
+ * with the clipboard, or with a copy of the active plate (the clipboard
+ * stays), and make it the active plate. */
+gboolean zg_model_parts_copy(ZgModel *self);
+gboolean zg_model_parts_cut(ZgModel *self);
+gint64 zg_model_parts_paste(ZgModel *self, gboolean at_point, double x, double y);
+gboolean zg_model_plate_copy(ZgModel *self);
+gboolean zg_model_plate_paste_new(ZgModel *self);
+gboolean zg_model_plate_duplicate(ZgModel *self);
+/* The changes of the layer scope (zg_model_set_scope): the overrides
+ * that cover z_show, as "name<TAB>value" (free the array). paste sets
+ * each for the layers of the scope; clear removes them (the names of the
+ * lines). Both are one step of the history, and return the count. */
+GPtrArray *zg_model_scope_changes(ZgModel *self);
+guint zg_model_scope_paste(ZgModel *self, GPtrArray *changes);
+guint zg_model_scope_clear(ZgModel *self, GPtrArray *changes);
 /* Moves part i to a new plate (zs_set_part_move): the new plate, or -1. */
 gint64 zg_model_part_to_new_plate(ZgModel *self, size_t i);
 /* An edit of line `path` (zs_app_edit_add): kind 0 does not print it, 1

@@ -1076,6 +1076,85 @@ static void close_draft(ZgSupport *s) {
     reload(s);
 }
 
+/* ---- copy and paste (view3d.c, the clipboard) ---- */
+
+ZgSupportArea *zg_support_copy(ZgSupport *s) {
+    Area *a = s->on ? area_at(s, s->sel) : NULL;
+    if (!a) return NULL;
+    ZgSupportArea *out = g_new0(ZgSupportArea, 1);
+    out->kind = a->kind;
+    out->z_lo = a->z_lo;
+    out->z_hi = a->z_hi;
+    out->n = MIN(a->n, (size_t)ZG_SUPPORT_MAX_POINTS);
+    memcpy(out->pts, a->pts, 3 * out->n * sizeof(double));
+    /* The part under the center of the area. */
+    double cx = 0, cy = 0;
+    for (size_t k = 0; k < out->n; k++) {
+        cx += out->pts[3 * k];
+        cy += out->pts[3 * k + 1];
+    }
+    cx /= (double)MAX(out->n, 1);
+    cy /= (double)MAX(out->n, 1);
+    zs_app *core = zg_model_core(s->model);
+    ptrdiff_t i = zs_app_part_at(core, cx, cy);
+    zs_part p;
+    out->part = -1;
+    if (i >= 0 && zs_app_part_get(core, (size_t)i, &p) == ZS_OK) {
+        out->part = i;
+        out->part_x = p.x;
+        out->part_y = p.y;
+        out->part_rot = p.rotation;
+    }
+    return out;
+}
+
+gboolean zg_support_has_selection(ZgSupport *s) {
+    return s->on && area_at(s, s->sel) != NULL;
+}
+
+gboolean zg_support_remove_selected(ZgSupport *s) {
+    return s->on && remove_selected(s);
+}
+
+gboolean zg_support_paste(ZgSupport *s, const ZgSupportArea *a, double x, double y) {
+    zs_app *core = zg_model_core(s->model);
+    double hit[3];
+    if (!a || a->n < 3 || !surface_point(s, x, y, FALSE, hit)) return FALSE;
+    ptrdiff_t i = zs_app_part_at(core, hit[0], hit[1]);
+    zs_part p;
+    if (i < 0 || zs_app_part_get(core, (size_t)i, &p) != ZS_OK) return FALSE;
+    double cx = 0, cy = 0;
+    for (size_t k = 0; k < a->n; k++) {
+        cx += a->pts[3 * k];
+        cy += a->pts[3 * k + 1];
+    }
+    cx /= (double)a->n;
+    cy /= (double)a->n;
+    double *pts = g_new(double, 3 * a->n);
+    gboolean same = a->part < 0 || (a->part == i && fabs(a->part_x - p.x) < 1e-6 && fabs(a->part_y - p.y) < 1e-6);
+    double ang = (p.rotation - a->part_rot) * G_PI / 180, c = cos(ang), sn = sin(ang);
+    for (size_t k = 0; k < a->n; k++) {
+        const double *q = a->pts + 3 * k;
+        if (same) {
+            /* On the part of the copy: the center goes to the pointer. */
+            pts[3 * k] = q[0] + hit[0] - cx;
+            pts[3 * k + 1] = q[1] + hit[1] - cy;
+        } else {
+            /* The same place on another part (a copy of the part). */
+            double dx = q[0] - a->part_x, dy = q[1] - a->part_y;
+            pts[3 * k] = p.x + dx * c - dy * sn;
+            pts[3 * k + 1] = p.y + dx * sn + dy * c;
+        }
+        pts[3 * k + 2] = q[2];
+    }
+    gint64 n = zg_model_support_add(s->model, a->kind, pts, a->n, a->z_lo, a->z_hi);
+    g_free(pts);
+    if (n < 0) return FALSE;
+    if (s->on) s->sel = (int)n;
+    reload(s);
+    return TRUE;
+}
+
 void zg_support_click(ZgSupport *s, double x, double y, gboolean shift, gboolean alt) {
     if (!s->on || !s->view) return;
     s->note = NULL;

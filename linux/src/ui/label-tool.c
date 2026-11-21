@@ -691,6 +691,83 @@ void zg_label_tool_remove(ZgLabelTool *t) {
     load(t, t->index, -1);
 }
 
+/* ---- copy and paste (view3d.c, the clipboard) ---- */
+
+char *zg_label_tool_copy(ZgLabelTool *t) {
+    const ZgLabel *l = zg_label_tool_label(t);
+    if (!l) return NULL;
+    flush(t);
+    return zg_label_json(zg_label_tool_label(t), FALSE);
+}
+
+gboolean zg_label_tool_paste(ZgLabelTool *t, const char *json, gboolean at_point, double x, double y, gint64 part) {
+    GPtrArray *list = json ? zg_labels_parse(json, -1) : NULL;
+    if (!list || list->len == 0) {
+        if (list) g_ptr_array_unref(list);
+        return FALSE;
+    }
+    ZgLabel *l = zg_label_copy(g_ptr_array_index(list, 0));
+    g_ptr_array_unref(list);
+    if (zg_model_tool(t->model) != ZG_TOOL_LABEL) zg_model_set_tool(t->model, ZG_TOOL_LABEL);
+    gint64 index = t->index >= 0 ? t->index : part;
+    double at[10];
+    gboolean placed = FALSE;
+    if (at_point) {
+        gint64 hit = t->host.part_at(t->host.data, x, y);
+        if (hit >= 0) {
+            index = hit;
+            placed = place_at(t, hit, x, y, at);
+        }
+    }
+    if (index < 0 || (size_t)index >= zs_app_part_count(zg_model_core(t->model))) {
+        zg_label_free(l);
+        toast(t, "Point at a part to paste the label there.");
+        return FALSE;
+    }
+    if (index != t->index) load(t, index, -1);
+    if (placed) {
+        /* On the face under the pointer, with the same turn. */
+        double deg = zg_label_angle(l);
+        memcpy(l->origin, at, sizeof l->origin);
+        memcpy(l->normal, at + 3, sizeof l->normal);
+        memcpy(l->right, at + 6, sizeof l->right);
+        zg_label_set_angle(l, deg);
+        t->curve = at[9];
+    } else {
+        /* Under the label of the copy: its height and 1 mm lower, on the
+         * surface again (a ray in along the normal). */
+        char *key = zg_label_json(l, TRUE);
+        Outline *o = outline_of_json(key);
+        double h = 5;
+        if (o) {
+            h = o->box[3] - o->box[1];
+            o->key = key;
+            outline_free(o);
+        } else g_free(key);
+        double up[3], from[3];
+        zg_label_up(l, up);
+        for (int k = 0; k < 3; k++) {
+            l->origin[k] -= up[k] * (h + 1);
+            from[k] = l->origin[k] + 5 * l->normal[k];
+        }
+        zs_paint *s = session(t, index);
+        float r[6] = {(float)from[0], (float)from[1], (float)from[2], (float)-l->normal[0], (float)-l->normal[1], (float)-l->normal[2]};
+        double out[10];
+        if (s && zs_label_place(s, r, 5, out) == 1) zg_label_move(l, out, out + 3);
+    }
+    char *text = zg_label_json(l, FALSE);
+    zg_label_free(l);
+    flush(t);
+    gint64 id = zg_model_label_add(t->model, (size_t)index, text);
+    g_free(text);
+    if (id < 0) {
+        toast(t, "The label does not fit here.");
+        return FALSE;
+    }
+    load(t, index, id);
+    return TRUE;
+}
+
 void zg_label_tool_draw_points(ZgLabelTool *t, int item) {
     t->drawing = item;
     g_array_set_size(t->drawn, 0);

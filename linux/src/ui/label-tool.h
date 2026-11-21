@@ -113,3 +113,14 @@ void zg_label_tool_set_depth(ZgLabelTool *t, double mm);
 void zg_label_tool_remove(ZgLabelTool *t);
 /* Free lines: clicks on the face add points to item i (-1: stop). */
 void zg_label_tool_draw_points(ZgLabelTool *t, int item);
+
+/* ---- copy and paste (the clipboard of view3d.c) ---- */
+
+/* The JSON of the selected label (free it with g_free), or NULL. */
+char *zg_label_tool_copy(ZgLabelTool *t);
+/* Adds a copy of a label (JSON) as one step of the history, and selects
+ * it; the tool opens. at_point: on the face of the part under x, y, with
+ * the same turn. Else (or off the parts) on the part of the tool (or
+ * `part`), under the label of the copy on the same face. TRUE for a new
+ * label. */
+gboolean zg_label_tool_paste(ZgLabelTool *t, const char *json, gboolean at_point, double x, double y, gint64 part);

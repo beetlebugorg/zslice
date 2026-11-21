@@ -1940,11 +1940,14 @@ static void on_paned_position(GObject *paned, GParamSpec *pspec, gpointer data) 
 }
 
 /* The keys of the whole window that no widget took: N shows or hides
- * the panel. A text field keeps its keys. */
+ * the panel, and the Ctrl keys of the clipboard. A text field keeps its
+ * keys. */
 static gboolean on_window_key(GtkEventControllerKey *c, guint key, guint code, GdkModifierType mods, gpointer data) {
     Window *w = data;
-    if (mods & (GDK_CONTROL_MASK | GDK_ALT_MASK | GDK_SUPER_MASK)) return FALSE;
     GtkWidget *focus = gtk_window_get_focus(w->window);
+    /* Ctrl+C, Ctrl+X, Ctrl+V, and Ctrl+D: the clipboard (view3d.c). */
+    if (zg_view3d_clip_key(zg_preview_view3d(w->preview), key, mods, focus)) return TRUE;
+    if (mods & (GDK_CONTROL_MASK | GDK_ALT_MASK | GDK_SUPER_MASK)) return FALSE;
     if (focus && (GTK_IS_EDITABLE(focus) || GTK_IS_TEXT_VIEW(focus))) return FALSE;
     switch (key) {
     case GDK_KEY_n: case GDK_KEY_N:

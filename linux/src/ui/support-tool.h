@@ -90,3 +90,29 @@ void zg_support_clear_pick(ZgSupport *s);
  * (it selects that node; the view opens a menu with Delete branch). */
 gboolean zg_support_menu_at(ZgSupport *s, double x, double y);
 gboolean zg_support_delete_branch(ZgSupport *s);
+
+/* ---- copy and paste (the clipboard of view3d.c) ---- */
+
+#define ZG_SUPPORT_MAX_POINTS 256
+/* A copy of a support area: its kind, z range, and points (x, y, z mm),
+ * and the part under it (-1: none) with its place and turn. */
+typedef struct {
+    int kind;
+    double z_lo, z_hi;
+    size_t n;
+    double pts[3 * ZG_SUPPORT_MAX_POINTS];
+    gint64 part;
+    double part_x, part_y, part_rot;
+} ZgSupportArea;
+/* A copy of the selected area of the tool (free it with g_free), or
+ * NULL. */
+ZgSupportArea *zg_support_copy(ZgSupport *s);
+/* TRUE if the tool is on and has a selected area. */
+gboolean zg_support_has_selection(ZgSupport *s);
+/* Deletes the selected area of the tool. TRUE if there was one. */
+gboolean zg_support_remove_selected(ZgSupport *s);
+/* Adds a copy of an area on the part under x, y, as one step of the
+ * history: at the same place on that part (a copy of the part of the
+ * area gets the same support), or, on the part of the copy itself, with
+ * its center at the pointer. FALSE with no part there. */
+gboolean zg_support_paste(ZgSupport *s, const ZgSupportArea *a, double x, double y);

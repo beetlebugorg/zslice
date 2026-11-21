@@ -38,6 +38,12 @@ GtkWidget *zg_setting_editor_new_for_part(ZgModel *model, const zs_setting_info 
 
 ZgModel *zg_setting_editor_model(GtkWidget *editor);
 const zs_setting_info *zg_setting_editor_info(GtkWidget *editor);
+/* The editor of a setting that has `w` in it (or is it), or NULL. */
+GtkWidget *zg_setting_editor_of(GtkWidget *w);
+/* The value of the setting that the editor shows (free it with g_free),
+ * and a new value for it, as a user edit (copy and paste). */
+char *zg_setting_editor_value(GtkWidget *editor);
+gboolean zg_setting_editor_set_value(GtkWidget *editor, const char *value);
 
 /* Shows the value of the core again, for example after a change of the
  * scope. An editor with the focus keeps its text. */

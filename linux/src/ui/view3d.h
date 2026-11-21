@@ -108,3 +108,11 @@ gboolean zg_view3d_label_key(GtkWidget *view, guint key);
 GtkWidget *zg_view3d_label_card(GtkWidget *view);
 GtkWidget *zg_view3d_label_handle(GtkWidget *view);
 void zg_view3d_label_open(GtkWidget *view, gint64 part, guint32 id);
+
+/* Ctrl+C, Ctrl+X, Ctrl+V, Ctrl+Shift+V, and Ctrl+D (clipboard.h): copy,
+ * cut, paste, paste as a new plate, and duplicate of the selection: a
+ * setting value (the editor of `focus`), the selected label or support
+ * area, the changes of the range card, the selected parts, or the report
+ * of the selected line. A paste goes to the pointer over the view. TRUE
+ * if it used the key; a text field keeps its keys. */
+gboolean zg_view3d_clip_key(GtkWidget *view, guint key, GdkModifierType mods, GtkWidget *focus);
