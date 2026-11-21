@@ -4,7 +4,9 @@
 // the results under it. The undock button of the field makes the search a
 // card over the view: the user can move it and change its size, and
 // spatial.js keeps its place, its size, and the choice. The dock button of
-// the card puts the search back in the header. The results are live controls: a number has
+// the card puts the search back in the header. The pin buttons put it on
+// the left or the right rail of the view. Results under the field close
+// at a click outside them; a card or a rail stays (it is pinned). The results are live controls: a number has
 // a slider and an entry, a choice its list, a switch its switch. A change
 // goes to the core at once (a drag sends a value at most each 90 ms), the
 // core slices again, and the view behind the search shows the new slice.
@@ -134,7 +136,13 @@ export class SearchOverlay {
     this.scopeTag = $("search-scope");
     this.fieldClose = $("search-close");
     this.openButton = $("search-open");
-    this.undocked = saved("search").undocked === true;
+    // Where the search opens: "header" (the results under the field),
+    // "card" (a card over the view that the user moves), or "left" or
+    // "right" (pinned to that rail of the view, the height of the view).
+    // The card and the rails are pinned: they stay open until × or Esc.
+    // The results under the field close at a click outside them.
+    const was = saved("search");
+    this.place = ["card", "left", "right"].includes(was.place) ? was.place : was.undocked === true ? "card" : "header";
     this.input.addEventListener("input", () => {
       if (this.root) this.fill();
       else this.show(null, null, false);
@@ -147,14 +155,27 @@ export class SearchOverlay {
       if (this.root) this.key(e);
     });
     this.fieldClose.onclick = () => this.close();
-    $("search-undock").onclick = () => this.setDocked(false);
+    $("search-undock").onclick = () => this.setPlace("card");
     this.openButton.onclick = () => this.show();
     this.placeField();
-    this.onResize = () => this.placeDocked();
+    this.onResize = () => {
+      this.placeDocked();
+      this.placeRail();
+    };
   }
 
   get open() {
     return !!this.root;
+  }
+
+  // The search is not in the header: the header shows a Search button.
+  get undocked() {
+    return this.place !== "header";
+  }
+
+  // The search stays open at a click outside it.
+  get pinned() {
+    return this.place !== "header";
   }
 
   // The header shows the field (docked), or a Search button that opens
@@ -167,11 +188,56 @@ export class SearchOverlay {
   // Docks the search in the header, or undocks it into a card. The search
   // opens again in its new place, with its text.
   setDocked(docked) {
+    this.setPlace(docked ? "header" : "card");
+  }
+
+  // Moves the search to a place ("header", "card", "left", or "right"),
+  // and opens it there again with its text.
+  setPlace(place) {
+    const scope = this.scope;
     this.close();
-    this.undocked = !docked;
-    remember("search", { undocked: this.undocked });
+    this.place = place;
+    remember("search", { place, undocked: place !== "header" });
     this.placeField();
-    this.show();
+    this.show(null, scope);
+  }
+
+  // A small icon button of the search (pin, dock, close).
+  button(cls, svg, title, action) {
+    const b = el("button", `flat icon ${cls}`);
+    b.innerHTML = svg;
+    b.title = title;
+    b.setAttribute("aria-label", title.split(":")[0]);
+    b.onclick = action;
+    return b;
+  }
+
+  // The buttons that move the search to the other places.
+  placeButtons() {
+    const svg = (d) => `<svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${d}"/></svg>`;
+    const out = [];
+    if (this.place !== "left") out.push(this.button("search-pin", svg("M2.5 2.5v11M5.5 4.5h8v7h-8z"), "Pin to the left rail: the search stays open at the left of the view", () => this.setPlace("left")));
+    if (this.place !== "right") out.push(this.button("search-pin", svg("M13.5 2.5v11M2.5 4.5h8v7h-8z"), "Pin to the right rail: the search stays open at the right of the view", () => this.setPlace("right")));
+    if (this.place !== "card") out.push(this.button("search-pin", svg("M9.5 2.5h4v4M13.5 2.5 8 8M7 3.5H2.5v10h10V9"), "Undock the search: a card over the view that you can move and resize", () => this.setPlace("card")));
+    if (this.place !== "header") out.push(this.button("search-dock", svg("M2.5 2.5h11M8 13.5V6M5 9l3-3 3 3"), "Dock the search: put it back in the header", () => this.setPlace("header")));
+    return out;
+  }
+
+  // The left and right rails: the height of the view, beside the tool
+  // strip (left) or at the right edge of the view.
+  placeRail() {
+    if (!this.root || (this.place !== "left" && this.place !== "right")) return;
+    const view = document.getElementById("gl").getBoundingClientRect();
+    const strip = document.querySelector(".toolstrip")?.getBoundingClientRect();
+    const dock = document.getElementById("dock")?.getBoundingClientRect();
+    const w = Math.min(380, Math.max(260, view.width * 0.3));
+    const top = view.top + 8;
+    const bottom = dock && dock.height > 0 ? Math.min(view.bottom, dock.top) - 8 : view.bottom - 8;
+    const x = this.place === "left" ? Math.max(view.left + 8, strip && strip.width > 0 ? strip.right + 8 : 0) : view.right - w - 8;
+    this.box.style.left = `${x}px`;
+    this.box.style.top = `${top}px`;
+    this.box.style.width = `${w}px`;
+    this.box.style.height = `${Math.max(160, bottom - top)}px`;
   }
 
   // scope: null for the settings of the print, or the settings of one
@@ -205,22 +271,25 @@ export class SearchOverlay {
     this.box = box;
     if (this.undocked) {
       const head = el("label", "search-head");
-      const grip = el("span", "search-grip");
-      grip.title = "Drag to move the search. Double-click: back to its first place.";
-      grip.setAttribute("aria-hidden", "true");
-      const dock = el("button", "flat icon search-dock");
-      dock.innerHTML = '<svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 2.5h11M8 13.5V6M5 9l3-3 3 3"/></svg>';
-      dock.title = "Dock the search: put it back in the header";
-      dock.setAttribute("aria-label", "Dock the search");
-      dock.onclick = () => this.setDocked(true);
       const closeBtn = el("button", "flat icon search-close", "×");
       closeBtn.title = "Close the search (Esc)";
       closeBtn.setAttribute("aria-label", "Close the search");
       closeBtn.onclick = () => this.close();
-      head.append(grip, this.scopeTag, this.input, dock, closeBtn);
-      this.movable(box, head);
-      // Its size stays for the next search (spatial.js).
-      spatial(box, "search");
+      if (this.place === "card") {
+        const grip = el("span", "search-grip");
+        grip.title = "Drag to move the search. Double-click: back to its first place.";
+        grip.setAttribute("aria-hidden", "true");
+        head.append(grip, this.scopeTag, this.input, ...this.placeButtons(), closeBtn);
+        this.movable(box, head);
+        // Its size stays for the next search (spatial.js).
+        spatial(box, "search");
+      } else {
+        // A rail: no drag; the window size places it.
+        box.classList.add("rail", this.place);
+        head.classList.add("rail-head");
+        head.append(this.scopeTag, this.input, ...this.placeButtons(), closeBtn);
+        window.addEventListener("resize", this.onResize);
+      }
       box.append(head, list);
     } else {
       // Under the field of the header, with no head: the field is its
@@ -228,11 +297,14 @@ export class SearchOverlay {
       box.classList.add("docked");
       // The scope of a part goes over the results: the field stays wide
       // enough for the text.
-      if (scope) {
-        const row = el("div", "search-scope-row");
-        row.append(this.scopeTag);
-        box.append(row);
-      }
+      // The scope of a part, and the buttons that pin the search to a
+      // rail, go over the results.
+      const row = el("div", "search-scope-row");
+      if (scope) row.append(this.scopeTag);
+      const pins = el("span", "search-pins");
+      pins.append(...this.placeButtons().filter((b) => !b.classList.contains("search-dock")));
+      row.append(pins);
+      box.append(row);
       box.append(list);
       this.field.classList.add("open");
       this.fieldClose.hidden = false;
@@ -245,6 +317,21 @@ export class SearchOverlay {
     document.body.append(this.root);
     this.list = list;
     this.placeDocked();
+    this.placeRail();
+    // Not pinned: a click outside the results and the field closes them.
+    // A drag in the view (a turn, a pan) keeps them open.
+    if (!this.pinned) {
+      let down = null;
+      this.outsideDown = (e) => {
+        down = this.root?.contains(e.target) || this.field.contains(e.target) ? null : { x: e.clientX, y: e.clientY };
+      };
+      this.outsideUp = (e) => {
+        if (down && Math.hypot(e.clientX - down.x, e.clientY - down.y) < 5) this.close();
+        down = null;
+      };
+      document.addEventListener("pointerdown", this.outsideDown, true);
+      document.addEventListener("pointerup", this.outsideUp, true);
+    }
     this.fill();
     if (focus) {
       this.input.focus();
@@ -354,6 +441,11 @@ export class SearchOverlay {
     this.field.classList.remove("open");
     this.fieldClose.hidden = true;
     window.removeEventListener("resize", this.onResize);
+    if (this.outsideDown) {
+      document.removeEventListener("pointerdown", this.outsideDown, true);
+      document.removeEventListener("pointerup", this.outsideUp, true);
+      this.outsideDown = this.outsideUp = null;
+    }
     if (had) this.input.blur();
     this.scope = null;
     this.root.remove();

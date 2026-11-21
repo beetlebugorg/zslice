@@ -1267,3 +1267,19 @@ button.icon.lc-close { min-height: 24px; min-width: 24px; padding: 0; margin: -3
   padding: 3px 6px; min-height: 26px; outline: none; font-variant-numeric: tabular-nums;
 }
 .pc-cut-n:focus, .label-text:focus, .label-card select:focus { border-color: var(--accent-bg); }
+/* The search pinned to the left or right rail of the view (search.js
+   places it): the height of the view, no drag. */
+.search-box.rail { max-height: none; border-radius: 12px; }
+.search-box.rail .search-list { flex: 1; min-height: 0; max-height: none; }
+.search-head.rail-head { cursor: default; padding-left: 14px; }
+.search-scope-row { align-items: center; }
+.search-pins { margin-left: auto; display: flex; gap: 2px; }
+.search-pin { flex: none; min-height: 26px; min-width: 26px; padding: 0; opacity: 0.7; }
+.search-pin:hover { opacity: 1; }
+/* In a rail the rows are narrow: the name goes on its own line, and the
+   controls under it, with the slider as wide as the row. */
+.search-box.rail .search-row { flex-wrap: wrap; row-gap: 4px; }
+.search-box.rail .search-label { flex: 1 1 100%; }
+.search-box.rail .search-controls { flex: 1 1 100%; }
+.search-box.rail .search-slider { flex: 1; width: auto; min-width: 0; }
+.search-box.rail .search-list { overflow-x: hidden; }
