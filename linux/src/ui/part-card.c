@@ -18,6 +18,7 @@
 #include <string.h>
 
 #include "float.h"
+#include "label-model.h"
 #include "preview.h"
 #include "setting-editor.h"
 #include "view3d.h"
@@ -25,7 +26,7 @@
 
 typedef struct {
     ZgModel *model;
-    GtkWidget *preview, *card, *title, *facts, *settings;
+    GtkWidget *preview, *card, *title, *facts, *settings, *labels;
     /* The popover of the cut: the height, the flip, and the pegs. */
     GtkWidget *cut_pop, *cut_z, *cut_flip, *cut_pegs, *cut_n, *cut_d;
     GtkWidget *make_n;
@@ -148,6 +149,57 @@ static void fill_settings(PartCard *c) {
     g_ptr_array_free(infos, TRUE);
 }
 
+static void on_label(GtkButton *b, gpointer data) {
+    PartCard *c = data;
+    if (c->part < 0) return;
+    zg_view3d_label_open(zg_preview_view3d(c->preview), c->part, (guint32)GPOINTER_TO_UINT(g_object_get_data(G_OBJECT(b), "zg-label")));
+}
+
+/* The labels of the part: a button for each, which selects it in the
+ * Label tool. */
+static void fill_labels(PartCard *c) {
+    GtkWidget *child;
+    while ((child = gtk_widget_get_first_child(c->labels))) gtk_box_remove(GTK_BOX(c->labels), child);
+    GPtrArray *list = NULL;
+    size_t len = 0;
+    zs_app *core = zg_model_core(c->model);
+    char small[2048];
+    if (c->part >= 0 && zs_app_part_labels_get(core, (size_t)c->part, small, sizeof small, &len) == ZS_OK && len > 2) {
+        if (len < sizeof small) list = zg_labels_parse(small, (gssize)len);
+        else {
+            char *buf = g_malloc(len + 1);
+            if (zs_app_part_labels_get(core, (size_t)c->part, buf, len + 1, &len) == ZS_OK) list = zg_labels_parse(buf, (gssize)len);
+            g_free(buf);
+        }
+    }
+    gtk_widget_set_visible(c->labels, list && list->len > 0);
+    if (list && list->len > 0) {
+        GtkWidget *head = gtk_label_new("Labels");
+        gtk_widget_add_css_class(head, "zg-card-heading");
+        gtk_label_set_xalign(GTK_LABEL(head), 0);
+        gtk_box_append(GTK_BOX(c->labels), head);
+    }
+    for (guint i = 0; list && i < list->len; i++) {
+        ZgLabel *l = g_ptr_array_index(list, i);
+        char *title = zg_label_title(l);
+        char *text = g_strdup_printf("%s · filament %d", title, l->filament);
+        GtkWidget *b = gtk_button_new();
+        GtkWidget *bl = gtk_label_new(text);
+        gtk_label_set_wrap(GTK_LABEL(bl), TRUE);
+        gtk_label_set_wrap_mode(GTK_LABEL(bl), PANGO_WRAP_WORD_CHAR);
+        gtk_label_set_xalign(GTK_LABEL(bl), 0);
+        gtk_button_set_child(GTK_BUTTON(b), bl);
+        gtk_widget_add_css_class(b, "flat");
+        gtk_widget_set_tooltip_text(b, "Select this label in the Label tool (L)");
+        g_object_set_data(G_OBJECT(b), "zg-label", GUINT_TO_POINTER(l->id));
+        g_signal_connect(b, "clicked", G_CALLBACK(on_label), c);
+        gtk_box_append(GTK_BOX(c->labels), b);
+        g_free(text);
+        g_free(title);
+    }
+    if (list) g_ptr_array_unref(list);
+}
+
 /* The facts of several parts: how many, and their extent on the bed. */
 static void update_many(PartCard *c, const gint64 *list, guint n) {
     double box[4] = {INFINITY, INFINITY, -INFINITY, -INFINITY};
@@ -181,6 +233,7 @@ static void refresh(PartCard *c) {
     else {
         update_facts(c, &p);
         fill_settings(c);
+        fill_labels(c);
     }
     place(c);
 }
@@ -211,6 +264,12 @@ static void on_tool_changed(ZgModel *model, gpointer data) {
 static void on_plate_changed(ZgModel *model, gpointer data) {
     PartCard *c = data;
     if (c->part >= 0 && gtk_widget_get_visible(c->card)) refresh(c);
+}
+
+/* A step of the history, an undo, or a redo: the labels can change. */
+static void on_undo_changed(ZgModel *model, gpointer data) {
+    PartCard *c = data;
+    if (c->part >= 0 && gtk_widget_get_visible(c->card)) fill_labels(c);
 }
 
 /* ---- the cut ---- */
@@ -510,6 +569,9 @@ GtkWidget *zg_part_card_new(ZgModel *model, GtkWidget *preview) {
     gtk_widget_set_margin_top(c->settings, 4);
     gtk_widget_set_visible(c->settings, FALSE);
     gtk_box_append(GTK_BOX(c->single), c->settings);
+    c->labels = gtk_box_new(GTK_ORIENTATION_VERTICAL, 2);
+    gtk_widget_set_visible(c->labels, FALSE);
+    gtk_box_append(GTK_BOX(c->single), c->labels);
     GtkWidget *add = gtk_button_new_with_label("+ Add a setting for this part");
     gtk_widget_add_css_class(add, "flat");
     gtk_widget_set_halign(add, GTK_ALIGN_START);
@@ -524,6 +586,7 @@ GtkWidget *zg_part_card_new(ZgModel *model, GtkWidget *preview) {
     g_signal_connect(model, "part-selected", G_CALLBACK(on_part_selected), c);
     g_signal_connect(model, "tool-changed", G_CALLBACK(on_tool_changed), c);
     g_signal_connect(model, "plate-changed", G_CALLBACK(on_plate_changed), c);
+    g_signal_connect(model, "undo-changed", G_CALLBACK(on_undo_changed), c);
     zg_view3d_on_frame(zg_preview_view3d(preview), c->card, place, c);
     return c->card;
 }

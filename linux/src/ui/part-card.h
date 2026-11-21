@@ -7,7 +7,9 @@
  *   and Remove (Delete);
  * - the settings that the part has of its own, each with a live editor
  *   and x to give it the value of the plate again;
- * - "+ Add a setting for this part": the search of the part (search.h).
+ * - "+ Add a setting for this part": the search of the part (search.h);
+ * - its labels (label-tool.h): a click on one selects it in the Label
+ *   tool.
  *
  * A change slices at once. The card follows the part when the camera
  * moves, until a drag of its head moves it.
