@@ -46,6 +46,7 @@ namespace
         L"<Grid xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation' Width='18' Height='18'>"
         L"<Path Data='M3.5 9.5l3.5 3.5 7.5-8.5' Stroke='{ThemeResource TextFillColorPrimaryBrush}' StrokeThickness='1.6' StrokeStartLineCap='Round' StrokeEndLineCap='Round' StrokeLineJoin='Round'/>"
         L"</Grid>";
+    wchar_t const check_tip[] = L"Check the print: overhangs with no support, bridges, shapes in the air, lines over the flow of the hot end, layers that cool too little, parts that can tip over";
 
     FrameworkElement LoadGlyph(wchar_t const *xaml)
     {
@@ -135,7 +136,8 @@ namespace winrt::ZSlice::implementation
 
         // The check of the print.
         Button check;
-        StyleStrip(check, L"Check the print", L"Check the print: overhangs with no support, bridges, shapes in the air, lines over the flow of the hot end, layers that cool too little, parts that can tip over", check_glyph);
+        check_button = check;
+        StyleStrip(check, L"Check the print", check_tip, check_glyph);
         check_flyout = Flyout{};
         check_flyout.Placement(Primitives::FlyoutPlacementMode::RightEdgeAlignedTop);
         ScrollViewer scroll;
@@ -147,7 +149,29 @@ namespace winrt::ZSlice::implementation
         check_flyout.Content(scroll);
         check_flyout.Opening([this](auto &&, auto &&) { FillCheck(); });
         check.Flyout(check_flyout);
-        ToolStrip().Children().Append(check);
+        // The count of the problems, on the corner of the button.
+        Grid check_host;
+        check_host.Children().Append(check);
+        check_count = Border{};
+        check_count.HorizontalAlignment(HorizontalAlignment::Right);
+        check_count.VerticalAlignment(VerticalAlignment::Top);
+        check_count.Margin(ThicknessHelper::FromLengths(0, 2, 2, 0));
+        check_count.MinWidth(14);
+        check_count.Height(14);
+        check_count.Padding(ThicknessHelper::FromLengths(3, 0, 3, 0));
+        check_count.CornerRadius(CornerRadiusHelper::FromUniformRadius(7));
+        check_count.Background(Media::SolidColorBrush(Windows::UI::Color{ 255, 0xD9, 0x77, 0x06 }));
+        check_count.IsHitTestVisible(false);
+        check_count.Visibility(Visibility::Collapsed);
+        check_count_text = TextBlock{};
+        check_count_text.FontSize(10);
+        check_count_text.LineHeight(14);
+        check_count_text.TextAlignment(TextAlignment::Center);
+        check_count_text.VerticalAlignment(VerticalAlignment::Center);
+        check_count_text.Foreground(Media::SolidColorBrush(Microsoft::UI::Colors::White()));
+        check_count.Child(check_count_text);
+        check_host.Children().Append(check_count);
+        ToolStrip().Children().Append(check_host);
 
         // The replay.
         replay_timer = queue.CreateTimer();
@@ -467,6 +491,16 @@ namespace winrt::ZSlice::implementation
     }
 
     // ---- the check ----
+
+    // The Check button and the badge of the print card show this count.
+    void MainWindow::ShowCheckCount(size_t count)
+    {
+        check_count_text.Text(std::to_wstring(count));
+        check_count.Visibility(count > 0 ? Visibility::Visible : Visibility::Collapsed);
+        std::wstring tip = count > 0 ? L"Check the print: " + std::to_wstring(count) + (count == 1 ? L" problem" : L" problems") + L" to look at"
+                                     : std::wstring(check_tip);
+        ToolTipService::SetToolTip(check_button, box_value(tip));
+    }
 
     void MainWindow::FillCheck()
     {

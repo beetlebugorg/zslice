@@ -296,6 +296,7 @@ namespace winrt::ZSlice::implementation
         void ShowGaps();
         bool GapClick(double x, double y);
         void FillCheck();
+        void ShowCheckCount(size_t count);
         void GoToIssue(zs_issue const &issue);
         void ToggleBed();
         // The Support tool (MainWindow.Support.cpp).
@@ -520,6 +521,9 @@ namespace winrt::ZSlice::implementation
         Microsoft::UI::Xaml::Controls::ToggleMenuFlyoutItem sim_item{ nullptr };
         Microsoft::UI::Xaml::Controls::Primitives::ToggleButton gaps_button{ nullptr };
         Microsoft::UI::Xaml::Controls::Flyout check_flyout{ nullptr };
+        Microsoft::UI::Xaml::Controls::Button check_button{ nullptr };
+        Microsoft::UI::Xaml::Controls::Border check_count{ nullptr };
+        Microsoft::UI::Xaml::Controls::TextBlock check_count_text{ nullptr };
         Microsoft::UI::Xaml::Controls::StackPanel check_list{ nullptr };
     };
 }
