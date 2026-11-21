@@ -747,3 +747,41 @@ The closest point of a triangle to a point: Christer Ericson, "Real-Time Collisi
 **Used in:** `src/paint.zig`
 
 **How zslice uses it:** The brush (which triangles a sphere touches), and the pick of a triangle under the pointer for the paint tool.
+
+### Marching squares and the regions of many labels
+
+```ref
+kind: paper
+source: Lorensen and Cline, Wu and Sullivan
+license: Published methods
+files: src/field.zig, src/paint_split.zig
+area: slicing
+summary: The borders between the labels of a grid: a point on each grid edge between two labels, a straight piece in a cell with two labels, and pieces to the center of a cell with more labels.
+```
+
+William E. Lorensen and Harvey E. Cline, "Marching Cubes: A High Resolution 3D Surface Construction Algorithm", SIGGRAPH 1987 (the patent US 4,710,876 ended in 2005); the 2D form is known as marching squares. For cells with more than two materials: Ziji Wu and John M. Sullivan, "Multiple material marching cubes algorithm", International Journal for Numerical Methods in Engineering 58 (2003), the idea of a point in the middle of a cell that all its materials share
+
+**License:** Published methods
+
+**Used in:** `src/field.zig`, `src/paint_split.zig`
+
+**How zslice uses it:** The regions of the filaments of a painted layer come from the labels of a grid: a border point on each grid edge where the two states are at the same distance, a straight piece in a cell with two labels, and pieces to the center of a cell with three or four labels. The regions of two labels then have no gap between them.
+
+### Distance fields: exact stamps, the chamfer distance, and the jump flood
+
+```ref
+kind: paper
+source: Borgefors, Rong and Tan, Hoff et al.
+license: Published methods
+files: src/field.zig
+area: slicing
+summary: The distance from each node of a grid to the nearest source: each source writes its exact distance to the nodes around it; a two-pass chamfer distance for a coarse test; the jump flood as the GPU form.
+```
+
+Gunilla Borgefors, "Distance transformations in digital images", Computer Vision, Graphics, and Image Processing 34 (1986): the two-pass chamfer distance. Kenneth E. Hoff III, Tim Culver, John Keyser, Ming Lin, and Dinesh Manocha, "Fast Computation of Generalized Voronoi Diagrams Using Graphics Hardware", SIGGRAPH 1999: each source draws its distance into a buffer, and the least value wins. Guodong Rong and Tiow-Seng Tan, "Jump Flooding in GPU with Applications to Voronoi Diagram and Distance Transform", I3D 2006: the same field in log n passes on a GPU
+
+**License:** Published methods
+
+**Used in:** `src/field.zig`
+
+**How zslice uses it:** `Field.stampSegment` writes the exact distance of each source to the nodes within a radius, and each node keeps the least value (the method of Hoff et al., on the CPU, a vector of nodes a step). `Field.chamfer` is the two-pass distance of Borgefors, for the test "is paint near this core". The jump flood is the plan for the same field on a GPU; zslice has no code of it.
