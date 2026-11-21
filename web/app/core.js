@@ -1118,6 +1118,9 @@ export class Core {
       case "mirror-x": return -x.zs_app_part_mirror(this.app, i, 0);
       case "mirror-y": return -x.zs_app_part_mirror(this.app, i, 1);
       case "remove": return -x.zs_app_part_remove(this.app, i);
+      // The print order of one part at a time: the new index.
+      case "earlier": return i > 0 && x.zs_app_part_reorder(this.app, i, i - 1) === 0 ? i - 1 : -14;
+      case "later": return x.zs_app_part_reorder(this.app, i, i + 1) === 0 ? i + 1 : -14;
       default: return -2;
     }
   }

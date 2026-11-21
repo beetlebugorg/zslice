@@ -93,7 +93,7 @@
 <p class="eyebrow">Everyday tasks</p>
 <h1><span class="num">10</span>Plates and files</h1>
 <p class="lede">Put the parts on more than one plate, and keep all plates in one project file.</p>
-<nav class="onpage"><b>On this page</b><ol><li><a href="#plates">Plates</a></li><li><a href="#save-and-open">Save and open</a></li><li><a href="#cura-projects">Cura projects</a></li><li><a href="#where-to-go-next">Where to go next</a></li></ol></nav><figure class="shot"><img src="../../img/plates.webp" alt="All plates in a row: the Benchy on plate 1 and the shelf on plate 2, each on its own bed" loading="lazy"><figcaption>All shows all plates in a row.</figcaption></figure>
+<nav class="onpage"><b>On this page</b><ol><li><a href="#plates">Plates</a></li><li><a href="#one-part-at-a-time">One part at a time</a></li><li><a href="#save-and-open">Save and open</a></li><li><a href="#cura-projects">Cura projects</a></li><li><a href="#where-to-go-next">Where to go next</a></li></ol></nav><figure class="shot"><img src="../../img/plates.webp" alt="All plates in a row: the Benchy on plate 1 and the shelf on plate 2, each on its own bed" loading="lazy"><figcaption>All shows all plates in a row.</figcaption></figure>
 <h2 id="plates">Plates</h2>
 <p>Each plate has its own parts, settings, support, and undo history. The dock has the plates:</p>
 <div class="table-wrap"><table><thead><tr><th>Button</th><th>What it does</th></tr></thead><tbody><tr><td>‹ and ›</td><td>The plate before, and the next plate. <code>[</code> and <code>]</code> do the same.</td></tr><tr><td><strong>All</strong> (Home)</td><td>Shows all plates in a row. F shows the active plate.</td></tr><tr><td><strong>+ Plate</strong></td><td>Adds an empty plate, with the settings of the active plate.</td></tr><tr><td><strong>×</strong></td><td>Removes the active plate. A plate with parts asks first.</td></tr></tbody></table></div>
@@ -101,6 +101,14 @@
 <p>An empty plate has a small <strong>Open a model</strong> button on the plate.</p>
 <p>All plates slice: the active plate first. With two plates or more, the print card gives the sums of all plates.</p>
 <p><strong>Make [10] in all</strong> on the card of a part makes copies until there are that many: on its plate while they fit, then on new plates.</p>
+<h2 id="one-part-at-a-time">One part at a time</h2>
+<p>Set <code>project.print_sequence</code> to <code>by_object</code> to print the parts of a plate one at a time. zslice prints one part from the bottom to the top, then the next part. A part that fails then stops only itself, and no strings go from one part to another.</p>
+<p>Between two parts, the head goes up over the parts that it printed, moves over the next part, and goes down to the bed. Each part starts with the fan off, as the first layer of a print.</p>
+<p>The parts print in the order of the plate list. The card of a part shows its place, for example <strong>Prints 2 of 3</strong>. Click <strong>Print earlier</strong> or <strong>Print later</strong> to move it in the list.</p>
+<p>The print head has a size. Two settings of the printer give it:</p>
+<ul><li><code>machine.clearance_radius</code>: the radius around the nozzle that the head, its fans, and its probe fill. <strong>Arrange the plate</strong> keeps the parts this far apart.</li><li><code>machine.clearance_height</code>: the height from the tip of the nozzle to the lowest part of the gantry. Only the last part can be higher.</li></ul>
+<p>The defaults are 40 mm. Measure your printer, or take the values of its profile in PrusaSlicer or OrcaSlicer. The Check lists two parts that are too near, and a part that is too high and does not print last, with their names. The Check uses the box of each part from above, so a round part can be nearer than the Check says.</p>
+<p>One part at a time has no prime tower. The layer slider and the replay show the parts in their order.</p>
 <h2 id="save-and-open">Save and open</h2>
 <ul><li><strong>Save project…</strong> (Ctrl+S, in the main menu) writes all plates into one 3MF file: the parts, their places, their settings, the support areas, and the edits of the lines.</li><li><strong>Open…</strong> (Ctrl+O) opens an STL, 3MF, OBJ, or STEP file (<code>.step</code>, <code>.stp</code>). An OBJ file has no unit: zslice reads it in mm. A STEP file from a CAD program becomes a mesh with chords within 0.01 mm of the true surface. zslice reads its solids, and not the places of the parts of an assembly. Another slicer opens a zslice 3MF as its first plate.</li><li>zslice opens the 3MF files of other slicers. Parts that touch in the file stay one part.</li></ul>
 <h2 id="cura-projects">Cura projects</h2>

@@ -68,9 +68,9 @@ required_nozzle_HRC | derived | machine.nozzle_type (a filament with fiber needs
 nozzle_volume | missing | the volume of the nozzle, for the flush of a filament change
 nozzle_height | missing | the height of the nozzle under the head, for one-at-a-time print order
 extruder_clearance_dist_to_rod | missing | the size of the head, for one-at-a-time print order
-extruder_clearance_height_to_rod | missing | the size of the head, for one-at-a-time print order
+extruder_clearance_height_to_rod | same | machine.clearance_height
 extruder_clearance_height_to_lid | missing | the size of the head, for one-at-a-time print order
-extruder_clearance_radius | missing | the size of the head, for one-at-a-time print order
+extruder_clearance_radius | same | machine.clearance_radius
 printer_structure | same | machine.kinematics
 gcode_flavor | same | machine.gcode_flavor
 auxiliary_fan | same | machine.part_fan_air (the simulation counts the air of all fans)
@@ -384,7 +384,7 @@ fuzzy_skin | derived | project.fuzzy_skin (external is outer_wall; no fuzzy skin
 fuzzy_skin_thickness | same | project.fuzzy_skin_thickness
 fuzzy_skin_point_distance | same | project.fuzzy_skin_point_distance
 fuzzy_skin_first_layer | derived | project.fuzzy_skin (the first layer stays smooth)
-print_sequence | missing | one part at a time
+print_sequence | same | project.print_sequence
 precise_z_height | derived | zslice cuts each layer at its middle and ends at the height of the part
 support_speed | same | project.support_speed
 support_interface_speed | same | project.support_interface_speed

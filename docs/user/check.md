@@ -13,7 +13,8 @@ Click **Check**, the last button of the tool strip. The list gives, the worst fi
 - a shape that starts in the air;
 - a line that needs more plastic than the hot end melts (`filament.max_flow`);
 - layers that print faster than `filament.min_layer_time`;
-- a layer with many retractions.
+- a layer with many retractions;
+- with one part at a time (`project.print_sequence = by_object`), two parts closer than the print head, and a part higher than the gantry that does not print last (see [One part at a time](plates.md#one-part-at-a-time)).
 
 Each issue says what it is, and which setting changes it. Click an issue: the view goes to its layer, and selects its line.
 

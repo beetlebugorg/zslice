@@ -45,6 +45,8 @@ pub const AnchorShape = enum { footprint, core };
 pub const SkinPattern = enum { lines, monotonic, concentric };
 /// Where the part goes on the bed. See `Project.placement`.
 pub const Placement = enum { auto, file, center };
+/// The order of the parts of a plate. See `Project.print_sequence`.
+pub const PrintSequence = enum { by_layer, by_object };
 
 /// Where the brim goes. See `Project.brim_location`.
 pub const BrimLocation = enum { outside, inside, everywhere };
@@ -286,6 +288,22 @@ pub const Machine = struct {
     /// on Klipper (it needs [exclude_object] in printer.cfg), and M486 on
     /// Marlin and RepRapFirmware. Off by default.
     label_objects: bool = false,
+
+    // Head clearance
+    /// The radius of a cylinder around the nozzle that holds the print
+    /// head (the hot end, the fan ducts, the probe), in mm. With
+    /// `project.print_sequence = by_object`, the parts keep this distance
+    /// from each other, so the head does not hit a part that it printed
+    /// before. As "extruder_clearance_radius" in PrusaSlicer and
+    /// OrcaSlicer.
+    clearance_radius: f64 = 40,
+    /// The height from the tip of the nozzle to the lowest part of the
+    /// gantry (the X axis rods or the frame of the head), in mm. With
+    /// `project.print_sequence = by_object`, only the last part can be
+    /// higher: the gantry passes over the parts before it. As
+    /// "extruder_clearance_height" in PrusaSlicer and
+    /// "extruder_clearance_height_to_rod" in OrcaSlicer.
+    clearance_height: f64 = 40,
     /// The text before the print. These variables are replaced:
     /// {nozzle_temp}, {first_layer_nozzle_temp}, {bed_temp}, {standby_temp},
     /// {layer_height}, {first_layer_height}, {first_layer_speed} (mm/s),
@@ -939,6 +957,15 @@ pub const Project = struct {
     /// file: always at the X and Y of the file. center: always at the
     /// center of the bed. The bottom of the part always goes to z = 0.
     placement: Placement = .auto,
+    /// The order of the parts of the plate. `by_layer`: each layer of all
+    /// parts, then the next layer. `by_object`: one part from the bottom
+    /// to the top, then the next part, in the order of the plate list.
+    /// Between the parts, the head goes up over the printed parts. The
+    /// parts must keep `machine.clearance_radius` from each other, and
+    /// only the last part can be higher than `machine.clearance_height`
+    /// (the Check lists each problem). A part that fails then stops only
+    /// itself, and a part has no strings to the others. No prime tower.
+    print_sequence: PrintSequence = .by_layer,
 
     // Experimental
     /// An experiment: a faster offset of the outlines. A closing corner
@@ -1438,6 +1465,8 @@ pub const limits = [_]struct { []const u8, f64, f64 }{
     .{ "machine.max_speed_x", 0, 2000 },
     .{ "machine.max_speed_y", 0, 2000 },
     .{ "machine.retract_length", 0, 20 },
+    .{ "machine.clearance_radius", 0, 500 },
+    .{ "machine.clearance_height", 0, 2000 },
     .{ "machine.retract_speed", 1, 200 },
     // filament
     .{ "filament.diameter", 1, 3.5 },
@@ -1719,6 +1748,7 @@ pub const plate_settings = [_][]const u8{
     "project.retract_layer_change",   "machine.travel_accel",       "project.skirt_loops",
     "project.skirt_distance",         "project.skirt_layers",       "project.brim_width",
     "project.brim_location",          "project.placement",          "project.flush_multiplier",
+    "project.print_sequence",
     "project.prime_tower",            "project.prime_tower_width",  "project.prime_tower_x",
     "project.prime_tower_y",          "project.flush_into_hidden",
 };

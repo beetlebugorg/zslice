@@ -230,6 +230,16 @@ The pictures of the print at the top of the G-code, for the screen of the printe
 
 Label each part in the G-code, so the printer can skip a part that fails and print the others: EXCLUDE_OBJECT_DEFINE, _START, and _END on Klipper (it needs [exclude_object] in printer.cfg), and M486 on Marlin and RepRapFirmware. Off by default.
 
+### Head clearance
+
+**`machine.clearance_radius`** (number). Default: `40`
+
+The radius of a cylinder around the nozzle that holds the print head (the hot end, the fan ducts, the probe), in mm. With `project.print_sequence = by_object`, the parts keep this distance from each other, so the head does not hit a part that it printed before. As "extruder_clearance_radius" in PrusaSlicer and OrcaSlicer.
+
+**`machine.clearance_height`** (number). Default: `40`
+
+The height from the tip of the nozzle to the lowest part of the gantry (the X axis rods or the frame of the head), in mm. With `project.print_sequence = by_object`, only the last part can be higher: the gantry passes over the parts before it. As "extruder_clearance_height" in PrusaSlicer and "extruder_clearance_height_to_rod" in OrcaSlicer.
+
 **`machine.start_gcode`** (text). Default: (multi-line text)
 
 ```gcode
@@ -865,6 +875,10 @@ Moves the outline of the first layer by this distance. A negative value compensa
 **`project.placement`** (one of: `auto`, `file`, `center`). Default: `auto`
 
 Where the part goes on the bed. auto: at the X and Y of the file if the part is fully on the bed there, else at the center of the bed; a model added to a plate with parts gets smart placement (its best orientation, then a free spot), and the parts on the plate stay. file: always at the X and Y of the file. center: always at the center of the bed. The bottom of the part always goes to z = 0.
+
+**`project.print_sequence`** (one of: `by_layer`, `by_object`). Default: `by_layer`
+
+The order of the parts of the plate. `by_layer`: each layer of all parts, then the next layer. `by_object`: one part from the bottom to the top, then the next part, in the order of the plate list. Between the parts, the head goes up over the printed parts. The parts must keep `machine.clearance_radius` from each other, and only the last part can be higher than `machine.clearance_height` (the Check lists each problem). A part that fails then stops only itself, and a part has no strings to the others. No prime tower.
 
 ### Experimental
 

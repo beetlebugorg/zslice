@@ -35,11 +35,22 @@
 //!    emitter prints it with its own speed and flow. The cooling, the fan,
 //!    the retraction, and the time of a level come from the plate.
 //!
+//! Sequential printing (`project.print_sequence = by_object`): steps 4
+//! and 5 make the levels of one part at a time, the parts in the order of
+//! their ids (the plate list). A part is all the instances with its id:
+//! the jobs of the filaments of a painted part print together. The first
+//! level of each part after the first has a lift: the z over all the
+//! parts before it, so the head goes up, over to the new part, and then
+//! down (see gcode.Emitter.paths). Such a plate has no prime tower and no
+//! move streams.
+//!
 //! A plate with one part and no settings of its own gives the same G-code
 //! as one job of its mesh: then the plan of a level is the plan of the
 //! job, with its own skirt and brim.
 //!
 //! References (see docs/references/papers-and-algorithms.md): the greedy nearest-neighbor order.
+//! Sequential printing: the head clearance model of PrusaSlicer and
+//! OrcaSlicer (see docs/references/prusaslicer.md).
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
@@ -146,6 +157,9 @@ pub const Group = struct {
     layer_level: []u32,
 };
 
+/// The top of a layer of a group (see `PlateJob.makeLevels`).
+const Top_ = struct { z: f64, group: u32, layer: u32 };
+
 /// One part on one level: its instance, and the layer of its job.
 pub const Entry = struct { instance: u32, layer: u32 };
 
@@ -157,7 +171,14 @@ pub const Level = struct {
     /// The parts of the level, in print order: entries[first..end].
     first: u32,
     end: u32,
+    /// Sequential printing: the z that the head goes up to before it goes
+    /// to this level (over the parts that it printed), or 0.
+    lift: f64 = 0,
 };
+
+/// The margin over the highest printed part for the travel to the next
+/// part in sequential printing (mm).
+pub const lift_margin = 2.0;
 
 pub const Options = struct {
     /// Overrides for z ranges (see settings.Override and Job.Options).
@@ -221,6 +242,8 @@ pub const PlateJob = struct {
     stream_support: []u64 = &.{},
     /// A hash of all inputs of the layer plans (see `planStamp`).
     stamp: u64 = 0,
+    /// The parts print one at a time (see the file comment).
+    sequential: bool = false,
     /// The filaments of the plate: slot 0 is the filament of the
     /// settings, then `Options.filaments`. One: no filament change.
     slots: []settings_mod.Filament = &.{},
@@ -336,10 +359,13 @@ pub const PlateJob = struct {
         }
         pj.groups = try groups.toOwnedSlice(gpa);
 
+        pj.sequential = settings.project.print_sequence == .by_object and !pj.single();
         try pj.makeLevels(settings, opts.overrides);
         try pj.makeOutline0();
         try pj.makeIslands();
-        if (opts.streams) |extra| {
+        // A sequential plate has no move streams: a stream starts where the
+        // level before it ends, and a lift moves the head between parts.
+        if (opts.streams) |extra| if (!pj.sequential) {
             pj.stamp = planStamp(settings, parts, opts.overrides, keys, boxes, extra);
             const old_streams: ?*PlateJob = if (opts.old) |o| (if (o.stamp == pj.stamp and o.streams.len == pj.levels.len) o else null) else null;
             if (old_streams) |o| {
@@ -358,7 +384,7 @@ pub const PlateJob = struct {
                 pj.stream_support = try gpa.alloc(u64, pj.levels.len);
                 @memset(pj.stream_support, 0);
             }
-        }
+        };
         return pj;
     }
 
@@ -440,18 +466,8 @@ pub const PlateJob = struct {
     /// settings of each level.
     fn makeLevels(self: *PlateJob, settings: Settings, overrides: []const settings_mod.Override) Error!void {
         const gpa = self.gpa;
-        const Top = struct { z: f64, group: u32, layer: u32 };
-        var tops: std.ArrayList(Top) = .empty;
+        var tops: std.ArrayList(Top_) = .empty;
         defer tops.deinit(gpa);
-        for (self.groups, 0..) |g, gi| for (g.job.layers, 0..) |l, li| {
-            try tops.append(gpa, .{ .z = l.z, .group = @intCast(gi), .layer = @intCast(li) });
-        };
-        std.mem.sort(Top, tops.items, {}, struct {
-            fn lt(_: void, x: Top, y: Top) bool {
-                if (x.z != y.z) return x.z < y.z;
-                return x.group < y.group;
-            }
-        }.lt);
         var levels: std.ArrayList(Level) = .empty;
         defer levels.deinit(gpa);
         var entries: std.ArrayList(Entry) = .empty;
@@ -464,14 +480,65 @@ pub const PlateJob = struct {
         defer gpa.free(done);
         var last: [2]f64 = self.instances[0].center;
         var tool: u32 = 0;
+        // The parts of each pass: all parts (by layer), or one part a pass
+        // (sequential), in the order of their ids.
+        const in_pass = try gpa.alloc(bool, self.instances.len);
+        defer gpa.free(in_pass);
+        const use_group = try gpa.alloc(bool, self.groups.len);
+        defer gpa.free(use_group);
+        var next_part: ?u32 = null;
+        if (self.sequential) {
+            for (self.instances) |inst| next_part = if (next_part) |p| @min(p, inst.part) else inst.part;
+        }
+        // The top of the parts that printed before (sequential).
+        var printed_top: f64 = 0;
+        while (true) {
+            const part = next_part;
+            for (self.instances, in_pass) |inst, *ip| ip.* = part == null or inst.part == part.?;
+            @memset(use_group, false);
+            for (self.instances, in_pass) |inst, ip| if (ip) {
+                use_group[inst.group] = true;
+            };
+            tops.clearRetainingCapacity();
+            for (self.groups, 0..) |g, gi| if (use_group[gi]) for (g.job.layers, 0..) |l, li| {
+                try tops.append(gpa, .{ .z = l.z, .group = @intCast(gi), .layer = @intCast(li) });
+            };
+            const pass_first = levels.items.len;
+            try self.levelsOf(tops.items, in_pass, at, done, &levels, &entries, &last, &tool);
+            if (part == null) break;
+            if (pass_first > 0 and pass_first < levels.items.len) levels.items[pass_first].lift = @min(printed_top + lift_margin, @max(settings.machine.max_height, printed_top));
+            for (levels.items[pass_first..]) |lv| printed_top = @max(printed_top, lv.z);
+            // The next part id.
+            var nxt: ?u32 = null;
+            for (self.instances) |inst| if (inst.part > part.?) {
+                nxt = if (nxt) |p| @min(p, inst.part) else inst.part;
+            };
+            next_part = nxt orelse break;
+        }
+        self.levels = try levels.toOwnedSlice(gpa);
+        self.entries = try entries.toOwnedSlice(gpa);
+        try self.levelSettings(settings, overrides);
+    }
+
+    /// The levels of the parts with `in_pass` from the layer tops `tops`
+    /// (step 4 and 5 of the file comment), after the levels so far.
+    fn levelsOf(self: *PlateJob, tops: []Top_, in_pass: []const bool, at: []?u32, done: []bool, levels: *std.ArrayList(Level), entries: *std.ArrayList(Entry), last: *[2]f64, tool: *u32) Error!void {
+        const gpa = self.gpa;
+        const Top = Top_;
+        std.mem.sort(Top, tops, {}, struct {
+            fn lt(_: void, x: Top, y: Top) bool {
+                if (x.z != y.z) return x.z < y.z;
+                return x.group < y.group;
+            }
+        }.lt);
         var k: usize = 0;
-        while (k < tops.items.len) {
-            const z = tops.items[k].z;
+        while (k < tops.len) {
+            const z = tops[k].z;
             @memset(at, null);
             var height: f64 = 0;
             const level: u32 = @intCast(levels.items.len);
-            while (k < tops.items.len and tops.items[k].z - z < z_eps) : (k += 1) {
-                const t = tops.items[k];
+            while (k < tops.len and tops[k].z - z < z_eps) : (k += 1) {
+                const t = tops[k];
                 at[t.group] = t.layer;
                 self.groups[t.group].layer_level[t.layer] = level;
                 height = @max(height, self.groups[t.group].job.layers[t.layer].height);
@@ -481,7 +548,7 @@ pub const PlateJob = struct {
             // first, so a level changes the filament at most once for
             // each filament on it.
             const first: u32 = @intCast(entries.items.len);
-            for (self.instances, done) |inst, *d| d.* = at[inst.group] == null;
+            for (self.instances, done, in_pass) |inst, *d, ip| d.* = !ip or at[inst.group] == null;
             while (true) {
                 var best: ?usize = null;
                 var best_d: f64 = std.math.inf(f64);
@@ -489,7 +556,7 @@ pub const PlateJob = struct {
                 for (self.instances, 0..) |inst, ii| {
                     if (done[ii]) continue;
                     const d = @import("geom.zig").hypot(inst.center[0] - last[0], inst.center[1] - last[1]);
-                    const same = self.toolAt(inst.group, at[inst.group].?) == tool;
+                    const same = self.toolAt(inst.group, at[inst.group].?) == tool.*;
                     if ((same and !best_same) or (same == best_same and d < best_d)) {
                         best_d = d;
                         best = ii;
@@ -498,16 +565,17 @@ pub const PlateJob = struct {
                 }
                 const ii = best orelse break;
                 done[ii] = true;
-                last = self.instances[ii].center;
-                tool = self.toolAt(self.instances[ii].group, at[self.instances[ii].group].?);
+                last.* = self.instances[ii].center;
+                tool.* = self.toolAt(self.instances[ii].group, at[self.instances[ii].group].?);
                 try entries.append(gpa, .{ .instance = @intCast(ii), .layer = at[self.instances[ii].group].? });
             }
             try levels.append(gpa, .{ .z = z, .height = height, .first = first, .end = @intCast(entries.items.len) });
         }
-        self.levels = try levels.toOwnedSlice(gpa);
-        self.entries = try entries.toOwnedSlice(gpa);
+    }
 
-        // The settings of each level, with the overrides that cover it.
+    /// The settings of each level, with the overrides that cover it.
+    fn levelSettings(self: *PlateJob, settings: Settings, overrides: []const settings_mod.Override) Error!void {
+        const gpa = self.gpa;
         if (self.single() or overrides.len == 0) return;
         self.level_set = try gpa.alloc(u16, self.levels.len);
         @memset(self.level_set, 0);
@@ -688,6 +756,9 @@ pub const PlateJob = struct {
     pub fn tower(self: *const PlateJob) ?@import("gcode.zig").Tower {
         const s = self.resolved.settings;
         if (s.machine.filament_change != .tool or !s.project.prime_tower) return null;
+        // A sequential plate: the levels of one part go down to the bed
+        // again, and a tower cannot rise with them.
+        if (self.sequential) return null;
         const p = s.project;
         const own_support = p.support != .off and (p.support_filament > 0 or p.support_interface_filament > 0) and self.slots.len > 1;
         const last = self.lastChange() orelse (if (own_support) self.levels.len -| 1 else return null);
@@ -940,6 +1011,8 @@ pub const PlateJob = struct {
         errdefer lp.deinit();
         lp.z = lv.z;
         lp.height = lv.height;
+        lp.lift = lv.lift;
+        if (self.sequential and lv.end > lv.first) lp.part_layer = self.entries[lv.first].layer;
         if (lp.paths.items.len == 0) lp.width = 0;
         // The band of the skirt and the brim of the plate: the support of
         // each part keeps out of it (see layer.ringBand).
@@ -2050,6 +2123,56 @@ test "plate job: parts with layer heights 0.1 and 0.2 merge by z" {
         if (part == 1 and p.feature == .outer_wall) try testing.expectApproxEqAbs(@as(f32, 0.2), p.height, 1e-4);
         if (part == 0 and p.feature == .outer_wall) try testing.expectApproxEqAbs(@as(f32, 0.1), p.height, 1e-4);
     }
+}
+
+test "plate job: one part at a time" {
+    const gpa = testing.allocator;
+    var m1 = try testBox(0, 0, 20, 20, 3);
+    defer m1.deinit(gpa);
+    var m2 = try testBox(60, 0, 80, 20, 5);
+    defer m2.deinit(gpa);
+    var s: Settings = .{};
+    s.engine.threads = 2;
+    s.project.placement = .file;
+    s.project.print_sequence = .by_object;
+    // The higher part first in the list: it prints first.
+    const parts = [_]PartInput{
+        .{ .mesh = &m2, .part = 0, .name = "tall" },
+        .{ .mesh = &m1, .part = 1, .name = "short" },
+    };
+    var pj = try PlateJob.init(gpa, s, &parts, .{ .streams = 1 });
+    defer pj.deinit();
+    try testing.expect(pj.sequential);
+    try testing.expectEqual(@as(usize, 0), pj.streams.len);
+    const n0 = pj.jobOf(0).?.layers.len;
+    const n1 = pj.jobOf(1).?.layers.len;
+    try testing.expectEqual(n0 + n1, pj.layerCount());
+    // Each level has one part: all of part 0, then all of part 1.
+    for (pj.levels, 0..) |lv, i| {
+        try testing.expectEqual(@as(u32, 1), lv.end - lv.first);
+        const inst = pj.instances[pj.entries[lv.first].instance];
+        try testing.expectEqual(@as(u32, if (i < n0) 0 else 1), inst.part);
+        try testing.expectEqual(i == n0, lv.lift > 0);
+    }
+    // The lift is over the top of the first part.
+    try testing.expectApproxEqAbs(pj.levels[n0 - 1].z + lift_margin, pj.levels[n0].lift, 1e-9);
+    const g = try gcodeOf(&pj);
+    defer gpa.free(g);
+    // The head goes up over the first part, over to the second, and down.
+    const at = std.mem.indexOf(u8, g, " ; over the printed parts\n") orelse return error.TestUnexpectedResult;
+    var buf: [32]u8 = undefined;
+    const layer = std.mem.indexOf(u8, g, try std.fmt.bufPrint(&buf, ";LAYER:{d}\n", .{n0})).?;
+    try testing.expect(at > layer);
+    // The first layer of the second part has the fan off, as the first
+    // layer of the print.
+    const next = std.mem.indexOfPos(u8, g, at, ";LAYER:").?;
+    try testing.expect(std.mem.indexOf(u8, g[at..next], "M106") == null);
+    // By layer, the same plate prints both parts on each level.
+    s.project.print_sequence = .by_layer;
+    var pj2 = try PlateJob.init(gpa, s, &parts, .{});
+    defer pj2.deinit();
+    try testing.expect(!pj2.sequential);
+    try testing.expectEqual(@max(n0, n1), pj2.layerCount());
 }
 
 test "plate job: copies slice once" {

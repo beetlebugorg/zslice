@@ -2456,6 +2456,13 @@ void zg_model_part_remove(ZgModel *self, size_t i) {
     plate_changed(self);
 }
 
+gboolean zg_model_part_reorder(ZgModel *self, size_t i, size_t to) {
+    zg_model_fall_cancel(self);
+    if (zs_app_part_reorder(self->core, i, to) != ZS_OK) return FALSE;
+    plate_changed(self);
+    return TRUE;
+}
+
 gboolean zg_model_plate_arrange(ZgModel *self) {
     int ok = zs_app_plate_arrange(self->core);
     plate_changed(self);

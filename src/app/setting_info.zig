@@ -250,6 +250,8 @@ const units = [_][2][]const u8{
     .{ "machine.max_speed_x", "mm/s" },
     .{ "machine.max_speed_y", "mm/s" },
     .{ "machine.retract_length", "mm" },
+    .{ "machine.clearance_radius", "mm" },
+    .{ "machine.clearance_height", "mm" },
     .{ "machine.retract_speed", "mm/s" },
     .{ "machine.change_time", "s" },
     .{ "machine.nozzles", "nozzles" },
@@ -405,6 +407,8 @@ const sliders = [_]struct { []const u8, f64, f64, f64 }{
     .{ "machine.max_speed_x", 0, 1000, 10 },
     .{ "machine.max_speed_y", 0, 1000, 10 },
     .{ "machine.retract_length", 0, 8, 0.1 },
+    .{ "machine.clearance_radius", 5, 100, 1 },
+    .{ "machine.clearance_height", 5, 300, 1 },
     .{ "machine.retract_speed", 10, 80, 5 },
     // filament
     .{ "filament.nozzle_temp", 160, 300, 5 },

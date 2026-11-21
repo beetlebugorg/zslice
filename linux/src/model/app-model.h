@@ -103,6 +103,9 @@ gboolean zg_model_plate_switching(ZgModel *self);
 void zg_model_plate_add(ZgModel *self);
 void zg_model_plate_remove(ZgModel *self, size_t i);
 void zg_model_part_remove(ZgModel *self, size_t i);
+/* Moves part i to place `to` of the plate list: the print order of one
+ * part at a time (zs_app_part_reorder). FALSE if it did not move. */
+gboolean zg_model_part_reorder(ZgModel *self, size_t i, size_t to);
 /* A copy of part i at a free place on the bed, with its settings (see
  * zs_app_part_duplicate). Returns the index of the copy, or -1. */
 gint64 zg_model_part_duplicate(ZgModel *self, size_t i);

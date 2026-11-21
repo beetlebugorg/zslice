@@ -75,6 +75,9 @@ const mark_settings = [_]struct { []const u8, u32 }{
 const preview_notes = [_]struct { []const u8, [:0]const u8 }{
     .{ "project.fast_offsets", "An experiment for a faster slice: the lines stay where they are, within about a micrometer, except a thin piece of skin or fill that can come or go." },
     .{ "machine.name", "The name of the printer, for the profiles and the start G-code." },
+    .{ "machine.clearance_radius", "One part at a time: the distance that Arrange keeps between the parts, and the Check of the parts that are too near. The lines do not move." },
+    .{ "machine.clearance_height", "One part at a time: the Check of a part that is higher and does not print last. The lines do not move." },
+    .{ "project.print_sequence", "The order of the lines: one part from the bottom to the top, then the next. The layer slider and the replay show it. The lines of each part do not change." },
     .{ "project.support_min_ledge", "The small ledges with no support under them, such as embossed letters: the support lines there come or go." },
     .{ "machine.model", "The printer model: the 3D view shows its bed. The lines do not move." },
     .{ "machine.max_height", "A check: a part higher than this does not slice." },

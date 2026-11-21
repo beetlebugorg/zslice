@@ -439,6 +439,9 @@ const table = [_]Map{
     .{ .key = "initial_layer_travel_speed", .name = "machine.first_layer_travel_speed", .conv = .mm_s, .of = "travel_speed" },
     .{ .key = "travel_speed_z", .name = "machine.max_z_speed" },
     .{ .key = "chamber_temperature", .name = "machine.chamber_temp" },
+    .{ .key = "extruder_clearance_radius", .name = "machine.clearance_radius" },
+    .{ .key = "extruder_clearance_height", .name = "machine.clearance_height" },
+    .{ .key = "extruder_clearance_height_to_rod", .name = "machine.clearance_height" },
     .{ .key = "gcode_label_objects", .name = "machine.label_objects", .conv = .choice, .choices = "1=true,0=false,true=true,false=false,firmware=true,octoprint=true,disabled=false" },
 
     // The filament.
@@ -567,6 +570,9 @@ const table = [_]Map{
     .{ .key = "support_interface_top_layers", .name = "project.support_interface_layers", .conv = .count },
     .{ .key = "support_material_interface_spacing", .name = "project.support_interface_density", .conv = .spacing },
     .{ .key = "support_interface_spacing", .name = "project.support_interface_density", .conv = .spacing },
+    // The order of the parts.
+    .{ .key = "complete_objects", .name = "project.print_sequence", .conv = .choice, .choices = "1=by_object,0=by_layer" },
+    .{ .key = "print_sequence", .name = "project.print_sequence", .conv = .choice, .choices = "by layer=by_layer,by object=by_object" },
     // The skirt and the brim.
     .{ .key = "skirts", .name = "project.skirt_loops", .conv = .count },
     .{ .key = "skirt_loops", .name = "project.skirt_loops", .conv = .count },
@@ -1040,6 +1046,7 @@ test "a PrusaSlicer config: percentages, speeds, layers, and the unused keys" {
         \\seam_position = aligned
         \\start_gcode = G28 ; home\nG1 Z5
         \\complete_objects = 0
+        \\avoid_crossing_curled_overhangs = 0
         \\
     ;
     const base: Settings = .{};
@@ -1070,7 +1077,8 @@ test "a PrusaSlicer config: percentages, speeds, layers, and the unused keys" {
     try testing.expectEqualStrings("210", valueOf(r, "machine.bed_size_y").?);
     try testing.expectEqualStrings("hidden", valueOf(r, "project.seam").?);
     try testing.expectEqualStrings("G28 ; home\nG1 Z5", valueOf(r, "machine.start_gcode").?);
-    try testing.expectEqual(Row.Kind.unused, rowOf(r, "complete_objects").?.kind);
+    try testing.expectEqualStrings("by_layer", valueOf(r, "project.print_sequence").?);
+    try testing.expectEqual(Row.Kind.unused, rowOf(r, "avoid_crossing_curled_overhangs").?.kind);
     // Each change loads.
     var s = base;
     for (r.changes) |ch| try s.set(ch.name, ch.value);
@@ -1079,7 +1087,7 @@ test "a PrusaSlicer config: percentages, speeds, layers, and the unused keys" {
     try r.writeReport(&aw.writer);
     try testing.expect(std.mem.startsWith(u8, aw.written(), "format\tPrusaSlicer config\n"));
     try testing.expect(std.mem.indexOf(u8, aw.written(), "clamp\tinfill_speed\t200\tproject.infill_speed\t1\t1.3333\n") != null);
-    try testing.expect(std.mem.indexOf(u8, aw.written(), "unused\tcomplete_objects\t0\tzslice has no such setting\n") != null);
+    try testing.expect(std.mem.indexOf(u8, aw.written(), "unused\tavoid_crossing_curled_overhangs\t0\tzslice has no such setting\n") != null);
 }
 
 test "an OrcaSlicer preset: lists, a printer speed limit as the base, and the plate temperature" {
