@@ -120,15 +120,19 @@ How the motors move the head, for the time estimate. `cartesian`: a motor for X 
 
 **`machine.max_accel_x`** (number). Default: `0`
 
-The acceleration limits of the X and Y axes (of the motors A and B on a CoreXY with Marlin), in mm/s², as the firmware has them (M201 X Y). A bed slinger has a lower Y. 0: `max_accel`. Klipper has one limit for all directions: leave them at 0.
+The acceleration limit of the X axis (of motor A on a CoreXY with Marlin), in mm/s², as the firmware has it (M201 X). 0: `max_accel`. Klipper has one limit for all directions: leave it at 0.
 
 **`machine.max_accel_y`** (number). Default: `0`
 
+The acceleration limit of the Y axis (of motor B on a CoreXY with Marlin), in mm/s² (M201 Y). A bed slinger moves the bed on Y and has a lower limit. 0: `max_accel`.
+
 **`machine.max_speed_x`** (number). Default: `0`
 
-The speed limits of the X and Y axes (M203 X Y), in mm/s. 0: `max_speed`.
+The speed limit of the X axis (M203 X), in mm/s. 0: `max_speed`.
 
 **`machine.max_speed_y`** (number). Default: `0`
+
+The speed limit of the Y axis (M203 Y), in mm/s. 0: `max_speed`.
 
 **`machine.accel_control`** (true or false). Default: `false`
 

@@ -151,11 +151,13 @@
 <p><strong><code>machine.kinematics</code></strong> (one of: <code>cartesian</code>, <code>corexy</code>). Default: <code>cartesian</code></p>
 <p>How the motors move the head, for the time estimate. <code>cartesian</code>: a motor for X and one for Y (also a bed slinger, which moves the bed on Y). <code>corexy</code>: two motors, A = X + Y and B = X - Y, both on the frame. With per-axis limits (<code>max_accel_x</code> and the others) and Marlin, the limits of a CoreXY apply to its motors: a diagonal move turns one motor at 1.41 times the speed of the head.</p>
 <p><strong><code>machine.max_accel_x</code></strong> (number). Default: <code>0</code></p>
-<p>The acceleration limits of the X and Y axes (of the motors A and B on a CoreXY with Marlin), in mm/s², as the firmware has them (M201 X Y). A bed slinger has a lower Y. 0: <code>max_accel</code>. Klipper has one limit for all directions: leave them at 0.</p>
+<p>The acceleration limit of the X axis (of motor A on a CoreXY with Marlin), in mm/s², as the firmware has it (M201 X). 0: <code>max_accel</code>. Klipper has one limit for all directions: leave it at 0.</p>
 <p><strong><code>machine.max_accel_y</code></strong> (number). Default: <code>0</code></p>
+<p>The acceleration limit of the Y axis (of motor B on a CoreXY with Marlin), in mm/s² (M201 Y). A bed slinger moves the bed on Y and has a lower limit. 0: <code>max_accel</code>.</p>
 <p><strong><code>machine.max_speed_x</code></strong> (number). Default: <code>0</code></p>
-<p>The speed limits of the X and Y axes (M203 X Y), in mm/s. 0: <code>max_speed</code>.</p>
+<p>The speed limit of the X axis (M203 X), in mm/s. 0: <code>max_speed</code>.</p>
 <p><strong><code>machine.max_speed_y</code></strong> (number). Default: <code>0</code></p>
+<p>The speed limit of the Y axis (M203 Y), in mm/s. 0: <code>max_speed</code>.</p>
 <p><strong><code>machine.accel_control</code></strong> (true or false). Default: <code>false</code></p>
 <p>Write acceleration commands in the G-code: the acceleration of each feature (<code>outer_wall_accel</code> and the others), and the corner speed at the start. Off: the printer uses its own values; the time estimate still uses <code>max_accel</code> and <code>corner_speed</code>.</p>
 <p><strong><code>machine.gcode_flavor</code></strong> (one of: <code>marlin</code>, <code>klipper</code>, <code>reprap</code>, <code>repetier</code>). Default: <code>marlin</code></p>
