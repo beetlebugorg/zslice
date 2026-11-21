@@ -46,8 +46,6 @@ The button in the top bar has a dot for each filament of the plate. Click it to 
 - Pick the material of each filament. A printer with two nozzles also has a nozzle for each filament.
 - The grams of each filament show after the slice.
 
-The list does not read the spools of a printer yet.
-
 ## Paint
 
 Press **P**. The view shows the mesh of the selected part, or of the first part. Ctrl and a click paints another part. A right drag turns the view.
@@ -104,3 +102,41 @@ Ctrl+C, Ctrl+X, Ctrl+V, and Ctrl+D copy, cut, paste, and duplicate the selected 
 ## The 2D view
 
 Press 2, or choose **2D view** in the main menu, to see the top layer from above. Press 2 again or 3 to go back. A drag pans the layer, the wheel or a pinch zooms it, and a double click fits it. A click selects a line. A tool other than Select goes back to the 3D view.
+
+## Set up a printer
+
+At the first start, the app asks for your printer. Type a part of its name, or pick a brand, then click **Next**. Check the name, the nozzle, the filament, and the size. Set the connection, and click **Add printer**.
+
+The top bar has the setup of the plate:
+
+- **The printer menu** switches the printer. It also has **Printer settings and G-code…**, **Manage printers…**, **Connect a printdeck…**, and **Add a printer…**.
+- **The filament menu** has a color and a material for each filament. For a printdeck printer, **Use the filaments of** reads the spools that the printer has loaded.
+- **The quality menu** lists each quality with its main points.
+
+## Connect a printer
+
+| Connection | What you need |
+|---|---|
+| printdeck | The address. Tap **Allow** on its screen. |
+| OctoPrint | The address, and **Allow** in its web page, or an API key. |
+| PrusaLink | The address and its API key. |
+| Moonraker (Klipper) | The address. |
+| Bambu Lab (LAN mode) | The IP address, the serial number, and the access code. |
+
+The picker finds printers on your network. **Printers** in the top bar shows a card for each printer: its state, its job, its temperatures, its roll, and its camera.
+
+The app reads a Bambu Lab printer and sends it nothing. It shows the JPEG camera of a P1 or an A1. It does not show the H.264 camera of an X1, H2, P2S, or X2D yet.
+
+## Send and export
+
+The **Send** menu has:
+
+- **Upload to** the printer, and **Send all plates**.
+- **Export G-code…** and **Export all plates…**.
+- **Save the plate as 3MF…** and **Save project…**.
+
+**The Windows app never starts a print.** It uploads the file, and you start the print on the printer.
+
+## Where your settings are
+
+Your printers and profiles are in `%APPDATA%\zslice`. API keys and access codes are encrypted for your Windows account. They are never in a file in plain text.

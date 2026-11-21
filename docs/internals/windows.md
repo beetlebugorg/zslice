@@ -48,6 +48,12 @@ A build with `-p:ZsDevHooks=true` reads `ZSLICE_DO`: steps with `;` between them
 | `src/app/MainWindow.DevHooks.cpp` | The test hooks, in a build with `ZsDevHooks`. |
 | `src/app/App` | The start of the app, and `ZSLICE_LOG`. |
 | `src/app/winrt_glue.cpp` | Compiles the generated XAML files, which a command-line build does not register. |
+| `src/app/MainWindow.Printers` | The setup group of the top bar, the panels over the window, and the pairing. |
+| `src/app/MainWindow.Picker.cpp` | The printer picker. |
+| `src/app/MainWindow.Farm.cpp` | The Printers page and the list of the printers of the user. |
+| `src/app/MainWindow.Send.cpp` | Send, export, the plate as 3MF, the project, and all plates. |
+| `src/prefs/` | The state folder, the saved printers, the secrets, and the setup of a plate. It has no WinRT. |
+| `src/net/` | HTTP (WinHTTP), TLS (Schannel), the printer links, the search, Bambu Lab, and the cameras. It has no WinRT. |
 
 - The core events come on the slice threads. The model posts each one to the UI thread through the `DispatcherQueue`.
 - The view draws only after a change. `ZS_BUSY` means that the compositor holds the frame before, and a timer draws again 8 ms later.
@@ -58,6 +64,27 @@ A build with `-p:ZsDevHooks=true` reads `ZSLICE_DO`: steps with `;` between them
 - The Label tool keeps a copy of the labels of one part. An edit shows at once, and goes to the core 400 ms after the last change or at the end of a drag, so it is one step of the history.
 - The state of Paint, Label, and the filaments is in structs inside their `.cpp` files. `MainWindow.xaml.h` has only a pointer to each and the calls that other files need. Their cards are built in code, so `MainWindow.xaml` has only the filament button.
 - The Support tool keeps a copy of the areas and the trees. It reads them again after a load of the view, an undo, and a switch of the plate. During a drag the copy leads, and the slices wait for the release. A drag of a tree sends its edit at most each 60 ms, and slices at most each 150 ms.
+
+## Printers
+
+- **No print starts.** `zs::link::Upload` always sends `print=false`, and it has no parameter for it. The Bambu Lab link sends no PUBLISH.
+- **Secrets.** `src/prefs/zs_state` encrypts API keys, access codes, and the signing key with DPAPI (`CryptProtectData`) for the Windows user. `app.ini` has no secret.
+- **Redirects and proxies.** A request follows no redirect and uses no proxy, so a key cannot go to another host. A camera at another origin gets no key.
+- **Certificates.** An https printer is pinned as in the GTK shell. A Bambu Lab printer is pinned at the first connection: on another certificate, the TLS client closes before it sends the access code.
+- **Threads.** Network calls block on worker threads. A worker posts its result to the UI thread through `PrintersUi::Poster`.
+
+These variables change a run, for tests:
+
+| Variable | Effect |
+|---|---|
+| `ZSLICE_STATE_DIR=dir` | Keeps the state in `dir`, not in `%APPDATA%\zslice`. The printer search then stays off the network. |
+| `ZSLICE_DISCOVERY` | `off`, `network`, or `127.0.0.1:<port>` (a stub on the loopback address). |
+| `ZSLICE_SAVE_DIR=dir` | Skips the save dialogs, and writes the files to `dir`. |
+| `ZSLICE_PLATES=file;file` | Adds a plate for each file, one each 1.5 s, then goes back to plate 1. |
+| `ZSLICE_BAMBU_MQTT_PORT`, `ZSLICE_BAMBU_JPEG_PORT` | Move the ports of a Bambu Lab printer, for a stub. |
+| `ZSLICE_PRINTER=id` | Starts on a printer of the library, with no picker. |
+
+`windows/test/net_link.cpp` tests the links against stub servers on 127.0.0.1: HTTP, canned mDNS and SSDP packets, and a TLS server with a self-signed certificate. It contacts no real printer.
 
 ## Build the core
 
@@ -77,6 +104,7 @@ pwsh windows/build-tests.ps1 -Platform ARM64
 - **`build-tests.ps1`** compiles the programs in `windows/test` with MSVC, links the core, and runs them.
   - `core_link.c` opens a G-code file by a UTF-8 path with characters outside the ANSI code page.
   - `view_offscreen.c` draws a model with Direct3D 12, reads the frame, and checks its pixels, also after a resize. Set `ZSLICE_WARP=1` to run it on the software rasterizer.
+  - `net_link.cpp` tests the printer connections, the saved printers, and the setup of a plate.
 
 To link an ARM64 program, Visual Studio needs the component "MSVC ARM64 build tools" (`Microsoft.VisualStudio.Component.VC.Tools.ARM64`). The core itself compiles without it. An x64 machine builds the ARM64 test programs and does not run them.
 
