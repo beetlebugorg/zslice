@@ -103,6 +103,7 @@ ZIG=/path/to/zig-0.16/zig ./build-core.sh
 open build/zslice.app</code></pre>
 <p>Open an STL, 3MF, STEP (.step, .stp), or OBJ file in one of these ways:</p>
 <ul><li>File &gt; Open (Command-O), or File &gt; Open Recent.</li><li>Drop the file on the icon of the app.</li></ul>
+<p>An "Open in slicer" link of a model site (<code>zslice://open?file=…</code>) opens zslice too. zslice asks first, with the name of the file and the site; Cancel is the default. After a yes it downloads the model and opens it on a new plate. A link never starts a print, and it does not open a zslice project or a file from a device on your network.</p>
 <p>Each file opens in a window. A window can be a tab of another window (Window &gt; Merge All Windows). File &gt; New (Command-N) opens an empty window.</p>
 <h2 id="the-window">The window</h2>
 <p>The 3D view fills the window. The controls float over it, so the slice has the room.</p>
