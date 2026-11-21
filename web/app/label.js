@@ -646,16 +646,27 @@ export class LabelTool {
       label = withAngle({ ...src, origin: at.origin, normal: at.normal, right: at.right }, angleOf(src));
       this.curve = at.curve;
     } else {
-      // Under the label of the copy: its height and 1 mm lower, on the
-      // surface again (a ray in along the normal).
+      // Under the label of the copy (its height and 1 mm lower), else over
+      // it, on the surface again: a ray in along the normal. Only a face
+      // over the bed (z ≥ 0) takes it; else no label (a label at the foot
+      // of a part went below the bed, in the air).
       const o = this.outline(src);
       const h = o ? o.box[3] - o.box[1] : 5;
-      const down = add(src.origin, upOf(src), -(h + 1));
-      label = { ...src, origin: down };
       const s = await this.session(index);
-      const from = add(down, src.normal, 5);
-      const p = s ? placeAt(this.w, s, [...from, ...src.normal.map((v) => -v)]) : null;
-      if (p) label = moved(label, p.origin, p.normal);
+      label = null;
+      for (const k of [-(h + 1), h + 1]) {
+        const start = add(src.origin, upOf(src), k);
+        const from = add(start, src.normal, 5);
+        const p = s ? placeAt(this.w, s, [...from, ...src.normal.map((v) => -v)]) : null;
+        if (p && p.origin[2] >= 0) {
+          label = moved({ ...src, origin: start }, p.origin, p.normal);
+          break;
+        }
+      }
+      if (!label) {
+        this.ctx.toast("The label does not fit here. Point at a face of the part, then paste.");
+        return false;
+      }
     }
     const res = await this.ctx.client.call("labelAdd", { index, label });
     if (!(res.id >= 0)) {

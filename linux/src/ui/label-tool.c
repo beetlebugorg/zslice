@@ -715,16 +715,33 @@ gboolean zg_label_tool_paste(ZgLabelTool *t, const char *json, gboolean at_point
             o->key = key;
             outline_free(o);
         } else g_free(key);
-        double up[3], from[3];
+        /* Under the label of the copy (its height and 1 mm lower), else
+         * over it, on the surface again: a ray in along the normal. Only a
+         * face over the bed (z >= 0) takes it; else no label (a label at
+         * the foot of a part went below the bed, in the air). */
+        double up[3], start[3], from[3];
         zg_label_up(l, up);
-        for (int k = 0; k < 3; k++) {
-            l->origin[k] -= up[k] * (h + 1);
-            from[k] = l->origin[k] + 5 * l->normal[k];
-        }
         zs_paint *s = session(t, index);
-        float r[6] = {(float)from[0], (float)from[1], (float)from[2], (float)-l->normal[0], (float)-l->normal[1], (float)-l->normal[2]};
-        double out[10];
-        if (s && zs_label_place(s, r, 5, out) == 1) zg_label_move(l, out, out + 3);
+        gboolean found = FALSE;
+        for (int side = 0; side < 2 && !found; side++) {
+            double k = side == 0 ? -(h + 1) : h + 1;
+            for (int i = 0; i < 3; i++) {
+                start[i] = l->origin[i] + up[i] * k;
+                from[i] = start[i] + 5 * l->normal[i];
+            }
+            float r[6] = {(float)from[0], (float)from[1], (float)from[2], (float)-l->normal[0], (float)-l->normal[1], (float)-l->normal[2]};
+            double out[10];
+            if (s && zs_label_place(s, r, 5, out) == 1 && out[2] >= 0) {
+                memcpy(l->origin, start, sizeof l->origin);
+                zg_label_move(l, out, out + 3);
+                found = TRUE;
+            }
+        }
+        if (!found) {
+            zg_label_free(l);
+            toast(t, "The label does not fit here. Point at a face of the part, then paste.");
+            return FALSE;
+        }
     }
     char *text = zg_label_json(l, FALSE);
     zg_label_free(l);
