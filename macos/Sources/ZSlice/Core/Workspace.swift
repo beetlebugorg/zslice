@@ -2178,6 +2178,12 @@ final class Workspace {
         if let path = ProcessInfo.processInfo.environment["ZSLICE_GZIP"], let g = model.gcode(), let gz = Gzip.compress(g) {
             try? gz.write(to: URL(fileURLWithPath: path))
         }
+        // ZSLICE_BAMBU_OUT=folder: the .gcode.3mf of each slice of a Bambu
+        // Lab plate, as a send builds it, named after the G-code.
+        if let dir = ProcessInfo.processInfo.environment["ZSLICE_BAMBU_OUT"], model.setting("machine.model").hasPrefix("bambu-lab"),
+           let g = model.gcode(), let file = bambuFile(Signer.sign(g), title: model.gcodeName(), plate: model.active) {
+            try? file.write(to: URL(fileURLWithPath: dir).appendingPathComponent(model.gcodeName() + ".gcode.3mf"))
+        }
         printerEstimate = nil
         guard let p = connectedPrinter, p.kind == .printdeck, let g = model.gcode() else { return }
         Task { @MainActor [weak self] in
