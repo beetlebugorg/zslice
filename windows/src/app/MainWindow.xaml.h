@@ -154,7 +154,18 @@ namespace winrt::ZSlice::implementation
         void RefreshSettingValues();
         void NoteChange();
         void RefreshHistoryButtons();
-        void FillHistoryMenu();
+        // The hover card and the list of the history (MainWindow.History.cpp).
+        void WireHistory();
+        void GoToStep(size_t step);
+        void ClearHistoryAfter(size_t step);
+        void ShowStepMenu(Microsoft::UI::Xaml::FrameworkElement const &target, Windows::Foundation::Point at, size_t step);
+        void HoverMark(Microsoft::UI::Xaml::FrameworkElement const &mark, size_t step);
+        void LeaveHistoryCard();
+        void CloseHistoryCard();
+        void ShowHistoryCard(Microsoft::UI::Xaml::FrameworkElement const &mark, size_t step);
+        void RefreshHistoryValues();
+        void FillHistoryList();
+        void RevertChange(std::string const &line);
         void AfterRestore(int bits);
 
         // Tools and cards (MainWindow.Tools.cpp, MainWindow.Cards.cpp).
@@ -449,6 +460,13 @@ namespace winrt::ZSlice::implementation
         std::wstring settings_query;
         // True while the code fills an editor: its change event is no edit.
         bool filling_editor = false;
+
+        Microsoft::UI::Dispatching::DispatcherQueueTimer history_wait{ nullptr }, history_hide{ nullptr };
+        Microsoft::UI::Xaml::FrameworkElement history_wait_mark{ nullptr };
+        size_t history_wait_step = 0;
+        Microsoft::UI::Xaml::Controls::Border history_card{ nullptr };
+        size_t history_card_step = (size_t)-1;
+        std::vector<SettingEditor> history_editors;
 
         size_t check_problems = 0;
         std::vector<RefineTip> refine_tips;

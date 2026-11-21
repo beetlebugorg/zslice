@@ -1024,7 +1024,7 @@ namespace winrt::ZSlice::implementation
         out.push_back({ L"2D layer view", L"2", L"", [this] { Set2D(true); } });
         out.push_back({ L"3D view", L"3", L"", [this] { Set2D(false); } });
         out.push_back({ L"Manage printers…", L"", L"", with_printers([](PrintersUi &p) { p.ShowManage(); }) });
-        out.push_back({ L"History", L"", L"the changes, undo one change", [this] { HistoryMenu().ShowAt(HistoryButton()); } });
+        out.push_back({ L"History", L"", L"the changes, undo one change", [this] { HistoryFlyout().ShowAt(HistoryButton()); } });
         out.push_back({ L"Keyboard shortcuts", L"?", L"", [this] { ShowShortcuts(); } });
         out.push_back({ L"All settings", L"N", L"the panel of the settings", [this] { ShowSettingsPane(true); } });
         out.push_back({ L"Printers", L"", L"your printers, their jobs, and the plates to print", with_printers([](PrintersUi &p) { p.ShowPage(true); }) });

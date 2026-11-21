@@ -49,6 +49,8 @@
 //   searchkey down|up|left|right|v|enter|esc, searchlog
 //   open file-or-link, linkok, plates
 //   sumopen, sumshot path, sumlog, tipapply
+//   histcard i, histclose, histopen, histshot path, histrevert i,
+//   histclear i, histlog
 // Each step writes the state to the log (ZSLICE_LOG).
 //
 // SPDX-License-Identifier: AGPL-3.0-or-later
@@ -446,6 +448,56 @@ namespace winrt::ZSlice::implementation
         {
             std::wstring at = words.empty() ? L"header" : words[0];
             SetSearchPlace(at == L"card" ? SearchPlace::Card : at == L"left" ? SearchPlace::Left : at == L"right" ? SearchPlace::Right : SearchPlace::Header);
+        }
+        else if (verb == L"histcard")
+        {
+            // histcard i: the hover card of step i. The marks and the lines
+            // between them alternate in the bar.
+            size_t i = (size_t)number(0);
+            auto marks = TimelineMarks().Children();
+            if (i * 2 < marks.Size())
+                ShowHistoryCard(marks.GetAt((uint32_t)(i * 2)).as<Microsoft::UI::Xaml::FrameworkElement>(), i);
+        }
+        else if (verb == L"histclose")
+        {
+            CloseHistoryCard();
+        }
+        else if (verb == L"histopen")
+        {
+            HistoryFlyout().ShowAt(HistoryButton());
+        }
+        else if (verb == L"histshot")
+        {
+            if (!words.empty())
+                SaveChrome(HistoryFlyout().Content(), words[0]);
+        }
+        else if (verb == L"histrevert")
+        {
+            // histrevert i: undoes the first change of step i alone.
+            zs_history_step step{};
+            if (zs_app_history_step(model->Active(), (size_t)number(0), &step) == ZS_OK && step.changes != nullptr)
+            {
+                std::string all(step.changes, step.changes_len);
+                RevertChange(all.substr(0, all.find('\n')));
+            }
+        }
+        else if (verb == L"histclear")
+        {
+            ClearHistoryAfter((size_t)number(0));
+        }
+        else if (verb == L"histlog")
+        {
+            zs_app *app = model->Active();
+            zs_history_step step{};
+            size_t now = zs_app_history_current(app);
+            std::string words_now;
+            if (zs_app_history_step(app, now, &step) == ZS_OK && step.text != nullptr)
+                words_now.assign(step.text, step.text_len);
+            std::replace(words_now.begin(), words_now.end(), '\t', ':');
+            std::replace(words_now.begin(), words_now.end(), '\n', '|');
+            zs::Log("dev: history %zu steps, now %zu '%s', card %d step %zd, card editors %zu, list rows %u, walls %s\n", zs_app_history_count(app), now,
+                    words_now.c_str(), history_card != nullptr ? 1 : 0, (ptrdiff_t)history_card_step, history_editors.size(), HistoryList().Children().Size(),
+                    model->GetSetting("project.wall_count").c_str());
         }
         else if (verb == L"sumopen")
         {

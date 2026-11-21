@@ -84,6 +84,30 @@ namespace
 
 namespace winrt::ZSlice::implementation
 {
+    // The color, the name, and the glyph of a kind of history step.
+    Windows::UI::Color StepColor(char const *kind)
+    {
+        uint32_t rgb = LookOf(kind).rgb;
+        return Windows::UI::Color{ 255, (uint8_t)(rgb >> 16), (uint8_t)(rgb >> 8), (uint8_t)rgb };
+    }
+
+    std::wstring StepLabel(char const *kind)
+    {
+        return LookOf(kind).label;
+    }
+
+    UIElement StepGlyph(char const *kind, double size)
+    {
+        StepLook const &look = LookOf(kind);
+        Grid box;
+        box.Width(size);
+        box.Height(size);
+        box.Children().Append(GlyphPath(look.glyph, size, false));
+        if (look.dashed != nullptr)
+            box.Children().Append(GlyphPath(look.dashed, size, true));
+        return box;
+    }
+
     // A color token of App.xaml, in the theme of the element.
     Media::Brush TokenBrush(FrameworkElement const &element, wchar_t const *key)
     {
@@ -327,12 +351,15 @@ namespace winrt::ZSlice::implementation
             std::replace(words.begin(), words.end(), '\t', ':');
             std::wstring tip = (i == 0 ? std::wstring(L"Start") : L"Change " + std::to_wstring(i)) + L" · " + look.label;
             if (!words.empty())
-                tip += L"\n" + zs::ToWide(words);
-            ToolTipService::SetToolTip(mark, box_value(tip));
+                tip += L". " + zs::ToWide(words);
             Automation::AutomationProperties::SetName(mark, tip);
-            mark.Click([this, i](auto &&, auto &&) {
-                if (model != nullptr)
-                    AfterRestore(model->HistoryGoto(i));
+            mark.Click([this, i](auto &&, auto &&) { GoToStep(i); });
+            // A short hover shows the card of the step.
+            mark.PointerEntered([this, mark, i](auto &&, auto &&) { HoverMark(mark, i); });
+            mark.PointerExited([this](auto &&, auto &&) { LeaveHistoryCard(); });
+            mark.RightTapped([this, mark, i](auto &&, Input::RightTappedRoutedEventArgs const &e) {
+                e.Handled(true);
+                ShowStepMenu(mark, e.GetPosition(mark), i);
             });
             marks.Children().Append(mark);
         }

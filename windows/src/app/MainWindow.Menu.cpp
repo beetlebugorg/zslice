@@ -116,7 +116,7 @@ namespace winrt::ZSlice::implementation
             if (printers != nullptr)
                 printers->ShowPage(true);
         });
-        add(L"History", [this] { HistoryMenu().ShowAt(HistoryButton()); });
+        add(L"History", [this] { HistoryFlyout().ShowAt(HistoryButton()); });
         line();
         menu_bed = ToggleMenuFlyoutItem{};
         menu_bed.Text(L"Hide the bed");

@@ -444,6 +444,11 @@ namespace zs
         return zs_app_history_goto(Active(), step, NowMs());
     }
 
+    int Model::HistoryTruncate(size_t step)
+    {
+        return zs_app_history_truncate(Active(), step, NowMs());
+    }
+
     std::wstring Model::Summary() const
     {
         zs_stats stats{};
