@@ -8,7 +8,7 @@ The zslice app has one core and one native shell for each platform:
 | Web | HTML, JavaScript, WebGL2 | `web/app/` | First version: see `web/app/README.md` |
 | macOS | SwiftUI, AppKit, Metal | `macos/` | First version: see [the macOS app](../internals/macos.md) |
 | iOS | SwiftUI | `ios/` | Planned |
-| Windows | WinUI 3, C++/WinRT | `windows/` | Planned (the core builds) |
+| Windows | WinUI 3, C++/WinRT, Direct3D 12 | `windows/` | In progress: see [the Windows app](../internals/windows.md) |
 | Android | Kotlin | `android/` | Planned |
 
 ## The rule: logic in the core, widgets in the shell
