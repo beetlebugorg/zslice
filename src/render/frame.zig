@@ -4,6 +4,7 @@
 //! types, so the view code is the same for all of them.
 
 const std = @import("std");
+const BedVertex = @import("../bed.zig").Vertex;
 
 /// One toolpath segment, drawn as one bead. The layout matches the
 /// per-instance attributes of shaders/box.vert.
@@ -98,6 +99,12 @@ pub const Frame = struct {
     /// the backend has from `setBed`, drawn after the beads. 0: none.
     bed: Push = .{ .mvp = @splat(0), .vec = .{ 0, 0, 0, 0 } },
     bed_vertices: u32 = 0,
+    /// The signs of the plates (see View.setSigns): their triangles in
+    /// the world of the view, and their push data (the matrix). The
+    /// normal of a vertex has the alpha of its sign in x. Drawn after
+    /// the bed with the image of the signs, blended, with no depth write.
+    sign: Push = .{ .mvp = @splat(0), .vec = .{ 0, 0, 0, 0 } },
+    signs: []const BedVertex = &.{},
     /// The beads box_first .. box_count in ranges, with the boxes out of
     /// the view left out and a coarse mesh far from the camera. The frame
     /// backend uses it: an empty list there is no bead in the view. The

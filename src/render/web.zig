@@ -110,6 +110,17 @@ pub const WebFrame = extern struct {
     patch_from: u32 = 0,
     patch_first: u32 = 0,
     patch_end: u32 = 0,
+    /// The signs of the plates (frame_mod.Frame.signs): their push data,
+    /// their vertices (8 floats each, as the bed: position, normal with
+    /// the alpha in x, uv), and the RGBA image of the signs (width 0:
+    /// none). Upload the image again when sign_gen changes.
+    sign: Push = .{ .mvp = @splat(0), .vec = .{ 0, 0, 0, 0 } },
+    sign_verts: usize = 0,
+    sign_vertices: u32 = 0,
+    sign_tex: usize = 0,
+    sign_tex_width: u32 = 0,
+    sign_tex_height: u32 = 0,
+    sign_gen: u32 = 0,
 };
 
 comptime {
@@ -125,6 +136,7 @@ pub const Renderer = struct {
     grid: std.ArrayList(f32) = .empty,
     bed_verts: std.ArrayList(BedVertex) = .empty,
     bed_tex: std.ArrayList(u8) = .empty,
+    sign_tex: std.ArrayList(u8) = .empty,
 
     const gpa = if (!is_wasm) std.heap.c_allocator else if (@import("../parallel.zig").wasm_pool) @import("../wasm_heap.zig").allocator else std.heap.wasm_allocator;
 
@@ -142,6 +154,7 @@ pub const Renderer = struct {
         r.grid.deinit(gpa);
         r.bed_verts.deinit(gpa);
         r.bed_tex.deinit(gpa);
+        r.sign_tex.deinit(gpa);
         gpa.destroy(r);
     }
 
@@ -261,6 +274,21 @@ pub const Renderer = struct {
         r.out.bed_gen +%= 1;
     }
 
+    /// The image of the signs of the plates, or null for none: the shell
+    /// uploads it once for each generation.
+    pub fn setSignImage(r: *Renderer, image: ?BedImage) Error!void {
+        r.sign_tex.clearRetainingCapacity();
+        r.out.sign_tex_width = 0;
+        r.out.sign_tex_height = 0;
+        if (image) |img| {
+            r.sign_tex.appendSlice(gpa, img.rgba[0 .. @as(usize, img.width) * img.height * 4]) catch return error.OutOfMemory;
+            r.out.sign_tex_width = img.width;
+            r.out.sign_tex_height = img.height;
+        }
+        r.out.sign_tex = @intFromPtr(r.sign_tex.items.ptr);
+        r.out.sign_gen +%= 1;
+    }
+
     /// Keeps the frame for the shell. The extras and the head
     /// point into buffers of the view that live as long as the view.
     pub fn draw(r: *Renderer, frame: frame_mod.Frame) Error!void {
@@ -294,5 +322,8 @@ pub const Renderer = struct {
         o.part = frame.part;
         o.part_draws = @intFromPtr(frame.part_draws.ptr);
         o.part_draws_count = @intCast(frame.part_draws.len);
+        o.sign = frame.sign;
+        o.sign_verts = @intFromPtr(frame.signs.ptr);
+        o.sign_vertices = if (o.sign_tex_width > 0) @intCast(frame.signs.len) else 0;
     }
 };

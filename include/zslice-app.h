@@ -1896,6 +1896,21 @@ int zs_view_plate_origin(const zs_view *view, size_t i, double *x, double *y);
 /* Moves the camera (animated, see zs_view_animate) to show plate i from
  * the front; i = (size_t)-1 shows all plates. */
 void zs_view_frame_plate(zs_view *view, size_t i);
+/* The signs of the plates: a small card on the bed just in front of each
+ * plate, with its name, its printer, and its status. The shell draws the
+ * text of all signs into one RGBA image (width x height pixels, the top
+ * row first, straight alpha). rects: n x (x, y, w, h), the pixels of the
+ * sign of plate i in the image (w = 0: no sign). The top of a rect is the
+ * edge of the sign away from the camera. scale: the pixels of the image
+ * for one pixel of the view; a sign shows about h / scale pixels high,
+ * within limits from the bed size. The view keeps a copy. n = 0: no
+ * signs. The view draws the signs in the world, so they turn and tilt
+ * with the plates, and the parts hide them. A sign seen edge-on fades
+ * out, and from behind the plate it turns round. */
+int zs_view_set_signs(zs_view *view, size_t n, const float *rects, uint32_t width, uint32_t height, const uint8_t *rgba, float scale);
+/* The plate of the sign under the pixel, or -1. A sign that has faded out
+ * does not count. */
+int64_t zs_view_sign_at(const zs_view *view, float px, float py);
 
 /* ---- the 2D view of one layer, and the steps along the print ----
  *
@@ -2064,6 +2079,18 @@ typedef struct {
      * instances of patch_from can upload only those beads; else it uploads
      * all, as for any new instances_gen. */
     uint32_t patch_from, patch_first, patch_end;
+    /* The signs of the plates (zs_view_set_signs), drawn after the bed
+     * with no depth write and with alpha blend: their push constants
+     * (mvp), their vertices (8 floats each, as the bed: position, normal
+     * with the alpha of the sign in x, uv), and the RGBA image of the
+     * signs (straight alpha; width 0: none). The color of a pixel is the
+     * image color, and its alpha is the image alpha times normal x.
+     * Upload the image again when sign_gen changes. */
+    zs_web_push sign;
+    const float *sign_verts;
+    uint32_t sign_vertices;
+    const uint8_t *sign_tex;
+    uint32_t sign_tex_width, sign_tex_height, sign_gen;
 } zs_web_frame;
 const zs_web_frame *zs_view_web_frame(const zs_view *view);
 

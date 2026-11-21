@@ -1001,6 +1001,27 @@ export fn zs_view_plate_origin(view: ?*const View, i: usize, x: ?*f64, y: ?*f64)
     return ok;
 }
 
+/// The signs of the plates: n rects (x, y, w, h) in an RGBA image.
+export fn zs_view_set_signs(view: ?*View, n: usize, rects: ?[*]const f32, width: u32, height: u32, rgba: ?[*]const u8, scale: f32) c_int {
+    if (!render_on) return @intFromEnum(Status.not_supported);
+    const v = view orelse return @intFromEnum(Status.invalid_argument);
+    if (n > 0 and (rects == null or rgba == null or width == 0 or height == 0)) return @intFromEnum(Status.invalid_argument);
+    const list = c.gpa.alloc([4]f32, n) catch return @intFromEnum(Status.out_of_memory);
+    defer c.gpa.free(list);
+    for (list, 0..) |*r, k| r.* = .{ rects.?[4 * k], rects.?[4 * k + 1], rects.?[4 * k + 2], rects.?[4 * k + 3] };
+    const bytes: []const u8 = if (n > 0) rgba.?[0 .. @as(usize, width) * height * 4] else &.{};
+    v.setSigns(list, .{ width, height }, bytes, scale) catch |e| return status(e);
+    return ok;
+}
+
+/// The plate of the sign under a pixel, or -1.
+export fn zs_view_sign_at(view: ?*const View, px: f32, py: f32) i64 {
+    if (!render_on) return -1;
+    const v = view orelse return -1;
+    const i = v.signAt(px, py) orelse return -1;
+    return @intCast(i);
+}
+
 /// Moves the camera to show plate i, or all plates for (size_t)-1.
 export fn zs_view_frame_plate(view: ?*View, i: usize) void {
     if (!render_on) return;

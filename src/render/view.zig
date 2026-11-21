@@ -322,6 +322,9 @@ pub const View = struct {
     /// and if it has a texture.
     bed_vertices: u32 = 0,
     bed_textured: bool = false,
+    /// The front edge of the bed model (its smallest y), from the middle
+    /// of the bed (mm). 0 with no bed model.
+    bed_front: f32 = 0,
     /// A view with no renderer (`loadPlate` uses one to read an app).
     headless: bool = false,
     /// The G-code file of a print view (see `loadGcode`), or null. The
@@ -388,6 +391,15 @@ pub const View = struct {
     plate_grid_gen: u32 = 0,
     /// The plates and their draws of the last frame.
     plate_frames: std.ArrayList(PlateFrame) = .empty,
+    /// The signs of the plates (see `setSigns`): the rect of the sign of
+    /// each plate in the image of the signs (x, y, w, h in pixels; w 0:
+    /// no sign), the size of that image, and its pixels for one pixel of
+    /// the view.
+    sign_rects: std.ArrayList([4]f32) = .empty,
+    sign_image: [2]f32 = .{ 0, 0 },
+    sign_scale: f32 = 1,
+    /// The vertices of the signs of the last frame.
+    sign_verts: std.ArrayList(bed_mod.Vertex) = .empty,
     plate_draws: std.ArrayList(Draw) = .empty,
     /// The part of the plate of each path (Toolpaths.path_part), for a
     /// part preview.
@@ -464,6 +476,8 @@ pub const View = struct {
         v.sup_pts.deinit(gpa);
         v.sup_areas.deinit(gpa);
         v.gap_beads.deinit(gpa);
+        v.sign_rects.deinit(gpa);
+        v.sign_verts.deinit(gpa);
         v.tower_beads.deinit(gpa);
         v.tower_layer.deinit(gpa);
         if (v.extras_buf) |b| gpa.free(b);
@@ -501,6 +515,8 @@ pub const View = struct {
         try v.renderer.setBed(g.vertices, g.image);
         v.bed_vertices = @intCast(g.vertices.len);
         v.bed_textured = g.image != null;
+        v.bed_front = 0;
+        for (g.vertices) |vx| v.bed_front = @min(v.bed_front, vx.pos[1]);
     }
 
     /// Shows the bed as the grid alone.
@@ -508,6 +524,7 @@ pub const View = struct {
         v.renderer.setBed(&.{}, null) catch {};
         v.bed_vertices = 0;
         v.bed_textured = false;
+        v.bed_front = 0;
     }
 
     /// The size of the view in pixels.
@@ -2774,6 +2791,12 @@ pub const View = struct {
         v.target = v.home;
         v.setAngles(-1.9, 0.6);
         v.dist = v.extent * v.home_dist;
+        // The sign of the plate in front of it: the view moves forward by
+        // its depth, so it shows too.
+        if (v.active < v.sign_rects.items.len and v.sign_rects.items[v.active][2] > 0) {
+            const b = v.frameBoxOf(v.active);
+            v.target[1] += b[0][1];
+        }
     }
 
     /// The camera position and its unit vectors: forward, right, and up.
@@ -4013,16 +4036,28 @@ pub const View = struct {
 
     /// Moves the camera (animated) to show plate i whole, from the front.
     pub fn framePlate(v: *View, i: usize) void {
-        const b = v.plateBox(i);
+        const b = v.frameBoxOf(i);
         v.frameBox(b[0], b[1]);
+    }
+
+    /// The box of plate i for a frame: its box, and its sign in front of
+    /// it (at a typical size), so the sign shows too.
+    fn frameBoxOf(v: *const View, i: usize) [2][3]f32 {
+        var b = v.plateBox(i);
+        if (i < v.sign_rects.items.len and v.sign_rects.items[i][2] > 0) {
+            const bed = if (i < v.plates.items.len) v.plates.items[i].bed else v.bed;
+            const o = v.plateOffset(i);
+            b[0][1] = @min(b[0][1], o[1] - std.math.clamp(0.03 * bed[0], 4, 12) - 0.12 * bed[0]);
+        }
+        return b;
     }
 
     /// Moves the camera (animated) to show all plates.
     pub fn frameAll(v: *View) void {
         const n = @max(v.plates.items.len, 1);
-        var b = v.plateBox(0);
+        var b = v.frameBoxOf(0);
         for (1..n) |i| {
-            const c = v.plateBox(i);
+            const c = v.frameBoxOf(i);
             for (0..3) |k| {
                 b[0][k] = @min(b[0][k], c[0][k]);
                 b[1][k] = @max(b[1][k], c[1][k]);
@@ -4085,6 +4120,165 @@ pub const View = struct {
         if (n == 0) return 0;
         const last = v.plates.items[n - 1];
         return last.origin[0] + last.bed[0];
+    }
+
+    // ---- the signs of the plates ----
+    //
+    // A sign is a small card that lies on the table just in front of the
+    // front edge of each plate: the name of the plate, its printer, and
+    // its status. The shell draws the text of all signs into one image
+    // with the fonts of the platform (a canvas on the web, cairo on
+    // Linux). The view draws each sign as a flat quad with that image, in
+    // the world, so it turns and tilts with the scene and the parts hide
+    // it. The size of a sign follows the distance of the camera, within
+    // limits from the bed size, so the text stays readable and the sign
+    // stays small. A sign seen edge-on fades out, and from behind the
+    // plate it turns round, so the text reads from the camera. It lies
+    // outside the bed, so it covers no part.
+
+    /// The height of a sign over the bed (mm), over the grid and the bed
+    /// model.
+    const sign_z: f32 = 0.1;
+
+    /// Sets the signs: an RGBA image of `size` pixels (the top row first,
+    /// straight alpha) with the signs of the plates, the rect of the sign
+    /// of each plate in it (x, y, w, h in pixels; w 0: no sign), and the
+    /// pixels of the image for one pixel of the view. No rects: no signs.
+    pub fn setSigns(v: *View, rects: []const [4]f32, size: [2]u32, rgba: []const u8, scale: f32) Error!void {
+        v.sign_rects.clearRetainingCapacity();
+        v.sign_rects.appendSlice(gpa, rects) catch return error.OutOfMemory;
+        v.sign_image = .{ @floatFromInt(size[0]), @floatFromInt(size[1]) };
+        v.sign_scale = if (scale > 0) scale else 1;
+        if (v.headless) return;
+        if (rects.len == 0 or size[0] == 0 or size[1] == 0) {
+            try v.renderer.setSignImage(null);
+            return;
+        }
+        try v.renderer.setSignImage(.{ .width = size[0], .height = size[1], .rgba = @constCast(rgba) });
+    }
+
+    /// The place of the sign of plate i for a camera at `eye` with the up
+    /// vector `up`: its middle, its half size on x and y (mm), true if it
+    /// turns round (the top of the screen points to the front of the
+    /// plate: the camera is behind it), and its alpha. Null: no sign.
+    const SignQuad = struct { mid: [3]f32, half: [2]f32, flip: bool, alpha: f32 };
+
+    fn signQuad(v: *const View, i: usize, eye: [3]f32, up: [3]f32) ?SignQuad {
+        if (i >= v.sign_rects.items.len) return null;
+        const rect = v.sign_rects.items[i];
+        if (!(rect[2] > 0 and rect[3] > 0)) return null;
+        const n = v.plates.items.len;
+        if (n > 0 and i >= n) return null;
+        if (n == 0 and i > 0) return null;
+        const bed = if (n > 0) v.plates.items[i].bed else v.bed;
+        if (!(bed[0] > 0 and bed[1] > 0)) return null;
+        // From under the bed, no sign.
+        if (eye[2] <= sign_z) return null;
+        const o = v.plateOffset(i);
+        // The front of the plate: its bed, or its bed model.
+        const model = if (n == 0 or i == v.active) v.bed_vertices > 0 else v.plates.items[i].flags & plates_mod.flag_bed_model != 0;
+        const front = if (model) @min(0, bed[1] / 2 + v.bed_front) else 0;
+        const margin = std.math.clamp(0.03 * bed[0], 4, 12);
+        const back = [3]f32{ o[0] + bed[0] / 2, o[1] + front - margin, sign_z };
+        // The height: rect h / scale pixels on the screen, within limits.
+        const db = [3]f32{ eye[0] - back[0], eye[1] - back[1], eye[2] - back[2] };
+        const d = @max(@sqrt(dot(db, db)), 1e-3);
+        const px_per_mm = @as(f32, @floatFromInt(v.height)) / (2 * @tan(@as(f32, fov) / 2)) / d;
+        const aspect = rect[2] / rect[3];
+        // A sign seen at a slant shows shorter: it grows deeper by the
+        // slant (to a limit), so the text keeps its height on the screen.
+        const slant = @max(db[2] / d, 0.35);
+        var h = std.math.clamp(rect[3] / v.sign_scale / px_per_mm / slant, 0.04 * bed[0], 0.2 * bed[0]);
+        // A sign is never wider than its bed: a long name makes it lower.
+        h = @min(h, 0.9 * bed[0] / aspect);
+        const mid = [3]f32{ back[0], back[1] - h / 2, sign_z };
+        // Fade out when the camera looks along the bed.
+        const to = normalize(.{ eye[0] - mid[0], eye[1] - mid[1], eye[2] - mid[2] });
+        const t = std.math.clamp((to[2] - 0.08) / (0.25 - 0.08), 0, 1);
+        const alpha = t * t * (3 - 2 * t);
+        if (alpha <= 0.01) return null;
+        return .{ .mid = mid, .half = .{ h * aspect / 2, h / 2 }, .flip = up[1] < 0, .alpha = alpha };
+    }
+
+    /// The vertices of the signs for a camera at `eye`: two triangles
+    /// for each sign. The normal has the alpha of the sign in x (see
+    /// shaders/sign.frag).
+    fn buildSigns(v: *View, eye: [3]f32, up: [3]f32) Error![]const bed_mod.Vertex {
+        v.sign_verts.clearRetainingCapacity();
+        if (v.sign_image[0] <= 0) return v.sign_verts.items;
+        for (0..v.sign_rects.items.len) |i| {
+            const q = v.signQuad(i, eye, up) orelse continue;
+            const r = v.sign_rects.items[i];
+            const iw = v.sign_image[0];
+            const ih = v.sign_image[1];
+            // The left and the right of the text, and its top (at the far
+            // edge of the sign) and its bottom.
+            var ua = r[0] / iw;
+            var ub = (r[0] + r[2]) / iw;
+            var top = r[1] / ih;
+            var bottom = (r[1] + r[3]) / ih;
+            if (q.flip) {
+                std.mem.swap(f32, &ua, &ub);
+                std.mem.swap(f32, &top, &bottom);
+            }
+            const x0 = q.mid[0] - q.half[0];
+            const x1 = q.mid[0] + q.half[0];
+            const y0 = q.mid[1] - q.half[1];
+            const y1 = q.mid[1] + q.half[1];
+            const nrm = [3]f32{ q.alpha, 0, 0 };
+            const c = [4]bed_mod.Vertex{
+                .{ .pos = .{ x0, y0, sign_z }, .normal = nrm, .uv = .{ ua, bottom } },
+                .{ .pos = .{ x1, y0, sign_z }, .normal = nrm, .uv = .{ ub, bottom } },
+                .{ .pos = .{ x1, y1, sign_z }, .normal = nrm, .uv = .{ ub, top } },
+                .{ .pos = .{ x0, y1, sign_z }, .normal = nrm, .uv = .{ ua, top } },
+            };
+            v.sign_verts.appendSlice(gpa, &.{ c[0], c[1], c[2], c[0], c[2], c[3] }) catch return error.OutOfMemory;
+        }
+        return v.sign_verts.items;
+    }
+
+    /// The plate of the sign under the pixel, or null. A sign that has
+    /// faded out does not count.
+    pub fn signAt(v: *const View, px: f32, py: f32) ?usize {
+        const cam = v.camera();
+        const dir = v.pixelRay(cam, px, py);
+        if (!(dir[2] < -1e-6)) return null;
+        const t = (sign_z - cam.eye[2]) / dir[2];
+        const p = [2]f32{ cam.eye[0] + dir[0] * t, cam.eye[1] + dir[1] * t };
+        var hit: ?usize = null;
+        for (0..v.sign_rects.items.len) |i| {
+            const q = v.signQuad(i, cam.eye, cam.u) orelse continue;
+            if (q.alpha < 0.3) continue;
+            if (@abs(p[0] - q.mid[0]) <= q.half[0] and @abs(p[1] - q.mid[1]) <= q.half[1]) hit = i;
+        }
+        if (hit == null) return null;
+        // The parts of a plate in front of the sign (seen from behind the
+        // plate) take the click: the box of the beads of each plate.
+        for (0..@max(v.plates.items.len, 1)) |i| {
+            const b = v.beadBox(i) orelse continue;
+            if (rayBoxEntry(cam.eye, dir, b[0], b[1])) |tb| if (tb < t) return null;
+        }
+        return hit;
+    }
+
+    /// The box of the beads of plate i in the world of the view, or null
+    /// for a plate with no beads.
+    fn beadBox(v: *const View, i: usize) ?[2][3]f32 {
+        const inf = std.math.inf(f32);
+        var lo = [3]f32{ inf, inf, inf };
+        var hi = [3]f32{ -inf, -inf, -inf };
+        if (i == v.active or v.plates.items.len == 0) {
+            for (v.layer_boxes.items) |b| if (b.lo[0] <= b.hi[0]) for (0..3) |k| {
+                lo[k] = @min(lo[k], b.lo[k]);
+                hi[k] = @max(hi[k], b.hi[k]);
+            };
+        } else if (i < v.plates.items.len and v.plates.items[i].full_end > 0) {
+            lo = v.plates.items[i].lo;
+            hi = v.plates.items[i].hi;
+        }
+        if (!(lo[0] <= hi[0])) return null;
+        const o = v.plateOffset(i);
+        return .{ .{ lo[0] + o[0], lo[1] + o[1], lo[2] }, .{ hi[0] + o[0], hi[1] + o[1], hi[2] } };
     }
 
     /// The beads of a part that turn or move in the view only.
@@ -4678,7 +4872,10 @@ pub const View = struct {
                 .params = .{ 0, 0, 0, if (v.mode == .print) 0 else 1 },
             };
         };
+        const signs = try v.buildSigns(eye, cam.u);
         try v.renderer.draw(.{
+            .sign = .{ .mvp = mvp, .vec = .{ 0, 0, 0, 0 } },
+            .signs = signs,
             .head = v.head_buf[0..n_head],
             .part = part_push,
             .part_draws = part_draws,
@@ -6230,4 +6427,32 @@ test "a zoom at a surface goes on into the part, and a zoom out comes back" {
     for (0..10) |_| v.zoomAt(1.15, 50, 50);
     const e = v.camera().eye;
     try std.testing.expect(@abs(e[0] - last[0]) + @abs(e[1] - last[1]) + @abs(e[2] - last[2]) > 5);
+}
+
+test "a sign lies in front of its plate, and a click on it finds the plate" {
+    var v: View = .{ .renderer = undefined, .width = 800, .height = 600, .headless = true };
+    defer v.deinitData();
+    try v.setPlates(&.{ .{ 220, 220 }, .{ 220, 220 } }, 0);
+    const pixels = [_]u8{0} ** (4 * 4 * 4);
+    try v.setSigns(&.{ .{ 0, 0, 4, 1 }, .{ 0, 2, 4, 1 } }, .{ 4, 4 }, &pixels, 1);
+    v.frameAll();
+    v.setPose(v.goal.?);
+    const cam = v.camera();
+    for (0..2) |i| {
+        const q = v.signQuad(i, cam.eye, cam.u).?;
+        const o = v.plateOffset(i);
+        // In front of the bed, in its middle, no wider than the bed.
+        try std.testing.expect(q.mid[1] + q.half[1] < 0);
+        try std.testing.expectApproxEqAbs(o[0] + 110, q.mid[0], 1e-3);
+        try std.testing.expect(q.half[0] * 2 <= 0.9 * 220 + 1e-3);
+        try std.testing.expect(!q.flip);
+        const px = v.pixelOf(q.mid).?;
+        try std.testing.expectEqual(@as(?usize, i), v.signAt(px[0], px[1]));
+    }
+    // From behind the plates (the top of the screen to the front), the
+    // signs turn round; from under the bed,
+    // and along the bed, no sign.
+    try std.testing.expect(v.signQuad(0, .{ 110, 600, 300 }, .{ 0, -0.5, 0.8 }).?.flip);
+    try std.testing.expectEqual(@as(?View.SignQuad, null), v.signQuad(0, .{ 110, -400, -50 }, .{ 0, 0.5, 0.8 }));
+    try std.testing.expectEqual(@as(?View.SignQuad, null), v.signQuad(0, .{ 110, -4000, 5 }, .{ 0, 0.1, 1 }));
 }

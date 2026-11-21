@@ -71,6 +71,14 @@ pub const Push = frame_mod.Push;
 pub const Draw = frame_mod.Draw;
 pub const PlateFrame = frame_mod.PlateFrame;
 
+/// A sampled image: the texture of the bed model, or the image of the
+/// signs.
+const Texture = struct {
+    image: c.VkImage = null,
+    mem: c.VkDeviceMemory = null,
+    view: c.VkImageView = null,
+};
+
 /// The bead buffer of another plate of the row (see Frame.plates), by its
 /// slot: uploaded again when the generation of the plate changes.
 const PlateSlot = struct {
@@ -225,6 +233,7 @@ const grid_vert = spvWords(@embedFile("shaders/grid.vert.spv"));
 const grid_frag = spvWords(@embedFile("shaders/grid.frag.spv"));
 const bed_vert = spvWords(@embedFile("shaders/bed.vert.spv"));
 const bed_frag = spvWords(@embedFile("shaders/bed.frag.spv"));
+const sign_frag = spvWords(@embedFile("shaders/sign.frag.spv"));
 
 const BedVertex = @import("../bed.zig").Vertex;
 const BedImage = @import("../bed.zig").Image;
@@ -304,9 +313,13 @@ pub const Renderer = struct {
     sampler: c.VkSampler = null,
     bed: Buffer = .{},
     bed_count: u32 = 0,
-    tex_image: c.VkImage = null,
-    tex_mem: c.VkDeviceMemory = null,
-    tex_view: c.VkImageView = null,
+    tex: Texture = .{},
+    /// The signs of the plates (Frame.signs): blended, with no depth
+    /// write, with the image of the signs in their own descriptor set.
+    sign_pipeline: c.VkPipeline = null,
+    sign_set: c.VkDescriptorSet = null,
+    sign_tex: Texture = .{},
+    sign_buf: Buffer = .{},
     pool: c.VkCommandPool,
     cmd: c.VkCommandBuffer,
     acquired: c.VkSemaphore,
@@ -574,7 +587,10 @@ pub const Renderer = struct {
         if (r.swapchain != null) d.vkDestroySwapchainKHR.?(r.device, r.swapchain, null);
         for ([_]*Buffer{ &r.box_mesh, &r.box_index, &r.instances, &r.next_instances, &r.retired, &r.grid, &r.bed, &r.readback, &r.plate_grid }) |b| r.freeBuffer(b);
         for (&r.plate_slots) |*sl| r.freeBuffer(&sl.buf);
-        r.freeTexture();
+        r.freeTexture(&r.tex);
+        r.freeTexture(&r.sign_tex);
+        r.freeBuffer(&r.sign_buf);
+        if (r.sign_pipeline != null) d.vkDestroyPipeline.?(r.device, r.sign_pipeline, null);
         if (r.sampler != null) d.vkDestroySampler.?(r.device, r.sampler, null);
         if (r.desc_pool != null) d.vkDestroyDescriptorPool.?(r.device, r.desc_pool, null);
         if (r.bed_pipeline != null) d.vkDestroyPipeline.?(r.device, r.bed_pipeline, null);
@@ -801,10 +817,11 @@ pub const Renderer = struct {
             .pushConstantRangeCount = 1,
             .pPushConstantRanges = &push_range,
         }, null, &r.bed_layout));
-        const pool_size: c.VkDescriptorPoolSize = .{ .type = c.VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, .descriptorCount = 1 };
+        // Two sets: the bed model, and the signs of the plates.
+        const pool_size: c.VkDescriptorPoolSize = .{ .type = c.VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, .descriptorCount = 2 };
         try check(d.vkCreateDescriptorPool.?(r.device, &.{
             .sType = c.VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
-            .maxSets = 1,
+            .maxSets = 2,
             .poolSizeCount = 1,
             .pPoolSizes = &pool_size,
         }, null, &r.desc_pool));
@@ -814,6 +831,12 @@ pub const Renderer = struct {
             .descriptorSetCount = 1,
             .pSetLayouts = &r.bed_set_layout,
         }, &r.bed_set));
+        try check(d.vkAllocateDescriptorSets.?(r.device, &.{
+            .sType = c.VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
+            .descriptorPool = r.desc_pool,
+            .descriptorSetCount = 1,
+            .pSetLayouts = &r.bed_set_layout,
+        }, &r.sign_set));
         try check(d.vkCreateSampler.?(r.device, &.{
             .sType = c.VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
             .magFilter = c.VK_FILTER_LINEAR,
@@ -837,6 +860,11 @@ pub const Renderer = struct {
             .{ .location = 2, .binding = 0, .format = c.VK_FORMAT_R32G32_SFLOAT, .offset = @offsetOf(BedVertex, "uv") },
         };
         r.bed_pipeline = try r.pipeline(vs, fs, &bindings, &attrs, c.VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST, false, true, r.bed_layout);
+        // The signs: the vertex shader of the bed, and their own fragment
+        // shader. Blended with no depth write, as a ghost.
+        const sf = try r.shader(sign_frag);
+        defer d.vkDestroyShaderModule.?(r.device, sf, null);
+        r.sign_pipeline = try r.pipeline(vs, sf, &bindings, &attrs, c.VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST, true, false, r.bed_layout);
     }
 
     fn pipeline(
@@ -1260,25 +1288,34 @@ pub const Renderer = struct {
         // A white pixel when the bed has no texture: the set needs an image.
         const white = [4]u8{ 255, 255, 255, 255 };
         const img: BedImage = image orelse .{ .width = 1, .height = 1, .rgba = @constCast(&white) };
-        try r.uploadTexture(img);
+        try r.uploadTexture(img, &r.tex, r.bed_set);
         r.bed_count = @intCast(verts.len);
     }
 
-    fn freeTexture(r: *Renderer) void {
+    fn freeTexture(r: *Renderer, t: *Texture) void {
         const d = r.d;
-        if (r.tex_view != null) d.vkDestroyImageView.?(r.device, r.tex_view, null);
-        if (r.tex_image != null) d.vkDestroyImage.?(r.device, r.tex_image, null);
-        if (r.tex_mem != null) d.vkFreeMemory.?(r.device, r.tex_mem, null);
-        r.tex_view = null;
-        r.tex_image = null;
-        r.tex_mem = null;
+        if (t.view != null) d.vkDestroyImageView.?(r.device, t.view, null);
+        if (t.image != null) d.vkDestroyImage.?(r.device, t.image, null);
+        if (t.mem != null) d.vkFreeMemory.?(r.device, t.mem, null);
+        t.* = .{};
+    }
+
+    /// Replaces the image of the signs of the plates (null: none). The
+    /// signs change seldom (a new plate, a new status), so a wait for the
+    /// GPU is fine.
+    pub fn setSignImage(r: *Renderer, image: ?BedImage) Error!void {
+        r.cache_valid = false;
+        _ = r.d.vkDeviceWaitIdle.?(r.device);
+        // No image: no signs (the draw skips them).
+        const img = image orelse return r.freeTexture(&r.sign_tex);
+        try r.uploadTexture(img, &r.sign_tex, r.sign_set);
     }
 
     /// Copies an RGBA image to a new sampled image (through a host buffer),
     /// and points the descriptor set at it. The GPU is idle.
-    fn uploadTexture(r: *Renderer, img: BedImage) Error!void {
+    fn uploadTexture(r: *Renderer, img: BedImage, t: *Texture, set: c.VkDescriptorSet) Error!void {
         const d = r.d;
-        r.freeTexture();
+        r.freeTexture(t);
         const extent: c.VkExtent2D = .{ .width = img.width, .height = img.height };
         try check(d.vkCreateImage.?(r.device, &.{
             .sType = c.VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
@@ -1292,22 +1329,22 @@ pub const Renderer = struct {
             .usage = c.VK_IMAGE_USAGE_TRANSFER_DST_BIT | c.VK_IMAGE_USAGE_SAMPLED_BIT,
             .sharingMode = c.VK_SHARING_MODE_EXCLUSIVE,
             .initialLayout = c.VK_IMAGE_LAYOUT_UNDEFINED,
-        }, null, &r.tex_image));
+        }, null, &t.image));
         var req: c.VkMemoryRequirements = undefined;
-        d.vkGetImageMemoryRequirements.?(r.device, r.tex_image, &req);
+        d.vkGetImageMemoryRequirements.?(r.device, t.image, &req);
         try check(d.vkAllocateMemory.?(r.device, &.{
             .sType = c.VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
             .allocationSize = req.size,
             .memoryTypeIndex = try r.memoryType(req.memoryTypeBits, c.VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT),
-        }, null, &r.tex_mem));
-        try check(d.vkBindImageMemory.?(r.device, r.tex_image, r.tex_mem, 0));
+        }, null, &t.mem));
+        try check(d.vkBindImageMemory.?(r.device, t.image, t.mem, 0));
         try check(d.vkCreateImageView.?(r.device, &.{
             .sType = c.VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
-            .image = r.tex_image,
+            .image = t.image,
             .viewType = c.VK_IMAGE_VIEW_TYPE_2D,
             .format = c.VK_FORMAT_R8G8B8A8_UNORM,
             .subresourceRange = .{ .aspectMask = c.VK_IMAGE_ASPECT_COLOR_BIT, .levelCount = 1, .layerCount = 1 },
-        }, null, &r.tex_view));
+        }, null, &t.view));
 
         var staging: Buffer = .{};
         defer r.freeBuffer(&staging);
@@ -1330,10 +1367,10 @@ pub const Renderer = struct {
             .newLayout = c.VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
             .srcQueueFamilyIndex = c.VK_QUEUE_FAMILY_IGNORED,
             .dstQueueFamilyIndex = c.VK_QUEUE_FAMILY_IGNORED,
-            .image = r.tex_image,
+            .image = t.image,
             .subresourceRange = range,
         });
-        d.vkCmdCopyBufferToImage.?(cmd, staging.buf, r.tex_image, c.VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &.{
+        d.vkCmdCopyBufferToImage.?(cmd, staging.buf, t.image, c.VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &.{
             .bufferOffset = 0,
             .imageSubresource = .{ .aspectMask = c.VK_IMAGE_ASPECT_COLOR_BIT, .mipLevel = 0, .baseArrayLayer = 0, .layerCount = 1 },
             .imageExtent = .{ .width = img.width, .height = img.height, .depth = 1 },
@@ -1346,7 +1383,7 @@ pub const Renderer = struct {
             .newLayout = c.VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
             .srcQueueFamilyIndex = c.VK_QUEUE_FAMILY_IGNORED,
             .dstQueueFamilyIndex = c.VK_QUEUE_FAMILY_IGNORED,
-            .image = r.tex_image,
+            .image = t.image,
             .subresourceRange = range,
         });
         try check(d.vkEndCommandBuffer.?(cmd));
@@ -1362,12 +1399,12 @@ pub const Renderer = struct {
 
         const info: c.VkDescriptorImageInfo = .{
             .sampler = r.sampler,
-            .imageView = r.tex_view,
+            .imageView = t.view,
             .imageLayout = c.VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
         };
         d.vkUpdateDescriptorSets.?(r.device, 1, &.{
             .sType = c.VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-            .dstSet = r.bed_set,
+            .dstSet = set,
             .dstBinding = 0,
             .descriptorCount = 1,
             .descriptorType = c.VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
@@ -1842,6 +1879,17 @@ pub const Renderer = struct {
                 d.vkCmdPushConstants.?(cmd, r.bed_layout, stages, 0, @sizeOf(Push), &push);
                 d.vkCmdDraw.?(cmd, @min(frame.bed_vertices, r.bed_count), 1, 0, 0);
             }
+        }
+        // The signs of the plates, after the bed: the parts hide them.
+        if (frame.signs.len > 0 and r.sign_tex.image != null) sign: {
+            const bytes = std.mem.sliceAsBytes(frame.signs);
+            if (bytes.len > r.sign_buf.size) r.makeBuffer(&r.sign_buf, bytes.len * 2, c.VK_BUFFER_USAGE_VERTEX_BUFFER_BIT) catch break :sign;
+            @memcpy(r.sign_buf.map.?[0..bytes.len], bytes);
+            d.vkCmdBindPipeline.?(cmd, c.VK_PIPELINE_BIND_POINT_GRAPHICS, r.sign_pipeline);
+            d.vkCmdBindDescriptorSets.?(cmd, c.VK_PIPELINE_BIND_POINT_GRAPHICS, r.bed_layout, 0, 1, &r.sign_set, 0, null);
+            d.vkCmdPushConstants.?(cmd, r.bed_layout, stages, 0, @sizeOf(Push), &frame.sign);
+            d.vkCmdBindVertexBuffers.?(cmd, 0, 1, &r.sign_buf.buf, &zero);
+            d.vkCmdDraw.?(cmd, @intCast(frame.signs.len), 1, 0, 0);
         }
         if (frame.head.len > 0 and r.instances.buf != null and r.box_index_count > 0) {
             const used = @min(frame.extras.len, max_extras);
