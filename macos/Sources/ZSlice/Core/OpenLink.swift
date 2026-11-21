@@ -71,10 +71,11 @@ enum LinkRouter {
 struct CheckedLink {
     var raw = zs_link()
 
-    /// The url field is the first of zs_link, at offset 0. Swift does not
-    /// import a C array this long, so it reads the bytes of the struct.
+    /// Swift does not import the long C array of the url, so it goes
+    /// through zs_link_url and zs_link_set_url.
     var url: String {
-        withUnsafeBytes(of: raw) { b in String(decoding: b.prefix(Int(ZS_LINK_URL_MAX)).prefix(while: { $0 != 0 }), as: UTF8.self) }
+        var l = raw
+        return coreText(zs_link_url(&l))
     }
     var host: String { Self.text(raw.host) }
     var name: String { Self.text(raw.name) }
@@ -86,10 +87,7 @@ struct CheckedLink {
 
     /// Sets the URL (the last URL of a download), for zs_link_file_name.
     mutating func setURL(_ s: String) {
-        let bytes = Array(s.utf8.prefix(Int(ZS_LINK_URL_MAX) - 1)) + [0]
-        withUnsafeMutableBytes(of: &raw) { b in
-            for (i, v) in bytes.enumerated() { b[i] = v }
-        }
+        zs_link_set_url(&raw, s)
     }
 }
 
