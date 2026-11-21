@@ -522,15 +522,21 @@ const table = [_]Map{
     .{ .key = "ironing_flow", .name = "project.ironing_flow", .conv = .percent },
     .{ .key = "ironing_spacing", .name = "project.ironing_spacing" },
     .{ .key = "elefant_foot_compensation", .name = "project.first_layer_xy_offset", .conv = .negate },
-    .{ .key = "avoid_crossing_perimeters", .name = "project.combing", .conv = .boolean },
-    .{ .key = "reduce_crossing_wall", .name = "project.combing", .conv = .boolean },
-    .{ .key = "retract_lift", .name = "project.z_hop" },
-    .{ .key = "z_hop", .name = "project.z_hop" },
-    .{ .key = "retract_before_travel", .name = "project.retract_min_travel" },
-    .{ .key = "retraction_minimum_travel", .name = "project.retract_min_travel" },
-    .{ .key = "retract_layer_change", .name = "project.retract_layer_change", .conv = .boolean },
-    .{ .key = "retract_when_changing_layer", .name = "project.retract_layer_change", .conv = .boolean },
-    .{ .key = "wipe", .name = "project.retract_wipe", .conv = .boolean },
+    .{ .key = "avoid_crossing_perimeters", .name = "project.combing_mode", .conv = .choice, .choices = combing_choices },
+    .{ .key = "reduce_crossing_wall", .name = "project.combing_mode", .conv = .choice, .choices = combing_choices },
+    // The retraction of the travels is a printer setting (see
+    // settings.Machine.z_hop).
+    .{ .key = "retract_lift", .name = "machine.z_hop" },
+    .{ .key = "z_hop", .name = "machine.z_hop" },
+    // Auto Lift lifts the travels that leave the part; the other kinds
+    // lift each retraction.
+    .{ .key = "z_hop_types", .name = "machine.z_hop_only_crossing", .conv = .choice, .choices = "auto lift=true,normal lift=false,slope lift=false,spiral lift=false" },
+    .{ .key = "retract_before_travel", .name = "machine.retract_min_travel" },
+    .{ .key = "retraction_minimum_travel", .name = "machine.retract_min_travel" },
+    .{ .key = "retract_layer_change", .name = "machine.retract_layer_change", .conv = .boolean },
+    .{ .key = "retract_when_changing_layer", .name = "machine.retract_layer_change", .conv = .boolean },
+    .{ .key = "wipe", .name = "machine.retract_wipe", .conv = .boolean },
+    .{ .key = "wipe_distance", .name = "machine.retract_wipe_distance" },
     .{ .key = "bridge_fan_speed", .name = "project.bridge_fan", .conv = .percent },
     .{ .key = "overhang_fan_speed", .name = "project.bridge_fan", .conv = .percent },
     .{ .key = "bridge_flow_ratio", .name = "project.bridge_flow", .conv = .ratio },
@@ -582,6 +588,9 @@ const table = [_]Map{
     .{ .key = "brim_type", .name = "project.brim_location", .conv = .choice, .choices = "outer_only=outside,inner_only=inside,outer_and_inner=everywhere,auto_brim=~outside,brim_ears=~outside" },
 };
 
+/// Avoid crossing walls on or off: the combing of zslice in the whole
+/// part, or none.
+const combing_choices = "1=all,0=off,true=all,false=off";
 const infill_choices = "rectilinear=lines,alignedrectilinear=lines,line=lines,grid=grid,triangles=triangles,stars=trihexagon,tri-hexagon=trihexagon,cubic=cubic,adaptivecubic=~cubic,supportcubic=~cubic,concentric=concentric,honeycomb=honeycomb,3dhoneycomb=~honeycomb,gyroid=gyroid,lightning=lightning,zig-zag=zigzag,zigzag=zigzag,crosshatch=~grid,hilbertcurve=~lines,archimedeanchords=~concentric,octagramspiral=~concentric";
 const skin_choices = "monotonic=monotonic,monotonicline=monotonic,monotoniclines=monotonic,rectilinear=lines,alignedrectilinear=lines,concentric=concentric,hilbertcurve=~lines,archimedeanchords=~concentric,octagramspiral=~concentric";
 
@@ -1117,6 +1126,40 @@ test "an OrcaSlicer preset: lists, a printer speed limit as the base, and the pl
     try testing.expectEqualStrings("0.42", valueOf(r, "project.line_width").?);
     try testing.expectEqualStrings("60", valueOf(r, "project.support_angle").?);
     try testing.expectEqual(Row.Kind.unused, rowOf(r, "inherits").?.kind);
+}
+
+test "the retraction of the travels goes to the printer, and combing to its mode" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    const base: Settings = .{};
+    const json =
+        \\{ "type": "machine", "z_hop": ["0.4"], "z_hop_types": ["Auto Lift"], "wipe": ["1"],
+        \\  "wipe_distance": ["2"], "retract_when_changing_layer": ["1"],
+        \\  "retraction_minimum_travel": ["1"], "reduce_crossing_wall": "0" }
+    ;
+    const r = try read(a, json, "m.json", &base);
+    try testing.expectEqualStrings("0.4", valueOf(r, "machine.z_hop").?);
+    try testing.expectEqualStrings("true", valueOf(r, "machine.z_hop_only_crossing").?);
+    try testing.expectEqualStrings("true", valueOf(r, "machine.retract_wipe").?);
+    try testing.expectEqualStrings("2", valueOf(r, "machine.retract_wipe_distance").?);
+    try testing.expectEqualStrings("true", valueOf(r, "machine.retract_layer_change").?);
+    try testing.expectEqualStrings("1", valueOf(r, "machine.retract_min_travel").?);
+    try testing.expectEqualStrings("off", valueOf(r, "project.combing_mode").?);
+    const ini =
+        \\retract_lift = 0.6
+        \\retract_before_travel = 2
+        \\retract_layer_change = 0
+        \\wipe = 0
+        \\avoid_crossing_perimeters = 1
+        \\
+    ;
+    const p = try read(a, ini, "p.ini", &base);
+    try testing.expectEqualStrings("0.6", valueOf(p, "machine.z_hop").?);
+    try testing.expectEqualStrings("2", valueOf(p, "machine.retract_min_travel").?);
+    try testing.expectEqualStrings("false", valueOf(p, "machine.retract_layer_change").?);
+    try testing.expectEqualStrings("false", valueOf(p, "machine.retract_wipe").?);
+    try testing.expectEqualStrings("all", valueOf(p, "project.combing_mode").?);
 }
 
 test "a config bundle reads the presets that it names" {
