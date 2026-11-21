@@ -86,6 +86,17 @@ pub const PlateInfo = struct {
     layer_lists: []const u8 = "",
 };
 
+/// The tool of a "T<n>" line ("T3", "  T3 H-1 ; load"), or null. The
+/// start G-code of Bambu Studio indents its tool changes.
+fn toolOfLine(raw: []const u8) ?u32 {
+    const line = std.mem.trimStart(u8, raw, " \t");
+    if (line.len < 2 or line[0] != 'T' or !std.ascii.isDigit(line[1])) return null;
+    var e: usize = 1;
+    while (e < line.len and std.ascii.isDigit(line[e])) e += 1;
+    if (e < line.len and line[e] != ' ' and line[e] != ';' and line[e] != '\r') return null;
+    return std.fmt.parseInt(u32, line[1..e], 10) catch null;
+}
+
 /// The <layer_filament_lists> of Bambu Studio for a G-code: for each set
 /// of filaments that a run of layers uses (from 0, space between), the
 /// ranges of those layers ("a b", comma between). It reads the ";LAYER:n"
@@ -100,11 +111,7 @@ pub fn layerFilamentLists(a: Allocator, gcode: []const u8) Allocator.Error![]con
             try masks.append(a, @as(u64, 1) << @intCast(tool));
             continue;
         }
-        if (line.len < 2 or line[0] != 'T' or !std.ascii.isDigit(line[1])) continue;
-        var e: usize = 1;
-        while (e < line.len and std.ascii.isDigit(line[e])) e += 1;
-        if (e < line.len and line[e] != ' ' and line[e] != ';' and line[e] != '\r') continue;
-        const t = std.fmt.parseInt(u32, line[1..e], 10) catch continue;
+        const t = toolOfLine(line) orelse continue;
         if (t >= 64) continue;
         tool = t;
         if (masks.items.len > 0) masks.items[masks.items.len - 1] |= @as(u64, 1) << @intCast(t);
@@ -629,11 +636,7 @@ pub fn gcode3mfPlate(gpa: Allocator, gcode: []const u8, title: []const u8, info:
         var tools: std.ArrayList(u32) = .empty;
         var it = std.mem.splitScalar(u8, gcode, '\n');
         while (it.next()) |line| {
-            if (line.len < 2 or line[0] != 'T' or !std.ascii.isDigit(line[1])) continue;
-            var e: usize = 1;
-            while (e < line.len and std.ascii.isDigit(line[e])) e += 1;
-            if (e < line.len and line[e] != ' ' and line[e] != ';' and line[e] != '\r') continue;
-            const t = std.fmt.parseInt(u32, line[1..e], 10) catch continue;
+            const t = toolOfLine(line) orelse continue;
             if (t >= 64) continue; // T65279 and T65535: the unload of the end
             if (tools.items.len > 0 and tools.items[tools.items.len - 1] == t) continue;
             try tools.append(a, t);

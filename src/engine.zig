@@ -1131,6 +1131,12 @@ pub fn emitAll(gpa: Allocator, src: PlanSource, threads: usize, monitor: Monitor
     if (src.layers > 0 and (usesFirstLayerBox(m.start_gcode) or usesFirstLayerBox(m.end_gcode))) {
         em.first_layer_box = try firstLayerBox(gpa, src);
     }
+    // The start G-code loads the first filament of the print, not slot 0.
+    if (src.layers > 0 and src.slots.len >= 2) {
+        var lp = try src.plan(src.ctx, gpa, 0);
+        defer lp.deinit();
+        em.tool = gcode.startTool(&lp, src.resolved, src.slots);
+    }
     try em.begin(src.layers);
 
     var reporter: Reporter = .{ .monitor = monitor, .base = pass1_share, .span = 1 - pass1_share, .total = src.layers };

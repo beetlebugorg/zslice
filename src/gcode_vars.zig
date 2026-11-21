@@ -132,7 +132,10 @@ pub const Context = struct {
     }
 
     /// The first filament slot with nozzle `n` (a list index), or null.
+    /// In the start G-code, the filament that it loads comes first: the
+    /// print may not use slot 0.
     fn firstOfNozzle(c: *const Context, n: f64) ?u32 {
+        if (c.phase == .start and c.change == null and c.layer_index == null and @as(f64, @floatFromInt(c.nozzleOf(c.tool))) == n) return c.tool;
         const count: u32 = @intCast(@max(c.slots.len, 1));
         for (0..count) |k| if (@as(f64, @floatFromInt(c.nozzleOf(@intCast(k)))) == n) return @intCast(k);
         return null;
