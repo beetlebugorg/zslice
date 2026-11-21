@@ -89,6 +89,8 @@ namespace zs
         int Undo();
         int Redo();
         int HistoryGoto(size_t step);
+        // Removes the steps after this one, and goes to it.
+        int HistoryTruncate(size_t step);
 
     private:
         static void OnEvent(void *user, size_t plate, int event, double progress, int status);

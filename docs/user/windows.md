@@ -89,6 +89,8 @@ Under the tools are the line colors, Gaps, and Check.
 
 Click the time in the bottom bar for the details of the print. Each main setting is a button that opens the search on it. The details also have the filaments, the time of the slice, a warning with its usual fix, and the changes that you made in at least two other prints, with **Apply**.
 
+The bottom bar has the history of your changes. Hold the pointer on a step to see what changed, and change a setting right there. **History** opens the list of the steps, where ↶ undoes one change and keeps the later ones. Right-click a step to go to it or to clear the history after it.
+
 The bar under the view replays the print at a speed of 1× to 100×. Its slider moves the nozzle through the top layer. B hides the bed.
 
 ## Parts

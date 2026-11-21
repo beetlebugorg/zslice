@@ -152,7 +152,7 @@ namespace winrt::ZSlice::implementation
             history_timer.Stop();
             AfterRestore(model->Redo());
         });
-        HistoryMenu().Opening([this](auto &&, auto &&) { FillHistoryMenu(); });
+        WireHistory();
         ShowSections();
     }
 
@@ -560,6 +560,7 @@ namespace winrt::ZSlice::implementation
         for (auto &editor : setting_editors)
             editor.refresh();
         RefreshSearchValues();
+        RefreshHistoryValues();
     }
 
     // The history commits 400 ms after the last change.
@@ -580,42 +581,6 @@ namespace winrt::ZSlice::implementation
         UndoButton().IsEnabled(current > 0 || zs_app_history_pending(app) != 0);
         RedoButton().IsEnabled(count > 0 && current + 1 < count);
         RefreshTimeline();
-    }
-
-    void MainWindow::FillHistoryMenu()
-    {
-        HistoryMenu().Items().Clear();
-        if (model == nullptr)
-            return;
-        history_timer.Stop();
-        if (model->HistoryCommit())
-            RefreshHistoryButtons();
-        zs_app *app = model->Active();
-        size_t count = zs_app_history_count(app), current = zs_app_history_current(app);
-        // The newest step first, at most 40.
-        size_t shown = 0;
-        for (size_t i = count; i-- > 0 && shown < 40; shown++)
-        {
-            zs_history_step step{};
-            if (zs_app_history_step(app, i, &step) != ZS_OK)
-                continue;
-            std::string line(step.text != nullptr ? step.text : "", step.text != nullptr ? step.text_len : 0);
-            size_t nl = line.find('\n');
-            if (nl != std::string::npos)
-                line = line.substr(0, nl) + " \xE2\x80\xA6";
-            size_t tab = line.find('\t');
-            if (tab != std::string::npos)
-                line = line.substr(0, tab) + ": " + line.substr(tab + 1);
-            std::wstring text = i == 0 ? L"The start" : zs::ToWide(line);
-            ToggleMenuFlyoutItem item;
-            item.Text(text);
-            item.IsChecked(i == current);
-            item.Click([this, i](auto &&, auto &&) {
-                if (model != nullptr)
-                    AfterRestore(model->HistoryGoto(i));
-            });
-            HistoryMenu().Items().Append(item);
-        }
     }
 
     // After an undo, a redo, or a jump: the editors, and a new slice.

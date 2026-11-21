@@ -48,6 +48,7 @@ A build with `-p:ZsDevHooks=true` reads `ZSLICE_DO`: steps with `;` between them
 | `src/app/MainWindow.Chrome.cpp` | The layer rail, the timeline, and the print in the bottom bar. |
 | `src/app/MainWindow.Search.cpp` | The search of settings and actions: docked, on a card, or on a rail. It has no action that starts a print. |
 | `src/app/MainWindow.Summary.cpp` | The details of the print: the facts, the warning, and the refinements (`refine.txt` in the state folder). |
+| `src/app/MainWindow.History.cpp` | The hover card of a history step, the list of the steps, the undo of one change, and the line edits. |
 | `src/app/MainWindow.Open.cpp` | A file or a `zslice://` link from outside the app. A link asks before it downloads. |
 | `src/net/zs_open_link` | The rules of a link, and its download: https, public hosts and addresses, each redirect checked, 512 MB at most. |
 | `src/prefs/zs_app_shell` | The file types and the link scheme in HKCU, and the hand-off to the first window through a named pipe. |

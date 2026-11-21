@@ -218,7 +218,11 @@
                                 Foreground="{ThemeResource ZsDim}" AutomationProperties.Name="History"
                                 ToolTipService.ToolTip="Show the list of the changes">
                             <Button.Flyout>
-                                <MenuFlyout x:Name="HistoryMenu" Placement="TopEdgeAlignedLeft" />
+                                <Flyout x:Name="HistoryFlyout" Placement="Top">
+                                    <ScrollViewer Width="436" MaxHeight="560" HorizontalScrollBarVisibility="Disabled">
+                                        <StackPanel x:Name="HistoryList" Spacing="2" />
+                                    </ScrollViewer>
+                                </Flyout>
                             </Button.Flyout>
                         </Button>
                         <ScrollViewer x:Name="TimelineScroll" MaxWidth="420" HorizontalScrollMode="Enabled" VerticalScrollMode="Disabled"
