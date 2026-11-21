@@ -649,8 +649,9 @@ pub const Project = struct {
     /// zigzag, the nozzle goes on to the next zigzag along the walls, and
     /// prints on the way, if that way is at most this long (mm). A travel
     /// and a retraction come only where no such way is. The way can go
-    /// over skin that is printed already: it adds a little plastic along
-    /// the wall. The zigzags just below a zigzag print before it, so at a
+    /// over the line ends of skin that is printed already. It prints at
+    /// half the line width, as each link of a zigzag does, so it adds no
+    /// ridge along the wall. The zigzags just below a zigzag print before it, so at a
     /// hole both sides fill before the skin over the hole. 0: off, each
     /// piece prints on its own. Only for the `lines` pattern.
     skin_link_length: f64 = 15,

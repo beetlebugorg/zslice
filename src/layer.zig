@@ -89,8 +89,10 @@
 //! `alternate_extra_wall`, see docs/references/cura.md), and the slower
 //! overhang walls of OrcaSlicer and Cura (`markOverhangWalls`, see
 //! docs/references/orcaslicer.md), the fuzzy skin of Cura
-//! (`fuzzWalls`), and the spiral vase mode of Cura (`spiralize`, see
-//! docs/references/cura.md).
+//! (`fuzzWalls`), the spiral vase mode of Cura (`spiralize`, see
+//! docs/references/cura.md), and the top surface of Bambu Studio with no
+//! plastic on its links (`thinLinks` prints them with half the plastic,
+//! see docs/references/bambu-studio.md).
 //!
 //! `cornerSeamIndex` and its helpers are a port to Zig of the seam corner
 //! choice of CuraEngine (`CornerScoringCriterion.cpp`,
@@ -115,6 +117,7 @@ const support_mod = @import("support.zig");
 const slope = @import("slope.zig");
 const arachne = @import("arachne.zig");
 const gapfill = @import("gapfill.zig");
+const flow = @import("flow.zig");
 const Point = geom.Point;
 const Paths = geom.Paths;
 const Feature = settings_mod.Feature;
@@ -1586,7 +1589,18 @@ pub fn plan(gpa: Allocator, ctx: Context, i: usize) Allocator.Error!LayerPlan {
                     try pw.appendSlice(s, t.widths);
                 }
                 skin_tour = .{ .lines = paths, .point_w = pw.items, .island = of.items, .n_islands = fit.islands.len };
+            } else {
+                // Each zigzag on its own, with a width for each point.
+                var pw: std.ArrayList(f32) = .empty;
+                for (0..skin_lines.count()) |k| try pw.appendNTimes(s, path_w.items[k], skin_lines.get(k).len);
+                skin_tour = .{ .lines = skin_lines, .point_w = pw.items, .island = path_piece.items, .n_islands = fit.piece_island.len };
             }
+            // The links along the walls print at half width (see
+            // `thinLinks`).
+            const t = &skin_tour.?;
+            const thin = try thinLinks(s, t.lines, t.point_w, fit.lines, layer.height);
+            t.lines = thin.paths;
+            t.point_w = thin.widths;
         },
         .monotonic => {
             const fit = try infill.fittedLines(s, skin_region, w, skin_angle, w);
@@ -2863,6 +2877,65 @@ fn addSkinIslands(s: Allocator, a: Allocator, lp: *LayerPlan, pos: *Point, lines
         if (monotonic) try addMonotonic(s, a, lp, pos, set, angle_deg, .skin) else try addGroup(s, a, lp, pos, set, false, .skin, null, null);
         for (lp.paths.items[start..]) |*path| path.width = bead;
     }
+}
+
+/// The skin paths with half the plastic on each link: a part of a path that
+/// is not one of the skin lines (`lines`), but a link along the edge of
+/// the skin from the end of one line to the next (see `infill.connect`
+/// and `infill.tour`). The center of a line end is on the edge of the
+/// line area, so the line ends already fill the inner half of the bead of
+/// a link there. A link of full width puts twice the plastic on that half
+/// and makes a dot at each turn of a zigzag and a ridge along each long
+/// link. With half the bead area (a narrower bead of the layer height
+/// `h`, see `flow.beadWidth`), the link fills only the outer half: the
+/// plastic for each area is the same as in the middle of the skin. The
+/// point between a line and a link is in the path twice, once with each
+/// width, so each move has one width (the width of a move is the mean of
+/// its ends). `widths` has a width for each point of `paths`. The memory
+/// is in `s`, an arena.
+fn thinLinks(s: Allocator, paths: Paths, widths: []const f32, lines: Paths, h: f64) Allocator.Error!struct { paths: Paths, widths: []const f32 } {
+    const Seg = struct { a: Point, b: Point };
+    const key = struct {
+        fn f(p: Point, q: Point) Seg {
+            return if (p.x < q.x or (p.x == q.x and p.y <= q.y)) .{ .a = p, .b = q } else .{ .a = q, .b = p };
+        }
+    }.f;
+    var is_line: std.AutoHashMapUnmanaged(Seg, void) = .empty;
+    for (0..lines.count()) |k| {
+        const l = lines.get(k);
+        if (l.len == 2) try is_line.put(s, key(l[0], l[1]), {});
+    }
+    var out: Paths = .empty;
+    var out_w: std.ArrayList(f32) = .empty;
+    var base: usize = 0;
+    for (0..paths.count()) |k| {
+        const path = paths.get(k);
+        const pw = widths[base..][0..path.len];
+        base += path.len;
+        // The width of each move: the width of the path at its start, or
+        // the width of half its bead area on a link.
+        var prev: ?f32 = null;
+        for (path, 0..) |q, j| {
+            if (j + 1 == path.len) {
+                try out.points.append(s, q);
+                try out_w.append(s, prev orelse pw[j]);
+                break;
+            }
+            const full = pw[j];
+            const mw: f32 = if (is_line.contains(key(q, path[j + 1]))) full else @floatCast(flow.beadWidth(flow.beadArea(full, h) / 2, h));
+            // A change of width: the point ends the move before with the
+            // old width, and starts the next move with the new width.
+            if (prev) |old| if (old != mw) {
+                try out.points.append(s, q);
+                try out_w.append(s, old);
+            };
+            try out.points.append(s, q);
+            try out_w.append(s, mw);
+            prev = mw;
+        }
+        try out.ends.append(s, @intCast(out.points.items.len));
+    }
+    return .{ .paths = out, .widths = out_w.items };
 }
 
 /// The paths of a retractless skin (see `infill.tour`) and the lines of
@@ -4428,11 +4501,23 @@ test "layersFor: the layers that make a thickness" {
 }
 
 /// The paths of gap fill (see gapfill.zig): skin paths with a width for
-/// each point.
+/// each point. A zigzag of skin lines has a width for each point too, but
+/// only two widths: the line width, and the width of its links (see
+/// `thinLinks`).
 fn gapFillCount(lp: LayerPlan) usize {
     var n: usize = 0;
-    for (lp.paths.items) |path| {
-        if (path.feature == .skin and path.w_start != Path.planar) n += 1;
+    for (lp.paths.items, 0..) |path, k| {
+        if (path.feature != .skin or path.w_start == Path.planar) continue;
+        const pw = lp.point_w.items[path.w_start..][0..lp.points.get(k).len];
+        var full: f32 = 0;
+        for (pw) |x| full = @max(full, x);
+        const link: f32 = @floatCast(flow.beadWidth(flow.beadArea(full, lp.height) / 2, lp.height));
+        for (pw) |x| {
+            if (x != full and @abs(x - link) > 1e-4) {
+                n += 1;
+                break;
+            }
+        }
     }
     return n;
 }
@@ -4804,4 +4889,41 @@ test "dashes: a line of 10 mm cuts into dabs, one each step" {
     // Half a step along: the dabs of the next layer sit between these.
     const e = try dashes(a, line, geom.fromMm(0.6), geom.fromMm(1), geom.fromMm(0.5));
     try std.testing.expectEqual(geom.fromMm(0.5), e.get(0)[0].x);
+}
+
+test "thinLinks: a link of a zigzag has half the bead area of a line" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const s = arena_state.allocator();
+    // Two skin lines along x, 0.5 mm apart, joined at the right end by a
+    // link along the wall (two moves).
+    var lines: Paths = .empty;
+    try lines.append(s, &.{ .init(0, 0), .init(10_000, 0) });
+    try lines.append(s, &.{ .init(0, 500), .init(10_000, 500) });
+    var zig: Paths = .empty;
+    try zig.append(s, &.{ .init(0, 0), .init(10_000, 0), .init(10_100, 250), .init(10_000, 500), .init(0, 500) });
+    const pw = [_]f32{0.5} ** 5;
+    const h = 0.2;
+    const t = try thinLinks(s, zig, &pw, lines, h);
+    const pts = t.paths.get(0);
+    try testing.expectEqual(pts.len, t.widths.len);
+    // Each move has one width: the mean of its ends is the width of
+    // both ends. The bead area of a line is the full one, and of a link
+    // half of it.
+    var line_len: f64 = 0;
+    var link_len: f64 = 0;
+    for (1..pts.len) |k| {
+        const d = pts[k - 1].dist(pts[k]);
+        if (d == 0) continue;
+        try testing.expectEqual(t.widths[k - 1], t.widths[k]);
+        const area = flow.beadArea(t.widths[k], h);
+        if (pts[k - 1].y == pts[k].y) {
+            try testing.expectApproxEqAbs(flow.beadArea(0.5, h), area, 1e-6);
+            line_len += d;
+        } else {
+            try testing.expectApproxEqAbs(flow.beadArea(0.5, h) / 2, area, 1e-6);
+            link_len += d;
+        }
+    }
+    try testing.expect(line_len > 19_000 and link_len > 500);
 }
