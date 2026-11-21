@@ -603,6 +603,8 @@ final class Workspace {
                 NSLog("zslice deck test: key %@, list %@, https %@", r.key ?? r.message, list.map { $0.map(\.path).joined(separator: " ") } ?? "none", https ?? "none")
             }
         }
+        // ZSLICE_SEARCH_PLACE=toolbar|card|left|right: the place of the search.
+        if let p = env["ZSLICE_SEARCH_PLACE"] { search.place(p) }
         // ZSLICE_FIND_MODEL="TAZ Workhorse;TAZ": the library model of each
         // product name (PrinterLibrary.findModel), as a deck add finds it.
         if let spec = env["ZSLICE_FIND_MODEL"] {
@@ -2429,6 +2431,9 @@ final class Workspace {
 
 extension Workspace: SliceViewDelegate {
     func sliceViewClick(_ p: CGPoint) {
+        // A click outside the results of the search under the toolbar
+        // closes them (a drag keeps them; a card or a rail is pinned).
+        if searchOpen, search.docked { searchOpen = false }
         // A click elsewhere ends a range of layers.
         closeRangeCard()
         // A click on the sign of a plate makes it the active plate.
