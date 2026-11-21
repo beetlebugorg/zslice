@@ -443,6 +443,8 @@ namespace winrt::ZSlice::implementation
         Controls::Primitives::FlyoutShowOptions options;
         options.Position(Windows::Foundation::Point{ (float)x, (float)y });
         menu.Closed([this](auto &&, auto &&) { ViewPanel().Focus(FocusState::Programmatic); });
+        // The window holds the menu while it is open.
+        context_menu = menu;
         menu.ShowAt(ViewPanel(), options);
     }
 

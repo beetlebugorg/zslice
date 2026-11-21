@@ -170,6 +170,7 @@ namespace winrt::ZSlice::implementation
         // A press of the right button. The pointer, in points of the view.
         bool press_right = false;
         double pointer_x = 0, pointer_y = 0;
+        Microsoft::UI::Xaml::Controls::MenuFlyout context_menu{ nullptr };
 #ifdef ZS_DEV_HOOKS
         std::vector<std::pair<std::wstring, std::function<void()>>> context_actions;
 #endif
