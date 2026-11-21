@@ -130,6 +130,7 @@ struct ZSliceApp: App {
         .commands {
             ViewCommands()
             UndoCommands()
+            ClipboardCommands()
             // Command-Q keeps the session (SessionStore.quit).
             CommandGroup(replacing: .appTermination) {
                 Button("Quit zslice") { SessionStore.shared.quit() }
@@ -177,6 +178,39 @@ struct UndoCommands: Commands {
             }
             .keyboardShortcut("z", modifiers: [.command, .shift])
             .disabled(!(editingText || u?.canRedo == true))
+        }
+    }
+}
+
+/// Edit > Cut, Copy, Paste, Paste as a New Plate, Duplicate, and Select
+/// All. A text field that edits keeps its own (the field editor of
+/// AppKit). Else they act on the selection of the view (Clipboard.swift).
+struct ClipboardCommands: Commands {
+    @FocusedValue(\.workspace) private var workspace
+
+    private var editingText: Bool { NSApp.keyWindow?.firstResponder is NSText }
+
+    private func text(_ action: String) { NSApp.sendAction(Selector(action), to: nil, from: nil) }
+
+    var body: some Commands {
+        CommandGroup(replacing: .pasteboard) {
+            Button("Cut") { if editingText { text("cut:") } else { workspace?.clipCut() } }
+                .keyboardShortcut("x", modifiers: .command)
+                .disabled(!editingText && workspace == nil)
+            Button("Copy") { if editingText { text("copy:") } else { workspace?.clipCopy() } }
+                .keyboardShortcut("c", modifiers: .command)
+                .disabled(!editingText && workspace == nil)
+            Button("Paste") { if editingText { text("paste:") } else { workspace?.clipPaste() } }
+                .keyboardShortcut("v", modifiers: .command)
+                .disabled(!editingText && workspace == nil)
+            Button("Paste as a New Plate") { workspace?.pasteAsPlate() }
+                .keyboardShortcut("v", modifiers: [.command, .shift])
+                .disabled(workspace == nil || editingText)
+            Button("Duplicate") { workspace?.clipDuplicate() }
+                .keyboardShortcut("d", modifiers: .command)
+                .disabled(workspace == nil || editingText)
+            Button("Select All") { text("selectAll:") }
+                .keyboardShortcut("a", modifiers: .command)
         }
     }
 }

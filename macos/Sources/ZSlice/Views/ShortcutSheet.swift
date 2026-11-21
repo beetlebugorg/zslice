@@ -28,6 +28,13 @@ struct ShortcutSheet: View {
             ("⇧⌘Z", "Redo"),
             ("Esc", "Clear the measure, the selection, or close a card"),
         ]),
+        ("Copy and paste", [
+            ("⌘C", "Copy the selection: parts, a label, a support area, the changes of the selected layers, or the report of a line"),
+            ("⌘X", "Cut the selection: a copy, then it goes"),
+            ("⌘V", "Paste: parts next to the selected parts, else at the pointer; a label or a support area on the part under the pointer; layer changes on the selected layers"),
+            ("⇧⌘V", "Paste the copied parts or plate as a new plate"),
+            ("⌘D", "Duplicate the selected parts or the selected label"),
+        ]),
         ("Plates", [
             ("]", "The next plate: make it active, and show it"),
             ("[", "The plate before: make it active, and show it"),
@@ -48,7 +55,7 @@ struct ShortcutSheet: View {
             ("⌘-scroll", "Turn the selected part by 15°"),
             ("Tab, ⇧Tab", "Select the next part, or the part before"),
             ("← → ↑ ↓ (a part)", "Move the selected parts 1 mm (Shift: 10 mm)"),
-            ("D", "Duplicate the selected parts"),
+            ("D, ⌘D", "Duplicate the selected parts"),
             ("Delete", "Remove the selected parts or support; on a selected line, take the line out of the print"),
             ("Shift-click", "Select tool: the run of the line, one extrusion from a retraction to the next. Other tools: add a part to the selection, or take it out"),
             ("⌘⇧-click", "Add a part to the selection, or take it out"),

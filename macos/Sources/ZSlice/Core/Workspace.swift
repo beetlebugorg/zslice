@@ -1165,6 +1165,58 @@ final class Workspace {
                 }
             }
         }
+        // ZSLICE_CLIP="part:center,copy,paste,pasteat:x:y,cut,dup,copyplate,
+        // dupplate,pasteplate,undo,area,range:lo:hi,set:name=value,closerange": each step 1.5 s apart (Clipboard.swift),
+        // and after it the parts, the plates, the selection, the clipboard,
+        // and the history.
+        if let spec = env["ZSLICE_CLIP"] {
+            Task { @MainActor in
+                for step in spec.split(separator: ",") {
+                    try? await Task.sleep(for: .seconds(1.5))
+                    let f = step.split(separator: ":").map(String.init)
+                    let mid = CGPoint(x: self.canvas.bounds.midX, y: self.canvas.bounds.midY)
+                    switch f[0] {
+                    case "part": self.selectOnlyPart(self.partAt(mid))
+                    case "none": self.selectPart(nil)
+                    case "copy": self.clipCopy()
+                    case "cut": self.clipCut()
+                    case "paste": self.clipPaste()
+                    // pasteat:x:y, or pasteat alone: the center of the view.
+                    case "pasteat": self.clipPaste(at: f.count > 2 ? CGPoint(x: Double(f[1]) ?? mid.x, y: Double(f[2]) ?? mid.y) : mid, here: true)
+                    case "wait": try? await Task.sleep(for: .seconds(4))
+                    case "dup": self.clipDuplicate()
+                    case "copyplate": self.copyPlate()
+                    case "dupplate": self.duplicatePlate()
+                    case "pasteplate": self.pasteAsPlate()
+                    case "undo": self.model.history.undoManager.undo()
+                    // area: a Grid area of 10 mm around the center of part 0,
+                    // selected in the Support tool.
+                    case "area":
+                        self.setTool(.support)
+                        if let q = self.part(0) {
+                            var pts = [q.x - 5, q.y - 5, 0, q.x + 5, q.y - 5, 0, q.x + 5, q.y + 5, 0, q.x - 5, q.y + 5, 0]
+                            let i = zs_app_support_area_add(self.model.core, Int32(ZS_MARK_GRID.rawValue), &pts, 4, 1, 0)
+                            self.supportEdited()
+                            if i >= 0 { self.supportSelected = Int(i) }
+                        }
+                    // range:lo:hi opens the range card; set:name=value changes
+                    // a setting for its layers.
+                    case "range": self.openRangeCard(Int(f[1]) ?? 0, Int(f[2]) ?? 0)
+                    case "closerange": self.closeRangeCard()
+                    case "set":
+                        let kv = f[1].split(separator: "=").map(String.init)
+                        if kv.count == 2 { NSLog("zslice clip set: card %@, %@", self.rangeCard.map { "\($0.lo)-\($0.hi)" } ?? "none", self.model.set(kv[0], kv[1]) ?? "ok") }
+                    default: break
+                    }
+                    try? await Task.sleep(for: .seconds(0.6))
+                    NSLog("zslice clip %@: areas %ld, overrides %ld", String(step), zs_app_support_area_count(self.model.core), zs_app_override_count(self.model.core))
+                    NSLog("zslice clip %@: parts %ld, plates %ld, active %ld, selected %@, clipboard %ld (plate %d), history %ld/%ld, note %@",
+                          String(step), zs_app_part_count(self.model.core), self.model.plates.count, self.model.active,
+                          self.selectedParts.map(String.init).joined(separator: " "), zs_clipboard_parts(), zs_clipboard_is_plate(),
+                          self.model.history.current, self.model.history.count, self.note ?? "-")
+                }
+            }
+        }
         // ZSLICE_LABEL_AT=x,y opens the Label tool and presses there, as a
         // click: a label goes on the face. ZSLICE_LABEL_FILAMENTS=2 adds a
         // filament first, and ZSLICE_LABEL_TEXT=text sets its text. Logs
@@ -1205,6 +1257,16 @@ final class Workspace {
                             NSLog("zslice label handle: sign %.0f, angle %.1f to %.1f", self.labelTurnSign(l), l.angle, self.labelState.label?.angle ?? 0)
                         }
                     case "delete": self.removeLabel()
+                    case "copy": self.clipCopy()
+                    case "cut": self.clipCut()
+                    // paste:x:y at a point; paste alone with no point: under the label.
+                    case "paste":
+                        if f.count > 2 {
+                            self.clipPaste(at: CGPoint(x: Double(f[1]) ?? 0, y: Double(f[2]) ?? 0))
+                        } else if case let .label(l, part)? = Clip.current {
+                            self.pasteLabel(l, at: nil, part: part)
+                        }
+                    case "dup": self.clipDuplicate()
                     case "blur": self.canvas.window?.makeFirstResponder(self.canvas)
                     case "set": self.model.set("project.wall_count", String(Int.random(in: 3 ... 6))); self.model.history.commit()
                     case "coreundo": NSLog("zslice label step coreundo: bits %d", zs_app_history_undo(self.model.core, Int64(Date().timeIntervalSince1970 * 1000)))

@@ -164,6 +164,11 @@ extension Workspace {
         (SIMD3(Double(r[0]), Double(r[1]), Double(r[2])), SIMD3(Double(r[3]), Double(r[4]), Double(r[5])))
     }
 
+    /// The paint session and the ray of the view, for a paste
+    /// (Clipboard.swift).
+    func labelSessionFor(_ index: Int) -> OpaquePointer? { labelSession(index) }
+    func labelRayAt(_ p: CGPoint) -> [Float]? { labelRay(p) }
+
     /// The outline of a label, made again only when its shapes change.
     func labelOutline(_ l: PartLabel) -> LabelOutline? {
         let key = l.shapeJson

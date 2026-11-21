@@ -42,9 +42,12 @@ import CZslice
 final class ClosureItem: NSMenuItem {
     private let run: () -> Void
 
-    init(_ title: String, key: String = "", _ run: @escaping () -> Void) {
+    /// key: the key shown with Command (shift: with Shift too), as in
+    /// the Edit menu.
+    init(_ title: String, key: String = "", shift: Bool = false, _ run: @escaping () -> Void) {
         self.run = run
         super.init(title: title, action: #selector(fire), keyEquivalent: key)
+        if shift { keyEquivalentModifierMask = [.command, .shift] }
         target = self
     }
 
@@ -85,6 +88,11 @@ extension Workspace {
             guard !items.isEmpty else { return }
             if !menu.items.isEmpty { menu.addItem(.separator()) }
             items.forEach(menu.addItem)
+        }
+        // Paste at the place of the right click, when the clipboard has a
+        // copy.
+        if Clip.current != nil {
+            section([ClosureItem("Paste Here", key: "v") { [weak self] in self?.clipPaste(at: p, here: true) }])
         }
         if on == .support {
             var items = [ClosureItem("Remove This Support") { [weak self] in self?.removeSupportHere() }]
@@ -130,6 +138,13 @@ extension Workspace {
                 sub.addItem(ClosureItem(title) { [weak self] in self?.placeLinePart(mode, axis) })
             }
             place.submenu = sub
+            // The part of the clicked line.
+            let k = zs_app_part_of_path(model.core, s.path)
+            section([
+                ClosureItem("Copy the Part", key: "c") { [weak self] in self?.selectOnlyPart(k); self?.clipCopy() },
+                ClosureItem("Cut the Part", key: "x") { [weak self] in self?.selectOnlyPart(k); self?.clipCut() },
+                ClosureItem("Duplicate the Part", key: "d") { [weak self] in self?.selectOnlyPart(k); self?.duplicatePart() },
+            ])
             section([ClosureItem("Put This Side on the Bed") { [weak self] in self?.putDown() }, place])
         }
         if on == .empty {
@@ -144,6 +159,14 @@ extension Workspace {
                 items.append(ClosureItem("Remove This Plate") { [weak self] in self?.removePlate(i) })
             }
             section(items)
+            var plate = [
+                ClosureItem("Copy the Plate") { [weak self] in self?.copyPlate() },
+                ClosureItem("Duplicate the Plate") { [weak self] in self?.duplicatePlate() },
+            ]
+            if Clip.current?.isParts == true {
+                plate.append(ClosureItem("Paste as a New Plate", key: "v", shift: true) { [weak self] in self?.pasteAsPlate() })
+            }
+            section(plate)
         }
         var view: [NSMenuItem] = []
         if marks {

@@ -117,6 +117,9 @@ The keys of the other apps work in the 3D view. A key with Ctrl in the other app
 | Action | Key |
 |---|---|
 | Undo, Redo | Command-Z, Shift-Command-Z |
+| Copy, Cut, Paste | Command-C, Command-X, Command-V |
+| Paste the copied parts or plate as a new plate | Shift-Command-V |
+| Duplicate the selected parts or label | Command-D (D for parts) |
 | Export the G-code | Command-E |
 | Print | Command-P |
 | Search the settings and the actions | `/` or Command-F |
@@ -213,6 +216,27 @@ The card has the settings that can change for some layers: the filament, infill,
 - Each edit keeps the rules of the planner. An edit that a rule limited shows red, and the card says which rule.
 
 Each change of support is one step of the history.
+
+### Copy and paste
+
+Edit > Copy (Command-C) copies the selection. The first of these that you have selected is copied:
+
+- the selected label of the Label tool
+- the selected area of the Support tool
+- the changes of the layers of an open range card
+- the selected parts, with their settings, paint, labels, and support
+- a selected line: its report, as Copy for AI does
+
+Edit > Paste (Command-V) puts the copy where it fits:
+
+- Parts: with parts selected, next to them. With no selection, at the pointer on the bed. On an empty plate, at the places of the copy.
+- A label: on the face under the pointer, with the same turn. With the pointer off the part, under the label of the copy (over it at the foot of the part).
+- A support area: on the part under the pointer, at the same place on that part.
+- The changes of layers: on the layers of the open range card.
+
+Cut (Command-X) copies, then removes. For layers, the changes go, and the value of the print stays. Duplicate (Command-D) copies the selected parts or label in place, and keeps the clipboard. Each paste is one step of the history. A text field keeps its own copy and paste.
+
+The context menu has Paste Here, Copy the Part, Cut the Part, and Duplicate the Part on a part. On the bed it has Copy the Plate, Duplicate the Plate, and Paste as a New Plate (Shift-Command-V). The parts stay on the clipboard of the app, so they paste on another plate, and in another window.
 
 ## Filaments and paint
 
