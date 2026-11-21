@@ -246,7 +246,7 @@ namespace winrt::ZSlice::implementation
         zs_app *app = model->Active();
         if (zs_app_state(app) != ZS_STATE_DONE)
         {
-            StatusText().Text(L"Slice first: the simulation needs a slice.");
+            ShowToast(L"Slice first: the simulation needs a slice.");
             simulated = false;
             sim_item.IsChecked(false);
             return;
@@ -269,7 +269,7 @@ namespace winrt::ZSlice::implementation
         }
         if (zs_app_sim_request(app) != ZS_OK)
         {
-            StatusText().Text(L"Slice first: the simulation needs a slice.");
+            ShowToast(L"Slice first: the simulation needs a slice.");
             simulated = false;
             sim_item.IsChecked(false);
             return;

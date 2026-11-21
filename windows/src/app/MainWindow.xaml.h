@@ -155,6 +155,11 @@ namespace winrt::ZSlice::implementation
         void ShowShortcuts();
         void ShowLicenses();
         void ShowAbout();
+        // A short note over the dock, for a few seconds.
+        void ShowToast(winrt::param::hstring const &text);
+        Microsoft::UI::Dispatching::DispatcherQueueTimer toast_timer{ nullptr };
+        bool InViewFocus(Windows::Foundation::IInspectable const &focused);
+        void StepPart(int direction);
 
         // The 2D view of the top layer (MainWindow.Layer2D.cpp).
         void Wire2D();

@@ -69,7 +69,7 @@ namespace winrt::ZSlice::implementation
             if (model != nullptr && zs_app_part_count(model->Active()) > 0)
             {
                 if (!zs_app_plate_smart_place(model->Active()))
-                    StatusText().Text(L"Not all parts fit on the bed.");
+                    ShowToast(L"Not all parts fit on the bed.");
                 PlateEdited();
             }
         });
@@ -77,7 +77,7 @@ namespace winrt::ZSlice::implementation
             if (model != nullptr && zs_app_part_count(model->Active()) > 0)
             {
                 if (!zs_app_plate_arrange(model->Active()))
-                    StatusText().Text(L"Not all parts fit on the bed.");
+                    ShowToast(L"Not all parts fit on the bed.");
                 PlateEdited();
             }
         });
@@ -119,6 +119,20 @@ namespace winrt::ZSlice::implementation
 
         // The theme follows the system.
         Root().ActualThemeChanged([this](auto &&, auto &&) { ApplyTheme(); });
+
+        EmptyOpen().Click([this](auto &&, auto &&) { PickFile(); });
+        toast_timer = queue.CreateTimer();
+        toast_timer.IsRepeating(false);
+        toast_timer.Interval(std::chrono::seconds(4));
+        toast_timer.Tick([this](auto &&, auto &&) { ToastCard().Visibility(Visibility::Collapsed); });
+    }
+
+    void MainWindow::ShowToast(winrt::param::hstring const &text)
+    {
+        ToastText().Text(text);
+        ToastCard().Visibility(Visibility::Visible);
+        toast_timer.Stop();
+        toast_timer.Start();
     }
 
     void MainWindow::ApplyTheme()

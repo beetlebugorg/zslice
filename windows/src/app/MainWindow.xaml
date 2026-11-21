@@ -106,11 +106,19 @@
             <SwapChainPanel x:Name="Layer2DPanel" IsTabStop="True" Visibility="Collapsed" />
 
             <StackPanel x:Name="EmptyHint" HorizontalAlignment="Center" VerticalAlignment="Center"
-                        Spacing="6" IsHitTestVisible="False">
-                <TextBlock Text="Open a model to slice it" FontSize="20" HorizontalAlignment="Center" />
+                        Spacing="10">
+                <Button x:Name="EmptyOpen" Content="Open a model" FontSize="16" Padding="20,8"
+                        HorizontalAlignment="Center" Style="{StaticResource AccentButtonStyle}" />
                 <TextBlock Text="STL, 3MF, STEP, or OBJ. Drop a file here, or press Ctrl+O."
-                           Foreground="#5B6168" HorizontalAlignment="Center" />
+                           Foreground="#5B6168" HorizontalAlignment="Center" IsHitTestVisible="False" />
             </StackPanel>
+
+            <!-- A short note, over the dock. -->
+            <Border x:Name="ToastCard" Canvas.ZIndex="60" HorizontalAlignment="Center" VerticalAlignment="Bottom"
+                    Margin="0,0,0,84" Padding="14,8" CornerRadius="8" Background="#EE202428"
+                    MaxWidth="560" Visibility="Collapsed" IsHitTestVisible="False">
+                <TextBlock x:Name="ToastText" Foreground="#FFFFFF" TextWrapping="WrapWholeWords" />
+            </Border>
 
             <!-- The plates: as the dock of the other apps. -->
             <Border x:Name="PlateBar" HorizontalAlignment="Center" VerticalAlignment="Bottom"

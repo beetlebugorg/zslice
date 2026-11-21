@@ -518,7 +518,7 @@ namespace winrt::ZSlice::implementation
             }
             if (rc != ZS_OK)
             {
-                StatusText().Text(zs::ToWide(info.label) + L": " + zs::ToWide(zs_status_message(rc)));
+                ShowToast(zs::ToWide(info.label) + L": " + zs::ToWide(zs_status_message(rc)));
                 return;
             }
             // The text of the value now: no change, no step in the history.
@@ -539,7 +539,7 @@ namespace winrt::ZSlice::implementation
         std::string error;
         if (!model->SetSetting(name.c_str(), value, error))
         {
-            StatusText().Text(zs::ToWide(name) + L": " + zs::ToWide(error));
+            ShowToast(zs::ToWide(name) + L": " + zs::ToWide(error));
             RefreshSettingValues();
             return;
         }

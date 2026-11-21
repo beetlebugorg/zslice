@@ -123,7 +123,7 @@ namespace winrt::ZSlice::implementation
             int rc = zs_app_filament_set(w.model->Active(), i, field, value.c_str());
             if (rc != ZS_OK)
             {
-                w.StatusText().Text(L"The filament did not change: " + zs::ToWide(zs_status_message(rc)));
+                w.ShowToast(L"The filament did not change: " + zs::ToWide(zs_status_message(rc)));
                 return;
             }
             // Filament 0 is the filament of the settings.
@@ -735,7 +735,7 @@ namespace winrt::ZSlice::implementation
         size_t index = 0;
         if (zs_app_filament_add(model->Active(), &index) != ZS_OK)
         {
-            StatusText().Text(L"The plate has the most filaments it can have.");
+            ShowToast(L"The plate has the most filaments it can have.");
             return -1;
         }
         FilamentsChanged();
