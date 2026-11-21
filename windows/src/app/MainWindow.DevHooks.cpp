@@ -305,6 +305,15 @@ namespace winrt::ZSlice::implementation
                 GoToIssue(issues[0]);
             }
         }
+        else if (verb == L"dialog" && !words.empty())
+        {
+            if (words[0] == L"keys")
+                ShowShortcuts();
+            else if (words[0] == L"licenses")
+                ShowLicenses();
+            else
+                ShowAbout();
+        }
         else if (verb == L"bed")
         {
             ToggleBed();
