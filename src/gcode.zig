@@ -1363,7 +1363,11 @@ pub const Emitter = struct {
                 st.slot_g[k] = st.slot_mm[k] * std.math.pi * rk * rk / 1000.0 * f.density;
                 st.filament_g += st.slot_g[k];
             }
-        } else st.slot_g[0] = st.filament_g;
+        } else {
+            // A layer that `link` reuses adds to filament_mm only.
+            st.slot_mm[0] = st.filament_mm;
+            st.slot_g[0] = st.filament_g;
+        }
         _ = try self.writeTemplate(self.w, makerTemplate(self.r.settings.machine.model, self.r.settings.machine.end_gcode, .end), .end);
         try self.w.writeAll("\n");
         try self.w.writeAll(";Filament used: ");
