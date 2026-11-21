@@ -21,6 +21,10 @@
 //! A part can have paint: a filament for each triangle of its mesh (see
 //! paint.zig). A split or a cut of the part drops its paint.
 //!
+//! A part can have labels (label.zig) in the frame of its file mesh, so
+//! they move and turn with it (`Part.placeLabel`). A copy keeps them; a
+//! split or a cut drops them.
+//!
 //! A part can also have the support trees of the user (the support
 //! editor, support_skeleton.Edit). They are relative to the center of the
 //! footprint, so they move with the part. They also keep the shape of the
@@ -40,6 +44,7 @@ const threemf = @import("threemf.zig");
 const Meta = threemf.Meta;
 const skel = @import("support_skeleton.zig");
 const paint_mod = @import("paint.zig");
+const label_mod = @import("label.zig");
 
 /// A modifier volume of a part (see the file comment).
 pub const Volume = struct {
@@ -74,6 +79,29 @@ fn mulM(a: M3, b: M3) M3 {
 
 fn mulV(a: M3, v: [3]f64) [3]f64 {
     return .{ a[0][0] * v[0] + a[0][1] * v[1] + a[0][2] * v[2], a[1][0] * v[0] + a[1][1] * v[1] + a[1][2] * v[2], a[2][0] * v[0] + a[2][1] * v[1] + a[2][2] * v[2] };
+}
+
+/// A label under the map p -> m p + t. `right` and `up` map as vectors;
+/// the normal is right x up again. The lengths of the mapped vectors
+/// stretch the shape. A mirror keeps the normal out of the part: the
+/// shape then mirrors along `up`.
+pub fn mapLabel(l: label_mod.Label, m: M3, t: [3]f64) label_mod.Label {
+    var out = l;
+    const o = mulV(m, l.origin);
+    out.origin = .{ o[0] + t[0], o[1] + t[1], o[2] + t[2] };
+    const r = mulV(m, l.right);
+    const u = mulV(m, l.up());
+    const lr = @sqrt(label_mod.dot(r, r));
+    const lu = @sqrt(label_mod.dot(u, u));
+    if (!(lr > 1e-12) or !(lu > 1e-12)) return out;
+    out.right = .{ r[0] / lr, r[1] / lr, r[2] / lr };
+    const ru: [3]f64 = .{ u[0] / lu, u[1] / lu, u[2] / lu };
+    const n = label_mod.cross(out.right, ru);
+    const det = m[0][0] * (m[1][1] * m[2][2] - m[1][2] * m[2][1]) - m[0][1] * (m[1][0] * m[2][2] - m[1][2] * m[2][0]) + m[0][2] * (m[1][0] * m[2][1] - m[1][1] * m[2][0]);
+    const flip: f64 = if (det < 0) -1 else 1;
+    out.normal = label_mod.normalize(.{ n[0] * flip, n[1] * flip, n[2] * flip }) orelse l.normal;
+    out.stretch = .{ l.stretch[0] * lr, l.stretch[1] * lu * flip };
+    return out;
 }
 
 /// How a part is placed by `Plate.place`.
@@ -120,16 +148,75 @@ pub const Part = struct {
     /// file): a filament for each triangle, or for its pieces (see
     /// paint.zig). Empty: no paint.
     paint: paint_mod.Paint = .{},
+    /// The labels on the surface of the part (see label.zig), in the
+    /// frame of the file mesh (`source`, else `mesh`).
+    labels: std.ArrayList(label_mod.Label) = .empty,
 
     fn deinit(p: *Part, gpa: Allocator) void {
         if (p.trees) |*t| t.deinit(gpa);
         p.paint.deinit(gpa);
+        p.freeLabels(gpa);
         p.mesh.deinit(gpa);
         if (p.source) |*m| m.deinit(gpa);
         gpa.free(p.name);
         threemf.freeMeta(gpa, p.meta);
         for (p.volumes.items) |*v| v.deinit(gpa);
         p.volumes.deinit(gpa);
+    }
+
+    pub fn freeLabels(p: *Part, gpa: Allocator) void {
+        for (p.labels.items) |*l| l.deinit(gpa);
+        p.labels.deinit(gpa);
+        p.labels = .empty;
+    }
+
+    /// Deep copies of the labels of `src`, with their ids.
+    pub fn cloneLabels(gpa: Allocator, src: []const label_mod.Label) Allocator.Error!std.ArrayList(label_mod.Label) {
+        var out: std.ArrayList(label_mod.Label) = .empty;
+        errdefer {
+            for (out.items) |*l| l.deinit(gpa);
+            out.deinit(gpa);
+        }
+        try out.ensureTotalCapacity(gpa, src.len);
+        for (src) |*l| out.appendAssumeCapacity(try l.clone(gpa));
+        return out;
+    }
+
+    /// The index of the label with an id, or null.
+    pub fn labelIndex(p: *const Part, id: u32) ?usize {
+        for (p.labels.items, 0..) |l, i| if (l.id == id) return i;
+        return null;
+    }
+
+    /// An id for a new label: one more than the largest id.
+    pub fn nextLabelId(p: *const Part) u32 {
+        var m: u32 = 0;
+        for (p.labels.items) |l| m = @max(m, l.id);
+        return m +% 1;
+    }
+
+    /// A label of the part in the frame of `mesh` (the pose and the scale
+    /// of the part applied). The result shares the items of `l`.
+    pub fn meshLabel(p: *const Part, l: label_mod.Label) label_mod.Label {
+        if (p.source == null) return l;
+        const m: M3 = .{
+            .{ p.pose[0][0] * p.scale[0], p.pose[0][1] * p.scale[1], p.pose[0][2] * p.scale[2] },
+            .{ p.pose[1][0] * p.scale[0], p.pose[1][1] * p.scale[1], p.pose[1][2] * p.scale[2] },
+            .{ p.pose[2][0] * p.scale[0], p.pose[2][1] * p.scale[1], p.pose[2][2] * p.scale[2] },
+        };
+        return mapLabel(l, m, .{ 0, 0, 0 });
+    }
+
+    /// A label of the part in the frame of `Plate.partMesh` (the mesh on
+    /// the bed): the pose and the scale, then `transform`. A scale that is
+    /// not the same on all axes stretches the label, as it stretches the
+    /// part. The result shares the items of `l`.
+    pub fn placeLabel(p: *const Part, l: label_mod.Label) label_mod.Label {
+        const t = p.transform();
+        // The rows of the transform are for row vectors: as a matrix for
+        // column vectors, they are the columns.
+        const m: M3 = .{ .{ t[0], t[3], t[6] }, .{ t[1], t[4], t[7] }, .{ t[2], t[5], t[8] } };
+        return mapLabel(p.meshLabel(l), m, .{ t[9], t[10], t[11] });
     }
 
     /// A mesh of the frame of the part (`mesh`) on the bed, at the place
@@ -315,6 +402,8 @@ pub const Plate = struct {
         errdefer if (p.trees) |*t| t.deinit(gpa);
         p.paint = try src.paint.clone(gpa);
         errdefer p.paint.deinit(gpa);
+        p.labels = try Part.cloneLabels(gpa, src.labels.items);
+        errdefer p.freeLabels(gpa);
         p.volumes = .empty;
         errdefer {
             for (p.volumes.items) |*v| v.deinit(gpa);
@@ -351,6 +440,7 @@ pub const Plate = struct {
             p.mesh = .empty;
             p.meta = &.{};
             p.paint = .{};
+            p.labels = .empty;
             p.volumes = .empty;
             // The part is in `out` from here, so an error frees it.
             out.parts.appendAssumeCapacity(p);
@@ -358,6 +448,10 @@ pub const Plate = struct {
             c.mesh = try src.mesh.clone(gpa);
             c.meta = try threemf.cloneMeta(gpa, src.meta);
             c.paint = try src.paint.clone(gpa);
+            // The copy has no source mesh: its labels go to the frame of
+            // its mesh.
+            try c.labels.ensureTotalCapacity(gpa, src.labels.items.len);
+            for (src.labels.items) |l| c.labels.appendAssumeCapacity(try src.meshLabel(l).clone(gpa));
             try c.volumes.ensureTotalCapacity(gpa, src.volumes.items.len);
             for (src.volumes.items) |v| {
                 c.volumes.appendAssumeCapacity(.{ .name = try gpa.dupeZ(u8, v.name), .mesh = .empty });
@@ -1141,4 +1235,48 @@ test "plate: parts near each other with a wide brim are no fault" {
     // Past the edge of the bed, with room for the brim: a fault.
     plate.parts.items[1].x = 214;
     try std.testing.expect(!plate.noFault(.{ 220, 220 }, 8));
+}
+
+test "plate: a label stays on its face when the part turns and moves" {
+    const gpa = std.testing.allocator;
+    var plate: Plate = .{};
+    defer plate.deinit(gpa);
+    var b: mesh_mod.Builder = .init(gpa);
+    try mesh_mod.shapes.addBox(&b, 0, 0, 0, 20, 10, 5);
+    _ = try plate.add(gpa, "box", try b.finish(), .{ 200, 200 }, 3, false);
+    const items = try gpa.alloc(label_mod.Item, 1);
+    items[0] = .{ .shape = .{ .bar = .{ .width = 4, .height = 2 } } };
+    try plate.parts.items[0].labels.append(gpa, .{ .id = 1, .name = try gpa.dupe(u8, ""), .origin = .{ 20, 5, 2.5 }, .normal = .{ 1, 0, 0 }, .right = .{ 0, 1, 0 }, .items = items });
+    const Check = struct {
+        /// The origin is on the face of the box that faces the normal,
+        /// and the frame has right angles.
+        fn onFace(pl: *const Plate, g: Allocator) !label_mod.Label {
+            const p = &pl.parts.items[0];
+            const l = p.placeLabel(p.labels.items[0]);
+            var m = try pl.partMesh(g, 0);
+            defer m.deinit(g);
+            var top: f64 = -std.math.inf(f64);
+            for (m.vertices.items) |v| top = @max(top, label_mod.dot(.{ v.x, v.y, v.z }, l.normal));
+            try std.testing.expectApproxEqAbs(top, label_mod.dot(l.origin, l.normal), 1e-4);
+            try std.testing.expectApproxEqAbs(@as(f64, 0), label_mod.dot(l.normal, l.right), 1e-9);
+            return l;
+        }
+    };
+    plate.rotate(0, 90);
+    plate.move(0, 50, 60);
+    const l1 = try Check.onFace(&plate, gpa);
+    // +x turns to +y.
+    try std.testing.expectApproxEqAbs(@as(f64, 1), l1.normal[1], 1e-9);
+    try std.testing.expectApproxEqAbs(@as(f64, 50), l1.origin[0], 1e-6);
+    try std.testing.expectApproxEqAbs(@as(f64, 2.5), l1.origin[2], 1e-6);
+    // A turn of the pose (the part lies on another side), and a scale.
+    try plate.turn(gpa, 0, 1, 90);
+    _ = try Check.onFace(&plate, gpa);
+    try plate.setScale(gpa, 0, .{ 2, 1, 1 });
+    const l3 = try Check.onFace(&plate, gpa);
+    // The bar stretches with the part along its first axis (y, now up).
+    try std.testing.expectApproxEqAbs(@as(f64, 1), l3.stretch[0], 1e-9);
+    // A copy keeps the label and its id.
+    const k = try plate.duplicate(gpa, 0, .{ 200, 200 }, 3);
+    try std.testing.expectEqual(@as(u32, 1), plate.parts.items[k].labels.items[0].id);
 }

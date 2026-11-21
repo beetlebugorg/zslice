@@ -56,6 +56,7 @@ const parallel = @import("parallel.zig");
 const filaments_mod = @import("filaments.zig");
 const paint_mod = @import("paint.zig");
 const paint_split = @import("paint_split.zig");
+const label_mod = @import("label.zig");
 const Mesh = mesh_mod.Mesh;
 const Settings = settings_mod.Settings;
 const Resolved = settings_mod.Resolved;
@@ -100,6 +101,11 @@ pub const PartInput = struct {
     /// input in it (set by `PlateJob.init`).
     paint_split: ?*paint_split.Split = null,
     paint_index: usize = 0,
+    /// The labels of the part (see label.zig), in the coordinates of the
+    /// plate (see plate.Part.placeLabel). A part with labels slices as a
+    /// painted part: one more job for each label. They must live as long
+    /// as the job.
+    labels: []const label_mod.Label = &.{},
 };
 
 /// A part on the plate: the group whose job slices it, and its move from
@@ -691,12 +697,10 @@ pub const PlateJob = struct {
             s.deinit();
             gpa.destroy(s);
         };
+        const no_paint: paint_mod.Paint = .{};
         for (parts) |p| {
-            const paint = p.paint orelse {
-                try out.append(gpa, p);
-                continue;
-            };
-            if (paint.isEmpty() or self.slots.len < 2) {
+            const paint = p.paint orelse &no_paint;
+            if ((paint.isEmpty() and p.labels.len == 0) or self.slots.len < 2) {
                 try out.append(gpa, p);
                 continue;
             }
@@ -706,7 +710,7 @@ pub const PlateJob = struct {
                 base = std.fmt.parseInt(u32, std.mem.trim(u8, c.value, " "), 10) catch base;
             };
             const split = try gpa.create(paint_split.Split);
-            split.* = paint_split.Split.init(gpa, p.mesh, paint, @intCast(@min(base, 255))) catch |e| {
+            split.* = paint_split.Split.initLabels(gpa, p.mesh, paint, @intCast(@min(base, 255)), p.labels) catch |e| {
                 gpa.destroy(split);
                 return e;
             };
@@ -724,9 +728,21 @@ pub const PlateJob = struct {
                 q.paint_split = split;
                 q.paint_index = k;
                 if (k > 0) {
-                    const ch = try a.alloc(settings_mod.Change, p.changes.len + 1);
+                    // A label prints its band with Arachne lines: one line
+                    // for each line width of its depth, and no infill.
+                    const lab = if (split.label_of.len > k) split.label_of[k] else null;
+                    const extra: usize = if (lab != null) 4 else 1;
+                    const ch = try a.alloc(settings_mod.Change, p.changes.len + extra);
                     @memcpy(ch[0..p.changes.len], p.changes);
                     ch[p.changes.len] = .{ .name = "project.filament", .value = try std.fmt.allocPrint(a, "{d}", .{st}) };
+                    if (lab) |li| {
+                        const w = self.resolved.line_width;
+                        const d = p.labels[li].depth;
+                        const walls: u32 = if (d > 0) @max(1, @as(u32, @intFromFloat(@ceil(d / w - 1e-6)))) else 1;
+                        ch[p.changes.len + 1] = .{ .name = "project.wall_generator", .value = "arachne" };
+                        ch[p.changes.len + 2] = .{ .name = "project.wall_count", .value = try std.fmt.allocPrint(a, "{d}", .{walls}) };
+                        ch[p.changes.len + 3] = .{ .name = "project.infill_density", .value = "0" };
+                    }
                     q.changes = ch;
                     // The marks and the trees of the user are of the part:
                     // the job of its own filament has them.
@@ -1098,6 +1114,8 @@ fn planStamp(settings: Settings, parts: []const PartInput, overrides: []const se
         hv(&h, k);
         hv(&h, if (p.paint) |pp| pp.hash() else 0);
         hv(&h, p.paint_index);
+        hv(&h, p.labels.len);
+        for (p.labels) |*l| label_mod.hash(l, &h);
         hv(&h, b.min);
         hv(&h, b.max);
         changes(&h, p.changes);
@@ -1318,6 +1336,128 @@ test "plate job: a painted letter prints with its own filament" {
     // The base layers print with filament 1, the letter layers with 2.
     try testing.expectEqual(@as(u32, 1), st.changes);
     try testing.expect(st.slot_g[1] > 0);
+}
+
+/// The count of the filament changes on each layer of a G-code text
+/// (the comments ";LAYER:n" and "; filament change"), for the cost of a
+/// label. The caller owns the result.
+pub fn changesPerLayer(gpa: Allocator, gcode: []const u8) Allocator.Error![]u32 {
+    var out: std.ArrayList(u32) = .empty;
+    errdefer out.deinit(gpa);
+    var layer: ?usize = null;
+    var it = std.mem.splitScalar(u8, gcode, '\n');
+    while (it.next()) |line| {
+        if (std.mem.startsWith(u8, line, ";LAYER:")) {
+            const n = std.fmt.parseInt(usize, std.mem.trim(u8, line[7..], " \r"), 10) catch continue;
+            if (n > 1 << 20) continue;
+            layer = n;
+            if (out.items.len <= n) try out.appendNTimes(gpa, 0, n + 1 - out.items.len);
+        } else if (std.mem.startsWith(u8, line, "; filament change ")) {
+            if (layer) |n| out.items[n] += 1;
+        }
+    }
+    return out.toOwnedSlice(gpa);
+}
+
+/// A box 20 x 20 x 10 with the label "IH" 5 mm tall in filament 2 on its
+/// +x side (see label.zig).
+fn labelBox(gpa: Allocator) !struct { mesh: Mesh, label: label_mod.Label } {
+    var m = try mesh_mod.shapes.box(gpa, 20, 20, 10);
+    errdefer m.deinit(gpa);
+    m.translate(90, 90, 0);
+    const items = try gpa.alloc(label_mod.Item, 1);
+    errdefer gpa.free(items);
+    items[0] = .{ .shape = .{ .text = .{ .text = try gpa.dupe(u8, "IH"), .size = 5 } } };
+    return .{ .mesh = m, .label = .{ .id = 1, .name = try gpa.dupe(u8, ""), .origin = .{ 110, 100, 5 }, .normal = .{ 1, 0, 0 }, .right = .{ 0, 1, 0 }, .filament = 2, .items = items } };
+}
+
+test "plate job: a label prints in its own filament on its layers" {
+    const gpa = testing.allocator;
+    var lb = try labelBox(gpa);
+    defer lb.mesh.deinit(gpa);
+    defer lb.label.deinit(gpa);
+    var s: Settings = .{};
+    s.engine.threads = 2;
+    s.machine.filament_change = .tool;
+    var red = s.filament;
+    red.color = "#ff0000";
+    const parts = [_]PartInput{.{ .mesh = &lb.mesh, .part = 0, .labels = &.{lb.label} }};
+    var pj = try PlateJob.init(gpa, s, &parts, .{ .filaments = &.{red} });
+    defer pj.deinit();
+    // Two jobs: the part and the label.
+    try testing.expectEqual(@as(usize, 2), pj.groups.len);
+    const job = &pj.groups[1].job;
+    const r = job.resolved.settings.project;
+    try testing.expectEqual(@as(u32, 2), r.filament);
+    try testing.expectEqual(settings_mod.WallGenerator.arachne, r.wall_generator);
+    try testing.expectEqual(@as(u32, 1), r.wall_count);
+    try testing.expectEqual(@as(f64, 0), r.infill_density);
+    // The label job prints only within one line width of the +x side, on
+    // the layers from z 2.5 to 7.5.
+    const box = pj.groups[0].job.outlines[20].bounds();
+    const w = pj.groups[0].job.resolved.line_width;
+    var label_layers: usize = 0;
+    for (job.outlines, job.layers) |o, l| {
+        if (o.isEmpty()) continue;
+        label_layers += 1;
+        // The cut of the layer (its middle) is within z 2.5 to 7.5.
+        try testing.expect(l.sliceZ() > 2.5 - 1e-6 and l.sliceZ() < 7.5 + 1e-6);
+        const b = o.bounds();
+        try testing.expect(b.min.x >= box.max.x - geom.fromMm(w + 0.005));
+    }
+    try testing.expect(label_layers >= 24 and label_layers <= 26);
+    var out: Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    const st = try pj.writeGcode(&out.writer);
+    // T1 only on the layers of the label: each change is on one of them.
+    const per = try changesPerLayer(gpa, out.written());
+    defer gpa.free(per);
+    var on_label: u32 = 0;
+    for (per, 0..) |c, i| {
+        if (c == 0) continue;
+        const z = pj.levels[i].z;
+        try testing.expect(z > 2.3 and z < 7.9);
+        on_label += c;
+    }
+    try testing.expectEqual(st.changes, on_label);
+    // A change to the label and one back on most layers of the label.
+    try testing.expect(st.changes >= label_layers and st.changes <= 2 * label_layers + 1);
+    var it = std.mem.splitScalar(u8, out.written(), '\n');
+    var layer: usize = 0;
+    var t1: usize = 0;
+    while (it.next()) |line| {
+        if (std.mem.startsWith(u8, line, ";LAYER:")) layer = try std.fmt.parseInt(usize, line[7..], 10);
+        if (std.mem.startsWith(u8, line, "T1") and (line.len == 2 or line[2] == ' ')) {
+            t1 += 1;
+            try testing.expect(pj.levels[layer].z > 2.3 and pj.levels[layer].z < 7.9);
+        }
+    }
+    try testing.expect(t1 > 0);
+}
+
+test "plate job: a part with no label slices as before" {
+    const gpa = testing.allocator;
+    var lb = try labelBox(gpa);
+    defer lb.mesh.deinit(gpa);
+    defer lb.label.deinit(gpa);
+    var s: Settings = .{};
+    s.engine.threads = 2;
+    s.machine.filament_change = .tool;
+    var red = s.filament;
+    red.color = "#ff0000";
+    // A label in the filament of the part does nothing.
+    lb.label.filament = 1;
+    const with = [_]PartInput{.{ .mesh = &lb.mesh, .part = 0, .labels = &.{lb.label} }};
+    const without = [_]PartInput{.{ .mesh = &lb.mesh, .part = 0 }};
+    var outs: [2]Writer.Allocating = .{ .init(gpa), .init(gpa) };
+    defer for (&outs) |*o| o.deinit();
+    for ([_][]const PartInput{ &with, &without }, &outs) |parts, *o| {
+        var pj = try PlateJob.init(gpa, s, parts, .{ .filaments = &.{red} });
+        defer pj.deinit();
+        try testing.expectEqual(@as(usize, 1), pj.groups.len);
+        _ = try pj.writeGcode(&o.writer);
+    }
+    try testing.expectEqualStrings(outs[1].written(), outs[0].written());
 }
 
 /// A black plaque 40 x 30 x 4 with a white raised frame and a white

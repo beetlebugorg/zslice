@@ -2504,6 +2504,17 @@ pub const App = struct {
                 pc.* = try app.plate.parts.items[pi].paint.clone(a);
                 paint = pc;
             };
+            // The labels of the part, on the plate: copies, as the user
+            // can change them while the slice runs.
+            var part_labels: []const zs.label.Label = &.{};
+            if (part_of[pp.input]) |pi| {
+                const pt = &app.plate.parts.items[pi];
+                if (pt.labels.items.len > 0) {
+                    const ls = try a.alloc(zs.label.Label, pt.labels.items.len);
+                    for (pt.labels.items, ls) |l, *d| d.* = try pt.placeLabel(l).clone(a);
+                    part_labels = ls;
+                }
+            }
             out.* = .{
                 .mesh = mesh,
                 .changes = changes,
@@ -2513,6 +2524,7 @@ pub const App = struct {
                 .trees = trees,
                 .trees_layers = trees_layers,
                 .paint = paint,
+                .labels = part_labels,
             };
         }
         app.slice_parts = parts;
