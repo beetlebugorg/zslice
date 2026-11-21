@@ -155,7 +155,28 @@ namespace winrt::ZSlice::implementation
         void FillCheck();
         void GoToIssue(zs_issue const &issue);
         void ToggleBed();
+        // The Support tool (MainWindow.Support.cpp).
+        struct SupportTool;
+        std::shared_ptr<SupportTool> support;
+        bool pointer_alt = false, pointer_shift = false, press_right = false;
+        void WireSupport();
+        void SupportToolChanged();
+        void SupportLoaded();
+        void SupportReload();
+        bool SupportPress(double x, double y);
+        bool SupportDragging();
+        void SupportDrag(double x, double y, bool shift);
+        void SupportRelease();
+        void SupportClick(double x, double y, bool shift, bool alt);
+        void SupportPointer(double x, double y);
+        bool SupportKey(Windows::System::VirtualKey key);
+        bool SupportPicked();
+        void SupportClearPick();
+        bool SupportSelectLine(size_t path, size_t segment);
+        bool SupportMenu(double x, double y);
 #ifdef ZS_DEV_HOOKS
+        bool SupportDevStep(std::wstring const &verb, std::vector<std::wstring> const &words);
+        void SupportDevLog();
         void StartDevHooks();
         void RunDevStep(std::wstring const &step);
         void LogDevState(std::wstring const &step);

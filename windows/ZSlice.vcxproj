@@ -133,6 +133,7 @@
     <ClCompile Include="src\model\zs_part_meshes.cpp">
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
     </ClCompile>
+    <ClCompile Include="src\app\MainWindow.Support.cpp" />
     <!-- The test hooks: -p:ZsDevHooks=true. A shipped build has none. -->
     <ClCompile Include="src\app\MainWindow.DevHooks.cpp" Condition="'$(ZsDevHooks)'=='true'" />
     <ClCompile Include="src\app\winrt_glue.cpp" />
