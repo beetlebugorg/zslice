@@ -150,7 +150,9 @@ struct SearchToolbarItem: View {
                 Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
                 TextField("Search settings and actions", text: Bindable(search).query)
                     .textFieldStyle(.plain)
-                    .frame(width: 200)
+                    // In the center of the toolbar: it gives up its width
+                    // before an item at the right cuts its label.
+                    .frame(minWidth: 110, idealWidth: 260, maxWidth: 320)
                     .focused($focused)
                     .onSubmit { search.runSelected(workspace) }
                     .onKeyPress(.downArrow) { search.move(1, workspace) }

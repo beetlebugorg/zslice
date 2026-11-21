@@ -236,7 +236,7 @@ The slice is the UI, so the chrome is small. The controls of the window are over
 
 ### The bars
 
-- **The toolbar**: the file button (`FileButton`: the name of the document, a dot for unsaved changes, and a menu of the file), then the search field (`SearchToolbarItem`) at the left with it. At the right: the printer menu, the Filament button, and the Quality menu as one group, then Printers, Settings, and `MoreMenu`.
+- **The toolbar**, as in the web app: the file button (`FileButton`: the name of the document, a dot for unsaved changes, and a menu of the file) at the left, the search field (`SearchToolbarItem`, `.principal`) in the center, and at the right the printer menu, the Filament button, and the Quality menu as one group, then Printers, Settings, and `MoreMenu`. The search field gives up its width (110 to 320 points) before an item at the right would cut its label; at a narrow width AppKit moves whole items to the » menu.
   - The window title is hidden from the toolbar on macOS 15 and later.
   - `QualityMenu` names a built-in quality, and "custom", with a capital (`Profiles.qualityTitle`). Under each built-in quality is its line of main points from `zs_quality_summary` (`Profiles.qualitySummary`): a second `Text` in the label of a menu item is its subtitle on macOS 14 and later.
   - No item is in the center: AppKit keeps a center item in the center, and a long printer name drew over it.

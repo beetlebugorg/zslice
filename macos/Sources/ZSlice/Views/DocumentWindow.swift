@@ -384,12 +384,11 @@ struct DocumentWindow: View {
             InspectorPanel(workspace: workspace)
                 .inspectorColumnWidth(min: 320, ideal: 400, max: 560)
         }
-        // The slice is the UI: a small toolbar. The file and the view at the
-        // left, and the printer, the filament, the quality, and three icons
-        // at the right. No item is in the center: a center item of AppKit
-        // stays in the center, and a wide printer name drew over it. At a
-        // narrow width, AppKit moves whole items to the » menu; no label is
-        // cut with "…".
+        // The slice is the UI: a small toolbar, as in the web app. The file
+        // at the left, the search in the center, and the printer, the
+        // filament, the quality, and three icons at the right. At a narrow
+        // width, AppKit moves whole items to the » menu; no label is cut
+        // with "…".
         .toolbar {
             ToolbarItem(placement: .navigation) {
                 FileButton(workspace: workspace)
@@ -397,7 +396,7 @@ struct DocumentWindow: View {
             // The search is always in the toolbar (or a Search button while
             // it is a card). The 2D view has no button: the keys 2 and 3,
             // and View > 2D View.
-            ToolbarItem(placement: .navigation) {
+            ToolbarItem(placement: .principal) {
                 SearchToolbarItem(workspace: workspace)
             }
             ToolbarItemGroup(placement: .primaryAction) {
