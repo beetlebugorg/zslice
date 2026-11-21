@@ -37,6 +37,8 @@ A build with `-p:ZsDevHooks=true` reads `ZSLICE_DO`: steps with `;` between them
 | `src/app/MainWindow.Session.cpp` | The session: written after a slice and at the close, and put back at the start. |
 | `src/app/MainWindow.Menu.cpp` | The main menu, the sheet of the keys, Licenses, About, and the theme. |
 | `src/app/MainWindow.ContextMenu.cpp` | The menu of the view, and copy, cut, paste, and duplicate of parts. |
+| `src/app/Layer2D.cpp` | The 2D view of one layer, with Direct2D on its own swapchain. |
+| `src/app/MainWindow.Layer2D.cpp` | The input and the state of the 2D view. |
 | `src/app/MainWindow.DevHooks.cpp` | The test hooks, in a build with `ZsDevHooks`. |
 | `src/app/App` | The start of the app, and `ZSLICE_LOG`. |
 | `src/app/winrt_glue.cpp` | Compiles the generated XAML files, which a command-line build does not register. |
