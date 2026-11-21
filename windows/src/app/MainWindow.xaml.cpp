@@ -54,7 +54,7 @@ namespace
             return false;
         std::wstring ext = name.substr(at);
         std::transform(ext.begin(), ext.end(), ext.begin(), ::towlower);
-        return ext == L".stl" || ext == L".3mf";
+        return ext == L".stl" || ext == L".3mf" || ext == L".step" || ext == L".stp" || ext == L".obj";
     }
 }
 
@@ -296,7 +296,17 @@ namespace winrt::ZSlice::implementation
             break;
         case ZS_EVENT_SLICED:
             if (zs_app_state(model->Active()) == ZS_STATE_DONE)
+            {
+                // A new slice shows the plan again.
+                simulated = false;
+                sim_item.IsChecked(false);
+                StopReplay();
+                replay_time = 0;
                 ShowSlice();
+            }
+            break;
+        case ZS_EVENT_SIMULATED:
+            OnSimulated();
             break;
         case ZS_EVENT_FAILED:
             if (zs_app_state(model->Active()) == ZS_STATE_FAILED)
@@ -317,6 +327,7 @@ namespace winrt::ZSlice::implementation
         // settings slice next.
         if (model->TakeSlicePending())
             model->RequestSlice();
+        zs_view_set_mode(view, color_mode);
         int rc = zs_view_load(view, model->Active());
         if (rc != ZS_OK)
         {
@@ -361,6 +372,9 @@ namespace winrt::ZSlice::implementation
             frame_next = false;
             zs_view_reset(view);
         }
+        ShowGaps();
+        if (count > 0)
+            ShowScrub(shown - 1, 1e12);
 #ifdef ZS_DEV_HOOKS
         StartDevHooks();
 #endif
@@ -383,6 +397,9 @@ namespace winrt::ZSlice::implementation
         picker.as<::IInitializeWithWindow>()->Initialize(hwnd);
         picker.FileTypeFilter().Append(L".stl");
         picker.FileTypeFilter().Append(L".3mf");
+        picker.FileTypeFilter().Append(L".step");
+        picker.FileTypeFilter().Append(L".stp");
+        picker.FileTypeFilter().Append(L".obj");
         auto file = co_await picker.PickSingleFileAsync();
         if (file != nullptr)
             LoadPath(std::wstring(file.Path()));
@@ -474,9 +491,13 @@ namespace winrt::ZSlice::implementation
     {
         if (setting_layer || view == nullptr || layer_count == 0)
             return;
+        StopReplay();
+        replay_time = 0;
         size_t layer = (size_t)std::lround(value);
         LayerText().Text(to_hstring(layer));
         zs_view_set_layer(view, layer - 1);
+        ShowGaps();
+        ShowScrub(layer - 1, 1e12);
         RequestDraw();
     }
 }

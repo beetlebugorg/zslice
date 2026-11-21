@@ -75,6 +75,11 @@ namespace winrt::ZSlice::implementation
         // With more plates the hint would cover their beds.
         EmptyHint().Visibility(zs_app_part_count(app) == 0 && model->PlateCount() == 1 ? Visibility::Visible : Visibility::Collapsed);
         // The selection was of the plate before.
+        StopReplay();
+        replay_time = 0;
+        simulated = false;
+        sim_item.IsChecked(false);
+        GapCard().Visibility(Visibility::Collapsed);
         HandRelease();
         selected_path = selected_segment = -1;
         line_anchored = false;

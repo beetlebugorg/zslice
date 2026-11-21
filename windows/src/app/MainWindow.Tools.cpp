@@ -116,6 +116,7 @@ namespace winrt::ZSlice::implementation
         tool_buttons[0].IsChecked(true);
 
         ViewPanel().DoubleTapped([this](auto &&, Input::DoubleTappedRoutedEventArgs const &e) { OnPanelDoubleTapped(e); });
+        WireView();
         WireCards();
     }
 
@@ -571,6 +572,9 @@ namespace winrt::ZSlice::implementation
             SelectPart(PartAt(x, y, nullptr, nullptr));
             return;
         }
+        // The gaps view: a click on a gap shows it.
+        if (GapClick(x, y))
+            return;
         size_t segment = 0;
         size_t path = zs_view_pick_segment(view, (float)(x * s), (float)(y * s), &segment);
         if (path == (size_t)-1)
@@ -1006,6 +1010,7 @@ namespace winrt::ZSlice::implementation
         case VirtualKey::R: SetTool(Tool::Turn); return true;
         case VirtualKey::G: SetTool(Tool::Grab); return true;
         case VirtualKey::T: SetTool(Tool::Measure); return true;
+        case VirtualKey::B: ToggleBed(); return true;
         case VirtualKey::H:
         case VirtualKey::Left: StepLine(-1, shift); return true;
         case VirtualKey::L:
