@@ -98,6 +98,16 @@ pub fn build(b: *std.Build) void {
         .install_subdir = "beds",
     }).step);
 
+    // The embeddable G-code viewer (web/view) in zig-out/web/view: its
+    // module, the files of the web app that it uses, zslice.wasm (no
+    // threads), and an example page. See docs/embedding/viewer.md.
+    const view_step = b.step("web-view", "Build the embeddable G-code viewer into zig-out/web/view");
+    const view_dir: std.Build.InstallDir = .{ .custom = "web/view" };
+    view_step.dependOn(&b.addInstallArtifact(wasm, .{ .dest_dir = .{ .override = view_dir } }).step);
+    for ([_][]const u8{ "web/view/zslice-view.js", "web/view/example.html", "web/app/view.js", "web/app/gl.js", "web/app/wasm.js", "web/app/input.js", "LICENSE" }) |f| {
+        view_step.dependOn(&b.addInstallFileWithDir(b.path(f), view_dir, std.fs.path.basename(f)).step);
+    }
+
     // Tests.
     // -Dtest-filter=TEXT runs only the tests with TEXT in their name.
     const filter = b.option([]const u8, "test-filter", "Run only the tests with this text in their name");

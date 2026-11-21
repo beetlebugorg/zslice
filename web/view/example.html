@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>zslice G-code viewer</title>
+<!-- An example of the embeddable viewer (zslice-view.js): drop a G-code
+     file on the view, and move the slider. ?gcode=<url> loads a file at
+     the start. SPDX-License-Identifier: AGPL-3.0-or-later -->
+<style>
+  :root { color-scheme: light dark; --bg: #f6f7f8; --fg: #1d1d20; --muted: #6b6f76; --line: #d9dce0; }
+  @media (prefers-color-scheme: dark) { :root { --bg: #1d1d20; --fg: #ececef; --muted: #9a9ea6; --line: #3a3b40; } }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); font: 14px/1.4 system-ui, sans-serif; }
+  .page { display: grid; grid-template-columns: 1fr auto; grid-template-rows: auto 1fr; height: 100%; }
+  header { grid-column: 1 / 3; padding: 10px 16px; border-bottom: 1px solid var(--line); }
+  header .facts { color: var(--muted); }
+  #view { width: 100%; height: 100%; display: block; min-height: 0; }
+  .side { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 12px 8px; border-left: 1px solid var(--line); }
+  #layer { writing-mode: vertical-lr; direction: rtl; flex: 1; }
+  .drop { outline: 3px dashed #4a90d9; outline-offset: -6px; }
+  #status { position: absolute; left: 16px; bottom: 12px; color: var(--muted); }
+</style>
+</head>
+<body>
+<div class="page">
+  <header><strong id="name">Drop a G-code file on the view</strong> <span class="facts" id="facts"></span></header>
+  <canvas id="view"></canvas>
+  <div class="side">
+    <span id="layer-n">-</span>
+    <input id="layer" type="range" min="1" max="1" value="1" aria-label="Layer" disabled>
+    <span>Layer</span>
+  </div>
+</div>
+<div id="status"></div>
+<script type="module">
+import { ZsliceView } from "./zslice-view.js";
+
+const $ = (id) => document.getElementById(id);
+const canvas = $("view");
+const slider = $("layer");
+const v = await ZsliceView.create(canvas, { wasm: "./zslice.wasm" });
+window.zsliceView = v;
+
+function clock(s) {
+  const h = Math.floor(s / 3600);
+  const m = Math.round((s % 3600) / 60);
+  return h > 0 ? `${h} h ${m} min` : `${m} min`;
+}
+
+async function show(source, name) {
+  $("name").textContent = name;
+  $("facts").textContent = "";
+  const t0 = performance.now();
+  try {
+    const info = await v.loadGcode(source, { onProgress: (n) => { $("status").textContent = `Reading ${(n / 1e6).toFixed(1)} MB`; } });
+    $("status").textContent = `Read in ${Math.round(performance.now() - t0)} ms`;
+    const bits = [`${info.layers} layers`, clock(info.seconds), `${info.meters.toFixed(2)} m`, `${info.grams.toFixed(1)} g${info.gramsEstimated ? " (estimate)" : ""}`];
+    if (info.slicer) bits.push(info.slicer);
+    $("facts").textContent = bits.join(" · ");
+    slider.max = String(Math.max(1, info.layers));
+    slider.value = slider.max;
+    slider.disabled = info.layers === 0;
+    $("layer-n").textContent = slider.value;
+    window.zsliceInfo = info;
+  } catch (e) {
+    if (e.name !== "AbortError") $("status").textContent = String(e.message ?? e);
+  }
+}
+
+slider.addEventListener("input", () => {
+  v.setLayer(Number(slider.value) - 1);
+  $("layer-n").textContent = slider.value;
+});
+
+canvas.addEventListener("dragover", (e) => { e.preventDefault(); canvas.classList.add("drop"); });
+canvas.addEventListener("dragleave", () => canvas.classList.remove("drop"));
+canvas.addEventListener("drop", (e) => {
+  e.preventDefault();
+  canvas.classList.remove("drop");
+  const f = e.dataTransfer.files[0];
+  if (f) show(f, f.name);
+});
+
+const url = new URLSearchParams(location.search).get("gcode");
+if (url) show(await fetch(url), url.split("/").pop());
+</script>
+</body>
+</html>
