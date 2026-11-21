@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Labels on a part · zslice</title>
-<meta name="description" content="A label is text or a mark on the surface of a part, in another filament. The label prints flush in the outer skin of the part. It looks printed on. It is not raised, and it is not cut into the part.">
+<meta name="description" content="A label is text or a mark on the surface of a part. It prints in one of three ways:">
 <link rel="canonical" href="https://zslice.beetlebug.org/user/labels/">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%23171717'/%3E%3Crect x='11' y='8' width='10' height='4' rx='1' fill='%23f4f0e6'/%3E%3Crect x='8' y='14' width='16' height='4' rx='1' fill='%23f4f0e6'/%3E%3Crect x='5' y='20' width='22' height='4' rx='1' fill='%23ff5a1f'/%3E%3C/svg%3E">
 <link rel="stylesheet" href="../../site.css">
@@ -92,15 +92,31 @@
 <main>
 <p class="eyebrow">Everyday tasks</p>
 <h1><span class="num">8</span>Labels on a part</h1>
-<p class="lede">A label is text or a mark on the surface of a part, in another filament. The label prints flush in the outer skin of the part. It looks printed on. It is not raised, and it is not cut into the part.</p>
-<nav class="onpage"><b>On this page</b><ol><li><a href="#add-a-label">Add a label</a></li><li><a href="#move-turn-and-scale-a-label">Move, turn, and scale a label</a></li><li><a href="#add-volume-and-the-ticks-of-a-dial">Add "VOLUME" and the ticks of a dial</a></li><li><a href="#sizes-that-print-well">Sizes that print well</a></li><li><a href="#the-cost-of-a-label">The cost of a label</a></li></ol></nav><p>A label can be text, a line, a bar, a ring, the ticks of a dial, or a free line. One label can have more than one shape. For example, "VOLUME" and the ticks around a knob are one label.</p>
+<p class="lede">A label is text or a mark on the surface of a part. It prints in one of three ways:</p>
+<nav class="onpage"><b>On this page</b><ol><li><a href="#add-a-label">Add a label</a></li><li><a href="#move-turn-and-resize-a-label">Move, turn, and resize a label</a></li><li><a href="#smart-guides">Smart guides</a></li><li><a href="#raised-and-cut-labels">Raised and cut labels</a></li><li><a href="#place-an-svg-picture">Place an SVG picture</a></li><li><a href="#add-volume-and-the-ticks-of-a-dial">Add "VOLUME" and the ticks of a dial</a></li><li><a href="#sizes-that-print-well">Sizes that print well</a></li><li><a href="#the-cost-of-a-label">The cost of a label</a></li></ol></nav><ul><li><strong>Ink</strong>: the label prints flush in the outer skin of the part, in another filament. It looks printed on. This is the default.</li><li><strong>Raised</strong>: the label stands out of the surface by its relief.</li><li><strong>Cut in</strong>: the label is cut into the surface by its relief.</li></ul>
+<p>A raised or cut label works with the filament of the part too. With another filament, a raised label prints in that filament, and a cut label colors the floor of the cut.</p>
+<p>A label can be text, a line, a bar, a ring, the ticks of a dial, a free line, or an SVG picture. One label can have more than one shape. For example, "VOLUME" and the ticks around a knob are one label.</p>
 <h2 id="add-a-label">Add a label</h2>
 <ol><li>Press <strong>E</strong>, or click the Label tool in the tool strip.</li><li>Click a face of a part. A label "LABEL" goes there, 5 mm tall, and its card opens.</li><li>Type the text. The view shows each key at once.</li><li>Pick the filament of the label on the card.</li></ol>
 <p>A new label gets the filament after the filament of the part. A label in the filament of the part does not show. If the plate has one filament, the card has an <strong>Add a filament</strong> button.</p>
 <p>The slice starts when you stop. The beads then show the label as it prints.</p>
-<h2 id="move-turn-and-scale-a-label">Move, turn, and scale a label</h2>
-<ul><li><strong>Move</strong>: drag the label. It follows the surface, also around a curve. Hold Shift to keep it in its plane.</li><li><strong>Turn</strong>: turn the mouse wheel over the label: 1° a step. Hold Shift for 15° steps. The card has the angle too (0 is level).</li><li><strong>Scale</strong>: drag the yellow handle at the corner of the label. Or type a size on the card.</li><li><strong>Delete</strong>: press Delete, or click <strong>Delete the label</strong> on the card.</li></ul>
-<p>Each change is one step of the history. Ctrl+Z undoes it.</p>
+<h2 id="move-turn-and-resize-a-label">Move, turn, and resize a label</h2>
+<p>The selected label has a blue frame on the surface of the part, a white square at each corner, and a round handle over it.</p>
+<ul><li><strong>Move</strong>: drag the label. It follows the surface, also around a curve. Hold Shift to keep it in its plane.</li><li><strong>Resize</strong>: drag a corner square. The opposite corner stays where it is, and the label keeps its shape. Hold Shift to change the width and the height on their own. Or type a size on the card.</li><li><strong>Turn</strong>: drag the round handle around the label. Hold Shift for 15° steps. The mouse wheel over the label also turns it: 1° a step, 15° with Shift. The card has the angle too (0 is level).</li><li><strong>Delete</strong>: press Delete, or click <strong>Delete the label</strong> on the card.</li></ul>
+<p>The view shows each change as you drag. The slice starts when you let go. Each change is one step of the history. Ctrl+Z undoes it.</p>
+<h2 id="smart-guides">Smart guides</h2>
+<p>When you move or resize a label, it snaps to the things near it on the same face. A thin pink line shows each snap. A snap starts within about 6 pixels on the screen.</p>
+<ul><li><strong>Other labels</strong>: the edges and the center of the label line up with the edges and the centers of the other labels on the face.</li><li><strong>Equal gaps</strong>: a label next to two labels in a row snaps to the same gap.</li><li><strong>Holes</strong>: the label centers on a round hole or a square opening of the face. It also lines up with the edges of a square opening.</li><li><strong>The center</strong>: the label centers on the face, or on the part, on one axis or on both.</li><li><strong>The same size</strong>: a resize snaps to the width or the height of another label.</li></ul>
+<p>Hold Alt while you drag to move or resize with no snap.</p>
+<h2 id="raised-and-cut-labels">Raised and cut labels</h2>
+<p>Pick <strong>Ink</strong>, <strong>Raised</strong>, or <strong>Cut in</strong> on the card. <strong>Relief</strong> is the height of a raised label or the depth of a cut, in mm. The default is 0.6 mm.</p>
+<ul><li>A raised label on a side face adds its shape to the wall of each layer, out to the relief. It follows the face, also around a curve.</li><li>A raised label on a top face is a plateau. Its top is flat, at the relief over the highest point of the face under it.</li><li>A cut label removes its shape from each layer, in to the relief. The floor of a cut in a top face gets top skin, so it prints smooth.</li><li>A raised label on a bottom face prints as ink.</li></ul>
+<p>Small features need a relief of two lines or more to print clean: about 0.8 mm with a 0.4 mm nozzle.</p>
+<h2 id="place-an-svg-picture">Place an SVG picture</h2>
+<ol><li>Select a label, then click <strong>Place an SVG…</strong> on the card. Pick an SVG file.</li><li>Or drop an SVG file on a face of a part. A new label of the picture goes there.</li></ol>
+<p>The picture is 15 mm tall at first. Its <strong>Height</strong> is on the card, and the handles resize it. It moves, turns, and prints as ink, raised, or cut, as each label does. A picture in a new label replaces the text "LABEL".</p>
+<p>zslice reads the filled shapes of the picture: paths, rectangles, circles, ellipses, polygons, and polylines, with their transforms and fill rules. A line, or a shape with a stroke and no fill, becomes the outline of its stroke. Text, images, gradients, and masks do not print. Convert text to paths in your drawing program before you save the SVG.</p>
+<p>The project, the session, and a 3MF file keep the picture in the label.</p>
 <p>Esc closes the card. Esc again closes the tool. The labels of a part are also on the card of the part (Move tool). Click one to select it.</p>
 <h2 id="add-volume-and-the-ticks-of-a-dial">Add "VOLUME" and the ticks of a dial</h2>
 <ol><li>Press <strong>E</strong>, and click the face above the knob.</li><li>Type <code>VOLUME</code>.</li><li>In <strong>+ Add a shape…</strong>, pick <strong>Ticks</strong>. Ticks go under the text.</li><li>Set the <strong>Offset</strong> of the ticks so that their center is on the center of the knob. The second number moves them up or down, in mm.</li><li>Set the ticks:

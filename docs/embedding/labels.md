@@ -1,6 +1,6 @@
 # Labels: text and marks on a part
 
-A label is a 2D shape on the surface of a part, in a filament of its own: text, a line, a bar, a ring, the ticks of a dial, or a free line. The slice prints it flush in the outer skin of the part, so it looks printed on. This page is for the builders of the label tool of a shell (web, Linux, Mac). The calls are in `include/zslice-app.h`, in the part "the labels of a part". The core is `src/label.zig` (the shapes and the JSON), `src/font.zig` (the font), `src/paint_split.zig` (the regions of each layer), and `src/app/labels.zig` (the calls of the app).
+A label is a 2D shape on the surface of a part, in a filament of its own: text, a line, a bar, a ring, the ticks of a dial, a free line, or an SVG picture. The slice prints it flush in the outer skin of the part (ink), out of the surface (raised), or cut into it (cut). This page is for the builders of the label tool of a shell (web, Linux, Mac). The calls are in `include/zslice-app.h`, in the part "the labels of a part". The core is `src/label.zig` (the shapes and the JSON), `src/font.zig` (the font), `src/svg_path.zig` (the SVG reader), `src/paint_split.zig` (the regions of each layer), `src/label_snap.zig` (the smart guides), and `src/app/labels.zig` (the calls of the app).
 
 ## What the slice does
 
@@ -8,7 +8,10 @@ A label is a 2D shape on the surface of a part, in a filament of its own: text, 
 - A top or bottom label: the shape, seen along its normal, in the top layers (or the bottom layers) of the part under it: the depth in layers, at least 2.
 - A stroke narrower than the narrowest line (0.34 mm with a 0.4 nozzle) goes back to the part. A gap narrower than that line fills with the label color.
 - Each label slices as one more job: Arachne walls (one line for each line width of the depth), no infill, in the filament of the label.
-- A label in the filament of the part, and any label on a plate with one filament, prints nothing.
+- An ink label in the filament of the part, and any ink label on a plate with one filament, does not print.
+- `"mode":"cut"`: the prism (or the shape in the top or bottom layers) within `relief` mm of the surface leaves the layer. The floor of a cut gets top skin. In another filament, the band of `depth` under the cut prints in that filament.
+- `"mode":"raised"` on a side face: the prism out of the surface, within `relief` mm of the outline of the layer, joins the layer. On a top face, the core adds walls of the shape to the mesh, from the face to `relief` mm over its highest point: a plateau with top skin. On a bottom face, a raised label prints as ink. In another filament, the raised part prints in that filament; in the filament of the part, it is part of the part.
+- Raised and cut labels change the shape, so they slice also on a plate with one filament.
 
 ## The flow of a label tool
 
@@ -20,6 +23,20 @@ A label is a 2D shape on the surface of a part, in a filament of its own: text, 
 6. The card: `zs_app_label_info(app, part, id, ...)` gives the facts as JSON (see the header): the thinnest stroke, the size of text that prints clean, the changes, the minutes, and the grams, and one line of advice. After the slice, `"sliced"` is true and the changes come from the G-code.
 7. Delete: `zs_app_label_remove(app, part, id)`.
 8. On open, an undo, or a change of plate, read the labels again: `zs_app_part_labels_get(app, part, ...)` gives a JSON array.
+
+## The handles and the smart guides
+
+The tool draws its handles as decals in the plane of the selected label (with `zs_view_label_add`, or as the web app does with its own decals): a frame around the outline box, a square at each corner, and a round turn handle over the frame. Size them in pixels of the screen: the mm of one pixel at the label come from two points of the plane on the screen (`zs_view_pixel_of`). The hit test of a handle is in the plane: `zg_label_plane_hit` (GTK) and `planeHit` (web) map the pointer ray to (x, y) of the plane.
+
+- A corner: the opposite corner of the box stays. With one scale (the default), scale the sizes of the shapes (`scaleLabel`, `zg_label_scale`); with two scales (Shift), multiply `stretch`. Then move the origin by (1 - k) times the anchor, along right and up, so the anchor stays.
+- The turn handle: turn `right` around `normal`, and move the origin so the center of the box stays.
+- The body: `zs_label_place` at the pointer, as before.
+
+At the start of a drag, call `zs_label_face(session, frame, buf, cap, &len)` once (and again when the label leaves the plane). It gives the face under the label in its plane: its box, its center, the center of the part, and its holes, each `round` (with its radius), `rect` (with its sides and angle), or `other`. On each step of a move or a resize, call `zs_label_snap(json, len, buf, cap, &len)` with the box of the label after the pointer, its frame, the other labels of the part (their frames and boxes), the face, and the snap distance in mm (6 pixels). It gives the box after the snap, the move `d` (along right and up) for a move, and the guide lines to draw (`[s0, t0, s1, t1]` in the plane). With Alt, skip the snap. Clear the guides at the end of the drag.
+
+## SVG pictures
+
+An item `{"kind":"svg","svg":"<svg ...>...</svg>","size":15}` is the filled area of the picture, `size` mm tall, centered on its box. The reader reads the path data (all commands), rect, circle, ellipse, polygon, polyline, line, the transforms, and the fill rules. A stroke with no fill becomes an outline of the stroke. Text, images, gradients, masks, and `<use>` are not read. A picture with no area is a bad value. Read the file in the shell, and give its text in the JSON. The 3MF file, the project, and the session keep the source.
 
 ## The frame
 

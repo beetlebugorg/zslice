@@ -196,6 +196,12 @@
 <p><strong>License:</strong> General technique</p>
 <p><strong>Used in:</strong> <code>src/offset.zig</code>, <code>src/layer.zig</code></p>
 <p><strong>How zslice uses it:</strong> Removes skin areas that are too thin to print.</p>
+<h3 id="smart-guides">Smart guides</h3>
+<div class="ref"><span class="kind k-idea">idea</span><span class="area">ui</span><dl><dt>Source</dt><dd>General</dd><dt>What zslice uses</dt><dd>A label snaps to the edges and centers of other labels, to holes, and to the center of the face or the part, with guide lines.</dd><dt>License</dt><dd>General technique</dd><dt>Used in</dt><dd><a href="https://github.com/beetlebugorg/zslice/blob/main/src/label_snap.zig"><code>src/label_snap.zig</code></a>, <a href="https://github.com/beetlebugorg/zslice/blob/main/web/app/label.js"><code>web/app/label.js</code></a>, <a href="https://github.com/beetlebugorg/zslice/blob/main/linux/src/ui/label-tool.c"><code>linux/src/ui/label-tool.c</code></a></dd></dl></div>
+<p>The smart guides of drawing and design tools (for example Adobe Illustrator, Inkscape, and Figma): while an object moves, its edges and its center snap to the edges and centers of the objects near it and to equal gaps, and thin lines show each snap</p>
+<p><strong>License:</strong> General technique</p>
+<p><strong>Used in:</strong> <code>src/label_snap.zig</code>, <code>web/app/label.js</code>, <code>linux/src/ui/label-tool.c</code></p>
+<p><strong>How zslice uses it:</strong> A label that moves or changes size on a face snaps to the other labels of the face, to the round and square holes of the face, and to the center of the face and of the part. The view draws a guide line for each snap. The code is new.</p>
 <h3 id="slab-index">Slab index</h3>
 <div class="ref"><span class="kind k-idea">idea</span><span class="area">slicing</span><dl><dt>Source</dt><dd>General</dd><dt>What zslice uses</dt><dd>Finds the edges that a winding ray crosses.</dd><dt>License</dt><dd>General technique</dd><dt>Used in</dt><dd><a href="https://github.com/beetlebugorg/zslice/blob/main/src/clip.zig"><code>src/clip.zig</code></a></dd></dl></div>
 <p>Slab index (bucket edges into equal bands of one axis, then cast a ray only against one band)</p>
