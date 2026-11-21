@@ -821,7 +821,64 @@ const CountingAllocator = struct {
 /// the page faults.
 const Sample = struct { wall: f64, cpu: f64, faults: f64 };
 
+/// The calls of cpuNow on Windows, which has no getrusage.
+const win_process = struct {
+    const FileTime = extern struct {
+        low: u32,
+        high: u32,
+
+        fn ticks(t: FileTime) u64 {
+            return @as(u64, t.high) << 32 | t.low;
+        }
+    };
+
+    /// PROCESS_MEMORY_COUNTERS.
+    const Counters = extern struct {
+        cb: u32,
+        page_faults: u32,
+        sizes: [8]usize,
+    };
+
+    extern "kernel32" fn GetCurrentProcess() callconv(.winapi) ?*anyopaque;
+    extern "kernel32" fn GetProcessTimes(
+        process: ?*anyopaque,
+        creation: *FileTime,
+        exit: *FileTime,
+        kernel: *FileTime,
+        user: *FileTime,
+    ) callconv(.winapi) c_int;
+    extern "kernel32" fn K32GetProcessMemoryInfo(
+        process: ?*anyopaque,
+        counters: *Counters,
+        size: u32,
+    ) callconv(.winapi) c_int;
+
+    /// A FILETIME counts units of 100 ns.
+    fn now() [2]f64 {
+        const process = GetCurrentProcess();
+        var creation: FileTime = undefined;
+        var exit: FileTime = undefined;
+        var kernel: FileTime = .{ .low = 0, .high = 0 };
+        var user: FileTime = .{ .low = 0, .high = 0 };
+        _ = GetProcessTimes(process, &creation, &exit, &kernel, &user);
+        return .{ @as(f64, @floatFromInt(kernel.ticks() + user.ticks())) / 1e4, @floatFromInt(memory().page_faults) };
+    }
+
+    fn memory() Counters {
+        var counters = std.mem.zeroes(Counters);
+        counters.cb = @sizeOf(Counters);
+        _ = K32GetProcessMemoryInfo(GetCurrentProcess(), &counters, @sizeOf(Counters));
+        return counters;
+    }
+
+    /// The first size is PeakWorkingSetSize.
+    fn peakMb() u64 {
+        return memory().sizes[0] >> 20;
+    }
+};
+
 fn cpuNow() [2]f64 {
+    if (@import("builtin").os.tag == .windows) return win_process.now();
     const u = std.posix.getrusage(0);
     const ms = @as(f64, @floatFromInt(u.utime.sec + u.stime.sec)) * 1e3 +
         @as(f64, @floatFromInt(u.utime.usec + u.stime.usec)) / 1e3;
@@ -979,6 +1036,7 @@ fn gcodeInfo(gpa: std.mem.Allocator, io: Io, err: *Io.Writer, path: []const u8) 
 
 /// The peak resident memory of this process, in MB, from /proc.
 fn peakMb(io: Io) u64 {
+    if (@import("builtin").os.tag == .windows) return win_process.peakMb();
     var buf: [4096]u8 = undefined;
     const text = Io.Dir.cwd().readFile(io, "/proc/self/status", &buf) catch return 0;
     const at = std.mem.indexOf(u8, text, "VmHWM:") orelse return 0;
