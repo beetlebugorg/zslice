@@ -181,6 +181,11 @@
 <p><strong>Shell:</strong> macOS (<code>macos/</code>)</p>
 <p><strong>Library:</strong> The system frameworks of macOS: SwiftUI, AppKit, Metal, QuartzCore, ImageIO, UniformTypeIdentifiers, AVFoundation, Network, CryptoKit, Security</p>
 <p><strong>License:</strong> Apple system frameworks, part of macOS</p>
+<h3 id="windows-system-libraries-for-the-printer-links">Windows system libraries for the printer links</h3>
+<div class="ref"><span class="kind k-code">code</span><span class="area">network</span><dl><dt>Source</dt><dd>Microsoft</dd><dt>What zslice uses</dt><dd>HTTP, TLS, and the encryption of the saved keys in the Windows app.</dd><dt>License</dt><dd>Windows system libraries, part of Windows</dd><dt>Used in</dt><dd><a href="https://github.com/beetlebugorg/zslice/tree/main/windows/src/net"><code>windows/src/net</code></a>, <a href="https://github.com/beetlebugorg/zslice/tree/main/windows/src/prefs"><code>windows/src/prefs</code></a></dd></dl></div>
+<p><strong>Shell:</strong> Windows (<code>windows/</code>)</p>
+<p><strong>Library:</strong> The system libraries of Windows: WinHTTP (HTTP), Schannel through SSPI (TLS with a pinned certificate), DPAPI (<code>CryptProtectData</code>, the saved keys), CNG (SHA-256 and random bytes), and Winsock (the printer search)</p>
+<p><strong>License:</strong> Windows system libraries, part of Windows</p>
 <h2 id="algorithms-formats-and-conventions">Algorithms, formats, and conventions</h2>
 <h3 id="lookout-marine-wayland-subsurface">Lookout Marine Wayland subsurface</h3>
 <div class="ref"><span class="kind k-code">code</span><span class="area">ui</span><dl><dt>Source</dt><dd>Lookout Marine</dd><dt>What zslice uses</dt><dd>Adapted: a Wayland subsurface under the GTK window, with an empty input region, for the Vulkan view.</dd><dt>License</dt><dd>MIT</dd><dt>Used in</dt><dd><a href="https://github.com/beetlebugorg/zslice/blob/main/linux/src/ui/native-surface.c"><code>linux/src/ui/native-surface.c</code></a></dd></dl></div>
