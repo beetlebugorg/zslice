@@ -95,6 +95,19 @@ struct PartCard: View {
                         PartSettingRow(workspace: workspace, index: index, info: s.info, value: s.value)
                     }
                 }
+                // The labels of the part: a click selects one in the Label tool.
+                let labels = workspace.partLabels(index)
+                if !labels.isEmpty {
+                    Divider()
+                    Text("Labels").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                    ForEach(labels) { l in
+                        Button { workspace.openLabel(part: index, id: l.id) } label: {
+                            Label(l.title, systemImage: "character.textbox").lineLimit(1)
+                        }
+                        .buttonStyle(.borderless)
+                        .help("Select this label in the Label tool (L)")
+                    }
+                }
                 HStack(spacing: 6) {
                     Text("Make")
                     TextField("Count", value: $count, format: .number)

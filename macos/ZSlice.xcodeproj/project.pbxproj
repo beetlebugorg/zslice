@@ -35,6 +35,7 @@
 		226758C8076791E38648B82E /* Render.swift in Sources */ = {isa = PBXBuildFile; fileRef = C6B3D7F7FABAA30471ADBA1D /* Render.swift */; };
 		2394DCDD748E420A4F08C501 /* PreviewViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4EBCD1B70229FEB2EEA34991 /* PreviewViewController.swift */; };
 		276A7D05686F2DF573381F9C /* Licenses.swift in Sources */ = {isa = PBXBuildFile; fileRef = A48F3E5FE16B90372BF2A40C /* Licenses.swift */; };
+		288D5A711C42E9BFA5943BB9 /* LabelCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 41978BD659132A145BB5BCA3 /* LabelCard.swift */; };
 		2AAFD6FAAAD0FA47FA1435DE /* PairSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 18E77790388D3A36B3BD0F14 /* PairSheet.swift */; };
 		2AC23501F949B1A6C78C1F66 /* Project.swift in Sources */ = {isa = PBXBuildFile; fileRef = 38E36170394119623DEAE467 /* Project.swift */; };
 		2CBE872D00B399B7D21FA6A1 /* SupportTrees.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA1563DC7A7E6004C5F6CF3E /* SupportTrees.swift */; };
@@ -55,6 +56,7 @@
 		55360E83EED262D2026213D3 /* ContextMenu.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D38B8CA2B2D9D78DCFA28D6 /* ContextMenu.swift */; };
 		58667ADEB619020C300A1610 /* FrameRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7AC965EBFF22673C1B1C1293 /* FrameRenderer.swift */; };
 		5A7E4690C3269BE1877647E9 /* Support.swift in Sources */ = {isa = PBXBuildFile; fileRef = 194870F164B038CADEF34D76 /* Support.swift */; };
+		5E7A41B6ED1933AEB4CB74D2 /* Label.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7657D91DD784AA19847F2BED /* Label.swift */; };
 		5E85993B54C2F89DD2BD6BFF /* Checks.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA217A10AC24BCB822D0EDB9 /* Checks.swift */; };
 		5F878A3F7FE1F112E0903748 /* LineCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 972403D6017A5CCC5EEF59E9 /* LineCard.swift */; };
 		681B23EC402F125D8E8D93E2 /* PartCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4CC3EA03D05E3CF0AC57E80D /* PartCard.swift */; };
@@ -98,6 +100,7 @@
 		C5F1F66433AF979A3F1B5831 /* Camera.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7499ED62DA0BF92BA63B5FC8 /* Camera.swift */; };
 		C691136A254A7FD5213D9E18 /* ZSliceApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1158D8D369A8510F36724AB5 /* ZSliceApp.swift */; };
 		CE03DE6CDB6E1FEBA69EE7C4 /* SavedSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = DCB26F920F80C3DD47D375E9 /* SavedSettings.swift */; };
+		D3998BA3DC16B14FA4C28B56 /* LabelTool.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E4AB363FA474780AE856ABD /* LabelTool.swift */; };
 		E00FD51B030CA2D41C61B6FD /* FarmMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3D6CFF6D8ACB26A0EBD66C8 /* FarmMonitor.swift */; };
 		E65449D7495562F0928DFFCB /* Workspace.swift in Sources */ = {isa = PBXBuildFile; fileRef = 527BBE990EFDB75191555B48 /* Workspace.swift */; };
 		E82702961DDA68AFFBE5B385 /* CoreText.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1EED13BDF9B1407DBC65CD27 /* CoreText.swift */; };
@@ -185,6 +188,7 @@
 		3EE89FCA7B50D3523A0EBF53 /* FarmPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FarmPage.swift; sourceTree = "<group>"; };
 		3F32D9E3EE1F6D78B72D3FAF /* PaintTool.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaintTool.swift; sourceTree = "<group>"; };
 		4087D0E30A0C2C8AA5CCB806 /* Throttle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Throttle.swift; sourceTree = "<group>"; };
+		41978BD659132A145BB5BCA3 /* LabelCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LabelCard.swift; sourceTree = "<group>"; };
 		4393D6CE28BFDB5A017CB700 /* QuickLookUI.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = QuickLookUI.framework; path = System/Library/Frameworks/QuickLookUI.framework; sourceTree = SDKROOT; };
 		49588518E29C3C87C78FF133 /* Metal.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Metal.framework; path = System/Library/Frameworks/Metal.framework; sourceTree = SDKROOT; };
 		4CC3EA03D05E3CF0AC57E80D /* PartCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PartCard.swift; sourceTree = "<group>"; };
@@ -207,10 +211,12 @@
 		74242ACCEF2B8A6E36C25A97 /* ZSlice.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = ZSlice.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		7499ED62DA0BF92BA63B5FC8 /* Camera.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Camera.swift; sourceTree = "<group>"; };
 		75315836E11436E43BCFAF7F /* FilamentViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FilamentViews.swift; sourceTree = "<group>"; };
+		7657D91DD784AA19847F2BED /* Label.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Label.swift; sourceTree = "<group>"; };
 		772880BFB01BD8D0F2940178 /* Session.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Session.swift; sourceTree = "<group>"; };
 		78CA94BF667251FCE1DA9234 /* Refinements.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Refinements.swift; sourceTree = "<group>"; };
 		7A1C08E49F76C24FC015BFDC /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		7AC965EBFF22673C1B1C1293 /* FrameRenderer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FrameRenderer.swift; sourceTree = "<group>"; };
+		7E4AB363FA474780AE856ABD /* LabelTool.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LabelTool.swift; sourceTree = "<group>"; };
 		83D64EAFB6216F86FAA95810 /* History.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = History.swift; sourceTree = "<group>"; };
 		92DBFADF03C8246886406520 /* Profiles.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Profiles.swift; sourceTree = "<group>"; };
 		972403D6017A5CCC5EEF59E9 /* LineCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LineCard.swift; sourceTree = "<group>"; };
@@ -246,7 +252,7 @@
 		F817BC998AF3DF2ED3A00C81 /* Discovery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Discovery.swift; sourceTree = "<group>"; };
 		FA1563DC7A7E6004C5F6CF3E /* SupportTrees.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SupportTrees.swift; sourceTree = "<group>"; };
 		FEB19535AAD2F45E9ADECD3E /* Shaders.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Shaders.swift; sourceTree = "<group>"; };
-		"TEMP_F1729CFF-47EA-4EE3-9233-25FDCA8169CB" /* Signing.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Signing.xcconfig; sourceTree = "<group>"; };
+		"TEMP_B23D2E1E-D11B-447C-8325-48969C9784F4" /* Signing.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Signing.xcconfig; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -372,6 +378,7 @@
 				67BB69886DC9C8E48451FDE1 /* HistoryCardView.swift */,
 				BE3894912DD445B18809AAE5 /* HistoryGlyph.swift */,
 				E12F5AA52BD7698083B6F05A /* HistoryPage.swift */,
+				41978BD659132A145BB5BCA3 /* LabelCard.swift */,
 				A6211F5702D17416C9653A1E /* LayerSlider.swift */,
 				9B3ECAE8973F7D689B3C5B4D /* Legend.swift */,
 				A48F3E5FE16B90372BF2A40C /* Licenses.swift */,
@@ -422,6 +429,8 @@
 				A23D8AA5A9E798E97F32F150 /* H264Decoder.swift */,
 				83D64EAFB6216F86FAA95810 /* History.swift */,
 				AF58EC44C0E3269D6BE096BD /* HistoryCard.swift */,
+				7657D91DD784AA19847F2BED /* Label.swift */,
+				7E4AB363FA474780AE856ABD /* LabelTool.swift */,
 				A6D838E156394C6F8A401B5E /* LayerRange.swift */,
 				3F32D9E3EE1F6D78B72D3FAF /* PaintTool.swift */,
 				6208D0AEED978B77B7B878E6 /* PrinterLink.swift */,
@@ -448,10 +457,10 @@
 			path = Core;
 			sourceTree = "<group>";
 		};
-		"TEMP_C0A1CD6A-FBEA-499B-855F-AC7F1D821BFE" /* macos */ = {
+		"TEMP_0D4FD09E-CA73-4F2A-A7F8-FE6CA9A0D438" /* macos */ = {
 			isa = PBXGroup;
 			children = (
-				"TEMP_F1729CFF-47EA-4EE3-9233-25FDCA8169CB" /* Signing.xcconfig */,
+				"TEMP_B23D2E1E-D11B-447C-8325-48969C9784F4" /* Signing.xcconfig */,
 			);
 			path = macos;
 			sourceTree = "<group>";
@@ -660,6 +669,9 @@
 				A125AFF35313FEDA8766F1E6 /* HistoryCardView.swift in Sources */,
 				B6EEC618D96008B743E7E77E /* HistoryGlyph.swift in Sources */,
 				003D6D3ABB6D09C5F59C1A44 /* HistoryPage.swift in Sources */,
+				5E7A41B6ED1933AEB4CB74D2 /* Label.swift in Sources */,
+				288D5A711C42E9BFA5943BB9 /* LabelCard.swift in Sources */,
+				D3998BA3DC16B14FA4C28B56 /* LabelTool.swift in Sources */,
 				2E61517FD695932A423EAD9B /* LayerRange.swift in Sources */,
 				F5987A16975072DD3B14EB37 /* LayerRenderer.swift in Sources */,
 				4B35704326FFE1A511245665 /* LayerSlider.swift in Sources */,
@@ -769,7 +781,7 @@
 		};
 		1BF4A7F21A34A94F2F8BE4A1 /* Release */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = "TEMP_F1729CFF-47EA-4EE3-9233-25FDCA8169CB" /* Signing.xcconfig */;
+			baseConfigurationReference = "TEMP_B23D2E1E-D11B-447C-8325-48969C9784F4" /* Signing.xcconfig */;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
 				CLANG_ANALYZER_NONNULL = YES;
@@ -906,7 +918,7 @@
 		};
 		BB3F32C66D957B876F949001 /* Debug */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = "TEMP_F1729CFF-47EA-4EE3-9233-25FDCA8169CB" /* Signing.xcconfig */;
+			baseConfigurationReference = "TEMP_B23D2E1E-D11B-447C-8325-48969C9784F4" /* Signing.xcconfig */;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
 				CLANG_ANALYZER_NONNULL = YES;

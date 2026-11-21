@@ -210,6 +210,12 @@ struct DocumentWindow: View {
                 GeometryReader { geo in
                     TapeOverlay(workspace: workspace, area: geo.size)
                     OpenPlateButton(workspace: workspace)
+                    // The Label tool: the handle of the selected label, and
+                    // its card.
+                    if workspace.tool == .label, workspace.page == .threeD {
+                        LabelHandle(workspace: workspace)
+                        LabelCard(workspace: workspace, area: geo.size)
+                    }
                     // The 2D view says so at the top; a click goes back to 3D.
                     if workspace.page == .twoD {
                         Button { workspace.page = .threeD } label: {

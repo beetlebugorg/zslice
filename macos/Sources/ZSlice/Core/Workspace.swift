@@ -333,6 +333,8 @@ final class Workspace {
         readLegend()
         // The load cleared the lit body of an open range.
         relightRange()
+        // The labels and the mesh of the pick after the slice.
+        reloadLabels()
         var tp = zs_toolpaths()
         guard zs_app_toolpaths(model.core, &tp) == 0 else { return }
         let n = tp.layer_count
@@ -433,6 +435,7 @@ final class Workspace {
                 model.history.commit()
             }
             for _ in 0 ..< (env["ZSLICE_UNDO"].flatMap(Int.init) ?? 0) { model.history.undoManager.undo() }
+            if env["ZSLICE_UNDO"] != nil { NSLog("zslice undo: history %ld/%ld", model.history.current, model.history.count) }
         }
         // ZSLICE_TOOL=name picks a tool, ZSLICE_CLICKS="x,y;x,y" clicks with
         // it, and ZSLICE_DRAG="x0,y0;x1,y1" is a Command-drag (points).
@@ -1162,6 +1165,59 @@ final class Workspace {
                 }
             }
         }
+        // ZSLICE_LABEL_AT=x,y opens the Label tool and presses there, as a
+        // click: a label goes on the face. ZSLICE_LABEL_FILAMENTS=2 adds a
+        // filament first, and ZSLICE_LABEL_TEXT=text sets its text. Logs
+        // the label after the slice, and its facts.
+        if let spec = env["ZSLICE_LABEL_AT"] {
+            let xy = spec.split(separator: ",").compactMap { Double($0) }
+            Task { @MainActor in
+                if env["ZSLICE_LABEL_FILAMENTS"] == "2", self.model.filaments.count < 2 { _ = self.model.addFilament() }
+                self.setTool(.label)
+                let at = xy.count == 2 ? CGPoint(x: xy[0], y: xy[1]) : CGPoint(x: self.canvas.bounds.midX, y: self.canvas.bounds.midY)
+                _ = self.labelPress(at, [])
+                _ = self.labelRelease()
+                if let t = env["ZSLICE_LABEL_TEXT"] { _ = self.editLabelItem(0, commit: true) { $0.text = t } }
+                // ZSLICE_LABEL_STEPS="turn:15,scale:1.5,drag:dx:dy,delete,undo,...":
+                // each step 1 s apart, and the label after it.
+                for step in (env["ZSLICE_LABEL_STEPS"] ?? "").split(separator: ",") {
+                    try? await Task.sleep(for: .seconds(1.2))
+                    let f = step.split(separator: ":").map(String.init)
+                    switch f[0] {
+                    case "turn": for _ in 0 ..< abs(Int(f[1]) ?? 0) { self.turnLabel((Int(f[1]) ?? 0) > 0 ? 1 : -1) }
+                    case "scale": if let l = self.labelState.label { self.scaleLabel(from: l, by: Double(f[1]) ?? 1); self.flushLabel() }
+                    case "drag":
+                        if let c = self.labelScreenCenter() {
+                            let to = CGPoint(x: c.x + (Double(f[1]) ?? 0), y: c.y + (Double(f[2]) ?? 0))
+                            _ = self.labelPress(c, [])
+                            for k in 1 ... 10 { self.labelDrag(CGPoint(x: c.x + (to.x - c.x) * Double(k) / 10, y: c.y + (to.y - c.y) * Double(k) / 10), []) }
+                            _ = self.labelRelease()
+                        }
+                    case "delete": self.removeLabel()
+                    case "blur": self.canvas.window?.makeFirstResponder(self.canvas)
+                    case "set": self.model.set("project.wall_count", String(Int.random(in: 3 ... 6))); self.model.history.commit()
+                    case "coreundo": NSLog("zslice label step coreundo: bits %d", zs_app_history_undo(self.model.core, Int64(Date().timeIntervalSince1970 * 1000)))
+                    case "undo": try? await Task.sleep(for: .seconds(0.5)); self.model.history.undoManager.undo()
+                    default: break
+                    }
+                    try? await Task.sleep(for: .seconds(0.6))
+                    let st = self.labelState
+                    let coreList = PartLabel.list(coreString { zs_app_part_labels_get(self.model.core, max(st.index, 0), $0, $1, $2) } ?? "[]").count
+                    NSLog("zslice label step %@: core %ld, history %ld/%ld, undo %@", String(step), coreList, self.model.history.current, self.model.history.count,
+                          self.model.history.undoManager.undoActionName)
+                    NSLog("zslice label step %@: %ld labels, %@", String(step), st.labels.count,
+                          st.label.map { String(format: "turn %.0f°, size %.2f, origin %.1f %.1f %.1f", $0.angle, $0.items.first?.size ?? 0, $0.origin[0], $0.origin[1], $0.origin[2]) } ?? "none selected")
+                }
+                try? await Task.sleep(for: .seconds(5))
+                let st = self.labelState
+                NSLog("zslice label: part %ld, %ld labels, selected %@, %@", st.index, st.labels.count, st.sel.map { String($0) } ?? "none",
+                      st.label.map { "\($0.title), filament \($0.filament), turn \(Int($0.angle.rounded()))°" } ?? "-")
+                if let i = st.info {
+                    NSLog("zslice label info: %@, thinnest %.2f, clean %.1f, changes %ld (sliced %d), layers %ld, advice %@", i.kind ?? "?", i.thinnest ?? 0,
+                          i.clean_size ?? 0, (i.sliced == true ? i.changes : i.estimate_changes) ?? -1, i.sliced == true ? 1 : 0, i.layers ?? 0, i.advice ?? "")
+                }
+            }
+        }
         // ZSLICE_RIGHT_DRAG=1 sends a right drag of 100 points of a mouse to
         // the view, and =touch the same drag from a trackpad (the subtype
         // of two fingers clicked down), and logs the camera: a pan moves the
@@ -1707,6 +1763,10 @@ final class Workspace {
     /// The sheet of the keyboard shortcuts shows.
     var shortcutsOpen = false
 
+    /// The Label tool (LabelTool.swift), and a request for the focus of the
+    /// text of its card.
+    let labelState = LabelState()
+    var labelFocusText = 0
     /// The search of settings and actions (SearchOverlay.swift): the same
     /// text in the toolbar and in the card.
     let search = SearchState()
@@ -2180,8 +2240,9 @@ extension Workspace: SliceViewDelegate {
         }
         if gapsOn && pickGap(at: p) { return }
         switch tool {
-        // The press of the Paint tool painted already.
-        case .paint: break
+        // The press of the Paint tool painted already, and the press of
+        // the Label tool added or picked a label.
+        case .paint, .label: break
         case .measure:
             measureClick(p, snap: !NSEvent.modifierFlags.contains(.shift))
         case .support:
@@ -2211,6 +2272,7 @@ extension Workspace: SliceViewDelegate {
     func sliceViewRelease(_ p: CGPoint) -> Bool { release(p) }
     func sliceViewTurnWheel(_ dy: CGFloat) -> Bool { turnWheel(dy) }
     func sliceViewHandWheel(_ dy: CGFloat) -> Bool { handWheel(dy) }
+    func sliceViewLabelWheel(_ p: CGPoint, _ dy: CGFloat, shift: Bool) -> Bool { labelWheel(p, dy, shift: shift) }
     func sliceViewMenu(_ p: CGPoint) -> NSMenu? { contextMenu(at: p) }
     func sliceViewHover(_ p: CGPoint?) {
         // The hand carries its part with the pointer, with no button down.
@@ -2228,6 +2290,7 @@ extension Workspace: SliceViewDelegate {
     func sliceViewDidDraw() {
         if !tape.isEmpty { placeTape() }
         updatePlateSigns()
+        if tool == .label { placeLabelHandle() }
         // The camera, the layers, or the page moved: the view file follows.
         SessionStore.shared.changedView()
     }
@@ -2249,6 +2312,19 @@ extension Workspace: SliceViewDelegate {
     /// The keys of the preview (docs/user/getting-started.md, "Keys in the
     /// preview"), for the case with no selected line.
     func sliceViewKey(_ event: NSEvent) -> Bool {
+        // The Label tool: Delete removes the selected label; Esc closes its
+        // card, and Esc again the tool.
+        if tool == .label, event.modifierFlags.intersection([.command, .control, .option]).isEmpty {
+            let k = event.charactersIgnoringModifiers
+            if labelState.sel != nil, event.specialKey == .delete || event.specialKey == .deleteForward {
+                removeLabel()
+                return true
+            }
+            if k == "\u{1b}" {
+                if labelState.drawing >= 0 { stopLabelDrawing() } else if labelState.sel != nil { selectLabel(nil) } else { setTool(.select) }
+                return true
+            }
+        }
         // Esc lets go of the part in the hand.
         if grabbing, event.charactersIgnoringModifiers == "\u{1b}" {
             letGo()

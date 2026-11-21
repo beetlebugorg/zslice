@@ -1,0 +1,356 @@
+//! The card of the selected label of the Label tool (LabelTool.swift), as
+//! web/app/labelcard.js. A spatial card (SpatialCards.swift, the kind
+//! "label"): it goes to the place where the user put it last, else beside
+//! the label, and never covers the label or its handle.
+//!
+//! The card has the shapes of the label, each with its chips (Text, Line,
+//! Bar, Ring, Ticks, Free) and its fields, and "Add a Shape"; the turn of
+//! the label, its filament, and its depth; the stroke check and the cost
+//! (zs_app_label_info); and Delete. Each field changes the preview at
+//! once; the label goes to the core after a short pause.
+//!
+//! SPDX-License-Identifier: AGPL-3.0-or-later
+
+import SwiftUI
+
+struct LabelCard: View {
+    let workspace: Workspace
+    let area: CGSize
+    @State private var cardSize = CGSize(width: 320, height: 400)
+    @State private var drag: CGSize = .zero
+    @State private var moved: CGPoint?
+    @FocusState private var textFocus: Int?
+
+    /// The number fields of each shape: field, label, unit, min, max, tip.
+    static let fields: [String: [(String, String, String, Double, Double, String)]] = [
+        "text": [("size", "Size", "mm", 0.5, 200, "The height of the capitals"),
+                 ("weight", "Weight", "mm", 0, 0.3, "Makes each stroke wider: small text prints better, small holes close")],
+        "line": [("length", "Length", "mm", 0.1, 500, ""), ("width", "Width", "mm", 0.1, 100, "")],
+        "bar": [("width", "Width", "mm", 0.1, 500, ""), ("height", "Height", "mm", 0.1, 500, ""),
+                ("radius", "Corners", "mm", 0, 100, "The radius of the corners")],
+        "ring": [("outer", "Outer radius", "mm", 0.1, 250, ""), ("inner", "Inner radius", "mm", 0, 250, "0 makes a disk")],
+        "ticks": [("count", "Count", "", 1, 360, "The number of ticks"),
+                  ("radius", "Radius", "mm", 0, 250, "The distance from the center to the inner end of each tick"),
+                  ("length", "First length", "mm", 0.1, 100, "The length of the first tick"),
+                  ("length_end", "Last length", "mm", 0, 100, "The length of the last tick (0: the same as the first). The ticks between grow evenly."),
+                  ("width", "Width", "mm", 0.1, 20, "The width of each tick"),
+                  ("start", "Start", "°", -360, 360, "The angle of the first tick (0: to the right, 90: up)"),
+                  ("sweep", "Sweep", "°", -360, 360, "The angle from the first tick to the last (negative: clockwise)")],
+        "polyline": [("width", "Width", "mm", 0, 100, "The width of the line (0 with Filled)")],
+    ]
+
+    private var st: LabelState { workspace.labelState }
+
+    var body: some View {
+        if let l = st.label {
+            card(l)
+                .padding(14)
+                .spatialSize("label", width: 320)
+                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+                .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(.separator))
+                .spatialGrip("label", size: cardSize)
+                .shadow(color: .black.opacity(0.15), radius: 12, y: 4)
+                .onGeometryChange(for: CGSize.self) { $0.size } action: { cardSize = $0 }
+                .position(place)
+                .offset(drag)
+                .onChange(of: workspace.labelFocusText) { textFocus = 0 }
+        }
+    }
+
+    private var place: CGPoint {
+        if let moved { return moved }
+        let box = st.box
+        if let c = SpatialStore.shared.center("label", size: cardSize, area: area, bottom: workspace.dockHeight + 12, avoiding: box) { return c }
+        return cardPlace(avoiding: box, near: CGPoint(x: area.width - 92 - cardSize.width / 2, y: 236), size: cardSize, in: area,
+                         bottom: workspace.dockHeight + 12, panels: workspace.panels)
+    }
+
+    @ViewBuilder
+    private func card(_ l: PartLabel) -> some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 10) {
+                head(l)
+                notices(l)
+                ForEach(Array(l.items.enumerated()), id: \.offset) { i, it in
+                    itemBox(l, it, i)
+                    Divider()
+                }
+                Menu("Add a Shape…") {
+                    ForEach(LabelItem.shapes, id: \.self) { k in
+                        Button(LabelItem.shapeNames[k] ?? k) { workspace.addLabelItem(k) }
+                    }
+                }
+                .help("Add a shape to this label: it shares the place, the turn, and the filament. Ticks go around the center, under the text.")
+                .fixedSize()
+                HStack {
+                    Text("Turn").frame(width: 70, alignment: .leading)
+                    LabelNumberField(value: (l.angle * 10).rounded() / 10, min: -180, max: 180) { workspace.setLabelAngle($0); return true }
+                    Text("°").foregroundStyle(.secondary)
+                }
+                .help("The turn of the label on the face (0: level). The wheel over the label turns it 1° (Shift: 15°).")
+                Text("Filament").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                FilamentChips(model: workspace.model, value: String(l.filament)) { workspace.setLabelFilament(Int($0) ?? 1) }
+                depthRow(l)
+                Text("Print").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                info
+                Button("Delete the Label", role: .destructive) { workspace.removeLabel() }
+                    .help("Remove the label from the part (Delete)")
+            }
+        }
+        .frame(maxHeight: max(200, area.height - workspace.dockHeight - 80))
+        .controlSize(.small)
+    }
+
+    private func head(_ l: PartLabel) -> some View {
+        HStack {
+            Text("Label \(l.title)").font(.headline).lineLimit(1)
+            Spacer()
+            Button { workspace.selectLabel(nil) } label: {
+                Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
+            }
+            .buttonStyle(.borderless)
+            .help("Close the card (Esc). The label stays.")
+        }
+        .contentShape(Rectangle())
+        .help("Drag to move the card; zslice keeps its place. A double click puts it back.")
+        .gesture(DragGesture(coordinateSpace: .global)
+            .onChanged { drag = $0.translation }
+            .onEnded { g in
+                let c = place
+                let to = CGPoint(x: c.x + g.translation.width, y: c.y + g.translation.height)
+                moved = to
+                SpatialStore.shared.moved("label", center: to, size: cardSize)
+                drag = .zero
+            })
+        .onTapGesture(count: 2) {
+            SpatialStore.shared.forget("label")
+            moved = nil
+        }
+    }
+
+    @ViewBuilder
+    private func notices(_ l: PartLabel) -> some View {
+        // A label in the filament of the part does not show.
+        if l.filament == st.base {
+            if workspace.model.filaments.count <= 1 {
+                HStack {
+                    Text("The plate has one filament, so this label does not show.")
+                    Button("Add a Filament") { workspace.addLabelFilament() }
+                        .help("Add a second filament to the plate, and print the label with it")
+                }
+                .font(.callout).foregroundStyle(.orange)
+            } else {
+                Text("The label has the filament of the part, so it does not show. Pick another filament.")
+                    .font(.callout).foregroundStyle(.orange)
+            }
+        }
+        if st.curve > LabelPlace.curveLimit {
+            Text(LabelPlace.curveText).font(.callout).foregroundStyle(.orange)
+        }
+    }
+
+    @ViewBuilder
+    private func itemBox(_ l: PartLabel, _ it: LabelItem, _ i: Int) -> some View {
+        HStack(spacing: 2) {
+            ForEach(LabelItem.shapes, id: \.self) { k in
+                ChoiceButton(title: LabelItem.shapeNames[k] ?? k, on: it.kind == k) { workspace.setLabelShape(i, k) }
+                    .help(k == "polyline" ? "A free line: click points on the face" : "Make this shape a \((LabelItem.shapeNames[k] ?? k).lowercased())")
+            }
+            if l.items.count > 1 {
+                Button { workspace.removeLabelItem(i) } label: { Image(systemName: "xmark") }
+                    .buttonStyle(.borderless)
+                    .help("Remove this shape from the label")
+            }
+        }
+        if it.kind == "text" {
+            TextField("Text", text: Binding(get: { it.text ?? "" }, set: { t in _ = workspace.editLabelItem(i) { $0.text = String(t.utf8.prefix(256)) ?? t } }))
+                .focused($textFocus, equals: i)
+                .accessibilityLabel("The text of the label")
+        }
+        let fields: [(String, String, String, Double, Double, String)] = Self.fields[it.kind] ?? []
+        ForEach(Array(fields.enumerated()), id: \.offset) { _, f in
+            HStack {
+                Text(f.1).frame(width: 90, alignment: .leading)
+                LabelNumberField(value: it[f.0] ?? 0, min: f.3, max: f.4) { v in
+                    workspace.editLabelItem(i) { $0[f.0] = f.0 == "count" ? v.rounded() : v }
+                }
+                Text(f.2).foregroundStyle(.secondary)
+            }
+            .help(f.5.isEmpty ? f.1 : f.5)
+        }
+        if it.kind == "polyline" {
+            HStack {
+                Toggle("Closed", isOn: Binding(get: { it.closed ?? false }, set: { v in _ = workspace.editLabelItem(i, commit: true) { $0.closed = v } }))
+                Toggle("Filled", isOn: Binding(get: { it.filled ?? false }, set: { v in _ = workspace.editLabelItem(i, commit: true) { $0.filled = v } }))
+            }
+            let drawing = st.drawing == i
+            Button(drawing ? "Done" : "Draw Points") { drawing ? workspace.stopLabelDrawing() : workspace.startLabelDrawing(i) }
+                .help(drawing ? "Stop: the line keeps its points" : "Click points on the face, one after the other")
+            if drawing { Text("Click points on the face. Click Done at the end.").font(.caption).foregroundStyle(.secondary) }
+        }
+        HStack {
+            Text("Offset").frame(width: 90, alignment: .leading)
+            LabelNumberField(value: it.at?.first ?? 0, min: -500, max: 500) { v in workspace.editLabelItem(i) { $0.at = [v, $0.at?.last ?? 0] } }
+                .help("Right of the center of the label, mm")
+            LabelNumberField(value: it.at?.last ?? 0, min: -500, max: 500) { v in workspace.editLabelItem(i) { $0.at = [$0.at?.first ?? 0, v] } }
+                .help("Up from the center of the label, mm")
+            Text("mm").foregroundStyle(.secondary)
+        }
+    }
+
+    private func depthRow(_ l: PartLabel) -> some View {
+        let lw = st.info?.line_width ?? 0.42
+        let d = l.depth ?? 0
+        return HStack {
+            Text("Depth").frame(width: 70, alignment: .leading)
+            ChoiceButton(title: "1 Line", on: d <= 0) { workspace.setLabelDepth(0) }
+                .help("The color is one line deep (the outer wall)")
+            ChoiceButton(title: "2 Lines", on: abs(d - 2 * lw) < 1e-6) { workspace.setLabelDepth(2 * lw) }
+                .help("The color is two lines deep: more color for a light filament over a dark part")
+            LabelNumberField(value: d, min: 0, max: 10) { workspace.setLabelDepth($0); return true }
+                .help("The depth of the color from the surface, mm (0: one line)")
+            Text("mm").foregroundStyle(.secondary)
+        }
+    }
+
+    /// The stroke check and the cost (zs_app_label_info).
+    @ViewBuilder
+    private var info: some View {
+        if let info = st.info {
+            let lw = info.line_width ?? 0.42
+            Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 3) {
+                if let t = info.thinnest, t > 0 {
+                    GridRow {
+                        Text("Thinnest stroke").foregroundStyle(.secondary)
+                        Text(String(format: "%.2f mm", t)).foregroundStyle(t < 2 * lw ? Color.orange : .primary)
+                    }
+                }
+                if let c = info.clean_size, c > 0 {
+                    GridRow {
+                        Text("Text size").foregroundStyle(.secondary)
+                        Text(String(format: "clean from %.1f mm, fair from %.1f mm", c, info.fair_size ?? 0))
+                    }
+                }
+                if info.same_filament != true {
+                    let n = (info.sliced == true ? info.changes : info.estimate_changes) ?? 0
+                    GridRow {
+                        Text(info.sliced == true ? "Adds" : "Adds about").foregroundStyle(.secondary)
+                        Text("\(n) filament \(n == 1 ? "change" : "changes")")
+                    }
+                    GridRow { Text("Time").foregroundStyle(.secondary); Text("\(Int((info.minutes ?? 0).rounded())) min") }
+                    GridRow { Text("Flush").foregroundStyle(.secondary); Text(String(format: "%.1f g", info.grams ?? 0)) }
+                    if let layers = info.layers, layers > 0 {
+                        GridRow {
+                            Text("Layers").foregroundStyle(.secondary)
+                            Text(String(format: "%d (%.1f to %.1f mm)", layers, info.z_min ?? 0, info.z_max ?? 0))
+                        }
+                    }
+                }
+            }
+            .font(.callout.monospacedDigit())
+            if let a = info.advice, !a.isEmpty { Text(a).font(.callout).fixedSize(horizontal: false, vertical: true) }
+            if info.same_filament != true {
+                if info.sliced != true { Text("An estimate. The slice gives the count.").font(.caption).foregroundStyle(.secondary) }
+                let n = (info.sliced == true ? info.changes : info.estimate_changes) ?? 0
+                if info.kind == "side", n > 10, let top = info.top_changes, top >= 0 {
+                    Text("On the top face, this label costs \(top) \(top == 1 ? "change" : "changes").").font(.callout)
+                }
+            }
+        } else {
+            Text("…").foregroundStyle(.secondary)
+        }
+    }
+}
+
+/// A number of the card: live as it is typed, in its range. `send`
+/// returns false when the label cannot take the value (the field shows
+/// red).
+struct LabelNumberField: View {
+    let value: Double
+    let min: Double
+    let max: Double
+    let send: (Double) -> Bool
+    @State private var text = ""
+    @State private var bad = false
+    @FocusState private var focused: Bool
+
+    var body: some View {
+        TextField("", text: $text)
+            .labelsHidden()
+            .multilineTextAlignment(.trailing)
+            .frame(width: 56)
+            .focused($focused)
+            .foregroundStyle(bad ? Color.red : Color.primary)
+            .onAppear { text = Self.format(value) }
+            .onChange(of: value) { if !focused { text = Self.format(value) } }
+            .onChange(of: text) {
+                guard focused else { return }
+                guard let v = Double(text.replacingOccurrences(of: ",", with: ".")), v.isFinite, v >= min, v <= max else {
+                    bad = true
+                    return
+                }
+                bad = !send(v)
+            }
+            .onChange(of: focused) { if !focused { text = Self.format(value); bad = false } }
+    }
+
+    static func format(_ v: Double) -> String {
+        let r = (v * 1000).rounded() / 1000
+        return r == r.rounded() ? String(Int(r)) : String(r)
+    }
+}
+
+/// A button of a choice: the one that is on has the prominent style.
+private struct ChoiceButton: View {
+    let title: String
+    let on: Bool
+    let action: () -> Void
+
+    /// Its own fill: AppKit draws a prominent button gray in a window that
+    /// is not the key window.
+    var body: some View {
+        Button(action: action) {
+            Text(title)
+                .padding(.horizontal, 7)
+                .padding(.vertical, 3)
+                .foregroundStyle(on ? Color.white : Color.primary)
+                .background(RoundedRectangle(cornerRadius: 5).fill(on ? Color.accentColor : Color(nsColor: .controlColor)))
+                .overlay(RoundedRectangle(cornerRadius: 5).strokeBorder(on ? Color.clear : Color(nsColor: .separatorColor)))
+        }
+        .buttonStyle(.plain)
+        .fixedSize()
+        .accessibilityAddTraits(on ? .isSelected : [])
+    }
+}
+
+/// The corner handle of the selected label: a drag scales it.
+struct LabelHandle: View {
+    let workspace: Workspace
+    @State private var start: (label: PartLabel, center: CGPoint, d0: CGFloat)?
+
+    var body: some View {
+        if let at = workspace.labelState.handleAt {
+            Circle()
+                .fill(Color.yellow)
+                .overlay(Circle().strokeBorder(.black.opacity(0.4)))
+                .frame(width: 14, height: 14)
+                .position(at)
+                .help("Drag to make the label larger or smaller")
+                .gesture(DragGesture(minimumDistance: 1)
+                    .onChanged { g in
+                        if start == nil, let l = workspace.labelState.label, let c = workspace.labelScreenCenter() {
+                            start = (l, c, Swift.max(4, hypot(g.startLocation.x - c.x, g.startLocation.y - c.y)))
+                            workspace.labelState.scaling = true
+                        }
+                        guard let s = start else { return }
+                        workspace.scaleLabel(from: s.label, by: hypot(g.location.x - s.center.x, g.location.y - s.center.y) / s.d0)
+                    }
+                    .onEnded { _ in
+                        start = nil
+                        workspace.labelState.scaling = false
+                        workspace.flushLabel()
+                    })
+                .accessibilityHidden(true)
+        }
+    }
+}

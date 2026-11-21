@@ -56,6 +56,8 @@ final class FrameRenderer {
     /// The mesh of the Paint tool: drawn in place of the beads while the
     /// tool is on (nil: off).
     var paint: PaintMesh?
+    /// The decals of the Label tool (LabelTool.swift), or nil.
+    var labels: LabelDecals?
     private let bed: MTLRenderPipelineState
     /// The bed model, depth only: the first of its two passes.
     private let bedDepth: MTLRenderPipelineState
@@ -64,6 +66,12 @@ final class FrameRenderer {
     private let signPipe: MTLRenderPipelineState
     private var signTexture: MTLTexture?
     private let signSampler: MTLSamplerState
+    /// The decals of the labels: the stencil counts the turns of the fans
+    /// of the paths (labelCountState), then the color goes where the count
+    /// is not 0 and the count goes back to 0 (labelFillState).
+    private let labelCount: MTLRenderPipelineState
+    private let labelCountState: MTLDepthStencilState
+    private let labelFillState: MTLDepthStencilState
     private let depthWrite: MTLDepthStencilState
     private let depthRead: MTLDepthStencilState
     /// Only where the depth is the same, with no write: the color pass of
@@ -116,7 +124,10 @@ final class FrameRenderer {
                 d.fragmentFunction = lib.makeFunction(name: fragment)
                 d.rasterSampleCount = Self.sampleCount
                 d.colorAttachments[0].pixelFormat = Self.colorFormat
-                d.depthAttachmentPixelFormat = .depth32Float
+                // Depth and a stencil: the stencil fills the decals of the
+                // labels by the nonzero rule.
+                d.depthAttachmentPixelFormat = .depth32Float_stencil8
+                d.stencilAttachmentPixelFormat = .depth32Float_stencil8
                 if !color { d.colorAttachments[0].writeMask = [] }
                 if blend {
                     let c = d.colorAttachments[0]!
@@ -139,10 +150,36 @@ final class FrameRenderer {
             bed = try pipeline("bed_vertex", "bed_fragment", blend: true)
             bedDepth = try pipeline("bed_vertex", "bed_fragment", blend: false, color: false)
             signPipe = try pipeline("bed_vertex", "sign_fragment", blend: true)
+            labelCount = try pipeline("grid_vertex", "grid_fragment", blend: false, color: false)
         } catch {
             NSLog("zslice: the Metal shaders did not compile: \(error)")
             return nil
         }
+        // The stencil of the decals: with the depth test, with no depth
+        // write. Each pixel of a fill goes back to 0, so the next label
+        // starts from a clear stencil.
+        let count = MTLDepthStencilDescriptor()
+        count.depthCompareFunction = .lessEqual
+        count.isDepthWriteEnabled = false
+        let front = MTLStencilDescriptor(), back = MTLStencilDescriptor()
+        front.stencilCompareFunction = .always
+        front.depthStencilPassOperation = .incrementWrap
+        back.stencilCompareFunction = .always
+        back.depthStencilPassOperation = .decrementWrap
+        count.frontFaceStencil = front
+        count.backFaceStencil = back
+        labelCountState = device.makeDepthStencilState(descriptor: count)!
+        let fill = MTLDepthStencilDescriptor()
+        fill.depthCompareFunction = .lessEqual
+        fill.isDepthWriteEnabled = false
+        let f = MTLStencilDescriptor()
+        f.stencilCompareFunction = .notEqual
+        f.stencilFailureOperation = .zero
+        f.depthFailureOperation = .zero
+        f.depthStencilPassOperation = .zero
+        fill.frontFaceStencil = f
+        fill.backFaceStencil = f
+        labelFillState = device.makeDepthStencilState(descriptor: fill)!
         let ds = MTLDepthStencilDescriptor()
         ds.depthCompareFunction = .lessEqual
         ds.isDepthWriteEnabled = true
@@ -273,7 +310,7 @@ final class FrameRenderer {
         c.usage = .renderTarget
         c.storageMode = .private
         msaa = device.makeTexture(descriptor: c)
-        let d = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .depth32Float, width: w, height: h, mipmapped: false)
+        let d = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .depth32Float_stencil8, width: w, height: h, mipmapped: false)
         d.textureType = .type2DMultisample
         d.sampleCount = Self.sampleCount
         d.usage = .renderTarget
@@ -298,6 +335,10 @@ final class FrameRenderer {
         desc.depthAttachment.loadAction = .clear
         desc.depthAttachment.storeAction = .dontCare
         desc.depthAttachment.clearDepth = 1
+        desc.stencilAttachment.texture = depth
+        desc.stencilAttachment.loadAction = .clear
+        desc.stencilAttachment.storeAction = .dontCare
+        desc.stencilAttachment.clearStencil = 0
         guard let enc = cmd.makeRenderCommandEncoder(descriptor: desc) else { return }
         enc.setCullMode(.none)
         enc.setDepthStencilState(depthWrite)
@@ -373,6 +414,7 @@ final class FrameRenderer {
                 drawBed(mvp: f.bed.mvp)
                 for p in r.plates(f) where p.flags & 1 != 0 { drawBed(mvp: p.bed_mvp) }
                 drawSigns()
+                drawLabels()
                 return
             }
             // The plain pipeline with no focus: the early depth test stays on.
@@ -414,7 +456,44 @@ final class FrameRenderer {
             // The bed model at each other plate of the same printer.
             for p in r.plates(f) where p.flags & 1 != 0 { drawBed(mvp: p.bed_mvp) }
             drawSigns()
+            drawLabels()
             drawExtras()
+        }
+
+        /// The decals of the labels on the surface of the part
+        /// (web/app/gl.js, drawLabels): for each label, the stencil counts
+        /// the turns of its paths, and the color goes where the count is not
+        /// 0, so the holes of the letters stay open. A depth bias keeps them
+        /// in front of the surface. The selected label has an outline.
+        func drawLabels() {
+            guard let l = r.labels, let tris = l.tris else { return }
+            enc.setVertexBuffer(tris, offset: 0, index: 0)
+            var push = f.grid
+            enc.setVertexBytes(&push, length: MemoryLayout<zs_web_push>.size, index: 1)
+            enc.setDepthBias(-4, slopeScale: -2, clamp: 0)
+            for d in l.draws where d.triCount > 0 {
+                enc.setRenderPipelineState(r.labelCount)
+                enc.setDepthStencilState(r.labelCountState)
+                enc.drawPrimitives(type: .triangle, vertexStart: d.triFirst, vertexCount: d.triCount)
+                enc.setRenderPipelineState(r.grid)
+                enc.setDepthStencilState(r.labelFillState)
+                enc.setStencilReferenceValue(0)
+                var c = d.color
+                enc.setFragmentBytes(&c, length: 16, index: 0)
+                enc.drawPrimitives(type: .triangle, vertexStart: d.triFirst, vertexCount: d.triCount)
+            }
+            enc.setDepthBias(0, slopeScale: 0, clamp: 0)
+            if let lines = l.lines {
+                enc.setRenderPipelineState(r.grid)
+                enc.setDepthStencilState(r.depthRead)
+                enc.setVertexBuffer(lines, offset: 0, index: 0)
+                for d in l.draws where d.lineCount > 0 {
+                    guard var e = d.edge else { continue }
+                    enc.setFragmentBytes(&e, length: 16, index: 0)
+                    enc.drawPrimitives(type: .line, vertexStart: d.lineFirst, vertexCount: d.lineCount)
+                }
+            }
+            enc.setDepthStencilState(r.depthWrite)
         }
 
         /// The signs of the plates, after the bed: blended, with no depth
@@ -663,3 +742,53 @@ final class PaintMesh {
     }
 }
 
+/// The decals of the labels on the GPU: the triangles of the fans of the
+/// paths of each label (Metal has no fans), and the segments of the
+/// outline of the selected label.
+struct LabelDecals {
+    struct Draw {
+        var triFirst = 0, triCount = 0
+        var color = SIMD4<Float>(0, 0, 0, 1)
+        var lineFirst = 0, lineCount = 0
+        var edge: SIMD4<Float>?
+    }
+
+    /// One label: its points (x, y, z in the frame of the bed), the end of
+    /// each path in points, its color, and the color of its outline.
+    struct Input {
+        var pts: [Float]
+        var ends: [UInt32]
+        var color: SIMD3<Float>
+        var edge: SIMD3<Float>?
+    }
+
+    var tris: MTLBuffer?
+    var lines: MTLBuffer?
+    var draws: [Draw] = []
+
+    init?(device: MTLDevice, labels: [Input]) {
+        var t: [Float] = [], ln: [Float] = []
+        for l in labels {
+            var d = Draw(triFirst: t.count / 3, color: SIMD4(l.color, 1), lineFirst: ln.count / 3)
+            var start = 0
+            func p(_ i: Int) -> [Float] { [l.pts[3 * i], l.pts[3 * i + 1], l.pts[3 * i + 2]] }
+            for end in l.ends.map(Int.init) {
+                if end - start >= 3 {
+                    // The fan of the path as triangles.
+                    for k in start + 1 ..< end - 1 { t += p(start) + p(k) + p(k + 1) }
+                    if l.edge != nil {
+                        for k in start ..< end { ln += p(k) + p(k + 1 < end ? k + 1 : start) }
+                    }
+                }
+                start = end
+            }
+            d.triCount = t.count / 3 - d.triFirst
+            d.lineCount = ln.count / 3 - d.lineFirst
+            if let e = l.edge { d.edge = SIMD4(e, 1) }
+            draws.append(d)
+        }
+        guard !t.isEmpty else { return nil }
+        tris = device.makeBuffer(bytes: t, length: t.count * 4, options: .storageModeShared)
+        lines = ln.isEmpty ? nil : device.makeBuffer(bytes: ln, length: ln.count * 4, options: .storageModeShared)
+    }
+}

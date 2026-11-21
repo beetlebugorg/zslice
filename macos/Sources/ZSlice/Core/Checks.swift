@@ -54,6 +54,7 @@ struct Issue: Identifiable {
         case Int32(ZS_ISSUE_CHANGES.rawValue): "arrow.triangle.2.circlepath"
         // A prime tower off the bed or on a part.
         case Int32(ZS_ISSUE_TOWER.rawValue): "square.stack.3d.up"
+        case Int32(ZS_ISSUE_LABEL.rawValue): "character.textbox"
         default: "rectangle.split.3x1"
         }
     }

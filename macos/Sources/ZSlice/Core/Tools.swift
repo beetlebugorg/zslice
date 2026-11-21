@@ -33,7 +33,7 @@ import AppKit
 import CZslice
 
 enum Tool: String, CaseIterable {
-    case select, move, turn, grab, measure, support, paint
+    case select, move, turn, grab, measure, support, paint, label
 
     var key: String {
         switch self {
@@ -44,6 +44,7 @@ enum Tool: String, CaseIterable {
         case .measure: "t"
         case .support: "s"
         case .paint: "p"
+        case .label: "l"
         }
     }
 
@@ -61,6 +62,7 @@ enum Tool: String, CaseIterable {
         case .measure: "Measure"
         case .support: "Support"
         case .paint: "Paint"
+        case .label: "Label"
         }
     }
 
@@ -73,6 +75,7 @@ enum Tool: String, CaseIterable {
         case .measure: "ruler"
         case .support: "pencil.and.outline"
         case .paint: "paintbrush.pointed"
+        case .label: "character.textbox"
         }
     }
 
@@ -84,7 +87,8 @@ enum Tool: String, CaseIterable {
         case .grab: "Grab (H): click a part to pick it up, and move the pointer to carry it as a real object. Option and a move turn it (Shift: 15° steps), and the wheel lifts it. Click again, or press Esc, to let go: it keeps its speed, falls, and rests flat on the plate."
         case .measure: "Measure (T): click two points of the print or the bed. A click on a circle or an arc measures from its center. Shift: no snap. Esc clears."
         case .support: "Support (S): click points on the part to draw an area of support, or of no support. Click the first point or press Return to close it. Click an outline to select an area, and drag its points."
-        case .paint: "Paint (P): paint filaments on the surface of a part. Click a raised letter, a logo, or a face to paint it (Shift: add more), or drag the brush. A right drag turns the view."
+        case .paint: "Paint (P): paint filaments on the surface of a part. Click a raised letter, a logo, or a face to paint it (Shift: add more), or drag the brush. Option and a drag turn the view."
+        case .label: "Label (L): click a face of a part to put a label there, in another filament. Drag a label to move it (Shift: in its plane); the wheel over it turns it (Shift: 15°); its corner handle scales it. Delete removes it."
         }
     }
 }
@@ -127,7 +131,9 @@ extension Workspace {
         // The Paint tool shows the mesh of the part; another tool, the beads.
         if t == .paint, was != .paint, !openPaint() { return }
         if t != .paint, was == .paint { closePaint() }
+        if t != .label, was == .label { closeLabelTool() }
         tool = t
+        if t == .label, was != .label { openLabelTool() }
         if (was == .support) != (t == .support) { supportToolChanged(on: t == .support) }
         if t != .measure { clearTape() }
         if t == .select { selectPart(nil) }
@@ -239,6 +245,7 @@ extension Workspace {
     /// A press: the Move tool or Command on a part starts a move, and the
     /// Measure tool on an end of the tape starts a drag of that end.
     func press(_ p: CGPoint, _ flags: NSEvent.ModifierFlags) -> Bool {
+        if tool == .label, flags.isDisjoint(with: [.command, .control, .option]), labelPress(p, flags) { return true }
         if tool == .paint, flags.isDisjoint(with: [.command, .control, .option]) { return paintPress(p, flags) }
         if supportPress(p) { return true }
         // The Select tool: a press on a dot of a picked support tree drags it.
@@ -309,6 +316,10 @@ extension Workspace {
     }
 
     func drag(_ p: CGPoint, _ flags: NSEvent.ModifierFlags) {
+        if tool == .label, labelState.drag != nil {
+            labelDrag(p, flags)
+            return
+        }
         if tool == .paint {
             paintDrag(p)
             return
@@ -393,6 +404,7 @@ extension Workspace {
     /// Select tool, which is a click.
     @discardableResult
     func release(_ p: CGPoint) -> Bool {
+        if tool == .label, labelRelease() { return true }
         if tool == .paint {
             paintRelease()
             return true

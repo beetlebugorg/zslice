@@ -64,6 +64,8 @@ protocol SliceViewDelegate: AnyObject {
     /// A scroll while the Grab tool holds a part: the hand goes up or down.
     /// Returns true if it did.
     func sliceViewHandWheel(_ dy: CGFloat) -> Bool
+    /// The wheel over the selected label of the Label tool turns it.
+    func sliceViewLabelWheel(_ p: CGPoint, _ dy: CGFloat, shift: Bool) -> Bool
     /// A scroll with Command: turns the selected part. Returns true if it did.
     func sliceViewTurnWheel(_ dy: CGFloat) -> Bool
     /// After each frame (the floating labels follow the camera).
@@ -261,6 +263,24 @@ final class MetalSliceView: NSView {
         loaded = true
         layerRenderer?.setOutlines(from: view!)
         requestFrame()
+    }
+
+    /// The decals of the labels of the Label tool (nil: none).
+    var labelDecals: [LabelDecals.Input]? {
+        didSet {
+            renderer?.labels = labelDecals.flatMap { l in renderer.flatMap { LabelDecals(device: $0.device, labels: l) } }
+            requestFrame()
+        }
+    }
+
+    /// The steps of a trackpad scroll over a label: one each 10 points.
+    private var labelWheelRest: CGFloat = 0
+    private func labelWheelStep(_ event: NSEvent) -> CGFloat {
+        labelWheelRest += event.scrollingDeltaY
+        guard abs(labelWheelRest) >= 10 else { return 0 }
+        let d = labelWheelRest
+        labelWheelRest = 0
+        return d
     }
 
     /// The mesh of the Paint tool: drawn in place of the beads (nil: off).
@@ -664,6 +684,11 @@ final class MetalSliceView: NSView {
         guard let view else { return }
         let (px, py) = pixel(event)
         if event.scrollingDeltaY != 0, delegate?.sliceViewHandWheel(event.scrollingDeltaY) == true { return }
+        // A trackpad sends many small steps: one turn for each 10 points.
+        if event.scrollingDeltaY != 0 {
+            let dy = event.hasPreciseScrollingDeltas ? labelWheelStep(event) : event.scrollingDeltaY
+            if dy != 0, delegate?.sliceViewLabelWheel(convert(event.locationInWindow, from: nil), dy, shift: event.modifierFlags.contains(.shift)) == true { return }
+        }
         if event.modifierFlags.contains(.command), event.scrollingDeltaY != 0,
            delegate?.sliceViewTurnWheel(event.scrollingDeltaY) == true {
             return
