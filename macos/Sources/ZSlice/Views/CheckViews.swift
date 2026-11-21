@@ -6,16 +6,16 @@
 
 import SwiftUI
 
-/// The two toggles at the end of the tool strip: Gaps (G) and Check.
+/// The two toggles at the end of the tool strip: Gaps (⇧⌘G) and Check.
 struct CheckButtons: View {
     let workspace: Workspace
 
     var body: some View {
         Button { workspace.toggleGaps() } label: {
-            StripIcon(glyph: "gaps", key: "G", on: workspace.gapsOn)
+            StripIcon(glyph: "gaps", on: workspace.gapsOn)
         }
         .buttonStyle(.plain)
-        .help("Gaps (G): the areas of the top layer that should be solid and that no line covers, in red. Click a gap for the settings that can close it.")
+        .help("Gaps (⇧⌘G): the areas of the top layer that should be solid and that no line covers, in red. Click a gap for the settings that can close it.")
         .accessibilityLabel("Gaps")
         Button { workspace.checkOpen.toggle() } label: {
             StripIcon(glyph: "check", on: workspace.checkOpen)

@@ -47,12 +47,12 @@ The tools are at the left of the view. Each has a key:
 | Move | M | Drag a part on the bed. |
 | Turn | R | Turn a part with its rings, or with keys. |
 | Support | S (or U) | Draw or remove support. |
-| Grab | H | Pick a part up and carry it. |
+| Grab | G | Pick a part up and carry it. |
 | Measure | T | Measure between two points. |
 | Paint | P | Paint filaments on a part. |
-| Label | L | Put text or a mark on a part, in another filament. |
+| Label | E | Put text or a mark on a part, in another filament. |
 
-Under the tools, after a line, are the palette (the colors of the lines and the legend), Gaps (G), and Check. The icons are the icons of the web and Linux apps.
+Under the tools, after a line, are the colors of the lines and the legend (a legend icon), Gaps (Shift-Command-G), and Check. Paint has the palette icon. H and L are free for the vim keys: h and l step the nozzle, or the selected line, back and on, and Shift-H and Shift-L step a whole line.
 
 The × at the top right of a card closes it. Notes of the app show at the bottom of the view, over the bar.
 
@@ -127,7 +127,7 @@ The keys of the other apps work in the 3D view. A key with Ctrl in the other app
 | The 2D view of one layer, and back to 3D | 2 (or View > 2D View, Command-2) |
 | The 3D view | 3 |
 | Fit the part | Command-0 |
-| Gaps, Check | G or Shift-Command-G, Shift-Command-K |
+| Gaps, Check | Shift-Command-G, Shift-Command-K |
 | The Printers page | Option-Command-P |
 | The history | Command-Y |
 | New plate | Option-Command-N |
