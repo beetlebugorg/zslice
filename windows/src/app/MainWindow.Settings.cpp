@@ -620,6 +620,7 @@ namespace winrt::ZSlice::implementation
                 model->RequestSlice();
             else
                 ShowPlate();
+            RefreshFilamentTools();
         }
         RefreshHistoryButtons();
     }

@@ -533,6 +533,7 @@ namespace winrt::ZSlice::implementation
                 swprintf_s(scale, L"%.4g", p.scale_x * 100);
                 PartScale().Text(scale);
             }
+            FillPartExtras();
         }
         LineCard().Visibility(Visibility::Collapsed);
         PartCard().Visibility(Visibility::Visible);
