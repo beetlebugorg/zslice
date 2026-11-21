@@ -519,6 +519,11 @@ pub const Project = struct {
     /// each line lies against the line before it in the same way; the top
     /// has an even sheen. `concentric`: loops that follow the outline.
     skin_pattern: SkinPattern = .lines,
+    /// The skin and infill lines turn with the part: the turn of a part on
+    /// the bed adds to `skin_angle` and `infill_angle`, so the lines keep
+    /// their place on the part. Off: the angles are from the X axis of the
+    /// bed for each part.
+    angles_follow_part: bool = true,
     /// The direction of the skin lines on the first layer, in degrees from
     /// the X axis. Ironing goes at a right angle to the top skin.
     skin_angle: f64 = 45,

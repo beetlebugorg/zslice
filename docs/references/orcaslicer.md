@@ -100,3 +100,23 @@ summary: The keys and the labels of all Cura and OrcaSlicer settings, for the co
 ```
 
 `tools/setting_coverage.py` reads the keys, the labels, and the categories of `resources/definitions/fdmprinter.def.json` and `fdmextruder.def.json` of Cura (https://github.com/Ultimaker/Cura), and the keys, the labels, and the config blocks of `src/libslic3r/PrintConfig.cpp` of OrcaSlicer. It writes `docs/user/setting-coverage.md`, with the zslice setting of each key from `tools/setting_coverage_cura.txt` and `tools/setting_coverage_orca.txt`. The page has the names and the labels as data; no code is copied.
+
+### The infill direction aligned to the model
+
+```ref
+kind: setting
+source: OrcaSlicer
+license: AGPL-3.0
+link: https://github.com/SoftFever/OrcaSlicer
+files: src/app.zig, src/settings.zig
+area: infill
+summary: The skin and infill angles turn with a part that turns on the bed (project.angles_follow_part).
+```
+
+OrcaSlicer, the setting `align_infill_direction_to_model`: the infill and solid infill directions follow the rotation of the model on the plate.
+
+**License:** AGPL-3.0
+
+**Used in:** `src/app.zig` (angleChanges), `src/settings.zig`
+
+**How zslice uses it:** The idea and the meaning of the setting; the code is new. zslice turns the skin and infill angles of each part by the turn of the part on the bed, on by default.

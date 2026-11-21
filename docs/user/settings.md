@@ -492,6 +492,10 @@ A sparse infill area narrower than this prints solid, as skin. A narrow strip wo
 
 How the skin is filled. `lines`: parallel lines in the nearest order. `monotonic`: parallel lines from one side to the other, so each line lies against the line before it in the same way; the top has an even sheen. `concentric`: loops that follow the outline.
 
+**`project.angles_follow_part`** (true or false). Default: `true`
+
+The skin and infill lines turn with the part: the turn of a part on the bed adds to `skin_angle` and `infill_angle`, so the lines keep their place on the part. Off: the angles are from the X axis of the bed for each part.
+
 **`project.skin_angle`** (number; per layer). Default: `45`
 
 The direction of the skin lines on the first layer, in degrees from the X axis. Ironing goes at a right angle to the top skin.

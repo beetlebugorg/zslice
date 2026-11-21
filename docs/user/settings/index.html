@@ -338,6 +338,8 @@ M84</code></pre>
 <p>A sparse infill area narrower than this prints solid, as skin. A narrow strip would get no infill lines, and a gap would show next to the walls under a top surface.</p>
 <p><strong><code>project.skin_pattern</code></strong> (one of: <code>lines</code>, <code>monotonic</code>, <code>concentric</code>; per layer). Default: <code>lines</code></p>
 <p>How the skin is filled. <code>lines</code>: parallel lines in the nearest order. <code>monotonic</code>: parallel lines from one side to the other, so each line lies against the line before it in the same way; the top has an even sheen. <code>concentric</code>: loops that follow the outline.</p>
+<p><strong><code>project.angles_follow_part</code></strong> (true or false). Default: <code>true</code></p>
+<p>The skin and infill lines turn with the part: the turn of a part on the bed adds to <code>skin_angle</code> and <code>infill_angle</code>, so the lines keep their place on the part. Off: the angles are from the X axis of the bed for each part.</p>
 <p><strong><code>project.skin_angle</code></strong> (number; per layer). Default: <code>45</code></p>
 <p>The direction of the skin lines on the first layer, in degrees from the X axis. Ironing goes at a right angle to the top skin.</p>
 <p><strong><code>project.skin_angle_step</code></strong> (number; per layer). Default: <code>90</code></p>

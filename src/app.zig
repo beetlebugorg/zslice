@@ -2553,6 +2553,10 @@ pub const App = struct {
             if (app.coarse_part != null and part_of[pp.input] != null and part_of[pp.input].? == app.coarse_part.?) {
                 changes = try app.coarseChanges(a, pp.changes);
             }
+            // The skin and infill lines turn with the part
+            // (Project.angles_follow_part): their angles get the turn of
+            // the part on the bed.
+            if (part_of[pp.input]) |pi| changes = try angleChanges(a, app.settings, changes, app.plate.parts.items[pi].rot);
             // The support trees of the user, on the plate.
             var trees: ?*const zs.support_skeleton.Skeleton = null;
             var trees_layers: u64 = 0;
@@ -3313,6 +3317,21 @@ test {
     _ = @import("app/feature_settings.zig");
     _ = @import("app/farm.zig");
     _ = @import("app/session.zig");
+}
+
+/// The changes of a part with the skin and infill angles turned by `rot`
+/// degrees, the turn of the part on the bed (Project.angles_follow_part).
+/// The same changes when the setting is off or the part has no turn.
+fn angleChanges(a: Allocator, base: Settings, changes: []const zs.settings.Change, rot: f64) Allocator.Error![]const zs.settings.Change {
+    if (@abs(@mod(rot, 360)) < 1e-9) return changes;
+    var s = base;
+    for (changes) |c| s.set(c.name, c.value) catch {};
+    if (!s.project.angles_follow_part) return changes;
+    const out = try a.alloc(zs.settings.Change, changes.len + 2);
+    @memcpy(out[0..changes.len], changes);
+    out[changes.len] = .{ .name = "project.skin_angle", .value = try std.fmt.allocPrint(a, "{d}", .{@mod(s.project.skin_angle + rot, 360)}) };
+    out[changes.len + 1] = .{ .name = "project.infill_angle", .value = try std.fmt.allocPrint(a, "{d}", .{@mod(s.project.infill_angle + rot, 360)}) };
+    return out;
 }
 
 test "app: support areas slice, go into the 3MF, and undo" {
@@ -5231,4 +5250,33 @@ test "app: an undo or a removal while the hand holds a part ends the hold" {
     try testing.expect(try app.grabStart(0, .{ fp[2], fp[3], 10 }));
     try app.removePart(0);
     try testing.expect(app.fall == null);
+}
+
+test "app: the skin and infill angles turn with a part, unless the setting is off" {
+    const a = testing.allocator;
+    var arena = std.heap.ArenaAllocator.init(a);
+    defer arena.deinit();
+    const ar = arena.allocator();
+    var base: Settings = .{};
+    base.project.skin_angle = 45;
+    base.project.infill_angle = 10;
+    // No turn: the same changes.
+    const none = try angleChanges(ar, base, &.{}, 0);
+    try testing.expectEqual(@as(usize, 0), none.len);
+    // A turn of 30 degrees adds to both angles.
+    const turned = try angleChanges(ar, base, &.{}, 30);
+    var s = base;
+    for (turned) |c| try s.set(c.name, c.value);
+    try testing.expectApproxEqAbs(@as(f64, 75), s.project.skin_angle, 1e-9);
+    try testing.expectApproxEqAbs(@as(f64, 40), s.project.infill_angle, 1e-9);
+    // A part angle of its own: the turn adds to it.
+    const own = [_]zs.settings.Change{.{ .name = "project.skin_angle", .value = "90" }};
+    const t2 = try angleChanges(ar, base, &own, -30);
+    s = base;
+    for (t2) |c| try s.set(c.name, c.value);
+    try testing.expectApproxEqAbs(@as(f64, 60), s.project.skin_angle, 1e-9);
+    // Off: the angles stay from the bed.
+    base.project.angles_follow_part = false;
+    const off = try angleChanges(ar, base, &.{}, 30);
+    try testing.expectEqual(@as(usize, 0), off.len);
 }
