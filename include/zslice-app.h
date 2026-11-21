@@ -1311,6 +1311,16 @@ int zs_app_part_turn(zs_app *app, size_t i, int axis, double degrees);
  * slice of a part while a turn ring drags; the full slice comes after the
  * drag. ZS_OUT_OF_RANGE for no such part. */
 int zs_app_set_coarse_part(zs_app *app, int part);
+/* The next slices are drafts (on != 0) or exact (on == 0). A draft is a
+ * slice for the view during a drag or an edit: the outlines lose the
+ * points within 0.05 mm of a straight line, the gaps get no fill, and the
+ * walls are classic walls. It needs about a third of the time of the exact
+ * slice. The view gets its paths as for each slice. zs_app_gcode gives
+ * ZS_NO_RESULT for a draft, so no file and no printer gets one: turn the
+ * draft off at the end of the drag, and slice again. */
+int zs_app_set_draft(zs_app *app, int on);
+/* 1 if the slice that runs, or the last slice, is a draft. */
+int zs_app_is_draft(const zs_app *app);
 /* Physics: part i falls over if it cannot stand as it is (the bond of its
  * first layer and its brim to the bed does not hold it against its weight
  * and the push of the nozzle), and rolls onto a face until it rests.

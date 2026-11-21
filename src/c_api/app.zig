@@ -575,7 +575,7 @@ export fn zs_bambu_file_plate(gcode: ?[*]const u8, len: usize, plate: ?*const Ba
 /// never sends it.
 export fn zs_app_bambu_file(a: ?*const App, title: ?[*:0]const u8, out: ?*?[*]u8, out_len: ?*usize) c_int {
     const app = a orelse return @intFromEnum(Status.invalid_argument);
-    const g = app.gcode() orelse return @intFromEnum(Status.no_result);
+    const g = app.exactGcode() orelse return @intFromEnum(Status.no_result);
     return bambuFileOf(app, g, title, out, out_len);
 }
 
@@ -1451,12 +1451,13 @@ export fn zs_app_write_3mf(a: ?*App, out: ?*?[*]const u8, out_len: ?*usize) c_in
 }
 
 /// The G-code of the last slice. The bytes stay valid until the next
-/// slice, the next model, or zs_app_free.
+/// slice, the next model, or zs_app_free. A draft slice has no G-code
+/// (see zs_app_set_draft).
 export fn zs_app_gcode(a: ?*const App, out: ?*?[*]const u8, out_len: ?*usize) c_int {
     const app = a orelse return @intFromEnum(Status.invalid_argument);
     const o = out orelse return @intFromEnum(Status.invalid_argument);
     const l = out_len orelse return @intFromEnum(Status.invalid_argument);
-    const g = app.gcode() orelse return @intFromEnum(Status.no_result);
+    const g = app.exactGcode() orelse return @intFromEnum(Status.no_result);
     o.* = g.ptr;
     l.* = g.len;
     return ok;
@@ -2807,6 +2808,20 @@ export fn zs_app_set_coarse_part(a: ?*App, i: c_int) c_int {
     if (i >= 0 and @as(usize, @intCast(i)) >= app.plate.count()) return @intFromEnum(Status.out_of_range);
     app.setCoarsePart(if (i < 0) null else @intCast(i));
     return ok;
+}
+
+/// The next slices are drafts (on != 0) or exact (App.setDraft). For the
+/// live slice of a drag or an edit.
+export fn zs_app_set_draft(a: ?*App, on: c_int) c_int {
+    const app = a orelse return @intFromEnum(Status.invalid_argument);
+    app.setDraft(on != 0);
+    return ok;
+}
+
+/// 1 if the slice that runs, or the last slice, is a draft.
+export fn zs_app_is_draft(a: ?*const App) c_int {
+    const app = a orelse return 0;
+    return @intFromBool(app.isDraft());
 }
 
 export fn zs_app_part_put_down_at(a: ?*App, i: usize, x: f64, y: f64, z: f64) c_int {
