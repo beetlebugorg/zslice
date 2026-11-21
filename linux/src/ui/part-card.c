@@ -30,6 +30,10 @@ typedef struct {
     /* The popover of the cut: the height, the flip, and the pegs. */
     GtkWidget *cut_pop, *cut_z, *cut_flip, *cut_pegs, *cut_n, *cut_d;
     GtkWidget *make_n;
+    /* The scale in % of the file, and the filament of the part (its chips
+     * are for one part: fil_part). */
+    GtkWidget *scale, *fil_row;
+    gint64 fil_part;
     /* The widgets of one part, and of several parts. */
     GtkWidget *single, *many;
     gint64 part;
@@ -93,6 +97,44 @@ static void on_clear(GtkButton *b, gpointer data) {
     PartCard *c = data;
     const char *name = g_object_get_data(G_OBJECT(b), "zg-name");
     if (c->part >= 0 && zg_model_part_setting_set(c->model, (size_t)c->part, name, NULL)) zg_model_announce(c->model, name);
+}
+
+/* The filament of the part: a chip for each filament of the plate, as on
+ * the web. The chips are made again for another part. */
+static void fill_filament(PartCard *c) {
+    if (c->fil_part == c->part) return;
+    c->fil_part = c->part;
+    GtkWidget *child = gtk_widget_get_last_child(c->fil_row);
+    if (child && child != gtk_widget_get_first_child(c->fil_row)) gtk_box_remove(GTK_BOX(c->fil_row), child);
+    for (size_t i = 0; i < zs_setting_count(); i++) {
+        zs_setting_info info;
+        if (zs_setting_get_info(i, &info) != ZS_OK || strcmp(info.name, "project.filament") != 0) continue;
+        gtk_widget_set_tooltip_text(gtk_widget_get_first_child(c->fil_row), zg_doc_plain(info.doc));
+        gtk_box_append(GTK_BOX(c->fil_row), zg_setting_editor_new_for_part(c->model, &info, (size_t)c->part));
+        break;
+    }
+}
+
+static void on_scale(GtkSpinButton *spin, gpointer data);
+
+/* The scale field follows the part, but not while the user types in it. */
+static void update_scale(PartCard *c, const zs_part *p) {
+    GtkRoot *root = gtk_widget_get_root(c->scale);
+    GtkWidget *focus = root ? gtk_root_get_focus(root) : NULL;
+    if (focus && (focus == c->scale || gtk_widget_is_ancestor(focus, c->scale))) return;
+    g_signal_handlers_block_by_func(c->scale, on_scale, c);
+    gtk_spin_button_set_value(GTK_SPIN_BUTTON(c->scale), round(p->scale_x * 10000) / 100);
+    g_signal_handlers_unblock_by_func(c->scale, on_scale, c);
+}
+
+/* The scale: the same along each axis, in % of the file. */
+static void on_scale(GtkSpinButton *spin, gpointer data) {
+    PartCard *c = data;
+    zs_part p;
+    if (c->part < 0 || zs_app_part_get(zg_model_core(c->model), (size_t)c->part, &p) != ZS_OK) return;
+    double v = gtk_spin_button_get_value(spin) / 100;
+    if (fabs(v - p.scale_x) < 1e-6) return;
+    zg_model_part_scale(c->model, (size_t)c->part, v);
 }
 
 /* The settings of the part: a row for each, with its editor and x. */
@@ -232,6 +274,8 @@ static void refresh(PartCard *c) {
     if (n > 1) update_many(c, list, n);
     else {
         update_facts(c, &p);
+        fill_filament(c);
+        update_scale(c, &p);
         fill_settings(c);
         fill_labels(c);
     }
@@ -511,6 +555,13 @@ GtkWidget *zg_part_card_new(ZgModel *model, GtkWidget *preview) {
     /* The card of one part. */
     c->single = gtk_box_new(GTK_ORIENTATION_VERTICAL, 6);
     gtk_box_append(GTK_BOX(c->card), c->single);
+    c->fil_part = -1;
+    c->fil_row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
+    GtkWidget *fil_label = gtk_label_new("Filament");
+    gtk_label_set_xalign(GTK_LABEL(fil_label), 0);
+    gtk_widget_set_hexpand(fil_label, TRUE);
+    gtk_box_append(GTK_BOX(c->fil_row), fil_label);
+    gtk_box_append(GTK_BOX(c->single), c->fil_row);
     static const GActionEntry actions[] = {
         {.name = "duplicate", .activate = on_action},
         {.name = "split", .activate = on_action},
@@ -549,6 +600,19 @@ GtkWidget *zg_part_card_new(ZgModel *model, GtkWidget *preview) {
         if (strcmp(buttons[i].label, "Split to parts") == 0) gtk_flow_box_append(GTK_FLOW_BOX(flow), cut_button(c));
     }
     gtk_box_append(GTK_BOX(c->single), flow);
+    /* The scale, in % of the file (Enter applies). */
+    GtkWidget *scale_row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
+    gtk_box_append(GTK_BOX(scale_row), gtk_label_new("Scale"));
+    c->scale = gtk_spin_button_new_with_range(1, 100000, 1);
+    gtk_spin_button_set_digits(GTK_SPIN_BUTTON(c->scale), 1);
+    gtk_spin_button_set_value(GTK_SPIN_BUTTON(c->scale), 100);
+    gtk_widget_set_tooltip_text(c->scale, "The size of the part, in % of the file (Enter applies)");
+    g_signal_connect(c->scale, "value-changed", G_CALLBACK(on_scale), c);
+    gtk_box_append(GTK_BOX(scale_row), c->scale);
+    GtkWidget *percent = gtk_label_new("%");
+    gtk_widget_add_css_class(percent, "dim-label");
+    gtk_box_append(GTK_BOX(scale_row), percent);
+    gtk_box_append(GTK_BOX(c->single), scale_row);
     GtkWidget *make = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
     gtk_box_append(GTK_BOX(make), gtk_label_new("Make"));
     c->make_n = gtk_spin_button_new_with_range(2, 10000, 1);
