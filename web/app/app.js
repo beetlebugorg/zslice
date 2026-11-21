@@ -648,14 +648,18 @@ const OVERHANG_HINT_MM2 = 20;
 
 // With support off: the check of the print after each slice, for the hint
 // on the print card. It runs after the slice, so the slice stays fast.
+// The issues of the check after each slice: one list for the Check
+// button of the tool strip and the badge of the print card, so the two
+// always agree.
 async function checkOverhang() {
-  if ((value("project.support") || "off") !== "off") return;
   const plate = app.activePlate;
   try {
     const r = await client.call("checks", {});
     if (app.activePlate !== plate || app.state !== "done") return;
+    app.issues = r.issues ?? [];
     // Kinds of checks.zig: 2 overhang, 3 island.
-    app.overhang = (r.issues ?? []).filter((i) => (i.kind === 2 || i.kind === 3) && i.severity >= 1).reduce((s, i) => s + (i.value || 0), 0);
+    app.overhang = (value("project.support") || "off") === "off" ? app.issues.filter((i) => (i.kind === 2 || i.kind === 3) && i.severity >= 1).reduce((s, i) => s + (i.value || 0), 0) : 0;
+    updateCheckCount();
     updateSummary();
   } catch {
     // No hint.
@@ -3033,13 +3037,37 @@ document.addEventListener("keydown", (e) => {
   if (e.key === "Escape" && !$("sum-pop").hidden) showSumPop(false);
 });
 
+// The problems of the check (a warning or worse), as the Check button
+// and the print card count them.
+function checkProblems() {
+  return (app.issues ?? []).filter((i) => i.severity >= 1).length;
+}
+
+// The count on the Check button of the tool strip: the same number as the
+// badge of the print card.
+function updateCheckCount() {
+  const n = checkProblems();
+  const b = $("check");
+  let c = b.querySelector(".check-count");
+  if (!c) {
+    c = Object.assign(document.createElement("span"), { className: "check-count" });
+    b.append(c);
+  }
+  c.textContent = n > 0 ? String(n) : "";
+  c.hidden = n === 0;
+  b.title = n > 0 ? `Check the print: ${n} ${n === 1 ? "problem" : "problems"} to look at` : "Check the print: overhangs with no support, bridges, shapes in the air, lines over the flow of the hot end, layers that cool too little, parts that can tip over";
+}
+
 function updateBadge() {
   const badge = $("sum-badge");
   const warn = !$("sum-warn").hidden;
+  const n = checkProblems();
   const tips = $("refine-tips").hidden ? 0 : $("refine-tips").querySelectorAll(".refine-row").length;
-  badge.classList.toggle("warn", warn);
-  badge.hidden = !warn && tips === 0;
-  badge.textContent = warn ? "Check" : tips === 1 ? "1 refinement" : `${tips} refinements`;
+  // The badge counts the problems of the Check (the same list as the
+  // Check button), or a warning of the card (a part off the bed).
+  badge.classList.toggle("warn", warn || n > 0);
+  badge.hidden = !warn && n === 0 && tips === 0;
+  badge.textContent = n > 0 ? `${n} to check` : warn ? "Check" : tips === 1 ? "1 refinement" : `${tips} refinements`;
   // A warning does not open the details: they cover the part. The badge
   // in the warning color is the sign, and a click opens them.
 }
@@ -3479,6 +3507,8 @@ function onWorkerEvent(m) {
       app.parts = m.parts;
       app.fits = m.fits !== false;
       app.overhang = 0;
+      app.issues = [];
+      updateCheckCount();
       // A new slice: the simulated print was of the slice before. The
       // simulation sends its numbers for the Check, and a plate that
       // becomes active sends the numbers of its own simulation.

@@ -1272,3 +1272,8 @@ button.icon.lc-close { min-height: 24px; min-width: 24px; padding: 0; margin: -3
 .search-box.rail .search-controls { flex: 1 1 100%; }
 .search-box.rail .search-slider { flex: 1; width: auto; min-width: 0; }
 .search-box.rail .search-list { overflow-x: hidden; }
+/* The count of the problems of the Check on its button (the same count
+   as the badge of the print card). */
+#check { position: relative; }
+#check .check-count { position: absolute; top: 2px; right: 2px; min-width: 14px; height: 14px; padding: 0 3px; border-radius: 7px; font-size: 10px; line-height: 14px; text-align: center; background: var(--warn, #d97706); color: #fff; }
+#check .check-count[hidden] { display: none; }
