@@ -20,8 +20,9 @@ struct CheckButtons: View {
         Button { workspace.checkOpen.toggle() } label: {
             StripIcon(glyph: "check", on: workspace.checkOpen)
                 .overlay(alignment: .topTrailing) {
-                    if !workspace.issues.isEmpty {
-                        Text("\(workspace.issues.count)")
+                    let n = workspace.checkProblems
+                    if n > 0 {
+                        Text("\(n)")
                             .font(.system(size: 9, weight: .bold))
                             .foregroundStyle(.white)
                             .padding(.horizontal, 4)
@@ -31,7 +32,9 @@ struct CheckButtons: View {
                 }
         }
         .buttonStyle(.plain)
-        .help("Check the print (⇧⌘K): what can make it fail, the worst first: overhangs with no support, bridges, shapes in the air, lines over the flow of the hot end, layers that cool too little, and parts that can tip over.")
+        .help(workspace.checkProblems > 0
+            ? "Check the print (⇧⌘K): \(workspace.checkProblems) \(workspace.checkProblems == 1 ? "problem" : "problems") to look at"
+            : "Check the print (⇧⌘K): what can make it fail, the worst first: overhangs with no support, bridges, shapes in the air, lines over the flow of the hot end, layers that cool too little, and parts that can tip over.")
         .accessibilityLabel("Check the print")
     }
 }

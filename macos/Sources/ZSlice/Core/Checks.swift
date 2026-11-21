@@ -192,6 +192,10 @@ extension Workspace {
         return n
     }
 
+    /// The problems of the check (a warning or worse): the count on the
+    /// Check button and on the badge of the print, the same list for both.
+    var checkProblems: Int { issues.filter { $0.severity >= 1 }.count }
+
     /// A note that stops the print (red, not orange).
     var noteIsError: Bool {
         if case .failed = model.state { return true }
