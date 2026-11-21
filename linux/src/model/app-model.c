@@ -1216,6 +1216,12 @@ gboolean zg_model_label_update(ZgModel *self, size_t part, guint32 id, const cha
     return TRUE;
 }
 
+gboolean zg_model_part_paint_set(ZgModel *self, size_t part, const char *text, size_t len) {
+    if (zs_app_part_paint_set(self->core, part, text, len) != ZS_OK) return FALSE;
+    labels_changed(self);
+    return TRUE;
+}
+
 gboolean zg_model_label_remove(ZgModel *self, size_t part, guint32 id) {
     if (zs_app_label_remove(self->core, part, id) != ZS_OK) return FALSE;
     labels_changed(self);

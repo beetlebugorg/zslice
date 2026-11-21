@@ -1287,7 +1287,7 @@ static void on_tool_action(GSimpleAction *a, GVariant *v, gpointer data) {
     Preview *p = data;
     static const struct { const char *name; ZgTool tool; } names[] = {
         {"select", ZG_TOOL_SELECT}, {"move", ZG_TOOL_MOVE}, {"turn", ZG_TOOL_TURN}, {"measure", ZG_TOOL_MEASURE}, {"support", ZG_TOOL_SUPPORT},
-        {"grab", ZG_TOOL_GRAB}, {"label", ZG_TOOL_LABEL},
+        {"grab", ZG_TOOL_GRAB}, {"label", ZG_TOOL_LABEL}, {"paint", ZG_TOOL_PAINT},
     };
     const char *name = g_variant_get_string(v, NULL);
     for (size_t i = 0; i < G_N_ELEMENTS(names); i++)
@@ -1588,6 +1588,8 @@ static gboolean on_preview_key(GtkEventControllerKey *c, guint key, guint code, 
     /* The Label tool: Delete removes the selected label; Esc closes its
      * card, then the tool. */
     if (zg_model_tool(p->model) == ZG_TOOL_LABEL && zg_view3d_label_key(p->view3d, key)) return TRUE;
+    /* The Paint tool: Esc closes it. */
+    if (zg_model_tool(p->model) == ZG_TOOL_PAINT && zg_view3d_paint_key(p->view3d, key)) return TRUE;
     /* The Select tool: Delete and Esc for a support that it picked, and
      * Esc for a range of layers. */
     if (zg_model_tool(p->model) == ZG_TOOL_SELECT && zg_view3d_support_key(p->view3d, key)) return TRUE;
@@ -1596,8 +1598,8 @@ static gboolean on_preview_key(GtkEventControllerKey *c, guint key, guint code, 
         return TRUE;
     }
     /* The tools: V select, M move, H grab, T measure (a tape), S support
-     * (U is its old key), L label (L again closes it). Esc clears a
-     * measure. */
+     * (U is its old key), P paint and L label (the key again closes the
+     * tool). Esc clears a measure. */
     if (part_key(p, key, mods)) return TRUE;
     switch (key) {
     case GDK_KEY_v: case GDK_KEY_V: zg_model_set_tool(p->model, ZG_TOOL_SELECT); return TRUE;
@@ -1607,6 +1609,9 @@ static gboolean on_preview_key(GtkEventControllerKey *c, guint key, guint code, 
     case GDK_KEY_s: case GDK_KEY_S: case GDK_KEY_u: case GDK_KEY_U: zg_model_set_tool(p->model, ZG_TOOL_SUPPORT); return TRUE;
     case GDK_KEY_l:
         zg_model_set_tool(p->model, zg_model_tool(p->model) == ZG_TOOL_LABEL ? ZG_TOOL_SELECT : ZG_TOOL_LABEL);
+        return TRUE;
+    case GDK_KEY_p: case GDK_KEY_P:
+        zg_model_set_tool(p->model, zg_model_tool(p->model) == ZG_TOOL_PAINT ? ZG_TOOL_SELECT : ZG_TOOL_PAINT);
         return TRUE;
     case GDK_KEY_g: case GDK_KEY_G: zg_model_set_gaps(p->model, !zg_model_gaps(p->model)); return TRUE;
     case GDK_KEY_Escape:
@@ -1911,6 +1916,19 @@ static void draw_tool(GtkDrawingArea *a, cairo_t *cr, int w, int h, gpointer dat
         cairo_move_to(cr, 12, 11.5);
         cairo_line_to(cr, 13.2, 11.5);
         cairo_stroke(cr);
+    } else if (kind == 10) {
+        /* Paint: a brush, as on the web. */
+        cairo_set_line_width(cr, 1.4);
+        cairo_move_to(cr, 15.5, 2.5);
+        cairo_line_to(cr, 8.6, 9.4);
+        cairo_stroke(cr);
+        cairo_move_to(cr, 8.6, 9.4);
+        cairo_curve_to(cr, 7.3, 8.8, 5.7, 9.3, 5.1, 10.7);
+        cairo_curve_to(cr, 4.5, 12.0, 4.9, 13.1, 3.5, 14.5);
+        cairo_curve_to(cr, 6.1, 15.2, 8.4, 14.7, 9.2, 13.1);
+        cairo_curve_to(cr, 9.8, 11.8, 9.6, 10.4, 8.6, 9.4);
+        cairo_close_path(cr);
+        cairo_stroke(cr);
     } else if (kind == 5) {
         /* Check: a check mark, as on the web. */
         cairo_set_line_width(cr, 1.6);
@@ -1943,8 +1961,9 @@ static void on_tool_changed_preview(ZgModel *model, gpointer data) {
     Preview *p = data;
     ZgTool t = zg_model_tool(model);
     if (!gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(p->tools[t]))) gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(p->tools[t]), TRUE);
-    /* The part stays selected for the Move and the Turn tool. */
-    if (t != ZG_TOOL_MOVE && t != ZG_TOOL_TURN) zg_model_select_part(model, -1);
+    /* The part stays selected for the Move, the Turn, and the Paint tool
+     * (it paints the selected part). */
+    if (t != ZG_TOOL_MOVE && t != ZG_TOOL_TURN && t != ZG_TOOL_PAINT) zg_model_select_part(model, -1);
     /* The measure tape: a hint until the first point. */
     if (t == ZG_TOOL_MEASURE && zg_model_measure(model, NULL) == 0) {
         gtk_label_set_text(GTK_LABEL(p->measure_label), "Click a point of the print, or a circle or an arc for its size and center. Shift: no snap.");
@@ -2072,8 +2091,8 @@ static GtkWidget *colors_button(Preview *p) {
 }
 
 /* The tool strip at the left of the view: the tools of the mouse (Select,
- * Move, Turn, Support, Grab, Measure, Label), then the line tools (Gaps,
- * Check). Each button shows its key. */
+ * Move, Turn, Support, Grab, Measure, Paint, Label), then the line tools
+ * (Gaps, Check). Each button shows its key. */
 static GtkWidget *tool_strip(Preview *p) {
     static const struct { ZgTool tool; int glyph; const char *key, *tip; } tools[] = {
         {ZG_TOOL_SELECT, 0, "V", "Select (V): click a line to see what it is, its measurements, and the settings that change it."},
@@ -2082,6 +2101,7 @@ static GtkWidget *tool_strip(Preview *p) {
         {ZG_TOOL_SUPPORT, 6, "S", "Support (S): point at an overhang, and click to put support under it. Alt and a click draw an area point by point; click the first point (or press Enter) to close it. Support grows under the area, or Block keeps support out. Click an outline to select it, and drag its points. Shift: no snap."},
         {ZG_TOOL_GRAB, 7, "H", "Grab (H): click a part to pick it up; move the pointer to carry it. The wheel lifts it; Alt and a move turn it (Shift: steps of 15°). Click again, or press Esc, to let go: with support off it falls and rests flat; with support on it keeps its turn, and support holds it."},
         {ZG_TOOL_MEASURE, 2, "T", "Measure (T): click two points of the print. The ends of the lines snap; Shift turns the snap off. Esc clears."},
+        {ZG_TOOL_PAINT, 10, "P", "Paint (P): paint filaments on the surface of a part. Smart select: click a raised letter, a logo, or a face; Shift adds more. Brush: drag over the surface."},
         {ZG_TOOL_LABEL, 9, "L", "Label (L): click a face of a part to put text or marks on it, in another filament. Drag a label to move it (Shift: keep its plane), turn the wheel over it to turn it (Shift: 15°), and drag its corner to scale it."},
     };
     GtkWidget *box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 2);
@@ -2386,6 +2406,9 @@ GtkWidget *zg_preview_new(ZgModel *model) {
      * corner of the label. */
     gtk_overlay_add_overlay(GTK_OVERLAY(box), zg_view3d_label_card(p->view3d));
     gtk_overlay_add_overlay(GTK_OVERLAY(box), zg_view3d_label_handle(p->view3d));
+    /* The card of the Paint tool, at the top left of the 3D view, next to
+     * the tools. */
+    gtk_overlay_add_overlay(GTK_OVERLAY(box), zg_view3d_paint_card(p->view3d));
     gtk_widget_set_size_request(stack, 200, -1);
     g_object_set_data_full(G_OBJECT(box), "zg-preview", p, preview_free);
     /* For the 3D context menu (a child of the preview). */

@@ -105,6 +105,10 @@ GtkWidget *zg_view3d_support_card(GtkWidget *view);
  * card and its corner handle for the overlay of the preview, and the tool
  * on part `part` with label `id` selected (the part card). */
 gboolean zg_view3d_label_key(GtkWidget *view, guint key);
+/* The Paint tool (paint-tool.h): a key (TRUE if it used the key), and its
+ * card. */
+gboolean zg_view3d_paint_key(GtkWidget *view, guint key);
+GtkWidget *zg_view3d_paint_card(GtkWidget *view);
 GtkWidget *zg_view3d_label_card(GtkWidget *view);
 GtkWidget *zg_view3d_label_handle(GtkWidget *view);
 void zg_view3d_label_open(GtkWidget *view, gint64 part, guint32 id);

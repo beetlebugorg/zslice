@@ -17,6 +17,7 @@
 #include <math.h>
 #include <string.h>
 
+#include "filaments.h"
 #include "float.h"
 #include "label-model.h"
 #include "preview.h"
@@ -26,7 +27,7 @@
 
 typedef struct {
     ZgModel *model;
-    GtkWidget *preview, *card, *title, *facts, *settings, *labels;
+    GtkWidget *preview, *card, *title, *facts, *settings, *labels, *paint;
     /* The popover of the cut: the height, the flip, and the pegs. */
     GtkWidget *cut_pop, *cut_z, *cut_flip, *cut_pegs, *cut_n, *cut_d;
     GtkWidget *make_n;
@@ -242,6 +243,60 @@ static void fill_labels(PartCard *c) {
     if (list) g_ptr_array_unref(list);
 }
 
+static void on_paint(GtkButton *b, gpointer data) {
+    PartCard *c = data;
+    if (c->part >= 0) zg_model_set_tool(c->model, ZG_TOOL_PAINT);
+}
+
+/* The paint of the part: a chip for each filament that it paints with
+ * (zs_app_part_paint_used), and a button that opens the Paint tool. */
+static void fill_paint(PartCard *c) {
+    GtkWidget *child;
+    while ((child = gtk_widget_get_first_child(c->paint))) gtk_box_remove(GTK_BOX(c->paint), child);
+    uint32_t used = 0;
+    zs_app *core = zg_model_core(c->model);
+    if (c->part < 0 || zs_app_part_paint_used(core, (size_t)c->part, &used) != ZS_OK) used = 0;
+    /* Bit 0 is the filament of the part: no paint. */
+    used &= ~1u;
+    gtk_widget_set_visible(c->paint, used != 0);
+    if (!used) return;
+    GtkWidget *head = gtk_label_new("Paint");
+    gtk_widget_add_css_class(head, "zg-card-heading");
+    gtk_label_set_xalign(GTK_LABEL(head), 0);
+    gtk_box_append(GTK_BOX(c->paint), head);
+    GtkWidget *row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 4);
+    GString *names = g_string_new(NULL);
+    int count = 0;
+    for (int k = 1; k < 32; k++) {
+        if (!(used & (1u << k))) continue;
+        char *color = zg_model_filament_get(c->model, (size_t)(k - 1), "filament.color");
+        char num[16];
+        g_snprintf(num, sizeof num, "%d", k);
+        GtkWidget *chip = zg_filament_chip_new(color && color[0] ? color : NULL, num, FALSE);
+        gtk_widget_set_can_target(chip, FALSE);
+        gtk_widget_set_focusable(chip, FALSE);
+        gtk_box_append(GTK_BOX(row), chip);
+        g_string_append_printf(names, "%s%d", count ? ", " : "", k);
+        count++;
+        g_free(color);
+    }
+    char *text = g_strdup_printf(count == 1 ? "Painted with filament %s" : "Painted with filaments %s", names->str);
+    GtkWidget *l = gtk_label_new(text);
+    gtk_widget_add_css_class(l, "dim-label");
+    gtk_label_set_wrap(GTK_LABEL(l), TRUE);
+    gtk_label_set_xalign(GTK_LABEL(l), 0);
+    gtk_widget_set_hexpand(l, TRUE);
+    gtk_box_append(GTK_BOX(row), l);
+    GtkWidget *open = gtk_button_new_with_label("Paint");
+    gtk_widget_add_css_class(open, "zg-card-action");
+    gtk_widget_set_tooltip_text(open, "Open the Paint tool on this part (P)");
+    g_signal_connect(open, "clicked", G_CALLBACK(on_paint), c);
+    gtk_box_append(GTK_BOX(row), open);
+    gtk_box_append(GTK_BOX(c->paint), row);
+    g_free(text);
+    g_string_free(names, TRUE);
+}
+
 /* The facts of several parts: how many, and their extent on the bed. */
 static void update_many(PartCard *c, const gint64 *list, guint n) {
     double box[4] = {INFINITY, INFINITY, -INFINITY, -INFINITY};
@@ -278,15 +333,16 @@ static void refresh(PartCard *c) {
         update_scale(c, &p);
         fill_settings(c);
         fill_labels(c);
+        fill_paint(c);
     }
     place(c);
 }
 
-/* The Turn and the Grab tool have no card: the rings and the hand are
- * the controls there. */
+/* The Turn, the Grab, and the Paint tool have no card: the rings, the
+ * hand, and the card of the Paint tool are the controls there. */
 static gboolean card_wanted(PartCard *c) {
     ZgTool t = zg_model_tool(c->model);
-    return c->part >= 0 && t != ZG_TOOL_TURN && t != ZG_TOOL_GRAB;
+    return c->part >= 0 && t != ZG_TOOL_TURN && t != ZG_TOOL_GRAB && t != ZG_TOOL_PAINT;
 }
 
 static void on_part_selected(ZgModel *model, gint64 part, gpointer data) {
@@ -310,10 +366,13 @@ static void on_plate_changed(ZgModel *model, gpointer data) {
     if (c->part >= 0 && gtk_widget_get_visible(c->card)) refresh(c);
 }
 
-/* A step of the history, an undo, or a redo: the labels can change. */
+/* A step of the history, an undo, or a redo: the labels and the paint
+ * can change. */
 static void on_undo_changed(ZgModel *model, gpointer data) {
     PartCard *c = data;
-    if (c->part >= 0 && gtk_widget_get_visible(c->card)) fill_labels(c);
+    if (c->part < 0 || !gtk_widget_get_visible(c->card)) return;
+    fill_labels(c);
+    fill_paint(c);
 }
 
 /* ---- the cut ---- */
@@ -636,6 +695,9 @@ GtkWidget *zg_part_card_new(ZgModel *model, GtkWidget *preview) {
     c->labels = gtk_box_new(GTK_ORIENTATION_VERTICAL, 2);
     gtk_widget_set_visible(c->labels, FALSE);
     gtk_box_append(GTK_BOX(c->single), c->labels);
+    c->paint = gtk_box_new(GTK_ORIENTATION_VERTICAL, 2);
+    gtk_widget_set_visible(c->paint, FALSE);
+    gtk_box_append(GTK_BOX(c->single), c->paint);
     GtkWidget *add = gtk_button_new_with_label("+ Add a setting for this part");
     gtk_widget_add_css_class(add, "flat");
     gtk_widget_set_halign(add, GTK_ALIGN_START);
