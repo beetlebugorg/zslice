@@ -52,6 +52,9 @@ struct DocumentWindow: View {
         document.model = workspace.model
         // A session of the last run: the window comes back as it was.
         let session = document.data.isEmpty ? SessionStore.shared.takePending() : nil
+        // After the restore, or if the window never comes: the session
+        // files may be written again.
+        defer { if session != nil { SessionStore.shared.restoreDone() } }
         let timing = ProcessInfo.processInfo.environment["ZSLICE_TIMING"] != nil
         if timing { NSLog("zslice session: open at %.0f ms", (CACurrentMediaTime() - SessionStore.launch) * 1000) }
         if !document.data.isEmpty {
@@ -82,6 +85,15 @@ struct DocumentWindow: View {
             MainActor.assumeIsolated { SessionStore.shared.closed(ws) }
         }
         if let session {
+            // ZSLICE_RESTORE_DELAY=s: a slow window, for the test of the
+            // writes before a restore; it asks for writes at the start of
+            // the wait, and logs the index of the session after 2 s.
+            if let s = ProcessInfo.processInfo.environment["ZSLICE_RESTORE_DELAY"].flatMap(Double.init) {
+                SessionStore.shared.changed()
+                try? await Task.sleep(for: .seconds(2))
+                NSLog("zslice session: index during the restore: %@", SessionStore.shared.indexText())
+                try? await Task.sleep(for: .seconds(max(0, s - 2)))
+            }
             restore(session, into: doc, window: w)
             return
         }

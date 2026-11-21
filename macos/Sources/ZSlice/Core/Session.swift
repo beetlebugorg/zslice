@@ -22,6 +22,12 @@
 //! a window for each other one. The view shows the last scene of the
 //! active plate and the camera at once; the slices run after it.
 //!
+//! No file is written until each session of the last run is back in its
+//! window: a window takes its session, then waits for its NSWindow before
+//! it restores it, and a write in that time listed no window with plates
+//! and removed the files of the last run. A change in that time writes
+//! once after the last restore (web/app/session.js does the same).
+//!
 //! SPDX-License-Identifier: AGPL-3.0-or-later
 
 import AppKit
@@ -74,6 +80,12 @@ final class SessionStore {
     private var viewTimer: DispatchWorkItem?
     /// The plates changed since the last write of the session files.
     private var platesDirty = false
+    /// The sessions that a window took and has not restored yet.
+    private var restoring = 0
+    /// A write came before the last restore: it comes after it.
+    private var writeAfterRestore = false
+    /// Each session of the last run is back in its window: writes may go.
+    private var restored: Bool { pending.isEmpty && restoring == 0 }
     /// A write of the session files runs on `queue`.
     private var writing = false
     private let queue = DispatchQueue(label: "zslice.session", qos: .utility)
@@ -116,7 +128,19 @@ final class SessionStore {
 
     /// The next session of the last run, for a new window.
     func takePending() -> Pending? {
-        pending.isEmpty ? nil : pending.removeFirst()
+        guard !pending.isEmpty else { return nil }
+        restoring += 1
+        return pending.removeFirst()
+    }
+
+    /// The window that took a session restored it, or gave up. After the
+    /// last restore, a write that waited comes.
+    func restoreDone() {
+        restoring = max(0, restoring - 1)
+        if restored, writeAfterRestore {
+            writeAfterRestore = false
+            changed()
+        }
     }
 
     // MARK: - the writes
@@ -144,7 +168,11 @@ final class SessionStore {
     }
 
     private func writePlatesWhenIdle() {
-        guard platesDirty, pending.isEmpty else { return }
+        guard platesDirty else { return }
+        guard restored else {
+            writeAfterRestore = true
+            return
+        }
         if writing || windows.contains(where: { $0.workspace?.model.state == .slicing }) {
             changed()
             return
@@ -186,7 +214,11 @@ final class SessionStore {
     /// The view file of each window, and the index (main thread: small).
     @discardableResult
     private func writeViews() -> Bool {
-        guard !off, pending.isEmpty else { return false }
+        guard !off else { return false }
+        guard restored else {
+            writeAfterRestore = true
+            return false
+        }
         windows.removeAll { $0.workspace == nil }
         let fm = FileManager.default
         try? fm.createDirectory(at: folder, withIntermediateDirectories: true)
@@ -216,7 +248,7 @@ final class SessionStore {
     /// At a quit, on the main thread: the session files if the plates
     /// changed, then the view files. Returns false if a write failed.
     private func writeAllNow() -> Bool {
-        guard !off, pending.isEmpty else { return false }
+        guard !off, restored else { return false }
         platesTimer?.cancel()
         viewTimer?.cancel()
         queue.sync {}
@@ -237,6 +269,11 @@ final class SessionStore {
             if timing { NSLog("zslice session: wrote the session files at the quit in %.0f ms", (CACurrentMediaTime() - t) * 1000) }
         }
         return writeViews() && all
+    }
+
+    /// The text of index.json, for a test.
+    func indexText() -> String {
+        (try? String(contentsOf: folder.appendingPathComponent("index.json"), encoding: .utf8)) ?? "none"
     }
 
     /// At a quit: one last write, and no window leaves the session.
