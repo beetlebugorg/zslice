@@ -67,6 +67,7 @@
 <a href="../../internals/contributing/">Contributing</a>
 <a href="../../internals/code-quality/">Code quality</a>
 <a href="../../internals/macos/">The macOS app</a>
+<a href="../../internals/windows/">The Windows app</a>
 <div class="group">Project</div>
 <a href="../../app/">App</a>
 <a href="../../roadmap/">Roadmap</a>
@@ -185,6 +186,12 @@
 <p><strong>License:</strong> MIT</p>
 <p><strong>Used in:</strong> <code>src/render/vk.zig</code></p>
 <p><strong>How zslice uses it:</strong> The structure of the Vulkan backend: run-time loading of the loader, a surface from the shell, a swapchain sized by the host, a UNORM swapchain format, and SPIR-V words copied at comptime. The code is new.</p>
+<h3 id="lookout-marine-windows-build">Lookout Marine Windows build</h3>
+<div class="ref"><span class="kind k-idea">idea</span><span class="area">build</span><dl><dt>Source</dt><dd>Lookout Marine</dd><dt>What zslice uses</dt><dd>The layout of the Windows core build.</dd><dt>License</dt><dd>MIT</dd><dt>Used in</dt><dd><a href="https://github.com/beetlebugorg/zslice/blob/main/windows/build-core.ps1"><code>windows/build-core.ps1</code></a></dd></dl></div>
+<p>Lookout Marine, <code>windows/build-core.ps1</code> at commit 221df217 (same author, MIT license)</p>
+<p><strong>License:</strong> MIT</p>
+<p><strong>Used in:</strong> <code>windows/build-core.ps1</code></p>
+<p><strong>How zslice uses it:</strong> The form of the script: one PowerShell step that runs <code>zig build lib</code> for the MSVC target of the platform. The code is new.</p>
 <h3 id="core-and-native-shells">Core and native shells</h3>
 <div class="ref"><span class="kind k-idea">idea</span><span class="area">ui</span><dl><dt>Source</dt><dd>Lookout Marine</dd><dt>What zslice uses</dt><dd>The structure of the app: the core has the logic, and each shell draws widgets, does file I/O, and moves events to its UI thread.</dd><dt>License</dt><dd>Same author</dd><dt>Used in</dt><dd><a href="https://github.com/beetlebugorg/zslice/blob/main/src/app.zig"><code>src/app.zig</code></a>, <a href="https://github.com/beetlebugorg/zslice/tree/main/linux/"><code>linux/</code></a></dd></dl></div>
 <p>Lookout Marine (same author): a Zig core with a C API and one native shell for each platform</p>
