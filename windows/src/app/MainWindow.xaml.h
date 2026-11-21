@@ -134,6 +134,26 @@ namespace winrt::ZSlice::implementation
         void PlateEdited();
         bool OnToolKey(Windows::System::VirtualKey key, bool shift, bool ctrl);
         void WireCards();
+
+        // Colors, the print as it forms, replay, gaps, check, and the bed
+        // (MainWindow.View.cpp).
+        void WireView();
+        void SetColorMode(int mode);
+        void ShowLegend();
+        void OnSimulated();
+        void ToggleSimulated();
+        void TogglePlay();
+        void StopReplay();
+        void ReplayTick();
+        bool LayerTimes(size_t layer, double &t0, double &t1);
+        void ShowScrub(size_t layer, double t);
+        void OnScrub(double fraction);
+        void SetGaps(bool on);
+        void ShowGaps();
+        bool GapClick(double x, double y);
+        void FillCheck();
+        void GoToIssue(zs_issue const &issue);
+        void ToggleBed();
 #ifdef ZS_DEV_HOOKS
         void StartDevHooks();
         void RunDevStep(std::wstring const &step);
@@ -222,6 +242,22 @@ namespace winrt::ZSlice::implementation
         bool hand_turning = false;
         double hand_height = 0, hand_x = 0, hand_y = 0, hand_turn_x = 0, hand_turn_y = 0;
         double hand_yaw = 0, hand_tilt = 0, hand_yaw_sent = 0, hand_tilt_sent = 0;
+
+        int color_mode = 0;
+        bool simulated = false;
+        bool sim_asked = false;
+        bool gaps_on = false;
+        bool bed_hidden = false;
+        bool playing = false;
+        bool scrub_quiet = false;
+        double replay_time = 0;
+        std::chrono::steady_clock::time_point replay_last{};
+        Microsoft::UI::Dispatching::DispatcherQueueTimer replay_timer{ nullptr };
+        std::vector<Microsoft::UI::Xaml::Controls::RadioMenuFlyoutItem> color_items;
+        Microsoft::UI::Xaml::Controls::ToggleMenuFlyoutItem sim_item{ nullptr };
+        Microsoft::UI::Xaml::Controls::Primitives::ToggleButton gaps_button{ nullptr };
+        Microsoft::UI::Xaml::Controls::Flyout check_flyout{ nullptr };
+        Microsoft::UI::Xaml::Controls::StackPanel check_list{ nullptr };
     };
 }
 

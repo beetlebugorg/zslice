@@ -191,6 +191,45 @@ namespace winrt::ZSlice::implementation
                 }
             }
         }
+        else if (verb == L"colors")
+        {
+            SetColorMode((int)number(0));
+        }
+        else if (verb == L"sim")
+        {
+            ToggleSimulated();
+        }
+        else if (verb == L"gaps")
+        {
+            SetGaps(number(0) != 0);
+            zs::Log("dev: legend: %s\n", to_string(LegendText().Text()).c_str());
+        }
+        else if (verb == L"play")
+        {
+            TogglePlay();
+        }
+        else if (verb == L"scrub")
+        {
+            ScrubSlider().Value(number(0));
+            zs::Log("dev: scrub: %s\n", to_string(ScrubText().Text()).c_str());
+        }
+        else if (verb == L"check")
+        {
+            FillCheck();
+            zs::Log("dev: check rows %u\n", check_list.Children().Size());
+            zs_issue const *issues = nullptr;
+            size_t n = 0;
+            char const *text = nullptr;
+            if (zs_app_checks(model->Active(), &issues, &n, &text) == ZS_OK && n > 0)
+            {
+                zs::Log("dev: first issue: %.*s\n", (int)issues[0].text_len, text + issues[0].text_start);
+                GoToIssue(issues[0]);
+            }
+        }
+        else if (verb == L"bed")
+        {
+            ToggleBed();
+        }
         else if (verb == L"hover")
         {
             if (hand)
