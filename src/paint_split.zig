@@ -6,27 +6,32 @@
 //!
 //! - A steep triangle crosses the cut plane of a layer in a segment. The
 //!   edge of the outline splits into pieces of one line width, and each
-//!   piece takes the state of the nearest painted segment within one line
-//!   width. A run of pieces of one state is a band of one line width
-//!   inside the edge (a seed). A grid of the segments makes each lookup
-//!   short.
+//!   piece has the state of the nearest painted segment within one line
+//!   width, else the filament of the part. A grid of the segments makes
+//!   each lookup short.
 //! - A flat triangle that faces up colors the layers under it, down to the
 //!   top thickness of the part; a flat triangle that faces down colors the
 //!   layers over it, up to the bottom thickness. Its shape, seen from
-//!   above, is a seed. So a painted top face prints its color in its top
-//!   layers.
+//!   above, is a source of its state. So a painted top face prints its
+//!   color in its top layers.
 //!
-//! The pieces with no painted segment near them are seeds of the
-//! filament of the part. Then each seed grows into the outline, one line width a step, and
-//! a seed takes only the area that no other seed took first. So each
-//! point of the outline gets the color of the nearest painted surface, as
-//! PrusaSlicer and Bambu Studio do it (they use a Voronoi diagram of the
-//! colored edges; the steps of zslice give the same result to within a
-//! step). After `max_steps` steps (about 2 mm) the rest goes to the
-//! filament of the part: the color shows on the surface, and the core of
-//! a wide region does not show. A painted top still prints its color in
-//! its top layers (see above). A layer with no paint near it is all of
-//! the filament of the part.
+//! Each point of the outline then gets the color of the nearest source,
+//! as PrusaSlicer and Bambu Studio do it (they use a Voronoi diagram of
+//! the colored edges). zslice uses a distance field on a grid of half a
+//! line width (see field.zig): each piece of the edge and each flat
+//! shape writes its distance to the nodes around it, the nearest state
+//! of a node is its label, and the borders between the labels are the
+//! regions. The cost is one pass over the nodes near the sources, with
+//! no polygon offset. Deeper than `depth` (about 2 mm) from the painted
+//! sources, each point is of the filament of the part: the color shows
+//! on the surface, and the core of a wide region does not show. A
+//! painted top still prints its color in its top layers (see above). A
+//! layer with no paint near it is all of the filament of the part.
+//!
+//! Two rules clean the labels (see `cleanLabels`): a group of nodes too
+//! small for a bead gets the label around it, and a core with paint all
+//! around it gets that paint, so a wide painted letter prints in one
+//! filament.
 //!
 //! Each filament of the part then slices as its own job, with the region
 //! of its filament as the outline of each layer (see plate_job.zig). So
@@ -43,7 +48,8 @@
 //!
 //! References (see docs/references/): the multi-material segmentation of
 //! PrusaSlicer (MultiMaterialSegmentation.cpp: the colored edges of a
-//! layer, the projection of painted top and bottom surfaces); the text
+//! layer, the projection of painted top and bottom surfaces); the
+//! distance field and its regions (see field.zig); the text
 //! tools of PrusaSlicer and Bambu Studio and the segmented region width
 //! of PrusaSlicer and OrcaSlicer (the labels); the methods, no code.
 //!
@@ -58,12 +64,14 @@ const parallel = @import("parallel.zig");
 const mesh_mod = @import("mesh.zig");
 const paint_mod = @import("paint.zig");
 const label_mod = @import("label.zig");
+const field = @import("field.zig");
 const Mesh = mesh_mod.Mesh;
 const Paths = geom.Paths;
 const Point = geom.Point;
 const V3 = paint_mod.V3;
 
-/// The most growth steps of the seeds (see the header).
+/// The depth of the paint from a painted source: `max_steps` + 1 line
+/// widths (see the header).
 pub const max_steps = 4;
 
 /// How the frame of a job maps the mesh: the cut z of a layer in the
@@ -261,17 +269,17 @@ pub const Split = struct {
         const Pass = struct {
             s: *Split,
             outlines: []const Paths,
-            cut_z: []const f64,
+            index: LeafIndex,
             frame: Frame,
             w: i64,
-            top: f64,
-            bottom: f64,
             fn run(c: *const @This(), i: usize) anyerror!void {
                 if (c.s.canceled()) return error.Canceled;
-                try c.s.layer(i, c.outlines[i], c.frame.z_base + c.cut_z[i] / c.frame.z_scale, c.frame, c.w, c.top, c.bottom);
+                try c.s.layer(i, c.outlines[i], c.index.z[i], c.index.get(i), c.frame, c.w);
             }
         };
-        const ctx: Pass = .{ .s = s, .outlines = outlines, .cut_z = cut_z, .frame = frame, .w = geom.fromMm(width), .top = top, .bottom = bottom };
+        var index = try LeafIndex.init(gpa, s.leaves, cut_z, frame, top, bottom);
+        defer index.deinit(gpa);
+        const ctx: Pass = .{ .s = s, .outlines = outlines, .index = index, .frame = frame, .w = geom.fromMm(width) };
         try parallel.forEach(threads, n, &ctx, Pass.run);
         if (s.canceled()) return error.Canceled;
         if (roots.depth > 0 and s.states.len > 1) try s.anchor(outlines, cut_z, width, top, bottom, roots);
@@ -505,7 +513,9 @@ pub const Split = struct {
         }
     }
 
-    fn layer(s: *Split, i: usize, outline: Paths, z: f64, frame: Frame, w: i64, top: f64, bottom: f64) anyerror!void {
+    /// The regions of layer i. `zf`: its cut z in the mesh. `leaf_ids`:
+    /// the painted pieces that touch the layer (see `LeafIndex`).
+    fn layer(s: *Split, i: usize, outline: Paths, zf: f32, leaf_ids: []const u32, frame: Frame, w: i64) anyerror!void {
         const gpa = s.gpa;
         const k = s.states.len;
         const out = s.regions[i * k ..][0..k];
@@ -513,31 +523,24 @@ pub const Split = struct {
         var arena_state = std.heap.ArenaAllocator.init(gpa);
         defer arena_state.deinit();
         const a = arena_state.allocator();
-        // The seeds of each painted state.
-        const raw = try a.alloc(Paths, k);
-        @memset(raw, .empty);
+        // The painted flat pieces (seen from above) of the layer.
+        const Flat = struct { v: [3]Point, si: u8 };
+        var flats: std.ArrayList(Flat) = .empty;
         var any = false;
-        const zf: f32 = @floatCast(z);
         // The painted segments of the layer, in a grid of cells of 2w.
         var segs: std.ArrayList(Seg) = .empty;
-        for (s.leaves) |lf| {
+        for (leaf_ids) |id| {
+            const lf = s.leaves[id];
             const si = std.mem.indexOfScalar(u8, s.states, lf.state) orelse continue;
-            const zlo = @min(lf.v[0][2], @min(lf.v[1][2], lf.v[2][2]));
-            const zhi = @max(lf.v[0][2], @max(lf.v[1][2], lf.v[2][2]));
             if (lf.flat != 0) {
-                // A flat piece: the layers within the depth under a top,
-                // or over a bottom.
-                const zm = (zlo + zhi) / 2;
-                const in = if (lf.flat > 0) (zm >= zf - 1e-4 and zm <= zf + @as(f32, @floatCast(top))) else (zm <= zf + 1e-4 and zm >= zf - @as(f32, @floatCast(bottom)));
-                if (!in) continue;
+                // A flat piece: its shape, seen from above.
                 var tri: [3]Point = .{ frame.xy(lf.v[0][0], lf.v[0][1]), frame.xy(lf.v[1][0], lf.v[1][1]), frame.xy(lf.v[2][0], lf.v[2][1]) };
                 if (geom.area2(&tri) < 0) std.mem.swap(Point, &tri[0], &tri[2]);
                 if (geom.area2(&tri) == 0) continue;
-                try raw[si].append(a, &tri);
+                try flats.append(a, .{ .v = tri, .si = @intCast(si) });
                 any = true;
                 continue;
             }
-            if (zf < zlo or zf > zhi) continue;
             // The segment of the piece on the plane.
             var pts: [2][2]f32 = undefined;
             var np: usize = 0;
@@ -559,104 +562,337 @@ pub const Split = struct {
             out[0] = try outline.clone(gpa);
             return;
         }
-        // The seeds of the edge: each piece of the edge of the outline
-        // takes the state of the nearest painted segment within one line
-        // width, else the filament of the part, and each run of one state
-        // is a band of one line width inside the edge.
-        if (segs.items.len > 0) try edgeSeeds(a, outline, segs.items, w, raw);
-        // The claimed area of each state, and of all.
-        const claimed = try a.alloc(Paths, k);
-        var all: Paths = .empty;
-        for (raw, claimed, 0..) |r, *c, j| {
-            if (j == 0 or r.isEmpty()) {
-                c.* = .empty;
-                continue;
+        // The sources of the field: each piece of the edge of the outline
+        // has the state of the nearest painted segment within one line
+        // width, else the filament of the part.
+        var pieces: std.ArrayList(Seg) = .empty;
+        if (segs.items.len > 0) {
+            try edgePieces(a, outline, segs.items, w, &pieces);
+        } else {
+            // A painted top or bottom only: the whole edge is of the part.
+            for (0..outline.count()) |pi| {
+                const poly = outline.get(pi);
+                for (poly, 0..) |p, j| try pieces.append(a, .{ .a = p, .b = poly[(j + 1) % poly.len], .si = 0 });
             }
-            const u = try clip.unionAll(a, r, .non_zero);
-            var in = try clip.intersect(a, u, outline);
-            // A state with a lower index wins where two seeds overlap.
-            if (!all.isEmpty()) in = try clip.difference(a, in, all);
-            c.* = in;
-            all = try clip.unite(a, all, in);
         }
-        // The growth works only near the painted seeds: farther than
-        // 2 max_steps + 2 steps, each point is of the filament of the
-        // part. A core past the growth, in `near`, can go to the paint
-        // around it (see below).
-        const near = try clip.intersect(a, try offset_mod.offset(a, all, @as(i64, @intCast(2 * max_steps + 2)) * w, .{}), outline);
-        // The rest of the outline is of the filament of the part.
-        const far = try clip.difference(a, outline, near);
-        // The seed of the filament of the part: the rest of the edge (its
-        // runs from `edgeSeeds`), or the whole ring when no segment of
-        // the layer is painted (a painted top only).
-        if (segs.items.len == 0) {
-            const inner = try offset_mod.offset(a, outline, -w, .{});
-            raw[0] = try clip.difference(a, outline, inner);
-        }
-        claimed[0] = try clip.difference(a, try clip.intersect(a, try clip.unionAll(a, raw[0], .non_zero), near), all);
-        all = try clip.unite(a, all, claimed[0]);
-        // The growth: each step grows the front of each state (the area
-        // it took in the step before) by one line width.
-        var rest = try clip.difference(a, near, all);
-        const front = try a.dupe(Paths, claimed);
-        // The areas that each state took, joined once at the end.
-        const took = try a.alloc(Paths, k);
-        for (took, claimed) |*t, c| t.* = try c.clone(a);
-        var step: usize = 0;
-        while (!rest.isEmpty() and step < max_steps) : (step += 1) {
-            if (s.canceled()) return error.Canceled;
-            var any_take = false;
-            for (front, took) |*f, *t| {
-                if (f.isEmpty() or rest.isEmpty()) continue;
-                const grown = try offset_mod.offset(a, f.*, w, .{});
-                const take = try clip.intersect(a, grown, rest);
-                f.* = take;
-                if (take.isEmpty()) continue;
-                any_take = true;
-                try t.appendAll(a, take);
-                rest = try clip.difference(a, rest, take);
-            }
-            if (!any_take) break;
-        }
-        // A core that the steps did not reach, with no edge of the
-        // filament of the part around it (a wide painted letter): it takes
-        // the painted state that is around it, so the letter prints in one
-        // filament.
-        var holes = false;
-        for (0..rest.count()) |pi| holes = holes or geom.area2(rest.get(pi)) < 0;
-        if (!holes) for (0..rest.count()) |pi| {
-            if (s.canceled()) return error.Canceled;
-            var one: Paths = .empty;
-            try one.append(a, rest.get(pi));
-            const ring = try offset_mod.offset(a, one, w, .{});
-            // Next to the far area: of the filament of the part.
-            if (!(try clip.intersect(a, ring, far)).isEmpty()) continue;
-            var best: usize = 0;
-            var best_area: f64 = 0;
-            for (took, 0..) |t, j| {
-                if (t.isEmpty()) continue;
-                const touch = try clip.intersect(a, ring, try clip.unionAll(a, t, .non_zero));
-                var ar: f64 = 0;
-                for (0..touch.count()) |q| ar += geom.areaMm2(touch.get(q));
-                if (j == 0 and ar > 0) {
-                    best = 0;
-                    break;
-                }
-                if (ar > best_area) {
-                    best_area = ar;
-                    best = j;
-                }
-            }
-            if (best != 0) try took[best].append(a, rest.get(pi));
+        // The grid: the box of the painted sources in the outline, grown
+        // by the reach of the paint and of the test of a core.
+        const ob = outline.bounds();
+        var box: geom.Box = .empty;
+        for (pieces.items) |pc| if (pc.si != 0) {
+            box.extend(pc.a);
+            box.extend(pc.b);
         };
-        for (claimed, took) |*c, t| c.* = try clip.unionAll(a, t, .non_zero);
-        // The painted regions, and the rest for the filament of the part.
+        for (flats.items) |t| for (t.v) |p| box.extend(p);
+        if (box.isEmpty()) {
+            out[0] = try outline.clone(gpa);
+            return;
+        }
+        const depth = @as(i64, max_steps + 1) * w;
+        const reach = @as(i64, 2 * max_steps + 3) * w;
+        var h = @max(@divFloor(w, 2), 10);
+        box.min = .init(@max(box.min.x - reach, ob.min.x) - 3 * h, @max(box.min.y - reach, ob.min.y) - 3 * h);
+        box.max = .init(@min(box.max.x + reach, ob.max.x) + 3 * h, @min(box.max.y + reach, ob.max.y) + 3 * h);
+        // At most about four million nodes: a larger box gets a larger
+        // step.
+        while (@divFloor(box.max.x - box.min.x, h) * @divFloor(box.max.y - box.min.y, h) > 1 << 22) h *= 2;
+        var f = try field.Field.init(a, box, h, k);
+        const n = f.nodes();
+        // A painted top or bottom wins at the edge of the part: a head
+        // start of half a step.
+        const head: f32 = @floatFromInt(@divFloor(h, 2));
+        // Two steps more than the depth: the nodes around the border at
+        // the depth have their exact distance.
+        const radius = depth + 2 * h;
+        for (pieces.items) |pc| f.stampSegment(pc.si, pc.a, pc.b, radius, 0);
+        if (flats.items.len > 0) {
+            // The edges of the flat shapes that only one triangle has.
+            var sides: std.AutoHashMapUnmanaged([5]i64, u32) = .empty;
+            for (flats.items) |t| {
+                f.fillTriangle(t.si, t.v);
+                for (0..3) |e| {
+                    const g = try sides.getOrPut(a, sideKey(t.v[e], t.v[(e + 1) % 3], t.si));
+                    if (!g.found_existing) g.value_ptr.* = 0;
+                    g.value_ptr.* += 1;
+                }
+            }
+            var it = sides.iterator();
+            while (it.next()) |e| if (e.value_ptr.* == 1) {
+                const q = e.key_ptr.*;
+                f.stampSegment(@intCast(q[4]), .init(q[0], q[1]), .init(q[2], q[3]), radius, head);
+            };
+        }
+        if (s.canceled()) return error.Canceled;
+        // The scores and the labels: the nearest state wins, and the
+        // filament of the part also has all that is deeper than `depth`.
+        const score = try a.alloc(f32, k * n);
+        const label = try a.alloc(u8, n);
+        const depth_f: f32 = @floatFromInt(depth);
+        for (0..n) |q| {
+            score[q] = @min(f.dist(0, q), depth_f);
+            var best: usize = 0;
+            for (1..k) |j| {
+                score[j * n + q] = f.dist(j, q);
+                if (score[j * n + q] < score[best * n + q]) best = j;
+            }
+            label[q] = @intCast(best);
+        }
+        try cleanLabels(a, &f, outline, label, score, w, depth_f, @floatFromInt(reach));
+        if (s.canceled()) return error.Canceled;
+        // The regions of the painted states, cut to the outline.
+        const loops = try a.alloc(Paths, k);
+        @memset(loops, .empty);
+        try field.regions(a, a, &f, label, score, loops);
         var painted: Paths = .empty;
-        for (claimed[1..]) |c| painted = try clip.unite(a, painted, c);
+        for (out[1..], loops[1..]) |*o, l| {
+            if (l.isEmpty()) continue;
+            var cut = try clip.intersect(gpa, l, outline);
+            // A sliver at the edge of the outline is no region.
+            dropSmall(&cut, w);
+            try painted.appendAll(a, cut);
+            o.* = cut;
+        }
         out[0] = try clip.difference(gpa, outline, painted);
-        for (out[1..], claimed[1..]) |*o, c| o.* = try c.clone(gpa);
     }
 };
+
+/// The painted pieces that touch each layer: a steep piece touches the
+/// layers with their cut z in its z range, and a flat piece the layers
+/// within the top thickness under it, or the bottom thickness over it.
+/// One pass over the pieces makes the lists, so a layer does not read the
+/// pieces of the whole part.
+const LeafIndex = struct {
+    /// The cut z of each layer in the mesh.
+    z: []f32,
+    /// start[i] to start[i + 1]: the pieces of layer i in `ids`.
+    start: []u32,
+    ids: []u32,
+
+    fn init(gpa: Allocator, leaves: []const Leaf, cut_z: []const f64, frame: Frame, top: f64, bottom: f64) Allocator.Error!LeafIndex {
+        const n = cut_z.len;
+        const z = try gpa.alloc(f32, n);
+        errdefer gpa.free(z);
+        for (z, cut_z) |*zf, c| zf.* = @floatCast(frame.z_base + c / frame.z_scale);
+        const start = try gpa.alloc(u32, n + 1);
+        errdefer gpa.free(start);
+        @memset(start, 0);
+        var ids: []u32 = &.{};
+        errdefer gpa.free(ids);
+        for (0..2) |pass| {
+            for (leaves, 0..) |lf, id| {
+                const zlo = @min(lf.v[0][2], @min(lf.v[1][2], lf.v[2][2]));
+                const zhi = @max(lf.v[0][2], @max(lf.v[1][2], lf.v[2][2]));
+                const zm = (zlo + zhi) / 2;
+                // The range of cut z of the piece, a little wide: `touches`
+                // has the exact test.
+                const lo = if (lf.flat > 0) zm - @as(f32, @floatCast(top)) else if (lf.flat < 0) zm else zlo;
+                const hi = if (lf.flat > 0) zm else if (lf.flat < 0) zm + @as(f32, @floatCast(bottom)) else zhi;
+                // The first layer with z >= lo - 0.001 (the cut z rises
+                // with the layer).
+                var a: usize = 0;
+                var b: usize = n;
+                while (a < b) {
+                    const mid = (a + b) / 2;
+                    if (z[mid] < lo - 1e-3) a = mid + 1 else b = mid;
+                }
+                while (a < n and z[a] <= hi + 1e-3) : (a += 1) {
+                    if (!touches(lf, zlo, zhi, zm, z[a], top, bottom)) continue;
+                    if (pass == 1) ids[start[a]] = @intCast(id);
+                    start[a] += 1;
+                }
+            }
+            if (pass == 0) {
+                // start[i] is the count of layer i: make it the first
+                // index of layer i.
+                var sum: u32 = 0;
+                for (start) |*st| {
+                    const c = st.*;
+                    st.* = sum;
+                    sum += c;
+                }
+                ids = try gpa.alloc(u32, sum);
+            } else {
+                // start[i] is the end of layer i: move each one up.
+                var i = n;
+                while (i > 0) : (i -= 1) start[i] = start[i - 1];
+                start[0] = 0;
+            }
+        }
+        return .{ .z = z, .start = start, .ids = ids };
+    }
+
+    fn touches(lf: Leaf, zlo: f32, zhi: f32, zm: f32, zf: f32, top: f64, bottom: f64) bool {
+        if (lf.flat > 0) return zm >= zf - 1e-4 and zm <= zf + @as(f32, @floatCast(top));
+        if (lf.flat < 0) return zm <= zf + 1e-4 and zm >= zf - @as(f32, @floatCast(bottom));
+        return zf >= zlo and zf <= zhi;
+    }
+
+    fn deinit(x: *LeafIndex, gpa: Allocator) void {
+        gpa.free(x.z);
+        gpa.free(x.start);
+        gpa.free(x.ids);
+    }
+
+    fn get(x: LeafIndex, i: usize) []const u32 {
+        return x.ids[x.start[i]..x.start[i + 1]];
+    }
+};
+
+/// A key of the side p q of a flat triangle of state `si`, the same for
+/// both directions.
+fn sideKey(p: Point, q: Point, si: u8) [5]i64 {
+    const lo = if (p.lessThan(q)) p else q;
+    const hi = if (p.lessThan(q)) q else p;
+    return .{ lo.x, lo.y, hi.x, hi.y, si };
+}
+
+/// Removes the outer loops of `p` with less area than an eighth of a
+/// square of one line width, in place.
+fn dropSmall(p: *Paths, w: i64) void {
+    const min2: i128 = @divFloor(@as(i128, w) * w, 4);
+    var keep: usize = 0;
+    var at: usize = 0;
+    var start: usize = 0;
+    for (p.ends.items) |end| {
+        const poly = p.points.items[start..end];
+        start = end;
+        const a2 = geom.area2(poly);
+        if (a2 >= 0 and a2 < min2) continue;
+        std.mem.copyForwards(Point, p.points.items[at..], poly);
+        at += poly.len;
+        p.ends.items[keep] = @intCast(at);
+        keep += 1;
+    }
+    p.points.shrinkRetainingCapacity(at);
+    p.ends.shrinkRetainingCapacity(keep);
+}
+
+/// The clean-up of the labels of a layer (see `Split.layer`), on the
+/// nodes inside `outline`. A group is a set of nodes with one label that
+/// touch each other.
+///
+/// - A group with less area than a square of one line width gets the
+///   label that most of its neighbors have: no bead fits it.
+/// - A group of the filament of the part with no edge of that filament
+///   within `depth` (a core, deeper than the paint grows), and with
+///   paint within `reach` of each node: it gets the paint around it, so
+///   a wide painted feature prints in one filament.
+///
+/// A node outside the outline next to a changed group changes with it, so
+/// the new border does not run along the outline. The nodes more than
+/// two steps outside the outline get the label 0.
+fn cleanLabels(a: Allocator, f: *const field.Field, outline: Paths, label: []u8, score: []const f32, w: i64, depth: f32, reach: f32) Allocator.Error!void {
+    const n = f.nodes();
+    const nx = f.nx;
+    const k = score.len / n;
+    const mask = try f.inside(a, outline);
+    // The paint ends two steps outside the outline. The cut to the
+    // outline is then clean, and no region reaches the border of the
+    // grid (the grid has three steps around the outline).
+    {
+        const grown = try a.alloc(u8, n);
+        const tmp = try a.alloc(u8, n);
+        @memcpy(grown, mask);
+        for (0..2) |_| {
+            @memcpy(tmp, grown);
+            for (1..f.ny - 1) |r| for (1..nx - 1) |c| {
+                const m = r * nx + c;
+                if (tmp[m] != 0) continue;
+                var any: u8 = 0;
+                for ([3]usize{ m - nx, m, m + nx }) |q| any |= tmp[q - 1] | tmp[q] | tmp[q + 1];
+                grown[m] = any;
+            };
+        }
+        for (label, grown) |*l, g| {
+            if (g == 0) l.* = 0;
+        }
+    }
+    const none = std.math.maxInt(u32);
+    const group = try a.alloc(u32, n);
+    @memset(group, none);
+    const min_nodes: usize = @intCast(@max(@divFloor(w * w, f.h * f.h), 1));
+    var stack: std.ArrayList(u32) = .empty;
+    var members: std.ArrayList(u32) = .empty;
+    const votes = try a.alloc(u32, k);
+    var paint_dist: ?[]f32 = null;
+    var next_group: u32 = 0;
+    for (0..n) |seed| {
+        if (mask[seed] == 0 or group[seed] != none) continue;
+        const l = label[seed];
+        const g = next_group;
+        next_group += 1;
+        members.clearRetainingCapacity();
+        @memset(votes, 0);
+        var own_edge = false;
+        var at_border = false;
+        group[seed] = g;
+        try stack.append(a, @intCast(seed));
+        while (stack.pop()) |m| {
+            try members.append(a, m);
+            const c = m % nx;
+            const r = m / nx;
+            if (c == 0 or r == 0 or c + 1 == nx or r + 1 == f.ny) {
+                at_border = true;
+                continue;
+            }
+            if (l == 0 and f.d2[m] <= depth * depth) own_edge = true;
+            for ([4]usize{ m - 1, m + 1, m - nx, m + nx }) |q| {
+                if (mask[q] == 0) continue;
+                if (label[q] != l) {
+                    // A node of a group that changed before has its new
+                    // label: the vote is for the labels of now.
+                    votes[label[q]] += 1;
+                    continue;
+                }
+                if (group[q] != none) continue;
+                group[q] = g;
+                try stack.append(a, @intCast(q));
+            }
+        }
+        var to: ?u8 = null;
+        if (members.items.len < min_nodes and !at_border) {
+            var best: u32 = 0;
+            for (votes, 0..) |v, j| if (v > best) {
+                best = v;
+                to = @intCast(j);
+            };
+        } else if (l == 0) {
+            if (own_edge or at_border) continue;
+            // Paint within `reach` of each node.
+            if (paint_dist == null) {
+                const seeds = try a.alloc(bool, n);
+                for (seeds, 0..) |*sd, i| {
+                    sd.* = false;
+                    for (1..k) |j| sd.* = sd.* or score[j * n + i] <= depth;
+                }
+                paint_dist = try f.chamfer(a, seeds);
+            }
+            var is_far = false;
+            for (members.items) |m| is_far = is_far or paint_dist.?[m] + depth > reach;
+            if (is_far) continue;
+            var best: u32 = 0;
+            for (votes[1..], 1..) |v, j| if (v > best) {
+                best = v;
+                to = @intCast(j);
+            };
+        }
+        const new = to orelse continue;
+        for (members.items) |m| {
+            label[m] = new;
+            // The nodes outside the outline around it, two steps far.
+            const c = m % nx;
+            const r = m / nx;
+            var rr = @max(r -| 2, 1);
+            while (rr <= @min(r + 2, f.ny - 2)) : (rr += 1) {
+                var cc = @max(c -| 2, 1);
+                while (cc <= @min(c + 2, nx - 2)) : (cc += 1) {
+                    const q = rr * nx + cc;
+                    if (mask[q] == 0 and label[q] == l) label[q] = new;
+                }
+            }
+        }
+    }
+}
 
 /// The anchors of the painted features (see `Split.anchor`).
 pub const Anchor = struct {
@@ -930,10 +1166,10 @@ fn dist2(p: Point, a: Point, b: Point) f64 {
     return ex * ex + ey * ey;
 }
 
-/// The bands of the edge of each state (see `Split.layer`): `raw[k]` gets
-/// the bands of state k, and `raw[0]` the bands of the filament of the
-/// part. Each edge of the outline splits into pieces of at most `w`.
-fn edgeSeeds(a: Allocator, outline: Paths, segs: []const Seg, w: i64, raw: []Paths) Allocator.Error!void {
+/// The pieces of the edge of the outline, each with its state (see
+/// `Split.layer`): 0 for the filament of the part. Each edge of the
+/// outline splits into pieces of at most `w`.
+fn edgePieces(a: Allocator, outline: Paths, segs: []const Seg, w: i64, out: *std.ArrayList(Seg)) Allocator.Error!void {
     // A grid of the segments: the key of each cell that the box of a
     // segment (grown by w) touches, sorted.
     const cell = 2 * w;
@@ -1001,79 +1237,12 @@ fn edgeSeeds(a: Allocator, outline: Paths, segs: []const Seg, w: i64, raw: []Pat
             }
         }
         const n = pieces.items.len;
-        // One state for the whole polygon: its ring.
-        var same = true;
-        for (states.items) |st| same = same and st == states.items[0];
-        const inner = try a.alloc(Point, n);
-        for (0..n) |i| inner[i] = inward(pieces.items, i, w);
-        if (same) {
-            const r = &raw[states.items[0]];
-            try r.append(a, pieces.items);
-            const rev = try a.dupe(Point, inner);
-            std.mem.reverse(Point, rev);
-            try r.append(a, rev);
-            continue;
-        }
-        // The runs: start at a change of state.
-        var start: usize = 0;
-        while (states.items[start] == states.items[(start + n - 1) % n]) start += 1;
-        var i: usize = 0;
-        while (i < n) {
-            const st = states.items[(start + i) % n];
-            var j = i;
-            while (j < n and states.items[(start + j) % n] == st) j += 1;
-            // The band of pieces i to j - 1: the outer points (j - i + 1 of
-            // them, the end of the last piece too), then the inner points
-            // back.
-            var band: std.ArrayList(Point) = .empty;
-            for (i..j + 1) |k| try band.append(a, pieces.items[(start + k) % n]);
-            var k = j + 1;
-            while (k > i) {
-                k -= 1;
-                try band.append(a, inner[(start + k) % n]);
-            }
-            try raw[st].append(a, band.items);
-            i = j;
-        }
+        for (0..n) |i| try out.append(a, .{ .a = pieces.items[i], .b = pieces.items[(i + 1) % n], .si = states.items[i] });
     }
 }
 
 fn lerp(p: Point, q: Point, t: f64) Point {
     return .init(p.x + @as(i64, @intFromFloat(@round(@as(f64, @floatFromInt(q.x - p.x)) * t))), p.y + @as(i64, @intFromFloat(@round(@as(f64, @floatFromInt(q.y - p.y)) * t))));
-}
-
-/// Point i of a closed polygon moved by w to the inside (the left of the
-/// edges: the material is on the left).
-fn inward(poly: []const Point, i: usize, w: i64) Point {
-    const n = poly.len;
-    const p = poly[i];
-    const prev = poly[(i + n - 1) % n];
-    const next = poly[(i + 1) % n];
-    const left = struct {
-        fn f(a: Point, b: Point) [2]f64 {
-            const dx: f64 = @floatFromInt(b.x - a.x);
-            const dy: f64 = @floatFromInt(b.y - a.y);
-            const l = @sqrt(dx * dx + dy * dy);
-            if (!(l > 0)) return .{ 0, 0 };
-            return .{ -dy / l, dx / l };
-        }
-    }.f;
-    const n1 = left(prev, p);
-    const n2 = left(p, next);
-    var bx = n1[0] + n2[0];
-    var by = n1[1] + n2[1];
-    const bl = @sqrt(bx * bx + by * by);
-    if (!(bl > 1e-9)) {
-        bx = n2[0];
-        by = n2[1];
-    } else {
-        bx /= bl;
-        by /= bl;
-    }
-    // The miter length, at most 3 w at a sharp corner.
-    const c = @max(bx * n2[0] + by * n2[1], 0.33);
-    const d = @as(f64, @floatFromInt(w)) / c;
-    return .init(p.x + @as(i64, @intFromFloat(@round(bx * d))), p.y + @as(i64, @intFromFloat(@round(by * d))));
 }
 
 const testing = std.testing;
