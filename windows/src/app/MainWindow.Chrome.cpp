@@ -357,6 +357,8 @@ namespace winrt::ZSlice::implementation
         ExportButton().IsEnabled(state == ZS_STATE_DONE);
         if (printers != nullptr)
             printers->RefreshPrimary();
+        if (state != ZS_STATE_DONE)
+            ShowCheckCount(0);
         if (state == ZS_STATE_SLICING)
             return;
         ShowBusy(L"");
@@ -392,22 +394,27 @@ namespace winrt::ZSlice::implementation
         SummaryDetail().Text(detail);
         SummaryFacts().Text(detail);
 
-        // A part off the bed comes first. Else the first serious issue.
-        std::wstring warn;
+        // The problems of the check: a warning or worse. The Check button
+        // and the badge show the same count.
+        std::wstring first;
+        size_t problems = 0;
+        zs_issue const *issues = nullptr;
+        size_t n = 0;
+        char const *words = nullptr;
+        if (zs_app_checks(app, &issues, &n, &words) == ZS_OK)
+            for (size_t i = 0; i < n; i++)
+                if (issues[i].severity >= 1)
+                {
+                    if (problems++ == 0)
+                        first = zs::ToWide(std::string(words + issues[i].text_start, issues[i].text_len));
+                }
+        ShowCheckCount(problems);
+
+        // A part off the bed comes first. Else the first problem.
+        std::wstring warn = first;
         if (zs_app_plate_fits(app) != 1)
-        {
             warn = L"A part is off the bed or on another part. Move it, turn it, scale it, or cut it (the part card) before you print.";
-        }
-        else
-        {
-            zs_issue const *issues = nullptr;
-            size_t n = 0;
-            char const *words = nullptr;
-            if (zs_app_checks(app, &issues, &n, &words) == ZS_OK)
-                for (size_t i = 0; i < n && warn.empty(); i++)
-                    if (issues[i].severity >= 1)
-                        warn = zs::ToWide(std::string(words + issues[i].text_start, issues[i].text_len));
-        }
+        SummaryBadgeText().Text(problems > 0 ? std::to_wstring(problems) + L" to check" : std::wstring(L"Check"));
         SummaryBadge().Visibility(warn.empty() ? Visibility::Collapsed : Visibility::Visible);
         SummaryWarn().Text(warn);
         SummaryWarn().Visibility(warn.empty() ? Visibility::Collapsed : Visibility::Visible);
