@@ -276,7 +276,7 @@ final class History {
             "speed": (0x7c3aed, "Speed"), "heat": (0xdc2626, "Temperature and Cooling"), "support": (0x6b7280, "Support"),
             "layers": (0xd99000, "Layers"), "move": (0x0c949e, "Move"), "rotate": (0x0c949e, "Turn"),
             "scale": (0x0c949e, "Scale"), "add": (0x0c949e, "Part Added"), "remove": (0x0c949e, "Part Removed"),
-            "quality": (0xdb2777, "Quality"), "printer": (0x334155, "Printer"), "filament": (0x4f46e5, "Filaments"), "start": (0x808080, "Start"),
+            "quality": (0xdb2777, "Quality"), "printer": (0x334155, "Printer"), "filament": (0x4f46e5, "Filaments"), "label": (0xa21caf, "Labels"), "start": (0x808080, "Start"),
         ]
         let (rgb, label) = looks[kind] ?? (0x808080, "Other")
         return (Color(red: Double(rgb >> 16 & 0xff) / 255, green: Double(rgb >> 8 & 0xff) / 255, blue: Double(rgb & 0xff) / 255), label)

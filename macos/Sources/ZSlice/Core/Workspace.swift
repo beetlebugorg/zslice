@@ -1203,8 +1203,8 @@ final class Workspace {
                     try? await Task.sleep(for: .seconds(0.6))
                     let st = self.labelState
                     let coreList = PartLabel.list(coreString { zs_app_part_labels_get(self.model.core, max(st.index, 0), $0, $1, $2) } ?? "[]").count
-                    NSLog("zslice label step %@: core %ld, history %ld/%ld, undo %@", String(step), coreList, self.model.history.current, self.model.history.count,
-                          self.model.history.undoManager.undoActionName)
+                    NSLog("zslice label step %@: core %ld, history %ld/%ld, undo %@, kind %@", String(step), coreList, self.model.history.current, self.model.history.count,
+                          self.model.history.undoManager.undoActionName, self.model.history.step(self.model.history.current)?.kind ?? "-")
                     NSLog("zslice label step %@: %ld labels, %@", String(step), st.labels.count,
                           st.label.map { String(format: "turn %.0f°, size %.2f, origin %.1f %.1f %.1f", $0.angle, $0.items.first?.size ?? 0, $0.origin[0], $0.origin[1], $0.origin[2]) } ?? "none selected")
                 }

@@ -42,6 +42,8 @@ struct HistoryGlyph: View {
         "printer": [.path("M5 6.5V2.5h8v4M5 13H2.5V6.5h13V13H13M5 10.5h8v5H5z")],
         // A spool from the side.
         "filament": [.rect(2.5, 2.5, 2.5, 13, r: 1), .rect(13, 2.5, 2.5, 13, r: 1), .path("M5 6.5h8M5 9h8M5 11.5h8")],
+        // A tag.
+        "label": [.path("M2.5 4.5h8l5 4.5-5 4.5h-8z"), .path("M5 9h4")],
         "start": [.circle(9, 9, 5.5), .circle(9, 9, 1.5, fill: true)],
         "other": [.circle(4, 9, 0.6), .circle(9, 9, 0.6), .circle(14, 9, 0.6)],
     ]
