@@ -40,11 +40,11 @@ enum Tool: String, CaseIterable {
         case .select: "v"
         case .move: "m"
         case .turn: "r"
-        case .grab: "h"
+        case .grab: "g"
         case .measure: "t"
         case .support: "s"
         case .paint: "p"
-        case .label: "l"
+        case .label: "e"
         }
     }
 
@@ -71,11 +71,11 @@ enum Tool: String, CaseIterable {
         case .select: "Select (V): click a line to see what it is and the settings that change it."
         case .move: "Move (M): drag a part to move it on the bed. Command-scroll turns it by 15°. Command-drag moves a part in any tool."
         case .turn: "Turn (R): click a part, then drag its red, green, or blue ring to turn it about X, Y, or Z (15°; Shift: 5°). Keys: Left and Right about Z, Up and Down about X, Page Up and Page Down about Y."
-        case .grab: "Grab (H): click a part to pick it up, and move the pointer to carry it as a real object. Option and a move turn it (Shift: 15° steps), and the wheel lifts it. Click again, or press Esc, to let go: it keeps its speed, falls, and rests flat on the plate."
+        case .grab: "Grab (G): click a part to pick it up, and move the pointer to carry it as a real object. Option and a move turn it (Shift: 15° steps), and the wheel lifts it. Click again, or press Esc, to let go: it keeps its speed, falls, and rests flat on the plate."
         case .measure: "Measure (T): click two points of the print or the bed. A click on a circle or an arc measures from its center. Shift: no snap. Esc clears."
         case .support: "Support (S): click points on the part to draw an area of support, or of no support. Click the first point or press Return to close it. Click an outline to select an area, and drag its points."
         case .paint: "Paint (P): paint filaments on the surface of a part. Click a raised letter, a logo, or a face to paint it (Shift: add more), or drag the brush. Option and a drag turn the view."
-        case .label: "Label (L): click a face of a part to put a label there, in another filament. Drag a label to move it (Shift: in its plane); the wheel over it turns it (Shift: 15°); its corner handle scales it. Delete removes it."
+        case .label: "Label (E): click a face of a part to put a label there, in another filament. Drag a label to move it (Shift: in its plane); the wheel over it turns it (Shift: 15°); its corner handle scales it. Delete removes it."
         }
     }
 }

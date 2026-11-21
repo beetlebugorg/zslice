@@ -282,8 +282,10 @@ extension Workspace {
             switch key {
             case "k": layer(1)
             case "j": layer(-1)
-            // Shift+H and Shift+L: the line before or after (as Shift with
-            // the arrows). H alone is the Grab tool.
+            // h and l, as in vim: the segment before or after (as the
+            // arrows); Shift+H and Shift+L: the line before or after.
+            case "h" where !shift: step(-1)
+            case "l" where !shift: step(1)
             case "H" where shift: step(-1)
             case "L" where shift: step(1)
             case "c": setRange(lo: lo, hi: zs_view_path_layer(v, s.path))

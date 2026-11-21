@@ -2573,9 +2573,10 @@ extension Workspace: SliceViewDelegate {
             switch event.charactersIgnoringModifiers {
             case "k": moveTop(1)
             case "j": moveTop(-1)
-            // Shift+H and Shift+L with no line: the nozzle back or on.
-            case "H" where shift: scrubStep(-0.02)
-            case "L" where shift: scrubStep(0.02)
+            // h and l (as in vim), and Shift+H and Shift+L, with no line:
+            // the nozzle back or on.
+            case "h", "H": scrubStep(-0.02)
+            case "l", "L": scrubStep(0.02)
             case "C" where shift: setRange(lo: 0, hi: layerCount - 1)
             case "n" where !shift: showSettings.toggle()
             // Esc with nothing else to close: the settings pane.
@@ -2585,7 +2586,6 @@ extension Workspace: SliceViewDelegate {
             case "2" where !shift: page = page == .twoD ? .threeD : .twoD
             case "3" where !shift: page = .threeD
             case "?": shortcutsOpen = true
-            case "g" where !shift: toggleGaps()
             case "[": selectPlate(max(0, model.active - 1))
             case "]": selectPlate(min(model.plates.count - 1, model.active + 1))
             case "f" where !shift: framePlate(model.active)

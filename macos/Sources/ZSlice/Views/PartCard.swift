@@ -105,7 +105,7 @@ struct PartCard: View {
                             Label(l.title, systemImage: "character.textbox").fixedSize(horizontal: false, vertical: true)
                         }
                         .buttonStyle(.borderless)
-                        .help("Select this label in the Label tool (L)")
+                        .help("Select this label in the Label tool (E)")
                     }
                 }
                 HStack(spacing: 6) {
