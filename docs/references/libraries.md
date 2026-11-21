@@ -293,6 +293,23 @@ summary: Apple system frameworks, part of macOS.
 
 **License:** Apple system frameworks, part of macOS
 
+### Windows system libraries for the printer links
+
+```ref
+kind: code
+source: Microsoft
+license: Windows system libraries, part of Windows
+files: windows/src/net, windows/src/prefs
+area: network
+summary: HTTP, TLS, and the encryption of the saved keys in the Windows app.
+```
+
+**Shell:** Windows (`windows/`)
+
+**Library:** The system libraries of Windows: WinHTTP (HTTP), Schannel through SSPI (TLS with a pinned certificate), DPAPI (`CryptProtectData`, the saved keys), CNG (SHA-256 and random bytes), and Winsock (the printer search)
+
+**License:** Windows system libraries, part of Windows
+
 ## Algorithms, formats, and conventions
 
 ### Lookout Marine Wayland subsurface
