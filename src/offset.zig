@@ -21,7 +21,9 @@
 //!      past its center turns inside out but keeps its direction, and the
 //!      union in step 3 keeps it. One exception: at an almost straight
 //!      corner between two edges longer than the offset distance, the
-//!      crossing point alone is exact and safe (see `addJoin`).
+//!      crossing point alone is exact and safe (see `addJoin`). The same
+//!      holds at a sharper corner when its two edges are longer than the
+//!      corners at their ends use (see `shortcut`).
 //!
 //! Before step 1, the code removes points that are within
 //! `clean_tolerance` of a straight line (see `geom.simplifyClosed`). A curve
@@ -57,6 +59,10 @@ pub const Options = struct {
     /// Points of the input within this distance (units) of a straight line
     /// are removed before the offset.
     clean_tolerance: i64 = 5,
+    /// A closing corner with edges that are long enough gets its
+    /// crossing point in place of its loop (see `shortcut`). False: each
+    /// such corner keeps its loop, for a test against the shortcut.
+    shortcut: bool = true,
 };
 
 /// Moves the boundaries of `paths` by `delta` units. A positive delta makes
@@ -72,6 +78,8 @@ pub fn offset(gpa: Allocator, paths: Paths, delta: i64, opts: Options) Allocator
     var raw: Paths = .empty;
     var normals: std.ArrayList([2]f64) = .empty;
     var lengths: std.ArrayList(f64) = .empty;
+    var used: std.ArrayList(f64) = .empty;
+    var loops: std.ArrayList(u32) = .empty;
     const d: f64 = @floatFromInt(delta);
 
     var clean: std.ArrayList(Point) = .empty;
@@ -98,13 +106,37 @@ pub fn offset(gpa: Allocator, paths: Paths, delta: i64, opts: Options) Allocator
             }
         }
 
+        // The length that each closing corner uses of its two edges (see
+        // `shortcut`): |d| tan(half the turn), or 0 at a corner that opens.
+        used.clearRetainingCapacity();
+        for (0..poly.len) |i| {
+            const n1 = normals.items[(i + poly.len - 1) % poly.len];
+            const n2 = normals.items[i];
+            const sin_a = n1[0] * n2[1] - n1[1] * n2[0];
+            const cos_a = n1[0] * n2[0] + n1[1] * n2[1];
+            try used.append(arena, if (sin_a * d < 0) @abs(d) * @abs(sin_a) / @max(1 + cos_a, 1e-9) else 0);
+        }
+        const first = raw.points.items.len;
+        loops.clearRetainingCapacity();
         for (poly, 0..) |p, i| {
             const prev = (i + poly.len - 1) % poly.len;
+            const next = (i + 1) % poly.len;
             const n1 = normals.items[prev];
             const n2 = normals.items[i];
             const short = @min(lengths.items[prev], lengths.items[i]);
-            try addJoin(arena, &raw, p, n1, n2, d, short, opts);
+            const at = raw.points.items.len;
+            const closing = try addJoin(arena, &raw, p, n1, n2, d, short, opts);
+            // Both edges are longer than the corners at their two ends
+            // use, with a margin for the rounding, and the turn is less
+            // than 90 degrees.
+            if (opts.shortcut and closing and n1[0] * n2[0] + n1[1] * n2[1] > 0 and
+                lengths.items[prev] > (used.items[i] + used.items[prev]) * 1.02 + 4 and
+                lengths.items[i] > (used.items[i] + used.items[next]) * 1.02 + 4)
+            {
+                try loops.append(arena, @intCast(at - first));
+            }
         }
+        try shortcut(arena, &raw, first, loops.items);
         try raw.endPath(arena, 3);
     }
 
@@ -177,15 +209,16 @@ fn movePoint(p: Point, n: [2]f64, d: f64) Point {
     };
 }
 
-/// `short` is the length of the shorter edge at the vertex.
-fn addJoin(arena: Allocator, out: *Paths, p: Point, n1: [2]f64, n2: [2]f64, d: f64, short: f64, opts: Options) !void {
+/// `short` is the length of the shorter edge at the vertex. Returns true
+/// if the join is the loop of three points of a closing corner.
+fn addJoin(arena: Allocator, out: *Paths, p: Point, n1: [2]f64, n2: [2]f64, d: f64, short: f64, opts: Options) !bool {
     const sin_a = n1[0] * n2[1] - n1[1] * n2[0];
     const cos_a = n1[0] * n2[0] + n1[1] * n2[1];
 
     // Almost straight: one point is enough.
     if (@abs(sin_a) < 1e-12 and cos_a > 0) {
         try out.appendPoint(arena, movePoint(p, n1, d));
-        return;
+        return false;
     }
 
     // The corner closes toward the offset, it is almost straight (less than
@@ -204,7 +237,7 @@ fn addJoin(arena: Allocator, out: *Paths, p: Point, n1: [2]f64, n2: [2]f64, d: f
             .x = @intFromFloat(geom.round(px + (n1[0] + n2[0]) * k)),
             .y = @intFromFloat(geom.round(py + (n1[1] + n2[1]) * k)),
         });
-        return;
+        return false;
     }
 
     // The corner closes toward the offset. See step 2 in the file comment.
@@ -212,7 +245,7 @@ fn addJoin(arena: Allocator, out: *Paths, p: Point, n1: [2]f64, n2: [2]f64, d: f
         try out.appendPoint(arena, movePoint(p, n1, d));
         try out.appendPoint(arena, p);
         try out.appendPoint(arena, movePoint(p, n2, d));
-        return;
+        return true;
     }
 
     switch (opts.join) {
@@ -252,6 +285,60 @@ fn addJoin(arena: Allocator, out: *Paths, p: Point, n1: [2]f64, n2: [2]f64, d: f
             }
         },
     }
+    return false;
+}
+
+/// Replaces closing loops by their crossing point. `loops` has the index
+/// (from `first`) of the first of the three points of each loop that can
+/// go: the moved end of the edge before the corner, the corner, and the
+/// moved start of the edge after it.
+///
+/// A closing corner with the turn a moves the crossing point of its two
+/// moved edges |d| tan(a / 2) along each edge. If each of the two edges
+/// is longer than the sum of what the corners at its two ends use, the
+/// moved edges cross within their lengths. The loop from the crossing
+/// point through the corner and back is then a small loop that turns
+/// the wrong way, all of it nearer than |d| to the two edges. The union
+/// removes it, and keeps the crossing point as a vertex. So the crossing
+/// point alone gives the same shape, and the union has two points and
+/// three crossings less to work on for each such corner. On a curve
+/// with short edges, that is most of its work.
+///
+/// The crossing point comes from `clip.crossing`, with the two moved
+/// edges as the union has them, so it is the same point that the union
+/// makes.
+fn shortcut(arena: Allocator, raw: *Paths, first: usize, loops: []const u32) Allocator.Error!void {
+    if (loops.len == 0) return;
+    const run = raw.points.items[first..];
+    const n = run.len;
+    // The crossing point of each loop, from the points before the change.
+    const cross = try arena.alloc(?Point, loops.len);
+    for (loops, cross) |j, *c| {
+        const before = run[(j + n - 1) % n];
+        const after = run[(j + 3) % n];
+        // The union rounds the point along the edge that comes first in
+        // the loop. The edge from the last point to the first point is
+        // the first edge.
+        c.* = if (j + 3 == n) clip.crossing(run[j + 2], after, before, run[j]) else clip.crossing(before, run[j], run[j + 2], after);
+    }
+    var out: usize = 0;
+    var next: usize = 0;
+    var i: usize = 0;
+    while (i < n) {
+        if (next < loops.len and loops[next] == i) {
+            next += 1;
+            if (cross[next - 1]) |c| {
+                run[out] = c;
+                out += 1;
+                i += 3;
+                continue;
+            }
+        }
+        run[out] = run[i];
+        out += 1;
+        i += 1;
+    }
+    raw.points.shrinkRetainingCapacity(first + out);
 }
 
 /// Removes the parts of a shape that are thinner than 2 * r: shrink by r,
@@ -444,4 +531,54 @@ fn vanishesTest(poly: []const Point, delta: i64) !bool {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     return vanishes(arena.allocator(), poly, delta);
+}
+
+test "offset: the crossing point of a closing corner gives the shape of its loop" {
+    const gpa = testing.allocator;
+    // A ring of 48 edges of about 0.65 mm, with a hole: at 0.45 mm and at
+    // 0.9 mm, each edge is longer than its corners use, and shorter than
+    // the distance of the test for an almost straight corner at 0.9 mm.
+    var ring: Paths = .empty;
+    defer ring.deinit(gpa);
+    var outer: [48]Point = undefined;
+    var inner: [48]Point = undefined;
+    for (0..48) |i| {
+        const t = 2 * std.math.pi * @as(f64, @floatFromInt(i)) / 48;
+        // A wave on the radius makes turns of both directions.
+        const r = 5000 + 300 * @sin(5 * t);
+        outer[i] = .init(@intFromFloat(@round(r * @cos(t))), @intFromFloat(@round(r * @sin(t))));
+        inner[47 - i] = .init(@intFromFloat(@round(0.5 * r * @cos(t))), @intFromFloat(@round(0.5 * r * @sin(t))));
+    }
+    try ring.append(gpa, &outer);
+    try ring.append(gpa, &inner);
+    for ([_]i64{ -450, -900, 450, 900 }) |delta| {
+        var a = try offset(gpa, ring, delta, .{});
+        defer a.deinit(gpa);
+        var b = try offset(gpa, ring, delta, .{ .shortcut = false });
+        defer b.deinit(gpa);
+        try testing.expectEqual(b.count(), a.count());
+        // Each vertex of one result is within 1.5 units of the other
+        // result (a crossing point is rounded to a unit in each).
+        for ([2][2]Paths{ .{ a, b }, .{ b, a } }) |pair| {
+            for (pair[0].points.items) |q| {
+                var best: f64 = std.math.inf(f64);
+                for (0..pair[1].count()) |pi| {
+                    const poly = pair[1].get(pi);
+                    for (poly, 0..) |u, j| best = @min(best, segmentDistance(q, u, poly[(j + 1) % poly.len]));
+                }
+                try testing.expect(best <= 1.5);
+            }
+        }
+    }
+}
+
+/// The distance from q to the segment u v.
+fn segmentDistance(q: Point, u: Point, v: Point) f64 {
+    const dx: f64 = @floatFromInt(v.x - u.x);
+    const dy: f64 = @floatFromInt(v.y - u.y);
+    const px: f64 = @floatFromInt(q.x - u.x);
+    const py: f64 = @floatFromInt(q.y - u.y);
+    const l2 = dx * dx + dy * dy;
+    const t = if (l2 > 0) std.math.clamp((px * dx + py * dy) / l2, 0, 1) else 0;
+    return @sqrt((px - t * dx) * (px - t * dx) + (py - t * dy) * (py - t * dy));
 }
