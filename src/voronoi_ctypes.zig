@@ -139,6 +139,13 @@ pub const Efpt = struct {
 
 pub const big_chunks = 64;
 
+/// True if a product of two 64-bit numbers is one CPU instruction. In
+/// wasm it is a library call, so wasm keeps the loops over the chunks.
+const wide_limbs = switch (@import("builtin").cpu.arch) {
+    .x86_64, .aarch64 => true,
+    else => false,
+};
+
 pub const ExtendedInt = ExtendedIntN(big_chunks);
 
 pub fn ExtendedIntN(comptime N: usize) type {
@@ -186,7 +193,64 @@ pub fn ExtendedIntN(comptime N: usize) type {
             return r;
         }
 
-        pub fn add(e1: Self, e2: Self) Self {
+        pub inline fn add(e1: Self, e2: Self) Self {
+            if (short(&e1, &e2)) return addShort(&e1, &e2, (e1.count > 0) != (e2.count > 0));
+            return addLong(&e1, &e2);
+        }
+
+        pub inline fn sub(e1: Self, e2: Self) Self {
+            if (short(&e1, &e2)) return addShort(&e1, &e2, (e1.count > 0) == (e2.count > 0));
+            return subLong(&e1, &e2);
+        }
+
+        /// True if both values have one or two chunks, and the type has
+        /// room for the result of `addShort` and of the short product.
+        inline fn short(e1: *const Self, e2: *const Self) bool {
+            return wide_limbs and N >= 4 and e1.size() -% 1 < 2 and e2.size() -% 1 < 2;
+        }
+
+        /// The magnitude of a value of one or two chunks.
+        inline fn low64(e: *const Self) u64 {
+            return e.chunks[0] | (@as(u64, if (e.size() == 2) e.chunks[1] else 0) << 32);
+        }
+
+        /// The sum (or, with `dif`, the difference) of the magnitudes of
+        /// two values of one or two chunks, with the sign of e1. The
+        /// chunks and the count are those of `addChunks` and `difChunks`.
+        inline fn addShort(e1: *const Self, e2: *const Self, dif: bool) Self {
+            const a = low64(e1);
+            const b = low64(e2);
+            const s1 = e1.size();
+            const s2 = e2.size();
+            var r: Self = .{ .ovf = e1.ovf or e2.ovf };
+            var n: i32 = undefined;
+            if (!dif) {
+                const sum = @as(u128, a) + b;
+                inline for (0..3) |k| r.chunks[k] = @truncate(sum >> (32 * k));
+                // The longer size, and one more for a carry.
+                const longer = @max(s1, s2);
+                n = @intCast(longer + @intFromBool(r.chunks[longer] != 0));
+            } else if (s1 == s2) {
+                // The larger less the smaller: the sign changes if e2 is
+                // the larger one. Equal values give zero.
+                const gap = if (a >= b) a - b else b - a;
+                r.chunks[0] = @truncate(gap);
+                r.chunks[1] = @truncate(gap >> 32);
+                n = if (gap == 0) 0 else if (r.chunks[1] != 0) 2 else 1;
+                if (a < b) n = -n;
+            } else {
+                // The value with two chunks less the value with one.
+                const gap = if (s1 > s2) a -% b else b -% a;
+                r.chunks[0] = @truncate(gap);
+                r.chunks[1] = @truncate(gap >> 32);
+                n = if (r.chunks[1] != 0) 2 else 1;
+                if (s1 < s2) n = -n;
+            }
+            r.count = if (e1.count < 0) -n else n;
+            return r;
+        }
+
+        fn addLong(e1: *const Self, e2: *const Self) Self {
             if (e1.count == 0) return e2.withOvf(e1.ovf);
             if (e2.count == 0) return e1.withOvf(e2.ovf);
             var r: Self = .{ .ovf = e1.ovf or e2.ovf };
@@ -199,7 +263,7 @@ pub fn ExtendedIntN(comptime N: usize) type {
             return r;
         }
 
-        pub fn sub(e1: Self, e2: Self) Self {
+        fn subLong(e1: *const Self, e2: *const Self) Self {
             if (e1.count == 0) return e2.neg().withOvf(e1.ovf);
             if (e2.count == 0) return e1.withOvf(e2.ovf);
             var r: Self = .{ .ovf = e1.ovf or e2.ovf };
@@ -212,7 +276,24 @@ pub fn ExtendedIntN(comptime N: usize) type {
             return r;
         }
 
-        pub fn mul(e1: Self, e2: Self) Self {
+        /// Most products of the predicates have one or two chunks on
+        /// each side. They are one CPU product, with no loop and no call.
+        pub inline fn mul(e1: Self, e2: Self) Self {
+            if (short(&e1, &e2)) {
+                const prod = @as(u128, low64(&e1)) * low64(&e2);
+                var r: Self = .{ .ovf = e1.ovf or e2.ovf };
+                inline for (0..4) |k| r.chunks[k] = @truncate(prod >> (32 * k));
+                // The count rule of `mulChunks`: the sum of the sizes less
+                // one, and one more for a carry.
+                const full = e1.size() + e2.size() - 1;
+                const n: i32 = @intCast(full + @intFromBool(r.chunks[full] != 0));
+                r.count = if ((e1.count > 0) != (e2.count > 0)) -n else n;
+                return r;
+            }
+            return mulLong(&e1, &e2);
+        }
+
+        fn mulLong(e1: *const Self, e2: *const Self) Self {
             var r: Self = .{ .ovf = e1.ovf or e2.ovf };
             if (e1.count == 0 or e2.count == 0) return r;
             r.mulChunks(e1.chunks[0..e1.size()], e2.chunks[0..e2.size()]);
@@ -224,8 +305,8 @@ pub fn ExtendedIntN(comptime N: usize) type {
             return mul(e1, from(v));
         }
 
-        fn withOvf(a: Self, o: bool) Self {
-            var r = a;
+        fn withOvf(a: *const Self, o: bool) Self {
+            var r = a.*;
             r.ovf = r.ovf or o;
             return r;
         }
@@ -619,6 +700,68 @@ test "extended int arithmetic matches i128" {
         const sm = Small.from(a).mul(Small.from(b)).sub(Small.from(c));
         if (!sm.ovf) try std.testing.expectEqual(got.d(), sm.d());
         if (@abs(a) >= 1 << 33 and @abs(b) >= 1 << 33) try std.testing.expect(Small.from(a).mul(Small.from(b)).mul(Small.from(a)).ovf);
+    }
+}
+
+test "extended int: a product has the chunks of the schoolbook product" {
+    var prng = std.Random.DefaultPrng.init(11);
+    const r = prng.random();
+    const Big = ExtendedIntN(16);
+    for (0..4000) |_| {
+        var x: Big = .{};
+        var y: Big = .{};
+        const nx = r.intRangeAtMost(usize, 1, 16);
+        const ny = r.intRangeAtMost(usize, 1, 16);
+        for (x.chunks[0..nx]) |*c| c.* = if (r.uintLessThan(u8, 8) == 0) std.math.maxInt(u32) else r.int(u32);
+        for (y.chunks[0..ny]) |*c| c.* = if (r.uintLessThan(u8, 8) == 0) std.math.maxInt(u32) else r.int(u32);
+        if (x.chunks[nx - 1] == 0) x.chunks[nx - 1] = 1;
+        if (y.chunks[ny - 1] == 0) y.chunks[ny - 1] = 1;
+        x.count = @intCast(nx);
+        y.count = -@as(i32, @intCast(ny));
+        // The product with one chunk of 32 bits for each step.
+        var want: [33]u32 = @splat(0);
+        for (x.chunks[0..nx], 0..) |a, i| {
+            var carry: u64 = 0;
+            for (y.chunks[0..ny], 0..) |b, j| {
+                const t = @as(u64, want[i + j]) + @as(u64, a) * @as(u64, b) + carry;
+                want[i + j] = @truncate(t);
+                carry = t >> 32;
+            }
+            want[i + ny] = @truncate(carry);
+        }
+        var len: usize = nx + ny;
+        while (want[len - 1] == 0) len -= 1;
+        const got = x.mul(y);
+        try std.testing.expectEqual(len > 16, got.ovf);
+        try std.testing.expect(got.count < 0);
+        try std.testing.expectEqual(@min(len, 16), got.size());
+        try std.testing.expectEqualSlices(u32, want[0..got.size()], got.chunks[0..got.size()]);
+    }
+}
+
+test "extended int: the short paths give the chunks of the loops" {
+    var prng = std.Random.DefaultPrng.init(13);
+    const r = prng.random();
+    const Big = ExtendedIntN(16);
+    const edge = [_]u32{ 0, 1, 2, 0x7fffffff, 0x80000000, 0xfffffffe, 0xffffffff };
+    for (0..200000) |_| {
+        var v: [2]Big = .{ .{}, .{} };
+        for (&v) |*x| {
+            // One to three chunks, also with a zero in the top chunk, as
+            // a difference of longer values can leave it.
+            const n = r.intRangeAtMost(usize, 1, 3);
+            for (x.chunks[0..n]) |*c| c.* = if (r.boolean()) edge[r.uintLessThan(usize, edge.len)] else r.int(u32);
+            x.count = if (r.boolean()) @intCast(n) else -@as(i32, @intCast(n));
+            x.ovf = r.uintLessThan(u8, 16) == 0;
+        }
+        if (r.uintLessThan(u8, 8) == 0) v[1] = if (r.boolean()) v[0] else v[0].neg();
+        const got = [_]Big{ v[0].add(v[1]), v[0].sub(v[1]), v[0].mul(v[1]) };
+        const want = [_]Big{ Big.addLong(&v[0], &v[1]), Big.subLong(&v[0], &v[1]), Big.mulLong(&v[0], &v[1]) };
+        for (got, want) |g, w| {
+            try std.testing.expectEqual(w.count, g.count);
+            try std.testing.expectEqual(w.ovf, g.ovf);
+            try std.testing.expectEqualSlices(u32, w.chunks[0..w.size()], g.chunks[0..g.size()]);
+        }
     }
 }
 
