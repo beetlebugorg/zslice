@@ -348,7 +348,8 @@ export class SearchOverlay {
     const had = document.activeElement === this.input;
     this.scopeTag.hidden = true;
     this.input.placeholder = "Search settings and actions";
-    this.fieldClose.before(this.scopeTag);
+    // They go before the key sign (/), in the order of index.html.
+    this.field.querySelector(".search-kbd").before(this.scopeTag);
     this.scopeTag.after(this.input);
     this.field.classList.remove("open");
     this.fieldClose.hidden = true;
