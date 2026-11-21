@@ -67,6 +67,9 @@ pub const paint_body = @import("paint_body.zig");
 /// The labels on the surface of a part (see label.zig), and the font of
 /// their text.
 pub const label = @import("label.zig");
+/// The smart guides of the labels: the features of a face, and the snap
+/// (see label_snap.zig).
+pub const label_snap = @import("label_snap.zig");
 pub const font = @import("font.zig");
 pub const motion = @import("motion.zig");
 pub const parallel = @import("parallel.zig");

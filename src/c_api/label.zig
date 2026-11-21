@@ -230,3 +230,192 @@ test "C API: add, update, outline, info, and remove a label" {
     try testing.expectEqual(ok, zs_app_part_labels_get(app, 0, &buf, buf.len, &len));
     try testing.expectEqualStrings("[]", buf[0..len]);
 }
+
+// ---- the smart guides (label_snap.zig) ----
+
+const snap_mod = zs.label_snap;
+
+fn writeFrame(w: *Writer, f: snap_mod.Frame) Writer.Error!void {
+    try w.print("\"origin\":[{d},{d},{d}],\"normal\":[{d},{d},{d}],\"right\":[{d},{d},{d}]", .{ f.origin[0], f.origin[1], f.origin[2], f.normal[0], f.normal[1], f.normal[2], f.right[0], f.right[1], f.right[2] });
+}
+
+fn writeFace(w: *Writer, f: snap_mod.Face) Writer.Error!void {
+    try w.writeByte('{');
+    try writeFrame(w, f.frame);
+    try w.print(",\"box\":[{d},{d},{d},{d}],\"center\":[{d},{d}],\"part_center\":[{d},{d}],\"holes\":[", .{ f.box[0], f.box[1], f.box[2], f.box[3], f.center[0], f.center[1], f.part_center[0], f.part_center[1] });
+    for (f.holes, 0..) |h, k| {
+        if (k > 0) try w.writeByte(',');
+        try w.print("{{\"kind\":\"{s}\",\"center\":[{d},{d}],\"box\":[{d},{d},{d},{d}],\"radius\":{d},\"size\":[{d},{d}],\"angle\":{d}}}", .{ @tagName(h.kind), h.center[0], h.center[1], h.box[0], h.box[1], h.box[2], h.box[3], h.radius, h.size[0], h.size[1], h.angle });
+    }
+    try w.writeAll("]}");
+}
+
+/// The features of the face of the mesh of a paint session in the plane
+/// of a label: frame = origin (3), normal (3), right (3). JSON (see
+/// label_snap.zig and include/zslice-app.h), or "null" for no face.
+export fn zs_label_face(s: ?*const paint_c.Session, frame: ?*const [9]f64, buf: ?[*]u8, cap: usize, out_len: ?*usize) c_int {
+    const p = s orelse return @intFromEnum(Status.invalid_argument);
+    const f = frame orelse return @intFromEnum(Status.invalid_argument);
+    const fr = frameFrom(f.*) orelse return @intFromEnum(Status.invalid_value);
+    var face = snap_mod.face(gpa, &p.mesh, fr) catch return @intFromEnum(Status.out_of_memory);
+    defer if (face) |*x| x.deinit(gpa);
+    var aw: Writer.Allocating = .init(gpa);
+    defer aw.deinit();
+    if (face) |x| writeFace(&aw.writer, x) catch return @intFromEnum(Status.out_of_memory) else aw.writer.writeAll("null") catch return @intFromEnum(Status.out_of_memory);
+    return give(aw.written(), buf, cap, out_len);
+}
+
+fn frameFrom(f: [9]f64) ?snap_mod.Frame {
+    const n = zs.label.normalize(.{ f[3], f[4], f[5] }) orelse return null;
+    const r0: [3]f64 = .{ f[6], f[7], f[8] };
+    const d = zs.label.dot(r0, n);
+    const r = zs.label.normalize(.{ r0[0] - d * n[0], r0[1] - d * n[1], r0[2] - d * n[2] }) orelse return null;
+    for (f) |x| if (!std.math.isFinite(x)) return null;
+    return .{ .origin = .{ f[0], f[1], f[2] }, .normal = n, .right = r };
+}
+
+const SnapError = error{ BadSnap, OutOfMemory };
+
+fn jnum(v: ?std.json.Value) SnapError!f64 {
+    const x: f64 = switch (v orelse return error.BadSnap) {
+        .integer => |i| @floatFromInt(i),
+        .float => |x| x,
+        else => return error.BadSnap,
+    };
+    if (!std.math.isFinite(x)) return error.BadSnap;
+    return x;
+}
+
+fn jarr(v: ?std.json.Value, comptime n: usize) SnapError![n]f64 {
+    const a = switch (v orelse return error.BadSnap) {
+        .array => |x| x.items,
+        else => return error.BadSnap,
+    };
+    if (a.len != n) return error.BadSnap;
+    var out: [n]f64 = undefined;
+    for (a, &out) |x, *o| o.* = try jnum(x);
+    return out;
+}
+
+fn jframe(o: std.json.ObjectMap) SnapError!snap_mod.Frame {
+    const a = try jarr(o.get("origin"), 3);
+    const n = try jarr(o.get("normal"), 3);
+    const r = try jarr(o.get("right"), 3);
+    return frameFrom(.{ a[0], a[1], a[2], n[0], n[1], n[2], r[0], r[1], r[2] }) orelse error.BadSnap;
+}
+
+fn jobj(v: ?std.json.Value) SnapError!std.json.ObjectMap {
+    return switch (v orelse return error.BadSnap) {
+        .object => |o| o,
+        else => error.BadSnap,
+    };
+}
+
+fn snapJson(a: std.mem.Allocator, json: []const u8, w: *Writer) (SnapError || Writer.Error)!void {
+    const v = std.json.parseFromSliceLeaky(std.json.Value, a, json, .{ .max_value_len = 1 << 22 }) catch |e| return switch (e) {
+        error.OutOfMemory => error.OutOfMemory,
+        else => error.BadSnap,
+    };
+    const o = try jobj(v);
+    var in: snap_mod.Input = .{ .box = try jarr(o.get("box"), 4), .frame = try jframe(try jobj(o.get("frame"))), .tol = try jnum(o.get("tol")) };
+    if (o.get("op")) |x| in.op = switch (x) {
+        .string => |sv| std.meta.stringToEnum(snap_mod.Op, sv) orelse return error.BadSnap,
+        else => return error.BadSnap,
+    };
+    if (o.get("corner")) |x| {
+        const cn = try jarr(x, 2);
+        in.corner = .{ if (cn[0] < 0) -1 else 1, if (cn[1] < 0) -1 else 1 };
+    }
+    if (o.get("aspect")) |x| in.aspect = switch (x) {
+        .bool => |b| b,
+        else => return error.BadSnap,
+    };
+    var others: std.ArrayList(snap_mod.Other) = .empty;
+    if (o.get("others")) |x| switch (x) {
+        .array => |arr| for (arr.items) |it| {
+            const io = try jobj(it);
+            try others.append(a, .{ .frame = try jframe(io), .box = try jarr(io.get("box"), 4) });
+        },
+        else => return error.BadSnap,
+    };
+    in.others = others.items;
+    var face: snap_mod.Face = undefined;
+    if (o.get("face")) |x| if (x == .object) {
+        const fo = x.object;
+        face = .{ .frame = try jframe(fo), .box = try jarr(fo.get("box"), 4), .center = try jarr(fo.get("center"), 2), .part_center = try jarr(fo.get("part_center"), 2), .holes = &.{} };
+        var holes: std.ArrayList(snap_mod.Hole) = .empty;
+        if (fo.get("holes")) |hv| switch (hv) {
+            .array => |arr| for (arr.items) |it| {
+                const ho = try jobj(it);
+                const kind = switch (ho.get("kind") orelse return error.BadSnap) {
+                    .string => |sv| std.meta.stringToEnum(snap_mod.HoleKind, sv) orelse return error.BadSnap,
+                    else => return error.BadSnap,
+                };
+                try holes.append(a, .{
+                    .kind = kind,
+                    .center = try jarr(ho.get("center"), 2),
+                    .box = try jarr(ho.get("box"), 4),
+                    .radius = if (ho.get("radius")) |r| try jnum(r) else 0,
+                    .size = if (ho.get("size")) |r| try jarr(r, 2) else .{ 0, 0 },
+                    .angle = if (ho.get("angle")) |r| try jnum(r) else 0,
+                });
+            },
+            else => return error.BadSnap,
+        };
+        face.holes = holes.items;
+        in.face = &face;
+    };
+    var r = try snap_mod.snap(a, in);
+    defer r.deinit(a);
+    try w.print("{{\"box\":[{d},{d},{d},{d}],\"d\":[{d},{d}],\"guides\":[", .{ r.box[0], r.box[1], r.box[2], r.box[3], r.d[0], r.d[1] });
+    for (r.guides, 0..) |g, k| try w.print("{s}[{d},{d},{d},{d}]", .{ if (k == 0) "" else ",", g[0], g[1], g[2], g[3] });
+    try w.writeAll("]}");
+}
+
+/// The snap of a label box to the smart guides: JSON in, JSON out (see
+/// label_snap.zig and include/zslice-app.h).
+export fn zs_label_snap(json: ?[*]const u8, len: usize, buf: ?[*]u8, cap: usize, out_len: ?*usize) c_int {
+    const j = json orelse return @intFromEnum(Status.invalid_argument);
+    var arena = std.heap.ArenaAllocator.init(gpa);
+    defer arena.deinit();
+    var aw: Writer.Allocating = .init(gpa);
+    defer aw.deinit();
+    snapJson(arena.allocator(), j[0..len], &aw.writer) catch |e| return @intFromEnum(switch (e) {
+        error.OutOfMemory, error.WriteFailed => Status.out_of_memory,
+        error.BadSnap => Status.invalid_value,
+    });
+    return give(aw.written(), buf, cap, out_len);
+}
+
+test "C API: the face of a label and a snap" {
+    // The top of a box 20 x 20 x 10 as a paint session.
+    var b: zs.mesh.Builder = .init(gpa);
+    try zs.mesh.shapes.addBox(&b, 0, 0, 0, 20, 20, 10);
+    var m = try b.finish();
+    defer m.deinit(gpa);
+    var verts: std.ArrayList(f32) = .empty;
+    defer verts.deinit(gpa);
+    for (m.vertices.items) |v| try verts.appendSlice(gpa, &.{ v.x, v.y, v.z });
+    var session: ?*paint_c.Session = null;
+    try testing.expectEqual(ok, paint_c.zs_paint_new(verts.items.ptr, m.vertices.items.len, @ptrCast(m.faces.items.ptr), m.faces.items.len, &session));
+    defer paint_c.zs_paint_free(session);
+    const frame = [9]f64{ 5, 5, 10, 0, 0, 1, 1, 0, 0 };
+    var buf: [2048]u8 = undefined;
+    var len: usize = 0;
+    try testing.expectEqual(ok, zs_label_face(session, &frame, &buf, buf.len, &len));
+    const face = buf[0..len];
+    try testing.expect(std.mem.indexOf(u8, face, "\"holes\":[]") != null);
+    // A box near the center of the face: it moves onto it.
+    var in: Writer.Allocating = .init(gpa);
+    defer in.deinit();
+    try in.writer.print("{{\"op\":\"move\",\"frame\":{{\"origin\":[5,5,10],\"normal\":[0,0,1],\"right\":[1,0,0]}},\"box\":[2.3,-1,8.3,1],\"tol\":0.5,\"face\":{s}}}", .{face});
+    var out: [1024]u8 = undefined;
+    try testing.expectEqual(ok, zs_label_snap(in.written().ptr, in.written().len, &out, out.len, &len));
+    const R = struct { box: [4]f64, d: [2]f64, guides: [][4]f64 };
+    const res = try std.json.parseFromSlice(R, gpa, out[0..len], .{});
+    defer res.deinit();
+    try testing.expectApproxEqAbs(@as(f64, 2), res.value.box[0], 1e-9);
+    try testing.expectApproxEqAbs(@as(f64, -0.3), res.value.d[0], 1e-9);
+    try testing.expect(res.value.guides.len >= 1);
+    try testing.expectEqual(@intFromEnum(Status.invalid_value), zs_label_snap("{}", 2, &out, out.len, &len));
+}
