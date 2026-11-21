@@ -159,6 +159,8 @@ function sendResult(i, ms, turn) {
     event: "sliced",
     plate: i,
     ms,
+    // A draft (zs_app_set_draft): the exact slice follows.
+    draft: c.w.x.zs_app_is_draft(c.app) === 1,
     stats: c.stats(),
     filaments: c.filaments(),
     filamentStats: c.filamentStats(),
@@ -211,8 +213,55 @@ let coarse = null;
 // The most parts on a plate for a live turn.
 const LIVE_PARTS = 2;
 
+// The draft slices (zs_app_set_draft). A change of a plate that has a
+// slice gives a draft first: an outline tolerance of 0.05 mm and no gap
+// fill, in about a third of the time. The exact slice follows SETTLE_MS
+// after the last change, or at the end of a drag (sliceHeld). A plate
+// with no slice yet (a new model) slices exact at once. A draft has no
+// G-code: the page keeps the export and the numbers of the print until
+// the exact slice.
+const SETTLE_MS = 300;
+let settleMs = SETTLE_MS; // a test can change it (settleMs)
+let draftApp = 0; // the app whose next slices are drafts, or 0
+let exactTimer = 0;
+
+// The index of the plate of an app, or -1.
+function plateOf(app) {
+  const n = wasm.x.zs_set_count(set);
+  for (let i = 0; i < n; i++) if (coreAt(i).app === app) return i;
+  return -1;
+}
+
+// The exact slice of the plate that has a draft.
+function settle() {
+  clearTimeout(exactTimer);
+  exactTimer = 0;
+  if (!draftApp) return;
+  const app = draftApp;
+  draftApp = 0;
+  const i = plateOf(app);
+  if (i < 0) return;
+  wasm.x.zs_app_set_draft(app, 0);
+  wasm.x.zs_set_changed(set, i);
+  schedule();
+}
+
+// A change of the active plate: its next slice is a draft, if the plate
+// has a slice.
+function liveChange() {
+  clearTimeout(exactTimer);
+  exactTimer = 0;
+  const c = coreAt(activeIndex());
+  if (draftApp && draftApp !== c.app) settle();
+  if (!draftApp && c.state() === STATE.done) {
+    draftApp = c.app;
+    wasm.x.zs_app_set_draft(c.app, 1);
+  }
+}
+
 // The active plate waits for a slice.
 function wantSlice() {
+  liveChange();
   wasm.x.zs_set_changed(set, activeIndex());
   schedule();
 }
@@ -229,7 +278,7 @@ function sliceOrHold(hold) {
 function postSimScene(c, on) {
   const scene = c.scene(mode);
   const layers = c.layers();
-  post({ event: "sliced", plate: activeIndex(), ms: 0, stats: c.stats(), featureStats: c.featureStats(), layers, scene, mode, marks: c.markCount(), areas: c.supportAreas(), parts: c.w.x.zs_app_part_count(c.app), fits: c.w.x.zs_app_plate_fits(c.app) === 1, tiny: [], simulated: on, sim: c.simStats() }, scene ? [scene] : []);
+  post({ event: "sliced", plate: activeIndex(), ms: 0, draft: c.w.x.zs_app_is_draft(c.app) === 1, stats: c.stats(), featureStats: c.featureStats(), layers, scene, mode, marks: c.markCount(), areas: c.supportAreas(), parts: c.w.x.zs_app_part_count(c.app), fits: c.w.x.zs_app_plate_fits(c.app) === 1, tiny: [], simulated: on, sim: c.simStats() }, scene ? [scene] : []);
 }
 
 // The simulated print after each slice of the active plate
@@ -244,9 +293,14 @@ let simTimer = 0;
 let lastHold = -1e9;
 const SIM_HOLD_MS = 400;
 
+// The progress of the simulation for the page, at most each 2 %.
+let simProgress = 0;
+
 function startSim(i) {
   clearTimeout(simTimer);
   if (wasm.x.zs_app_sim_begin(coreAt(i).app) !== 0) return;
+  simProgress = 0;
+  post({ event: "sim", progress: 0 });
   simTimer = setTimeout(() => simPiece(i), 0);
 }
 
@@ -259,10 +313,16 @@ function simPiece(i) {
   do {
     if (w.x.zs_app_sim_advance(c.app, 16, w.cell) !== 0) return;
     if (w.i32(w.cell) === 1) {
+      post({ event: "sim", progress: 1 });
       showSimWhenStill(c, i);
       return;
     }
   } while (performance.now() - t0 < 8);
+  const f = w.x.zs_app_sim_progress(c.app);
+  if (f - simProgress >= 0.02) {
+    simProgress = f;
+    post({ event: "sim", progress: f });
+  }
   simTimer = setTimeout(() => simPiece(i), 0);
 }
 
@@ -295,7 +355,7 @@ function runSlice() {
   const c = coreAt(i);
   if (c.state() !== STATE.empty) {
     postPlates(i);
-    if (i === activeIndex()) post({ event: "slicing", plate: i });
+    if (i === activeIndex()) post({ event: "slicing", plate: i, draft: draftApp === c.app });
     // The page stops this slice with the cancel flag of its app.
     if (wasm.shared) post({ event: "cancel-flag", memory: wasm.x.memory, address: wasm.x.zs_app_cancel_address(c.app) });
   }
@@ -310,8 +370,15 @@ function runSlice() {
   slicing = -1;
   sendResult(i, ms, turn);
   postPlates();
-  if (i === activeIndex() && c.state() === STATE.done) startSim(i);
+  const draft = wasm.x.zs_app_is_draft(c.app) === 1;
+  // The simulation is for the exact slice.
+  if (i === activeIndex() && c.state() === STATE.done && !draft) startSim(i);
   if (wasm.x.zs_set_next(set) >= 0) schedule();
+  // No change waits: the exact slice follows the draft after a pause.
+  else if (draftApp) {
+    clearTimeout(exactTimer);
+    exactTimer = setTimeout(settle, settleMs);
+  }
 }
 
 // ---- the plate set ----
@@ -636,6 +703,7 @@ const ops = {
   // active plate if plate i was active. The last plate stays, empty.
   plateRemove({ index }) {
     commitPending();
+    settle();
     const rc = wasm.x.zs_set_remove(set, index);
     syncCore();
     showActive();
@@ -982,7 +1050,14 @@ const ops = {
   // A slice during a drag (the support follows a tree edit live): the held
   // change slices now, and the step of the history stays open until
   // sliceHeld.
+  // For tests: the pause between a draft and its exact slice (ms).
+  settleMs({ ms }) {
+    settleMs = ms;
+    return {};
+  },
+
   sliceNow() {
+    liveChange();
     wasm.x.zs_set_release(set);
     schedule();
     return {};
@@ -991,10 +1066,15 @@ const ops = {
   sliceHeld() {
     wasm.x.zs_set_release(set);
     // The end of a live turn: the full slice of the part.
+    const live = coarse;
     if (coarse) {
       wasm.x.zs_app_set_coarse_part(coarse.app, -1);
       coarse = null;
-      wantSlice();
+    }
+    // The end of a drag: the exact slice, with no draft before it.
+    if (draftApp) settle();
+    else if (live) {
+      wasm.x.zs_set_changed(set, activeIndex());
     }
     schedule();
     return {};
@@ -1161,6 +1241,7 @@ const ops = {
     syncCore();
     const error = core.calibrationAdd(kind);
     if (error) {
+      settle();
       wasm.x.zs_set_remove(set, activeIndex());
       wasm.x.zs_set_select(set, from);
       syncCore();

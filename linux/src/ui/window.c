@@ -97,6 +97,25 @@ typedef struct {
     /* The estimate of a printdeck printer for the last slice: its timer,
      * the request, and the result (deck_ok). */
     guint deck_timer;
+    /* The work bar of the view (2 px at its top edge): the draft slice,
+     * the exact slice, and the simulated print, with the progress of the
+     * core. work_kind: 0 none, 1 draft, 2 exact, 3 simulation. It shows
+     * after 150 ms of work (work_show), and the poll of the simulation
+     * runs each 100 ms after an exact slice (work_poll). */
+    GtkWidget *work_bar;
+    /* What runs and its time, then the times of the last slices: small
+     * dim text at the top right of the view. "Draft" comes first while
+     * the view has a draft. */
+    GtkWidget *work_label;
+    /* TRUE while the view has the paths of a draft (also while its exact
+     * slice runs). */
+    gboolean draft_shown;
+    int work_kind;
+    double work_fraction;
+    gint64 work_start;
+    gint64 work_ended;
+    guint work_show;
+    guint work_poll;
     /* The roll in the printer, from the last poll (printdeck): its name,
      * the grams left (< 0: not known), and its price for each gram (0:
      * not known). */
@@ -540,15 +559,17 @@ static void refine_soon(Window *w) {
 }
 
 /* The summary card: the numbers of the last result, faded while a new
- * slice runs. */
+ * slice runs, and while the view has a draft (the numbers are of the
+ * exact slice, which follows). */
 static void update_summary(Window *w, int state) {
     if (!w->sum_box) return;
     /* An empty plate has no print: no card. */
     gtk_widget_set_visible(w->sum_box, state != ZS_STATE_EMPTY);
     zs_app *core = zg_model_core(w->model);
-    if (state == ZS_STATE_SLICING) gtk_widget_add_css_class(w->sum_box, "zg-stale");
+    gboolean stale = state == ZS_STATE_SLICING || zg_model_is_draft(w->model);
+    if (stale) gtk_widget_add_css_class(w->sum_box, "zg-stale");
     else gtk_widget_remove_css_class(w->sum_box, "zg-stale");
-    if (state == ZS_STATE_SLICING) return;
+    if (stale) return;
     if (state != ZS_STATE_DONE) {
         gtk_label_set_text(GTK_LABEL(w->sum_time), state == ZS_STATE_FAILED ? "Slice failed" : "—");
         gtk_label_set_text(GTK_LABEL(w->sum_detail), "");
@@ -675,6 +696,12 @@ static void fill_facts(Window *w) {
 
 /* The window after a change of the state. With refresh, the preview and
  * the 3D view too. */
+/* A time of the work bar: "480 ms" or "1.47 s". */
+static void work_time(char *out, size_t cap, double ms) {
+    if (ms < 1000) g_snprintf(out, cap, "%.0f ms", ms);
+    else g_snprintf(out, cap, "%.2f s", ms / 1000);
+}
+
 static void update_window(Window *w, gboolean refresh) {
     zs_app *core = zg_model_core(w->model);
     int state = zs_app_state(core);
@@ -682,7 +709,9 @@ static void update_window(Window *w, gboolean refresh) {
     gtk_label_set_text(GTK_LABEL(w->title), name ? name : "zslice");
     /* While a new slice runs, the old result stays on the screen, so the
      * export button stays on too (an export waits for the new result). */
-    gboolean have_result = state == ZS_STATE_DONE || (state == ZS_STATE_SLICING && w->last_stats);
+    /* A draft has no G-code: the export waits for the exact slice. */
+    gboolean draft = zg_model_is_draft(w->model);
+    gboolean have_result = (state == ZS_STATE_DONE && !draft) || (state == ZS_STATE_SLICING && w->last_stats);
     gtk_widget_set_sensitive(w->export_button, have_result);
     /* A thin bar that is always there: full when the slice is done. */
     if (state == ZS_STATE_DONE) gtk_progress_bar_set_fraction(GTK_PROGRESS_BAR(w->progress), 1);
@@ -704,9 +733,17 @@ static void update_window(Window *w, gboolean refresh) {
         g_snprintf(text, sizeof text, "Ready");
         break;
     case ZS_STATE_SLICING:
-        g_snprintf(text, sizeof text, "Slicing…");
+        g_snprintf(text, sizeof text, zg_model_slices_draft(w->model) ? "Draft…" : "Slicing…");
         break;
     case ZS_STATE_DONE: {
+        if (draft) {
+            /* The view has the draft; the numbers of the print stay. */
+            char d[24];
+            work_time(d, sizeof d, zg_model_draft_ms(w->model));
+            g_snprintf(text, sizeof text, "Draft · %s", d);
+            if (g_getenv("ZSLICE_BENCH")) g_message("bench: a draft of %.0f ms, %.0f ms after the start", zg_model_draft_ms(w->model), (g_get_monotonic_time() - zg_start_us) / 1000.0);
+            break;
+        }
         zs_stats st;
         zs_app_stats(core, &st);
         char t[32];
@@ -717,6 +754,13 @@ static void update_window(Window *w, gboolean refresh) {
             if (g_getenv("ZSLICE_BENCH")) g_message("bench: a slice of %.0f ms, %.0f ms after the start", ms, (g_get_monotonic_time() - zg_start_us) / 1000.0);
             if (ms < 1000) g_snprintf(took, sizeof took, "   sliced in %.0f ms", ms);
             else g_snprintf(took, sizeof took, "   sliced in %.1f s", ms / 1000);
+            /* After a draft: the times of both. */
+            if (zg_model_draft_ms(w->model) > 0) {
+                char d[24], e[24];
+                work_time(d, sizeof d, zg_model_draft_ms(w->model));
+                work_time(e, sizeof e, zg_model_exact_ms(w->model));
+                g_snprintf(took, sizeof took, "   draft %s · Exact %s", d, e);
+            }
         }
         /* A printdeck printer: its time of the print, with the start
          * macro and the factor that it learned from its past prints. */
@@ -771,7 +815,7 @@ static void update_window(Window *w, gboolean refresh) {
     if (refresh) zg_preview_refresh(w->preview);
     show_islands(w, state);
     update_badge(w);
-    if (state == ZS_STATE_DONE) refine_soon(w);
+    if (state == ZS_STATE_DONE && !draft) refine_soon(w);
 }
 
 static void update(Window *w) {
@@ -818,8 +862,110 @@ static void deck_estimate_soon(Window *w) {
     w->deck_timer = g_timeout_add(800, deck_estimate_now, w);
 }
 
+/* ---- the work bar ----
+ *
+ * A bar of 2 px at the top edge of the view, in the accent color: the
+ * draft slice, the exact slice, and the simulated print of the slice, each
+ * with the progress of the core. It fades in after 150 ms of work, so a
+ * fast slice shows no bar, and fades out at the end. It takes no clicks
+ * and no room. The status line of the print card has the text. */
+
+static void work_text(Window *w) {
+    char t[96] = "";
+    gboolean draft = w->draft_shown;
+    gint64 now = g_get_monotonic_time();
+    double run = (now - w->work_start) / 1e6;
+    gboolean show = TRUE;
+    if (w->work_kind == 3) {
+        g_snprintf(t, sizeof t, "Simulation %.0f %%", w->work_fraction * 100);
+    } else if (w->work_kind) {
+        g_snprintf(t, sizeof t, "%s%s %.*f s", draft && w->work_kind == 2 ? "Draft \u00b7 " : "", w->work_kind == 1 ? "Draft" : "Slice", w->work_kind == 1 ? 2 : 1, run);
+        /* A fast slice shows no text. */
+        show = run >= 0.15 || draft;
+    } else if (draft) {
+        char d[24];
+        work_time(d, sizeof d, zg_model_draft_ms(w->model));
+        g_snprintf(t, sizeof t, "Draft \u00b7 %s", d);
+    } else if (w->work_ended && now - w->work_ended < 2500000 && zg_model_exact_ms(w->model) > 0) {
+        /* The times of the last slices, for a moment. */
+        char d[24], e[24];
+        work_time(d, sizeof d, zg_model_draft_ms(w->model));
+        work_time(e, sizeof e, zg_model_exact_ms(w->model));
+        if (zg_model_draft_ms(w->model) > 0) g_snprintf(t, sizeof t, "Draft %s \u00b7 Exact %s", d, e);
+        else g_snprintf(t, sizeof t, "Exact %s", e);
+    }
+    if (t[0]) gtk_label_set_text(GTK_LABEL(w->work_label), t);
+    if (t[0] && show) gtk_widget_add_css_class(w->work_label, "on");
+    else gtk_widget_remove_css_class(w->work_label, "on");
+}
+
+static gboolean on_work_show(gpointer data) {
+    Window *w = data;
+    w->work_show = 0;
+    if (w->work_kind) gtk_widget_add_css_class(w->work_bar, "on");
+    return G_SOURCE_REMOVE;
+}
+
+static gboolean on_work_tick(gpointer data);
+
+static void work_begin(Window *w, int kind) {
+    if (w->work_kind != kind) {
+        w->work_kind = kind;
+        w->work_start = g_get_monotonic_time();
+        w->work_fraction = 0;
+        gtk_progress_bar_set_fraction(GTK_PROGRESS_BAR(w->work_bar), 0);
+    }
+    if (!w->work_show && !gtk_widget_has_css_class(w->work_bar, "on")) w->work_show = g_timeout_add(150, on_work_show, w);
+    if (!w->work_poll) w->work_poll = g_timeout_add(100, on_work_tick, w);
+}
+
+static void work_end(Window *w) {
+    w->work_kind = 0;
+    w->work_ended = g_get_monotonic_time();
+    if (w->work_show) g_source_remove(w->work_show);
+    w->work_show = 0;
+    gtk_widget_remove_css_class(w->work_bar, "on");
+    work_text(w);
+}
+
+/* Each 100 ms while work runs, and a moment after it: the progress of the
+ * simulated print (it runs on the thread of the slice after each exact
+ * slice), and the text. */
+static gboolean on_work_tick(gpointer data) {
+    Window *w = data;
+    double f = 0;
+    if (zs_app_sim_work(zg_model_core(w->model), &f)) {
+        work_begin(w, 3);
+        w->work_fraction = f;
+        gtk_progress_bar_set_fraction(GTK_PROGRESS_BAR(w->work_bar), f);
+    } else if (w->work_kind == 3) {
+        work_end(w);
+    }
+    work_text(w);
+    /* The text of the last times stays for a moment; a draft keeps its
+     * note until the exact slice. */
+    gint64 idle = g_get_monotonic_time() - w->work_ended;
+    if (w->work_kind == 0 && !w->draft_shown && idle > 2600000) {
+        w->work_poll = 0;
+        return G_SOURCE_REMOVE;
+    }
+    return G_SOURCE_CONTINUE;
+}
+
 static void on_core_event(ZgModel *model, int event, double progress, int status, gpointer data) {
     Window *w = data;
+    if (event == ZS_EVENT_PROGRESS && zs_app_state(zg_model_core(model)) == ZS_STATE_SLICING) {
+        work_begin(w, zg_model_slices_draft(model) ? 1 : 2);
+        w->work_fraction = progress;
+        gtk_progress_bar_set_fraction(GTK_PROGRESS_BAR(w->work_bar), progress);
+    }
+    if (event == ZS_EVENT_SLICED) w->draft_shown = zg_model_is_draft(model);
+    if (event == ZS_EVENT_FAILED) w->draft_shown = FALSE;
+    if (event == ZS_EVENT_SLICED || event == ZS_EVENT_FAILED || event == ZS_EVENT_CANCELED) {
+        if (w->work_kind != 3) work_end(w);
+        /* The tick shows the simulation of an exact slice, and the text. */
+        if (!w->work_poll) w->work_poll = g_timeout_add(100, on_work_tick, w);
+    }
     if (event == ZS_EVENT_PROGRESS) {
         gtk_progress_bar_set_fraction(GTK_PROGRESS_BAR(w->progress), progress);
         /* A progress event changes the state only at the start of a slice
@@ -838,11 +984,14 @@ static void on_core_event(ZgModel *model, int event, double progress, int status
     /* A switch of the active plate: its "plate-changed" refreshed the
      * preview and loaded the view of the new plate. */
     update_window(w, !zg_model_plate_switching(model));
-    if (w->send_pending && zs_app_state(zg_model_core(model)) != ZS_STATE_SLICING) {
+    /* A draft has no G-code: a print, an export, and a batch wait for
+     * the exact slice. */
+    gboolean draft = zg_model_is_draft(model);
+    if (w->send_pending && zs_app_state(zg_model_core(model)) != ZS_STATE_SLICING && !draft) {
         w->send_pending = FALSE;
         if (zs_app_state(zg_model_core(model)) == ZS_STATE_DONE) send_checked(w);
     }
-    if (w->batch.on && event == ZS_EVENT_SLICED) batch_take(w);
+    if (w->batch.on && event == ZS_EVENT_SLICED && !draft) batch_take(w);
     if (event == ZS_EVENT_SLICED) deck_estimate_soon(w);
     static gboolean stress_hooked;
     if (event == ZS_EVENT_SLICED && !stress_hooked && g_getenv("ZSLICE_STRESS")) {
@@ -854,7 +1003,7 @@ static void on_core_event(ZgModel *model, int event, double progress, int status
         action_hooked = TRUE;
         g_timeout_add_once(1500, action_hook, w);
     }
-    if (w->export_pending && zs_app_state(zg_model_core(model)) != ZS_STATE_SLICING) {
+    if (w->export_pending && zs_app_state(zg_model_core(model)) != ZS_STATE_SLICING && !draft) {
         w->export_pending = FALSE;
         if (zs_app_state(zg_model_core(model)) == ZS_STATE_DONE) zg_window_export_dialog(w->window);
     }
@@ -1037,7 +1186,9 @@ static char *gcode_file_name(Window *w) {
 void zg_window_export_dialog(GtkWindow *window) {
     Window *w = get(window);
     int state = zs_app_state(zg_model_core(w->model));
-    if (state == ZS_STATE_SLICING) {
+    /* A slice runs, or the view has a draft: the dialog opens with the
+     * exact slice. */
+    if (state == ZS_STATE_SLICING || zg_model_is_draft(w->model)) {
         w->export_pending = TRUE;
         return;
     }
@@ -1197,7 +1348,7 @@ static void send_checked(Window *w) {
 
 static void send_go(Window *w) {
     int state = zs_app_state(zg_model_core(w->model));
-    if (state == ZS_STATE_SLICING) {
+    if (state == ZS_STATE_SLICING || zg_model_is_draft(w->model)) {
         w->send_pending = TRUE;
         return;
     }
@@ -2337,6 +2488,9 @@ static void on_export_clicked(GtkButton *b, gpointer data) {
 }
 
 static void window_free(gpointer data) {
+    Window *wk = data;
+    if (wk->work_show) g_source_remove(wk->work_show);
+    if (wk->work_poll) g_source_remove(wk->work_poll);
     Window *w = data;
     g_signal_handlers_disconnect_by_data(w->model, w);
     if (w->poll) g_source_remove(w->poll);
@@ -2651,6 +2805,20 @@ GtkWindow *zg_window_new(GtkApplication *app, ZgModel *model) {
     gtk_widget_set_halign(w->islands, GTK_ALIGN_START);
     gtk_widget_set_visible(w->islands, FALSE);
     g_signal_connect(w->islands, "clicked", G_CALLBACK(on_islands_clicked), w);
+    w->work_bar = gtk_progress_bar_new();
+    gtk_widget_add_css_class(w->work_bar, "zg-work");
+    gtk_widget_set_valign(w->work_bar, GTK_ALIGN_START);
+    gtk_widget_set_halign(w->work_bar, GTK_ALIGN_FILL);
+    gtk_widget_set_can_target(w->work_bar, FALSE);
+    w->work_label = gtk_label_new("");
+    gtk_widget_add_css_class(w->work_label, "zg-work-text");
+    gtk_widget_add_css_class(w->work_label, "caption");
+    gtk_widget_add_css_class(w->work_label, "numeric");
+    gtk_widget_set_valign(w->work_label, GTK_ALIGN_START);
+    gtk_widget_set_halign(w->work_label, GTK_ALIGN_END);
+    gtk_widget_set_margin_top(w->work_label, 8);
+    gtk_widget_set_margin_end(w->work_label, 64);
+    gtk_widget_set_can_target(w->work_label, FALSE);
     w->progress = gtk_progress_bar_new();
     gtk_widget_add_css_class(w->progress, "zg-thin");
     gtk_widget_set_tooltip_text(w->progress, "The progress of the slice.");
@@ -2738,6 +2906,9 @@ GtkWindow *zg_window_new(GtkApplication *app, ZgModel *model) {
     zg_preview_set_timeline(w->preview, w->timeline);
     /* The print card over the view, at its bottom right. */
     zg_preview_set_card(w->preview, w->sum_box);
+    /* The work bar, at the top edge of the view. */
+    gtk_overlay_add_overlay(GTK_OVERLAY(w->preview), w->work_bar);
+    gtk_overlay_add_overlay(GTK_OVERLAY(w->preview), w->work_label);
     /* The card of a selected line, next to the click. */
     gtk_overlay_add_overlay(GTK_OVERLAY(w->preview), zg_line_card_new(model, w->preview));
     /* The card of a selected part, next to it. */

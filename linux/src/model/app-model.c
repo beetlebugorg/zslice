@@ -131,6 +131,13 @@ struct _ZgModel {
     /* The time of the last slice request, and of the last slice (ms). */
     gint64 slice_start;
     double slice_ms;
+    /* The draft slices (zs_app_set_draft): the app whose next slices are
+     * drafts (or NULL), the timer of its exact slice, and the times of the
+     * last draft and the last exact slice (ms). */
+    zs_app *draft_core;
+    guint settle_timer;
+    double draft_ms;
+    double exact_ms;
     /* The groups to save (a bit for each enum zs_group), and the timer. */
     guint dirty;
     guint save_timer;
@@ -158,10 +165,63 @@ static void sync_core(ZgModel *self) {
     for (size_t i = 0; i < zs_set_count(self->set); i++) zs_app_set_auto_scene(zs_set_app(self->set, i), 1);
 }
 
+/* The draft slices. A change of a plate that has a slice gives a draft
+ * first (zs_app_set_draft: an outline tolerance of 0.05 mm and no gap
+ * fill, in about a third of the time). The exact slice follows
+ * ZG_SETTLE_MS after the last change, or at the end of a drag
+ * (zg_model_hold). A plate with no slice yet (a new model) slices exact at
+ * once. A draft has no G-code (zs_app_gcode), so the window keeps the
+ * export and the numbers of the print until the exact slice. */
+#define ZG_SETTLE_MS 300
+
+/* The exact slice of the plate that has a draft. */
+static void settle(ZgModel *self) {
+    if (self->settle_timer) g_source_remove(self->settle_timer);
+    self->settle_timer = 0;
+    zs_app *app = self->draft_core;
+    self->draft_core = NULL;
+    if (!app) return;
+    for (size_t i = 0; i < zs_set_count(self->set); i++) {
+        if (zs_set_app(self->set, i) != app) continue;
+        zs_app_set_draft(app, 0);
+        if (i == zs_set_active(self->set)) {
+            self->slice_start = g_get_monotonic_time();
+            self->slice_gen = self->edit_gen;
+        }
+        zs_set_changed(self->set, i);
+        return;
+    }
+}
+
+static gboolean on_settle(gpointer data) {
+    ZgModel *self = data;
+    /* A draft that still runs: the exact slice waits for its result, so
+     * that the view gets the draft. */
+    if (self->draft_core && zs_app_state(self->draft_core) == ZS_STATE_SLICING) return G_SOURCE_CONTINUE;
+    self->settle_timer = 0;
+    settle(self);
+    return G_SOURCE_REMOVE;
+}
+
+/* A change of the active plate: its next slice is a draft, if the plate
+ * has a slice. */
+static void live_change(ZgModel *self) {
+    if (self->settle_timer) g_source_remove(self->settle_timer);
+    self->settle_timer = 0;
+    if (self->draft_core && self->draft_core != self->core) settle(self);
+    int state = zs_app_state(self->core);
+    if (!self->draft_core && (state == ZS_STATE_DONE || state == ZS_STATE_SLICING)) {
+        self->draft_core = self->core;
+        zs_app_set_draft(self->core, 1);
+    }
+    if (self->draft_core) self->settle_timer = g_timeout_add(ZG_SETTLE_MS, on_settle, self);
+}
+
 /* The active plate changed: the set starts its slice. Notes the time for
  * the slice time in the status bar. */
 static int request_slice(ZgModel *self) {
     if (self->held) return zs_set_changed_held(self->set, zs_set_active(self->set));
+    live_change(self);
     self->slice_start = g_get_monotonic_time();
     self->slice_gen = self->edit_gen;
     return zs_set_changed(self->set, zs_set_active(self->set));
@@ -175,6 +235,7 @@ static void fall_check(ZgModel *self);
  * release (zg_model_hold). */
 void zg_model_slice_now(ZgModel *self) {
     if (!self->held) return;
+    live_change(self);
     self->slice_start = g_get_monotonic_time();
     self->slice_gen = self->edit_gen;
     zs_set_release(self->set);
@@ -184,6 +245,8 @@ void zg_model_hold(ZgModel *self, gboolean hold) {
     if (self->held == hold) return;
     self->held = hold;
     if (!hold) {
+        /* The end of a drag: the exact slice, with no draft before it. */
+        settle(self);
         self->slice_start = g_get_monotonic_time();
         self->slice_gen = self->edit_gen;
         zs_set_release(self->set);
@@ -402,6 +465,8 @@ static gboolean deliver(gpointer data) {
         if (p->event == ZS_EVENT_SLICED) model->shown_gen = model->slice_gen;
         if (p->event == ZS_EVENT_SLICED && model->slice_start) {
             model->slice_ms = (g_get_monotonic_time() - model->slice_start) / 1000.0;
+            if (zs_app_is_draft(model->core)) model->draft_ms = model->slice_ms;
+            else model->exact_ms = model->slice_ms;
         }
         if (p->event == ZS_EVENT_SLICED && model->anchored) {
             /* The layer at the z of the selection: a new layer height
@@ -464,6 +529,8 @@ static void rolls_clear(ZgModel *self);
 
 static void zg_model_dispose(GObject *object) {
     ZgModel *self = ZG_MODEL(object);
+    if (self->settle_timer) g_source_remove(self->settle_timer);
+    self->settle_timer = 0;
     if (self->more) g_array_free(self->more, TRUE);
     if (self->more_anchor) g_array_free(self->more_anchor, TRUE);
     self->more = self->more_anchor = NULL;
@@ -1153,6 +1220,22 @@ void zg_model_save_soon(ZgModel *self, int group) {
 
 double zg_model_slice_ms(ZgModel *self) {
     return self->slice_ms;
+}
+
+gboolean zg_model_is_draft(ZgModel *self) {
+    return zs_app_state(self->core) == ZS_STATE_DONE && zs_app_is_draft(self->core);
+}
+
+gboolean zg_model_slices_draft(ZgModel *self) {
+    return zs_app_state(self->core) == ZS_STATE_SLICING && zs_app_is_draft(self->core);
+}
+
+double zg_model_draft_ms(ZgModel *self) {
+    return self->draft_ms;
+}
+
+double zg_model_exact_ms(ZgModel *self) {
+    return self->exact_ms;
 }
 
 void zg_model_mark_add(ZgModel *self, double x, double y, double z, double r, int kind) {
@@ -2302,6 +2385,7 @@ gboolean zg_model_calibrate(ZgModel *self, int kind, GError **error) {
     int rc = zs_app_calibration_add(self->core, kind);
     if (rc != ZS_OK) {
         plate_leave(self);
+        settle(self);
         zs_set_remove(self->set, zs_set_active(self->set));
         zs_set_select(self->set, from);
         plate_switched(self);
@@ -2340,6 +2424,7 @@ gboolean zg_model_calibration_use(ZgModel *self, const char *setting, const char
 
 void zg_model_plate_remove(ZgModel *self, size_t i) {
     plate_leave(self);
+    settle(self);
     if (zs_set_remove(self->set, i) != ZS_OK) return;
     if (self->refine_ids && i < self->refine_ids->len) g_ptr_array_remove_index(self->refine_ids, (guint)i);
     plate_switched(self);

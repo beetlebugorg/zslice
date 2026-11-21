@@ -432,6 +432,15 @@ void zg_model_save_soon(ZgModel *self, int group);
 
 /* The time of the last slice, from the request to the result, in ms. */
 double zg_model_slice_ms(ZgModel *self);
+/* TRUE if the last slice of the active plate is a draft (zs_app_set_draft):
+ * the view has its paths, and the exact slice follows. A draft has no
+ * G-code, so the export, the print, and the numbers of the print wait. */
+gboolean zg_model_is_draft(ZgModel *self);
+/* TRUE if the slice that runs is a draft. */
+gboolean zg_model_slices_draft(ZgModel *self);
+/* The times of the last draft and of the last exact slice, in ms (0: none). */
+double zg_model_draft_ms(ZgModel *self);
+double zg_model_exact_ms(ZgModel *self);
 
 /* ---- printdeck.yml projects (include/zslice-app.h) ----
  *

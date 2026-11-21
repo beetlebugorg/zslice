@@ -103,7 +103,7 @@ The default stays at 0.005 mm. A change of the default changes the G-code of eac
 
 ## The draft slice
 
-`App.setDraft` (`zs_app_set_draft`) makes the next slices drafts for the view during a drag or an edit: an outline tolerance of 0.05 mm, no gap fill, and classic walls. The view gets the paths. `zs_app_gcode` and `zs_app_bambu_file` give no G-code for a draft, so a file or a printer gets only the exact slice. The shell turns the draft off at the end of the drag and slices again.
+`App.setDraft` (`zs_app_set_draft`) makes the next slices drafts for the view during a drag or an edit: an outline tolerance of 0.05 mm, no gap fill, and classic walls. The view gets the paths. `zs_app_gcode` and `zs_app_bambu_file` give no G-code for a draft, so a file or a printer gets only the exact slice. The shell turns the draft off at the end of the drag and slices again. The web app and the GTK app do this for each change of a plate that has a slice: the draft comes first, and the exact slice follows 300 ms after the last change (see "A draft first, then the exact slice" in [The app](../app/README.md)).
 
 | Part | Exact slice (CPU) | Draft slice (CPU) |
 |---|---|---|
@@ -112,6 +112,13 @@ The default stays at 0.005 mm. A change of the default changes the G-code of eac
 | Bunny | 1312 ms | 639 ms |
 
 The gap fill alone is 439 ms of the 3DBenchy (1482 to 1043 ms with `project.gap_fill` off). `zslice bench part.stl --only draft` measures a draft.
+
+In the apps, for a 3DBenchy and a run of wall count changes (the times include the scene of the view):
+
+| App | A change to the draft on the view | The last change to the exact slice on the view |
+|---|---|---|
+| GTK (8 threads) | 106 to 194 ms | 300 ms of pause, then 415 to 494 ms |
+| Web (Chromium with no GPU, one thread) | 175 to 252 ms | 520 ms to the start, then 0.66 to 1.82 s |
 
 ## Rules
 

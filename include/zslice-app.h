@@ -684,6 +684,11 @@ int zs_app_sim_adopt(zs_app *app);
 int zs_app_sim_begin(zs_app *app);
 int zs_app_sim_advance(zs_app *app, size_t paths, int *done);
 double zs_app_sim_progress(const zs_app *app);
+/* The simulation on the worker thread (after each slice, and
+ * zs_app_sim_request): 1 if it runs now, with the share that ran in
+ * *fraction (0 to 1; fraction can be NULL); else 0. For a progress bar.
+ * Any thread can call it. */
+int zs_app_sim_work(const zs_app *app, double *fraction);
 /* The numbers of the last simulated print, with no new simulation.
  * ZS_NO_RESULT if there is no simulation of the last slice. */
 int zs_app_sim_stats(const zs_app *app, zs_print_sim_stats *out);

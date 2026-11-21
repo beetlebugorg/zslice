@@ -56,7 +56,7 @@ The rule of `docs/app/README.md` holds: the app logic is in the core, and the we
 |---|---|
 | `index.html`, `style.css` | The window: the header bar, the preview, and the panel, in the look of the GTK shell |
 | `app.js` | The main thread: it builds the window, and connects the worker, the view, and the widgets |
-| `worker.js` | The Web Worker. It owns the app core, and slices |
+| `worker.js` | The Web Worker. It owns the app core, and slices. A change gives a draft slice first, and the exact slice follows 300 ms after the last change (`liveChange`, `settle`) |
 | `client.js` | The page side of the worker: calls with answers, and events |
 | `core.js` | The app core (`zs_app_*`) for the worker |
 | `wasm.js` | The wasm instance, and the helpers to call the C API |
