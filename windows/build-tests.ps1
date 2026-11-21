@@ -1,7 +1,10 @@
 # Builds and runs the Windows host tests with MSVC.
 #
-# core_link links zig-out\lib\zslice.lib, so run build-core.ps1 first. An
+# The tests link zig-out\lib\zslice.lib, so run build-core.ps1 first. An
 # ARM64 test program builds on an x64 machine and does not run there.
+#
+# core_link     calls the C API, and opens a file by a UTF-8 path.
+# view_offscreen draws a model with Direct3D 12 and checks the pixels.
 #
 # Usage: pwsh windows/build-tests.ps1 [-Platform x64|ARM64]
 param(
@@ -25,19 +28,20 @@ $hostArch = if ($env:PROCESSOR_ARCHITECTURE -eq 'ARM64') { 'arm64' } else { 'x64
 $targetArch = $Platform.ToLowerInvariant()
 $arch = if ($hostArch -eq $targetArch) { $targetArch } else { "${hostArch}_$targetArch" }
 
-$source = Join-Path $PSScriptRoot 'test\core_link.c'
-$exe = Join-Path $out 'core_link.exe'
 $include = Join-Path $repo 'zig-out\include'
 $lib = Join-Path $repo 'zig-out\lib\zslice.lib'
-$compile = "cl /nologo /W3 /O2 /MD /utf-8 /I`"$include`" /Fo`"$out\\`" /Fe`"$exe`" `"$source`" " +
-    "/link `"$lib`" ntdll.lib ws2_32.lib advapi32.lib bcrypt.lib userenv.lib"
 
-& cmd /c "`"$vcvars`" $arch >nul && $compile"
-if ($LASTEXITCODE -ne 0) { throw "core_link failed to build ($LASTEXITCODE)" }
-
-if ($hostArch -ne $targetArch) {
-    Write-Host "built $exe. It does not run on this machine."
-    exit 0
+foreach ($name in 'core_link', 'view_offscreen') {
+    $source = Join-Path $PSScriptRoot "test\$name.c"
+    $exe = Join-Path $out "$name.exe"
+    $compile = "cl /nologo /W3 /O2 /MD /utf-8 /I`"$include`" /Fo`"$out\\`" /Fe`"$exe`" `"$source`" " +
+        "/link `"$lib`" ntdll.lib ws2_32.lib advapi32.lib bcrypt.lib userenv.lib"
+    & cmd /c "`"$vcvars`" $arch >nul && $compile"
+    if ($LASTEXITCODE -ne 0) { throw "$name failed to build ($LASTEXITCODE)" }
+    if ($hostArch -ne $targetArch) {
+        Write-Host "built $exe. It does not run on this machine."
+        continue
+    }
+    & $exe
+    if ($LASTEXITCODE -ne 0) { throw "$name failed ($LASTEXITCODE)" }
 }
-& $exe
-if ($LASTEXITCODE -ne 0) { throw "core_link failed ($LASTEXITCODE)" }
