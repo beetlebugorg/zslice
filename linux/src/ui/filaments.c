@@ -251,18 +251,30 @@ static void update_button(Button *b) {
     }
     gtk_drawing_area_set_content_width(GTK_DRAWING_AREA(b->dots), b->n_dots > 0 ? DOT_PX + (b->n_dots - 1) * (DOT_PX - 3) : 0);
     gtk_widget_queue_draw(b->dots);
+    /* The filaments that come from the spools of the printer. */
+    gboolean from = n > 0;
+    for (size_t i = 0; i < n && from; i++) {
+        char *p = zg_model_filament_get(b->model, i, "source.printer");
+        from = strcmp(p, "1") == 0;
+        g_free(p);
+    }
+    const char *more = from ? " · From the printer" : "";
     if (n > 1) {
-        char *text = g_strdup_printf("%zu filaments", n);
+        char *text = g_strdup_printf("%zu filaments%s", n, more);
         gtk_label_set_text(GTK_LABEL(b->label), text);
         g_free(text);
-        char *tip = g_strdup_printf("The %zu filaments of the plate: click to change them", n);
+        char *tip = g_strdup_printf("The %zu filaments of the plate: click to change them%s", n,
+                                    from ? ". They are the spools in the printer." : "");
         gtk_widget_set_tooltip_text(b->button, tip);
         g_free(tip);
     } else {
         char *name = zg_model_get(b->model, "filament.name");
-        gtk_label_set_text(GTK_LABEL(b->label), name[0] ? name : "Filament");
+        char *text = g_strdup_printf("%s%s", name[0] ? name : "Filament", more);
+        gtk_label_set_text(GTK_LABEL(b->label), text);
+        g_free(text);
         g_free(name);
-        gtk_widget_set_tooltip_text(b->button, "The filament: click to change it, or to add filaments");
+        gtk_widget_set_tooltip_text(b->button, from ? "The filament: the spool in the printer. Click to change it, or to add filaments"
+                                                    : "The filament: click to change it, or to add filaments");
     }
 }
 
@@ -347,13 +359,25 @@ static void fill_row(Row *r, const double *grams, size_t n_grams) {
         if (gtk_drop_down_get_selected(GTK_DROP_DOWN(r->nozzle)) != sel) gtk_drop_down_set_selected(GTK_DROP_DOWN(r->nozzle), sel);
         g_free(nz);
     }
-    if (r->index < n_grams && grams[r->index] > 0) {
-        char *g = g_strdup_printf("%.1f g", grams[r->index]);
-        gtk_label_set_text(GTK_LABEL(r->grams), g);
-        g_free(g);
+    /* The spool of the printer that the filament comes from ("A1"). */
+    char *from = zg_model_filament_get(b->model, r->index, "source.printer");
+    char *slot = zg_model_filament_get(b->model, r->index, "source.slot");
+    char *hand = zg_model_filament_get(b->model, r->index, "source.hand");
+    gboolean printer = strcmp(from, "1") == 0;
+    GString *g = g_string_new(printer ? (slot[0] ? slot : "Printer") : "");
+    if (r->index < n_grams && grams[r->index] > 0) g_string_append_printf(g, "%s%.1f g", g->len ? " · " : "", grams[r->index]);
+    gtk_label_set_text(GTK_LABEL(r->grams), g->str);
+    g_string_free(g, TRUE);
+    if (printer) {
+        char *tip = slot[0] ? g_strdup_printf("From the printer: the spool in %s", slot) : g_strdup("From the printer: its spool");
+        gtk_widget_set_tooltip_text(r->grams, tip);
+        g_free(tip);
     } else {
-        gtk_label_set_text(GTK_LABEL(r->grams), "");
+        gtk_widget_set_tooltip_text(r->grams, strcmp(hand, "1") == 0 ? "You set this filament. It stays when the printer has other spools." : NULL);
     }
+    g_free(from);
+    g_free(slot);
+    g_free(hand);
 }
 
 static void add_row(Button *b, size_t i) {
@@ -473,30 +497,24 @@ static void update_list(Button *b) {
 
 /* ---- the filaments of a printdeck printer ---- */
 
-/* A value of a filament from the printer: a value that the core refuses
- * (a material that zslice does not know) leaves the old value. */
-static void set_quiet(Button *b, size_t i, const char *name, const char *value) {
-    zg_model_filament_set(b->model, i, name, value, NULL);
-}
-
-/* Makes the filaments of the plate the spools of the printer: the same
- * count, then the material, the color, and the nozzle of each, in the
- * order of the printer. Then the nozzle of the printer. */
-static void apply_loaded(Button *b, const ZgDeckFilaments *d, gboolean two) {
-    size_t want = d->use->len;
-    size_t have = zs_app_filament_count(zg_model_core(b->model));
-    while (have < want && zg_model_filament_add(b->model) >= 0) have++;
-    while (have > want && zg_model_filament_remove(b->model, have - 1)) have--;
-    for (size_t k = 0; k < MIN(have, want); k++) {
-        const ZgSpool *s = g_ptr_array_index(d->use, k);
-        set_quiet(b, k, "filament.material", s->material);
-        if (s->color) set_quiet(b, k, "filament.color", s->color);
-        if (two) set_quiet(b, k, "filament.nozzle", s->aux ? "1" : "0");
-    }
+/* Makes the filaments of the plate the spools of the printer
+ * (zs_app_filaments_from_printer): the same count, then the material (its
+ * built-in profile), the color, and the nozzle of each, in the order of
+ * the printer. The filaments that the user set by hand follow too. Then
+ * the nozzle of the printer. Returns the words for the user. */
+static char *apply_loaded(Button *b, const ZgDeckFilaments *d, const char *body, gsize len, const char *name) {
+    char *message = NULL;
+    zg_model_filaments_from_printer(b->model, name, body, len, 1, &message);
     if (d->nozzle_type) {
         zg_model_set(b->model, "machine.nozzle_type", d->nozzle_type, NULL);
         zg_model_set(b->model, "machine.nozzle_flow", d->nozzle_flow, NULL);
+        char *more = g_strdup_printf("%s Nozzles: %s, %s.", message ? message : "", d->nozzle_type, d->nozzle_flow);
+        for (char *c = more; *c; c++)
+            if (*c == '_') *c = ' ';
+        g_free(message);
+        message = more;
     }
+    return message;
 }
 
 static void on_loaded(const char *body, gsize len, const char *error, gpointer data) {
@@ -512,8 +530,7 @@ static void on_loaded(const char *body, gsize len, const char *error, gpointer d
         char *why = NULL;
         ZgDeckFilaments *d = zg_deck_filaments_parse(body, (gssize)len, two, name, &why);
         if (d) {
-            apply_loaded(b, d, two);
-            message = zg_deck_filaments_message(d, two, name);
+            message = apply_loaded(b, d, body, len, name);
             zg_deck_filaments_free(d);
         } else {
             message = why;

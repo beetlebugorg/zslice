@@ -17,6 +17,7 @@
 #include "preferences.h"
 #include "cura-compare.h"
 #include "../net/printer-link.h"
+#include "../net/bambu-link.h"
 #include "../net/signing.h"
 #include "../prefs/printers.h"
 #include "printer-picker.h"
@@ -102,6 +103,10 @@ typedef struct {
     char *spool;
     char *spool_material; /* the material of the roll before, for a change */
     char *printer_roll;   /* the key of the roll in the printer at the last poll */
+    /* The reports of the current printer when it is a Bambu Lab printer,
+     * for its spools, and the ID of that printer. */
+    ZgBambuWatch *bambu;
+    char *bambu_id;
     double spool_left;
     double spool_price_g;
     GCancellable *deck_cancel;
@@ -1343,6 +1348,27 @@ static void on_export_action(GSimpleAction *a, GVariant *v, gpointer data) {
     zg_window_export_dialog(data);
 }
 
+/* The filaments of the plate follow the spools in the printer (the
+ * trays of its AMS and its external spools) on a printer that changes the
+ * filament by itself. A filament that the user set by hand stays. */
+static void follow_spools(Window *w, const char *printer, const zs_printer_status *st) {
+    size_t len = 0;
+    if (!st || zs_printer_status_filaments(st, NULL, 0, &len) != ZS_OK) return;
+    char *json = g_malloc(len + 1);
+    if (zs_printer_status_filaments(st, json, len + 1, NULL) == ZS_OK) {
+        char *message = NULL;
+        if (zg_model_filaments_from_printer(w->model, printer, json, len, 2, &message) && message && w->status)
+            gtk_label_set_text(GTK_LABEL(w->status), message);
+        g_free(message);
+    }
+    g_free(json);
+}
+
+static void on_bambu_status(const zs_printer_status *st, const char *error, gpointer data) {
+    Window *w = data;
+    if (st && !w->send_cancel) follow_spools(w, zg_printers_current()->name, st);
+}
+
 /* The state of the current printer, each 5 s, in the status bar. */
 static void on_poll_info(ZgPrinterInfo *info, const char *error, gpointer data) {
     Window *w = data;
@@ -1374,6 +1400,7 @@ static void on_poll_info(ZgPrinterInfo *info, const char *error, gpointer data) 
      * its material, name, diameter, and color. */
     char *follow = zg_pref_get("follow_roll", "1");
     if (info) zg_model_set_rolls(w->model, pr->id, info->rolls, info->n_rolls);
+    if (info) follow_spools(w, pr->name, info->core);
     /* Only a change of the roll in the printer: a roll that the user picks
      * in the Filament menu stays until the printer has another roll. */
     /* A plate of a project keeps the filament settings of the project. */
@@ -1437,6 +1464,15 @@ static gboolean on_poll(gpointer data) {
     Window *w = data;
     ZgPrinter *pr = zg_printers_current();
     if (pr->kind == ZG_LINK_NONE || pr->kind == ZG_LINK_USB || w->send_cancel) return G_SOURCE_CONTINUE;
+    /* A Bambu Lab printer tells its spools in its reports: one watch for
+     * the current printer (the watch only reads). */
+    if (g_strcmp0(w->bambu_id, pr->kind == ZG_LINK_BAMBU ? pr->id : NULL) != 0) {
+        if (w->bambu) zg_bambu_watch_stop(w->bambu);
+        w->bambu = NULL;
+        g_free(w->bambu_id);
+        w->bambu_id = pr->kind == ZG_LINK_BAMBU ? g_strdup(pr->id) : NULL;
+        if (w->bambu_id) w->bambu = zg_bambu_watch(pr, on_bambu_status, w);
+    }
     if (w->poll_cancel) g_cancellable_cancel(w->poll_cancel);
     g_clear_object(&w->poll_cancel);
     w->poll_cancel = g_cancellable_new();
@@ -2151,6 +2187,8 @@ static void window_free(gpointer data) {
     Window *w = data;
     g_signal_handlers_disconnect_by_data(w->model, w);
     if (w->poll) g_source_remove(w->poll);
+    if (w->bambu) zg_bambu_watch_stop(w->bambu);
+    g_free(w->bambu_id);
     if (w->poll_cancel) g_cancellable_cancel(w->poll_cancel);
     if (w->send_cancel) g_cancellable_cancel(w->send_cancel);
     if (w->deck_timer) g_source_remove(w->deck_timer);

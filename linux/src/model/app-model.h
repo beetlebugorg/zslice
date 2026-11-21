@@ -275,6 +275,14 @@ void zg_model_use_printer(ZgModel *self, const char *id);
  * built-in profile of the material, and the name, the diameter (> 0) and
  * the color of the roll (each can be NULL). Saves them. */
 void zg_model_filament_from_printer(ZgModel *self, const char *material, const char *name, double diameter, const char *color);
+/* The filaments of the plate from the spools that a printer has loaded
+ * (zs_app_filaments_from_printer): `json` is the reply of a printdeck or
+ * zs_printer_status_filaments. flags: 1 the filaments that the user set by
+ * hand follow too; 2 the automatic follow. `message` (can be NULL) gets
+ * the words for the user (free it). Returns TRUE when a filament changed
+ * (then the plate slices again). */
+gboolean zg_model_filaments_from_printer(ZgModel *self, const char *printer, const char *json, gsize len, int flags,
+                                         char **message);
 /* The roll of filament in the printer: a key (letters, digits, dashes),
  * or NULL for none. The filament settings follow the roll: the settings
  * of the roll before go to its file (rolls/<key>.toml), and the settings
