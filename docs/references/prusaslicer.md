@@ -124,6 +124,27 @@ The text and SVG emboss tools of PrusaSlicer 2.6 and later (https://help.prusa3d
 
 **How zslice uses it:** A label of zslice stays a 2D shape (text, ticks, bars, an SVG picture) in the project. Each layer gets the prism of the shape along its normal, cut to the band of the depth of the label from the outline of the layer, with a clean-up of strokes and gaps narrower than the narrowest line. The tools of PrusaSlicer make a text or an SVG a part (raised) or a negative volume (cut) as well as a modifier. zslice has the same three choices as a mode of the label: ink, raised, and cut. A raised or cut label changes the outlines of the layers in the band of its relief, with no new mesh (a raised label on a top face adds walls to the mesh).
 
+### Solid fill: one fill for neighbor surfaces, half a spacing from the edge
+
+```ref
+kind: idea
+source: PrusaSlicer
+license: AGPL-3.0
+link: https://github.com/prusa3d/PrusaSlicer
+version: PrusaSlicer 2.9.6
+files: src/infill.zig
+area: infill
+summary: Neighbor solid surfaces with the same settings fill as one area, and each fill stops half a line spacing from the edge of its surface, so two fills meet with no line on top of a line.
+```
+
+PrusaSlicer `group_fills` in `src/libslic3r/Fill/Fill.cpp` (the surfaces of a layer with the same fill settings join before the fill), and `FillRectilinear::fill_surface_by_lines` in `src/libslic3r/Fill/FillRectilinear.cpp` (the lines fill the surface moved in by about half a spacing), https://github.com/prusa3d/PrusaSlicer
+
+**License:** AGPL-3.0 (the method, no code)
+
+**Used in:** `src/infill.zig` (`fittedLines`)
+
+**How zslice uses it:** zslice fits the skin lines to each piece of a skin island (the spacing of each piece fits its extent), so a hole or a step in the outline cuts the skin into pieces. Each piece put a line on its edges, and two pieces put two lines on their shared border: a raised ridge across the top skin (a Bambu Lab print of a plate with two openings, 21 November 2026). Now one line covers a shared border: of two lines of different pieces on the same scan line, the shorter gives way where they overlap. The next line of that piece is one spacing away, as in the middle of a piece. PrusaSlicer has no such border, because it fills the joined surfaces with one grid. A plate sliced with PrusaSlicer 2.9.6 has no double line in its top skin.
+
 ## G-code and settings
 
 ### G-code thumbnails
