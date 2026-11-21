@@ -83,6 +83,8 @@ The printer settings have a **Second nozzle** section. It shows only for a print
 
 Travel moves keep the travel speed of the printer: one head moves both nozzles.
 
+The X2D profile of the printer library has the values of Bambu Studio for its second nozzle, a bowden extruder: at most 200 mm/s, an acceleration of 1000 mm/s², and a 2 mm retraction at 20 mm/s.
+
 ### Slow down the second nozzle
 
 To print the second nozzle at 50 mm/s:

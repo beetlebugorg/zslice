@@ -441,6 +441,15 @@ pub const Library = struct {
             if (b.height[0] > 0 and b.height[0] < m.height) try w.print("nozzle1_max_height = {d}\n", .{b.height[0]});
             if (b.min_x[1] > 0) try w.print("nozzle2_min_x = {d}\n", .{b.min_x[1]});
             if (b.height[1] > 0 and b.height[1] < m.height) try w.print("nozzle2_max_height = {d}\n", .{b.height[1]});
+            // The values of the second nozzle that differ from the first,
+            // from the per-extruder lists of Bambu Studio.
+            if (bambuProject(m.id)) |json| if (secondNozzle(json)) |n2| {
+                try w.writeAll("# The second nozzle: the per-extruder values of Bambu Studio.\n");
+                if (n2.max_speed > 0 and n2.max_speed < speeds.print) try w.print("nozzle2_max_speed = {d}\n", .{n2.max_speed});
+                if (n2.max_accel > 0 and n2.max_accel < std.math.clamp(m.max_accel, 100, 30000)) try w.print("nozzle2_max_accel = {d}\n", .{n2.max_accel});
+                if (n2.retract_length > 0 and n2.retract_length != m.retract) try w.print("nozzle2_retract_length = {d}\n", .{n2.retract_length});
+                if (n2.retract_speed > 0 and n2.retract_speed != m.retract_speed) try w.print("nozzle2_retract_speed = {d}\n", .{n2.retract_speed});
+            };
         };
         if (changeGcode(m.id)) |g| {
             try w.writeAll("filament_change = \"tool\"\nchange_gcode = ");
@@ -597,6 +606,81 @@ pub fn bambuTemplate(id: []const u8, which: enum { start, end, layer }) ?[]const
 pub fn bambuProject(id: []const u8) ?[]const u8 {
     if (std.mem.eql(u8, id, "bambu-lab-x2d")) return @embedFile("printers/bambu/bambu-lab-x2d-project.json");
     return null;
+}
+
+/// The values of the second nozzle of a head with two, from the
+/// per-extruder lists of a Bambu Studio project (see `bambuProject`): 0
+/// where the project has none. Each list has one value for each extruder
+/// variant; `print_extruder_id` gives the extruder of each, and the
+/// second nozzle has the values of the first variant of extruder 2 (its standard
+/// nozzle).
+pub const SecondNozzle = struct {
+    /// The fastest of the speeds of the walls, the skin, and the sparse
+    /// infill (mm/s).
+    max_speed: f64 = 0,
+    /// `default_acceleration` (mm/s²).
+    max_accel: f64 = 0,
+    retract_length: f64 = 0,
+    retract_speed: f64 = 0,
+};
+
+pub fn secondNozzle(json: []const u8) ?SecondNozzle {
+    var buf: [16][]const u8 = undefined;
+    const ids = jsonList(json, "print_extruder_id", &buf);
+    const k = for (ids, 0..) |id, i| {
+        if (std.mem.eql(u8, id, "2")) break i;
+    } else return null;
+    const at = struct {
+        fn f(text: []const u8, key: []const u8, i: usize) f64 {
+            var b: [16][]const u8 = undefined;
+            const list = jsonList(text, key, &b);
+            if (i >= list.len) return 0;
+            return std.fmt.parseFloat(f64, list[i]) catch 0;
+        }
+    }.f;
+    var out: SecondNozzle = .{
+        .max_accel = at(json, "default_acceleration", k),
+        .retract_length = at(json, "retraction_length", k),
+        .retract_speed = at(json, "retraction_speed", k),
+    };
+    for ([_][]const u8{ "outer_wall_speed", "inner_wall_speed", "sparse_infill_speed", "internal_solid_infill_speed", "top_surface_speed" }) |key| {
+        out.max_speed = @max(out.max_speed, at(json, key, k));
+    }
+    return out;
+}
+
+/// The strings of the list `"key": [ "a", "b" ]` of a JSON text, at most
+/// out.len; empty if the text has no such list.
+fn jsonList(json: []const u8, key: []const u8, out: [][]const u8) []const []const u8 {
+    var pat_buf: [96]u8 = undefined;
+    const pat = std.fmt.bufPrint(&pat_buf, "\"{s}\":", .{key}) catch return out[0..0];
+    const start = std.mem.indexOf(u8, json, pat) orelse return out[0..0];
+    var i = start + pat.len;
+    while (i < json.len and (json[i] == ' ' or json[i] == '\n' or json[i] == '\r' or json[i] == '\t')) i += 1;
+    if (i >= json.len or json[i] != '[') return out[0..0];
+    const end = std.mem.indexOfScalarPos(u8, json, i, ']') orelse return out[0..0];
+    var n: usize = 0;
+    var j = i;
+    while (n < out.len) {
+        const q0 = std.mem.indexOfScalarPos(u8, json[0..end], j, '"') orelse break;
+        const q1 = std.mem.indexOfScalarPos(u8, json[0..end], q0 + 1, '"') orelse break;
+        out[n] = json[q0 + 1 .. q1];
+        n += 1;
+        j = q1 + 1;
+    }
+    return out[0..n];
+}
+
+test "printers: the second nozzle of the X2D, from the lists of Bambu Studio" {
+    const n2 = secondNozzle(bambuProject("bambu-lab-x2d").?).?;
+    // Extruder 2 of the X2D is a bowden extruder: a longer, slower
+    // retraction, a lower acceleration, and slower walls and infill.
+    try std.testing.expectEqual(@as(f64, 2), n2.retract_length);
+    try std.testing.expectEqual(@as(f64, 20), n2.retract_speed);
+    try std.testing.expectEqual(@as(f64, 1000), n2.max_accel);
+    try std.testing.expectEqual(@as(f64, 200), n2.max_speed);
+    var buf: [4][]const u8 = undefined;
+    try std.testing.expectEqual(@as(usize, 0), jsonList("{\"a\": 1}", "a", &buf).len);
 }
 
 /// The config block of the G-code of a Bambu Studio file of a model (the
