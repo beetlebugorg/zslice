@@ -81,10 +81,14 @@ An adaptive layer height (thin layers where a surface has a small slope) can use
 | `skin_pattern`, `skin_angle`, `skin_angle_step`, `skin_overlap`, `gap_fill` | yes | layer | |
 | `infill_density`, `infill_pattern`, `infill_angle`, `infill_angles`, `infill_stack`, `infill_flow`, `infill_connect`, `infill_overlap` | yes | layer | |
 | `top_support_layers`, `top_support_density` | yes | layer | |
+| `skin_link_length`, `infill_anchor`, `infill_ribs` | yes | layer | |
+| `bridges` | yes | layer | |
+| `bridge_speed`, `bridge_flow`, `bridge_fan` | yes | settings, gcode | The speed, the flow, and the fan of the bridge lines of each layer. |
+| `filament` | yes | filaments, gcode | The filament slot of the layers. A change of the slot is a tool change in the G-code. |
 | `lightning_angle` | no | lightning | The branches of all layers come from one pass, from the top down. A layer with another `infill_pattern` cuts the trees: its infill holds the layer above, and the trees start again below it. |
 | `infill_layers` | yes | layer | A group of combined infill has the settings of all its layers: a change of the settings starts a new group (see "Combined infill"). |
 | `ironing`, `ironing_flow`, `ironing_spacing`, `ironing_inset`, `ironing_speed` | yes | layer, gcode | |
-| `outer_wall_speed`, `inner_wall_speed`, `skin_speed`, `infill_speed` | yes | settings (`Resolved.speedAt`) | |
+| `outer_wall_speed`, `inner_wall_speed`, `skin_speed`, `infill_speed`, `support_speed`, `support_interface_speed` | yes | settings (`Resolved.speedAt`) | |
 | `slope_smoothing`, `slope_smoothing_min_width`, `slope_smoothing_max_width`, `slope_smoothing_flow`, `slope_smoothing_speed` | yes | layer, settings | The beads of a layer use the settings and the height of that layer. |
 | `slope_ironing`, `slope_ironing_passes`, `slope_ironing_flow`, `slope_ironing_speed` | yes | layer, settings | As slope smoothing. |
 | `first_layer_speed` | no | settings | The first layer only. |
@@ -92,6 +96,7 @@ An adaptive layer height (thin layers where a surface has a small slope) can use
 | `machine.outer_wall_accel`, `machine.inner_wall_accel`, `machine.skin_accel`, `machine.infill_accel`, `machine.travel_accel` | yes | settings (`Resolved.accel`), gcode | |
 | `machine.first_layer_accel` | no | settings | The first layer only. |
 | `retract_min_travel`, `combing`, `combing_max_distance` | yes | gcode | The planning threads find the combing ways with the settings of the layer (`gcode.prepare`). |
+| `retract_wipe`, `outer_wall_wipe` | yes | gcode | The wipe of each layer. |
 | `z_hop` | yes | gcode | The preview draws the lift of a travel with the z hop of the print. |
 | `support`, `support_style` | no | support | The support areas of all layers come from one pass. A column or a branch goes through many layers. |
 | `support_tree_angle`, `support_tree_spacing`, `support_tree_tip` | no | support | As `support_style`. |

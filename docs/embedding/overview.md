@@ -59,10 +59,20 @@ Each failure has a name. In Zig, it is an error value. In C, it is a status code
 | `error.InvalidSettings` | `ZS_INVALID_SETTINGS` (7) | The values together cannot make a print. |
 | `error.PartTooLarge` | `ZS_PART_TOO_LARGE` (8) | The part is higher than `machine.max_height`. |
 | `error.WriteFailed` | `ZS_WRITE_FAILED` (9) | The writer failed, or the C callback returned a value that is not 0. |
+| | `ZS_CANCELED` (10) | The slice stopped on a cancel (app core). |
+| | `ZS_BUSY` (11) | The object is busy: a slice runs, or a view has no frame yet. |
+| | `ZS_NO_MODEL` (12) | The app has no model (app core). |
+| | `ZS_NO_RESULT` (13) | No result: for example no slice yet, or a G-code file that does not open. |
+| | `ZS_OUT_OF_RANGE` (14) | An index or a size is out of range. |
+| | `ZS_NOT_SUPPORTED` (15) | The build cannot do it: for example no Vulkan for a 3D view, or a file path in wasm. |
+| | `ZS_GPU_FAILED` (16) | The GPU failed. |
+| | `ZS_PART_TOO_THIN` (17) | The part is lower than half of the first layer. |
+
+`zs_status_string` gives a sentence for each code, for a message to the user. The codes from 10 are of the app core (`include/zslice-app.h`).
 
 ## Stability
 
-zslice is at version 0.1. The API can change before version 1.0. Setting names can also change. The change log will list each change.
+zslice is in beta (the releases are 0.x.0-beta). The API can change before version 1.0. Setting names can also change. `zs_version()` and `zslice.version` give `0.1.0`, the version of the library API.
 
 ## The language guides
 

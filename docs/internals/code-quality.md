@@ -2,7 +2,7 @@
 
 This page lists the parts of the code that are large, tangled, duplicated, badly named, or not tested. The list is in order of value: the first items help a reader most. A change in this plan does not change the behavior. The G-code stays the same byte for byte, and the app looks and acts the same.
 
-Mark an item done when its commit is in `master`. Add an item when you find a problem that you do not fix at once.
+Mark an item done when its commit is in `main`. Add an item when you find a problem that you do not fix at once.
 
 ## 1. The app core: `src/app.zig`
 
@@ -11,7 +11,7 @@ Mark an item done when its commit is in `master`. Add an item when you find a pr
 - [x] Move each concern to its own file in `src/app/`. `src/app.zig` keeps `App` and the state, and exports the names that `c_api/` and `render/view.zig` use.
 - [x] Compute the length of a path in one function (`Toolpaths.pathLength`). `featureStats` and `inspect` had the same loop.
 - [x] Move logic out of the C API into the core: the part of a path (`App.partOfPath`), the clear of the marks (`App.clearMarks`), and the name of a part (a part keeps its name with a 0 at the end).
-- [ ] `src/app.zig` grows again (1360 lines): the plates (`PlateSlot`, `selectPlate`, `addPlate`, `removePlate`; no shell uses them now that the plate set is `src/app/plate_set.zig`) and the part placement (`placePart`, `turnPart`, `scalePart`) are in `App`. Move the list of plates and the switch between them to `src/app/plates.zig`, and keep in `App` only the calls that also stop the worker and mark the plate as changed.
+- [ ] `src/app.zig` grows again (5323 lines): the plates (`PlateSlot`, `selectPlate`, `addPlate`, `removePlate`; no shell uses them now that the plate set is `src/app/plate_set.zig`) and the part placement (`placePart`, `turnPart`, `scalePart`) are in `App`. Move the list of plates and the switch between them to `src/app/plates.zig`, and keep in `App` only the calls that also stop the worker and mark the plate as changed.
 - [ ] `App.statusOf` is a second, shorter copy of `status` in `c_api.zig`. The failure event of a slice gives status 2 for some errors that `status` knows, for example `PartTooThin` (17). Use one function. This changes the status of some failure events, so it needs the approval of the owner.
 
 ## 2. The GTK settings panel: `linux/src/ui/settings-panel.c`
@@ -32,9 +32,9 @@ Mark an item done when its commit is in `master`. Add an item when you find a pr
 
 ## 4. The GTK window: `linux/src/ui/window.c`
 
-890 lines: the status bar, the islands warning, the file dialogs, the send to a printer, the "all plates" send and export, and the layout.
+2590 lines: the status bar, the islands warning, the file dialogs, the send to a printer, the "all plates" send and export, and the layout.
 
-- [ ] Move the printer chooser, the send, the poll of the printer state, and the "all plates" batch to a unit `printer-bar.c`. The window then places the widgets and calls the unit after each core event. This work waits until the plates feature is stable on `master`.
+- [ ] Move the printer chooser, the send, the poll of the printer state, and the "all plates" batch to a unit `printer-bar.c`. The window then places the widgets and calls the unit after each core event. This work waits until the plates feature is stable on `main`.
 - [ ] Check `on_poll_info` after the window closes. `window_free` cancels the poll and frees the `Window`. If the HTTP layer calls the callback after a cancel, the callback reads freed memory.
 
 ## 5. The C API: `src/c_api.zig`
@@ -58,17 +58,17 @@ Mark an item done when its commit is in `master`. Add an item when you find a pr
 - [ ] `src/engine.zig` uses memoization (see `docs/references/papers-and-algorithms.md`) and does not name it in its header.
 - [x] One list of the `ZSLICE_*` test hooks of the GTK shell, in `docs/app/README.md`.
 - [x] No TODO without an entry in `ROADMAP.md`. There is no TODO in the code.
-- [x] `docs/internals/architecture.md` lists all modules, with `app/`, `c_api/`, and `render/`.
+- [ ] `docs/internals/architecture.md` lists the main modules, with `app/`, `c_api/`, and `render/`. It does not list all modules: for example `print_sim.zig`, `cut.zig`, `label.zig`, `app/sim_print.zig`, and `render/cpu.zig` are missing.
 
 ## 8. Build hygiene
 
 - [x] No warnings from `zig build`, `zig build test`, `zig build wasm`, and `ninja -C linux/build` (meson `warning_level=2`).
 - [x] `zig fmt` for the files outside the slicing stages.
-- [ ] `zig fmt --check` fails for `src/engine.zig`, `src/layer.zig`, and `src/support.zig`. Run `zig fmt` on them when no other branch changes them.
+- [ ] `zig fmt --check` fails for `src/engine.zig` and `src/layer.zig`. Run `zig fmt` on them when no other branch changes them.
 
 ## Later: files that other work changes now
 
 These files change often. Change them only in small, safe steps.
 
-- `src/layer.zig` (1690 lines) and `src/engine.zig` (1210 lines) are the largest stage files.
-- `linux/src/ui/view3d.c` (780 lines) has the 3D view widget, the drag of a part, the context menu, the support marks, the multiple selection, and the test hooks. Split it when the work on the 3D view is stable: the context menu and the support marks first.
+- `src/layer.zig` (4295 lines) and `src/engine.zig` (3610 lines) are the largest stage files.
+- `linux/src/ui/view3d.c` (3125 lines) has the 3D view widget, the drag of a part, the context menu, the support marks, the multiple selection, and the test hooks. Split it when the work on the 3D view is stable: the context menu and the support marks first.

@@ -91,7 +91,7 @@
 <p class="eyebrow">Reference</p>
 <h1>The command line</h1>
 <p class="lede">The <code>zslice</code> tool slices a part with no window. Use it in scripts, on a server, or to check a slice. <a href="../../user/getting-started/">Your first print</a> explains the apps.</p>
-<nav class="onpage"><b>On this page</b><ol><li><a href="#build-zslice">Build zslice</a></li><li><a href="#slice-a-part">Slice a part</a></li><li><a href="#change-settings">Change settings</a></li><li><a href="#look-at-a-layer">Look at a layer</a></li><li><a href="#check-a-part">Check a part</a></li><li><a href="#see-which-settings-matter-for-a-part">See which settings matter for a part</a></li><li><a href="#measure-the-speed">Measure the speed</a></li></ol></nav><h2 id="build-zslice">Build zslice</h2>
+<nav class="onpage"><b>On this page</b><ol><li><a href="#build-zslice">Build zslice</a></li><li><a href="#slice-a-part">Slice a part</a></li><li><a href="#change-settings">Change settings</a></li><li><a href="#look-at-a-layer">Look at a layer</a></li><li><a href="#check-a-part">Check a part</a></li><li><a href="#other-commands">Other commands</a></li><li><a href="#see-which-settings-matter-for-a-part">See which settings matter for a part</a></li><li><a href="#measure-the-speed">Measure the speed</a></li></ol></nav><h2 id="build-zslice">Build zslice</h2>
 <p>You need Zig 0.16 (<a href="https://ziglang.org/download/">https://ziglang.org/download/</a>).</p>
 <pre><code>git clone https://github.com/beetlebugorg/zslice
 cd zslice
@@ -130,7 +130,7 @@ zslice profiles      # the built-in profiles</code></pre>
 <h2 id="look-at-a-layer">Look at a layer</h2>
 <p><code>preview</code> writes an SVG picture of one layer. Open it in a web browser.</p>
 <pre><code>zslice preview part.stl --layer 20 -o layer20.svg</code></pre>
-<div class="table-wrap"><table><thead><tr><th>Color</th><th>Feature</th></tr></thead><tbody><tr><td>Orange</td><td>Outer wall</td></tr><tr><td>Yellow</td><td>Inner walls</td></tr><tr><td>Blue</td><td>Skin (solid top and bottom fill)</td></tr><tr><td>Green</td><td>Sparse infill</td></tr><tr><td>Purple</td><td>Ironing</td></tr><tr><td>Brown</td><td>Skirt and brim</td></tr><tr><td>Light gray</td><td>Support</td></tr><tr><td>Dark gray</td><td>Support interface</td></tr><tr><td>Teal</td><td>Slope smoothing (beads in the steps of a sloped top)</td></tr><tr><td>Lime</td><td>Slope ironing (ironing over the steps of a sloped top)</td></tr><tr><td>Gray dashes</td><td>Travel moves</td></tr></tbody></table></div>
+<div class="table-wrap"><table><thead><tr><th>Color</th><th>Feature</th></tr></thead><tbody><tr><td>Orange</td><td>Outer wall</td></tr><tr><td>Yellow</td><td>Inner walls</td></tr><tr><td>Blue</td><td>Skin (solid top and bottom fill)</td></tr><tr><td>Green</td><td>Sparse infill</td></tr><tr><td>Purple</td><td>Ironing</td></tr><tr><td>Brown</td><td>Skirt and brim</td></tr><tr><td>Light gray</td><td>Support</td></tr><tr><td>Dark gray</td><td>Support interface</td></tr><tr><td>Teal</td><td>Slope smoothing (beads in the steps of a sloped top)</td></tr><tr><td>Lime</td><td>Slope ironing (ironing over the steps of a sloped top)</td></tr><tr><td>Sky blue</td><td>Bridges</td></tr><tr><td>Gray dashes</td><td>Travel moves</td></tr></tbody></table></div>
 <p>The light gray area is the outline of the layer. Each line has the width of the line, so you can see gaps and overlaps.</p>
 <p>Layer numbers start at 0. If the number is too large, zslice shows the number of layers in the part.</p>
 <h3 id="try-the-demo-part">Try the demo part</h3>
@@ -142,6 +142,9 @@ zslice preview demo.stl --layer 28 -o layer28.svg</code></pre>
 <pre><code>zslice gaps part.stl               # the gaps of each layer
 zslice gaps part.stl --layer 49    # the gaps of one layer
 zslice check part.stl              # what can make the print fail</code></pre>
+<h2 id="other-commands">Other commands</h2>
+<div class="table-wrap"><table><thead><tr><th>Command</th><th>What it does</th></tr></thead><tbody><tr><td><code>zslice printers</code></td><td>Lists the printers of the printer library: the id, the firmware, the bed, and the name. <code>-m &lt;id&gt;</code> loads the machine profile of a printer.</td></tr><tr><td><code>zslice profile project -p fine</code></td><td>Writes the settings of one group (<code>machine</code>, <code>filament</code>, or <code>project</code>) as a profile file, with the options applied. Start a new profile from it.</td></tr><tr><td><code>zslice import cura &lt;folder&gt; -o &lt;profiles folder&gt;</code></td><td>Converts a Cura profile stack (a folder with <code>cura.json</code>) to zslice profiles.</td></tr><tr><td><code>zslice orient part.stl</code></td><td>Lists the orientations that smart placement compares, with the cost of each, and the best one.</td></tr><tr><td><code>zslice gcode file.gcode</code></td><td>Reads a G-code file of any slicer, as the print view does. It prints the size, the layers, the moves, the box, the print time, the time to read it, and the peak memory.</td></tr></tbody></table></div>
+<p>Run <code>zslice</code> with no command to see all commands and options.</p>
 <h2 id="see-which-settings-matter-for-a-part">See which settings matter for a part</h2>
 <p><code>zslice sweep</code> slices the part again and again. For each project and filament setting, it tries values across the usual range. The other settings keep their base values:</p>
 <pre><code>zslice sweep part.stl -m my-printer -f my-pla -p my-project -o sweep.tsv</code></pre>

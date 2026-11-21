@@ -114,7 +114,7 @@ A 3MF file keeps the paint. Painted models from MakerWorld (Bambu Studio) and Pr
 
 ### The prime tower, the check, and Bambu Lab
 
-With **tool**, a prime tower stands next to the parts (back right, or at **Prime tower x** and **y**): after each change the nozzle flushes the old color into it, and it grows with the print up to the last change. The Bambu Lab X2D profile has the filament change G-code of Bambu Lab: its AMS flushes into the chute, and the tower gets a small prime. Export makes a `.gcode.3mf` file for a Bambu Lab printer, with the filaments of the print. zslice only writes the file; it never starts a print.
+With **tool**, a prime tower stands next to the parts (back right, or at **Prime tower x** and **y**): after each change the nozzle flushes the old color into it, and it grows with the print up to the last change. The Bambu Lab X2D profile has the filament change G-code of Bambu Lab: its AMS flushes into the chute, and the tower gets a small prime. Export makes a `.gcode.3mf` file for a Bambu Lab printer, with the filaments of the print. **Print** sends this file to the printer through a printdeck.
 
 The check (the check mark in the tools) warns about a painted region narrower than a line, about a prime tower off the bed or on a part, and about many changes or long change time.
 

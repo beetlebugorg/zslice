@@ -8,7 +8,7 @@ Settings for one part, settings for some layers, formulas, and path rules.
 2. Click **+ Add a setting for this part** on its card. The search shows only the settings that a part can have.
 3. Change a setting. The change is for this part only.
 
-A part can have its own walls, layer height, seam, speeds, infill, skin, support, and **Quality**. Some settings are for the whole plate, and say "Same for all parts": the temperatures, the fan, the travel, the retraction, the first layer height, the skirt, and the brim.
+A part can have its own walls, layer height, seam, speeds, infill, skin, and support. Some settings are for the whole plate: the temperatures, the fan, the travel, the retraction, the first layer height, the skirt, and the brim. In the web app, the search of a part shows only the settings that a part can have. In the Linux app, these plate settings say "Same for all parts", and a part can also have its own **Quality**.
 
 ## Settings for some layers
 
@@ -71,4 +71,4 @@ In the Linux app, **Compare with Cura…** (in the search) shows your zslice set
 
 ## Where the settings stay
 
-The app loads your changes at the next start. The Linux app keeps them in `~/.config/zslice/` (`machine.toml`, `filament.toml`, `project.toml`, and `global.toml`). Each file has only the settings that differ from the defaults. The web app keeps them in your browser.
+The app loads your changes at the next start. The Linux app keeps them in `~/.config/zslice/`: `filament.toml`, `project.toml`, `global.toml`, and a file for each printer in `printers/` (`<id>.toml`, and `<id>.filament.toml` for its filament). Each file has only the settings that differ from the defaults. The web app keeps them in your browser.

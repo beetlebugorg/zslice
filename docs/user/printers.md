@@ -68,7 +68,7 @@ The print settings stay when you change the printer: the layer height, the walls
 
 Each printer also keeps the filament that you last used with it. When you change to another printer, zslice saves the filament settings for the printer before. When you change back, its filament comes back, and the Filament menu shows it. A printer with no saved filament keeps the filament that you have now. In the Linux app, the roll that a printer reports still wins: its settings load at the next status of the printer.
 
-The settings panel shows which settings belong to the printer. A section of printer settings starts with a line such as "Printer · Bambu Lab X2D: each printer keeps its own values here." A search shows a badge on each printer setting ("Printer · <name>") and each filament setting ("Filament · <name>"). The page of a setting says it too. Print settings have no badge.
+The settings panel shows which settings belong to the printer. A section of printer settings starts with a line such as "Printer · Bambu Lab X2D. Each printer keeps its own values here." The search of the panel shows a badge on each printer setting ("Printer · <name>") and each filament setting ("Filament · <name>"). The page of a setting says it too. Print settings have no badge. The `/` search tags each result with its group and section, for example "Printer · Speed" or "Part · Walls".
 
 Before this version, the accelerations were print settings. At the first start of this version, zslice moves your saved values to the printer that you use then. Old projects and sessions load too: their accelerations go to the printer of the plate.
 
@@ -78,7 +78,7 @@ Before this version, the accelerations were print settings. At the first start o
 2. Click **Print** on the print card. Its menu also has **Upload only** and **Export G-code…**.
 3. zslice asks if the bed is clear. Then the printer prints.
 
-With a printdeck printer, the print card also gives the time that the printer predicts, from its past prints. The cost uses the price of the roll in the printer.
+In the Linux and Mac apps, a printdeck printer also gives the time that it predicts, from its past prints. The cost then uses the price of the roll in the printer. The web app uses `filament.price_per_kg`.
 
 ## Signed prints
 

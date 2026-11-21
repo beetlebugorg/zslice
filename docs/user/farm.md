@@ -7,13 +7,13 @@ All your printers on one page: their state, their jobs, and the plates still to 
 ## The tiles
 
 - Each printer with a connection has a tile: its state, its job with the time left, and the filament in it.
-- **Send the plate** on a tile sends the active plate to that printer.
+- **Print the plate** on a tile sends the active plate to that printer.
 
 ## Plates to print
 
 - The list has each plate with parts, with its time and its plastic.
-- Its menu lists the printers that fit the plate, the free printers first. A busy printer says when it is free: "busy, free in 1 h 5 min".
-- A printer with a bed smaller than the plate is not in the menu.
+- Each plate has a list of the printers that fit it, the ready printers first, and a **Send** button. A busy printer says when it is free: "busy, free in 1 h 5 min".
+- A printer with a bed smaller than the plate is not in the list.
 - A plate that you sent has a check mark, and the printer and the time.
 
 Each send asks first: "Is the bed clear?". It also warns when the printer looks busy, or when the plate is sliced for another printer.
