@@ -12,7 +12,7 @@ typedef struct {
 
 typedef struct {
     const char *group;
-    Key keys[28];
+    Key keys[36];
 } Group;
 
 /* The keys of the GTK app. "A, B": two keys for the same thing. A note in
@@ -54,6 +54,11 @@ static const Group SHORTCUTS[] = {
         {"H", "Grab: click a part to pick it up, move the pointer to carry it, and click again (or Esc) to let go"},
         {"Wheel (Grab tool)", "Lift or lower the part in the hand"},
         {"Alt+move (Grab tool)", "Turn the part in the hand (with Shift: steps of 15°)"},
+        {"L", "Label: click a face of a part to put text or marks on it, in another filament"},
+        {"Drag (Label tool)", "Move the label on the surface (with Shift: in its plane)"},
+        {"Wheel over a label (Label tool)", "Turn the label 1° (with Shift: 15°)"},
+        {"Delete (Label tool)", "Delete the selected label"},
+        {"Esc (Label tool)", "Close the card of the label, then the tool"},
         {"G", "Gaps: show the gaps of the top layer"},
         {"Ctrl+click, Ctrl+drag, Ctrl+wheel", "Select, move, and turn a part with any tool"},
         {"Tab, Shift+Tab", "Select the next part, or the part before"},

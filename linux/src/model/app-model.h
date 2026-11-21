@@ -172,6 +172,12 @@ void zg_model_marks_clear(ZgModel *self);
  * point, zg_model_hold), the step ends at the release. add returns the
  * index of the new area, or -1. */
 gint64 zg_model_support_add(ZgModel *self, int kind, const double *pts, size_t n, double z_lo, double z_hi);
+/* The labels of a part (zs_app_label_*, JSON). Each change slices again
+ * and is one step of the history ("undo-changed" follows). add returns
+ * the id of the new label, or -1. */
+gint64 zg_model_label_add(ZgModel *self, size_t part, const char *json);
+gboolean zg_model_label_update(ZgModel *self, size_t part, guint32 id, const char *json);
+gboolean zg_model_label_remove(ZgModel *self, size_t part, guint32 id);
 /* After an edit of the support trees (zs_app_support_tree_*): a slice
  * (held during a drag), a step of the history, and the fall check. */
 void zg_model_support_trees_changed(ZgModel *self);
@@ -298,8 +304,17 @@ gboolean zg_model_can_undo(ZgModel *self);
  * follows a change. */
 /* Turn: rings around the selected part turn it about X, Y, or Z.
  * Support: draw support areas on the part (ui/support-tool.h). */
-typedef enum { ZG_TOOL_SELECT = 0, ZG_TOOL_MOVE = 1, ZG_TOOL_MEASURE = 2, ZG_TOOL_TURN = 3, ZG_TOOL_SUPPORT = 4, ZG_TOOL_GRAB = 5 } ZgTool;
-#define ZG_TOOL_COUNT 6
+/* Label: text and marks on the surface of a part (ui/label-tool.h). */
+typedef enum {
+    ZG_TOOL_SELECT = 0,
+    ZG_TOOL_MOVE = 1,
+    ZG_TOOL_MEASURE = 2,
+    ZG_TOOL_TURN = 3,
+    ZG_TOOL_SUPPORT = 4,
+    ZG_TOOL_GRAB = 5,
+    ZG_TOOL_LABEL = 6
+} ZgTool;
+#define ZG_TOOL_COUNT 7
 ZgTool zg_model_tool(ZgModel *self);
 void zg_model_set_tool(ZgModel *self, ZgTool tool);
 /* The measure tape: up to two points (x, y, z in mm). A third point starts

@@ -101,3 +101,10 @@ void zg_view3d_set_layer_range(GtkWidget *view, size_t lo, size_t hi);
 gboolean zg_view3d_support_key(GtkWidget *view, guint key);
 /* The card of the Support tool, for the overlay of the preview. */
 GtkWidget *zg_view3d_support_card(GtkWidget *view);
+/* The Label tool (label-tool.h): a key (TRUE if it used the key), its
+ * card and its corner handle for the overlay of the preview, and the tool
+ * on part `part` with label `id` selected (the part card). */
+gboolean zg_view3d_label_key(GtkWidget *view, guint key);
+GtkWidget *zg_view3d_label_card(GtkWidget *view);
+GtkWidget *zg_view3d_label_handle(GtkWidget *view);
+void zg_view3d_label_open(GtkWidget *view, gint64 part, guint32 id);

@@ -1287,7 +1287,7 @@ static void on_tool_action(GSimpleAction *a, GVariant *v, gpointer data) {
     Preview *p = data;
     static const struct { const char *name; ZgTool tool; } names[] = {
         {"select", ZG_TOOL_SELECT}, {"move", ZG_TOOL_MOVE}, {"turn", ZG_TOOL_TURN}, {"measure", ZG_TOOL_MEASURE}, {"support", ZG_TOOL_SUPPORT},
-        {"grab", ZG_TOOL_GRAB},
+        {"grab", ZG_TOOL_GRAB}, {"label", ZG_TOOL_LABEL},
     };
     const char *name = g_variant_get_string(v, NULL);
     for (size_t i = 0; i < G_N_ELEMENTS(names); i++)
@@ -1585,6 +1585,9 @@ static gboolean on_preview_key(GtkEventControllerKey *c, guint key, guint code, 
     /* The Support tool first: Enter, Backspace, Delete, and Esc for its
      * areas, in the 3D view. */
     if (zg_model_tool(p->model) == ZG_TOOL_SUPPORT && zg_view3d_support_key(p->view3d, key)) return TRUE;
+    /* The Label tool: Delete removes the selected label; Esc closes its
+     * card, then the tool. */
+    if (zg_model_tool(p->model) == ZG_TOOL_LABEL && zg_view3d_label_key(p->view3d, key)) return TRUE;
     /* The Select tool: Delete and Esc for a support that it picked, and
      * Esc for a range of layers. */
     if (zg_model_tool(p->model) == ZG_TOOL_SELECT && zg_view3d_support_key(p->view3d, key)) return TRUE;
@@ -1593,7 +1596,8 @@ static gboolean on_preview_key(GtkEventControllerKey *c, guint key, guint code, 
         return TRUE;
     }
     /* The tools: V select, M move, H grab, T measure (a tape), S support
-     * (U is its old key). Esc clears a measure. */
+     * (U is its old key), L label (L again closes it). Esc clears a
+     * measure. */
     if (part_key(p, key, mods)) return TRUE;
     switch (key) {
     case GDK_KEY_v: case GDK_KEY_V: zg_model_set_tool(p->model, ZG_TOOL_SELECT); return TRUE;
@@ -1601,6 +1605,9 @@ static gboolean on_preview_key(GtkEventControllerKey *c, guint key, guint code, 
     case GDK_KEY_h: case GDK_KEY_H: zg_model_set_tool(p->model, ZG_TOOL_GRAB); return TRUE;
     case GDK_KEY_t: case GDK_KEY_T: zg_model_set_tool(p->model, ZG_TOOL_MEASURE); return TRUE;
     case GDK_KEY_s: case GDK_KEY_S: case GDK_KEY_u: case GDK_KEY_U: zg_model_set_tool(p->model, ZG_TOOL_SUPPORT); return TRUE;
+    case GDK_KEY_l:
+        zg_model_set_tool(p->model, zg_model_tool(p->model) == ZG_TOOL_LABEL ? ZG_TOOL_SELECT : ZG_TOOL_LABEL);
+        return TRUE;
     case GDK_KEY_g: case GDK_KEY_G: zg_model_set_gaps(p->model, !zg_model_gaps(p->model)); return TRUE;
     case GDK_KEY_Escape:
         if (zg_view3d_hand_release(p->view3d)) return TRUE;
@@ -1887,6 +1894,23 @@ static void draw_tool(GtkDrawingArea *a, cairo_t *cr, int w, int h, gpointer dat
             cairo_arc(cr, dots[k][0], dots[k][1], 1, 0, 2 * G_PI);
             cairo_fill(cr);
         }
+    } else if (kind == 9) {
+        /* Label: a tag with a T on it and a short mark, as on the web. */
+        cairo_set_line_width(cr, 1.4);
+        double x = 2, y = 3.5, w = 14, hh = 11, r = 1.5;
+        cairo_new_sub_path(cr);
+        cairo_arc(cr, x + w - r, y + r, r, -G_PI / 2, 0);
+        cairo_arc(cr, x + w - r, y + hh - r, r, 0, G_PI / 2);
+        cairo_arc(cr, x + r, y + hh - r, r, G_PI / 2, G_PI);
+        cairo_arc(cr, x + r, y + r, r, G_PI, 3 * G_PI / 2);
+        cairo_close_path(cr);
+        cairo_move_to(cr, 5.5, 7);
+        cairo_line_to(cr, 10.5, 7);
+        cairo_move_to(cr, 8, 7);
+        cairo_line_to(cr, 8, 11.5);
+        cairo_move_to(cr, 12, 11.5);
+        cairo_line_to(cr, 13.2, 11.5);
+        cairo_stroke(cr);
     } else if (kind == 5) {
         /* Check: a check mark in a circle. */
         cairo_arc(cr, 9, 9, 7, 0, 2 * G_PI);
@@ -2047,8 +2071,8 @@ static GtkWidget *colors_button(Preview *p) {
 }
 
 /* The tool strip at the left of the view: the tools of the mouse (Select,
- * Move, Turn, Support, Grab, Measure), then the line tools (Gaps, Check). Each button
- * shows its key. */
+ * Move, Turn, Support, Grab, Measure, Label), then the line tools (Gaps,
+ * Check). Each button shows its key. */
 static GtkWidget *tool_strip(Preview *p) {
     static const struct { ZgTool tool; int glyph; const char *key, *tip; } tools[] = {
         {ZG_TOOL_SELECT, 0, "V", "Select (V): click a line to see what it is, its measurements, and the settings that change it."},
@@ -2057,6 +2081,7 @@ static GtkWidget *tool_strip(Preview *p) {
         {ZG_TOOL_SUPPORT, 6, "S", "Support (S): point at an overhang, and click to put support under it. Alt and a click draw an area point by point; click the first point (or press Enter) to close it. Support grows under the area, or Block keeps support out. Click an outline to select it, and drag its points. Shift: no snap."},
         {ZG_TOOL_GRAB, 7, "H", "Grab (H): click a part to pick it up; move the pointer to carry it. The wheel lifts it; Alt and a move turn it (Shift: steps of 15°). Click again, or press Esc, to let go: with support off it falls and rests flat; with support on it keeps its turn, and support holds it."},
         {ZG_TOOL_MEASURE, 2, "T", "Measure (T): click two points of the print. The ends of the lines snap; Shift turns the snap off. Esc clears."},
+        {ZG_TOOL_LABEL, 9, "L", "Label (L): click a face of a part to put text or marks on it, in another filament. Drag a label to move it (Shift: keep its plane), turn the wheel over it to turn it (Shift: 15°), and drag its corner to scale it."},
     };
     GtkWidget *box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 2);
     gtk_widget_add_css_class(box, "zg-float");
@@ -2356,6 +2381,10 @@ GtkWidget *zg_preview_new(ZgModel *model) {
     gtk_overlay_add_overlay(GTK_OVERLAY(box), p->empty);
     /* The card of the Support tool, at the top left of the 3D view. */
     gtk_overlay_add_overlay(GTK_OVERLAY(box), zg_view3d_support_card(p->view3d));
+    /* The card of the Label tool, beside its label, and the handle at the
+     * corner of the label. */
+    gtk_overlay_add_overlay(GTK_OVERLAY(box), zg_view3d_label_card(p->view3d));
+    gtk_overlay_add_overlay(GTK_OVERLAY(box), zg_view3d_label_handle(p->view3d));
     gtk_widget_set_size_request(stack, 200, -1);
     g_object_set_data_full(G_OBJECT(box), "zg-preview", p, preview_free);
     /* For the 3D context menu (a child of the preview). */

@@ -25,7 +25,8 @@
  * subsurface with cairo: the label of the angle.
  *
  * The Support tool (support-tool.h) gets the clicks, the drags, and the
- * keys of the view while it is on.
+ * keys of the view while it is on. The Label tool (label-tool.h) gets
+ * them too, and the wheel over its selected label.
  *
  * SPDX-License-Identifier: AGPL-3.0-or-later
  */
@@ -38,6 +39,7 @@
 #include <math.h>
 
 #include "bed-model.h"
+#include "label-tool.h"
 #include "native-surface.h"
 #include "range-card.h"
 #include "support-tool.h"
@@ -168,6 +170,8 @@ typedef struct {
     double fall_f[10];
     /* The Support tool, and the cursor that it set last. */
     ZgSupport *support;
+    /* The Label tool. */
+    ZgLabelTool *label;
     const char *cursor;
     /* The fall of a part, or the hand that holds it: a tick on each frame
      * runs the rigid body (zg_model_fall_step). */
@@ -256,6 +260,7 @@ static gboolean draw_now(gpointer data) {
             FrameHook *h = &g_array_index(v->hooks, FrameHook, i);
             h->fn(h->data);
         }
+        zg_label_tool_place(v->label);
     }
     return G_SOURCE_REMOVE;
 }
@@ -610,6 +615,7 @@ static void on_map(GtkWidget *w, gpointer data) {
     View3d *v = data;
     v->hidden = FALSE;
     zg_support_set_shown(v->support, TRUE);
+    zg_label_tool_set_shown(v->label, TRUE);
     if (v->view) {
         /* Mapped again: the next frame attaches a buffer, and that shows
          * the subsurface. The data can be new since the unmap. */
@@ -647,6 +653,7 @@ static void on_map(GtkWidget *w, gpointer data) {
         return;
     }
     zg_support_set_view(v->support, v->view);
+    zg_label_tool_set_view(v->label, v->view);
     apply_signs(v);
     if (g_getenv("ZSLICE_BENCH")) v->bench = 1;
     apply_dark(v);
@@ -689,6 +696,8 @@ static void on_unmap(GtkWidget *w, gpointer data) {
     v->hidden = TRUE;
     zg_support_release(v->support);
     zg_support_set_shown(v->support, FALSE);
+    zg_label_release(v->label);
+    zg_label_tool_set_shown(v->label, FALSE);
     /* No frame clock ticks while unmapped: stop the animation. */
     if (v->anim) gtk_widget_remove_tick_callback(v->area, v->anim);
     v->anim = 0;
@@ -1358,8 +1367,8 @@ static void on_plate_changed(ZgModel *model, gpointer data) {
     show_part_box(data);
 }
 
-/* The cursor of the tool: a cross for the measure tape and the Support
- * tool. */
+/* The cursor of the tool: a cross for the measure tape, the Support
+ * tool, and the Label tool. */
 static void set_cursor(View3d *v, const char *name) {
     if (v->cursor == name) return;
     v->cursor = name;
@@ -1368,7 +1377,7 @@ static void set_cursor(View3d *v, const char *name) {
 
 static void tool_cursor(View3d *v) {
     ZgTool t = zg_model_tool(v->model);
-    set_cursor(v, t == ZG_TOOL_MEASURE || t == ZG_TOOL_SUPPORT ? "crosshair" : t == ZG_TOOL_GRAB ? "grab" : NULL);
+    set_cursor(v, t == ZG_TOOL_MEASURE || t == ZG_TOOL_SUPPORT || t == ZG_TOOL_LABEL ? "crosshair" : t == ZG_TOOL_GRAB ? "grab" : NULL);
 }
 
 static void on_tool_changed(ZgModel *model, gpointer data) {
@@ -1591,6 +1600,11 @@ static void on_drag_begin(GtkGestureDrag *g, double x, double y, gpointer data) 
         set_cursor(v, "grabbing");
         return;
     }
+    /* The Label tool: a press on a label drags it. */
+    if (v->view && mode0 == DRAG_ORBIT && zg_model_tool(v->model) == ZG_TOOL_LABEL && zg_label_press(v->label, x, y)) {
+        set_cursor(v, "grabbing");
+        return;
+    }
     GdkModifierType mods = gtk_event_controller_get_current_event_state(GTK_EVENT_CONTROLLER(g));
     /* The Select tool: a press on a dot of a picked support tree drags
      * it; a press on a printed line starts a drag over layers. */
@@ -1660,6 +1674,7 @@ static void on_drag_end(GtkGestureDrag *g, double dx, double dy, gpointer data) 
     }
     ring_release(v);
     zg_support_release(v->support);
+    zg_label_release(v->label);
     tool_cursor(v);
     /* The end of a drag over layers: the card of the range. */
     if (v->range_on) {
@@ -1704,6 +1719,15 @@ static void on_drag_update(GtkGestureDrag *g, double dx, double dy, gpointer dat
         double sx, sy;
         gtk_gesture_drag_get_start_point(g, &sx, &sy);
         if (v->range_lit || fabs(dx) > 4 || fabs(dy) > 4) range_move(v, sx + dx, sy + dy);
+        v->drag_x = dx;
+        v->drag_y = dy;
+        return;
+    }
+    if (zg_label_dragging(v->label)) {
+        double sx, sy;
+        gtk_gesture_drag_get_start_point(g, &sx, &sy);
+        GdkModifierType mods = gtk_event_controller_get_current_event_state(GTK_EVENT_CONTROLLER(g));
+        zg_label_drag(v->label, sx + dx, sy + dy, (mods & GDK_SHIFT_MASK) != 0);
         v->drag_x = dx;
         v->drag_y = dy;
         return;
@@ -1774,6 +1798,8 @@ static void on_motion(GtkEventControllerMotion *c, double x, double y, gpointer 
     if (zg_model_tool(v->model) == ZG_TOOL_SUPPORT && v->view && !pressed) {
         set_cursor(v, zg_support_cursor(v->support, x, y));
         zg_support_hover(v->support, x, y);
+    } else if (zg_model_tool(v->model) == ZG_TOOL_LABEL && v->view && !pressed) {
+        set_cursor(v, zg_label_cursor(v->label, x, y));
     } else if (zg_model_tool(v->model) == ZG_TOOL_SELECT && v->view && !pressed && zg_support_picked(v->support)) {
         set_cursor(v, zg_support_cursor(v->support, x, y));
     }
@@ -1811,6 +1837,10 @@ static gboolean on_scroll(GtkEventControllerScroll *c, double dx, double dy, gpo
         hand_lift(v, -dy * (px ? 0.1 : 10));
         return TRUE;
     }
+    /* The Label tool: the wheel over the selected label turns it. */
+    if (zg_model_tool(v->model) == ZG_TOOL_LABEL && !(mods & GDK_CONTROL_MASK) &&
+        zg_label_wheel(v->label, v->pointer_x, v->pointer_y, dy != 0 ? dy : dx, (mods & GDK_SHIFT_MASK) != 0))
+        return TRUE;
     gint64 part = zg_model_selected_part(v->model);
     if (((mods & GDK_CONTROL_MASK) || zg_model_tool(v->model) == ZG_TOOL_MOVE) && part >= 0) {
         zs_part p;
@@ -1928,6 +1958,11 @@ static void on_release(GtkGestureClick *g, int n, double x, double y, gpointer d
     /* The Support tool: a point of an area, or a click on an outline. */
     if (zg_model_tool(v->model) == ZG_TOOL_SUPPORT && !(mods & GDK_CONTROL_MASK)) {
         zg_support_click(v->support, x, y, (mods & GDK_SHIFT_MASK) != 0, (mods & GDK_ALT_MASK) != 0);
+        return;
+    }
+    /* The Label tool: a label, or a new label on the face there. */
+    if (zg_model_tool(v->model) == ZG_TOOL_LABEL && !(mods & GDK_CONTROL_MASK)) {
+        zg_label_click(v->label, x, y);
         return;
     }
     if (shift && !ctrl && select_tool) {
@@ -2522,6 +2557,38 @@ static void support_focus(gpointer data) {
     queue_frame(v);
 }
 
+static void label_focus(gpointer data) {
+    View3d *v = data;
+    GtkWidget *preview = v->area;
+    while (preview && !g_object_get_data(G_OBJECT(preview), "zg-preview")) preview = gtk_widget_get_parent(preview);
+    if (preview) gtk_widget_grab_focus(preview);
+}
+
+static gint64 label_part_at(gpointer data, double x, double y) {
+    View3d *v = data;
+    return v->view ? part_at(v, x, y, NULL, NULL) : -1;
+}
+
+gboolean zg_view3d_label_key(GtkWidget *view, guint key) {
+    View3d *v = g_object_get_data(G_OBJECT(view), "zg-view3d");
+    return v && !v->hidden && zg_label_key(v->label, key);
+}
+
+GtkWidget *zg_view3d_label_card(GtkWidget *view) {
+    View3d *v = g_object_get_data(G_OBJECT(view), "zg-view3d");
+    return zg_label_tool_card(v->label);
+}
+
+GtkWidget *zg_view3d_label_handle(GtkWidget *view) {
+    View3d *v = g_object_get_data(G_OBJECT(view), "zg-view3d");
+    return zg_label_tool_handle(v->label);
+}
+
+void zg_view3d_label_open(GtkWidget *view, gint64 part, guint32 id) {
+    View3d *v = g_object_get_data(G_OBJECT(view), "zg-view3d");
+    if (v) zg_label_tool_open(v->label, part, id);
+}
+
 gboolean zg_view3d_support_key(GtkWidget *view, guint key) {
     View3d *v = g_object_get_data(G_OBJECT(view), "zg-view3d");
     return v && !v->hidden && zg_support_key(v->support, key);
@@ -2556,6 +2623,7 @@ static void view_free(gpointer data) {
     if (v->group) g_array_free(v->group, TRUE);
     if (v->group_xy) g_array_free(v->group_xy, TRUE);
     zg_support_free(v->support);
+    zg_label_tool_free(v->label);
     if (v->view) zs_view_free(v->view);
     zg_native_surface_free(v->native);
     g_free(v->error);
@@ -2570,6 +2638,7 @@ GtkWidget *zg_view3d_new(ZgModel *model) {
     v->turn_axis = -1;
     v->area = gtk_drawing_area_new();
     v->support = zg_support_new(model, v->area, (ZgSupportHost){support_frame, support_focus, v});
+    v->label = zg_label_tool_new(model, v->area, (ZgLabelHost){support_frame, label_focus, label_part_at, v});
     gtk_widget_set_hexpand(v->area, TRUE);
     gtk_widget_set_vexpand(v->area, TRUE);
     gtk_drawing_area_set_draw_func(GTK_DRAWING_AREA(v->area), draw_message, v, NULL);

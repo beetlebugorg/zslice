@@ -1196,6 +1196,32 @@ gboolean zg_model_support_remove(ZgModel *self, size_t i) {
     return TRUE;
 }
 
+/* A change of the labels of a part: a slice and one step of the
+ * history. */
+static void labels_changed(ZgModel *self) {
+    request_slice(self);
+    if (!self->held) undo_commit(self);
+}
+
+gint64 zg_model_label_add(ZgModel *self, size_t part, const char *json) {
+    uint32_t id = 0;
+    if (zs_app_label_add(self->core, part, json, strlen(json), &id) != ZS_OK) return -1;
+    labels_changed(self);
+    return id;
+}
+
+gboolean zg_model_label_update(ZgModel *self, size_t part, guint32 id, const char *json) {
+    if (zs_app_label_update(self->core, part, id, json, strlen(json)) != ZS_OK) return FALSE;
+    labels_changed(self);
+    return TRUE;
+}
+
+gboolean zg_model_label_remove(ZgModel *self, size_t part, guint32 id) {
+    if (zs_app_label_remove(self->core, part, id) != ZS_OK) return FALSE;
+    labels_changed(self);
+    return TRUE;
+}
+
 void zg_model_toggle_more(ZgModel *self, gint64 path) {
     if (path < 0) return;
     if (self->selected < 0) {

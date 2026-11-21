@@ -53,6 +53,7 @@ static const Action ACTIONS[] = {
     {"3D view", "3", NULL, "preview.view", "3d"},
     {"Support tool", "U", "draw an area on the part: support under it, or none", "preview.tool", "support"},
     {"Measure tool", "T", "measure between two points of the print", "preview.tool", "measure"},
+    {"Label tool", "L", "text and marks on the surface of a part, in another filament", "preview.tool", "label"},
     {"Manage printers…", "Ctrl+,", "preferences, connections, API keys", "win.preferences", NULL},
     {"Compare with Cura…", NULL, NULL, "win.compare-cura", NULL},
     {"Open a project", NULL, "printdeck.yml from GitHub or a folder", "win.show-page", "project"},
