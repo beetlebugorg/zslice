@@ -314,6 +314,35 @@ namespace winrt::ZSlice::implementation
             else
                 ShowAbout();
         }
+        else if (verb == L"menu")
+        {
+            // Opens the menu at x y and writes its items. With a third word
+            // (_ for a space) it runs that item.
+            ShowContextMenu(number(0), number(1));
+            std::string names;
+            for (auto const &item : context_actions)
+                names += zs::ToUtf8(item.first) + " | ";
+            zs::Log("dev: menu: %s\n", names.c_str());
+            if (words.size() > 2)
+            {
+                std::wstring want = words[2];
+                std::replace(want.begin(), want.end(), L'_', L' ');
+                bool ran = false;
+                for (auto const &item : context_actions)
+                    if (item.first == want)
+                    {
+                        auto action = item.second;
+                        action();
+                        ran = true;
+                        break;
+                    }
+                zs::Log("dev: menu item %s\n", ran ? "ran" : "not found");
+            }
+        }
+        else if (verb == L"copy" || verb == L"cut" || verb == L"paste" || verb == L"dup")
+        {
+            ClipKey(verb == L"copy" ? VirtualKey::C : verb == L"cut" ? VirtualKey::X : verb == L"paste" ? VirtualKey::V : VirtualKey::D, has(L"shift"));
+        }
         else if (verb == L"bed")
         {
             ToggleBed();

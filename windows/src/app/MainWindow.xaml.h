@@ -151,6 +151,29 @@ namespace winrt::ZSlice::implementation
         void ShowLicenses();
         void ShowAbout();
 
+        // The menu of the view, and the clipboard of parts
+        // (MainWindow.ContextMenu.cpp).
+        void ShowContextMenu(double x, double y);
+        bool MenuPlace(double &x, double &y, double &z);
+        void SupportEdited();
+        void RemoveSupportHere();
+        void CopyForAi();
+        void NewProfile(int direction);
+        void PreviewToLine();
+        void ShowAllLayers();
+        bool SelectLinePart();
+        void CopyParts();
+        void CutParts();
+        void DuplicateParts();
+        void PasteParts(bool here, double x, double y);
+        bool NewPlateFrom(zs_app *from);
+        bool ClipKey(Windows::System::VirtualKey key, bool shift);
+        // The pointer, in points of the view.
+        double pointer_x = 0, pointer_y = 0;
+#ifdef ZS_DEV_HOOKS
+        std::vector<std::pair<std::wstring, std::function<void()>>> context_actions;
+#endif
+
         // Colors, the print as it forms, replay, gaps, check, and the bed
         // (MainWindow.View.cpp).
         void WireView();
