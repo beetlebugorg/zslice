@@ -32,7 +32,7 @@ From left to right:
 - **The search field** (`/` or Command-F): the settings and the actions. Its button at the right undocks it. While it is undocked, a Search button takes its place.
 - **The printer menu**: your printers, Add a Printer, Connect a Printdeck, and Manage Printers. With a connected printer, it can also take the bed, the nozzle, the motion, or the filament that the printer reports.
 - **The Filament button**: a dot in the color of each filament of the plate. See [Filaments](#filaments).
-- **The Quality menu**: the built-in qualities and yours, and Save as Profile. A dot means that this print has changes on top of the quality.
+- **The Quality menu**: the built-in qualities and yours, and Save as Profile. Each built-in quality has its main points under its name, for example "0.1 mm layers · 3 walls · slower walls · ironed tops". A dot means that this print has changes on top of the quality.
 - **Printers**: the [Printers page](#the-printers-page).
 - **Settings**: the settings drawer.
 - **A menu of the rest**: placement, checks, the history, and the keys.

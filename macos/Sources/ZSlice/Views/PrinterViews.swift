@@ -545,7 +545,13 @@ struct QualityMenu: View {
         Menu {
             Section("Built-in") {
                 ForEach(Profiles.builtin(Profiles.quality), id: \.self) { n in
-                    Toggle(n, isOn: Binding(get: { q == n }, set: { _ in model.useQuality(name: n) }))
+                    // The name with a capital, and its main points as the
+                    // subtitle of the item (a second Text).
+                    Toggle(isOn: Binding(get: { q == n }, set: { _ in model.useQuality(name: n) })) {
+                        Text(Profiles.qualityTitle(n))
+                        let sum = Profiles.qualitySummary(n)
+                        if !sum.isEmpty { Text(sum) }
+                    }
                 }
             }
             let mine = Profiles.mine(Profiles.quality)
@@ -561,7 +567,7 @@ struct QualityMenu: View {
                 if let name = askProfileName("Save the Quality as a Profile") { try? model.saveProfile(group: Profiles.quality, name: name) }
             }
         } label: {
-            Label((q.isEmpty ? "custom" : q) + (changed ? " •" : ""), systemImage: "dial.medium")
+            Label(Profiles.qualityTitle(q.isEmpty ? "custom" : q) + (changed ? " •" : ""), systemImage: "dial.medium")
                 .labelStyle(.titleAndIcon)
                 .fixedSize()
         }
