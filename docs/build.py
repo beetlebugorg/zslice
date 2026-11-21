@@ -46,6 +46,7 @@ SOURCES = [
     ("docs/user/parts.md", "user/parts/", "Everyday tasks", "Place the parts"),
     ("docs/user/support.md", "user/support/", "Everyday tasks", "Add support"),
     ("docs/user/filaments.md", "user/filaments/", "Everyday tasks", "Print in colors"),
+    ("docs/user/labels.md", "user/labels/", "Everyday tasks", "Labels on a part"),
     ("docs/user/check.md", "user/check/", "Everyday tasks", "Check the print"),
     ("docs/user/plates.md", "user/plates/", "Everyday tasks", "Plates and files"),
     ("docs/user/printers.md", "user/printers/", "Everyday tasks", "Send to a printer"),

@@ -32,6 +32,10 @@ Press `?` in the app to see all keys. Type in the sheet to filter it. On the Mac
 | H | Grab: pick up a part, carry it, and let go |
 | T | Measure: two clicks |
 | P | Paint: paint filaments on a part (Smart select or Brush) |
+| L | Label: click a face of a part to put text or marks on it ([Labels on a part](labels.md)) |
+| Drag a label (Label tool) | Move it on the surface (Shift: in its plane) |
+| Wheel over a label (Label tool) | Turn it 1° (Shift: 15°) |
+| Delete (Label tool) | Delete the selected label |
 | G | Gaps of the top layer |
 | Ctrl+click, Ctrl+drag, Ctrl+wheel | Select, move, and turn a part with any tool |
 | Shift+click (Select tool) | Select the run of the line: one extrusion, from a retraction to the next |

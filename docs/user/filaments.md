@@ -16,6 +16,7 @@ Click the Filament button in the top bar. It shows a dot for each filament.
 - **A part**: select it, and pick a filament chip on its card.
 - **Some layers**: drag over the layers (see [Click a line](lines.md)), and pick a filament chip on the card of the layers.
 - **A face or some letters**: use the Paint tool (P). A click paints a whole face. The brush paints where you drag.
+- **Text or marks on a face**: use the Label tool (L). See [Labels on a part](labels.md).
 
 Each change of filament is a filament change in the G-code. A printer with a unit that feeds many filaments (a Bambu Lab AMS, a Prusa MMU) changes it alone. Any other printer stops (M600), and you change the filament by hand.
 

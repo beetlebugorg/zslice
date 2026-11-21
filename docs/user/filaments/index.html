@@ -28,15 +28,16 @@
 <a href="../../user/parts/"><span class="n">5</span>Place the parts</a>
 <a href="../../user/support/"><span class="n">6</span>Add support</a>
 <a href="../../user/filaments/" aria-current="page"><span class="n">7</span>Print in colors</a>
-<a href="../../user/check/"><span class="n">8</span>Check the print</a>
-<a href="../../user/plates/"><span class="n">9</span>Plates and files</a>
-<a href="../../user/printers/"><span class="n">10</span>Send to a printer</a>
-<a href="../../user/history/"><span class="n">11</span>Undo and history</a>
+<a href="../../user/labels/"><span class="n">8</span>Labels on a part</a>
+<a href="../../user/check/"><span class="n">9</span>Check the print</a>
+<a href="../../user/plates/"><span class="n">10</span>Plates and files</a>
+<a href="../../user/printers/"><span class="n">11</span>Send to a printer</a>
+<a href="../../user/history/"><span class="n">12</span>Undo and history</a>
 <div class="group">Features</div>
-<a href="../../user/features/"><span class="n">12</span>The best features</a>
-<a href="../../user/print-as-it-forms/"><span class="n">13</span>The print as it forms</a>
-<a href="../../user/projects/"><span class="n">14</span>printdeck projects</a>
-<a href="../../user/farm/"><span class="n">15</span>A print farm</a>
+<a href="../../user/features/"><span class="n">13</span>The best features</a>
+<a href="../../user/print-as-it-forms/"><span class="n">14</span>The print as it forms</a>
+<a href="../../user/projects/"><span class="n">15</span>printdeck projects</a>
+<a href="../../user/farm/"><span class="n">16</span>A print farm</a>
 <div class="group">Reference</div>
 <a href="../../user/keys/">Keys and mouse</a>
 <a href="../../user/settings/">Settings</a>
@@ -77,7 +78,7 @@
 <p>Click the Filament button in the top bar. It shows a dot for each filament.</p>
 <ul><li><strong>+ Add a filament</strong> adds one. × removes one. Its parts and layers go to filament 1.</li><li>Click a color to change it.</li><li>Pick the material of each one: PLA, PETG, ABS, and others.</li><li>The grams of each filament show after the slice.</li></ul>
 <h2 id="give-a-part-or-layers-a-filament">Give a part or layers a filament</h2>
-<ul><li><strong>A part</strong>: select it, and pick a filament chip on its card.</li><li><strong>Some layers</strong>: drag over the layers (see <a href="../../user/lines/">Click a line</a>), and pick a filament chip on the card of the layers.</li><li><strong>A face or some letters</strong>: use the Paint tool (P). A click paints a whole face. The brush paints where you drag.</li></ul>
+<ul><li><strong>A part</strong>: select it, and pick a filament chip on its card.</li><li><strong>Some layers</strong>: drag over the layers (see <a href="../../user/lines/">Click a line</a>), and pick a filament chip on the card of the layers.</li><li><strong>A face or some letters</strong>: use the Paint tool (P). A click paints a whole face. The brush paints where you drag.</li><li><strong>Text or marks on a face</strong>: use the Label tool (L). See <a href="../../user/labels/">Labels on a part</a>.</li></ul>
 <p>Each change of filament is a filament change in the G-code. A printer with a unit that feeds many filaments (a Bambu Lab AMS, a Prusa MMU) changes it alone. Any other printer stops (M600), and you change the filament by hand.</p>
 <h2 id="painted-features-hold-to-the-part">Painted features hold to the part</h2>
 <p>A painted feature that stands on the part, for example a raised frame or a raised letter, can break off. So zslice grows the feature down into the part as a root:</p>
@@ -97,7 +98,7 @@
 <p>The Bambu Lab X2D and H2D have two nozzles. Each filament has a nozzle: <strong>Main</strong> or <strong>2nd</strong>.</p>
 <ul><li>On the X2D, the AMS feeds the main nozzle. The external spool feeds the second one.</li><li>The second nozzle does not reach the whole bed. The Check tells you when a part on it is out of its reach.</li></ul>
 <h2 id="where-to-go-next">Where to go next</h2>
-<nav class="goto"><a class="go" href="../../user/support/"><span class="num">6</span><b>Add support</b><span></span></a><a class="go" href="../../user/printers/"><span class="num">10</span><b>Send to a printer</b><span></span></a></nav><nav class="pager"><a class="prev" href="../../user/support/"><span>Back to 6</span><b>Add support</b></a><a class="next" href="../../user/check/"><span>Go to 8</span><b>Check the print</b></a></nav>
+<nav class="goto"><a class="go" href="../../user/support/"><span class="num">6</span><b>Add support</b><span></span></a><a class="go" href="../../user/printers/"><span class="num">11</span><b>Send to a printer</b><span></span></a></nav><nav class="pager"><a class="prev" href="../../user/support/"><span>Back to 6</span><b>Add support</b></a><a class="next" href="../../user/labels/"><span>Go to 8</span><b>Labels on a part</b></a></nav>
 </main>
 </div>
 <footer>zslice is free software (AGPL-3.0-or-later). <a href="../../privacy/">Privacy</a>: no analytics, no cookies, nothing from other sites. <a href="https://github.com/beetlebugorg/zslice/blob/main/docs/build.py">docs/build.py</a> writes this site from <a href="https://github.com/beetlebugorg/zslice/blob/main/docs/user/filaments.md">docs/user/filaments.md</a>.</footer>

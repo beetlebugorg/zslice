@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Labels on a part · zslice</title>
+<meta name="description" content="A label is text or a mark on the surface of a part, in another filament. The label prints flush in the outer skin of the part. It looks printed on. It is not raised, and it is not cut into the part.">
+<link rel="canonical" href="https://zslice.beetlebug.org/user/labels/">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%23171717'/%3E%3Crect x='11' y='8' width='10' height='4' rx='1' fill='%23f4f0e6'/%3E%3Crect x='8' y='14' width='16' height='4' rx='1' fill='%23f4f0e6'/%3E%3Crect x='5' y='20' width='22' height='4' rx='1' fill='%23ff5a1f'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="../../site.css">
+</head>
+<body>
+<input type="checkbox" id="menu">
+<header class="top">
+  <a class="brand" href="../../docs.html"><span class="mark">ZSLICE</span><span class="docs">DOCS</span></a>
+  <label class="menu-btn" for="menu">Contents</label>
+  <nav class="top-links"><a href="../../index.html">Open the app</a><a href="../../user/getting-started/">Get started</a><a href="../../roadmap/">Roadmap</a><a href="../../privacy/">Privacy</a><a href="https://github.com/beetlebugorg/zslice">GitHub</a></nav>
+</header>
+<div class="layout">
+<aside class="side"><nav><a href="../../docs.html">Home</a>
+<a href="../../contents/">All documents</a>
+<div class="group">Start</div>
+<a href="../../user/getting-started/"><span class="n">1</span>Your first print</a>
+<div class="group">Everyday tasks</div>
+<a href="../../user/look/"><span class="n">2</span>Look at the print</a>
+<a href="../../user/lines/"><span class="n">3</span>Click a line</a>
+<a href="../../user/change-settings/"><span class="n">4</span>Change a setting</a>
+<a href="../../user/parts/"><span class="n">5</span>Place the parts</a>
+<a href="../../user/support/"><span class="n">6</span>Add support</a>
+<a href="../../user/filaments/"><span class="n">7</span>Print in colors</a>
+<a href="../../user/labels/" aria-current="page"><span class="n">8</span>Labels on a part</a>
+<a href="../../user/check/"><span class="n">9</span>Check the print</a>
+<a href="../../user/plates/"><span class="n">10</span>Plates and files</a>
+<a href="../../user/printers/"><span class="n">11</span>Send to a printer</a>
+<a href="../../user/history/"><span class="n">12</span>Undo and history</a>
+<div class="group">Features</div>
+<a href="../../user/features/"><span class="n">13</span>The best features</a>
+<a href="../../user/print-as-it-forms/"><span class="n">14</span>The print as it forms</a>
+<a href="../../user/projects/"><span class="n">15</span>printdeck projects</a>
+<a href="../../user/farm/"><span class="n">16</span>A print farm</a>
+<div class="group">Reference</div>
+<a href="../../user/keys/">Keys and mouse</a>
+<a href="../../user/settings/">Settings</a>
+<a href="../../user/expert/">Formulas and rules</a>
+<a href="../../user/profiles/">Profiles</a>
+<a href="../../user/command-line/">The command line</a>
+<a href="../../user/apps/">Web, Linux, and Mac</a>
+<a href="../../user/macos/">The macOS app</a>
+<a href="../../user/troubleshooting/">Problems and errors</a>
+<div class="group">Embedding</div>
+<a href="../../embedding/">Overview</a>
+<a href="../../embedding/c/">C</a>
+<a href="../../embedding/zig/">Zig</a>
+<a href="../../embedding/javascript/">JavaScript</a>
+<a href="../../embedding/print-view/">The print view</a>
+<a href="../../embedding/labels/">Labels</a>
+<div class="group">Internals</div>
+<a href="../../internals/architecture/">Architecture</a>
+<a href="../../internals/one-view/">Plan: one view</a>
+<a href="../../internals/how-slicing-works/">How slicing works</a>
+<a href="../../internals/layer-settings/">Settings for some layers</a>
+<a href="../../internals/arachne/">Arachne walls</a>
+<a href="../../internals/print-sim/">The print simulation</a>
+<a href="../../internals/cura-compare/">Compared with other slicers</a>
+<a href="../../internals/contributing/">Contributing</a>
+<a href="../../internals/code-quality/">Code quality</a>
+<a href="../../internals/macos/">The macOS app</a>
+<div class="group">Project</div>
+<a href="../../app/">App</a>
+<a href="../../references/">References</a>
+<a href="../../roadmap/">Roadmap</a>
+<a href="../../privacy/">Privacy</a></nav></aside>
+<main>
+<p class="eyebrow">Everyday tasks</p>
+<h1><span class="num">8</span>Labels on a part</h1>
+<p class="lede">A label is text or a mark on the surface of a part, in another filament. The label prints flush in the outer skin of the part. It looks printed on. It is not raised, and it is not cut into the part.</p>
+<nav class="onpage"><b>On this page</b><ol><li><a href="#add-a-label">Add a label</a></li><li><a href="#move-turn-and-scale-a-label">Move, turn, and scale a label</a></li><li><a href="#add-volume-and-the-ticks-of-a-dial">Add "VOLUME" and the ticks of a dial</a></li><li><a href="#sizes-that-print-well">Sizes that print well</a></li><li><a href="#the-cost-of-a-label">The cost of a label</a></li></ol></nav><p>A label can be text, a line, a bar, a ring, the ticks of a dial, or a free line. One label can have more than one shape. For example, "VOLUME" and the ticks around a knob are one label.</p>
+<h2 id="add-a-label">Add a label</h2>
+<ol><li>Press <strong>L</strong>, or click the Label tool in the tool strip.</li><li>Click a face of a part. A label "LABEL" goes there, 5 mm tall, and its card opens.</li><li>Type the text. The view shows each key at once.</li><li>Pick the filament of the label on the card.</li></ol>
+<p>A new label gets the filament after the filament of the part. A label in the filament of the part does not show. If the plate has one filament, the card has an <strong>Add a filament</strong> button.</p>
+<p>The slice starts when you stop. The beads then show the label as it prints.</p>
+<h2 id="move-turn-and-scale-a-label">Move, turn, and scale a label</h2>
+<ul><li><strong>Move</strong>: drag the label. It follows the surface, also around a curve. Hold Shift to keep it in its plane.</li><li><strong>Turn</strong>: turn the mouse wheel over the label: 1° a step. Hold Shift for 15° steps. The card has the angle too (0 is level).</li><li><strong>Scale</strong>: drag the yellow handle at the corner of the label. Or type a size on the card.</li><li><strong>Delete</strong>: press Delete, or click <strong>Delete the label</strong> on the card.</li></ul>
+<p>Each change is one step of the history. Ctrl+Z undoes it.</p>
+<p>Esc closes the card. Esc again closes the tool. The labels of a part are also on the card of the part (Move tool). Click one to select it.</p>
+<h2 id="add-volume-and-the-ticks-of-a-dial">Add "VOLUME" and the ticks of a dial</h2>
+<ol><li>Press <strong>L</strong>, and click the face above the knob.</li><li>Type <code>VOLUME</code>.</li><li>In <strong>+ Add a shape…</strong>, pick <strong>Ticks</strong>. Ticks go under the text.</li><li>Set the <strong>Offset</strong> of the ticks so that their center is on the center of the knob. The second number moves them up or down, in mm.</li><li>Set the ticks:
+<ul><li><strong>Count</strong>: the number of ticks, for example 11.</li><li><strong>Radius</strong>: the distance from the center to each tick. Make it larger than the knob.</li><li><strong>First length</strong> and <strong>Last length</strong>: the ticks grow from the first to the last. This shows the levels.</li><li><strong>Start</strong> and <strong>Sweep</strong>: the angle of the first tick, and the angle to the last one. The default is the arc of a knob: from 225° clockwise through 270°.</li></ul></li></ol>
+<h2 id="sizes-that-print-well">Sizes that print well</h2>
+<p>The card shows the thinnest stroke of the label and the size of text that prints well. With a 0.4 mm nozzle:</p>
+<ul><li>Text about 4 mm tall or larger prints clean. Each stroke is two lines wide.</li><li>Text about 2 mm tall prints, but rough. Each stroke is one line wide.</li><li>Smaller text loses strokes. The Check of the print lists the label.</li></ul>
+<p><strong>Weight</strong> makes each stroke wider. It helps small text, but small holes in letters close.</p>
+<p><strong>Depth</strong> is how deep the color goes from the surface. The default is one line (about 0.4 mm). Use <strong>2 lines</strong> for a light filament on a dark part.</p>
+<h2 id="the-cost-of-a-label">The cost of a label</h2>
+<p>Each layer of a label adds a filament change. The card shows the changes, the minutes, and the grams of flush. Before the slice, the numbers are an estimate. After the slice, they come from the G-code.</p>
+<ul><li><strong>A label on a side face</strong> adds about one change for each layer that it covers. "VOLUME" 5 mm tall at 0.2 mm layers covers 26 layers: 26 changes, about 17 minutes.</li><li><strong>A label on the top face</strong> prints in the top layers only: about 3 changes.</li></ul>
+<p>So put a label on the top face where you can. The card says so when a side label adds more than 10 changes.</p><nav class="pager"><a class="prev" href="../../user/filaments/"><span>Back to 7</span><b>Print in colors</b></a><a class="next" href="../../user/check/"><span>Go to 9</span><b>Check the print</b></a></nav>
+</main>
+</div>
+<footer>zslice is free software (AGPL-3.0-or-later). <a href="../../privacy/">Privacy</a>: no analytics, no cookies, nothing from other sites. <a href="https://github.com/beetlebugorg/zslice/blob/main/docs/build.py">docs/build.py</a> writes this site from <a href="https://github.com/beetlebugorg/zslice/blob/main/docs/user/labels.md">docs/user/labels.md</a>.</footer>
+</body>
+</html>
