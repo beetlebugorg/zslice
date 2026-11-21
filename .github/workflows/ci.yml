@@ -1,0 +1,263 @@
+name: CI
+
+# Builds and tests each part of zslice on a push to main and on each pull
+# request: the core, the web app, the Linux app, the Mac app, and the
+# Windows app (when windows/ exists). The job "What changed" picks the
+# jobs that a change needs, so a change of one app builds that app only.
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - "docs/**"
+      - "**.md"
+      - "LICENSE"
+  pull_request:
+    paths-ignore:
+      - "docs/**"
+      - "**.md"
+      - "LICENSE"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# A new push stops the run of the push before it on the same branch.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  ZIG_VERSION: "0.16.0"
+
+jobs:
+  # Each app links the core. So a change of the core (src/, include/,
+  # build.zig, vendor/, tools/, or this file) runs all jobs. A change in
+  # the folder of one app runs the job of that app only. A first push, a
+  # force push, or a manual run runs all jobs.
+  changes:
+    name: What changed
+    runs-on: ubuntu-latest
+    outputs:
+      core: ${{ steps.filter.outputs.core }}
+      web: ${{ steps.filter.outputs.web }}
+      linux: ${{ steps.filter.outputs.linux }}
+      macos: ${{ steps.filter.outputs.macos }}
+      windows: ${{ steps.filter.outputs.windows }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          fetch-depth: 0
+      - id: filter
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE_REF: ${{ github.base_ref }}
+          BEFORE: ${{ github.event.before }}
+        run: |
+          set -euo pipefail
+          base=""
+          if [ "$EVENT" = pull_request ]; then
+            base=$(git merge-base "origin/$BASE_REF" HEAD)
+          elif [ -n "$BEFORE" ] && git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
+            base="$BEFORE"
+          fi
+          if [ -z "$base" ]; then
+            changed=ALL
+          else
+            changed=$(git diff --name-only "$base" HEAD)
+          fi
+          echo "changed:"; echo "$changed"
+          has() { [ "$changed" = ALL ] || echo "$changed" | grep -qE "$1"; }
+          core='^(src/|include/|vendor/|tools/|build\.zig|\.github/workflows/ci\.yml)'
+          if has "$core"; then echo "core=true" >> "$GITHUB_OUTPUT"; else echo "core=false" >> "$GITHUB_OUTPUT"; fi
+          for app in web linux macos; do
+            if has "$core" || has "^$app/"; then v=true; else v=false; fi
+            echo "$app=$v" >> "$GITHUB_OUTPUT"
+          done
+          # The Windows app is not in the repository yet. Its job runs when
+          # windows/ exists.
+          if [ -d windows ] && { has "$core" || has "^windows/"; }; then v=true; else v=false; fi
+          echo "windows=$v" >> "$GITHUB_OUTPUT"
+
+  core:
+    name: Core tests
+    needs: changes
+    if: needs.changes.outputs.core == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      # setup-zig keeps the Zig cache between runs.
+      - uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2
+        with:
+          version: ${{ env.ZIG_VERSION }}
+      - run: zig build test
+      # The command line tool slices a 20 mm cube.
+      - name: Slice a cube
+        run: |
+          zig build -Doptimize=ReleaseFast
+          python3 -I tools/cube_stl.py "$RUNNER_TEMP/cube.stl"
+          zig-out/bin/zslice slice "$RUNNER_TEMP/cube.stl" -o "$RUNNER_TEMP/cube.gcode"
+          grep -q ";LAYER:" "$RUNNER_TEMP/cube.gcode"
+
+  web:
+    name: Web app
+    needs: changes
+    if: needs.changes.outputs.web == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2
+        with:
+          version: ${{ env.ZIG_VERSION }}
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+      - run: zig build web
+      # test-node.mjs paints the part over z = 40 mm, so the box is 48 mm
+      # tall.
+      - name: Test
+        run: |
+          python3 -I tools/cube_stl.py "$RUNNER_TEMP/box.stl" 30 30 48
+          node web/app/test-node.mjs zig-out/web/app/zslice.wasm "$RUNNER_TEMP/box.stl"
+          node web/app/test-link.mjs
+          node web/app/test-signing.mjs zig-out/web/app/zslice.wasm
+
+  linux:
+    name: Linux app
+    needs: changes
+    if: needs.changes.outputs.linux == 'true'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2
+        with:
+          version: ${{ env.ZIG_VERSION }}
+      # GStreamer is optional for the app (the RTSP camera). The job
+      # installs it, so its code compiles too. The core loads the Vulkan
+      # loader at run time, so the build needs no Vulkan package.
+      - name: Install the packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libgtk-4-dev libsoup-3.0-dev libjson-glib-dev libwayland-dev \
+            libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev \
+            meson ninja-build openssl
+      # -Dwerror=true: a warning stops the build. A Debug core builds
+      # faster, and the tests do not slice.
+      - name: Build
+        working-directory: linux
+        run: |
+          meson setup build -Dwerror=true -Dcore-optimize=Debug
+          ninja -C build
+      - name: Test
+        run: meson test -C linux/build --print-errorlogs
+
+  macos:
+    name: Mac app
+    needs: changes
+    if: needs.changes.outputs.macos == 'true'
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2
+        with:
+          version: ${{ env.ZIG_VERSION }}
+      # The Xcode project builds the core (build-core.sh), the app, and the
+      # Quick Look extensions, and signs them ad hoc (Signing.xcconfig).
+      # make-app.sh stops when a Swift file is not in the Xcode project, so
+      # the job runs that check first.
+      - name: Check the Xcode project
+        working-directory: macos
+        run: |
+          missing=$(find Sources/ZSlice QuickLook -name '*.swift' -exec basename {} \; | while read -r f; do
+            grep -q "$f" ZSlice.xcodeproj/project.pbxproj || echo "$f"
+          done)
+          if [ -n "$missing" ]; then
+            echo "::error::Not in ZSlice.xcodeproj: $missing. Run xcodegen generate in macos/."
+            exit 1
+          fi
+      # OPT=Debug: build-core.sh builds a Debug core. It builds faster.
+      - name: Build
+        working-directory: macos
+        env:
+          OPT: Debug
+        run: |
+          xcodebuild -project ZSlice.xcodeproj -scheme ZSlice -configuration Debug \
+            -destination 'platform=macOS' -derivedDataPath build/ci build
+      # The app opens a cube, slices it, and writes a picture of the window
+      # (the development hooks of docs/internals/macos.md). The step does
+      # not fail the job yet: a window on a CI runner is not tested.
+      - name: Open and slice a cube
+        continue-on-error: true
+        run: |
+          python3 -I tools/cube_stl.py "$RUNNER_TEMP/cube.stl"
+          app=macos/build/ci/Build/Products/Debug/zslice.app/Contents/MacOS/zslice
+          ZSLICE_FRESH=1 ZSLICE_OPEN_AFTER="$RUNNER_TEMP/cube.stl" ZSLICE_SNAPSHOT="$RUNNER_TEMP/shot.png" \
+            "$app" > "$RUNNER_TEMP/app.log" 2>&1 &
+          pid=$!
+          for _ in $(seq 90); do
+            [ -s "$RUNNER_TEMP/shot.png" ] && break
+            sleep 1
+          done
+          kill "$pid" 2>/dev/null || true
+          cat "$RUNNER_TEMP/app.log"
+          test -s "$RUNNER_TEMP/shot.png"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: macos-snapshot
+          path: ${{ runner.temp }}/shot.png
+          if-no-files-found: ignore
+
+  windows:
+    name: Windows app (${{ matrix.platform }})
+    needs: changes
+    if: needs.changes.outputs.windows == 'true'
+    # The Windows runner is x64. The ARM64 build is a cross build, and its
+    # test program does not run here.
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: [x64, ARM64]
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2
+        with:
+          version: ${{ env.ZIG_VERSION }}
+      - uses: microsoft/setup-msbuild@30375c66a4eea26614e0d39710365f22f8b0af57 # v3
+      # The ARM64 build needs the ARM64 tools of MSVC. The step adds them
+      # when the Visual Studio of the runner does not have them.
+      - name: Add the ARM64 tools
+        if: matrix.platform == 'ARM64'
+        shell: pwsh
+        run: |
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $vs = & $vswhere -latest -products * -property installationPath
+          $has = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.ARM64 -property installationPath
+          if (-not $has) {
+            $installer = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vs_installer.exe"
+            $p = Start-Process -FilePath $installer -Wait -PassThru -ArgumentList @('modify', '--installPath', "`"$vs`"", '--add', 'Microsoft.VisualStudio.Component.VC.Tools.ARM64', '--quiet', '--norestart', '--nocache')
+            if ($p.ExitCode -ne 0 -and $p.ExitCode -ne 3010) { exit $p.ExitCode }
+          }
+      # build-core.ps1 installs the core to zig-out\windows-x64 or
+      # zig-out\windows-arm64 (lib\zslice.lib and include\).
+      - name: Build the core
+        run: pwsh windows/build-core.ps1 -Configuration Debug -Platform ${{ matrix.platform }}
+      # build-tests.ps1 links the core of its platform. It runs the test
+      # program for x64. For ARM64 it builds and links the program only.
+      - name: Test the core link
+        if: hashFiles('windows/build-tests.ps1') != ''
+        run: pwsh windows/build-tests.ps1 -Platform ${{ matrix.platform }}
+      # The WinUI app (windows/*.vcxproj) is not in the repository yet. The
+      # step builds the first .sln (else .vcxproj) in windows/ when there
+      # is one.
+      - name: Build the app
+        if: hashFiles('windows/*.sln', 'windows/*.vcxproj') != ''
+        shell: pwsh
+        run: |
+          $proj = Get-ChildItem windows -Filter *.sln | Select-Object -First 1
+          if (-not $proj) { $proj = Get-ChildItem windows -Filter *.vcxproj | Select-Object -First 1 }
+          msbuild $proj.FullName -t:Restore /p:Configuration=Debug /p:Platform=${{ matrix.platform }}
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          msbuild $proj.FullName /p:Configuration=Debug /p:Platform=${{ matrix.platform }}
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
