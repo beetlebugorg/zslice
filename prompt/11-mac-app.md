@@ -1,0 +1,55 @@
+# 11. The macOS app (SwiftUI and Metal)
+
+## Goal
+
+Build the native Mac app in `macos/`: a SwiftUI and AppKit shell around the app core. The core keeps the frame data of the 3D view (`ZS_SURFACE_FRAME`), and the app draws it with Metal. The app is a document app with Save, Versions, and autosave, an exact session restore after Command-Q or a crash, the Keychain for API keys, Quick Look extensions, and a Bambu Lab link that sends prints.
+
+## Read first
+
+- [The macOS app internals](../docs/internals/macos.md): the build, the Xcode project and signing, each file, threads, plates, the document, the session, the 3D view, the window, cards, input, tools, printers, cameras, Quick Look, and the development hooks. It is the spec of this part.
+- [The macOS app user guide](../docs/user/macos.md): the keys and menus of the Mac.
+- Part 09 of this folder: the window layout, the cards, and the keys follow the web app.
+
+## Build
+
+1. `macos/build-core.sh`: `zig build lib` for `aarch64-macos` and `x86_64-macos`, merged with `lipo`. Take the object out of each archive and make the archive again with `libtool`: the archive of Zig 0.16 does not align its object to 8 bytes, and the Apple tools skip it with no error. Set `-Dcompiler-rt` for the f128 helpers.
+2. `make-app.sh` builds the Swift package. `macos/project.yml` makes `ZSlice.xcodeproj` with XcodeGen. After a new Swift file, run `xcodegen generate`. The app has the hardened runtime and is not sandboxed (the network search uses multicast UDP).
+3. `FrameRenderer` reads the frame data of the core and makes the draw calls of the Vulkan backend in Metal. Upload a buffer only when its generation changes. Compile the shader source at start, so the build needs no Metal tools. Turn y over in each vertex shader. Draw only after a change; the display link pauses after that.
+4. The beads draw with `box_fragment` (no `discard_fragment`) and back-face culling. Focus and see-through passes use a second fragment function. A new selection uploads only the changed bead range.
+5. `ProjectDocument` is a `ReferenceFileDocument`. The core history drives the UndoManager. The model keeps the bytes of the project file, made on the main thread when the window is idle (0.8 s after the last change and after the slice). `snapshot` returns the last copy and never waits for the main thread.
+6. `Core/Session.swift`: the session of each window (part 14).
+7. The window: a toolbar with the file button, the search field, the printer menu, the Filament button, the Quality menu, Printers, Settings, and More. One bottom bar as on the web. The settings drawer is a SwiftUI inspector, always pinned.
+8. Cards and panels with `cardPlace(avoiding:)`, `.panel()` frames, and spatial cards (`SpatialStore`, the rules of `web/app/spatial.js`).
+9. The tools: Select (V), Move (M), Turn (R), Grab (H), Measure (T), Support (S), Label (L), Paint (P).
+10. Printers: `Core/PrinterLink.swift`, `Core/Bambu.swift`, `Core/Camera.swift`, `Core/FarmMonitor.swift` (part 13).
+11. Quick Look: `ZSliceThumbnail` draws icons on the CPU (`zs_gcode_thumbnail_png`, `zs_app_thumbnail_png`). `ZSlicePreview` has the 3D view for the space bar preview of G-code, STL, and 3MF.
+
+## Input on the Mac
+
+- A left drag orbits. A right drag of a mouse orbits, as in Cura.
+- Two fingers clicked down and slid on a trackpad pan. AppKit gives that as a right drag with the subtype `.touch`, so the Mac tells a trackpad from a mouse by the event.
+- A middle drag, or Shift and a drag, pans. A two-finger scroll, the wheel, and a pinch zoom toward the pointer.
+- A right click with no drag, or Control-click, opens the context menu.
+- Command-click, Command-drag, and Command-scroll select, move, and turn a part.
+
+## Lessons
+
+- **Write no session until the restore at launch is done.** A window gets its session, then waits for its NSWindow. A write in that time listed the new, empty window and removed the files of the last run, so a quit or a crash then lost the session. Count the sessions that windows took and did not restore yet. A change in that time writes once after the last restore.
+- **`snapshot` must never wait for the main thread.** That was a deadlock ("Fix a save that locked the macOS app").
+- A model file (an STL, or a 3MF that `zs_project_file_is` does not know) becomes an untitled document, so a save never writes over the model.
+- Open an empty window at launch. Do not open the Open panel.
+- Keep the main thread free after a slice. Keep the thinned tree dots until the trees or the camera change.
+- Keep the cards off the panels of the view. Place the gap card by its measured size.
+- Keep the search in the toolbar, with a way to undock it.
+- Keep only the settings in the right pane.
+- Keep the API key on its origin through redirects (`KeyRedirect`).
+- Stop tracking the Finder state of macOS in git.
+
+## Acceptance checks
+
+1. CI checks that the Xcode project lists each Swift file, builds it, opens a box, slices it, and writes a picture of its window.
+2. The window opens about 400 ms after the start of the app, and the first frame with beads comes before the first slice (about 460 to 490 ms with `pod.stl` on an M-series Mac).
+3. Command-Q and a start bring back each window with its plates, camera, page, and layer range, with no "Save changes?" alert.
+4. `ZSLICE_RESTORE_DELAY=s` shows that no session file is written during the wait.
+5. `qlmanage -x -p file.gcode` shows the 3D preview.
+6. `ZSLICE_RIGHT_DRAG=1` (a mouse right drag) must orbit. `ZSLICE_RIGHT_DRAG=touch` (a trackpad) must pan. `ZSLICE_INPUT_LOG=1` logs the subtype of each right press on a real trackpad.

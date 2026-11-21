@@ -60,6 +60,10 @@
 - [The macOS app](internals/macos.md): the SwiftUI shell, its build, and the Metal renderer of the 3D view.
 - [CI and releases](internals/release.md): the CI jobs, how to cut a release, and the secrets of the release.
 
+## A prompt that could build zslice
+
+- [The prompt folder](../prompt/README.md): an AI's best guess at a prompt that could build an app like zslice today, in parts, in build order. It is not the prompt that built zslice. zslice came from many sessions of conversation, with many corrections. The folder names the main commit that it describes.
+
 ## Documentation
 
 The site at https://zslice.beetlebug.org/docs.html comes from these Markdown files. `docs/build.py` writes the pages into `docs/`, with one folder for each page. It needs only Python 3.

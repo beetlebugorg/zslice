@@ -1,0 +1,64 @@
+# 04. Print features
+
+## Goal
+
+Build the features of a layer plan, in the order of how often a print needs them: walls, skin, infill, support, bridges, seams, gap fill, Arachne walls, and the newer features. At the end, the features of the roadmap section "Print quality and strength" and "Motion and extrusion" work, except the ones it marks open.
+
+## Read first
+
+- [The roadmap](../ROADMAP.md), section "Feature parity with PrusaSlicer and Cura": which features exist and which stay open (adaptive cubic, adaptive layer height, arc fitting, an ooze shield, sequential printing, mesh repair).
+- [The settings reference](../docs/user/settings.md), sections Walls, Top and bottom skin, Infill, Ironing, Slope smoothing, Support, Skirt and brim, Experimental.
+- [How a slicer works](../docs/internals/how-slicing-works.md), [Arachne walls](../docs/internals/arachne.md), [Contributing](../docs/internals/contributing.md) (how to add a setting, a feature, or an infill pattern).
+- [Add support](../docs/user/support.md), [Check the print](../docs/user/check.md).
+- [Cura](../docs/references/cura.md), [OrcaSlicer](../docs/references/orcaslicer.md), [Slicer techniques](../docs/references/slicer-techniques.md).
+
+## Build
+
+1. `src/layer.zig`: the plan of one layer. The ten steps are in its header: walls, the inner area, skin from the top and bottom surfaces of each layer, sparse infill, fill, ironing, skirt and brim, support, order, and slope smoothing. Each layer reads only the outlines of the other layers, so layers plan in parallel.
+2. Skin: find it from the top surface (outline j less outline j + 1) and the bottom surface of each layer, one boolean for each pair of layers. Do not intersect the outlines of all layers above and below. Skin patterns: lines, monotonic, concentric; the skin angle and its turn per layer. Retractless skin joins its pieces into few paths along the walls.
+3. `src/infill.zig`: scanline fill on one grid for all layers, so that lines stack. Patterns: `lines`, `grid` (default), `triangles`, `trihexagon`, `cubic`, `gyroid`, `concentric`, `honeycomb`, `zigzag`, `flow`, `lightning` (`src/lightning.zig`). Curved patterns fill the bounding box, then `src/clip_open.zig` clips the open lines. Infill ribs: a line in each narrow infill area that a sparse infill misses. Combined infill prints the sparse area of a group of layers once, as one tall bead.
+4. `src/support.zig`: overhangs from `support_angle`, columns from the top down, the Z gap and the XY gap, interface layers. `project.support`: `off` (default), `everywhere`, `buildplate`. `project.support_style`: `grid` (default), `tree`, `bridge` (a sacrificial pad under each overhang only). `src/tree_support.zig`: planned trees, so that equal overhangs get equal trees, with no dependence on the order of nodes or threads. `src/support_skeleton.zig` and `src/support_edit.zig`: the trees as data, and edits by hand.
+5. Bridges: find them, and print them with their own direction, speed, flow, and fan. Bridges for skin and for walls.
+6. Seams: `project.seam` `hidden` (default), `sharpest`, `rear`, `nearest`, `random`. Hidden is the most hidden point: inside corners over about 1 mm, the back, and no point over air; ties go to the back, so the seams line up. `cornerSeamIndex` is a port of the seam corner choice of CuraEngine, with its copyright and license kept.
+7. `src/gapfill.zig` and thin walls: lines in narrow areas that no wall or skin covers.
+8. Arachne (`src/arachne/`, `src/voronoi*.zig`): `project.wall_generator = arachne`. A port of CuraEngine: the Voronoi diagram of segments with robust predicates, skeletal trapezoidation, beading strategies, and the clean-up of the lines. Classic walls stay the default until test prints approve Arachne.
+9. The newer features:
+   - Wall order (`project.wall_order`: `inner_first` default, `outer_first`) and an extra wall on alternate layers (`project.alternate_extra_wall`).
+   - Overhang walls: the parts of a wall over air print at `project.overhang_wall_speed` times the wall speed with `project.overhang_wall_fan`. A wall a whole line over air prints as a bridge.
+   - Fuzzy skin (`project.fuzzy_skin`: `off`, `outer_wall`, `outside`).
+   - Spiral vase (`project.spiral_vase`): a layer that starts with a rising outer wall has no Z move of its own.
+   - Polyholes (`project.polyholes`): round holes become the polygons of nophead, in pass 1.
+   - Coasting (`project.coasting_volume`, `project.coasting_speed`).
+   - Wipe on retraction (`project.retract_wipe`) and along the start of a closed outer wall (`project.outer_wall_wipe`).
+   - Slope smoothing and slope ironing (`src/slope.zig`): beads that fill the steps of a sloped top, then ironing over them.
+   - Size compensation: XY offset, hole offset, elephant foot, shrinkage.
+   - `project.fast_offsets` (section Experimental, default off): a closing corner of an offset gets the crossing point of its two edges. A slice uses about 11 % less CPU. With the switch off, the G-code is the same as before.
+10. Checks of a slice: `src/gaps.zig` (solid areas that no bead covers, on a raster of 0.04 mm cells), `src/islands.zig` (shapes that start in the air), and `src/app/checks.zig` (flow over the hot end limit, short layers, and more).
+
+## Numbers and rules that matter
+
+- Wall k is the outline moved in by (k + 1/2) line widths. Skin thinner than half a line width goes.
+- Order in a layer: skirt and brim, support, then each island (inner walls, outer wall, skin, infill, ironing). The next island and the next path are the nearest to the nozzle.
+- On a plate of many parts, the plate job makes one skirt and one brim around all parts.
+- Tree support is hollow: the loop only, with its seam at the rear.
+- A gap thinner than 3 cells or smaller than the minimum area is left out.
+- An island is a polygon with less than 1 % of its area over the layer below.
+
+## Lessons
+
+- Never make a tree branch thinner on the way down. A pass from the top layer down gives each disk at least the radius of the disks above that join it, so a branch is a steady cone.
+- Keep tree branches thick enough to print. Keep the radius of a joined node under the largest radius.
+- Keep the support out of the skirt and the brim, and out of the brim of a plate of many parts.
+- Keep hidden seams on corners that stay. End slope runs short.
+- Join monotonic skin only between near scan lines, and only at clean hairpin turns.
+- Do not join the extra lines of the flow infill band. Keep them out of narrow band strips.
+- Keep islands in holes when the hole offset grows the holes.
+
+## Acceptance checks
+
+1. Each pattern, each seam mode, and each support style slices the 3DBenchy and the corpus with status `ok`.
+2. A feature that is off gives the same G-code as before it existed.
+3. Arachne fills a wedge with a whole number of beads of variable width, and a part thinner than two lines gets a wall.
+4. `zslice gaps` and `zslice check` list the gaps and the issues of a part.
+5. A 20 mm bridge between two posts prints with its own direction and fan.
+6. Equal overhangs get equal trees, also after a mirror of the part.
