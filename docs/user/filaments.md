@@ -52,7 +52,16 @@ After a change, the nozzle flushes the old color out: into the chute of a Bambu 
 
 ## Use the filaments of the printer
 
-For a printer of a printdeck, click **Use the filaments of** and the name of the printer. zslice reads the spools that the printer has, and makes the filaments of the plate the same: their count, material, and color. On a Bambu Lab printer, it reads the nozzles too.
+The plate uses the filaments that are in its printer. zslice reads the spools of a printdeck printer, and the AMS trays of a Bambu Lab printer in the GTK app. Filament 1 is the first spool, filament 2 the next spool, and so on.
+
+- zslice sets the count, the material, the color, and the nozzle of each filament. A new material gets its built-in profile.
+- zslice reads the spools again when you pick another printer, and each 20 s on the web (each 5 s in the GTK app).
+- The filament button says **From the printer**. Each filament in the list shows its spool, for example **A1**.
+- This works on a printer that changes the filament by itself, such as a Bambu Lab printer with an AMS. A printer that pauses for each change keeps the filaments that you add.
+
+A filament that you change by hand stays as you set it. To make it follow the printer again, open the filament menu and click **Use the filaments of** and the name of the printer. On a Bambu Lab printer, this reads the nozzles too.
+
+The print starts with the first filament of the plate. A plate of filament 4 only loads filament 4, so the printer needs only the tray of filament 4.
 
 ## Two nozzles
 
