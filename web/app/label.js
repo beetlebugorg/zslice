@@ -8,7 +8,8 @@
 //   selects it, and its card opens (labelcard.js).
 // - A drag of a label moves it on the surface; Shift keeps its plane.
 //   The wheel over the selected label turns it 1° a step (Shift: 15°).
-//   The handle at its corner scales it. Delete removes it.
+//   The handle at its corner scales it; the round handle over it turns
+//   it. Delete removes it.
 // - The view keeps the beads. The labels of the part show as decals on
 //   its surface (gl.js, setLabels): the outline of each label comes from
 //   the core (zs_label_outline) with no slice, so a drag, a turn, or a key
@@ -469,6 +470,8 @@ export class LabelTool {
       this.card = null;
       this.handle?.remove();
       this.handle = null;
+      this.turnHandle?.remove();
+      this.turnHandle = null;
       this.redraw();
       return;
     }
@@ -802,6 +805,63 @@ export class LabelTool {
     });
     this.ctx.host.append(h);
     this.handle = h;
+    this.makeTurnHandle();
+  }
+
+  // ---- the turn handle: a drag around the label turns it ----
+
+  makeTurnHandle() {
+    if (this.turnHandle) return;
+    const h = document.createElement("div");
+    h.className = "label-turn";
+    h.title = "Drag to turn the label. Shift: steps of 15°.";
+    h.setAttribute("aria-hidden", "true");
+    h.addEventListener("pointerdown", (e) => {
+      if (e.button !== 0) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const l = this.label;
+      const c = this.screenCenter();
+      const o = l && this.outline(l);
+      if (!l || !c || !o) return;
+      try {
+        h.setPointerCapture(e.pointerId);
+      } catch {
+        // A pointer the browser does not know (a test): no capture.
+      }
+      const host = this.ctx.host.getBoundingClientRect();
+      const at = (ev) => Math.atan2(ev.clientY - host.top - c[1], ev.clientX - host.left - c[0]);
+      const a0 = at(e);
+      const start = { ...l };
+      const base = angleOf(start);
+      // The way the label turns on the screen: its right and up axes as
+      // the screen shows them (the label can face the camera or not).
+      const cx = (o.box[0] + o.box[2]) / 2;
+      const cy = (o.box[1] + o.box[3]) / 2;
+      const p0 = this.screen(l, cx, cy);
+      const pr = this.screen(l, cx + 1, cy);
+      const pu = this.screen(l, cx, cy + 1);
+      const cross = p0 && pr && pu ? (pr[0] - p0[0]) * (pu[1] - p0[1]) - (pr[1] - p0[1]) * (pu[0] - p0[0]) : -1;
+      const sign = cross < 0 ? -1 : 1;
+      this.scaling = true;
+      const move = (ev) => {
+        let d = (sign * (at(ev) - a0) * 180) / Math.PI;
+        if (ev.shiftKey) d = Math.round((base + d) / 15) * 15 - base;
+        this.change(() => turned(start, d));
+      };
+      const up = () => {
+        h.removeEventListener("pointermove", move);
+        h.removeEventListener("pointerup", up);
+        h.removeEventListener("pointercancel", up);
+        this.scaling = false;
+        this.flush();
+      };
+      h.addEventListener("pointermove", move);
+      h.addEventListener("pointerup", up);
+      h.addEventListener("pointercancel", up);
+    });
+    this.ctx.host.append(h);
+    this.turnHandle = h;
   }
 
   // A point of the plane of the selected label on the screen (CSS pixels
@@ -853,6 +913,15 @@ export class LabelTool {
       if (q) {
         this.handle.style.left = `${q[0]}px`;
         this.handle.style.top = `${q[1]}px`;
+      }
+    }
+    // The turn handle: 3 mm over the middle of the top of the label.
+    if (this.turnHandle) {
+      const q = o && this.ctx.page() === "3d" ? this.screen(l, (o.box[0] + o.box[2]) / 2, o.box[3] + 3) : null;
+      this.turnHandle.hidden = !q;
+      if (q) {
+        this.turnHandle.style.left = `${q[0]}px`;
+        this.turnHandle.style.top = `${q[1]}px`;
       }
     }
     this.card?.place(this.screenBox());

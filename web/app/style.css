@@ -1108,6 +1108,12 @@ button.icon.lc-close { min-height: 24px; min-width: 24px; padding: 0; margin: -3
   background: #f5c211; border: 1.5px solid #1b1b1d; border-radius: 3px;
   cursor: nesw-resize; touch-action: none;
 }
+.label-turn {
+  position: absolute; z-index: 5; width: 13px; height: 13px; margin: -6.5px 0 0 -6.5px;
+  background: #f5c211; border: 1.5px solid #1b1b1d; border-radius: 50%;
+  cursor: grab; touch-action: none;
+}
+.label-turn:active { cursor: grabbing; }
 .pc-labels { display: flex; flex-direction: column; gap: 2px; }
 .pc-labels button { justify-content: flex-start; text-align: left; min-height: 24px; padding: 2px 6px; font-size: 0.88em; overflow-wrap: anywhere; white-space: normal; }
 
