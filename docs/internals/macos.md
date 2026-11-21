@@ -501,6 +501,7 @@ Like the GTK shell, the app reads environment variables for tests and screenshot
 
 **Session and timing**
 
+- `ZSLICE_SETTINGS_DIR=dir` keeps machine.toml, filament.toml, project.toml, and global.toml in that folder, also with `ZSLICE_FRESH` (which reads and writes none of them without it). A test of the move of the accelerations to the printer puts an old project.toml there.
 - `ZSLICE_SESSION=dir` keeps the session in that folder, also with `ZSLICE_FRESH` (which turns the session off without it). `ZSLICE_QUIT_AFTER=s` quits as Command-Q does, after s seconds.
 - `ZSLICE_DOC_SAVE=path` and `ZSLICE_DOC_AUTOSAVE=1` change the wall count of an opened file, then undo and redo, and save or autosave through the NSDocument, with a log line for each step. `ZSLICE_SAVE=path` saves the project file there.
 - `ZSLICE_TIMING=1` logs the time of each slice, the session reads and writes, the time of the first frame with beads, and each frame over 8 ms with the part of it in `zs_view_draw`.

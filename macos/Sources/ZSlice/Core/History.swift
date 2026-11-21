@@ -95,7 +95,7 @@ final class History {
         }
         if rc != 0 {
             listChanged(from: before)
-            if ProcessInfo.processInfo.environment["ZSLICE_FRESH"] == nil { SavedSettings.save(from: core) }
+            if SavedSettings.enabled { SavedSettings.save(from: core) }
         }
     }
 
@@ -195,7 +195,7 @@ final class History {
     private func applied(_ bits: Int32) {
         generation += 1
         model.scheduleSaveBytes()
-        if bits != 0, ProcessInfo.processInfo.environment["ZSLICE_FRESH"] == nil { SavedSettings.save(from: core) }
+        if bits != 0, SavedSettings.enabled { SavedSettings.save(from: core) }
         if bits != 0 { model.restored() }
     }
 
