@@ -80,6 +80,7 @@ import { signGcode, keyId as signingKeyId, supported as canSign, UNSUPPORTED as 
 import { contextItems } from "./context-menu.js";
 import { openMenu, openMenuAt, menuOpen, openPopover, closeMenu } from "./menus.js";
 import { formatClock, formatTime, useCore } from "./format.js";
+import { drawSigns, signLines } from "./signs.js";
 import { openPrinterPicker, bedFiles, findModel } from "./printers.js";
 
 const $ = (id) => document.getElementById(id);
@@ -258,7 +259,6 @@ function drawFrame(now) {
   partCard?.place();
   supportTool?.place();
   if (rangeCard?.open) rangeCard.place();
-  placePlateLabels();
   frameTimes[frameCount++ % frameTimes.length] = performance.now() - t0;
   if (more || staging) requestFrame();
   else lastFrameTime = 0;
@@ -2536,7 +2536,7 @@ const rangeDrag = {
 
 // ---- the mouse, the touch screen, and the wheel over the view ----
 
-attachViewInput(canvas, { app, view, view2d, tools, supportTool, requestFrame, pickAt, pickRun, hitAt, select, showContextMenu, activatePlate, range: rangeDrag, grab: { start: grabStart, move: grabMove, end: grabEnd, lift: grabLift, turn: grabTurn, holding: () => hand.on } });
+attachViewInput(canvas, { app, view, view2d, tools, supportTool, requestFrame, pickAt, pickRun, hitAt, select, showContextMenu, activatePlate, signMenu: (i, x, y) => openMenuAt(x, y, [{ label: `Go to plate ${i + 1}`, action: () => activatePlate(i, true) }, { label: `Remove plate ${i + 1}`, action: () => removePlate(i) }]), range: rangeDrag, grab: { start: grabStart, move: grabMove, end: grabEnd, lift: grabLift, turn: grabTurn, holding: () => hand.on } });
 
 // ---- gaps ----
 
@@ -2584,13 +2584,13 @@ const history = new HistoryPage($("page-history"), {
 
 // ---- printdeck.yml projects ----
 
-var project = new ProjectPage( // var: the plate labels can ask before this line
+var project = new ProjectPage( // var: the plate signs can ask before this line
   $("page-project"), {
-  statusChanged: () => updatePlateLabels(),
+  statusChanged: () => updatePlateSigns(),
   // The project closed: the session keeps its plates as the user's.
   closed: () => {
     keepSoon();
-    updatePlateLabels();
+    updatePlateSigns();
   },
   client,
   applySettings: (r) => applySettings(r),
@@ -3108,7 +3108,7 @@ function stageWork(s, all) {
 }
 
 function onWorkerEvent(m) {
-  // The slices of the other plates of the set show only on their labels.
+  // The slices of the other plates of the set show only on their signs.
   if ((m.event === "slicing" || m.event === "progress" || m.event === "failed") && m.plate !== undefined && m.plate !== app.activePlate) return;
   // A scene in steps comes first, so the events keep their order. The
   // history, and the plates with the same active plate, leave the view
@@ -3360,89 +3360,51 @@ function updatePlateBar() {
   $("plate-prev").disabled = app.activePlate <= 0;
   $("plate-next").disabled = app.activePlate >= n - 1;
   $("plate-all").hidden = n <= 1;
-  updatePlateLabels();
+  updatePlateSigns();
 }
 
-// The labels over the plates: made again when the list changes, placed
-// on each frame.
-function updatePlateLabels() {
-  const root = $("plate-labels");
-  const n = app.plates.length > 1 ? app.plates.length : 0;
-  while (root.children.length > n) root.lastChild.remove();
-  while (root.children.length < n) {
-    const el = document.createElement("div");
-    el.className = "plate-label";
-    const i = root.children.length;
-    el.onclick = () => activatePlate(i, true);
-    el.oncontextmenu = (e) => {
-      e.preventDefault();
-      openMenuAt(e.clientX, e.clientY, [{ label: `Remove plate ${i + 1}`, action: () => removePlate(i) }]);
-    };
-    root.append(el);
+// The signs of the plates (signs.js): drawn again when a plate, its name,
+// its status, or the theme changes. The core view draws them on the bed.
+// var: the project page can ask before this line.
+var signKey = "";
+var signTotals = [];
+var signTotalsBusy = false;
+function updatePlateSigns() {
+  if (!view?.loaded && !app.plates?.length) return;
+  const dark = matchMedia("(prefers-color-scheme: dark)").matches;
+  const accent = getComputedStyle(document.documentElement).getPropertyValue("--accent-bg").trim() || "#3584e4";
+  const signs = (app.plates ?? []).map((p, i) => ({
+    ...signLines(p, i, signTotals[i], project?.printStatus(i)),
+    active: i === app.activePlate && app.plates.length > 1,
+  }));
+  const key = JSON.stringify([signs, dark, accent, dpr()]);
+  if (key !== signKey) {
+    signKey = key;
+    const d = drawSigns(signs, dark, dpr(), accent);
+    try {
+      view.setSigns(d.rects, d.width, d.height, d.rgba, d.scale);
+    } catch (e) {
+      console.warn(e);
+    }
+    requestFrame();
   }
-  app.plates.forEach((p, i) => {
-    const el = root.children[i];
-    if (!el) return;
-    el.classList.toggle("active", i === app.activePlate);
-    const status = STATUS_TEXT[p.status] ?? p.status;
-    el.replaceChildren(`${i + 1}. ${p.name || "Empty plate"}`);
-    // The print status of a project plate: a mark at the front.
-    const ps = project?.printStatus(i);
-    if (ps && ps !== "todo") {
-      const m = document.createElement("span");
-      m.className = `pl-print pl-${ps}`;
-      m.textContent = { printing: "Printing", printed: "✓ Printed", failed: "Failed" }[ps] ?? ps;
-      el.prepend(m);
-    }
-    if (status) {
-      const s = document.createElement("span");
-      s.className = "pl-status";
-      s.textContent = status;
-      el.append(s);
-    }
-    el.title = [p.printer, p.status === "resin" ? "zslice slices FDM plates only, for now." : ""].filter(Boolean).join(" · ");
-  });
-}
-
-// Places each label over the middle of the back edge of its plate.
-function placePlateLabels() {
-  const root = $("plate-labels");
-  if (root.children.length === 0 || app.page !== "3d") {
-    root.hidden = root.children.length === 0 || app.page !== "3d";
-    return;
-  }
-  root.hidden = false;
-  const k = dpr();
-  const width = root.clientWidth;
-  // The labels stay in a row at the top of the view, over the middle of
-  // their plates: they never cover a part.
-  app.plates.forEach((p, i) => {
-    const el = root.children[i];
-    if (!el) return;
-    const o = view.plateOrigin(i);
-    const q = view.pixelOf(o[0] + (p.bed[0] || 220) / 2, o[1] + (p.bed[1] || 220) / 2, 0);
-    const x = q ? q[0] / k : NaN;
-    if (!(x > -40 && x < width + 40)) {
-      el.style.display = "none";
-      return;
-    }
-    el.style.display = "";
-    el.style.left = `${x}px`;
-    el.style.top = "";
-  });
-  // A label that covers one at its left moves right; all stay in the view.
-  const shown = [...root.children].filter((e) => e.style.display !== "none").map((e) => ({ e, r: e.getBoundingClientRect() }));
-  shown.sort((a, b) => a.r.left - b.r.left);
-  const left0 = root.getBoundingClientRect().left;
-  let edge = left0 + 70; // right of the tool column
-  for (const s of shown) {
-    const w = s.r.width;
-    let x = Math.max(s.r.left, edge);
-    x = Math.min(x, left0 + width - w - 8);
-    s.e.style.left = `${x - left0 + w / 2}px`;
-    edge = x + w + 6;
+  // The time and the filament of the plates with a slice: then again.
+  const want = (app.plates ?? []).some((p, i) => p.status === "done" && !signTotals[i]);
+  if (want && !signTotalsBusy) {
+    signTotalsBusy = true;
+    client
+      .call("plateTotals", {})
+      .then((r) => {
+        signTotals = r?.totals ?? [];
+        signTotalsBusy = false;
+        updatePlateSigns();
+      })
+      .catch(() => {
+        signTotalsBusy = false;
+      });
   }
 }
+matchMedia("(prefers-color-scheme: dark)").addEventListener?.("change", () => updatePlateSigns());
 
 $("plate-prev").onclick = () => activatePlate(app.activePlate - 1, true);
 $("plate-next").onclick = () => activatePlate(app.activePlate + 1, true);
@@ -4120,5 +4082,6 @@ window.zslice = {
   get frameCount() { return frameCount; },
   get pickMs() { return pickMs; },
   requestFrame,
+  openFile, addPlate, activatePlate,
   drawNow: () => drawFrame(performance.now()),
 };

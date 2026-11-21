@@ -148,6 +148,28 @@ export class View3D {
   plateFlags(i, flags) { this.x.zs_view_plate_flags(this.v, i, flags); }
   // The plate under a pixel, or -1.
   plateAt(px, py) { return Number(this.x.zs_view_plate_at(this.v, px, py)); }
+  // The signs of the plates: an RGBA image (width x height, straight
+  // alpha), the rect [x, y, w, h] of the sign of each plate in it (null:
+  // no sign), and the image pixels for one pixel of the view. No rects:
+  // no signs.
+  setSigns(rects, width, height, rgba, scale) {
+    const w = this.w;
+    const n = rects.length;
+    if (n === 0) {
+      this.x.zs_view_set_signs(this.v, 0, 0, 0, 0, 0, 1);
+      return;
+    }
+    const pr = w.alloc(16 * n);
+    try {
+      new Float32Array(this.x.memory.buffer, pr, 4 * n).set(rects.flatMap((r) => r ?? [0, 0, 0, 0]));
+      const rc = w.withBytes(rgba, (p) => this.x.zs_view_set_signs(this.v, n, pr, width, height, p, scale));
+      if (rc !== 0) throw new Error(`zslice: the plate signs did not load (${statusText(rc)})`);
+    } finally {
+      w.free(pr, 16 * n);
+    }
+  }
+  // The plate of the sign under a pixel, or -1.
+  signAt(px, py) { return Number(this.x.zs_view_sign_at(this.v, px, py)); }
   // The origin of the bed of plate i in the world of the view: [x, y].
   plateOrigin(i) {
     const c = this.w.cell;
@@ -350,7 +372,7 @@ export class View3D {
     let f = this.f;
     if (!f || f.buf !== buf || f.p !== p) {
       f = this.f = {
-        buf, p, keys: new Uint32Array(24).fill(0xffffffff),
+        buf, p, keys: new Uint32Array(26).fill(0xffffffff),
         box: new Float32Array(buf, p, 28),
         grid: new Float32Array(buf, p + 112, 28),
         clear: new Float32Array(buf, p + 224, 4),
@@ -415,6 +437,15 @@ export class View3D {
     f.patchFrom = m[k + 101];
     f.patchFirst = m[k + 102];
     f.patchEnd = m[k + 103];
+    // The signs of the plates: their push data (k + 104 .. k + 131),
+    // their vertices (8 floats each), and their image.
+    if (!f.sign || f.sign.buffer !== buf) f.sign = new Float32Array(buf, p + 240 + 104 * 4, 28);
+    f.signVertices = m[k + 133];
+    frameView(f, 22, m[k + 132], f.signVertices, Float32Array, 32, "signVerts");
+    f.signTexWidth = m[k + 135];
+    f.signTexHeight = m[k + 136];
+    f.signGen = m[k + 137];
+    frameView(f, 24, m[k + 134], f.signTexWidth * f.signTexHeight, Uint8Array, 4, "signTex");
     f.m32 = m;
     f.mf32 = this.w.mf32;
     return f;

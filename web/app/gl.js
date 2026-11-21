@@ -331,6 +331,23 @@ void main() {
     frag = vec4(col, a);
 }`;
 
+// The signs of the plates: a port of src/render/shaders/sign.frag (the
+// vertex shader is bedVert). The color is the image of the signs, and the
+// alpha of a sign is in the normal (x).
+const signFrag = `#version 300 es
+precision highp float;
+uniform sampler2D tex;
+in vec3 vnormal;
+in vec2 vuv;
+in float vz;
+out vec4 frag;
+void main() {
+    vec4 t = texture(tex, vuv);
+    float a = t.a * vnormal.x;
+    if (a < 0.004) discard;
+    frag = vec4(t.rgb, a);
+}`;
+
 // The paint tool (paint.js): the mesh of a part, each triangle in the
 // color of its filament. state: 0 the filament of the part, k the color
 // k of the palette, + 128 for the region under the pointer, 255 a
@@ -518,6 +535,13 @@ export class GlRenderer {
     this.cull = gl.BACK;
     this.grid = compile(gl, gridVert, gridFrag);
     this.bedProg = compile(gl, bedVert, bedFrag);
+    this.signProg = compile(gl, bedVert, signFrag);
+    // The signs of the plates: their vertices each frame, and their image.
+    this.signVbo = gl.createBuffer();
+    this.signVao = gl.createVertexArray();
+    this.signTex = gl.createTexture();
+    this.signGen = -1;
+    this.signTexWidth = 0;
     this.paintProg = compile(gl, paintVert, paintFrag);
     // The paint mesh (setPaintMesh): null when the paint tool is off.
     this.paint = null;
@@ -566,6 +590,15 @@ export class GlRenderer {
 
     gl.bindVertexArray(this.bedVao);
     gl.bindBuffer(gl.ARRAY_BUFFER, this.bedVbo);
+    gl.enableVertexAttribArray(0);
+    gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 32, 0);
+    gl.enableVertexAttribArray(1);
+    gl.vertexAttribPointer(1, 3, gl.FLOAT, false, 32, 12);
+    gl.enableVertexAttribArray(2);
+    gl.vertexAttribPointer(2, 2, gl.FLOAT, false, 32, 24);
+
+    gl.bindVertexArray(this.signVao);
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.signVbo);
     gl.enableVertexAttribArray(0);
     gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 32, 0);
     gl.enableVertexAttribArray(1);
@@ -765,6 +798,22 @@ export class GlRenderer {
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
       this.gen.bed = f.bedGen;
     }
+    if (f.signGen !== this.signGen) {
+      // The image of the signs: new when a plate, its name, or its
+      // status changes. Mipmaps keep the text clean when it is small.
+      gl.bindTexture(gl.TEXTURE_2D, this.signTex);
+      gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+      this.signTexWidth = f.signTexWidth;
+      if (f.signTexWidth > 0) {
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, f.signTexWidth, f.signTexHeight, 0, gl.RGBA, gl.UNSIGNED_BYTE, f.signTex);
+        gl.generateMipmap(gl.TEXTURE_2D);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+      }
+      this.signGen = f.signGen;
+    }
     // The bead buffers of the plates in the frame.
     const m = f.m32;
     for (let i = 0; i < f.platesCount; i++) {
@@ -912,6 +961,27 @@ export class GlRenderer {
     gl.depthMask(true);
     gl.depthFunc(gl.LEQUAL);
     gl.disable(gl.POLYGON_OFFSET_FILL);
+  }
+
+  // The signs of the plates, after the bed: blended, with no depth
+  // write, so the parts in front hide them and they hide no part.
+  drawSigns(f) {
+    if (!(f.signVertices > 0) || this.signTexWidth === 0) return;
+    const gl = this.gl;
+    gl.useProgram(this.signProg.prog);
+    gl.uniformMatrix4fv(this.signProg.u.mvp, false, f.sign, 0, 16);
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, this.signTex);
+    gl.uniform1i(this.signProg.u.tex, 0);
+    gl.bindVertexArray(this.signVao);
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.signVbo);
+    gl.bufferData(gl.ARRAY_BUFFER, f.signVerts, gl.STREAM_DRAW);
+    gl.enable(gl.BLEND);
+    gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+    gl.depthMask(false);
+    gl.drawArrays(gl.TRIANGLES, 0, f.signVertices);
+    gl.depthMask(true);
+    gl.disable(gl.BLEND);
   }
 
   // ---- the paint tool (paint.js) ----
@@ -1108,6 +1178,7 @@ export class GlRenderer {
       const q = (f.plates >>> 2) + 40 * i;
       if (f.m32[q + 38] & 1) this.drawBed(f, f.mf32, q + 16);
     }
+    this.drawSigns(f);
     gl.useProgram(this.box.prog);
     gl.bindVertexArray(this.boxVao);
     this.setPush(f.box);

@@ -20,10 +20,10 @@
 // ctx: { app, view (View3D), view2d, tools (tools.js), supportTool
 //        (support.js), requestFrame(), pickAt(px, py, picked), hitAt(px,
 //        py), select(path, seg, picked), showContextMenu(x, y),
-//        activatePlate(i, frame), range: { start(px, py) -> drag state
+//        activatePlate(i, frame), signMenu(i, x, y), range: { start(px, py) -> drag state
 //        or null, move(state, px, py), end(state), clear() } }
 export function attachViewInput(canvas, ctx) {
-  const { app, view, view2d, tools, supportTool, requestFrame, pickAt, pickRun, hitAt, select, showContextMenu, activatePlate, grab, range } = ctx;
+  const { app, view, view2d, tools, supportTool, requestFrame, pickAt, pickRun, hitAt, select, showContextMenu, activatePlate, signMenu, grab, range } = ctx;
   let drag = null;
   // The last scroll came from a touchpad (see the wheel below).
   let touchpad = false;
@@ -220,10 +220,22 @@ export function attachViewInput(canvas, ctx) {
       range.end(d.range);
       return;
     }
-    if (!d || d.moved || !view.loaded) return;
+    if (!d || d.moved) return;
     const r = canvas.getBoundingClientRect();
     const px = (e.clientX - r.left) * dpr();
     const py = (e.clientY - r.top) * dpr();
+    // A click on the sign of a plate goes to that plate; a right click
+    // opens its menu. A sign never covers a part, so it gets only the
+    // clicks on itself.
+    if (app.page === "3d" && (d.button === 0 || d.button === 2)) {
+      const s = view.signAt(px, py);
+      if (s >= 0) {
+        if (d.button === 0) activatePlate(s, true);
+        else signMenu?.(s, e.clientX, e.clientY);
+        return;
+      }
+    }
+    if (!view.loaded) return;
     // A click elsewhere ends a range of layers.
     if (d.button === 0) range?.clear();
     // A click on another plate (its bed or its beads) makes it active.
