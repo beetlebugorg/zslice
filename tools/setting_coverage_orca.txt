@@ -207,6 +207,9 @@ detect_thin_wall | same | project.thin_walls
 seam_position | same | project.seam
 xy_hole_compensation | same | filament.hole_xy_offset
 xy_contour_compensation | same | filament.xy_offset
+hole_to_polyhole | same | project.polyholes
+hole_to_polyhole_threshold | derived | project.polyholes (a hole within 3 % of a circle)
+hole_to_polyhole_twisted | missing | polyholes that turn on each layer
 elefant_foot_compensation | same | project.first_layer_xy_offset
 gap_fill_target | derived | project.gap_fill
 filter_out_gap_fill | derived | project.gap_fill

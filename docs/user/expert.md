@@ -59,6 +59,7 @@ fan = {layer} < 3 ? 0 : {fan}
 | **Overhang walls** (`project.overhang_wall_speed`, `project.overhang_wall_fan`) | The parts of a wall that hang over air print slower, with more fan. `project.overhang_wall_threshold` sets how far a wall must hang over air: 0.5 is half the line width. Off by default (a speed of 100 % and a fan of 0). |
 | **Fuzzy skin** (`project.fuzzy_skin`) | A rough surface: random points along the outer wall, up to half of `project.fuzzy_skin_thickness` to each side, about `project.fuzzy_skin_point_distance` apart. `outside` leaves the holes smooth, so they keep their size. |
 | **Spiral vase** (`project.spiral_vase`) | After the bottom layers, only the outer wall prints, and the nozzle rises along it with no seam: a vase with no top and no infill. For a part with one outline on each layer. |
+| **Polyholes** (`project.polyholes`) | Each round hole prints as a polygon with few sides (two for each mm of its diameter), whose flat sides touch the true circle. A pin or a screw then fits, where a round hole prints too small. |
 | **Gap fill** (`project.gap_fill`) | One line along the middle of each narrow area. On by default. |
 | **Retractless skin** (`project.skin_link_length`) | Prints the skin of each island in few paths: the nozzle goes along the walls to the next zigzag, up to 15 mm. 0 turns it off. |
 | **Bridges** (`project.bridges`) | Prints a skin over air across the air, in the direction of the shortest longest line, anchored 1.5 mm into the plastic around it. Slow, with the fan on. |

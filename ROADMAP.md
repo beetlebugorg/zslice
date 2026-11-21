@@ -85,7 +85,7 @@ The goal is the features that people use in PrusaSlicer and Cura. zslice designs
 - [x] Variable layer height by hand: a layer height for some layers (an override by z range)
 - [ ] Variable layer height: adaptive (from the slope of the surface)
 - [x] Size compensation: XY offset, hole offset, elephant foot, shrinkage
-- [ ] Polyholes
+- [x] Polyholes (`project.polyholes`)
 
 ### Motion and extrusion
 - [x] Avoid crossing walls (combing) on travel
