@@ -206,6 +206,8 @@ final class Workspace {
     var gapsOn = false
     var gapSummary: (count: Int, area: Double)?
     var gapCard: GapInfo?
+    /// The size of the card of a gap as it shows, for its place.
+    var gapCardSize = CGSize(width: 320, height: 220)
     var checkOpen = false
     var issues: [Issue] = []
 
@@ -1153,6 +1155,30 @@ final class Workspace {
         // Delete. The log says what the Select tool did.
         if let spec = env["ZSLICE_SELECT_TEST"]?.split(separator: " ").map(String.init) {
             Task { @MainActor in await runSelectTest(spec) }
+        }
+        // ZSLICE_GAP_OPEN=1 (with ZSLICE_GAPS=1): a click on the largest gap
+        // of the top layer, then the box of the gap and of its card, and
+        // whether they overlap.
+        if env["ZSLICE_GAP_OPEN"] != nil {
+            Task { @MainActor in
+                try? await Task.sleep(for: .seconds(1))
+                var gaps: UnsafePointer<zs_gap>?
+                var n = 0
+                var runs: UnsafePointer<zs_gap_run>?
+                var nr = 0
+                guard zs_app_layer_gaps(self.model.core, self.hi, &gaps, &n, &runs, &nr) == 0, let gaps, n > 0,
+                      let at = self.canvas.viewPoint(x: gaps[0].x, y: gaps[0].y, z: self.layerTopBottom(self.hi)?.top ?? 0) else {
+                    NSLog("zslice gap open: no gap")
+                    return
+                }
+                NSLog("zslice gap open: pick %d", self.pickGap(at: at) ? 1 : 0)
+                try? await Task.sleep(for: .seconds(1.5))
+                let box = self.gapScreenBox() ?? .zero
+                let size = self.gapCardSize
+                let c = cardPlace(avoiding: box, near: at, size: size, in: self.canvas.bounds.size, bottom: self.dockHeight + 12, panels: self.panels)
+                let card = CGRect(x: c.x - size.width / 2, y: c.y - size.height / 2, width: size.width, height: size.height)
+                NSLog("zslice gap open: gap %@, card %@, overlap %d", NSStringFromRect(box), NSStringFromRect(card), card.intersects(box) ? 1 : 0)
+            }
         }
         // ZSLICE_PICK=x,y picks the line at that point of the view (points),
         // as a click does (as in the GTK app).
