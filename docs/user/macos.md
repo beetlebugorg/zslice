@@ -280,12 +280,14 @@ A painted 3MF file of PrusaSlicer or Bambu Studio opens with its paint and its c
 
 ### Labels
 
-The Label tool (L) puts text or a mark on the surface of a part, in another filament. It prints flush in the outer skin of the part. [Labels on a part](labels.md) tells all of it; on the Mac:
+The Label tool (E) puts text, a mark, or an SVG picture on the surface of a part, in another filament. It prints flush in the outer skin of the part (Ink), out of the surface (Raised), or cut into it (Cut in). [Labels on a part](labels.md) tells all of it; on the Mac:
 
 - Click a face of a part: a label "LABEL" goes there, 5 mm tall, and its card opens with the text selected. Type the text.
-- Drag a label to move it on the surface (Shift: in its plane). The wheel over the label turns it 1° a step (Shift: 15°); on a trackpad, each 10 points of a scroll is a step. Drag the yellow handle at its corner to scale it. Drag the round handle over its top around the label to turn it (Shift: steps of 15°).
+- Drag a label to move it on the surface (Shift: in its plane). The wheel over the label turns it 1° a step (Shift: 15°); on a trackpad, each 10 points of a scroll is a step. The selected label has handles on the surface: a frame around it, a square at each corner, and a round handle over it. Drag a corner to resize the label about the opposite corner; it keeps its aspect, and Shift resizes each axis on its own. Drag the round handle around the label to turn it (Shift: steps of 15°).
+- A move or a resize snaps to smart guides: the other labels on the face, its holes, and the centers of the face and of the part. Thin pink lines show them. Option moves free.
+- Place an SVG… on the card puts the filled shapes of an SVG file on the label; drop an SVG file on a part to make a label of it there.
 - Delete removes the selected label. Esc closes the card, and Esc again the tool.
-- The card has the shapes (text, a line, a bar, a ring, the ticks of a dial, or a free line), the turn, the filament, the depth, and what the label costs: the thinnest stroke, the size of text that prints clean, and the filament changes, minutes, and grams that it adds.
+- The card has the shapes (text, a line, a bar, a ring, the ticks of a dial, or a free line), the turn, the filament, the depth, Print (Ink, Raised, or Cut in, with the Relief in mm), and what the label costs: the thinnest stroke, the size of text that prints clean, and the filament changes, minutes, and grams that it adds.
 - Each change is one step of the history. The part card lists the labels of the part; click one to select it.
 
 ## Printers

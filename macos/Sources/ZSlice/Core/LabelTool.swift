@@ -24,6 +24,7 @@
 import AppKit
 import CZslice
 import Observation
+import simd
 
 /// The facts of a label for its card (zs_app_label_info).
 struct LabelInfo: Decodable, Equatable {
@@ -63,21 +64,57 @@ final class LabelState {
     var info: LabelInfo?
     /// The item that gets the points of clicks (a free line), or -1.
     var drawing = -1
-    /// The corner handle and the box of the selected label on the screen.
-    var handleAt: CGPoint?
-    /// The round turn handle, 3 mm over the middle of the top of the label.
+    /// The handles of the selected label on the screen (LabelHandles draws
+    /// them): the frame around its box, a square at each corner, and the
+    /// round turn handle over the frame, each as the points of its outline
+    /// in the plane of the label. And the box of the label on the screen
+    /// (for the card).
+    var frame: [CGPoint] = []
+    var corners: [[CGPoint]] = []
+    var turnRing: [CGPoint] = []
+    /// The center of the turn handle on the screen.
     var turnAt: CGPoint?
     var box: CGRect?
+    /// The lines of the smart guides on the screen, during a drag.
+    var guides: [(CGPoint, CGPoint)] = []
 
     @ObservationIgnored var outlines: [UInt32: (key: String, outline: LabelOutline)] = [:]
     @ObservationIgnored var sessions: [Int: OpaquePointer] = [:]
-    @ObservationIgnored var drag: (id: UInt32, dx: Double, dy: Double, start: PartLabel, moved: Bool, at: CGPoint)?
+    @ObservationIgnored var drag: LabelDrag?
+    /// The guides of the snap in the plane of the label ([s0, t0, s1, t1]).
+    @ObservationIgnored var planeGuides: [[Double]] = []
+    /// The features of the face under the label (zs_label_face), the plane
+    /// they are of, and the time of the last read.
+    @ObservationIgnored var face: (json: String?, index: Int, origin: SIMD3<Double>, normal: SIMD3<Double>, time: Date)?
     @ObservationIgnored var drawn: [[Double]] = []
     @ObservationIgnored var pending: UInt32?
     @ObservationIgnored var timer: Task<Void, Never>?
     @ObservationIgnored var scaling = false
 
     var label: PartLabel? { labels.first { $0.id == sel } }
+}
+
+/// A drag of the Label tool: a move of the label (its body), a resize (a
+/// corner: the opposite corner stays), or a turn (the round handle).
+struct LabelDrag {
+    enum Mode { case move, resize, turn }
+    var mode: Mode
+    var id: UInt32
+    /// The point of the press in the plane of the label (a move).
+    var dx = 0.0, dy = 0.0
+    var start: PartLabel
+    var moved = false
+    var at: CGPoint
+    /// A resize: the box of the outline at the press, and the corner that
+    /// moves (+1: the high side).
+    var box0 = [0.0, 0.0, 0.0, 0.0]
+    var corner = [1, 1]
+    /// A turn: the center of the box on the screen and in the plane, the
+    /// angle of the press, the sense of a turn on the screen, and the turn
+    /// of the label at the press.
+    var turnC = CGPoint.zero
+    var center = (0.0, 0.0)
+    var a0 = 0.0, sign = 1.0, base = 0.0
 }
 
 extension Workspace {
@@ -246,7 +283,9 @@ extension Workspace {
             st.sel = nil
             st.info = nil
             st.curve = 0
-            st.handleAt = nil
+            st.frame = []
+            st.corners = []
+            st.turnRing = []
             st.turnAt = nil
             st.box = nil
             if tool == .label { redrawLabels() }
@@ -346,6 +385,95 @@ extension Workspace {
 
     func setLabelFilament(_ n: Int) { changeLabel(commit: true) { var l = $0; l.filament = n; return l } }
     func setLabelDepth(_ mm: Double) { changeLabel(commit: true) { var l = $0; l.depth = max(0, min(10, mm)); return l } }
+
+    /// Ink, raised, or cut in. An ink label has no mode and no relief in
+    /// its JSON; a raised or cut one keeps its relief, else the default.
+    func setLabelMode(_ mode: String) {
+        changeLabel(commit: true) { var l = $0
+            if mode == "ink" {
+                l.mode = nil
+                l.relief = nil
+            } else {
+                l.mode = mode
+                l.relief = (l.relief ?? 0) > 0 ? l.relief : PartLabel.defaultRelief
+            }
+            return l
+        }
+    }
+
+    func setLabelRelief(_ mm: Double) { changeLabel(commit: true) { var l = $0; l.relief = max(0, min(10, mm)); return l } }
+
+    /// The name of a label of an SVG file: the file name with no .svg.
+    private func svgName(_ name: String) -> String {
+        String((name.lowercased().hasSuffix(".svg") ? String(name.dropLast(4)) : name).prefix(120))
+    }
+
+    /// The filled shapes of an SVG, or nil: a picture with no shape that
+    /// the core reads.
+    private func svgOutlined(_ it: LabelItem) -> Bool {
+        var l = PartLabel(origin: [0, 0, 0], normal: [0, 0, 1], right: [1, 0, 0], filament: 1, items: [it])
+        l.id = 0
+        return LabelOutline(l) != nil
+    }
+
+    /// An SVG picture into the selected label: it takes the place of the new
+    /// text "LABEL", else it goes under the shapes. False for a picture with
+    /// no filled shape.
+    @discardableResult
+    func placeLabelSVG(_ svg: String, name: String = "") -> Bool {
+        let it = LabelItem.svg(svg)
+        guard svgOutlined(it) else {
+            showNote("The SVG has no filled shape to place.")
+            return false
+        }
+        let named = svgName(name)
+        changeLabel(commit: true) { l in
+            var m = l
+            if l.items.count == 1, l.items[0].kind == "text", l.items[0].text == "LABEL" {
+                if (m.name ?? "").isEmpty, !named.isEmpty { m.name = named }
+                m.items = [it]
+            } else {
+                var at = it
+                at.at = [0, (labelOutline(l)?.box.y0 ?? 0) - LabelItem.svgSize / 2 - 1]
+                m.items.append(at)
+            }
+            return m
+        }
+        return true
+    }
+
+    /// An SVG file dropped at a point of the view: a new label of it on the
+    /// face of the part there.
+    func dropLabelSVG(_ svg: String, at p: CGPoint, name: String = "") {
+        let it = LabelItem.svg(svg)
+        guard svgOutlined(it) else {
+            showNote("The SVG has no filled shape to place.")
+            return
+        }
+        guard page == .threeD, let i = partAt(p) else {
+            showNote("Drop the SVG on a part.")
+            return
+        }
+        if tool != .label { setTool(.label) }
+        if i != labelState.index { loadLabels(i) }
+        guard let s = labelSession(i), let r = labelRay(p), let at = LabelPlace(s, ray: r) else {
+            showNote("Drop the SVG on a face of the part.")
+            return
+        }
+        var label = PartLabel(origin: Array(at.origin), normal: Array(at.normal), right: Array(at.right),
+                              filament: PartLabel.nextFilament(labelState.base, model.filaments.count), depth: 0, items: [it])
+        let named = svgName(name)
+        if !named.isEmpty { label.name = named }
+        var id: UInt32 = 0
+        let json = label.json
+        guard json.withCString({ zs_app_label_add(model.core, i, $0, strlen($0), &id) }) == 0 else {
+            showNote("The SVG does not fit here.")
+            return
+        }
+        model.settingsChanged()
+        loadLabels(i, select: id)
+        labelState.curve = at.curve
+    }
     func setLabelAngle(_ deg: Double) { changeLabel { $0.withAngle(deg) } }
     func turnLabel(_ deg: Double) { changeLabel { $0.turned(deg) } }
 
@@ -432,13 +560,35 @@ extension Workspace {
             labelDrawPoint(p)
             return true
         }
+        // A handle of the selected label first.
+        if let l = st.label, let ol = labelOutline(l), let h = labelHandleHit(p, l, ol) {
+            flushLabel()
+            var d = LabelDrag(mode: h.turn ? .turn : .resize, id: l.id, start: l, at: p)
+            d.box0 = [ol.box.x0, ol.box.y0, ol.box.x1, ol.box.y1]
+            d.corner = h.corner
+            if h.turn {
+                let cx = (ol.box.x0 + ol.box.x1) / 2, cy = (ol.box.y0 + ol.box.y1) / 2
+                guard let c = labelScreen(l, cx, cy) else { return true }
+                d.turnC = c
+                d.center = (cx, cy)
+                d.a0 = atan2(p.y - c.y, p.x - c.x)
+                d.sign = labelTurnSign(l)
+                d.base = l.angle
+            }
+            st.drag = d
+            _ = labelSession(st.index)
+            return true
+        }
         guard let hit = labelAt(p) else {
             addLabel(at: p)
             return true
         }
         if hit.label.id != st.sel { selectLabel(hit.label.id) }
         guard let l = st.label else { return true }
-        st.drag = (l.id, hit.x, hit.y, l, false, p)
+        var d = LabelDrag(mode: .move, id: l.id, start: l, at: p)
+        d.dx = hit.x
+        d.dy = hit.y
+        st.drag = d
         _ = labelSession(st.index)
         return true
     }
@@ -448,29 +598,207 @@ extension Workspace {
         if !d.moved, hypot(p.x - d.at.x, p.y - d.at.y) < 3 { return }
         d.moved = true
         labelState.drag = d
+        let shift = flags.contains(.shift), free = flags.contains(.option)
+        switch d.mode {
+        case .move: labelMove(p, d, keepPlane: shift, free: free)
+        case .resize: labelResize(p, d, freeAspect: shift, free: free)
+        case .turn:
+            var deg = d.sign * (atan2(p.y - d.turnC.y, p.x - d.turnC.x) - d.a0) * 180 / .pi
+            if shift { deg = ((d.base + deg) / 15).rounded() * 15 - d.base }
+            changeLabel { _ in d.start.turned(deg, about: d.center) }
+        }
+        showGuides()
+    }
+
+    /// The body: on the surface under the pointer, or in its plane with
+    /// Shift. It snaps to the smart guides (Option: free).
+    private func labelMove(_ p: CGPoint, _ d: LabelDrag, keepPlane: Bool, free: Bool) {
         guard let r = labelRay(p) else { return }
         let (o, dir) = rayVectors(r)
-        if flags.contains(.shift) {
-            // In its plane.
+        var next: PartLabel
+        if keepPlane {
             guard let h = d.start.planeHit(o, dir) else { return }
-            let origin = h.p - d.dx * d.start.r - d.dy * d.start.up
-            changeLabel { var l = $0; l.origin = Array(origin); l.normal = d.start.normal; l.right = d.start.right; return l }
-            return
+            next = d.start
+            next.origin = Array(h.p - d.dx * d.start.r - d.dy * d.start.up)
+        } else {
+            guard let s = labelState.sessions[labelState.index], let at = LabelPlace(s, ray: r), let l = labelState.label else { return }
+            next = l.moved(origin: at.origin, normal: at.normal)
+            next.origin = Array(next.o - d.dx * next.r - d.dy * next.up)
+            if abs(at.curve - labelState.curve) > 1e-6 { labelState.curve = at.curve }
         }
-        guard let s = labelState.sessions[labelState.index], let at = LabelPlace(s, ray: r) else { return }
-        changeLabel { l in
-            var m = l.moved(origin: at.origin, normal: at.normal)
-            m.origin = Array(m.o - d.dx * m.r - d.dy * m.up)
-            return m
+        labelState.planeGuides = []
+        if !free, let ol = labelOutline(next),
+           let snap = labelSnap(next, box: [ol.box.x0, ol.box.y0, ol.box.x1, ol.box.y1], op: "move", corner: nil, aspect: true) {
+            next.origin = Array(next.o + snap.d[0] * next.r + snap.d[1] * next.up)
         }
-        if abs(at.curve - labelState.curve) > 1e-6 { labelState.curve = at.curve }
+        changeLabel { _ in next }
+    }
+
+    /// A corner: the opposite corner stays, and the aspect stays (Shift:
+    /// each axis on its own, with the stretch). It snaps to the guides
+    /// (Option: free). As zg_label_resize_box and zg_label_resize of the
+    /// GTK app.
+    private func labelResize(_ p: CGPoint, _ d: LabelDrag, freeAspect: Bool, free: Bool) {
+        let s = d.start
+        guard let r = labelRay(p) else { return }
+        let (o, dir) = rayVectors(r)
+        guard let h = s.planeHit(o, dir) else { return }
+        let b0 = d.box0, c = d.corner
+        let anchor = [c[0] > 0 ? b0[0] : b0[2], c[1] > 0 ? b0[1] : b0[3]]
+        let c0 = [c[0] > 0 ? b0[2] : b0[0], c[1] > 0 ? b0[3] : b0[1]]
+        let v = [c0[0] - anchor[0], c0[1] - anchor[1]]
+        let hp = [h.x, h.y]
+        var k = [1.0, 1.0]
+        if freeAspect {
+            for a in 0 ..< 2 { k[a] = abs(v[a]) > 1e-9 ? (hp[a] - anchor[a]) / v[a] : 1 }
+        } else {
+            let t = ((hp[0] - anchor[0]) * v[0] + (hp[1] - anchor[1]) * v[1]) / max(1e-12, v[0] * v[0] + v[1] * v[1])
+            k = [t, t]
+        }
+        var box = [0.0, 0.0, 0.0, 0.0]
+        for a in 0 ..< 2 {
+            k[a] = max(0.05, k[a])
+            let cc = anchor[a] + k[a] * v[a]
+            box[a] = min(anchor[a], cc)
+            box[a + 2] = max(anchor[a], cc)
+        }
+        labelState.planeGuides = []
+        if !free, let snap = labelSnap(s, box: box, op: "resize", corner: c, aspect: !freeAspect) {
+            k[0] = (snap.box[2] - snap.box[0]) / max(1e-12, b0[2] - b0[0])
+            k[1] = freeAspect ? (snap.box[3] - snap.box[1]) / max(1e-12, b0[3] - b0[1]) : k[0]
+        }
+        var next = s
+        if freeAspect {
+            let st = s.stretch ?? [1, 1]
+            next.stretch = [st[0] * k[0], (st.count > 1 ? st[1] : 1) * k[1]]
+        } else {
+            next = s.scaled(k[0])
+        }
+        next.origin = Array(s.o + (1 - k[0]) * anchor[0] * s.r + (1 - k[1]) * anchor[1] * s.up)
+        changeLabel { _ in next }
     }
 
     func labelRelease() -> Bool {
         guard let d = labelState.drag else { return false }
         labelState.drag = nil
+        labelState.planeGuides = []
+        if !labelState.guides.isEmpty { labelState.guides = [] }
         if d.moved { flushLabel() }
         return true
+    }
+
+    /// The screen point of the upper right corner handle of label l, with
+    /// its box k times as large about the lower left corner (a test).
+    func labelCornerScreen(_ l: PartLabel, _ ol: LabelOutline, _ k: Double) -> CGPoint? {
+        let g = labelHandles(l, ol)
+        return labelScreen(l, g.box[0] + k * (g.box[2] - g.box[0]), g.box[1] + k * (g.box[3] - g.box[1]))
+    }
+
+    // MARK: - the smart guides
+
+    /// The mm of the plane of label l in one point of the screen, at the
+    /// center of its box.
+    private func labelMMPerPoint(_ l: PartLabel, _ ol: LabelOutline) -> Double {
+        let cx = (ol.box.x0 + ol.box.x1) / 2, cy = (ol.box.y0 + ol.box.y1) / 2
+        guard let p0 = labelScreen(l, cx, cy), let pr = labelScreen(l, cx + 1, cy), let pu = labelScreen(l, cx, cy + 1) else { return 0.1 }
+        let d = max(hypot(pr.x - p0.x, pr.y - p0.y), hypot(pu.x - p0.x, pu.y - p0.y))
+        return d > 1e-6 ? 1 / d : 0.1
+    }
+
+    /// The handles of label l in its plane, sized in points of the screen
+    /// (zg_label_handles): the frame (a gap of 4 points around the box),
+    /// the half side of a corner square, and the center and the radius of
+    /// the turn handle.
+    private func labelHandles(_ l: PartLabel, _ ol: LabelOutline) -> (box: [Double], hs: Double, turn: (Double, Double), r: Double) {
+        let mpp = labelMMPerPoint(l, ol)
+        let gap = 4 * mpp
+        let box = [ol.box.x0 - gap, ol.box.y0 - gap, ol.box.x1 + gap, ol.box.y1 + gap]
+        return (box, 4.5 * mpp, ((box[0] + box[2]) / 2, box[3] + 22 * mpp), 5 * mpp)
+    }
+
+    /// The handle of the selected label at a point of the view, in its
+    /// plane: the turn handle, or a corner (+1: the high side).
+    private func labelHandleHit(_ p: CGPoint, _ l: PartLabel, _ ol: LabelOutline) -> (turn: Bool, corner: [Int])? {
+        guard let r = labelRay(p) else { return nil }
+        let (o, dir) = rayVectors(r)
+        guard let h = l.planeHit(o, dir) else { return nil }
+        let g = labelHandles(l, ol)
+        // A hit area a little larger than the drawing.
+        let m = 1.6
+        if hypot(h.x - g.turn.0, h.y - g.turn.1) <= g.r * m { return (true, [1, 1]) }
+        for sx in [-1, 1] {
+            for sy in [-1, 1] {
+                let cx = sx > 0 ? g.box[2] : g.box[0], cy = sy > 0 ? g.box[3] : g.box[1]
+                if abs(h.x - cx) <= g.hs * m, abs(h.y - cy) <= g.hs * m { return (false, [sx, sy]) }
+            }
+        }
+        return nil
+    }
+
+    private func frameJSON(_ l: PartLabel) -> [String: Any] {
+        ["origin": l.origin, "normal": l.normal, "right": l.right]
+    }
+
+    /// The features of the face under label l (zs_label_face), kept while
+    /// the label stays in its plane; on a curved face, read again at most
+    /// each 150 ms.
+    private func labelFace(_ l: PartLabel) -> String? {
+        let st = labelState
+        guard let s = labelSession(st.index) else { return nil }
+        if let f = st.face, f.index == st.index {
+            if dot(f.normal, l.n) >= cos(2.5 * .pi / 180), abs(dot(l.o - f.origin, l.n)) < 0.2 { return f.json }
+            if Date().timeIntervalSince(f.time) < 0.15 { return nil }
+        }
+        var frame = l.origin + l.normal + l.right
+        let json = coreString { buf, cap, len in zs_label_face(s, &frame, buf, cap, len) }
+        let face = json == "null" ? nil : json
+        if ProcessInfo.processInfo.environment["ZSLICE_LABEL_LOG"] != nil {
+            NSLog("zslice label face: %@ for %@", String((json ?? "nil").prefix(200)), frame.map { String(format: "%.2f", $0) }.joined(separator: " "))
+        }
+        st.face = (face, st.index, l.o, l.n, Date())
+        return face
+    }
+
+    /// The snap of a box of label l (zs_label_snap): the box after it, the
+    /// move (along right and up), and the guides to draw.
+    private func labelSnap(_ l: PartLabel, box: [Double], op: String, corner: [Int]?, aspect: Bool) -> (box: [Double], d: [Double])? {
+        guard let ol = labelOutline(l) else { return nil }
+        var j: [String: Any] = ["op": op, "frame": frameJSON(l), "box": box, "tol": 6 * labelMMPerPoint(l, ol)]
+        j["others"] = labelState.labels.filter { $0.id != l.id }.compactMap { x -> [String: Any]? in
+            guard let o = labelOutline(x) else { return nil }
+            var f = frameJSON(x)
+            f["box"] = [o.box.x0, o.box.y0, o.box.x1, o.box.y1]
+            return f
+        }
+        if let face = labelFace(l), let fo = try? JSONSerialization.jsonObject(with: Data(face.utf8)) { j["face"] = fo } else { j["face"] = NSNull() }
+        if let corner {
+            j["corner"] = corner
+            j["aspect"] = aspect
+        }
+        guard let data = try? JSONSerialization.data(withJSONObject: j), let text = String(data: data, encoding: .utf8),
+              let out = coreString({ buf, cap, len in zs_label_snap(text, strlen(text), buf, cap, len) }),
+              let o = (try? JSONSerialization.jsonObject(with: Data(out.utf8))) as? [String: Any],
+              let b = o["box"] as? [Double], b.count == 4 else { return nil }
+        let d = o["d"] as? [Double] ?? [0, 0]
+        if ProcessInfo.processInfo.environment["ZSLICE_LABEL_LOG"] != nil {
+            NSLog("zslice label snap: face %@, in %@, out %@", j["face"] is NSNull ? "none" : "yes", String(text.prefix(300)), out)
+        }
+        labelState.planeGuides = (o["guides"] as? [[Double]] ?? []).filter { $0.count == 4 }
+        return (b, d.count == 2 ? d : [0, 0])
+    }
+
+    /// The guides of the snap on the screen, in the plane of the selected
+    /// label.
+    private func showGuides() {
+        let st = labelState
+        guard let l = st.label, !st.planeGuides.isEmpty else {
+            if !st.guides.isEmpty { st.guides = [] }
+            return
+        }
+        st.guides = st.planeGuides.compactMap { g in
+            guard let a = labelScreen(l, g[0], g[1]), let b = labelScreen(l, g[2], g[3]) else { return nil }
+            return (a, b)
+        }
     }
 
     /// The wheel over the selected label turns it (Shift: 15° a step).
@@ -487,33 +815,46 @@ extension Workspace {
         return canvas.viewPoint(x: q.x, y: q.y, z: q.z)
     }
 
-    /// After each frame: the scale handle at the upper right corner of the
-    /// selected label, the turn handle over its top, and its box on the
-    /// screen (for the card).
+    /// After each frame: the handles of the selected label on the screen
+    /// (the frame, the corner squares, and the turn handle, in its plane),
+    /// and its box on the screen (for the card).
     func placeLabelHandle() {
         let st = labelState
         guard tool == .label, page == .threeD, let l = st.label, let ol = labelOutline(l) else {
-            if st.handleAt != nil { st.handleAt = nil }
+            if !st.frame.isEmpty { st.frame = [] }
+            if !st.corners.isEmpty { st.corners = [] }
+            if !st.turnRing.isEmpty { st.turnRing = [] }
             if st.turnAt != nil { st.turnAt = nil }
             if st.box != nil { st.box = nil }
             return
         }
-        func moved(_ a: CGPoint?, _ b: CGPoint?) -> Bool {
-            switch (a, b) {
-            case let (a?, b?): hypot(a.x - b.x, a.y - b.y) > 0.5
-            case (nil, nil): false
-            default: true
-            }
+        let g = labelHandles(l, ol)
+        func quad(_ x0: Double, _ y0: Double, _ x1: Double, _ y1: Double) -> [CGPoint] {
+            [(x0, y0), (x1, y0), (x1, y1), (x0, y1)].compactMap { labelScreen(l, $0.0, $0.1) }
         }
-        let h = labelScreen(l, ol.box.x1 + 0.5, ol.box.y1 + 0.5)
-        if moved(h, st.handleAt) { st.handleAt = h }
-        let t = labelScreen(l, (ol.box.x0 + ol.box.x1) / 2, ol.box.y1 + 3)
-        if moved(t, st.turnAt) { st.turnAt = t }
+        let frame = quad(g.box[0], g.box[1], g.box[2], g.box[3])
+        var corners: [[CGPoint]] = []
+        for (cx, cy) in [(g.box[0], g.box[1]), (g.box[2], g.box[1]), (g.box[2], g.box[3]), (g.box[0], g.box[3])] {
+            corners.append(quad(cx - g.hs, cy - g.hs, cx + g.hs, cy + g.hs))
+        }
+        let ring = (0 ..< 24).compactMap { k -> CGPoint? in
+            let a = Double(k) / 24 * 2 * .pi
+            return labelScreen(l, g.turn.0 + g.r * cos(a), g.turn.1 + g.r * sin(a))
+        }
+        func far(_ a: [CGPoint], _ b: [CGPoint]) -> Bool {
+            a.count != b.count || zip(a, b).contains { hypot($0.x - $1.x, $0.y - $1.y) > 0.5 }
+        }
+        if far(frame, st.frame) { st.frame = frame }
+        if far(corners.flatMap { $0 }, st.corners.flatMap { $0 }) { st.corners = corners }
+        if far(ring, st.turnRing) { st.turnRing = ring }
+        let t = labelScreen(l, g.turn.0, g.turn.1)
+        if far(t.map { [$0] } ?? [], st.turnAt.map { [$0] } ?? []) { st.turnAt = t }
+        if st.drag != nil { showGuides() }
         var pts: [CGPoint] = []
         for x in [ol.box.x0 - 1, ol.box.x1 + 1] { for y in [ol.box.y0 - 1, ol.box.y1 + 1] { if let q = labelScreen(l, x, y) { pts.append(q) } } }
         guard let x0 = pts.map(\.x).min(), let x1 = pts.map(\.x).max(), let y0 = pts.map(\.y).min(), let y1 = pts.map(\.y).max() else { return }
-        let g: CGFloat = 12
-        let b = CGRect(x: x0 - g, y: y0 - g, width: x1 - x0 + 2 * g, height: y1 - y0 + 2 * g)
+        let gap: CGFloat = 12
+        let b = CGRect(x: x0 - gap, y: y0 - gap, width: x1 - x0 + 2 * gap, height: y1 - y0 + 2 * gap)
         if st.box.map({ abs($0.minX - b.minX) + abs($0.minY - b.minY) + abs($0.width - b.width) > 1 }) ?? true { st.box = b }
     }
 
@@ -539,18 +880,6 @@ extension Workspace {
         guard let p0 = labelScreen(l, cx, cy), let pr = labelScreen(l, cx + 1, cy), let pu = labelScreen(l, cx, cy + 1) else { return -1 }
         let cross = (pr.x - p0.x) * (pu.y - p0.y) - (pr.y - p0.y) * (pu.x - p0.x)
         return cross < 0 ? -1 : 1
-    }
-
-    /// A drag of the turn handle: the label turned by the angle of the
-    /// pointer around the center of the label on the screen, from `a0`
-    /// (radians). Shift: the total turn in steps of 15°.
-    func turnLabelHandle(from start: PartLabel, center c: CGPoint, a0: Double, sign: Double, to p: CGPoint, snap: Bool) {
-        var d = sign * (atan2(p.y - c.y, p.x - c.x) - a0) * 180 / .pi
-        if snap {
-            let base = start.angle
-            d = ((base + d) / 15).rounded() * 15 - base
-        }
-        changeLabel { _ in start.turned(d) }
     }
 }
 

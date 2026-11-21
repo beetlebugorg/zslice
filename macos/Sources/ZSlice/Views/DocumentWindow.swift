@@ -216,8 +216,7 @@ struct DocumentWindow: View {
                     // The Label tool: the handle of the selected label, and
                     // its card.
                     if workspace.tool == .label, workspace.page == .threeD {
-                        LabelHandle(workspace: workspace)
-                        LabelTurnHandle(workspace: workspace)
+                        LabelHandles(workspace: workspace)
                         LabelCard(workspace: workspace, area: geo.size)
                     }
                     // The 2D view says so at the top; a click goes back to 3D.
@@ -323,11 +322,20 @@ struct DocumentWindow: View {
             }
         .frame(minWidth: 720, minHeight: 480)
         .navigationSubtitle(subtitle)
-        // STL and 3MF files dropped on the window go on the active plate.
+        // Model files dropped on the window go on the active plate; an SVG
+        // file on a part becomes a label on its face there.
         .dropDestination(for: URL.self) { urls, _ in
             let models = urls.filter { ["stl", "3mf", "step", "stp", "obj"].contains($0.pathExtension.lowercased()) }
             for url in models { workspace.addModel(url) }
-            return !models.isEmpty
+            let svgs = urls.filter { $0.pathExtension.lowercased() == "svg" }
+            if let url = svgs.first, let p = workspace.pointerInView {
+                if let d = try? Data(contentsOf: url), d.count <= 512 * 1024, let text = String(data: d, encoding: .utf8) {
+                    workspace.dropLabelSVG(text, at: p, name: url.lastPathComponent)
+                } else {
+                    workspace.showNote("The SVG did not read: a text file of at most 512 KiB.")
+                }
+            }
+            return !models.isEmpty || !svgs.isEmpty
         } isTargeted: { dropping = $0 }
         .overlay {
             if dropping {

@@ -50,9 +50,21 @@ struct LabelItem: Codable, Equatable {
     var points: [[Double]]?
     var closed: Bool?
     var filled: Bool?
+    // svg: the source of the picture; its height is "size"
+    var svg: String?
 
     static let shapes = ["text", "line", "bar", "ring", "ticks", "polyline"]
-    static let shapeNames = ["text": "Text", "line": "Line", "bar": "Bar", "ring": "Ring", "ticks": "Ticks", "polyline": "Free"]
+    static let shapeNames = ["text": "Text", "line": "Line", "bar": "Bar", "ring": "Ring", "ticks": "Ticks", "polyline": "Free", "svg": "SVG"]
+    /// The height of a new SVG picture, mm.
+    static let svgSize = 15.0
+
+    /// An SVG picture of `svg` (its source), `size` mm tall.
+    static func svg(_ svg: String, size: Double = svgSize) -> LabelItem {
+        var it = LabelItem(kind: "svg")
+        it.svg = svg
+        it.size = size
+        return it
+    }
 
     /// A new item of a shape. size: the size of the label (the cap height
     /// of its text), mm.
@@ -78,7 +90,7 @@ struct LabelItem: Codable, Equatable {
     /// diameter of the ticks, the width of a free line.
     var itemSize: Double {
         switch kind {
-        case "text": return size ?? 0
+        case "text", "svg": return size ?? 0
         case "line": return length ?? 0
         case "bar": return width ?? 0
         case "ring": return 2 * (outer ?? 0)
@@ -104,6 +116,7 @@ struct LabelItem: Codable, Equatable {
         func s(_ v: Double?) -> Double? { v.map { $0 * k } }
         switch kind {
         case "text": o.size = s(size); o.spacing = s(spacing)
+        case "svg": o.size = s(size)
         case "line": o.length = s(length); o.width = s(width)
         case "bar": o.width = s(width); o.height = s(height); o.radius = s(radius)
         case "ring": o.outer = s(outer); o.inner = s(inner)
@@ -149,7 +162,17 @@ struct PartLabel: Codable, Equatable, Identifiable {
     var filament: Int
     var depth: Double?
     var stretch: [Double]?
+    /// "ink" (flush, the default; the JSON of an ink label has no mode),
+    /// "raised" (out of the surface by `relief` mm), or "cut" (into it).
+    var mode: String?
+    /// mm, 0 to 10 (0: 0.6 mm), for a raised or cut label.
+    var relief: Double?
     var items: [LabelItem]
+
+    static let modes = ["ink", "raised", "cut"]
+    static let modeNames = ["ink": "Ink", "raised": "Raised", "cut": "Cut in"]
+    /// The relief of a raised or cut label with a relief of 0 (the core).
+    static let defaultRelief = 0.6
 
     /// The words of a label for a list: its name, its text, or the names
     /// of its shapes.
@@ -202,6 +225,14 @@ struct PartLabel: Codable, Equatable, Identifiable {
         let a = deg * .pi / 180
         var l = self
         l.right = Array(normalize(r * cos(a) + up * sin(a)))
+        return l
+    }
+
+    /// The label turned by `deg` around its normal about the point c (s, t)
+    /// of its plane, which stays (zg_label_turn_about of the GTK app).
+    func turned(_ deg: Double, about c: (Double, Double)) -> PartLabel {
+        var l = turned(deg)
+        l.origin = Array(o + c.0 * (r - l.r) + c.1 * (up - l.up))
         return l
     }
 
