@@ -32,11 +32,7 @@
                            FontWeight="Bold" Foreground="{ThemeResource ZsFg}" TextTrimming="CharacterEllipsis" />
                 <!-- The filament list of the tools. The setup group opens the
                      filaments, so this button does not show. -->
-                <DropDownButton x:Name="FilamentButton" AutomationProperties.Name="Filaments" Visibility="Collapsed">
-                    <DropDownButton.Flyout>
-                        <Flyout x:Name="FilamentFlyout" Placement="BottomEdgeAlignedLeft" />
-                    </DropDownButton.Flyout>
-                </DropDownButton>
+                <DropDownButton x:Name="FilamentButton" AutomationProperties.Name="Filaments" Visibility="Collapsed" />
             </StackPanel>
 
             <!-- The search of settings and actions. -->
@@ -281,11 +277,20 @@
                         </Grid>
                         <Button.Flyout>
                             <Flyout x:Name="SummaryFlyout" Placement="TopEdgeAlignedRight">
-                                <StackPanel Width="296" Spacing="6">
-                                    <TextBlock x:Name="SummaryWarn" TextWrapping="WrapWholeWords" Foreground="{ThemeResource ZsWarning}" Visibility="Collapsed" />
-                                    <TextBlock x:Name="SummaryFacts" TextWrapping="WrapWholeWords" FontSize="12.5" />
-                                    <TextBlock x:Name="SummaryTook" FontSize="12" Foreground="{ThemeResource ZsDim}" />
-                                </StackPanel>
+                                <ScrollViewer MaxHeight="520" HorizontalScrollBarVisibility="Disabled">
+                                    <StackPanel Width="296" Spacing="6">
+                                        <StackPanel x:Name="SummaryFacts" Spacing="4" />
+                                        <Border x:Name="SummaryFilaments" />
+                                        <TextBlock x:Name="SummaryTook" FontSize="12" Foreground="{ThemeResource ZsDim}" />
+                                        <Border x:Name="SummaryWarnBox" Padding="8,6" CornerRadius="6" Background="#B42318" Visibility="Collapsed">
+                                            <StackPanel Spacing="4">
+                                                <TextBlock x:Name="SummaryWarn" FontSize="12.5" Foreground="#FFFFFF" TextWrapping="WrapWholeWords" />
+                                                <StackPanel x:Name="SummaryWarnButtons" Orientation="Horizontal" Spacing="4" />
+                                            </StackPanel>
+                                        </Border>
+                                        <StackPanel x:Name="SummaryRefine" Spacing="4" Visibility="Collapsed" />
+                                    </StackPanel>
+                                </ScrollViewer>
                             </Flyout>
                         </Button.Flyout>
                     </Button>

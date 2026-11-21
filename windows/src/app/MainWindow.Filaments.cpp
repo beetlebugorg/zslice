@@ -577,7 +577,6 @@ namespace winrt::ZSlice::implementation
 
         StackPanel box;
         box.Spacing(8);
-        box.MinWidth(300);
         f.head = Heading(L"Filament");
         f.list = StackPanel();
         f.list.Spacing(4);
@@ -598,8 +597,9 @@ namespace winrt::ZSlice::implementation
         box.Children().Append(f.list);
         box.Children().Append(f.add);
         box.Children().Append(f.note);
-        FilamentFlyout().Content(box);
-        FilamentFlyout().Opening([this](auto &&, auto &&) {
+        // The list is in the details of the print, as in the other apps.
+        SummaryFilaments().Child(box);
+        SummaryFlyout().Opening([this](auto &&, auto &&) {
             if (model != nullptr)
                 filaments->UpdateList();
         });
@@ -749,7 +749,7 @@ namespace winrt::ZSlice::implementation
         if (model == nullptr || filaments == nullptr)
             return;
         filaments->UpdateButton();
-        if (FilamentFlyout().IsOpen())
+        if (SummaryFlyout().IsOpen())
             filaments->UpdateList();
         PaintFilamentsChanged();
         LabelFilamentsChanged();
@@ -761,7 +761,7 @@ namespace winrt::ZSlice::implementation
         if (model == nullptr || filaments == nullptr)
             return;
         filaments->UpdateButton();
-        if (FilamentFlyout().IsOpen())
+        if (SummaryFlyout().IsOpen())
             filaments->UpdateList();
         PaintReload();
         LabelReload();
@@ -784,9 +784,9 @@ namespace winrt::ZSlice::implementation
         auto &f = *filaments;
         size_t i = !words.empty() ? (size_t)_wtoi(words[0].c_str()) : 0;
         if (verb == L"fopen")
-            FilamentFlyout().ShowAt(ToolRow());
+            SummaryFlyout().ShowAt(SummaryButton());
         else if (verb == L"fclose")
-            FilamentFlyout().Hide();
+            SummaryFlyout().Hide();
         else if (verb == L"fmaterial" && words.size() >= 2 && i < f.rows.size())
             f.rows[i].material.SelectedItem(box_value(words[1]));
         else if (verb == L"fcoloropen" && i < f.rows.size())
@@ -800,7 +800,7 @@ namespace winrt::ZSlice::implementation
             return false;
         zs_app *app = model->Active();
         size_t n = zs_app_filament_count(app);
-        zs::Log("dev: filaments: %zu, list open %d, rows %zu:", n, FilamentFlyout().IsOpen() ? 1 : 0, f.rows.size());
+        zs::Log("dev: filaments: %zu, list open %d, rows %zu:", n, SummaryFlyout().IsOpen() ? 1 : 0, f.rows.size());
         for (size_t k = 0; k < n; k++)
             zs::Log(" [%zu %s %s]", k + 1, FilamentValue(k, "filament.color").c_str(), FilamentValue(k, "filament.material").c_str());
         if (!selected_parts.empty())
