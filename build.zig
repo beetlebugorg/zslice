@@ -175,6 +175,7 @@ fn addLicenses(b: *std.Build, m: *std.Build.Module) void {
         .{ "license_lgpl", "licenses/lgpl-3.0.txt" },
         .{ "license_gpl", "licenses/gpl-3.0.txt" },
         .{ "license_ofl_inter", "licenses/ofl-1.1-inter.txt" },
+        .{ "license_charttable", "licenses/charttable-MIT.txt" },
     };
     for (files) |f| m.addAnonymousImport(f[0], .{ .root_source_file = b.path(f[1]) });
 }

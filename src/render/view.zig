@@ -71,7 +71,9 @@ const builtin = @import("builtin");
 const is_web = builtin.cpu.arch.isWasm();
 /// The backend keeps the frame data and the shell draws it (web.zig).
 const frame_backend = is_web or builtin.os.tag == .macos;
-const vk = if (frame_backend) @import("web.zig") else @import("vk.zig");
+// The name `vk` stands for the backend of this platform: all of them have
+// the same interface.
+const vk = if (frame_backend) @import("web.zig") else if (builtin.os.tag == .windows) @import("d3d12.zig") else @import("vk.zig");
 const app_mod = @import("../app.zig");
 const zs_filaments = @import("../filaments.zig");
 const zs_gcode = @import("../gcode.zig");
