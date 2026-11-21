@@ -836,17 +836,21 @@ struct BottomBar: View {
                     } else {
                         Text("Slicing…").font(.title3.weight(.semibold))
                     }
-                    // The notes, else the usual refinements.
+                    // The problems of the Check (the same count as the Check
+                    // button), else the notes of the card, else the usual
+                    // refinements.
+                    let p = workspace.checkProblems
                     let n = workspace.noteCount
                     let tips = workspace.refinements.count
-                    if n > 0 || tips > 0 {
-                        Text(n > 0 ? "Check" : "\(tips)")
+                    if p > 0 || n > 0 || tips > 0 {
+                        Text(p > 0 ? "\(p) to check" : n > 0 ? "Check" : "\(tips)")
                             .font(.caption.weight(.bold).monospacedDigit())
                             .foregroundStyle(.white)
-                            .padding(.horizontal, n > 0 ? 6 : 0)
+                            .padding(.horizontal, p > 0 || n > 0 ? 6 : 0)
                             .frame(minWidth: 18, minHeight: 18)
-                            .background(n == 0 ? Color.accentColor : workspace.noteIsError ? Color.red : Color.orange, in: Capsule())
-                            .help(n > 0 ? "\(n) note\(n == 1 ? "" : "s") on this print" : "\(tips) of your usual refinement\(tips == 1 ? "" : "s")")
+                            .background(p == 0 && n == 0 ? Color.accentColor : workspace.noteIsError ? Color.red : Color.orange, in: Capsule())
+                            .help(p > 0 ? "\(p) \(p == 1 ? "problem" : "problems") of the Check to look at"
+                                : n > 0 ? "\(n) note\(n == 1 ? "" : "s") on this print" : "\(tips) of your usual refinement\(tips == 1 ? "" : "s")")
                     }
                     Image(systemName: workspace.detailsOpen ? "chevron.down" : "chevron.up")
                         .font(.caption2)

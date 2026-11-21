@@ -66,7 +66,7 @@ The bar at the bottom has two rows:
 
 At the right end are the time of the print, with the plastic, the cost, and the layers under it. Next to them are a badge and Export (Command-E). With a connected printer, Export is Print (Command-P), and its menu has Upload Only and Export G-code.
 
-Click the time to open the details: the notes, the totals, your usual refinements, the main settings, and the filaments. A red or orange badge that says Check means a note on the print. The details stay shut until you click, so they never cover the part. A blue badge counts your usual refinements.
+Click the time to open the details: the notes, the totals, your usual refinements, the main settings, and the filaments. An orange badge such as "3 to check" counts the problems of the Check (a warning or worse), the same count as on the Check button of the tool strip. A red or orange badge that says Check means another note on the print. The details stay shut until you click, so they never cover the part. A blue badge counts your usual refinements.
 
 ### The cards
 
