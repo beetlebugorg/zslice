@@ -55,7 +55,7 @@ A higher level replaces the value of a lower one. A small tag under the name of 
 | Global | Your settings for all prints. |
 | Printer | The printer menu. |
 | Filament | The filament menu, or the roll in the printer. |
-| Quality | The quality menu: Fine (0.1 mm), Standard (0.2 mm), Draft (0.3 mm), Coarse (0.4 mm), or Strong (0.2 mm). The Linux app also lists your own qualities. |
+| Quality | The quality menu, from the finest to the coarsest: Fine (0.1 mm), Standard (0.2 mm), Strong (0.2 mm, more walls), Draft (0.3 mm), or Coarse (0.4 mm). The Linux app also lists your own qualities. |
 | This print | Your changes for this plate. |
 | This part | The changes of one part. |
 
