@@ -74,6 +74,9 @@ struct ZgLabelTool {
     int drag_mode;
     int corner[2];
     double box0[4], turn_c[2], turn_center[2], turn_a0, turn_sign, turn_base;
+    /* The offset from the pointer to the corner of the box at the press of
+     * a corner handle (the handle is on the frame, outside the box). */
+    double grab[2];
     /* The guide lines of the snap (s0, t0, s1, t1 each), the features of
      * the face (zs_label_face) and the plane they are of, and the mm in
      * one point of the handles that show. */
@@ -997,6 +1000,14 @@ static gboolean press_handle(ZgLabelTool *t, double x, double y) {
         t->drag_mode = DRAG_RESIZE;
         t->corner[0] = corner[0];
         t->corner[1] = corner[1];
+        /* The first move of the drag starts at a scale of 1: no jump. */
+        t->grab[0] = t->grab[1] = 0;
+        float r[6];
+        double ro[3], rd[3], rp[3], hp[2];
+        if (ray(t, x, y, r, ro, rd) && zg_label_plane_hit(l, ro, rd, rp, &hp[0], &hp[1])) {
+            t->grab[0] = hp[0] - (corner[0] > 0 ? o->box[2] : o->box[0]);
+            t->grab[1] = hp[1] - (corner[1] > 0 ? o->box[3] : o->box[1]);
+        }
         return TRUE;
     }
     t->drag_mode = DRAG_TURN;
@@ -1100,6 +1111,8 @@ static void resize_to(ZgLabelTool *t, double x, double y, gboolean free_aspect, 
     double o[3], d[3], p[3], hp[2];
     if (!s || !ray(t, x, y, r, o, d) || !zg_label_plane_hit(s, o, d, p, &hp[0], &hp[1])) return;
     double box[4], anchor[2], k[2], snapped[4], dd[2];
+    hp[0] -= t->grab[0];
+    hp[1] -= t->grab[1];
     zg_label_resize_box(t->box0, t->corner, hp, free_aspect, box, anchor, k);
     g_array_set_size(t->guides, 0);
     if (!free && snap_box(t, s, box, "resize", t->corner, !free_aspect, snapped, dd)) {

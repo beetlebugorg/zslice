@@ -1071,7 +1071,15 @@ export class LabelTool {
     if (!o) return;
     this.session(this.index);
     if (hk.kind === "corner") {
-      this.drag = { mode: "resize", id: l.id, corner: hk.corner, start: { ...l }, box0: o.box.slice(), moved: false, px, py };
+      // The handle is on the frame, outside the box: the offset from the
+      // pointer to the corner of the box keeps the first move at a scale
+      // of 1 (no jump when the drag starts).
+      const b0 = o.box;
+      const c0 = [hk.corner[0] > 0 ? b0[2] : b0[0], hk.corner[1] > 0 ? b0[3] : b0[1]];
+      const r0 = this.ray(px, py);
+      const h0 = r0 && planeHit(l, r0[0], r0[1]);
+      const grab = h0 ? [h0.x - c0[0], h0.y - c0[1]] : [0, 0];
+      this.drag = { mode: "resize", id: l.id, corner: hk.corner, start: { ...l }, box0: o.box.slice(), grab, moved: false, px, py };
       return;
     }
     const c = this.screenCenter();
@@ -1151,7 +1159,8 @@ export class LabelTool {
     const r = this.ray(px, py);
     const h = r && planeHit(d.start, r[0], r[1]);
     if (!h) return;
-    const rb = resizeBox(d.box0, d.corner, [h.x, h.y], freeAspect);
+    const g = d.grab ?? [0, 0];
+    const rb = resizeBox(d.box0, d.corner, [h.x - g[0], h.y - g[1]], freeAspect);
     let k = rb.k;
     this.guides = [];
     if (!free) {
