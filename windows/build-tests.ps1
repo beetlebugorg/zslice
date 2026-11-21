@@ -48,3 +48,26 @@ foreach ($name in 'core_link', 'view_offscreen') {
     & $exe
     if ($LASTEXITCODE -ne 0) { throw "$name failed ($LASTEXITCODE)" }
 }
+
+# net_link tests the printer connections against stub servers on 127.0.0.1.
+# It contacts no real printer, and it starts no print.
+$src = Join-Path $PSScriptRoot 'src'
+$netOut = Join-Path $out 'net'
+New-Item -ItemType Directory -Force $netOut | Out-Null
+$sources = @(Join-Path $PSScriptRoot 'test\net_link.cpp') +
+    (Get-ChildItem (Join-Path $src 'net\*.cpp')).FullName +
+    (Get-ChildItem (Join-Path $src 'prefs\*.cpp')).FullName +
+    @(Join-Path $src 'model\zs_model.cpp')
+$quoted = ($sources | ForEach-Object { "`"$_`"" }) -join ' '
+$exe = Join-Path $out 'net_link.exe'
+$compile = "cl /nologo /W3 /O2 /MD /EHsc /std:c++20 /utf-8 /I`"$include`" /I`"$src\net`" /I`"$src\prefs`" /I`"$src\model`" " +
+    "/Fo`"$netOut\\`" /Fe`"$exe`" $quoted /link `"$lib`" ntdll.lib ws2_32.lib advapi32.lib bcrypt.lib userenv.lib " +
+    "winhttp.lib crypt32.lib secur32.lib ncrypt.lib shell32.lib ole32.lib"
+& cmd /c "`"$vcvars`" $arch >nul && $compile"
+if ($LASTEXITCODE -ne 0) { throw "net_link failed to build ($LASTEXITCODE)" }
+if ($hostArch -ne $targetArch) {
+    Write-Host "built $exe. It does not run on this machine."
+} else {
+    & $exe
+    if ($LASTEXITCODE -ne 0) { throw "net_link failed ($LASTEXITCODE)" }
+}
