@@ -263,6 +263,27 @@ STL file format, 3D Systems. Description: https://en.wikipedia.org/wiki/STL_(fil
 
 **How zslice uses it:** The binary and ASCII STL loader and the binary STL writer.
 
+### STEP (ISO 10303-21 and the B-rep entities)
+
+```ref
+kind: format
+source: ISO
+license: File format
+link: https://www.iso.org/standard/63141.html
+version: ISO 10303-21:2016; the entities of ISO 10303-42 in AP203, AP214, and AP242
+files: src/step.zig
+area: files
+summary: The STEP reader: the clear text encoding of the exchange structure, and the B-rep entities of a solid (faces, loops, edges, vertices, curves, surfaces, and units).
+```
+
+ISO 10303-21 gives the text form of a STEP file. ISO 10303-42 gives the geometry and the topology of a B-rep solid. The NIST STEP File Analyzer documentation and the public EXPRESS schemas of AP203, AP214, and AP242 list the attributes of each entity. zslice reads the files with its own parser; no code is copied.
+
+**License:** File format (a published ISO standard)
+
+**Used in:** `src/step.zig`
+
+**How zslice uses it:** `step.read` parses the DATA section, reads the units, samples the edges, and makes a mesh of each ADVANCED_FACE.
+
 ### Wavefront OBJ file format
 
 ```ref

@@ -747,3 +747,66 @@ The closest point of a triangle to a point: Christer Ericson, "Real-Time Collisi
 **Used in:** `src/paint.zig`
 
 **How zslice uses it:** The brush (which triangles a sphere touches), and the pick of a triangle under the pointer for the paint tool.
+
+### B-spline basis functions (Cox and de Boor)
+
+```ref
+kind: paper
+source: Carl de Boor, Maurice Cox, Les Piegl, Wayne Tiller
+license: Paper
+link: https://doi.org/10.1016/0021-9045(72)90080-9
+version: C. de Boor, "On calculating with B-splines", J. Approx. Theory 6 (1972); L. Piegl and W. Tiller, The NURBS Book, 2nd ed. (1997)
+files: src/step.zig
+area: files
+summary: The basis functions of a B-spline by the recurrence of Cox and de Boor, for the curves and the surfaces of a STEP file, with weights for rational splines.
+```
+
+The recurrence of Cox and de Boor gives the deg + 1 basis functions of a knot span. The NURBS Book (algorithms A2.1 and A2.2) gives the span search and the evaluation. zslice has its own implementation of the published algorithms.
+
+**License:** Paper
+
+**Used in:** `src/step.zig`
+
+**How zslice uses it:** `BSpline.basis`, `curvePoint`, and `surfacePoint` evaluate the B-spline curves and surfaces of a STEP file.
+
+### Ear clipping with hole bridges
+
+```ref
+kind: paper
+source: David Eberly
+license: Paper
+link: https://www.geometrictools.com/Documentation/TriangulationByEarClipping.pdf
+version: 2002, updated 2015
+files: src/step.zig, src/cut.zig
+area: files
+summary: A polygon with holes becomes one polygon by a bridge from the rightmost point of each hole, then ear clipping makes its triangles.
+```
+
+David Eberly, "Triangulation by Ear Clipping". The method of the earcut libraries too.
+
+**License:** Paper
+
+**Used in:** `src/step.zig`, `src/cut.zig`
+
+**How zslice uses it:** The caps of a cut, and the faces of a STEP file in their 2D charts. zslice has its own implementation.
+
+### Delaunay edge flips (Lawson)
+
+```ref
+kind: paper
+source: Charles L. Lawson
+license: Paper
+link: https://doi.org/10.1016/B978-0-12-587260-7.50011-X
+version: C. L. Lawson, "Software for C1 surface interpolation", Mathematical Software III (1977)
+files: src/step.zig
+area: files
+summary: An edge of two triangles flips to the other diagonal of their quad when the fourth point is inside the circle of a triangle, until no edge flips.
+```
+
+The flip algorithm of Lawson makes a triangulation Delaunay. zslice keeps the edges of the face loops fixed (a constrained triangulation) and tests the flips from a stack of edges.
+
+**License:** Paper
+
+**Used in:** `src/step.zig`
+
+**How zslice uses it:** `flips` makes the triangles of a face of a STEP file Delaunay in its chart before and after each refinement round.

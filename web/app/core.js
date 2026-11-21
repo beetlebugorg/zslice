@@ -839,7 +839,7 @@ export class Core {
   // The report of a line for "Copy for AI" (zs_app_line_report).
   lineReport(path) {
     const w = this.w;
-    const file = `${(this.modelName || "part").replace(/.(stl|3mf|obj)$/i, "")}.gcode (Export G-code saves it)`;
+    const file = `${(this.modelName || "part").replace(/.(stl|3mf|obj|step|stp)$/i, "")}.gcode (Export G-code saves it)`;
     const rc = w.withString(file, (f) => w.x.zs_app_line_report(this.app, path, f, w.cell, w.cell + 4));
     if (rc !== 0) return null;
     return w.text(w.u32(w.cell), w.u32(w.cell + 4));
