@@ -1096,19 +1096,28 @@ size_t zs_paint_leaves(zs_paint *p, const float **out);
 /* ---- the labels of a part ----
  *
  * A label is a 2D shape on the surface of a part, in a filament of its
- * own: text, a line, a bar, a ring, the ticks of a dial, or a free line.
- * The slice cuts it into each layer as a region within a depth of the
- * surface (one line width by default), so the color prints flush in the
- * outer wall: on a side face in the outer wall of each layer, on a top
- * or bottom face in its top or bottom layers. Each label slices as one
- * more job with Arachne walls. A 3MF save, the history, and the session
- * keep the labels. A plate with one filament prints no label.
+ * own: text, a line, a bar, a ring, the ticks of a dial, a free line, or
+ * an SVG picture. The slice cuts it into each layer as a region within a
+ * depth of the surface (one line width by default), so the color prints
+ * flush in the outer wall: on a side face in the outer wall of each
+ * layer, on a top or bottom face in its top or bottom layers. Each label
+ * slices as one more job with Arachne walls. A 3MF save, the history,
+ * and the session keep the labels. On a plate with one filament, an ink
+ * label prints nothing.
+ *
+ * The mode of a label: "ink" (the default: the color, flush), "raised"
+ * (the shape stands out of the surface by "relief" mm), or "cut" (the
+ * shape is cut into the surface by "relief" mm). Raised and cut change
+ * the shape of the part, in the filament of the part or in the filament
+ * of the label. A raised label on a top face is a plateau, flat at the
+ * relief over the highest point under it. A raised label on a bottom face
+ * prints as ink.
  *
  * JSON is the exchange form. A label:
  *
  *   {"id":1, "name":"", "origin":[x,y,z], "normal":[x,y,z],
  *    "right":[x,y,z], "filament":2, "depth":0, "stretch":[1,1],
- *    "items":[ ... ]}
+ *    "mode":"ink", "relief":0, "items":[ ... ]}
  *
  * - origin, normal, right: the frame of the label in the frame of the
  *   part on the bed (the frame of zs_app_part_mesh and of the paint
@@ -1121,6 +1130,10 @@ size_t zs_paint_leaves(zs_paint *p, const float **out);
  * - filament: from 1 (1 is filament 0 of the plate). A label in the
  *   filament of the part prints nothing.
  * - depth: mm from the surface; 0 is one line width.
+ * - mode: optional, "ink", "raised", or "cut" (default "ink"). The JSON
+ *   of an ink label has no mode.
+ * - relief: optional, 0 to 10 mm; 0 is 0.6 mm. The height of a raised
+ *   label, or the depth of a cut label.
  * - stretch: optional, [along right, along up]. A size of a shape times
  *   the stretch is its size on the bed. A label without it keeps its
  *   size on the bed; a later scale of the part stretches it.
@@ -1143,6 +1156,12 @@ size_t zs_paint_leaves(zs_paint *p, const float **out);
  *               of a knob, clockwise).
  *     polyline: "points" ([[x,y], ...], 2 to 1024), "width", "closed",
  *               "filled".
+ *     svg:      "svg" (the source of an SVG file, at most 512 KiB),
+ *               "size" (its height, mm). The filled shapes of the
+ *               picture (path, rect, circle, ellipse, polygon, polyline,
+ *               and the stroke of a line or a shape with no fill), with
+ *               its transforms and fill rules, centered on its box. A
+ *               picture with no area is a bad value.
  *
  * A bad value (not finite, out of range, a frame that is not unit) gives
  * ZS_INVALID_VALUE and changes nothing. Each change notes a change of the
@@ -1176,6 +1195,30 @@ int zs_label_place(const zs_paint *mesh, const float ray[6], double radius, doub
  * surface. No slice. The memory stays valid until the next call on the
  * same thread. */
 int zs_label_outline(const char *json, size_t len, const float **pts, const uint32_t **ends, size_t *n);
+/* The smart guides of a label. zs_label_face gives the features of the
+ * face of the mesh of a paint session in the plane of a label (frame:
+ * origin, normal, right), in that plane (s along right, t along up), as
+ * JSON, or "null" with no face there:
+ *   {"origin", "normal", "right": the frame;
+ *    "box": [s0, t0, s1, t1] and "center": [s, t] of the outline;
+ *    "part_center": [s, t]: the center of the part in the plane;
+ *    "holes": [{"kind": "round" | "rect" | "other", "center", "box",
+ *               "radius" (round), "size": [w, h] and "angle" (rect,
+ *               degrees from right, 0 to 90)}]}
+ * Call it once at the start of a drag. zs_label_snap snaps a box of a
+ * label in its plane. Its JSON:
+ *   {"op": "move" | "resize", "frame": {"origin", "normal", "right"},
+ *    "box": [s0, t0, s1, t1] (after the pointer moved it), "tol": mm (the
+ *    snap distance: about 6 pixels), "others": [{"origin", "normal",
+ *    "right", "box"}] (the other labels of the part; only those in the
+ *    same plane count), "face": the JSON of zs_label_face or null,
+ *    "corner": [+-1, +-1] (resize: the corner that moves, +1 the high
+ *    side), "aspect": true (resize: keep the aspect)}
+ * gives {"box": the box after the snap, "d": [ds, dt] (a move: the move
+ * to add, along right and up), "guides": [[s0, t0, s1, t1], ...]} (the
+ * lines to draw in the plane). The buffer rules of zs_app_setting_get. */
+int zs_label_face(const zs_paint *mesh, const double frame[9], char *buf, size_t cap, size_t *out_len);
+int zs_label_snap(const char *json, size_t len, char *buf, size_t cap, size_t *out_len);
 /* The facts of label `id` of part i for its card, as JSON:
  *   "kind": "side", "top", or "bottom" (|normal.z| <= 0.7 is a side);
  *   "same_filament": the label has the filament of the part;

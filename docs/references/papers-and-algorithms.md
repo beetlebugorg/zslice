@@ -329,6 +329,25 @@ Mathematical morphology "opening" (erode, then dilate)
 
 **How zslice uses it:** Removes skin areas that are too thin to print.
 
+### Smart guides
+
+```ref
+kind: idea
+source: General
+license: General technique
+files: src/label_snap.zig, web/app/label.js, linux/src/ui/label-tool.c
+area: ui
+summary: A label snaps to the edges and centers of other labels, to holes, and to the center of the face or the part, with guide lines.
+```
+
+The smart guides of drawing and design tools (for example Adobe Illustrator, Inkscape, and Figma): while an object moves, its edges and its center snap to the edges and centers of the objects near it and to equal gaps, and thin lines show each snap
+
+**License:** General technique
+
+**Used in:** `src/label_snap.zig`, `web/app/label.js`, `linux/src/ui/label-tool.c`
+
+**How zslice uses it:** A label that moves or changes size on a face snaps to the other labels of the face, to the round and square holes of the face, and to the center of the face and of the part. The view draws a guide line for each snap. The code is new.
+
 ### Slab index
 
 ```ref
