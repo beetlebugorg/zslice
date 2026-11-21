@@ -455,11 +455,20 @@ fn sliceInfo(a: Allocator, info: PlateInfo) Allocator.Error![]u8 {
     ww.print("    <metadata key=\"support_used\" value=\"{s}\"/>\n", .{if (info.support_used) "true" else "false"}) catch return error.OutOfMemory;
     ww.writeAll("    <metadata key=\"label_object_enabled\" value=\"false\"/>\n    <metadata key=\"support_material_on_wipe_tower\" value=\"false\"/>\n") catch return error.OutOfMemory;
     // Each filament has one nozzle (no dynamic map), of one diameter, and
-    // no filament switcher (as Bambu Studio 02.09 writes it for the X2D).
-    if (info.nozzles >= 2) ww.writeAll("    <metadata key=\"enable_filament_dynamic_map\" value=\"false\"/>\n    <metadata key=\"has_filament_switcher\" value=\"false\"/>\n    <metadata key=\"multi_nozzle_diameter_mode\" value=\"0\"/>\n") catch return error.OutOfMemory;
+    // no filament switcher. Bambu Studio 02.09 writes these keys and
+    // filament_maps for each model (bbs_3mf.cpp).
+    const studio = two or info.model_id.len > 0;
+    if (info.nozzles >= 2 or studio) ww.writeAll("    <metadata key=\"enable_filament_dynamic_map\" value=\"false\"/>\n    <metadata key=\"has_filament_switcher\" value=\"false\"/>\n    <metadata key=\"multi_nozzle_diameter_mode\" value=\"0\"/>\n") catch return error.OutOfMemory;
     // Two nozzles: the extruder of each filament (from 1), for the ids
     // 1 to the last filament of the print; a filament that the print does
-    // not use gets extruder 1.
+    // not use gets extruder 1. One nozzle: extruder 1 for each.
+    if (studio and !two) {
+        var last: u32 = 1;
+        for (info.filaments) |f| last = @max(last, f.id);
+        ww.writeAll("    <metadata key=\"filament_maps\" value=\"") catch return error.OutOfMemory;
+        for (1..last + 1) |id| ww.print("{s}1", .{if (id > 1) " " else ""}) catch return error.OutOfMemory;
+        ww.writeAll("\"/>\n") catch return error.OutOfMemory;
+    }
     if (two) {
         var last: u32 = 0;
         for (info.filaments) |f| last = @max(last, f.id);
