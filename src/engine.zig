@@ -3468,6 +3468,37 @@ test "pressure advance and the filament G-code, as OrcaSlicer writes them" {
     try testing.expect(std.mem.indexOf(u8, d, "M117") == null);
 }
 
+test "gcode: overhang walls print slower and with more fan" {
+    const gpa = testing.allocator;
+    // A cone upside down: its wall hangs about 0.28 mm over air on each
+    // layer.
+    var mesh = try mesh_mod.shapes.frustum(gpa, 20, 20, 5, 12, 5, 48);
+    defer mesh.deinit(gpa);
+    var s: Settings = .{};
+    s.engine.threads = 1;
+    s.filament.fan_speed = 0.3;
+    s.filament.fan_max_speed = 0.3;
+    s.filament.min_layer_time = 0;
+    var plain = try Job.init(gpa, &mesh, s);
+    defer plain.deinit();
+    var out0: std.Io.Writer.Allocating = .init(gpa);
+    defer out0.deinit();
+    const st0 = try plain.writeGcode(&out0.writer);
+    try testing.expect(std.mem.indexOf(u8, out0.written(), "M106 S255") == null);
+
+    s.project.overhang_wall_speed = 0.4;
+    s.project.overhang_wall_fan = 1;
+    var job = try Job.init(gpa, &mesh, s);
+    defer job.deinit();
+    var out: std.Io.Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    const st1 = try job.writeGcode(&out.writer);
+    try testing.expect(st1.print_time_s > st0.print_time_s * 1.05);
+    try testing.expect(std.mem.indexOf(u8, out.written(), "M106 S255") != null);
+    // The same plastic.
+    try testing.expectApproxEqRel(st0.filament_mm, st1.filament_mm, 1e-3);
+}
+
 test "gcode: a wipe retraction stays inside the part" {
     const gpa = testing.allocator;
     var b: mesh_mod.Builder = .init(gpa);

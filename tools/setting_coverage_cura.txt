@@ -723,11 +723,11 @@ adaptive_layer_height_enabled | missing | adaptive layers (zslice has layer heig
 adaptive_layer_height_variation | missing | adaptive layers
 adaptive_layer_height_variation_step | missing | adaptive layers
 adaptive_layer_height_threshold | missing | adaptive layers
-wall_overhang_angle | missing | slower walls over an overhang
+wall_overhang_angle | derived | project.overhang_wall_threshold (a share of the line width over air, in place of an angle)
 cool_min_layer_time_overhang | missing | a minimum layer time for overhangs
 cool_min_layer_time_overhang_min_segment_length | missing | a minimum layer time for overhangs
 seam_overhang_angle | missing | no seam over an overhang (the zslice hidden seam avoids overhangs)
-wall_overhang_speed_factors | missing | slower walls over an overhang
+wall_overhang_speed_factors | derived | project.overhang_wall_speed (one speed for all overhangs)
 bridge_settings_enabled | same | project.bridges
 bridge_wall_max_deviation | missing | the bridge walls
 bridge_wall_min_length | missing | the bridge walls

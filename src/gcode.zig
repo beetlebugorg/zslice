@@ -21,6 +21,10 @@
 //!   plate: see LayerPlan.region_resolved). Its speed, its acceleration,
 //!   and its flow come from them. The travel, the retraction, the cooling,
 //!   and the fan come from the settings of the layer.
+//! - A piece of a wall over air (`Path.overhang`, see
+//!   layer.markOverhangWalls) prints at `overhang_wall_speed` times the
+//!   wall speed, with the fan at `overhang_wall_fan`: the overhang speeds
+//!   of OrcaSlicer and Cura (see docs/references/orcaslicer.md).
 //! - A plate can have many filaments (see filaments.zig). Each path
 //!   prints with the filament of its settings (`project.filament`). Before
 //!   a path of another filament, the emitter changes the filament: the
@@ -2133,6 +2137,11 @@ pub const Emitter = struct {
             if (!self.dry) {
                 if (path.feature == .bridge) {
                     try self.setFan(@intFromFloat(@round(255 * path_r.settings.project.bridge_fan)));
+                } else if (path.overhang and path_r.settings.project.overhang_wall_fan > 0) {
+                    // The fan of a wall overhang, not below the fan of the
+                    // layer.
+                    const f: i32 = @intFromFloat(@round(255 * path_r.settings.project.overhang_wall_fan));
+                    try self.setFan(@max(f, self.layer_fan));
                 } else if (self.layer_fan >= 0) {
                     try self.setFan(self.layer_fan);
                 }
@@ -2152,7 +2161,9 @@ pub const Emitter = struct {
             for (widths) |pw| speed_width = geom.fmax(speed_width, pw);
             // The layer index in the job of the part, for the speed ramp of
             // the first layers (see LayerPlan.layerOf).
-            const full = path_r.speedAt(path.feature, speed_width, h, lp.layerOf(path));
+            const wall_speed = path_r.speedAt(path.feature, speed_width, h, lp.layerOf(path));
+            // A wall overhang prints slower (see layer.markOverhangWalls).
+            const full = if (path.overhang) wall_speed * path_r.settings.project.overhang_wall_speed else wall_speed;
             // The path rules of the settings (project.path_rules).
             const rr = self.applyRules(path_r.settings.project.path_rules, path, pts, lp, slowSpeed(full, slow, s.filament.min_speed), if (path.width > 0) path.width else speed_width, h);
             const speed = rr.speed;

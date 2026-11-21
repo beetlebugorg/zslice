@@ -86,7 +86,9 @@
 //! infill meshes of CuraEngine (see `Modifier`), the trihexagon
 //! pattern of CuraEngine, and the wall order and the extra wall on
 //! alternate layers of Cura and OrcaSlicer (`wall_order`,
-//! `alternate_extra_wall`, see docs/references/cura.md).
+//! `alternate_extra_wall`, see docs/references/cura.md), and the slower
+//! overhang walls of OrcaSlicer and Cura (`markOverhangWalls`, see
+//! docs/references/orcaslicer.md).
 //!
 //! `cornerSeamIndex` and its helpers are a port to Zig of the seam corner
 //! choice of CuraEngine (`CornerScoringCriterion.cpp`,
@@ -143,6 +145,9 @@ pub const Path = struct {
     /// the part covers it on all sides. The flush of a filament change
     /// can go into it, as into the sparse infill.
     hidden: bool = false,
+    /// A piece of a wall that hangs over air (see `markOverhangWalls`):
+    /// it prints with `overhang_wall_speed` and `overhang_wall_fan`.
+    overhang: bool = false,
 
     pub const planar = std.math.maxInt(u32);
 };
@@ -1804,6 +1809,10 @@ pub fn plan(gpa: Allocator, ctx: Context, i: usize) Allocator.Error!LayerPlan {
 
     // Walls over air print as bridges (see splitBridgeWalls).
     if (p.bridges and !first) try splitBridgeWalls(s, a, &lp, memo, ctx.outlines[i - 1], w, ctx.gen);
+    // Walls that hang over air print slower, with more fan.
+    if (!first and (p.overhang_wall_speed < 1 or p.overhang_wall_fan > 0)) {
+        try markOverhangWalls(s, a, &lp, ctx.outlines[i - 1], w, p.overhang_wall_threshold);
+    }
 
     // Step 10: slope smoothing, after all other paths of the layer, then
     // slope ironing.
@@ -3303,6 +3312,124 @@ fn splitBridgeWalls(s: Allocator, a: Allocator, lp: *LayerPlan, memo: *Memo, bel
     }
 }
 
+/// Overhang walls: the pieces of a wall (outer or inner, planar) that hang
+/// over air by `threshold` of a line width or more get `Path.overhang`.
+/// A segment hangs over air if its middle is outside the outline of the
+/// layer below, grown by (threshold - 1/2) line widths: the line then has
+/// at least that part of its width outside the layer below. A run over
+/// air shorter than 1 mm stays a normal wall. The wall splits into open
+/// paths at the ends of each run, in the same order, so the nozzle goes
+/// on along the wall with no travel. A path whose width changes along it
+/// (Arachne) keeps the width of each point.
+fn markOverhangWalls(s: Allocator, a: Allocator, lp: *LayerPlan, below: Paths, w: i64, threshold: f64) Allocator.Error!void {
+    const isWall = struct {
+        fn f(pth: Path, n: usize) bool {
+            return (pth.feature == .outer_wall or pth.feature == .inner_wall) and pth.z_start == Path.planar and n >= 2;
+        }
+    }.f;
+    var any = false;
+    for (lp.paths.items, 0..) |pth, k| any = any or isWall(pth, lp.points.get(k).len);
+    if (!any or below.isEmpty()) return;
+    const grow: i64 = @intFromFloat(@round((threshold - 0.5) * @as(f64, @floatFromInt(w))));
+    const held = if (grow == 0) below else try offset_mod.offset(s, below, grow, .{});
+    if (held.isEmpty()) return;
+    const ix = try geom.EdgeIndex.init(s, held, 0);
+    const min_run: f64 = @floatFromInt(geom.fromMm(1.0));
+    var paths: std.ArrayList(Path) = .empty;
+    var points: Paths = .empty;
+    var changed = false;
+    var air: std.ArrayList(bool) = .empty;
+    var run: std.ArrayList(geom.Point) = .empty;
+    for (lp.paths.items, 0..) |pth, k| {
+        const pts = lp.points.get(k);
+        if (!isWall(pth, pts.len)) {
+            try paths.append(a, pth);
+            try points.append(a, pts);
+            continue;
+        }
+        const n = pts.len;
+        const nseg = if (pth.closed) n else n - 1;
+        air.clearRetainingCapacity();
+        for (0..nseg) |j| {
+            const p0 = pts[j];
+            const p1 = pts[(j + 1) % n];
+            const mid: geom.Point = .{ .x = @divTrunc(p0.x + p1.x, 2), .y = @divTrunc(p0.y + p1.y, 2) };
+            try air.append(s, !ix.inside(mid));
+        }
+        // A run of a closed loop can go across the start of the loop: the
+        // runs start after a change.
+        var start: usize = 0;
+        if (pth.closed) {
+            for (0..nseg) |j| if (air.items[j] != air.items[(j + nseg - 1) % nseg]) {
+                start = j;
+                break;
+            };
+        }
+        // Short runs over air stay wall.
+        var j: usize = 0;
+        while (j < nseg) {
+            const flag = air.items[(start + j) % nseg];
+            var e = j;
+            var len: f64 = 0;
+            while (e < nseg and air.items[(start + e) % nseg] == flag) : (e += 1) {
+                const sj = (start + e) % nseg;
+                len += pts[sj].dist(pts[(sj + 1) % n]);
+            }
+            if (flag and len < min_run) for (j..e) |q| {
+                air.items[(start + q) % nseg] = false;
+            };
+            j = e;
+        }
+        var some = false;
+        var all = true;
+        for (air.items) |f| {
+            some = some or f;
+            all = all and f;
+        }
+        if (!some) {
+            try paths.append(a, pth);
+            try points.append(a, pts);
+            continue;
+        }
+        changed = true;
+        if (all) {
+            var o = pth;
+            o.overhang = true;
+            try paths.append(a, o);
+            try points.append(a, pts);
+            continue;
+        }
+        // The runs, as open paths.
+        // A copy: the appends below can move the list.
+        const widths: []const f32 = if (pth.w_start != Path.planar) try s.dupe(f32, lp.point_w.items[pth.w_start..][0..n]) else &.{};
+        j = 0;
+        while (j < nseg) {
+            const flag = air.items[(start + j) % nseg];
+            run.clearRetainingCapacity();
+            const first_w = lp.point_w.items.len;
+            try run.append(s, pts[(start + j) % nseg]);
+            if (widths.len > 0) try lp.point_w.append(a, widths[(start + j) % nseg]);
+            var e = j;
+            while (e < nseg and air.items[(start + e) % nseg] == flag) : (e += 1) {
+                const q = ((start + e) % nseg + 1) % n;
+                try run.append(s, pts[q]);
+                if (widths.len > 0) try lp.point_w.append(a, widths[q]);
+            }
+            var piece = pth;
+            piece.closed = false;
+            piece.overhang = flag;
+            if (widths.len > 0) piece.w_start = @intCast(first_w);
+            try paths.append(a, piece);
+            try points.append(a, run.items);
+            j = e;
+        }
+    }
+    if (changed) {
+        lp.paths = paths;
+        lp.points = points;
+    }
+}
+
 /// The bridges of a skin area: their area (the bridge with its anchors),
 /// and their lines.
 const Bridges = struct { area: Paths, lines: Paths };
@@ -4318,6 +4445,53 @@ test "alternate extra wall: one more wall on each odd layer" {
         var lp = try planPrism(gpa, outline, st, 11);
         defer lp.deinit();
         try testing.expectEqual(@as(usize, 2), wallOrder(lp, &buf));
+    }
+}
+
+test "overhang walls: the side over air prints as an overhang" {
+    const gpa = testing.allocator;
+    var st: settings_mod.Settings = .{};
+    st.project.overhang_wall_speed = 0.5;
+    const layers = try slicer.layerTable(gpa, 5, 0.3, 0.2);
+    defer gpa.free(layers);
+    // A box that grows to the right by 0.3 mm on each layer: its right
+    // wall hangs 0.3 mm over air, more than half a line.
+    const outlines = try gpa.alloc(Paths, layers.len);
+    defer {
+        for (outlines) |*o| o.deinit(gpa);
+        gpa.free(outlines);
+    }
+    for (outlines, 0..) |*o, li| {
+        o.* = .empty;
+        const x1: i64 = 20_000 + 300 * @as(i64, @intCast(li));
+        try o.append(gpa, &.{ .init(0, 0), .init(x1, 0), .init(x1, 15_000), .init(0, 15_000) });
+    }
+    for ([_]settings_mod.WallGenerator{ .classic, .arachne }) |gen| {
+        st.project.wall_generator = gen;
+        const r = try st.resolve();
+        const ctx: Context = .{ .resolved = &r, .layers = layers, .outlines = outlines };
+        var lp = try plan(gpa, ctx, 12);
+        defer lp.deinit();
+        const x1: i64 = 20_000 + 300 * 12;
+        var over: usize = 0;
+        for (lp.paths.items, 0..) |path, k| {
+            if (!path.overhang) continue;
+            over += 1;
+            try testing.expect(path.feature == .outer_wall);
+            // Only the right side hangs over air.
+            for (lp.points.get(k)) |q| try testing.expect(q.x > x1 - 1_000);
+            if (path.w_start != Path.planar) try testing.expect(lp.point_w.items.len >= path.w_start + lp.points.get(k).len);
+        }
+        try testing.expectEqual(@as(usize, 1), over);
+        // Off: no overhang, and the walls stay closed loops.
+        var off = st;
+        off.project.overhang_wall_speed = 1;
+        const r0 = try off.resolve();
+        const ctx0: Context = .{ .resolved = &r0, .layers = layers, .outlines = outlines };
+        var lp0 = try plan(gpa, ctx0, 12);
+        defer lp0.deinit();
+        for (lp0.paths.items) |path| try testing.expect(!path.overhang);
+        try testing.expect(lp.count() > lp0.count());
     }
 }
 

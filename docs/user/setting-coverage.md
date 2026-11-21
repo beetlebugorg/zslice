@@ -17,8 +17,8 @@ The lists come from Cura `resources/definitions/fdmprinter.def.json` and `fdmext
 
 | Slicer | Settings | Same | Covered | Missing | Not for zslice |
 |---|---|---|---|---|---|
-| Cura | 762 | 164 | 84 | 451 | 63 |
-| OrcaSlicer | 1013 | 156 | 112 | 513 | 232 |
+| Cura | 762 | 164 | 86 | 449 | 63 |
+| OrcaSlicer | 1013 | 156 | 118 | 507 | 232 |
 
 ## Cura
 
@@ -689,11 +689,11 @@ The lists come from Cura `resources/definitions/fdmprinter.def.json` and `fdmext
 | `adaptive_layer_height_variation` (Adaptive Layers Maximum Variation) | Missing | adaptive layers |
 | `adaptive_layer_height_variation_step` (Adaptive Layers Variation Step Size) | Missing | adaptive layers |
 | `adaptive_layer_height_threshold` (Adaptive Layers Topography Size) | Missing | adaptive layers |
-| `wall_overhang_angle` (Overhanging Wall Angle) | Missing | slower walls over an overhang |
+| `wall_overhang_angle` (Overhanging Wall Angle) | Covered | `project.overhang_wall_threshold` (a share of the line width over air, in place of an angle) |
 | `cool_min_layer_time_overhang` (Minimum Layer Time with Overhang) | Missing | a minimum layer time for overhangs |
 | `cool_min_layer_time_overhang_min_segment_length` (Minimum Overhang Segment Length) | Missing | a minimum layer time for overhangs |
 | `seam_overhang_angle` (Seam Overhanging Wall Angle) | Missing | no seam over an overhang (the zslice hidden seam avoids overhangs) |
-| `wall_overhang_speed_factors` (Overhanging Wall Speeds) | Missing | slower walls over an overhang |
+| `wall_overhang_speed_factors` (Overhanging Wall Speeds) | Covered | `project.overhang_wall_speed` (one speed for all overhangs) |
 | `bridge_settings_enabled` (Enable Bridge Settings) | Same | `project.bridges` |
 | `bridge_wall_max_deviation` (Maximum Bridge Deviation) | Missing | the bridge walls |
 | `bridge_wall_min_length` (Minimum Bridge Wall Length) | Missing | the bridge walls |
@@ -1049,6 +1049,7 @@ The print, printer, and filament settings first, by status. The settings of resi
 | `cool_plate_temp_initial_layer` (First layer) | `filament.first_layer_bed_temp` |
 | `deretraction_speed` (Deretraction speed) | `machine.retract_speed` |
 | `enable_overhang_bridge_fan` (Force cooling for overhangs and bridges) | `project.bridges` |
+| `enable_overhang_speed` (Slow down for overhangs) | `project.overhang_wall_speed` (below 100 %) |
 | `enable_pressure_advance` (Enable pressure advance) | `filament.pressure_advance` 0 is off |
 | `eng_plate_temp` (Other layers) | `filament.bed_temp` |
 | `eng_plate_temp_initial_layer` (First layer) | `filament.first_layer_bed_temp` |
@@ -1083,6 +1084,11 @@ The print, printer, and filament settings first, by status. The settings of resi
 | `nozzle_hrc` (Nozzle HRC) | `machine.nozzle_type` |
 | `nozzle_temperature_range_high` (Max) | the G-code variable nozzle_temperature_range_high |
 | `nozzle_temperature_range_low` (Min) | the G-code variable nozzle_temperature_range_low |
+| `overhang_1_4_speed` (10%) | `project.overhang_wall_speed` (one speed for all overhangs over `project.overhang_wall_threshold`) |
+| `overhang_2_4_speed` (25%) | `project.overhang_wall_speed` (one speed for all overhangs over `project.overhang_wall_threshold`) |
+| `overhang_3_4_speed` (50%) | `project.overhang_wall_speed` (one speed for all overhangs over `project.overhang_wall_threshold`) |
+| `overhang_4_4_speed` (75%) | `project.overhang_wall_speed` (one speed for all overhangs over `project.overhang_wall_threshold`) |
+| `overhang_fan_threshold` (Overhang cooling activation threshold) | `project.overhang_wall_threshold` (for the fan of `project.overhang_wall_fan`) |
 | `precise_z_height` (Precise Z height) | zslice cuts each layer at its middle and ends at the height of the part |
 | `printer_variant` (Printer variant) | `machine.nozzle_diameter` |
 | `required_nozzle_HRC` (Required nozzle HRC) | `machine.nozzle_type` (a filament with fiber needs a hard nozzle) |
@@ -1188,7 +1194,6 @@ The print, printer, and filament settings first, by status. The settings of resi
 | `enable_filament_ramming` (Enable filament ramming) | Enable filament ramming |
 | `enable_long_retraction_when_cut` |  |
 | `enable_mixed_color_sublayer` (Mixed color sublayer) | Mixed color sublayer |
-| `enable_overhang_speed` (Slow down for overhangs) | Slow down for overhangs |
 | `enable_power_loss_recovery` (Power Loss Recovery) | power loss recovery (M413) |
 | `enable_pre_heating` |  |
 | `enable_tower_interface_cooldown_during_tower` (Cool down from interface boost during prime tower) | Cool down from interface boost during prime tower |
@@ -1430,11 +1435,6 @@ The print, printer, and filament settings first, by status. The settings of resi
 | `outer_wall_jerk` (Outer wall) | Outer wall |
 | `outer_wall_line_width` (Outer wall) | Outer wall |
 | `outer_wall_volumetric_flow` (Outer wall) | Outer wall |
-| `overhang_1_4_speed` (10%) | 10% |
-| `overhang_2_4_speed` (25%) | 25% |
-| `overhang_3_4_speed` (50%) | 50% |
-| `overhang_4_4_speed` (75%) | 75% |
-| `overhang_fan_threshold` (Overhang cooling activation threshold) | Overhang cooling activation threshold |
 | `overhang_flow_ratio` (Overhang flow ratio) | Overhang flow ratio |
 | `overhang_reverse` (Reverse on even) | Reverse on even |
 | `overhang_reverse_internal_only` (Reverse only internal perimeters) | Reverse only internal perimeters |

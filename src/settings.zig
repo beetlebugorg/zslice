@@ -453,6 +453,19 @@ pub const Project = struct {
     /// walls of two layers then interlock with the infill, and the part
     /// is stronger across its layers. Off by default.
     alternate_extra_wall: bool = false,
+    /// The speed of the parts of a wall that hang over air, as a ratio of
+    /// the speed of the wall. A slower overhang has more time to cool, so
+    /// it curls less. 1: the speed of the wall. A wall that hangs a whole
+    /// line over air prints as a bridge (see `bridges`).
+    overhang_wall_speed: f64 = 1,
+    /// The fan while a wall overhang prints, from 0 to 1. The fan does not
+    /// go below the fan of the layer. 0: the fan of the layer.
+    overhang_wall_fan: f64 = 0,
+    /// How far a wall must hang over air to print as an overhang (see
+    /// `overhang_wall_speed`): the part of its line width that is outside
+    /// the layer below, from 0 to 1. With a 0.2 mm layer and a 0.44 mm
+    /// line, 0.5 is a slope of about 48 degrees.
+    overhang_wall_threshold: f64 = 0.5,
     /// Print parts of the outline that are thinner than one line width
     /// (a thin fin, a sheet, a label): a loop inside each thin part, with a
     /// narrower line, so that its two sides fill the thickness. Without
@@ -1440,6 +1453,9 @@ pub const limits = [_]struct { []const u8, f64, f64 }{
     .{ "project.bridge_speed", 0.01, 1 },
     .{ "project.bridge_flow", 0.1, 2 },
     .{ "project.bridge_fan", 0, 1 },
+    .{ "project.overhang_wall_speed", 0.05, 1 },
+    .{ "project.overhang_wall_fan", 0, 1 },
+    .{ "project.overhang_wall_threshold", 0.05, 1 },
     .{ "project.infill_layers", 1, 10 },
     .{ "project.ironing_flow", 0, 1 },
     .{ "project.ironing_spacing", 0.01, 2 },
@@ -1756,6 +1772,9 @@ pub const layer_settings = [_][]const u8{
     "project.bridge_speed",
     "project.bridge_flow",
     "project.bridge_fan",
+    "project.overhang_wall_speed",
+    "project.overhang_wall_fan",
+    "project.overhang_wall_threshold",
     "project.infill_overlap",
     "project.infill_layers",
     "project.ironing",

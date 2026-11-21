@@ -56,6 +56,7 @@ fan = {layer} < 3 ? 0 : {fan}
 |---|---|
 | **Wall order** (`project.wall_order`) | `inner_first` (the default) prints the inner walls, then the outer wall. `outer_first` prints the outer wall first: holes and joints fit better, but an overhang can curl. |
 | **Alternate extra wall** (`project.alternate_extra_wall`) | One more wall on each odd layer. The walls interlock with the infill, so the part is stronger across its layers. |
+| **Overhang walls** (`project.overhang_wall_speed`, `project.overhang_wall_fan`) | The parts of a wall that hang over air print slower, with more fan. `project.overhang_wall_threshold` sets how far a wall must hang over air: 0.5 is half the line width. Off by default (a speed of 100 % and a fan of 0). |
 | **Gap fill** (`project.gap_fill`) | One line along the middle of each narrow area. On by default. |
 | **Retractless skin** (`project.skin_link_length`) | Prints the skin of each island in few paths: the nozzle goes along the walls to the next zigzag, up to 15 mm. 0 turns it off. |
 | **Bridges** (`project.bridges`) | Prints a skin over air across the air, in the direction of the shortest longest line, anchored 1.5 mm into the plastic around it. Slow, with the fan on. |
