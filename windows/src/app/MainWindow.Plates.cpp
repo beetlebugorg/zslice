@@ -89,6 +89,7 @@ namespace winrt::ZSlice::implementation
         // The settings and the history are those of the new plate.
         RefreshSettingValues();
         RefreshHistoryButtons();
+        RefreshFilamentTools();
         // The slider of the new plate starts at its top.
         layer_count = 0;
         if (state == ZS_STATE_DONE)

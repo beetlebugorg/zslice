@@ -50,6 +50,12 @@
                         <MenuFlyout x:Name="HistoryMenu" Placement="BottomEdgeAlignedLeft" />
                     </DropDownButton.Flyout>
                 </DropDownButton>
+                <DropDownButton x:Name="FilamentButton" AutomationProperties.Name="Filaments" Background="Transparent" BorderThickness="0"
+                                Margin="8,0,0,0">
+                    <DropDownButton.Flyout>
+                        <Flyout x:Name="FilamentFlyout" Placement="BottomEdgeAlignedLeft" />
+                    </DropDownButton.Flyout>
+                </DropDownButton>
             </StackPanel>
             <TextBlock x:Name="FileName" Grid.Column="3" VerticalAlignment="Center" Margin="16,0,0,0"
                        Foreground="#5B6168" TextTrimming="CharacterEllipsis" />
