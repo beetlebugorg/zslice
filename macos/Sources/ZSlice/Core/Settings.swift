@@ -121,9 +121,16 @@ enum Feature {
     static let all = UInt32((1 << count) - 1)
     static let titles = ["Outer wall", "Inner wall", "Skin", "Sparse infill", "Ironing", "Skirt or brim", "Support",
                          "Support interface", "Slope smoothing", "Slope ironing", "Bridge", "Seams", "Travel moves", "Retractions"]
-    static let colors: [Color] = [0xd9480f, 0xf59f00, 0x1c7ed6, 0x2b8a3e, 0xae3ec9, 0x8d6e63, 0xadb5bd, 0x495057,
-                                  0x0ca6ae, 0x82c91e, 0x66ccf2, 0xe01a26, 0x3373f2, 0xf240bf].map {
-        Color(red: Double($0 >> 16 & 0xff) / 255, green: Double($0 >> 8 & 0xff) / 255, blue: Double($0 & 0xff) / 255)
+    static let rgb: [UInt32] = [0xd9480f, 0xf59f00, 0x1c7ed6, 0x2b8a3e, 0xae3ec9, 0x8d6e63, 0xadb5bd, 0x495057,
+                                0x0ca6ae, 0x82c91e, 0x66ccf2, 0xe01a26, 0x3373f2, 0xf240bf]
+    static let colors: [Color] = rgb.map(color)
+
+    /// A color of 0xrrggbb. Typed steps, so the compiler checks it fast.
+    private static func color(_ v: UInt32) -> Color {
+        let r: Double = Double((v >> 16) & 0xff) / 255
+        let g: Double = Double((v >> 8) & 0xff) / 255
+        let b: Double = Double(v & 0xff) / 255
+        return Color(red: r, green: g, blue: b)
     }
 }
 
