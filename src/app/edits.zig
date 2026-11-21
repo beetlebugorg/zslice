@@ -55,10 +55,21 @@ pub fn pathKey(plan: *const LayerPlan, i: usize) u64 {
     h.update(std.mem.asBytes(&z));
     const f: u8 = @intFromEnum(plan.paths.items[i].feature);
     h.update(std.mem.asBytes(&f));
+    // The rounded points go to the hash in blocks. The hash reads a
+    // stream of bytes, so a block gives the key of one update for each
+    // point, with fewer calls. The view makes the keys of all paths in
+    // layer order, on one thread, after each slice.
+    var block: [64][2]i64 = undefined;
+    var n: usize = 0;
     for (plan.points.get(i)) |p| {
-        const q = [2]i64{ @divFloor(p.x + 5, 10), @divFloor(p.y + 5, 10) };
-        h.update(std.mem.asBytes(&q));
+        block[n] = .{ @divFloor(p.x + 5, 10), @divFloor(p.y + 5, 10) };
+        n += 1;
+        if (n == block.len) {
+            h.update(std.mem.sliceAsBytes(&block));
+            n = 0;
+        }
     }
+    h.update(std.mem.sliceAsBytes(block[0..n]));
     return h.final();
 }
 
@@ -180,6 +191,34 @@ test "edits: delete a line, and change the flow of another" {
     try testing.expectApproxEqAbs(@as(f32, 0.6), plan.paths.items[1].width, 1e-6);
     try testing.expect(e.list.items[0].applied.load(.acquire));
     try testing.expect(!e.list.items[2].applied.load(.acquire));
+}
+
+test "edits: the key of a path is the hash of its rounded points, one by one" {
+    const gpa = testing.allocator;
+    var plan: LayerPlan = .{ .arena = .init(gpa), .index = 3, .z = 0.8, .height = 0.2, .width = 0.4 };
+    defer plan.deinit();
+    const a = plan.arena.allocator();
+    var rng: std.Random.DefaultPrng = .init(7);
+    const r = rng.random();
+    // Paths of 1 to 300 points: shorter and longer than a block.
+    for ([_]usize{ 1, 2, 63, 64, 65, 128, 300 }) |len| {
+        try plan.paths.append(a, .{ .feature = .outer_wall, .closed = true });
+        const pts = try a.alloc(geom.Point, len);
+        for (pts) |*q| q.* = .{ .x = r.intRangeAtMost(i64, -300_000, 300_000), .y = r.intRangeAtMost(i64, -300_000, 300_000) };
+        try plan.points.append(a, pts);
+    }
+    for (0..plan.paths.items.len) |i| {
+        var h = std.hash.Wyhash.init(0);
+        const z: i64 = 80;
+        h.update(std.mem.asBytes(&z));
+        const f: u8 = @intFromEnum(plan.paths.items[i].feature);
+        h.update(std.mem.asBytes(&f));
+        for (plan.points.get(i)) |p| {
+            const q = [2]i64{ @divFloor(p.x + 5, 10), @divFloor(p.y + 5, 10) };
+            h.update(std.mem.asBytes(&q));
+        }
+        try testing.expectEqual(h.final(), pathKey(&plan, i));
+    }
 }
 
 test "edits: a drop of plastic on its layer" {
