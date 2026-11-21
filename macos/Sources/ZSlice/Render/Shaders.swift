@@ -258,6 +258,18 @@ fragment float4 bed_fragment(BedOut in [[stage_in]],
     float a = (in.z > pc.params.y || pc.params.z > 0.5) ? 0.3 : 1.0;
     return float4(col, a);
 }
+
+// The signs of the plates: a port of src/render/shaders/sign.frag (the
+// vertex shader is bed_vertex). The color is the image of the signs, and
+// the alpha of a sign is in the normal (x): a sign seen edge-on fades.
+fragment float4 sign_fragment(BedOut in [[stage_in]],
+                              texture2d<float> tex [[texture(0)]],
+                              sampler smp [[sampler(0)]]) {
+    float4 t = tex.sample(smp, in.uv);
+    float a = t.a * in.normal.x;
+    if (a < 0.004) discard_fragment();
+    return float4(t.rgb, a);
+}
 // ---- the 2D view of one layer (web/app/gl.js, lineVert and flatVert) ----
 //
 // A point (x, y) in mm goes to clip space as (x, y) * xf.xy + xf.zw: y goes

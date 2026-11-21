@@ -112,7 +112,7 @@ The package is `Package.swift`. `Sources/CZslice/module.modulemap` makes the C A
 | `Views/ToolStrip.swift` | The tool strip, and the measure tape with its readout. |
 | `Views/LayerSlider.swift` | The slider with two knobs for the layers that show. |
 | `Views/PlateBar.swift` | The plate bar: the plate before and after, all plates, a new plate, and Remove. |
-| `Views/PlateLabels.swift` | The labels of the plates, in a row at the top of the view. |
+| `Views/PlateSigns.swift` | The signs of the plates on the bed (the image of their text), and the Open button of an empty plate. |
 | `Views/Timeline.swift` | The history in the bottom bar: Undo, Redo, and a bubble for each step. |
 | `Views/HistoryGlyph.swift` | The glyph of each kind of step. |
 | `Views/HistoryCardView.swift` | The bubble, and the card of a step. |
@@ -205,6 +205,10 @@ The view draws each bead exactly as it will print: no coarser meshes while it mo
 - The opaque beads draw with back face culling: a bead is a closed mesh, so its back faces are always behind its front faces.
 - The bed model draws in two passes (`drawBed`, as web/app/gl.js): the depth only, then the blended color where the depth is equal, with no depth write. Each pixel blends once, with the nearest face.
 - Frame times on an M1 with a 4K display, orbiting for 3 s: resin_phenom_plate 6.6 ms of GPU time a frame and 110 frames a second at the start view, 11.8 ms and 70 frames a second zoomed in (14 steps); deck_body 5.6 and 11.2 ms. The frames over 8 ms of the main thread zoomed in wait in `nextDrawable` for the GPU; `zs_view_draw` takes under 0.1 ms.
+
+### The signs of the plates
+
+`Views/PlateSigns.swift` draws the text of all signs into one RGBA image, as web/app/signs.js: one row for each plate, with a clear row between them, its number and name, then its printer and its status, or its time and filament after a slice (`zs_set_plate_totals`). AppKit draws the text into a flipped CGContext, and the pixels go to straight alpha. `zs_view_set_signs` takes the image and the rect of each sign, with scale = the height of a sign / (46 × the backing scale). The core makes a flat quad on the bed for each sign; `FrameRenderer.drawSigns` draws them after the bed models with `bed_vertex` and `sign_fragment` (the color of the image, its alpha times the normal x), blended, with the depth test and no depth write. The image goes to the GPU with mipmaps when `sign_gen` changes. The app makes the image again only when its text or look changes: a key of the lines, the theme, the backing scale, and the accent color, checked after each frame. A click runs `zs_view_sign_at` before the plate pick.
 
 ### The mesh of the Paint tool
 
@@ -438,7 +442,8 @@ Like the GTK shell, the app reads environment variables for tests and screenshot
 - `ZSLICE_PICK=x,y` picks the line at that point (in points) after the first slice, as a click does. `ZSLICE_DOUBLE_CLICK=x,y` is a double click there. `ZSLICE_CARD_LOG=1` logs the screen box of a clicked line.
 - `ZSLICE_USE_PRINTERS="k[:color],..."` switches to printer k of the store in turn, 4 s apart, and then sets the color of the filament if one is given. `ZSLICE_SWITCH_LOG=1` logs the filament after each switch.
 - `ZSLICE_RIGHT_DRAG=1` sends a right drag of 100 points of a mouse to the view and logs whether the camera panned or orbited (it must orbit); `ZSLICE_RIGHT_DRAG=touch` sends it with the subtype of a trackpad (it must pan). `ZSLICE_INPUT_LOG=1` logs the subtype of each right press, to check a real trackpad.
-- `ZSLICE_PICK_LATER="x,y;rx,y;..."` picks each point in turn, one a second from 6 s after the start (`r`: the run of the line, as a Shift-click). With `ZSLICE_TIMING=1`, each upload of the beads is logged; a patch also checks that the whole buffer equals the beads of the core.
+- `ZSLICE_PICK_LATER="x,y;rx,y;cx,y;..."` picks each point in turn, one a second from 6 s after the start (`r`: the run of the line, as a Shift-click; `c`: a whole click of the view, as on a sign). With `ZSLICE_TIMING=1`, each upload of the beads is logged; a patch also checks that the whole buffer equals the beads of the core.
+- `ZSLICE_SIGN_LOG=1` logs the lines of the signs each time the image is made. `ZSLICE_NO_SIGNS=1` sets no signs, to compare: with a sign, the start view of the core frames the sign too, so its camera looks a little nearer the front of the bed.
 - `ZSLICE_RUN_AT=x,y` (or `center`) is a Shift-click of the Select tool; `ZSLICE_RUN_LOG=1` logs the run, and a plain pick 1.5 s later logs that the run is cleared.
 - `ZSLICE_RANGE_DRAG="x0,y0;x1,y1"` drags over layers from a line with the press, move, and release of the view. `ZSLICE_RANGE_KEYS=n` presses Shift-K n times instead (with `ZSLICE_PICK` for the start line). Then the hook changes the infill of the range, so the body must light again after the slice. `ZSLICE_RANGE_LOG=1` logs each light, and `ZSLICE_RANGE_CLOSE=1` closes the card at the end.
 - `ZSLICE_SPATIAL="kind:x,y,w,h;..."` keeps a place (the top left corner) and a size for a kind of card (`line`, `part`, `range`, `history`), as a drag and a resize do.

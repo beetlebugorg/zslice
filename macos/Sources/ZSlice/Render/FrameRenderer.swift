@@ -59,6 +59,11 @@ final class FrameRenderer {
     private let bed: MTLRenderPipelineState
     /// The bed model, depth only: the first of its two passes.
     private let bedDepth: MTLRenderPipelineState
+    /// The signs of the plates: their pipeline, their image (with mipmaps,
+    /// so a small sign stays clean), and its sampler.
+    private let signPipe: MTLRenderPipelineState
+    private var signTexture: MTLTexture?
+    private let signSampler: MTLSamplerState
     private let depthWrite: MTLDepthStencilState
     private let depthRead: MTLDepthStencilState
     /// Only where the depth is the same, with no write: the color pass of
@@ -82,7 +87,7 @@ final class FrameRenderer {
     private var plateGrid: MTLBuffer?
     private var slots: [UInt32: (buffer: MTLBuffer?, gen: UInt32)] = [:]
     private(set) var gridVertices = 0
-    private var gen = (mesh: UInt32.max, instances: UInt32.max, grid: UInt32.max, bed: UInt32.max, plateGrid: UInt32.max)
+    private var gen = (mesh: UInt32.max, instances: UInt32.max, grid: UInt32.max, bed: UInt32.max, plateGrid: UInt32.max, sign: UInt32.max)
 
     // The targets: the multisample color and the depth, at the drawable size.
     private var msaa: MTLTexture?
@@ -133,6 +138,7 @@ final class FrameRenderer {
             paintPipe = try pipeline("paint_vertex", "paint_fragment", blend: false)
             bed = try pipeline("bed_vertex", "bed_fragment", blend: true)
             bedDepth = try pipeline("bed_vertex", "bed_fragment", blend: false, color: false)
+            signPipe = try pipeline("bed_vertex", "sign_fragment", blend: true)
         } catch {
             NSLog("zslice: the Metal shaders did not compile: \(error)")
             return nil
@@ -151,6 +157,8 @@ final class FrameRenderer {
         sd.sAddressMode = .clampToEdge
         sd.tAddressMode = .clampToEdge
         sampler = device.makeSamplerState(descriptor: sd)!
+        sd.mipFilter = .linear
+        signSampler = device.makeSamplerState(descriptor: sd)!
     }
 
     func buffer(_ ptr: UnsafeRawPointer?, _ length: Int) -> MTLBuffer? {
@@ -202,6 +210,12 @@ final class FrameRenderer {
             bedTexture = makeTexture(f.bed_tex, Int(f.bed_tex_width), Int(f.bed_tex_height))
             gen.bed = f.bed_gen
         }
+        if f.sign_gen != gen.sign {
+            // The image of the signs: new when a plate, its name, or its
+            // status changes.
+            signTexture = makeSignTexture(f.sign_tex, Int(f.sign_tex_width), Int(f.sign_tex_height))
+            gen.sign = f.sign_gen
+        }
         if f.plate_grid_gen != gen.plateGrid {
             plateGrid = buffer(f.plate_grid, Int(f.plate_grid_vertices) * 12)
             gen.plateGrid = f.plate_grid_gen
@@ -223,6 +237,21 @@ final class FrameRenderer {
             t.replace(region: region, mipmapLevel: 0, withBytes: rgba, bytesPerRow: width * 4)
         } else {
             white.withUnsafeBytes { t.replace(region: region, mipmapLevel: 0, withBytes: $0.baseAddress!, bytesPerRow: 4) }
+        }
+        return t
+    }
+
+    /// The image of the signs with its mipmaps (made on the GPU), or nil.
+    private func makeSignTexture(_ rgba: UnsafePointer<UInt8>?, _ w: Int, _ h: Int) -> MTLTexture? {
+        guard let rgba, w > 0, h > 0 else { return nil }
+        let d = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .rgba8Unorm, width: w, height: h, mipmapped: true)
+        d.usage = .shaderRead
+        guard let t = device.makeTexture(descriptor: d) else { return nil }
+        t.replace(region: MTLRegionMake2D(0, 0, w, h), mipmapLevel: 0, withBytes: rgba, bytesPerRow: w * 4)
+        if let cmd = queue.makeCommandBuffer(), let blit = cmd.makeBlitCommandEncoder() {
+            blit.generateMipmaps(for: t)
+            blit.endEncoding()
+            cmd.commit()
         }
         return t
     }
@@ -342,6 +371,8 @@ final class FrameRenderer {
             }
             if r.meshVerts == nil || r.meshIndex == nil || r.instances == nil {
                 drawBed(mvp: f.bed.mvp)
+                for p in r.plates(f) where p.flags & 1 != 0 { drawBed(mvp: p.bed_mvp) }
+                drawSigns()
                 return
             }
             // The plain pipeline with no focus: the early depth test stays on.
@@ -382,7 +413,24 @@ final class FrameRenderer {
             drawBed(mvp: f.bed.mvp)
             // The bed model at each other plate of the same printer.
             for p in r.plates(f) where p.flags & 1 != 0 { drawBed(mvp: p.bed_mvp) }
+            drawSigns()
             drawExtras()
+        }
+
+        /// The signs of the plates, after the bed: blended, with no depth
+        /// write, so the parts in front hide them and they hide no part.
+        func drawSigns() {
+            let n = Int(f.sign_vertices)
+            guard n > 0, let tex = r.signTexture, let b = r.buffer(f.sign_verts, n * 32) else { return }
+            var m = f.sign.mvp
+            enc.setRenderPipelineState(r.signPipe)
+            enc.setVertexBuffer(b, offset: 0, index: 0)
+            enc.setVertexBytes(&m, length: 64, index: 1)
+            enc.setFragmentTexture(tex, index: 0)
+            enc.setFragmentSamplerState(r.signSampler, index: 0)
+            enc.setDepthStencilState(r.depthRead)
+            enc.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: n)
+            enc.setDepthStencilState(r.depthWrite)
         }
 
         func drawPaint(_ p: PaintMesh) {

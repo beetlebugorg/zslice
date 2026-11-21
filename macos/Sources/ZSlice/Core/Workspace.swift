@@ -188,8 +188,11 @@ final class Workspace {
     var tape: [TapePoint] = []
     /// The points of the tape in the view (points), for the readout.
     var tapeScreen: [CGPoint] = []
-    /// The labels of the plates over the view (PlateLabels.swift).
-    var plateLabels: [PlateLabel] = []
+    /// The text and the look of the signs of the plates, as last drawn
+    /// (PlateSigns.swift).
+    @ObservationIgnored var signKey = ""
+    /// The place of the Open button of an empty active plate, or nil.
+    var openButtonAt: CGPoint?
     /// The view shows the print as it forms (Simulation.swift), and the
     /// numbers of the last simulation of this slice.
     var simulated = false
@@ -1194,20 +1197,20 @@ final class Workspace {
                 NSLog("zslice right drag (%@): target moved %.2f mm, rotation changed %.4f, %@", touch ? "trackpad" : "mouse", moved, turned, moved > 0.01 && turned < 1e-4 ? "pan" : turned >= 1e-4 ? "orbit" : "none")
             }
         }
-        // ZSLICE_PICK_LATER="x,y;rx,y;..." picks each point in turn, one a
-        // second from 6 s after the slice ("r": the run of the line, as a
-        // Shift-click), for the tests of the upload of a new selection
-        // (with ZSLICE_TIMING).
+        // ZSLICE_PICK_LATER="x,y;rx,y;cx,y;..." picks each point in turn, one
+        // a second from 6 s after the slice ("r": the run of the line, as a
+        // Shift-click; "c": a whole click of the view, as on a sign), for
+        // the tests of the upload of a new selection (with ZSLICE_TIMING).
         if let spec = env["ZSLICE_PICK_LATER"] {
             for (k, item) in spec.split(separator: ";").enumerated() {
-                let run = item.hasPrefix("r")
-                let q = item.drop(while: { $0 == "r" }).split(separator: ",").compactMap { Double($0) }
+                let run = item.hasPrefix("r"), click = item.hasPrefix("c")
+                let q = item.drop(while: { $0 == "r" || $0 == "c" }).split(separator: ",").compactMap { Double($0) }
                 guard q.count == 2 else { continue }
                 DispatchQueue.main.asyncAfter(deadline: .now() + 6 + Double(k)) { [weak self] in
                     guard let self else { return }
                     let at = CGPoint(x: q[0], y: q[1])
-                    if run { pickRun(at: at) } else { pick(at: at) }
-                    NSLog("zslice pick later: %@%.0f, %.0f, path %ld", run ? "run " : "", q[0], q[1], selection?.path ?? -1)
+                    if click { sliceViewClick(at) } else if run { pickRun(at: at) } else { pick(at: at) }
+                    NSLog("zslice pick later: %@%.0f, %.0f, path %ld, plate %ld", run ? "run " : click ? "click " : "", q[0], q[1], selection?.path ?? -1, model.active)
                 }
             }
         }
@@ -2158,6 +2161,15 @@ extension Workspace: SliceViewDelegate {
     func sliceViewClick(_ p: CGPoint) {
         // A click elsewhere ends a range of layers.
         closeRangeCard()
+        // A click on the sign of a plate makes it the active plate.
+        if page == .threeD, let v = canvas.view {
+            let s = canvas.window?.backingScaleFactor ?? 2
+            let i = zs_view_sign_at(v, Float(p.x * s), Float(p.y * s))
+            if i >= 0, Int(i) < model.plates.count {
+                if Int(i) != model.active { model.select(Int(i)) }
+                return
+            }
+        }
         if model.plates.count > 1, page == .threeD, let v = canvas.view {
             let s = canvas.window?.backingScaleFactor ?? 2
             let i = zs_view_plate_at(v, Float(p.x * s), Float(p.y * s))
@@ -2215,7 +2227,7 @@ extension Workspace: SliceViewDelegate {
 
     func sliceViewDidDraw() {
         if !tape.isEmpty { placeTape() }
-        placePlateLabels()
+        updatePlateSigns()
         // The camera, the layers, or the page moved: the view file follows.
         SessionStore.shared.changedView()
     }

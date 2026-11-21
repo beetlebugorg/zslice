@@ -339,7 +339,7 @@ After each slice, zslice simulates the plastic of the print in the background: i
 
 ## Plates and history
 
-**Plates.** With two plates or more, each plate has a label in a row at the top of the view, over the middle of its plate, so the labels never cover a part. Click a label to show its plate; a right click removes the plate.
+**Plates.** Each plate has a sign on the bed just in front of it, with its number and name, its printer, and its status, or its print time and filament after a slice. The signs turn and tilt with the plates, and the parts in front hide them. The sign of the active plate has a bar in the accent color. Click a sign to make its plate the active plate. An empty active plate has an Open a Model button on its bed.
 
 **History.** The bottom bar shows a bubble for each step, in the color of its kind with its glyph. The step now is larger. Hold the pointer on a bubble to see its card:
 

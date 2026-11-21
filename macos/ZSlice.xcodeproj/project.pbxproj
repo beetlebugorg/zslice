@@ -78,7 +78,6 @@
 		8DF75722C4D414DFBACB74A8 /* ShortcutSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6C8BAD9BAC3249500D0252E2 /* ShortcutSheet.swift */; };
 		952741CD4EB88A0F7F17CDFC /* SupportPick.swift in Sources */ = {isa = PBXBuildFile; fileRef = D89D5124BF5EF12463338970 /* SupportPick.swift */; };
 		980E073565E6B29EE516A97B /* H264Decoder.swift in Sources */ = {isa = PBXBuildFile; fileRef = A23D8AA5A9E798E97F32F150 /* H264Decoder.swift */; };
-		9909C6BC7D0CD35341B5AEDD /* PlateLabels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8D50EE436AA361BF3EBA3AC4 /* PlateLabels.swift */; };
 		9BDACA1B9C7F1303625BA0FB /* Filaments.swift in Sources */ = {isa = PBXBuildFile; fileRef = 504D795160A162E73A8759C9 /* Filaments.swift */; };
 		9C4F65F3652E8C57A977D151 /* Render.swift in Sources */ = {isa = PBXBuildFile; fileRef = C6B3D7F7FABAA30471ADBA1D /* Render.swift */; };
 		9E14F638F9BE41B05668D207 /* QuickLookUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 4393D6CE28BFDB5A017CB700 /* QuickLookUI.framework */; };
@@ -93,6 +92,7 @@
 		B25215FA4B6A9DCFC053A3F8 /* PaintCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = D56D4683684C8429E6AB538C /* PaintCard.swift */; };
 		B28805AA6F096829135ABA34 /* PrinterViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 625AA610B3C5A3FC604D50EA /* PrinterViews.swift */; };
 		B6EEC618D96008B743E7E77E /* HistoryGlyph.swift in Sources */ = {isa = PBXBuildFile; fileRef = BE3894912DD445B18809AAE5 /* HistoryGlyph.swift */; };
+		B9A5A738291E157996105F24 /* PlateSigns.swift in Sources */ = {isa = PBXBuildFile; fileRef = 30AE9155F3B5DCE93ADDDA59 /* PlateSigns.swift */; };
 		BF6D185494E5DC598AA20507 /* MetalSliceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6008A43F2E1376546305C36E /* MetalSliceView.swift */; };
 		C46251734D9192A860F745EA /* SpatialCards.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1CB8A489FC7A3780934475FE /* SpatialCards.swift */; };
 		C5F1F66433AF979A3F1B5831 /* Camera.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7499ED62DA0BF92BA63B5FC8 /* Camera.swift */; };
@@ -177,6 +177,7 @@
 		21376CDB4341E7C0BDB42C44 /* SettingsInspector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsInspector.swift; sourceTree = "<group>"; };
 		257AB626E6F612DEA8D0E728 /* GcodeEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GcodeEditor.swift; sourceTree = "<group>"; };
 		2977A2A862AF9DF5A41EB352 /* SupportCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SupportCard.swift; sourceTree = "<group>"; };
+		30AE9155F3B5DCE93ADDDA59 /* PlateSigns.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlateSigns.swift; sourceTree = "<group>"; };
 		35DE666DED3ED3151029FD34 /* QuickLookThumbnailing.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = QuickLookThumbnailing.framework; path = System/Library/Frameworks/QuickLookThumbnailing.framework; sourceTree = SDKROOT; };
 		38E36170394119623DEAE467 /* Project.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Project.swift; sourceTree = "<group>"; };
 		3B126B4359612B6281E74044 /* Thumbnail.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Thumbnail.entitlements; sourceTree = "<group>"; };
@@ -211,7 +212,6 @@
 		7A1C08E49F76C24FC015BFDC /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		7AC965EBFF22673C1B1C1293 /* FrameRenderer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FrameRenderer.swift; sourceTree = "<group>"; };
 		83D64EAFB6216F86FAA95810 /* History.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = History.swift; sourceTree = "<group>"; };
-		8D50EE436AA361BF3EBA3AC4 /* PlateLabels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlateLabels.swift; sourceTree = "<group>"; };
 		92DBFADF03C8246886406520 /* Profiles.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Profiles.swift; sourceTree = "<group>"; };
 		972403D6017A5CCC5EEF59E9 /* LineCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LineCard.swift; sourceTree = "<group>"; };
 		99406A375AB1A36A1D70DE54 /* ProjectPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectPage.swift; sourceTree = "<group>"; };
@@ -246,7 +246,7 @@
 		F817BC998AF3DF2ED3A00C81 /* Discovery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Discovery.swift; sourceTree = "<group>"; };
 		FA1563DC7A7E6004C5F6CF3E /* SupportTrees.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SupportTrees.swift; sourceTree = "<group>"; };
 		FEB19535AAD2F45E9ADECD3E /* Shaders.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Shaders.swift; sourceTree = "<group>"; };
-		"TEMP_CBBEE98D-4208-4F08-B9A3-85B2F84985DC" /* Signing.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Signing.xcconfig; sourceTree = "<group>"; };
+		"TEMP_F1729CFF-47EA-4EE3-9233-25FDCA8169CB" /* Signing.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Signing.xcconfig; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -381,7 +381,7 @@
 				18E77790388D3A36B3BD0F14 /* PairSheet.swift */,
 				4CC3EA03D05E3CF0AC57E80D /* PartCard.swift */,
 				ACD1E15ADE1FD083F4133982 /* PlateBar.swift */,
-				8D50EE436AA361BF3EBA3AC4 /* PlateLabels.swift */,
+				30AE9155F3B5DCE93ADDDA59 /* PlateSigns.swift */,
 				625AA610B3C5A3FC604D50EA /* PrinterViews.swift */,
 				A02DA63545320A3F49007D73 /* PrintFacts.swift */,
 				99406A375AB1A36A1D70DE54 /* ProjectPage.swift */,
@@ -448,10 +448,10 @@
 			path = Core;
 			sourceTree = "<group>";
 		};
-		"TEMP_C394857A-8217-445D-A5A4-C6295F82E029" /* macos */ = {
+		"TEMP_C0A1CD6A-FBEA-499B-855F-AC7F1D821BFE" /* macos */ = {
 			isa = PBXGroup;
 			children = (
-				"TEMP_CBBEE98D-4208-4F08-B9A3-85B2F84985DC" /* Signing.xcconfig */,
+				"TEMP_F1729CFF-47EA-4EE3-9233-25FDCA8169CB" /* Signing.xcconfig */,
 			);
 			path = macos;
 			sourceTree = "<group>";
@@ -672,7 +672,7 @@
 				2AAFD6FAAAD0FA47FA1435DE /* PairSheet.swift in Sources */,
 				681B23EC402F125D8E8D93E2 /* PartCard.swift in Sources */,
 				880DF04439C35817BB795F0A /* PlateBar.swift in Sources */,
-				9909C6BC7D0CD35341B5AEDD /* PlateLabels.swift in Sources */,
+				B9A5A738291E157996105F24 /* PlateSigns.swift in Sources */,
 				725DE7A69253FA54ADC0A3E8 /* PrintFacts.swift in Sources */,
 				0ABFFAB452D3AEA721EF48D9 /* PrinterLink.swift in Sources */,
 				B28805AA6F096829135ABA34 /* PrinterViews.swift in Sources */,
@@ -769,7 +769,7 @@
 		};
 		1BF4A7F21A34A94F2F8BE4A1 /* Release */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = "TEMP_CBBEE98D-4208-4F08-B9A3-85B2F84985DC" /* Signing.xcconfig */;
+			baseConfigurationReference = "TEMP_F1729CFF-47EA-4EE3-9233-25FDCA8169CB" /* Signing.xcconfig */;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
 				CLANG_ANALYZER_NONNULL = YES;
@@ -906,7 +906,7 @@
 		};
 		BB3F32C66D957B876F949001 /* Debug */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = "TEMP_CBBEE98D-4208-4F08-B9A3-85B2F84985DC" /* Signing.xcconfig */;
+			baseConfigurationReference = "TEMP_F1729CFF-47EA-4EE3-9233-25FDCA8169CB" /* Signing.xcconfig */;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
 				CLANG_ANALYZER_NONNULL = YES;
