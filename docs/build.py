@@ -126,6 +126,10 @@ def read(path):
 
 def fix_link(url, src_dir, root):
     """The URL of a link in a Markdown file in src_dir, for a page at root."""
+    # A link to a page of this site (README.md links so, for readers on GitHub) stays on the
+    # site that the reader reads: it becomes a relative link, and the link check checks it.
+    if url.startswith(SITE) and url != SITE:
+        return root + url[len(SITE):]
     if re.match(r"^(https?:|mailto:|#)", url):
         return url
     url, _, anchor = url.partition("#")
