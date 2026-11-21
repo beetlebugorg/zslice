@@ -1,9 +1,9 @@
 // The tools of the main window: the strip, the pointer, and the keys.
 //
-// V Select, M Move, R Turn, G Grab, and T Measure work here. S Support,
-// P Paint, and E Label have their buttons. The behavior follows the GTK
-// shell (linux/src/ui/view3d.c and preview.c), and the glyphs are those of
-// the web app (web/app/index.html).
+// V Select, M Move, R Turn, G Grab, and T Measure work here. S Support is in
+// MainWindow.Support.cpp. P Paint and E Label have their buttons. The
+// behavior follows the GTK shell (linux/src/ui/view3d.c and preview.c), and
+// the glyphs are those of the web app (web/app/index.html).
 //
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
@@ -45,7 +45,7 @@ namespace
         { L"Turn", L"R", L"Turn (R): click a part, then drag one of its rings to turn it",
           L"<Path Data='M14.5 9a5.5 5.5 0 1 1-1.6-3.9M13.6 2.2v3.3h-3.3' " ZS_STROKE L"/>", true },
         { L"Support", L"S", L"Support (S): point at an overhang to add support",
-          L"<Path Data='M2 4.5h14l-2 3H4zM5 7.5v8M9 7.5v8M13 7.5v8M3.5 15.5h11' " ZS_STROKE L"/>", false },
+          L"<Path Data='M2 4.5h14l-2 3H4zM5 7.5v8M9 7.5v8M13 7.5v8M3.5 15.5h11' " ZS_STROKE L"/>", true },
         { L"Grab", L"G", L"Grab (G): click a part to pick it up, move the pointer to carry it, and click to let go. Alt and a move turn it.",
           L"<Path Data='M6 9V4.2a1.2 1.2 0 0 1 2.4 0V8M8.4 7.5V3.2a1.2 1.2 0 0 1 2.4 0V8M10.8 7.6V4.2a1.2 1.2 0 0 1 2.4 0v6.3c0 3-2 5-4.8 5-2 0-3-.9-4.2-2.6L2.6 10a1.2 1.2 0 0 1 2-1.3L6 10.4' " ZS_STROKE L"/>", true },
         { L"Measure", L"T", L"Measure (T): click two points of the print. The ends of the lines snap. Shift: no snap.",
@@ -117,6 +117,7 @@ namespace winrt::ZSlice::implementation
 
         ViewPanel().DoubleTapped([this](auto &&, Input::DoubleTappedRoutedEventArgs const &e) { OnPanelDoubleTapped(e); });
         WireCards();
+        WireSupport();
     }
 
     void MainWindow::SetTool(Tool next)
@@ -128,6 +129,7 @@ namespace winrt::ZSlice::implementation
             if (tool == Tool::Measure)
                 ClearMeasure();
             tool = next;
+            SupportToolChanged();
         }
         for (size_t i = 0; i < tool_buttons.size(); i++)
             tool_buttons[i].IsChecked(static_cast<Tool>(i) == tool);
@@ -151,6 +153,9 @@ namespace winrt::ZSlice::implementation
         last_x = press_x = x;
         last_y = press_y = y;
         tool_drag = false;
+        pointer_alt = Has(mods, VirtualKeyModifiers::Menu);
+        pointer_shift = shift;
+        press_right = props.IsRightButtonPressed();
 
         // A left press can start a tool.
         if (props.IsLeftButtonPressed() && !props.IsMiddleButtonPressed() && ToolPress(x, y, ctrl))
@@ -189,7 +194,10 @@ namespace winrt::ZSlice::implementation
             return;
         }
         if (drag == Drag::None)
+        {
+            SupportPointer(position.X, position.Y);
             return;
+        }
         double dx = position.X - last_x;
         double dy = position.Y - last_y;
         last_x = position.X;
@@ -229,6 +237,10 @@ namespace winrt::ZSlice::implementation
         if (was_tool)
             ToolRelease();
         if (view == nullptr || had_click)
+            return;
+        pointer_alt = Has(e.KeyModifiers(), VirtualKeyModifiers::Menu);
+        // A right click on a dot of a picked support tree has its own menu.
+        if (press_right && std::abs(last_x - press_x) <= 4 && std::abs(last_y - press_y) <= 4 && SupportMenu(press_x, press_y))
             return;
         // A press and a release at one place is a click.
         if (std::abs(last_x - press_x) <= 4 && std::abs(last_y - press_y) <= 4 && !was_tool)
@@ -282,6 +294,12 @@ namespace winrt::ZSlice::implementation
             return false;
         double s = Scale();
         zs_app *app = model->Active();
+        // The Support tool: a press on a point, a dot, a ring, or a segment.
+        if (tool == Tool::Support && SupportPress(x, y))
+            return true;
+        // The Select tool: a press on a dot of a picked support tree.
+        if (tool == Tool::Select && !ctrl && !pointer_shift && !pointer_alt && SupportPicked() && SupportPress(x, y))
+            return true;
         // The Turn tool: a press on a ring.
         if (tool == Tool::Turn && !selected_parts.empty())
         {
@@ -407,6 +425,11 @@ namespace winrt::ZSlice::implementation
     {
         double s = Scale();
         zs_app *app = model->Active();
+        if (SupportDragging())
+        {
+            SupportDrag(x, y, shift);
+            return;
+        }
         if (turn_axis >= 0)
         {
             turn_want = std::round(zs_view_ring_drag(view, (float)(x * s), (float)(y * s), shift ? 5.0f : 15.0f));
@@ -503,6 +526,7 @@ namespace winrt::ZSlice::implementation
         zs_app *app = model != nullptr ? model->Active() : nullptr;
         if (app == nullptr)
             return;
+        SupportRelease();
         if (turn_axis >= 0)
         {
             turn_axis = -1;
@@ -553,6 +577,12 @@ namespace winrt::ZSlice::implementation
             MeasureClick(x, y, shift);
             return;
         }
+        // The Support tool: a point of an area, or a click on an outline.
+        if (tool == Tool::Support && !ctrl)
+        {
+            SupportClick(x, y, shift, pointer_alt);
+            return;
+        }
         if (tool == Tool::Grab)
             return;
         // Shift adds a part to the selection, or takes it out.
@@ -573,6 +603,10 @@ namespace winrt::ZSlice::implementation
         }
         size_t segment = 0;
         size_t path = zs_view_pick_segment(view, (float)(x * s), (float)(y * s), &segment);
+        // The Select tool: a click on a support line selects that support.
+        if (tool == Tool::Select && path != (size_t)-1 && SupportSelectLine(path, segment))
+            return;
+        SupportClearPick();
         if (path == (size_t)-1)
             ClearSelection();
         else
@@ -960,6 +994,10 @@ namespace winrt::ZSlice::implementation
     {
         if (ctrl)
             return false;
+        // The Support tool first: Enter, Backspace, Delete, and Esc. The
+        // Select tool: Delete and Esc for a support that it picked.
+        if ((tool == Tool::Support || tool == Tool::Select) && SupportKey(key))
+            return true;
         // The arrows and Delete act on the selected parts first.
         if (!selected_parts.empty())
         {
@@ -1004,6 +1042,7 @@ namespace winrt::ZSlice::implementation
         case VirtualKey::V: SetTool(Tool::Select); return true;
         case VirtualKey::M: SetTool(Tool::Move); return true;
         case VirtualKey::R: SetTool(Tool::Turn); return true;
+        case VirtualKey::S: SetTool(Tool::Support); return true;
         case VirtualKey::G: SetTool(Tool::Grab); return true;
         case VirtualKey::T: SetTool(Tool::Measure); return true;
         case VirtualKey::H:

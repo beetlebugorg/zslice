@@ -12,6 +12,20 @@
 //   key NAME        V M R G T H L K J Up Down Left Right Delete Escape
 //   layer n         the layer slider
 //   log             writes the state
+// The Support tool adds, in MainWindow.Support.cpp:
+//   orbit dx dy     turns the view
+//   alt x y         a click with Alt
+//   findover [click]  the first overhang in the view, and a click on it
+//   sdrag i j dx dy   drags point j of area i
+//   sclick i        a click on the outline of area i
+//   dclick k        a click on point k of the draft
+//   tclick k, tdrag k dx dy, tseg k dx dy, tmenu k   node k of the first tree
+//   tring dx        drags the ring of the selected node
+//   tadd fx fy tx ty  Add a branch: the foot, then the tip
+//   tdel, treset, kind k, see 0|1, undo, redo
+//   set name value  a setting
+//   plate add, plate i
+//   pickline        the Select tool: a click on the first support line
 // Each step writes the state to the log (ZSLICE_LOG).
 //
 // SPDX-License-Identifier: AGPL-3.0-or-later
@@ -109,7 +123,10 @@ namespace winrt::ZSlice::implementation
         auto number = [&](size_t i) { return i < words.size() ? _wtof(words[i].c_str()) : 0.0; };
         auto has = [&](wchar_t const *flag) { return std::find(words.begin(), words.end(), flag) != words.end(); };
 
-        if (verb == L"tool" && !words.empty())
+        if (SupportDevStep(verb, words))
+        {
+        }
+        else if (verb == L"tool" && !words.empty())
         {
             OnToolKey(static_cast<VirtualKey>(towupper(words[0][0])), false, false);
         }
@@ -195,6 +212,8 @@ namespace winrt::ZSlice::implementation
         {
             if (hand)
                 HandMove(number(0), number(1), false, false);
+            else
+                SupportPointer(number(0), number(1));
         }
         else if (verb == L"key" && !words.empty())
         {
@@ -212,6 +231,10 @@ namespace winrt::ZSlice::implementation
                 key = VirtualKey::Delete;
             else if (name == L"Escape")
                 key = VirtualKey::Escape;
+            else if (name == L"Enter")
+                key = VirtualKey::Enter;
+            else if (name == L"Back")
+                key = VirtualKey::Back;
             OnToolKey(key, has(L"shift"), false);
         }
         else if (verb == L"layer")
@@ -219,6 +242,7 @@ namespace winrt::ZSlice::implementation
             LayerSlider().Value(number(0));
         }
         LogDevState(step);
+        SupportDevLog();
     }
 }
 

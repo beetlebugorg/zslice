@@ -615,6 +615,7 @@ namespace winrt::ZSlice::implementation
     {
         if (model != nullptr && (bits & ZS_HISTORY_MOVED) != 0)
         {
+            SupportReload();
             RefreshSettingValues();
             if (zs_app_part_count(model->Active()) > 0)
                 model->RequestSlice();
