@@ -60,6 +60,14 @@ Each printer has a card: its camera, its state, the job with its progress and th
 
 A camera plays only while its card is on the screen. The picture goes from the printer straight to zslice. In the web app, a camera on http does not play on the https page of zslice: open zslice from the printer, or give the printer an https address. While the printer of the plate prints, the details of the print (click the time) show its camera.
 
+## What changes with the printer
+
+Each printer keeps its own printer settings: the bed, the nozzle, the speed limits, and the accelerations. The acceleration of each feature is a printer setting too: `outer_wall_accel`, `inner_wall_accel`, `skin_accel`, `infill_accel`, `travel_accel`, and `first_layer_accel`. 0 means the `max_accel` of the printer. When you change the printer, these values change with it.
+
+The print settings stay when you change the printer: the layer height, the walls, the infill, and the speed ratios.
+
+Before this version, the accelerations were print settings. At the first start of this version, zslice moves your saved values to the printer that you use then. Old projects and sessions load too: their accelerations go to the printer of the plate.
+
 ## Print
 
 1. Pick the printer in the printer menu.

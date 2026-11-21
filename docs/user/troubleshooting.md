@@ -27,4 +27,4 @@ zslice joins all shells of the mesh. If a hole is inside another solid of the sa
 
 ## The print takes longer than the estimate
 
-The estimate plans the speed of each move as the printer does: it accelerates, it slows down at each corner, and it stops at each retraction and Z move. The estimate uses the machine settings `max_accel`, `corner_speed`, and `max_z_accel`, and the acceleration of each feature in the project. If these values are not the values of the printer, the estimate is wrong. Heat-up, homing, and the start G-code are not in the estimate.
+The estimate plans the speed of each move as the printer does: it accelerates, it slows down at each corner, and it stops at each retraction and Z move. The estimate uses the machine settings `max_accel`, `corner_speed`, and `max_z_accel`, and the acceleration of each feature (`outer_wall_accel` and the others, also machine settings). If these values are not the values of the printer, the estimate is wrong. Heat-up, homing, and the start G-code are not in the estimate.

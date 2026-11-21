@@ -835,6 +835,28 @@ export fn zs_setting_get_info(index: usize, out: ?*SettingInfo) c_int {
     return ok;
 }
 
+/// 1 if a part, or some layers, can have its own value of the setting
+/// (settings.isPartSetting): the project and the filament settings, and
+/// the accelerations of the printer (machine.outer_wall_accel and the
+/// others).
+export fn zs_setting_is_part(name: ?[*:0]const u8) c_int {
+    const n = std.mem.span(name orelse return 0);
+    return @intFromBool(zs.settings.isPartSetting(n));
+}
+
+/// The number of keys of a profile text of `group` that are old names of
+/// settings that moved to another group (profile.movedKeys). The text
+/// still loads. A shell that finds them in a saved text saves the groups
+/// again after it loads them, so the values stay in their new group.
+export fn zs_profile_moved(group: c_int, text: ?[*]const u8, len: usize) c_int {
+    const g = groupOf(group) orelse return 0;
+    const t = (text orelse return 0)[0..len];
+    var arena = std.heap.ArenaAllocator.init(gpa);
+    defer arena.deinit();
+    const n = zs.profile.movedKeys(arena.allocator(), g, t) catch return 0;
+    return @intCast(@min(n, std.math.maxInt(c_int)));
+}
+
 /// Writes the value as text with a NUL at the end. If `cap` is too small,
 /// the text is cut. `out_len` (can be NULL) gets the full length without
 /// the NUL.

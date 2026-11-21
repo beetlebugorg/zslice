@@ -333,6 +333,17 @@ int zs_app_apply_printer_status(zs_app *app, const zs_printer_status *s, int wha
 size_t zs_setting_count(void);
 int zs_setting_get_info(size_t index, zs_setting_info *out);
 
+/* 1 if a part, or some layers, can have its own value of the setting: the
+ * project and the filament settings, and the accelerations of the printer
+ * (machine.outer_wall_accel and the others). */
+int zs_setting_is_part(const char *name);
+/* The number of keys of a profile text of a group that are old names of
+ * settings that moved to another group (for example outer_wall_accel in a
+ * project text: it is a machine setting now). The text still loads, and the
+ * values go to the new group. Save both groups after the load, so that the
+ * values stay there. */
+int zs_profile_moved(int group, const char *text, size_t len);
+
 /* Writes the value as text, with a NUL at the end, cut to cap. out_len (can
  * be NULL) gets the full length without the NUL. */
 int zs_app_setting_get(const zs_app *app, const char *name, char *buf, size_t cap, size_t *out_len);

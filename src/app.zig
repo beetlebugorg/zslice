@@ -843,11 +843,11 @@ pub const App = struct {
             list.deinit(app.gpa);
         }
         for (old) |m| {
-            if (std.mem.startsWith(u8, m.key, "zslice:") and std.mem.eql(u8, m.key["zslice:".len..], name)) continue;
+            if (std.mem.startsWith(u8, m.key, "zslice:") and sameSetting(m.key["zslice:".len..], name)) continue;
             try list.append(app.gpa, .{ .key = try app.gpa.dupe(u8, m.key), .value = try app.gpa.dupe(u8, m.value) });
         }
         if (value) |v| {
-            const key = try std.fmt.allocPrint(app.gpa, "zslice:{s}", .{name});
+            const key = try std.fmt.allocPrint(app.gpa, "zslice:{s}", .{zs.settings.currentName(name)});
             errdefer app.gpa.free(key);
             try list.append(app.gpa, .{ .key = key, .value = try app.gpa.dupe(u8, v) });
         }
@@ -862,9 +862,15 @@ pub const App = struct {
     pub fn partSetting(app: *const App, i: usize, name: []const u8) ?[]const u8 {
         if (i >= app.plate.parts.items.len) return null;
         for (app.plate.parts.items[i].meta) |m| {
-            if (std.mem.startsWith(u8, m.key, "zslice:") and std.mem.eql(u8, m.key["zslice:".len..], name)) return m.value;
+            if (std.mem.startsWith(u8, m.key, "zslice:") and sameSetting(m.key["zslice:".len..], name)) return m.value;
         }
         return null;
+    }
+
+    /// True if two names are of the same setting: a setting that moved
+    /// to another group has an old name too (a part of an old file).
+    fn sameSetting(a: []const u8, b: []const u8) bool {
+        return std.mem.eql(u8, zs.settings.currentName(a), zs.settings.currentName(b));
     }
 
     /// A copy of part i at a free place. Returns its index.
@@ -1339,7 +1345,8 @@ pub const App = struct {
     /// Sets the formula of a setting (the text after "="), and the values
     /// of all formulas. error.InvalidValue: the text does not parse, or
     /// its value is not valid for the setting.
-    pub fn setFormula(app: *App, name: []const u8, text: []const u8) (Allocator.Error || Settings.SetError || zs.expr.Error)!void {
+    pub fn setFormula(app: *App, old_name: []const u8, text: []const u8) (Allocator.Error || Settings.SetError || zs.expr.Error)!void {
+        const name = zs.settings.currentName(old_name);
         const a = app.strings.allocator();
         var diag: zs.expr.Diagnostic = .{};
         const t = try a.dupe(u8, std.mem.trim(u8, text, " "));
@@ -1733,7 +1740,16 @@ pub const App = struct {
     pub fn setGlobal(app: *App, text: []const u8, diag: *zs.profile.Diagnostic) (zs.profile.Error || Allocator.Error)!void {
         const a = app.strings.allocator();
         var g: Settings = .{};
-        try zs.profile.apply(a, &g, .project, "global", try a.dupe(u8, text), null, diag);
+        const owned = try a.dupe(u8, text);
+        try zs.profile.apply(a, &g, .project, "global", owned, null, diag);
+        // A global text from before the accelerations moved to the
+        // printer: its values go to the printer now.
+        if (try zs.profile.movedKeys(a, .project, owned) > 0) for (zs.settings.moved_settings) |m| {
+            if (sameValue(g, .{}, m[1])) continue;
+            var w: std.Io.Writer.Allocating = .init(a);
+            writeSettingOf(g, m[1], &w.writer) catch continue;
+            app.settings.set(m[1], w.written()) catch {};
+        };
         const edits = try app.diffOf(app.settings, app.base(), "project.");
         app.global = try app.diffOf(g, .{}, "project.");
         app.rebase(edits);
@@ -1835,7 +1851,10 @@ pub const App = struct {
     /// Changes a setting for the layers with a top z from z_min to z_max.
     /// An override for the same range and setting is replaced. Only
     /// settings.layer_settings can change for some layers.
-    pub fn setOverride(app: *App, z_min: f64, z_max: f64, name: []const u8, value: []const u8) OverrideError!void {
+    pub fn setOverride(app: *App, z_min: f64, z_max: f64, old_name: []const u8, value: []const u8) OverrideError!void {
+        // An override of a setting that moved (an old file) gets its new
+        // name.
+        const name = zs.settings.currentName(old_name);
         const whole = z_min <= -zs.settings.part_z and z_max >= zs.settings.part_z;
         if (whole) {
             if (!zs.settings.isPartSetting(name)) return error.NotPerLayer;
@@ -2215,7 +2234,8 @@ pub const App = struct {
         return writeSettingOf(app.settings, name, w);
     }
 
-    pub fn writeSettingOf(settings: Settings, name: []const u8, w: *std.Io.Writer) (Settings.SetError || std.Io.Writer.Error)!void {
+    pub fn writeSettingOf(settings: Settings, old_name: []const u8, w: *std.Io.Writer) (Settings.SetError || std.Io.Writer.Error)!void {
+        const name = zs.settings.currentName(old_name);
         const dot = std.mem.indexOfScalar(u8, name, '.') orelse return error.UnknownSetting;
         inline for (@typeInfo(Settings).@"struct".fields) |g| {
             if (std.mem.eql(u8, g.name, name[0..dot])) {
@@ -3732,9 +3752,9 @@ pub const patch_values = [_][2][]const u8{
     .{ "project.outer_wall_speed", "0.4" },   .{ "project.inner_wall_speed", "0.6" },
     .{ "project.skin_speed", "0.45" },        .{ "project.infill_speed", "0.8" },
     .{ "project.first_layer_speed", "0.25" }, .{ "project.slow_layers", "3" },
-    .{ "project.outer_wall_accel", "700" },   .{ "project.inner_wall_accel", "900" },
-    .{ "project.skin_accel", "800" },         .{ "project.infill_accel", "1100" },
-    .{ "project.first_layer_accel", "400" },  .{ "project.path_rules", "speed = {speed} * 0.9" },
+    .{ "machine.outer_wall_accel", "700" },   .{ "machine.inner_wall_accel", "900" },
+    .{ "machine.skin_accel", "800" },         .{ "machine.infill_accel", "1100" },
+    .{ "machine.first_layer_accel", "400" },  .{ "project.path_rules", "speed = {speed} * 0.9" },
 };
 
 /// Slices `stl` with `base`, then changes the patch settings in groups of

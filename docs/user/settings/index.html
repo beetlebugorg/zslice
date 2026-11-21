@@ -122,7 +122,7 @@
 <p><strong><code>machine.hour_rate</code></strong> (number). Default: <code>0</code></p>
 <p>The cost of one hour of this printer, in your currency: the power, the wear, and the time of the machine. A print costs its hours times this, and its filament. 0: only the filament counts.</p>
 <p><strong><code>machine.max_accel</code></strong> (number). Default: <code>1500</code></p>
-<p>The acceleration of the print head in X and Y, in mm/s². The time estimate uses it, and it is the acceleration of each feature that has no acceleration of its own (0 in the project).</p>
+<p>The acceleration of the print head in X and Y, in mm/s². The time estimate uses it, and it is the acceleration of each feature that has no acceleration of its own (0 in <code>outer_wall_accel</code> and the others).</p>
 <p><strong><code>machine.corner_speed</code></strong> (number). Default: <code>8</code></p>
 <p>The speed at which the head turns a corner with no stop (jerk in Marlin, square corner velocity in Klipper), in mm/s. The time estimate uses it.</p>
 <p><strong><code>machine.kinematics</code></strong> (one of: <code>cartesian</code>, <code>corexy</code>). Default: <code>cartesian</code></p>
@@ -134,9 +134,22 @@
 <p>The speed limits of the X and Y axes (M203 X Y), in mm/s. 0: <code>max_speed</code>.</p>
 <p><strong><code>machine.max_speed_y</code></strong> (number). Default: <code>0</code></p>
 <p><strong><code>machine.accel_control</code></strong> (true or false). Default: <code>false</code></p>
-<p>Write acceleration commands in the G-code: the acceleration of each feature (project <code>*_accel</code>), and the corner speed at the start. Off: the printer uses its own values; the time estimate still uses <code>max_accel</code> and <code>corner_speed</code>.</p>
+<p>Write acceleration commands in the G-code: the acceleration of each feature (<code>outer_wall_accel</code> and the others), and the corner speed at the start. Off: the printer uses its own values; the time estimate still uses <code>max_accel</code> and <code>corner_speed</code>.</p>
 <p><strong><code>machine.gcode_flavor</code></strong> (one of: <code>marlin</code>, <code>klipper</code>, <code>reprap</code>, <code>repetier</code>). Default: <code>marlin</code></p>
 <p>The G-code dialect of the acceleration commands. <code>marlin</code>: M204 S and M205 X Y. <code>klipper</code>: SET_VELOCITY_LIMIT ACCEL and SQUARE_CORNER_VELOCITY. <code>reprap</code> (RepRapFirmware): M204 P T and M566 X Y. <code>repetier</code>: M201 X Y and M207 X.</p>
+<h3 id="acceleration">Acceleration</h3>
+<p><strong><code>machine.outer_wall_accel</code></strong> (number; per layer). Default: <code>0</code></p>
+<p>The acceleration of the outer wall, in mm/s². A lower value gives a cleaner surface. 0: <code>max_accel</code>. The G-code has it only with <code>accel_control</code>. Each printer has its own value.</p>
+<p><strong><code>machine.inner_wall_accel</code></strong> (number; per layer). Default: <code>0</code></p>
+<p>The acceleration of the inner walls and the skirt, in mm/s². 0: <code>max_accel</code>.</p>
+<p><strong><code>machine.skin_accel</code></strong> (number; per layer). Default: <code>0</code></p>
+<p>The acceleration of the skin, in mm/s². The bridges, the ironing, and the support interface use it too. 0: <code>max_accel</code>.</p>
+<p><strong><code>machine.infill_accel</code></strong> (number; per layer). Default: <code>0</code></p>
+<p>The acceleration of the sparse infill and the support, in mm/s². 0: <code>max_accel</code>.</p>
+<p><strong><code>machine.travel_accel</code></strong> (number; per layer). Default: <code>0</code></p>
+<p>The acceleration of travel moves, in mm/s². 0: <code>max_accel</code>.</p>
+<p><strong><code>machine.first_layer_accel</code></strong> (number). Default: <code>0</code></p>
+<p>The acceleration of all lines on the first layer, in mm/s². 0: the acceleration of each feature.</p>
 <h3 id="extruder">Extruder</h3>
 <p><strong><code>machine.extruder</code></strong> (one of: <code>direct</code>, <code>bowden</code>). Default: <code>direct</code></p>
 <p>The extruder type. <code>direct</code>: the motor is on the print head. <code>bowden</code>: the motor pushes the filament through a long tube.</p>
@@ -386,19 +399,6 @@ M84</code></pre>
 <p>The speed of all lines on the first layer, as a ratio of the allowed speed.</p>
 <p><strong><code>project.slow_layers</code></strong> (integer). Default: <code>0</code></p>
 <p>The layers after the first that print slower: their speed goes up in even steps from the first layer speed to the full speed, so that the part bonds to the bed. 0: the second layer prints at full speed.</p>
-<h3 id="acceleration">Acceleration</h3>
-<p><strong><code>project.outer_wall_accel</code></strong> (number; per layer). Default: <code>0</code></p>
-<p>The acceleration of the outer wall, in mm/s². A lower value gives a cleaner surface. 0: the machine <code>max_accel</code>. The G-code has it only with machine <code>accel_control</code>.</p>
-<p><strong><code>project.inner_wall_accel</code></strong> (number; per layer). Default: <code>0</code></p>
-<p>The acceleration of the inner walls and the skirt, in mm/s². 0: the machine <code>max_accel</code>.</p>
-<p><strong><code>project.skin_accel</code></strong> (number; per layer). Default: <code>0</code></p>
-<p>The acceleration of the skin, in mm/s². 0: the machine <code>max_accel</code>.</p>
-<p><strong><code>project.infill_accel</code></strong> (number; per layer). Default: <code>0</code></p>
-<p>The acceleration of the sparse infill and the support, in mm/s². 0: the machine <code>max_accel</code>.</p>
-<p><strong><code>project.travel_accel</code></strong> (number; per layer). Default: <code>0</code></p>
-<p>The acceleration of travel moves, in mm/s². 0: the machine <code>max_accel</code>.</p>
-<p><strong><code>project.first_layer_accel</code></strong> (number). Default: <code>0</code></p>
-<p>The acceleration of all lines on the first layer, in mm/s². 0: the acceleration of each feature.</p>
 <h3 id="travel">Travel</h3>
 <p><strong><code>project.retract_min_travel</code></strong> (number; per layer). Default: <code>1.5</code></p>
 <p>Travel moves shorter than this do not retract.</p>
@@ -469,6 +469,8 @@ M84</code></pre>
 <p>The filament of the support interface (the layers that touch the part). 0: the support filament.</p>
 <p><strong><code>project.prime_tower</code></strong> (true or false). Default: <code>true</code></p>
 <p>A prime tower for a printer that changes the filament with a tool change (<code>machine.filament_change = tool</code>): after each change, the nozzle flushes the old color into a small tower next to the parts, and each layer up to the last change prints a light layer of it, so the tower grows with the print. A Bambu Lab printer flushes into its chute (its change G-code); its tower then gets a small prime.</p>
+<p><strong><code>project.prime_tower_split</code></strong> (true or false). Default: <code>true</code></p>
+<p>A prime tower for each family of materials that bond (PLA, PETG, ABS and ASA, and the others): a change purges into the tower of the new filament, so PETG never prints on PLA. Each of these towers grows only on the layers with a purge into it (no light layers): the nozzle goes down to its top. Keep parts away from the towers. With one family, one tower as before.</p>
 <p><strong><code>project.prime_tower_width</code></strong> (number). Default: <code>20</code></p>
 <p>The width of the square prime tower.</p>
 <p><strong><code>project.prime_tower_x</code></strong> (number). Default: <code>-1</code></p>
@@ -477,6 +479,12 @@ M84</code></pre>
 <p>The y of the center of the prime tower. -1: near the back.</p>
 <p><strong><code>project.flush_multiplier</code></strong> (number). Default: <code>1</code></p>
 <p>A multiplier for the flush volume of each filament change (see <code>machine.flush_volume</code>). Lower wastes less plastic. Too low mixes the old color into the new one.</p>
+<p><strong><code>project.flush_into_hidden</code></strong> (true or false). Default: <code>true</code></p>
+<p>After a change to a filament, the nozzle first prints the hidden lines of that filament on the layer: its sparse infill and its support body. The old color goes into them, so the flush of the change is less by their volume. A change between two families of materials (see <code>prime_tower_split</code>) flushes into the support body only. The walls and the skin print after.</p>
+<p><strong><code>project.paint_anchor_depth</code></strong> (number). Default: <code>1.0</code></p>
+<p>A painted feature that stands on the part, for example a raised letter or frame in another filament, grows down into the part by this depth (mm). This hidden root of its filament replaces the infill of the part under the feature, so the feature holds to the part. The root stays inside the walls of the part: the outside of the part keeps its color. Each layer of the root adds a filament change. 0: no root.</p>
+<p><strong><code>project.paint_anchor_shape</code></strong> (one of: <code>footprint</code>, <code>core</code>). Default: <code>footprint</code></p>
+<p>The shape of the root of a painted feature (see <code>paint_anchor_depth</code>). <code>footprint</code>: all the area where the feature stands on the part, inside the walls of the part. <code>core</code>: only the middle of that area, inside the walls of the feature. A thin feature gets no core.</p>
 <h2 id="engine">engine</h2>
 <p>Options for the engine. They do not change the print.</p>
 <h3 id="slicer">Slicer</h3>

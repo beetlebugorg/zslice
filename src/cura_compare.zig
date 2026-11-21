@@ -230,7 +230,7 @@ test "compare the zslice settings with a Cura stack" {
     const arena = arena_state.allocator();
     var s: Settings = .{};
     s.machine.max_speed = 80;
-    s.project.outer_wall_accel = 0;
+    s.machine.outer_wall_accel = 0;
     s.filament.xy_offset = 0;
     s.project.layer_height = 0.3;
     var diag: Diagnostic = .{};
@@ -246,7 +246,7 @@ test "compare the zslice settings with a Cura stack" {
     try testing.expect(ms.differs and ms.in_use_all);
 
     // The user layer wins over the quality changes.
-    const accel = findRow(rows, "project.outer_wall_accel").?;
+    const accel = findRow(rows, "machine.outer_wall_accel").?;
     try testing.expectEqualStrings("500", accel.cura);
     try testing.expectEqualStrings("user.inst.cfg", accel.from);
 

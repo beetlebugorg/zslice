@@ -2439,7 +2439,7 @@ test "an override of the planner settings changes only the layers in its range" 
     defer gpa.free(base);
     const o = [_]settings_mod.Override{
         .{ .z_min = 3, .z_max = 4, .name = "project.line_width", .value = "0.5" },
-        .{ .z_min = 3, .z_max = 4, .name = "project.outer_wall_accel", .value = "500" },
+        .{ .z_min = 3, .z_max = 4, .name = "machine.outer_wall_accel", .value = "500" },
         .{ .z_min = 3, .z_max = 4, .name = "project.infill_connect", .value = "false" },
         .{ .z_min = 3, .z_max = 4, .name = "project.skin_angle_step", .value = "45" },
     };

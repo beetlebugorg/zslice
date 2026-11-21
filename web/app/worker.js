@@ -508,6 +508,11 @@ const ops = {
     // With a shared memory (the module with threads), the page can stop a
     // slice that runs: it sets the cancel flag of the app (client.js).
     if (wasm.shared) post({ event: "cancel-flag", memory: wasm.x.memory, address: wasm.x.zs_app_cancel_address(core.app) });
+    // The saved texts of an older version have the accelerations of the
+    // features in the project settings. They load into the printer now,
+    // and the answer below saves both groups in their new form.
+    const moved = saved?.project ? wasm.withString(saved.project, (t, len) => wasm.x.zs_profile_moved(2, t, len)) : 0;
+    if (moved > 0) console.info(`zslice: the accelerations of the features are printer settings now; ${moved} saved values moved to the printer`);
     const errors = core.restore(saved);
     // After the threads start, and only if the plate is still empty then.
     setTimeout(warmUp, 300);

@@ -104,7 +104,7 @@ The cost of one hour of this printer, in your currency: the power, the wear, and
 
 **`machine.max_accel`** (number). Default: `1500`
 
-The acceleration of the print head in X and Y, in mm/s². The time estimate uses it, and it is the acceleration of each feature that has no acceleration of its own (0 in the project).
+The acceleration of the print head in X and Y, in mm/s². The time estimate uses it, and it is the acceleration of each feature that has no acceleration of its own (0 in `outer_wall_accel` and the others).
 
 **`machine.corner_speed`** (number). Default: `8`
 
@@ -128,11 +128,37 @@ The speed limits of the X and Y axes (M203 X Y), in mm/s. 0: `max_speed`.
 
 **`machine.accel_control`** (true or false). Default: `false`
 
-Write acceleration commands in the G-code: the acceleration of each feature (project `*_accel`), and the corner speed at the start. Off: the printer uses its own values; the time estimate still uses `max_accel` and `corner_speed`.
+Write acceleration commands in the G-code: the acceleration of each feature (`outer_wall_accel` and the others), and the corner speed at the start. Off: the printer uses its own values; the time estimate still uses `max_accel` and `corner_speed`.
 
 **`machine.gcode_flavor`** (one of: `marlin`, `klipper`, `reprap`, `repetier`). Default: `marlin`
 
 The G-code dialect of the acceleration commands. `marlin`: M204 S and M205 X Y. `klipper`: SET_VELOCITY_LIMIT ACCEL and SQUARE_CORNER_VELOCITY. `reprap` (RepRapFirmware): M204 P T and M566 X Y. `repetier`: M201 X Y and M207 X.
+
+### Acceleration
+
+**`machine.outer_wall_accel`** (number; per layer). Default: `0`
+
+The acceleration of the outer wall, in mm/s². A lower value gives a cleaner surface. 0: `max_accel`. The G-code has it only with `accel_control`. Each printer has its own value.
+
+**`machine.inner_wall_accel`** (number; per layer). Default: `0`
+
+The acceleration of the inner walls and the skirt, in mm/s². 0: `max_accel`.
+
+**`machine.skin_accel`** (number; per layer). Default: `0`
+
+The acceleration of the skin, in mm/s². The bridges, the ironing, and the support interface use it too. 0: `max_accel`.
+
+**`machine.infill_accel`** (number; per layer). Default: `0`
+
+The acceleration of the sparse infill and the support, in mm/s². 0: `max_accel`.
+
+**`machine.travel_accel`** (number; per layer). Default: `0`
+
+The acceleration of travel moves, in mm/s². 0: `max_accel`.
+
+**`machine.first_layer_accel`** (number). Default: `0`
+
+The acceleration of all lines on the first layer, in mm/s². 0: the acceleration of each feature.
 
 ### Extruder
 
@@ -624,32 +650,6 @@ The speed of all lines on the first layer, as a ratio of the allowed speed.
 
 The layers after the first that print slower: their speed goes up in even steps from the first layer speed to the full speed, so that the part bonds to the bed. 0: the second layer prints at full speed.
 
-### Acceleration
-
-**`project.outer_wall_accel`** (number; per layer). Default: `0`
-
-The acceleration of the outer wall, in mm/s². A lower value gives a cleaner surface. 0: the machine `max_accel`. The G-code has it only with machine `accel_control`.
-
-**`project.inner_wall_accel`** (number; per layer). Default: `0`
-
-The acceleration of the inner walls and the skirt, in mm/s². 0: the machine `max_accel`.
-
-**`project.skin_accel`** (number; per layer). Default: `0`
-
-The acceleration of the skin, in mm/s². 0: the machine `max_accel`.
-
-**`project.infill_accel`** (number; per layer). Default: `0`
-
-The acceleration of the sparse infill and the support, in mm/s². 0: the machine `max_accel`.
-
-**`project.travel_accel`** (number; per layer). Default: `0`
-
-The acceleration of travel moves, in mm/s². 0: the machine `max_accel`.
-
-**`project.first_layer_accel`** (number). Default: `0`
-
-The acceleration of all lines on the first layer, in mm/s². 0: the acceleration of each feature.
-
 ### Travel
 
 **`project.retract_min_travel`** (number; per layer). Default: `1.5`
@@ -790,6 +790,10 @@ The filament of the support interface (the layers that touch the part). 0: the s
 
 A prime tower for a printer that changes the filament with a tool change (`machine.filament_change = tool`): after each change, the nozzle flushes the old color into a small tower next to the parts, and each layer up to the last change prints a light layer of it, so the tower grows with the print. A Bambu Lab printer flushes into its chute (its change G-code); its tower then gets a small prime.
 
+**`project.prime_tower_split`** (true or false). Default: `true`
+
+A prime tower for each family of materials that bond (PLA, PETG, ABS and ASA, and the others): a change purges into the tower of the new filament, so PETG never prints on PLA. Each of these towers grows only on the layers with a purge into it (no light layers): the nozzle goes down to its top. Keep parts away from the towers. With one family, one tower as before.
+
 **`project.prime_tower_width`** (number). Default: `20`
 
 The width of the square prime tower.
@@ -805,6 +809,18 @@ The y of the center of the prime tower. -1: near the back.
 **`project.flush_multiplier`** (number). Default: `1`
 
 A multiplier for the flush volume of each filament change (see `machine.flush_volume`). Lower wastes less plastic. Too low mixes the old color into the new one.
+
+**`project.flush_into_hidden`** (true or false). Default: `true`
+
+After a change to a filament, the nozzle first prints the hidden lines of that filament on the layer: its sparse infill and its support body. The old color goes into them, so the flush of the change is less by their volume. A change between two families of materials (see `prime_tower_split`) flushes into the support body only. The walls and the skin print after.
+
+**`project.paint_anchor_depth`** (number). Default: `1.0`
+
+A painted feature that stands on the part, for example a raised letter or frame in another filament, grows down into the part by this depth (mm). This hidden root of its filament replaces the infill of the part under the feature, so the feature holds to the part. The root stays inside the walls of the part: the outside of the part keeps its color. Each layer of the root adds a filament change. 0: no root.
+
+**`project.paint_anchor_shape`** (one of: `footprint`, `core`). Default: `footprint`
+
+The shape of the root of a painted feature (see `paint_anchor_depth`). `footprint`: all the area where the feature stands on the part, inside the walls of the part. `core`: only the middle of that area, inside the walls of the feature. A thin feature gets no core.
 
 ## engine
 

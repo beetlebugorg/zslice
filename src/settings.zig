@@ -1,7 +1,8 @@
 //! Settings, in three parts that have different owners.
 //!
 //! - `Machine`: facts about the printer. They change only when the printer
-//!   changes. Examples: the bed size, the nozzle, and the speed limits.
+//!   changes. Examples: the bed size, the nozzle, the speed limits, and
+//!   the acceleration of each feature.
 //! - `Filament`: facts about the material. Examples: the diameter, the
 //!   temperatures, and the maximum flow that the hot end can melt.
 //! - `Project`: what the user wants for this part. Examples: the layer
@@ -157,7 +158,8 @@ pub const Machine = struct {
     hour_rate: f64 = 0,
     /// The acceleration of the print head in X and Y, in mm/s². The time
     /// estimate uses it, and it is the acceleration of each feature that
-    /// has no acceleration of its own (0 in the project).
+    /// has no acceleration of its own (0 in `outer_wall_accel` and the
+    /// others).
     max_accel: f64 = 1500,
     /// The speed at which the head turns a corner with no stop (jerk in
     /// Marlin, square corner velocity in Klipper), in mm/s. The time
@@ -181,7 +183,8 @@ pub const Machine = struct {
     max_speed_x: f64 = 0,
     max_speed_y: f64 = 0,
     /// Write acceleration commands in the G-code: the acceleration of each
-    /// feature (project `*_accel`), and the corner speed at the start.
+    /// feature (`outer_wall_accel` and the others), and the corner speed
+    /// at the start.
     /// Off: the printer uses its own values; the time estimate still uses
     /// `max_accel` and `corner_speed`.
     accel_control: bool = false,
@@ -190,6 +193,26 @@ pub const Machine = struct {
     /// SQUARE_CORNER_VELOCITY. `reprap` (RepRapFirmware): M204 P T and M566
     /// X Y. `repetier`: M201 X Y and M207 X.
     gcode_flavor: GcodeFlavor = .marlin,
+
+    // Acceleration
+    /// The acceleration of the outer wall, in mm/s². A lower value gives a
+    /// cleaner surface. 0: `max_accel`. The G-code has it only with
+    /// `accel_control`. Each printer has its own value.
+    outer_wall_accel: f64 = 0,
+    /// The acceleration of the inner walls and the skirt, in mm/s². 0:
+    /// `max_accel`.
+    inner_wall_accel: f64 = 0,
+    /// The acceleration of the skin, in mm/s². The bridges, the ironing,
+    /// and the support interface use it too. 0: `max_accel`.
+    skin_accel: f64 = 0,
+    /// The acceleration of the sparse infill and the support, in mm/s². 0:
+    /// `max_accel`.
+    infill_accel: f64 = 0,
+    /// The acceleration of travel moves, in mm/s². 0: `max_accel`.
+    travel_accel: f64 = 0,
+    /// The acceleration of all lines on the first layer, in mm/s². 0: the
+    /// acceleration of each feature.
+    first_layer_accel: f64 = 0,
 
     // Extruder
     /// The extruder type. `direct`: the motor is on the print head. `bowden`: the motor pushes the filament through a long tube.
@@ -668,26 +691,6 @@ pub const Project = struct {
     /// the part bonds to the bed. 0: the second layer prints at full speed.
     slow_layers: u32 = 0,
 
-    // Acceleration
-    /// The acceleration of the outer wall, in mm/s². A lower value gives a
-    /// cleaner surface. 0: the machine `max_accel`. The G-code has it only
-    /// with machine `accel_control`.
-    outer_wall_accel: f64 = 0,
-    /// The acceleration of the inner walls and the skirt, in mm/s². 0: the
-    /// machine `max_accel`.
-    inner_wall_accel: f64 = 0,
-    /// The acceleration of the skin, in mm/s². 0: the machine `max_accel`.
-    skin_accel: f64 = 0,
-    /// The acceleration of the sparse infill and the support, in mm/s². 0:
-    /// the machine `max_accel`.
-    infill_accel: f64 = 0,
-    /// The acceleration of travel moves, in mm/s². 0: the machine
-    /// `max_accel`.
-    travel_accel: f64 = 0,
-    /// The acceleration of all lines on the first layer, in mm/s². 0: the
-    /// acceleration of each feature.
-    first_layer_accel: f64 = 0,
-
     // Travel
     /// Travel moves shorter than this do not retract.
     retract_min_travel: f64 = 1.5,
@@ -901,7 +904,8 @@ pub const Settings = struct {
     /// Sets a field from a dotted name ("project.wall_count") and a text
     /// value. String values are not copied: the caller keeps them alive
     /// while the settings are in use.
-    pub fn set(self: *Settings, name: []const u8, value: []const u8) SetError!void {
+    pub fn set(self: *Settings, old_name: []const u8, value: []const u8) SetError!void {
+        const name = currentName(old_name);
         const dot = std.mem.indexOfScalar(u8, name, '.') orelse return error.UnknownSetting;
         const group = name[0..dot];
         const field = name[dot + 1 ..];
@@ -1025,8 +1029,8 @@ pub const Resolved = struct {
     /// The acceleration of a feature on a layer, in mm/s² (`null` feature:
     /// travel).
     pub fn accel(self: Resolved, feature: ?Feature, first_layer: bool) f64 {
-        const p = self.settings.project;
-        const max = self.settings.machine.max_accel;
+        const p = self.settings.machine;
+        const max = p.max_accel;
         if (first_layer and p.first_layer_accel > 0 and feature != null) return @min(max, p.first_layer_accel);
         const a = if (feature) |f| switch (f) {
             .outer_wall, .slope_smoothing => p.outer_wall_accel,
@@ -1260,6 +1264,12 @@ pub const limits = [_]struct { []const u8, f64, f64 }{
     .{ "machine.corner_speed", 0, 100 },
     .{ "machine.max_accel_x", 0, 100000 },
     .{ "machine.max_accel_y", 0, 100000 },
+    .{ "machine.outer_wall_accel", 0, 100000 },
+    .{ "machine.inner_wall_accel", 0, 100000 },
+    .{ "machine.skin_accel", 0, 100000 },
+    .{ "machine.infill_accel", 0, 100000 },
+    .{ "machine.travel_accel", 0, 100000 },
+    .{ "machine.first_layer_accel", 0, 100000 },
     .{ "machine.max_speed_x", 0, 2000 },
     .{ "machine.max_speed_y", 0, 2000 },
     .{ "machine.retract_length", 0, 20 },
@@ -1337,12 +1347,6 @@ pub const limits = [_]struct { []const u8, f64, f64 }{
     .{ "project.infill_speed", 0.01, 1 },
     .{ "project.first_layer_speed", 0.01, 1 },
     .{ "project.slow_layers", 0, 50 },
-    .{ "project.outer_wall_accel", 0, 100000 },
-    .{ "project.inner_wall_accel", 0, 100000 },
-    .{ "project.skin_accel", 0, 100000 },
-    .{ "project.infill_accel", 0, 100000 },
-    .{ "project.travel_accel", 0, 100000 },
-    .{ "project.first_layer_accel", 0, 100000 },
     .{ "project.retract_min_travel", 0, 100 },
     .{ "project.combing_max_distance", 0, 1000 },
     .{ "project.z_hop", 0, 10 },
@@ -1433,12 +1437,13 @@ pub const patch_settings = [_][]const u8{
     "project.bridge_fan",        "project.infill_flow",              "project.ironing_flow",
     "project.ironing_speed",     "project.outer_wall_speed",         "project.inner_wall_speed",
     "project.skin_speed",        "project.infill_speed",             "project.first_layer_speed",
-    "project.slow_layers",       "project.outer_wall_accel",         "project.inner_wall_accel",
-    "project.skin_accel",        "project.infill_accel",             "project.first_layer_accel",
+    "project.slow_layers",       "machine.outer_wall_accel",         "machine.inner_wall_accel",
+    "machine.skin_accel",        "machine.infill_accel",             "machine.first_layer_accel",
     "project.path_rules",
 };
 
-pub fn isPatchSetting(name: []const u8) bool {
+pub fn isPatchSetting(old_name: []const u8) bool {
+    const name = currentName(old_name);
     for (patch_settings) |n| if (std.mem.eql(u8, n, name)) return true;
     return false;
 }
@@ -1517,7 +1522,9 @@ pub const part_z: f64 = 1e5;
 ///   the same z;
 /// - the skirt and the brim, which go around all parts, and the placement.
 ///
-/// The machine and engine settings are for the whole slice too.
+/// The machine and engine settings are for the whole slice too. The
+/// accelerations of the features (`part_machine_settings`) are the
+/// exception: a part can have its own.
 pub const plate_settings = [_][]const u8{
     "filament.name",                  "filament.material",          "filament.color",
     "filament.nozzle",
@@ -1530,7 +1537,7 @@ pub const plate_settings = [_][]const u8{
     "project.first_layer_height",     "project.retract_min_travel", "project.combing",
     "project.combing_max_distance",   "project.z_hop",              "project.z_hop_only_crossing",
     "project.retract_wipe",
-    "project.retract_layer_change",   "project.travel_accel",       "project.skirt_loops",
+    "project.retract_layer_change",   "machine.travel_accel",       "project.skirt_loops",
     "project.skirt_distance",         "project.skirt_layers",       "project.brim_width",
     "project.brim_location",          "project.placement",          "project.flush_multiplier",
     "project.prime_tower",            "project.prime_tower_width",  "project.prime_tower_x",
@@ -1539,7 +1546,8 @@ pub const plate_settings = [_][]const u8{
 
 /// True for a setting that is the same for all the parts of a plate (see
 /// `plate_settings`).
-pub fn isPlateSetting(name: []const u8) bool {
+pub fn isPlateSetting(old_name: []const u8) bool {
+    const name = currentName(old_name);
     if (!isPartSetting(name)) return true;
     for (plate_settings) |n| if (std.mem.eql(u8, n, name)) return true;
     return false;
@@ -1547,18 +1555,57 @@ pub fn isPlateSetting(name: []const u8) bool {
 
 /// The settings that one part of the plate can have of its own in a
 /// slice (see part_settings.zig and plate_job.zig): each part slices as
-/// its own job, so all the project and filament settings except the
-/// ones of the plate (`isPlateSetting`). Walls, layer height, seam,
+/// its own job, so all the project and filament settings and the
+/// accelerations, except the ones of the plate (`isPlateSetting`). Walls, layer height, seam,
 /// speeds, infill, skin, support, and flow can differ from part to part.
 pub fn isPerPartSetting(name: []const u8) bool {
     return isPartSetting(name) and !isPlateSetting(name);
 }
 
-/// A setting that the part can change: the project and filament settings.
-/// The machine settings describe the printer, and the engine settings the
-/// slicer.
-pub fn isPartSetting(name: []const u8) bool {
+/// A setting that the part can change: the project and filament settings,
+/// and the accelerations of the printer (`part_machine_settings`). The
+/// other machine settings describe the printer, and the engine settings
+/// the slicer.
+pub fn isPartSetting(old_name: []const u8) bool {
+    const name = currentName(old_name);
+    for (part_machine_settings) |n| if (std.mem.eql(u8, n, name)) return true;
     return std.mem.startsWith(u8, name, "project.") or std.mem.startsWith(u8, name, "filament.");
+}
+
+/// The machine settings that a part or some layers can change: the
+/// accelerations of the features. Each printer has its own values, and an
+/// override of a part or of some layers replaces the value of the printer
+/// there. They were project settings before, with the same overrides.
+pub const part_machine_settings = [_][]const u8{
+    "machine.outer_wall_accel", "machine.inner_wall_accel", "machine.skin_accel",
+    "machine.infill_accel",     "machine.travel_accel",     "machine.first_layer_accel",
+};
+
+/// The settings that moved to another group: the old name and the new
+/// name. A text with an old name (a profile, a project file, a session,
+/// or an override of a part or of some layers) still loads. `Settings.set`
+/// and the checks of the names use the new name.
+pub const moved_settings = [_][2][]const u8{
+    .{ "project.outer_wall_accel", "machine.outer_wall_accel" },
+    .{ "project.inner_wall_accel", "machine.inner_wall_accel" },
+    .{ "project.skin_accel", "machine.skin_accel" },
+    .{ "project.infill_accel", "machine.infill_accel" },
+    .{ "project.travel_accel", "machine.travel_accel" },
+    .{ "project.first_layer_accel", "machine.first_layer_accel" },
+};
+
+/// The name of a setting now: the new name of a setting that moved to
+/// another group (see `moved_settings`), else `name`.
+pub fn currentName(name: []const u8) []const u8 {
+    for (moved_settings) |m| if (std.mem.eql(u8, m[0], name)) return m[1];
+    return name;
+}
+
+/// True if `name` is the old name of a setting that moved to another
+/// group.
+pub fn isMovedName(name: []const u8) bool {
+    for (moved_settings) |m| if (std.mem.eql(u8, m[0], name)) return true;
+    return false;
 }
 
 /// The settings that can change from one layer to the next. The others
@@ -1648,11 +1695,11 @@ pub const layer_settings = [_][]const u8{
     "project.top_support_density",
     "project.support_density",
     "project.support_interface_density",
-    "project.outer_wall_accel",
-    "project.inner_wall_accel",
-    "project.skin_accel",
-    "project.infill_accel",
-    "project.travel_accel",
+    "machine.outer_wall_accel",
+    "machine.inner_wall_accel",
+    "machine.skin_accel",
+    "machine.infill_accel",
+    "machine.travel_accel",
     "filament.max_flow",
     // Pass 1 of the engine reads these for each layer. A layer gets the
     // layer height of the span that holds its top (see slicer.HeightSpan).
@@ -1661,7 +1708,8 @@ pub const layer_settings = [_][]const u8{
     "filament.hole_xy_offset",
 };
 
-pub fn isLayerSetting(name: []const u8) bool {
+pub fn isLayerSetting(old_name: []const u8) bool {
+    const name = currentName(old_name);
     for (layer_settings) |n| if (std.mem.eql(u8, n, name)) return true;
     return false;
 }
@@ -1687,4 +1735,29 @@ test "overrides cover a z range" {
     try std.testing.expect(isLayerSetting("project.layer_height"));
     try std.testing.expect(!isLayerSetting("project.first_layer_height"));
     try std.testing.expect(!isLayerSetting("project.support_angle"));
+}
+
+test "a setting that moved loads by its old name" {
+    var s: Settings = .{};
+    try s.set("project.outer_wall_accel", "500");
+    try s.set("project.travel_accel", "2500");
+    try std.testing.expectEqual(@as(f64, 500), s.machine.outer_wall_accel);
+    try std.testing.expectEqual(@as(f64, 2500), s.machine.travel_accel);
+    try std.testing.expectError(error.OutOfRange, s.set("project.skin_accel", "-1"));
+    // The old name has the same overrides as the new name.
+    try std.testing.expect(isLayerSetting("project.outer_wall_accel"));
+    try std.testing.expect(isLayerSetting("machine.outer_wall_accel"));
+    try std.testing.expect(!isLayerSetting("machine.first_layer_accel"));
+    try std.testing.expect(isPerPartSetting("machine.infill_accel"));
+    try std.testing.expect(isPerPartSetting("project.infill_accel"));
+    try std.testing.expect(isPlateSetting("machine.travel_accel"));
+    try std.testing.expect(!isPartSetting("machine.max_accel"));
+    try std.testing.expect(isPatchSetting("project.skin_accel"));
+    try std.testing.expectEqualStrings("machine.skin_accel", currentName("project.skin_accel"));
+    try std.testing.expectEqualStrings("project.skin_speed", currentName("project.skin_speed"));
+    // Each new name is a machine setting.
+    for (moved_settings) |m| {
+        var t: Settings = .{};
+        try t.set(m[1], "700");
+    }
 }

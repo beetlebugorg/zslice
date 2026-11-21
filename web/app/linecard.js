@@ -44,7 +44,7 @@ const WARN_KINDS = new Set([0, 1, 2, 3, 5]);
 // The settings that matter most for each feature (FEATURE_TITLES in
 // format.js), in order.
 const BY_FEATURE = [
-  ["project.outer_wall_speed", "project.wall_count", "project.outer_wall_accel", "project.seam"],
+  ["project.outer_wall_speed", "project.wall_count", "machine.outer_wall_accel", "project.seam"],
   ["project.wall_count", "project.inner_wall_speed", "project.wall_thickness", "project.infill_overlap"],
   ["project.top_thickness", "project.bottom_thickness", "project.skin_pattern", "project.skin_speed"],
   ["project.infill_density", "project.infill_pattern", "project.infill_speed", "project.infill_angle"],
@@ -59,7 +59,7 @@ const BY_FEATURE = [
 
 // The acceleration setting of each feature, for a line that is slow
 // because its segments are short.
-const ACCEL = ["project.outer_wall_accel", "project.inner_wall_accel", "project.skin_accel", "project.infill_accel"];
+const ACCEL = ["machine.outer_wall_accel", "machine.inner_wall_accel", "machine.skin_accel", "machine.infill_accel"];
 
 // The settings for the card, from what the line is and what happens to it:
 // [{ name, why }]. First the reasons of this line (slow, the first layer,

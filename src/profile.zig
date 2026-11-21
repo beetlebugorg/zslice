@@ -133,6 +133,26 @@ fn applyDepth(arena: Allocator, settings: *Settings, group: Group, name: []const
     }
 }
 
+/// The number of keys of a profile text that are old names of settings
+/// that moved to another group (settings.moved_settings), for example
+/// `outer_wall_accel` in a project text. The text still loads: the values
+/// go to the new group. An app uses the count to save both groups once in
+/// their new form. A text with a syntax error has 0.
+pub fn movedKeys(arena: Allocator, group: Group, text: []const u8) Allocator.Error!usize {
+    var tdiag: toml.Diagnostic = .{};
+    const entries = toml.parse(arena, text, &tdiag) catch |e| switch (e) {
+        error.OutOfMemory => return error.OutOfMemory,
+        else => return 0,
+    };
+    var n: usize = 0;
+    for (entries) |e| {
+        const target = if (e.table.len == 0) @tagName(group) else e.table;
+        const full = try std.fmt.allocPrint(arena, "{s}.{s}", .{ target, e.key });
+        if (settings_mod.isMovedName(full)) n += 1;
+    }
+    return n;
+}
+
 fn isGroup(name: []const u8) bool {
     inline for (@typeInfo(Settings).@"struct".fields) |g| {
         if (std.mem.eql(u8, g.name, name)) return true;
@@ -428,4 +448,36 @@ test "writeChanged: a text from outside cannot add keys or lines" {
         try testing.expectEqualStrings((Settings{}).machine.start_gcode, back.machine.start_gcode);
         if (std.mem.indexOfScalar(u8, name, '\n') == null) try testing.expect(std.mem.indexOfScalar(u8, out.written(), '\r') == null);
     }
+}
+
+test "a project text with the old acceleration keys loads into the machine" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+    const old =
+        \\layer_height = 0.2
+        \\outer_wall_accel = 500
+        \\travel_accel = 2500
+        \\
+        \\[project]
+        \\first_layer_accel = 400
+    ;
+    try testing.expectEqual(@as(usize, 3), try movedKeys(arena, .project, old));
+    try testing.expectEqual(@as(usize, 0), try movedKeys(arena, .machine, "outer_wall_accel = 500\n"));
+    try testing.expectEqual(@as(usize, 1), try movedKeys(arena, .machine, "[project]\nskin_accel = 900\n"));
+    var s: Settings = .{};
+    var diag: Diagnostic = .{};
+    try apply(arena, &s, .project, "old", old, null, &diag);
+    try testing.expectEqual(@as(f64, 500), s.machine.outer_wall_accel);
+    try testing.expectEqual(@as(f64, 2500), s.machine.travel_accel);
+    try testing.expectEqual(@as(f64, 400), s.machine.first_layer_accel);
+    // Written again, the values are in the machine text and not in the
+    // project text.
+    var m: std.Io.Writer.Allocating = .init(arena);
+    try writeChanged(s, .machine, &m.writer);
+    try testing.expect(std.mem.indexOf(u8, m.written(), "outer_wall_accel = 500") != null);
+    var p: std.Io.Writer.Allocating = .init(arena);
+    try writeChanged(s, .project, &p.writer);
+    try testing.expect(std.mem.indexOf(u8, p.written(), "_accel") == null);
+    try testing.expectEqual(@as(usize, 0), try movedKeys(arena, .project, p.written()));
 }

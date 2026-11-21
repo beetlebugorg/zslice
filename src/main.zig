@@ -502,7 +502,7 @@ const bench_changes = [_]struct { key: []const u8, kind: []const u8, name: []con
     // Settings that change no path: the slice runs from the move streams
     // (see settings.patch_settings).
     .{ .key = "speed", .kind = "wall speed", .name = "project.outer_wall_speed", .values = .{ "0.41", "0.42", "0.43", "0.44", "0.45", "0.46" } },
-    .{ .key = "accel", .kind = "wall accel", .name = "project.outer_wall_accel", .values = .{ "810", "820", "830", "840", "850", "860" } },
+    .{ .key = "accel", .kind = "wall accel", .name = "machine.outer_wall_accel", .values = .{ "810", "820", "830", "840", "850", "860" } },
     .{ .key = "flow", .kind = "flow ratio", .name = "filament.flow_ratio", .values = .{ "0.95", "0.96", "0.97", "0.98", "0.99", "1.01" } },
     .{ .key = "fan", .kind = "fan speed", .name = "filament.fan_speed", .values = .{ "0.81", "0.82", "0.83", "0.84", "0.85", "0.86" } },
     .{ .key = "temp", .kind = "nozzle temp", .name = "filament.nozzle_temp", .values = .{ "211", "212", "213", "214", "215", "216" } },

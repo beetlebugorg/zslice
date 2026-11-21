@@ -263,19 +263,28 @@ static gboolean on_save_timer(gpointer data) {
     return G_SOURCE_REMOVE;
 }
 
-static void load_group(ZgModel *self, int g);
+static gboolean load_group(ZgModel *self, int g);
 
-static void load_state(ZgModel *self) {
+/* Loads the saved groups. Returns TRUE if a text has settings that moved
+ * to another group (zs_profile_moved): the caller saves the groups again
+ * after the start. */
+static gboolean load_state(ZgModel *self) {
     zg_printers_load();
-    for (int g = 0; g < 3; g++) load_group(self, g);
+    gboolean moved = FALSE;
+    for (int g = 0; g < 3; g++) moved |= load_group(self, g);
+    return moved;
 }
 
-static void load_group(ZgModel *self, int g) {
+/* Loads the saved text of a group. Returns TRUE if the text has settings
+ * that moved to another group. */
+static gboolean load_group(ZgModel *self, int g) {
+    gboolean moved = FALSE;
     {
         char *path = state_path(g);
         char *text = NULL;
         gsize len = 0;
         if (g_file_get_contents(path, &text, &len, NULL)) {
+            moved = zs_profile_moved(g, text, len) > 0;
             char message[256] = "";
             int rc = zs_app_profile_apply(self->core, g, text, len, message, sizeof message);
             if (rc != ZS_OK) {
@@ -289,6 +298,7 @@ static void load_group(ZgModel *self, int g) {
         }
         g_free(path);
     }
+    return moved;
 }
 
 G_DEFINE_FINAL_TYPE(ZgModel, zg_model, G_TYPE_OBJECT)
@@ -591,9 +601,9 @@ gboolean zg_model_scope(ZgModel *self, double *z_min, double *z_max, double *z_s
 }
 
 /* A setting that a part can have of its own: the project and the
- * filament settings. */
+ * filament settings, and the accelerations of the printer. */
 static gboolean part_scoped(ZgModel *self, const char *key) {
-    return self->part_scope >= 0 && (g_str_has_prefix(key, "project.") || g_str_has_prefix(key, "filament."));
+    return self->part_scope >= 0 && zs_setting_is_part(key);
 }
 
 static void save_global(ZgModel *self) {
@@ -1499,7 +1509,7 @@ static void zg_model_init(ZgModel *self) {
     int rc = zs_set_new(on_core_event, self->bridge, &self->set);
     if (rc != ZS_OK) g_error("zslice: the app core did not start: %s", zg_status_text(rc));
     sync_core(self);
-    load_state(self);
+    gboolean moved = load_state(self), global_moved = FALSE;
     /* The quality profile of the last session, under the changes of this
      * print (the state of the project group). */
     char *quality = zg_pref_get("profile_project", "");
@@ -1529,7 +1539,9 @@ static void zg_model_init(ZgModel *self) {
         char *text = NULL;
         gsize len = 0;
         char message[256] = "";
-        if (g_file_get_contents(path, &text, &len, NULL) && zs_app_global_set(self->core, text, len, message, sizeof message) != ZS_OK)
+        gboolean read = g_file_get_contents(path, &text, &len, NULL);
+        if (read && zs_profile_moved(ZS_GROUP_PROJECT, text, len) > 0) moved = global_moved = TRUE;
+        if (read && zs_app_global_set(self->core, text, len, message, sizeof message) != ZS_OK)
             g_warning("zslice: %s was not loaded (%s)", path, message);
         g_free(text);
         g_free(path);
@@ -1545,6 +1557,17 @@ static void zg_model_init(ZgModel *self) {
         g_free(text);
         g_free(path);
         g_free(dir);
+    }
+    /* The saved texts of an older version have the accelerations of the
+     * features in the project settings. They loaded into the printer now
+     * (the current one). Save the groups once in their new form, so the
+     * project text has no accelerations and each printer keeps its own. */
+    if (moved) {
+        g_message("zslice: the accelerations of the features are printer settings now; the saved values moved to the printer %s",
+                  zg_printers_current()->name);
+        self->dirty |= (1u << ZS_GROUP_MACHINE) | (1u << ZS_GROUP_PROJECT);
+        save_state(self);
+        if (global_moved) save_global(self);
     }
     /* The start of the undo list: the state after the start. */
     zs_app_history_commit(self->core, now_ms());

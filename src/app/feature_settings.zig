@@ -34,12 +34,12 @@ pub const material_settings = [_][]const u8{ "filament.flow_ratio", "filament.no
 
 /// The acceleration setting of a feature (or of the first layer).
 pub fn accelSetting(feature: Feature, first_layer: bool) []const u8 {
-    if (first_layer) return "project.first_layer_accel";
+    if (first_layer) return "machine.first_layer_accel";
     return switch (feature) {
-        .outer_wall, .slope_smoothing => "project.outer_wall_accel",
-        .inner_wall, .skirt => "project.inner_wall_accel",
-        .skin, .support_interface, .ironing, .slope_ironing, .bridge => "project.skin_accel",
-        .infill, .support => "project.infill_accel",
+        .outer_wall, .slope_smoothing => "machine.outer_wall_accel",
+        .inner_wall, .skirt => "machine.inner_wall_accel",
+        .skin, .support_interface, .ironing, .slope_ironing, .bridge => "machine.skin_accel",
+        .infill, .support => "machine.infill_accel",
     };
 }
 
