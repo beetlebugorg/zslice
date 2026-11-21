@@ -81,6 +81,64 @@ static const char *group_title(const char *group) {
 }
 
 static void update_crumbs(Browser *b);
+
+/* Whose setting it is, for a printer or a filament setting: "Printer ·
+ * Bambu Lab X2D" or "Filament · Generic PLA". NULL for the other groups:
+ * a print setting stays when the printer changes. */
+static char *owner_text(ZgModel *model, const char *group) {
+    gboolean printer = strcmp(group, "machine") == 0;
+    if (!printer && strcmp(group, "filament") != 0) return NULL;
+    char *name = zg_model_get(model, printer ? "machine.name" : "filament.name");
+    char *text = name && name[0] ? g_strdup_printf("%s · %s", printer ? "Printer" : "Filament", name)
+                                 : g_strdup(printer ? "Printer" : "Filament");
+    g_free(name);
+    return text;
+}
+
+/* Sets the text of an owner label: the owner, then the rest of the text
+ * (if any) in the normal color. */
+static void set_owner_text(GtkWidget *l, ZgModel *model) {
+    const char *group = g_object_get_data(G_OBJECT(l), "zg-group");
+    const char *rest = g_object_get_data(G_OBJECT(l), "zg-rest");
+    char *who = owner_text(model, group);
+    if (rest && rest[0]) {
+        char *markup = g_markup_printf_escaped("<span weight=\"bold\" foreground=\"%s\">%s</span>%s",
+                                               strcmp(group, "machine") == 0 ? "#1c7ed6" : "#d9480f", who, rest);
+        gtk_label_set_markup(GTK_LABEL(l), markup);
+        g_free(markup);
+    } else {
+        gtk_label_set_text(GTK_LABEL(l), who);
+    }
+    g_free(who);
+}
+
+/* An owner label follows the name of the printer or the filament. */
+static void on_owner_name_changed(ZgModel *model, const char *key, gpointer data) {
+    set_owner_text(data, model);
+}
+
+/* A label that says whose setting it is: the owner ("Printer · Bambu Lab
+ * X2D") and `rest` after it. It follows the name of the printer or the
+ * filament. With no `rest`, it is a badge. NULL for a print setting. */
+static GtkWidget *owner_label(ZgModel *model, const char *group, const char *rest) {
+    char *who = owner_text(model, group);
+    if (!who) return NULL;
+    g_free(who);
+    gboolean printer = strcmp(group, "machine") == 0;
+    GtkWidget *l = gtk_label_new(NULL);
+    gtk_label_set_xalign(GTK_LABEL(l), 0);
+    gtk_label_set_wrap(GTK_LABEL(l), TRUE);
+    gtk_label_set_wrap_mode(GTK_LABEL(l), PANGO_WRAP_WORD_CHAR);
+    gtk_widget_add_css_class(l, "zg-owner");
+    if (!rest) gtk_widget_add_css_class(l, printer ? "zg-owner-printer" : "zg-owner-filament");
+    g_object_set_data(G_OBJECT(l), "zg-group", (gpointer)(printer ? "machine" : "filament"));
+    g_object_set_data_full(G_OBJECT(l), "zg-rest", g_strdup(rest ? rest : ""), g_free);
+    set_owner_text(l, model);
+    g_signal_connect_object(model, printer ? "setting-changed::machine.name" : "setting-changed::filament.name",
+                            G_CALLBACK(on_owner_name_changed), l, 0);
+    return l;
+}
+
 static void on_feature_clicked(GtkButton *button, gpointer data);
 
 /* The panel is too narrow for three columns side by side, so one column
@@ -444,6 +502,15 @@ static void show_detail(Browser *b, const char *key) {
     gtk_widget_add_css_class(path, "dim-label");
     gtk_widget_add_css_class(path, "caption");
     gtk_grid_attach(GTK_GRID(grid), path, 0, row++, 3, 1);
+    /* A setting of the printer or the filament: say so, with the name. */
+    GtkWidget *owner = owner_label(b->model, info->group,
+                                   strcmp(info->group, "machine") == 0
+                                       ? ": each printer has its own value. It changes when you change the printer."
+                                       : ": each filament has its own value. It changes when you change the filament.");
+    if (owner) {
+        gtk_widget_add_css_class(owner, "zg-owner-note");
+        gtk_grid_attach(GTK_GRID(grid), owner, 0, row++, 3, 1);
+    }
     int editor_row = row;
     zg_setting_row_free(zg_setting_row_add(grid, &row, b->model, info, b->in_profile ? ZG_ROW_SCOPED : 0));
     /* A formula: "= {line_width} * 2" makes the value follow other
@@ -617,6 +684,14 @@ static GtkWidget *setting_row(Browser *b, const zs_setting_info *src, gboolean w
         gtk_widget_add_css_class(w, "dim-label");
         gtk_widget_add_css_class(w, "caption");
         gtk_box_append(GTK_BOX(names), w);
+        /* A mixed list (a search): a badge on each printer and filament
+         * setting. A print setting has no badge. */
+        GtkWidget *badge = owner_label(b->model, info->group, NULL);
+        if (badge) {
+            gtk_widget_set_halign(badge, GTK_ALIGN_START);
+            gtk_widget_add_css_class(badge, "zg-owner-badge");
+            gtk_box_append(GTK_BOX(names), badge);
+        }
     }
     char *value = zg_model_get_for(b->model, info->name, b->in_profile);
     char *text = zg_setting_value_with_unit(info, value);
@@ -707,6 +782,22 @@ static gboolean matches(const zs_setting_info *info, const char *needle) {
 static void fill_settings(Browser *b, const char *group, const char *section, const char *search) {
     gtk_list_box_remove_all(GTK_LIST_BOX(b->settings));
     char *needle = search && search[0] ? g_utf8_strdown(search, -1) : NULL;
+    /* A section of the printer or the filament: one banner that says
+     * whose settings they are. */
+    GtkWidget *banner = needle || !group ? NULL
+                        : owner_label(b->model, group,
+                                      strcmp(group, "machine") == 0
+                                          ? ": each printer keeps its own values here. They change when you change the printer."
+                                          : ": each filament keeps its own values here. They change when you change the filament.");
+    if (banner) {
+        gtk_widget_add_css_class(banner, "zg-owner-banner");
+        GtkWidget *brow = gtk_list_box_row_new();
+        gtk_list_box_row_set_child(GTK_LIST_BOX_ROW(brow), banner);
+        gtk_list_box_row_set_selectable(GTK_LIST_BOX_ROW(brow), FALSE);
+        gtk_list_box_row_set_activatable(GTK_LIST_BOX_ROW(brow), FALSE);
+        gtk_widget_set_focusable(brow, FALSE);
+        gtk_list_box_append(GTK_LIST_BOX(b->settings), brow);
+    }
     size_t n = zs_setting_count();
     for (size_t i = 0; i < n; i++) {
         zs_setting_info info;
@@ -1428,6 +1519,12 @@ GtkWidget *zg_settings_browser_new(ZgModel *model, GtkWidget *panel_stack) {
         /* ZSLICE_SETTING_LIST=1: the list of its section, not the detail. */
         if (g_getenv("ZSLICE_SETTING_LIST")) show_column(b, 1);
         else scroll_to_end(b);
+        g_object_set_data(G_OBJECT(b->page), "zg-open", GINT_TO_POINTER(1));
+    }
+    /* ZSLICE_SETTING_SEARCH=text: searches the settings for text. */
+    const char *find = g_getenv("ZSLICE_SETTING_SEARCH");
+    if (find) {
+        gtk_editable_set_text(GTK_EDITABLE(b->search), find);
         g_object_set_data(G_OBJECT(b->page), "zg-open", GINT_TO_POINTER(1));
     }
     update_crumbs(b);

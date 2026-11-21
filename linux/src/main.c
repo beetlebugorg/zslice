@@ -161,6 +161,15 @@ static const char *ZG_CSS =
      * dim, and the accent color for a change of this print or a part. */
     ".zg-source { opacity: 0.6; font-size: 0.8em; }"
     ".zg-source-mine { color: @accent_color; opacity: 1; }"
+    /* Whose setting it is (settings-browser.c): a printer setting in blue,
+     * a filament setting in orange, as on the web. */
+    ".zg-owner-printer { color: #1c7ed6; }"
+    ".zg-owner-filament { color: #d9480f; }"
+    ".zg-owner-badge { font-size: 0.8em; font-weight: 600; padding: 0 6px; border-radius: 9px; }"
+    ".zg-owner-badge.zg-owner-printer { background: alpha(#1c7ed6, 0.16); }"
+    ".zg-owner-badge.zg-owner-filament { background: alpha(#d9480f, 0.14); }"
+    ".zg-owner-banner { margin: 6px 10px; font-size: 0.9em; }"
+    ".zg-owner-note { margin-top: 4px; font-size: 0.9em; }"
     ".zg-issue-problem { color: #e01b24; }"
     ".zg-issue-warning { color: #e5a50a; }"
     ".zg-knob-label { font-size: 0.75em; font-feature-settings: 'tnum'; color: #fff; background: alpha(#202326, 0.82);"

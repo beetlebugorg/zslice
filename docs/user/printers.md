@@ -68,6 +68,8 @@ The print settings stay when you change the printer: the layer height, the walls
 
 Each printer also keeps the filament that you last used with it. When you change to another printer, zslice saves the filament settings for the printer before. When you change back, its filament comes back, and the Filament menu shows it. A printer with no saved filament keeps the filament that you have now. In the Linux app, the roll that a printer reports still wins: its settings load at the next status of the printer.
 
+The settings panel shows which settings belong to the printer. A section of printer settings starts with a line such as "Printer · Bambu Lab X2D: each printer keeps its own values here." A search shows a badge on each printer setting ("Printer · <name>") and each filament setting ("Filament · <name>"). The page of a setting says it too. Print settings have no badge.
+
 Before this version, the accelerations were print settings. At the first start of this version, zslice moves your saved values to the printer that you use then. Old projects and sessions load too: their accelerations go to the printer of the plate.
 
 ## Print

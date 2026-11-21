@@ -131,6 +131,7 @@ These environment variables change the start of the GTK shell, for development, 
 | `ZSLICE_COPY_FOR_AI=1` | With `ZSLICE_PICK`: runs "Copy for AI" on the picked line, and prints the report to the log (with no input event, Wayland can refuse the clipboard). | `ui/view3d.c` |
 | `ZSLICE_GAPS=1` | Turns the gaps view on. `ZSLICE_GAP=N` then selects gap N of the top layer after a slice. | `ui/view3d.c` |
 | `ZSLICE_SETTING_LIST=1` | With `ZSLICE_SETTING`: shows the settings list of its section, not its detail page. | `ui/settings-browser.c` |
+| `ZSLICE_SETTING_SEARCH=text` | Searches the settings for `text` in the settings panel. | `ui/settings-browser.c` |
 | `ZSLICE_USE_PRINTERS=id,id` | Changes to each printer in turn, 4 s apart, after the start. The log gives the filament and `machine.outer_wall_accel` after each change. | `model/app-model.c` |
 | `ZSLICE_PROFILE=up` or `down` | With `ZSLICE_PICK`: runs "New profile from here up" (or down) on the picked line. `ZSLICE_PROFILE_SET=name=value` then changes one setting in it. | `ui/view3d.c` |
 | `ZSLICE_PART=i` | Selects part `i` of the plate after the first load. | `ui/view3d.c` |
