@@ -24,6 +24,8 @@
 #include <cmath>
 #include <sstream>
 
+#include "Layer2D.h"
+
 using namespace winrt;
 using Windows::System::VirtualKey;
 
@@ -259,6 +261,38 @@ namespace winrt::ZSlice::implementation
                     }
                 zs::Log("dev: menu item %s\n", ran ? "ran" : "not found");
             }
+        }
+        else if (verb == L"2d")
+        {
+            Set2D(number(0) != 0);
+        }
+        else if (verb == L"pan2d" && layer2d != nullptr)
+        {
+            layer2d->Pan(number(0), number(1));
+            RequestDraw();
+        }
+        else if (verb == L"zoom2d" && layer2d != nullptr)
+        {
+            layer2d->Zoom(number(0), number(1), number(2));
+            RequestDraw();
+        }
+        else if (verb == L"time2d" && layer2d != nullptr)
+        {
+            // The cost of a frame, over 120 frames of a slow pan.
+            LARGE_INTEGER freq, t0, t1;
+            ::QueryPerformanceFrequency(&freq);
+            ::QueryPerformanceCounter(&t0);
+            for (int k = 0; k < 120; k++)
+            {
+                layer2d->Pan(k % 2 == 0 ? 1 : -1, 0);
+                Draw2D();
+            }
+            ::QueryPerformanceCounter(&t1);
+            zs::Log("dev: 2d frame %.2f ms\n", 1000.0 * (t1.QuadPart - t0.QuadPart) / freq.QuadPart / 120);
+        }
+        else if (verb == L"click2d")
+        {
+            Click2D(number(0), number(1));
         }
         else if (verb == L"popups")
         {

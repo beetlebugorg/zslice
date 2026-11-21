@@ -122,6 +122,9 @@ namespace winrt::ZSlice::implementation
 
     void MainWindow::SetTool(Tool next)
     {
+        // The tools work in the 3D view.
+        if (next != Tool::Select)
+            Set2D(false);
         if (next != tool)
         {
             // The hand lets go when the tool changes.
@@ -1073,7 +1076,17 @@ namespace winrt::ZSlice::implementation
         }
         else if (key == VirtualKey::Application || (key == VirtualKey::F10 && shift))
         {
+            // The menu is of the 3D view.
+            Set2D(false);
             ShowContextMenu(pointer_x, pointer_y);
+        }
+        else if (!ctrl && !shift && (key == VirtualKey::Number2 || key == VirtualKey::NumberPad2))
+        {
+            Set2D(!show_2d);
+        }
+        else if (!ctrl && !shift && (key == VirtualKey::Number3 || key == VirtualKey::NumberPad3))
+        {
+            Set2D(false);
         }
         else if (key == VirtualKey::C && !ctrl && shift)
         {

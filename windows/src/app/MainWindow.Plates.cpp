@@ -102,6 +102,7 @@ namespace winrt::ZSlice::implementation
     // The name, the hint, the settings, and the history of the active plate.
     void MainWindow::ShowPlateChrome()
     {
+        layer2d_dirty = true;
         zs_app *app = model->Active();
         zs_plate_info info{};
         std::wstring name;

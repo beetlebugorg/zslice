@@ -6,6 +6,11 @@
 
 #include "zs_model.h"
 
+namespace zs
+{
+    class Layer2D;
+}
+
 namespace winrt::ZSlice::implementation
 {
     // The main window: the core view in a SwapChainPanel, with the XAML
@@ -149,6 +154,23 @@ namespace winrt::ZSlice::implementation
         void ShowShortcuts();
         void ShowLicenses();
         void ShowAbout();
+
+        // The 2D view of the top layer (MainWindow.Layer2D.cpp).
+        void Wire2D();
+        void Size2D();
+        void Fit2D();
+        void Set2D(bool on);
+        void Draw2D();
+        void Click2D(double x, double y);
+        void BedSize(double &x, double &y);
+        std::shared_ptr<zs::Layer2D> layer2d;
+        bool show_2d = false;
+        bool layer2d_dirty = true;
+        size_t layer2d_layer = 0;
+        bool drag_2d = false;
+        bool press_2d_left = false;
+        double press_2d_x = 0, press_2d_y = 0, last_2d_x = 0, last_2d_y = 0;
+        Microsoft::UI::Xaml::Controls::ToggleMenuFlyoutItem menu_2d{ nullptr };
 
         // The menu of the view, and the clipboard of parts
         // (MainWindow.ContextMenu.cpp).
