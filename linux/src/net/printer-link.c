@@ -4,7 +4,7 @@
  * /api/printerprofiles, /api/job, /api/files/local); Moonraker API
  * (moonraker.readthedocs.io, /printer/objects/query, /server/files/upload);
  * printdeck (../printdeck, deck/internal/octoapi); the App Keys flow of
- * OctoPrint (/plugin/appkeys/request). See REFERENCES.md.
+ * OctoPrint (/plugin/appkeys/request). See docs/references/.
  *
  * SPDX-License-Identifier: AGPL-3.0-or-later
  */

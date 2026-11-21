@@ -15,7 +15,7 @@
 //! only after a fresh yes of the user that the plate is clear. A link
 //! that only reads makes no PUBLISH. A packet that comes is at most 4 MiB.
 //! The packets follow MQTT Version 3.1.1 (OASIS Standard), see
-//! REFERENCES.md.
+//! docs/references/formats-and-protocols.md.
 //!
 //! SPDX-License-Identifier: AGPL-3.0-or-later
 

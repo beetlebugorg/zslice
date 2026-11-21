@@ -61,7 +61,7 @@ See the [roadmap](../../ROADMAP.md) for the plan.
 
 ## Testing against CuraEngine
 
-`tools/compare_cura.py` slices a folder of STL files with zslice and with CuraEngine, with the same main settings, and compares the results: failures, time, memory, and the print time and the plastic of each part. CuraEngine is a test oracle; no Cura code is in zslice (see `REFERENCES.md`).
+`tools/compare_cura.py` slices a folder of STL files with zslice and with CuraEngine, with the same main settings, and compares the results: failures, time, memory, and the print time and the plastic of each part. CuraEngine is a test oracle (see [Libraries and tools](../references/libraries.md#test-tools)).
 
 ```sh
 zig build -Doptimize=ReleaseFast

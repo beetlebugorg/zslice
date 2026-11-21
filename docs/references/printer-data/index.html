@@ -1,0 +1,186 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Printer data · zslice</title>
+<meta name="description" content="The printer library and the bed models of the printers, and the rules that place them.">
+<link rel="canonical" href="https://zslice.beetlebug.org/references/printer-data/">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%23171717'/%3E%3Crect x='11' y='8' width='10' height='4' rx='1' fill='%23f4f0e6'/%3E%3Crect x='8' y='14' width='16' height='4' rx='1' fill='%23f4f0e6'/%3E%3Crect x='5' y='20' width='22' height='4' rx='1' fill='%23ff5a1f'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="../../site.css">
+</head>
+<body>
+<input type="checkbox" id="menu">
+<header class="top">
+  <a class="brand" href="../../docs.html"><span class="mark">ZSLICE</span><span class="docs">DOCS</span></a>
+  <label class="menu-btn" for="menu">Contents</label>
+  <nav class="top-links"><a href="../../index.html">Open the app</a><a href="../../user/getting-started/">Get started</a><a href="../../roadmap/">Roadmap</a><a href="../../privacy/">Privacy</a><a href="https://github.com/beetlebugorg/zslice">GitHub</a></nav>
+</header>
+<div class="layout">
+<aside class="side"><nav><a href="../../docs.html">Home</a>
+<a href="../../contents/">All documents</a>
+<div class="group">Start</div>
+<a href="../../user/getting-started/"><span class="n">1</span>Your first print</a>
+<div class="group">Everyday tasks</div>
+<a href="../../user/look/"><span class="n">2</span>Look at the print</a>
+<a href="../../user/lines/"><span class="n">3</span>Click a line</a>
+<a href="../../user/change-settings/"><span class="n">4</span>Change a setting</a>
+<a href="../../user/parts/"><span class="n">5</span>Place the parts</a>
+<a href="../../user/support/"><span class="n">6</span>Add support</a>
+<a href="../../user/filaments/"><span class="n">7</span>Print in colors</a>
+<a href="../../user/labels/"><span class="n">8</span>Labels on a part</a>
+<a href="../../user/check/"><span class="n">9</span>Check the print</a>
+<a href="../../user/plates/"><span class="n">10</span>Plates and files</a>
+<a href="../../user/printers/"><span class="n">11</span>Send to a printer</a>
+<a href="../../user/history/"><span class="n">12</span>Undo and history</a>
+<div class="group">Features</div>
+<a href="../../user/features/"><span class="n">13</span>The best features</a>
+<a href="../../user/print-as-it-forms/"><span class="n">14</span>The print as it forms</a>
+<a href="../../user/projects/"><span class="n">15</span>printdeck projects</a>
+<a href="../../user/farm/"><span class="n">16</span>A print farm</a>
+<div class="group">Reference</div>
+<a href="../../user/keys/">Keys and mouse</a>
+<a href="../../user/settings/">Settings</a>
+<a href="../../user/expert/">Formulas and rules</a>
+<a href="../../user/profiles/">Profiles</a>
+<a href="../../user/command-line/">The command line</a>
+<a href="../../user/apps/">Web, Linux, and Mac</a>
+<a href="../../user/macos/">The macOS app</a>
+<a href="../../user/troubleshooting/">Problems and errors</a>
+<div class="group">Embedding</div>
+<a href="../../embedding/">Overview</a>
+<a href="../../embedding/c/">C</a>
+<a href="../../embedding/zig/">Zig</a>
+<a href="../../embedding/javascript/">JavaScript</a>
+<a href="../../embedding/print-view/">The print view</a>
+<a href="../../embedding/viewer/">The G-code viewer</a>
+<a href="../../embedding/labels/">Labels</a>
+<div class="group">Internals</div>
+<a href="../../internals/architecture/">Architecture</a>
+<a href="../../internals/one-view/">Plan: one view</a>
+<a href="../../internals/how-slicing-works/">How slicing works</a>
+<a href="../../internals/layer-settings/">Settings for some layers</a>
+<a href="../../internals/arachne/">Arachne walls</a>
+<a href="../../internals/print-sim/">The print simulation</a>
+<a href="../../internals/cura-compare/">Compared with other slicers</a>
+<a href="../../internals/contributing/">Contributing</a>
+<a href="../../internals/code-quality/">Code quality</a>
+<a href="../../internals/macos/">The macOS app</a>
+<div class="group">Project</div>
+<a href="../../app/">App</a>
+<a href="../../roadmap/">Roadmap</a>
+<a href="../../privacy/">Privacy</a>
+<div class="group">References</div>
+<a href="../../references/">References</a>
+<a href="../../references/explore/">Explorer</a>
+<a href="../../references/libraries/">Libraries and tools</a>
+<a href="../../references/cura/">Cura</a>
+<a href="../../references/orcaslicer/">OrcaSlicer</a>
+<a href="../../references/prusaslicer/">PrusaSlicer</a>
+<a href="../../references/bambu-studio/">Bambu Studio</a>
+<a href="../../references/slicer-techniques/">Slicer techniques</a>
+<a href="../../references/printer-data/" aria-current="page">Printer data</a>
+<a href="../../references/klipper-marlin-firmware/">Firmware and G-code</a>
+<a href="../../references/fonts/">Fonts</a>
+<a href="../../references/papers-and-algorithms/">Papers and algorithms</a>
+<a href="../../references/physics-and-materials/">Physics and materials</a>
+<a href="../../references/formats-and-protocols/">Formats and protocols</a></nav></aside>
+<main>
+<p class="eyebrow">References</p>
+<h1>Printer data</h1>
+<p class="lede">The printer library and the bed models of the printers, and the rules that place them.</p>
+<nav class="onpage"><b>On this page</b><ol><li><a href="#data-in-the-binaries">Data in the binaries</a></li><li><a href="#data-next-to-the-binaries">Data next to the binaries</a></li><li><a href="#algorithms-formats-and-conventions">Algorithms, formats, and conventions</a></li></ol></nav><h2 id="data-in-the-binaries">Data in the binaries</h2>
+<p>The printer library (<code>src/printers/library.txt</code>) has data from the printer definitions of four slicers. <code>tools/printer_library.py</code> converts them: it reads the bed, the nozzle, the motion limits, the firmware, and the start and end G-code of each printer model, and writes one record for each model. The native C library (<code>libzslice</code>, which the GTK app links) embeds the file (<code>src/printers.zig</code>). The wasm module does not embed it: the web app loads the file as <code>printers.txt</code>. The license texts of the sources are in all binaries, the wasm module too. The header of the file names the sources and their versions.</p>
+<p>The Bambu Lab data is in <a href="../../references/bambu-studio/">Bambu Studio</a>.</p>
+<h3 id="cura-printer-definitions">Cura printer definitions</h3>
+<div class="ref"><span class="kind k-data">data</span><span class="area">printers</span><dl><dt>Source</dt><dd>Cura</dd><dt>What zslice uses</dt><dd>The values of the <code>.def.json</code> files, and the G-code with the variables of zslice.</dd><dt>License</dt><dd>LGPL-3.0-or-later</dd><dt>Link</dt><dd><a href="https://github.com/Ultimaker/Cura">https://github.com/Ultimaker/Cura</a></dd><dt>Version</dt><dd>commit 1a221ec29a86960d16a412940becc1f63534c41f</dd><dt>Used in</dt><dd><a href="https://github.com/beetlebugorg/zslice/blob/main/src/printers/library.txt"><code>src/printers/library.txt</code></a>, <a href="https://github.com/beetlebugorg/zslice/blob/main/tools/printer_library.py"><code>tools/printer_library.py</code></a>, <a href="https://github.com/beetlebugorg/zslice/blob/main/src/printers.zig"><code>src/printers.zig</code></a></dd><dt>License texts</dt><dd><a href="https://github.com/beetlebugorg/zslice/blob/main/licenses/lgpl-3.0.txt"><code>licenses/lgpl-3.0.txt</code></a>, <a href="https://github.com/beetlebugorg/zslice/blob/main/licenses/gpl-3.0.txt"><code>licenses/gpl-3.0.txt</code></a></dd></dl></div>
+<p>Cura printer definitions, UltiMaker, <a href="https://github.com/Ultimaker/Cura">https://github.com/Ultimaker/Cura</a>, <code>resources/definitions</code> and <code>resources/extruders</code>, commit <code>1a221ec29a86960d16a412940becc1f63534c41f</code> (9 November 2026)</p>
+<p><strong>License:</strong> LGPL-3.0-or-later ("Cura is released under the terms of the LGPLv3 or higher")</p>
+<p><strong>Text:</strong> <code>licenses/lgpl-3.0.txt</code> (from the Cura repository), <code>licenses/gpl-3.0.txt</code> (the LGPL-3.0 adds to the GPL-3.0)</p>
+<p><strong>Notes:</strong> The values of the <code>.def.json</code> files, and the G-code with the variables of zslice. The LGPL-3.0 allows the use in a work under the AGPL-3.0.</p>
+<h3 id="prusaslicer-vendor-bundles">PrusaSlicer vendor bundles</h3>
+<div class="ref"><span class="kind k-data">data</span><span class="area">printers</span><dl><dt>Source</dt><dd>PrusaSlicer</dd><dt>What zslice uses</dt><dd>The <code>[printer_model:*]</code> and <code>[printer:*]</code> sections, with their <code>inherits</code>.</dd><dt>License</dt><dd>AGPL-3.0</dd><dt>Link</dt><dd><a href="https://github.com/prusa3d/PrusaSlicer">https://github.com/prusa3d/PrusaSlicer</a></dd><dt>Version</dt><dd>tag version_2.9.7</dd><dt>Used in</dt><dd><a href="https://github.com/beetlebugorg/zslice/blob/main/src/printers/library.txt"><code>src/printers/library.txt</code></a>, <a href="https://github.com/beetlebugorg/zslice/blob/main/tools/printer_library.py"><code>tools/printer_library.py</code></a>, <a href="https://github.com/beetlebugorg/zslice/blob/main/src/printers.zig"><code>src/printers.zig</code></a></dd></dl></div>
+<p>PrusaSlicer vendor bundles, Prusa Research, <a href="https://github.com/prusa3d/PrusaSlicer">https://github.com/prusa3d/PrusaSlicer</a>, <code>resources/profiles/*.ini</code>, tag <code>version_2.9.7</code> (commit <code>450d70dd81c9b8990bc6bc8e690e31f82ddceb11</code>). The main branch moved the bundles out of the repository, so the tool uses the last release.</p>
+<p><strong>License:</strong> AGPL-3.0 (the license of the PrusaSlicer repository)</p>
+<p><strong>Text:</strong> <code>LICENSE</code> (the same AGPL-3.0 text as zslice)</p>
+<p><strong>Notes:</strong> The <code>[printer_model:*]</code> and <code>[printer:*]</code> sections, with their <code>inherits</code>.</p>
+<h3 id="orcaslicer-printer-profiles">OrcaSlicer printer profiles</h3>
+<div class="ref"><span class="kind k-data">data</span><span class="area">printers</span><dl><dt>Source</dt><dd>OrcaSlicer</dd><dt>What zslice uses</dt><dd>The <code>machine_model</code> and <code>machine</code> presets of each vendor, with their <code>inherits</code>.</dd><dt>License</dt><dd>AGPL-3.0</dd><dt>Link</dt><dd><a href="https://github.com/SoftFever/OrcaSlicer">https://github.com/SoftFever/OrcaSlicer</a></dd><dt>Version</dt><dd>commit e76b4d676c74f43ee1736675e0e8894425179cc4</dd><dt>Used in</dt><dd><a href="https://github.com/beetlebugorg/zslice/blob/main/src/printers/library.txt"><code>src/printers/library.txt</code></a>, <a href="https://github.com/beetlebugorg/zslice/blob/main/tools/printer_library.py"><code>tools/printer_library.py</code></a>, <a href="https://github.com/beetlebugorg/zslice/blob/main/src/printers.zig"><code>src/printers.zig</code></a></dd></dl></div>
+<p>OrcaSlicer profiles, <a href="https://github.com/SoftFever/OrcaSlicer">https://github.com/SoftFever/OrcaSlicer</a>, <code>resources/profiles</code>, commit <code>e76b4d676c74f43ee1736675e0e8894425179cc4</code> (17 November 2026)</p>
+<p><strong>License:</strong> AGPL-3.0 (the license of the OrcaSlicer repository)</p>
+<p><strong>Text:</strong> <code>LICENSE</code></p>
+<p><strong>Notes:</strong> The <code>machine_model</code> and <code>machine</code> presets of each vendor, with their <code>inherits</code>.</p>
+<h3 id="cura-lulzbot-edition-printer-definitions">Cura LulzBot Edition printer definitions</h3>
+<div class="ref"><span class="kind k-data">data</span><span class="area">printers</span><dl><dt>Source</dt><dd>Cura LulzBot Edition</dd><dt>What zslice uses</dt><dd>The LulzBot printers (TAZ Workhorse, TAZ Pro, TAZ 5 to 8, Mini, SideKick, Bio) in the Cura format.</dd><dt>License</dt><dd>LGPL-3.0</dd><dt>Link</dt><dd><a href="https://github.com/lulzbot3d/CuraLE_Resources">https://github.com/lulzbot3d/CuraLE_Resources</a></dd><dt>Version</dt><dd>commit e44e13dedd1a055e956deced8723bec0ae7966be</dd><dt>Used in</dt><dd><a href="https://github.com/beetlebugorg/zslice/blob/main/src/printers/library.txt"><code>src/printers/library.txt</code></a>, <a href="https://github.com/beetlebugorg/zslice/blob/main/tools/printer_library.py"><code>tools/printer_library.py</code></a>, <a href="https://github.com/beetlebugorg/zslice/blob/main/src/printers.zig"><code>src/printers.zig</code></a></dd><dt>License texts</dt><dd><a href="https://github.com/beetlebugorg/zslice/blob/main/licenses/lgpl-3.0.txt"><code>licenses/lgpl-3.0.txt</code></a>, <a href="https://github.com/beetlebugorg/zslice/blob/main/licenses/gpl-3.0.txt"><code>licenses/gpl-3.0.txt</code></a></dd></dl></div>
+<p>Cura LulzBot Edition resources, FAME 3D (LulzBot), <a href="https://github.com/lulzbot3d/CuraLE_Resources">https://github.com/lulzbot3d/CuraLE_Resources</a>, <code>definitions</code> and <code>extruders</code>, commit <code>e44e13dedd1a055e956deced8723bec0ae7966be</code> (31 January 2025)</p>
+<p><strong>License:</strong> LGPL-3.0 (the <code>LICENSE</code> file of the repository)</p>
+<p><strong>Text:</strong> <code>licenses/lgpl-3.0.txt</code>, <code>licenses/gpl-3.0.txt</code></p>
+<p><strong>Notes:</strong> The LulzBot printers (TAZ Workhorse, TAZ Pro, TAZ 5 to 8, Mini, SideKick, Bio) in the Cura format. LulzBot comes first for its own printers. The nozzle of a tool head is in its name ("SE 0.50 mm"): the tool takes it from there.</p>
+<h2 id="data-next-to-the-binaries">Data next to the binaries</h2>
+<p>The bed models of the printers are files in <code>src/printers/beds/</code>: 456 meshes (<code>.mesh</code>) and 280 textures (<code>.png</code>), 10.5 MB in all. No binary and no wasm module contains them. The GTK app installs them in <code>share/zslice/beds</code>, and <code>zig build web</code> puts them in <code>zig-out/web/app/beds</code>. A shell loads the two files of the current printer (<code>zs_printers_bed</code>, <code>zs_view_set_bed</code>). The D lines of <code>src/printers/library.txt</code> name the files, and the P line of each printer model links its D line: 830 of the 1080 models have a bed, 813 with a mesh and 549 with a texture.</p>
+<p><code>tools/printer_library.py --beds</code> makes the files with <code>tools/printer_beds.py</code>. The tool reads the bed files of the four sources below, converts them (a mesh in printer axes with 16-bit coordinates and at most 5000 triangles; a PNG of at most 1024 pixels with 64 colors), and writes each file once. The bed of a model comes from the first of its records that has one, in the order of the library (the vendor bundle of a brand first, then OrcaSlicer, PrusaSlicer, Cura).</p>
+<p>The bed files have no license notes of their own: no license or readme file is in the mesh, image, or vendor folders, and no mesh, SVG, or PNG file has license metadata. So the license of the repository covers them. The exceptions are in the notes of each entry.</p>
+<h3 id="cura-bed-meshes-and-textures">Cura bed meshes and textures</h3>
+<div class="ref"><span class="kind k-data">data</span><span class="area">printers</span><dl><dt>Source</dt><dd>Cura</dd><dt>What zslice uses</dt><dd>The <code>platform</code> mesh (STL, OBJ, 3MF) of each definition, with <code>platform_offset</code>, and the <code>platform_texture</code> of an OBJ platform with UV coordinates.</dd><dt>License</dt><dd>LGPL-3.0-or-later</dd><dt>Link</dt><dd><a href="https://github.com/Ultimaker/Cura">https://github.com/Ultimaker/Cura</a></dd><dt>Version</dt><dd>commit 1a221ec29a86960d16a412940becc1f63534c41f</dd><dt>Used in</dt><dd><a href="https://github.com/beetlebugorg/zslice/tree/main/src/printers/beds"><code>src/printers/beds</code></a>, <a href="https://github.com/beetlebugorg/zslice/blob/main/tools/printer_beds.py"><code>tools/printer_beds.py</code></a>, <a href="https://github.com/beetlebugorg/zslice/blob/main/src/bed.zig"><code>src/bed.zig</code></a></dd><dt>License texts</dt><dd><a href="https://github.com/beetlebugorg/zslice/blob/main/licenses/lgpl-3.0.txt"><code>licenses/lgpl-3.0.txt</code></a>, <a href="https://github.com/beetlebugorg/zslice/blob/main/licenses/gpl-3.0.txt"><code>licenses/gpl-3.0.txt</code></a></dd></dl></div>
+<p>Cura, UltiMaker, <a href="https://github.com/Ultimaker/Cura">https://github.com/Ultimaker/Cura</a>, <code>resources/meshes</code> and <code>resources/images</code>, commit <code>1a221ec29a86960d16a412940becc1f63534c41f</code> (9 November 2026)</p>
+<p><strong>License:</strong> LGPL-3.0-or-later (the license of the repository)</p>
+<p><strong>Text:</strong> <code>licenses/lgpl-3.0.txt</code>, <code>licenses/gpl-3.0.txt</code></p>
+<p><strong>What zslice uses:</strong> The <code>platform</code> mesh (STL, OBJ, 3MF) of each definition, with <code>platform_offset</code>, and the <code>platform_texture</code> of an OBJ platform with UV coordinates. 275 models. The RatRig meshes (<code>ratrig_*.stl</code>) came to Cura from <a href="https://github.com/slic3r/slic3r-profiles">https://github.com/slic3r/slic3r-profiles</a> (AGPL-3.0) "with kind permission of the author" (Cura commit <code>f6cc7993e</code>).</p>
+<h3 id="prusaslicer-bed-models-and-textures">PrusaSlicer bed models and textures</h3>
+<div class="ref"><span class="kind k-data">data</span><span class="area">printers</span><dl><dt>Source</dt><dd>PrusaSlicer</dd><dt>What zslice uses</dt><dd>The <code>bed_model</code> STL and the <code>bed_texture</code> SVG or PNG of each <code>[printer_model:*]</code> section.</dd><dt>License</dt><dd>AGPL-3.0</dd><dt>Link</dt><dd><a href="https://github.com/prusa3d/PrusaSlicer">https://github.com/prusa3d/PrusaSlicer</a></dd><dt>Version</dt><dd>tag version_2.9.7</dd><dt>Used in</dt><dd><a href="https://github.com/beetlebugorg/zslice/tree/main/src/printers/beds"><code>src/printers/beds</code></a>, <a href="https://github.com/beetlebugorg/zslice/blob/main/tools/printer_beds.py"><code>tools/printer_beds.py</code></a>, <a href="https://github.com/beetlebugorg/zslice/blob/main/src/bed.zig"><code>src/bed.zig</code></a></dd></dl></div>
+<p>PrusaSlicer vendor bundles, Prusa Research, <a href="https://github.com/prusa3d/PrusaSlicer">https://github.com/prusa3d/PrusaSlicer</a>, <code>resources/profiles/&lt;vendor&gt;/</code>, tag <code>version_2.9.7</code> (commit <code>450d70dd81c9b8990bc6bc8e690e31f82ddceb11</code>)</p>
+<p><strong>License:</strong> AGPL-3.0 (the license of the repository)</p>
+<p><strong>Text:</strong> <code>LICENSE</code></p>
+<p><strong>What zslice uses:</strong> The <code>bed_model</code> STL and the <code>bed_texture</code> SVG or PNG of each <code>[printer_model:*]</code> section. 145 models.</p>
+<h3 id="orcaslicer-bed-models-and-textures">OrcaSlicer bed models and textures</h3>
+<div class="ref"><span class="kind k-data">data</span><span class="area">printers</span><dl><dt>Source</dt><dd>OrcaSlicer</dd><dt>What zslice uses</dt><dd>The <code>bed_model</code> STL and the <code>bed_texture</code> SVG or PNG of each <code>machine_model</code> preset.</dd><dt>License</dt><dd>AGPL-3.0</dd><dt>Link</dt><dd><a href="https://github.com/SoftFever/OrcaSlicer">https://github.com/SoftFever/OrcaSlicer</a></dd><dt>Version</dt><dd>commit e76b4d676c74f43ee1736675e0e8894425179cc4</dd><dt>Used in</dt><dd><a href="https://github.com/beetlebugorg/zslice/tree/main/src/printers/beds"><code>src/printers/beds</code></a>, <a href="https://github.com/beetlebugorg/zslice/blob/main/tools/printer_beds.py"><code>tools/printer_beds.py</code></a>, <a href="https://github.com/beetlebugorg/zslice/blob/main/src/bed.zig"><code>src/bed.zig</code></a></dd></dl></div>
+<p>OrcaSlicer profiles, <a href="https://github.com/SoftFever/OrcaSlicer">https://github.com/SoftFever/OrcaSlicer</a>, <code>resources/profiles/&lt;vendor&gt;/</code>, commit <code>e76b4d676c74f43ee1736675e0e8894425179cc4</code> (17 November 2026)</p>
+<p><strong>License:</strong> AGPL-3.0 (the license of the repository)</p>
+<p><strong>Text:</strong> <code>LICENSE</code></p>
+<p><strong>What zslice uses:</strong> The <code>bed_model</code> STL and the <code>bed_texture</code> SVG or PNG of each <code>machine_model</code> preset. 410 models.</p>
+<h3 id="lulzbot-bed-plates">LulzBot bed plates</h3>
+<div class="ref"><span class="kind k-data">data</span><span class="area">printers</span><dl><dt>Source</dt><dd>Cura LulzBot Edition</dd><dt>What zslice uses</dt><dd>The bed plates of the LulzBot printers, placed as Cura places them (<code>platform_offset</code>).</dd><dt>License</dt><dd>LGPL-3.0</dd><dt>Link</dt><dd><a href="https://github.com/lulzbot3d/CuraLE_Resources">https://github.com/lulzbot3d/CuraLE_Resources</a></dd><dt>Version</dt><dd>commit e44e13dedd1a055e956deced8723bec0ae7966be</dd><dt>Used in</dt><dd><a href="https://github.com/beetlebugorg/zslice/tree/main/src/printers/beds"><code>src/printers/beds</code></a>, <a href="https://github.com/beetlebugorg/zslice/blob/main/tools/printer_beds.py"><code>tools/printer_beds.py</code></a>, <a href="https://github.com/beetlebugorg/zslice/blob/main/src/bed.zig"><code>src/bed.zig</code></a></dd><dt>License texts</dt><dd><a href="https://github.com/beetlebugorg/zslice/blob/main/licenses/lgpl-3.0.txt"><code>licenses/lgpl-3.0.txt</code></a></dd></dl></div>
+<p>Cura LulzBot Edition resources, <a href="https://github.com/lulzbot3d/CuraLE_Resources">https://github.com/lulzbot3d/CuraLE_Resources</a>, <code>meshes/bed_plates</code>, commit <code>e44e13dedd1a055e956deced8723bec0ae7966be</code></p>
+<p><strong>License:</strong> LGPL-3.0 (the license of the repository; <code>meshes/README.md</code> adds no terms)</p>
+<p><strong>Text:</strong> <code>licenses/lgpl-3.0.txt</code></p>
+<p><strong>What zslice uses:</strong> The bed plates of the LulzBot printers, placed as Cura places them (<code>platform_offset</code>).</p>
+<h3 id="left-out">Left out</h3>
+<p>Left out:</p>
+<ul><li>The bed textures of the PrusaSlicer RatRig bundle (<code>RatRig/rr-vc-300.svg</code>, <code>rr-vc-400.svg</code>, <code>rr-vc-500.svg</code>, <code>rr-vminion.svg</code>). The header of <code>RatRig.ini</code> says: "The graphics for the bed (SVG) was created by PwnCNC and published on Thingiverse under the Creative Commons Attribution license" (<a href="https://www.thingiverse.com/thing:4861532">https://www.thingiverse.com/thing:4861532</a>). The version of the license is not known (the page does not open), so the license is not clear. The RatRig models get their beds from OrcaSlicer and Cura.</li><li><code>gCreate/gmax15p.svg</code> and <code>gCreate/gmax2.svg</code> of PrusaSlicer: empty images (no size).</li><li><code>E2D/i310_bed.stl</code> and <code>E2D/i311_bed.stl</code> of PrusaSlicer: the bundle names them, but they are not in it.</li><li>The Cura textures of an STL or 3MF platform (for example <code>anycubic_predator.png</code>, <code>uni.png</code>): such a mesh has no UV coordinates, so Cura shows no texture with it either.</li></ul>
+<p>Some textures show the logo of a brand. The logos are trademarks of their owners; the license of the files is not a license of the trademarks.</p>
+<h2 id="algorithms-formats-and-conventions">Algorithms, formats, and conventions</h2>
+<h3 id="printer-definition-formats">Printer definition formats</h3>
+<div class="ref"><span class="kind k-format">format</span><span class="area">printers</span><dl><dt>Source</dt><dd>Cura, PrusaSlicer, OrcaSlicer</dd><dt>What zslice uses</dt><dd>The converter reads these formats.</dd><dt>License</dt><dd>LGPL-3.0</dd><dt>Used in</dt><dd><a href="https://github.com/beetlebugorg/zslice/blob/main/tools/printer_library.py"><code>tools/printer_library.py</code></a>, <a href="https://github.com/beetlebugorg/zslice/blob/main/src/printers.zig"><code>src/printers.zig</code></a></dd></dl></div>
+<p>The printer definition formats: Cura <code>.def.json</code> (<code>inherits</code>, <code>metadata</code>, <code>overrides</code> with <code>default_value</code> and <code>value</code>), PrusaSlicer vendor bundles (INI sections <code>[printer_model:*]</code> and <code>[printer:*]</code>, <code>inherits</code> lists, <code>bed_shape</code>), and OrcaSlicer vendor profiles (<code>machine_model</code> and <code>machine</code> presets, <code>instantiation</code>, <code>printable_area</code>)</p>
+<p><strong>License:</strong> LGPL-3.0 (Cura), AGPL-3.0 (PrusaSlicer, OrcaSlicer); the formats, no code</p>
+<p><strong>Used in:</strong> <code>tools/printer_library.py</code>, <code>src/printers.zig</code></p>
+<p><strong>How zslice uses it:</strong> The converter reads these formats. The simple G-code variables of the three slicers get the names of zslice; the other variables and the scripts stay, for the core (see the next line). Newer OrcaSlicer profiles keep the G-code of a Bambu Lab preset in a preset of its own ("&lt;preset&gt; template machine_start_gcode"). CuraEngine heats the bed and the nozzle before a start G-code with no heat commands (<code>machine_start_gcode</code>), so the converter adds them to such a Cura G-code.</p>
+<h3 id="cura-bed-placement">Cura bed placement</h3>
+<div class="ref"><span class="kind k-idea">idea</span><span class="area">printers</span><dl><dt>Source</dt><dd>Cura</dd><dt>What zslice uses</dt><dd>The axes of each mesh format (the scene has y up.</dd><dt>License</dt><dd>LGPL-3.0</dd><dt>Link</dt><dd><a href="https://github.com/Ultimaker/Uranium">https://github.com/Ultimaker/Uranium</a></dd><dt>Version</dt><dd>commit a5dab929d07c85eb4d96b18a50973da3a46fb8b7</dd><dt>Used in</dt><dd><a href="https://github.com/beetlebugorg/zslice/blob/main/tools/printer_beds.py"><code>tools/printer_beds.py</code></a></dd></dl></div>
+<p>The bed placement of Cura: Uranium <code>UM/Scene/Platform.py</code>, the mesh readers <code>plugins/FileHandlers/STLReader/STLReader.py</code> and <code>OBJReader/OBJReader.py</code> (<a href="https://github.com/Ultimaker/Uranium">https://github.com/Ultimaker/Uranium</a>, main of 17 November 2026, commit <code>a5dab929d07c85eb4d96b18a50973da3a46fb8b7</code>), and Cura <code>plugins/3MFReader/ThreeMFReader.py</code> (commit <code>1a221ec2</code>)</p>
+<p><strong>License:</strong> LGPL-3.0 (the rules, not code)</p>
+<p><strong>Used in:</strong> <code>tools/printer_beds.py</code></p>
+<p><strong>How zslice uses it:</strong> The axes of each mesh format (the scene has y up; STL and OBJ turn (x, y, z) into (x, z, -y); a 3MF platform keeps the coordinates of its file), the origin at the bed center, <code>platform_offset</code> as the node position, and the UV of the OBJ file with the image mirrored.</p>
+<h3 id="prusaslicer-bed-placement">PrusaSlicer bed placement</h3>
+<div class="ref"><span class="kind k-idea">idea</span><span class="area">printers</span><dl><dt>Source</dt><dd>PrusaSlicer</dd><dt>What zslice uses</dt><dd>The origin of the model at the center of the bed shape, 0.03 mm down, and the texture over the box of the bed shape.</dd><dt>License</dt><dd>AGPL-3.0</dd><dt>Version</dt><dd>tag version_2.9.7</dd><dt>Used in</dt><dd><a href="https://github.com/beetlebugorg/zslice/blob/main/tools/printer_beds.py"><code>tools/printer_beds.py</code></a>, <a href="https://github.com/beetlebugorg/zslice/blob/main/src/bed.zig"><code>src/bed.zig</code></a></dd></dl></div>
+<p>The bed placement of PrusaSlicer: <code>src/slic3r/GUI/3DBed.cpp</code> (tag <code>version_2.9.7</code>)</p>
+<p><strong>License:</strong> AGPL-3.0 (the rules, not code)</p>
+<p><strong>Used in:</strong> <code>tools/printer_beds.py</code>, <code>src/bed.zig</code></p>
+<p><strong>How zslice uses it:</strong> The origin of the model at the center of the bed shape, 0.03 mm down, and the texture over the box of the bed shape.</p>
+<h3 id="orcaslicer-bed-placement">OrcaSlicer bed placement</h3>
+<div class="ref"><span class="kind k-idea">idea</span><span class="area">printers</span><dl><dt>Source</dt><dd>OrcaSlicer</dd><dt>What zslice uses</dt><dd>The origin of the model at the center of the printable area, 0.45 mm down.</dd><dt>License</dt><dd>AGPL-3.0</dd><dt>Version</dt><dd>commit e76b4d67</dd><dt>Used in</dt><dd><a href="https://github.com/beetlebugorg/zslice/blob/main/tools/printer_beds.py"><code>tools/printer_beds.py</code></a>, <a href="https://github.com/beetlebugorg/zslice/blob/main/src/bed.zig"><code>src/bed.zig</code></a></dd></dl></div>
+<p>The bed placement of OrcaSlicer: <code>src/slic3r/GUI/3DBed.cpp</code> and <code>PartPlate.cpp</code> (commit <code>e76b4d67</code>)</p>
+<p><strong>License:</strong> AGPL-3.0 (the rules, not code)</p>
+<p><strong>Used in:</strong> <code>tools/printer_beds.py</code>, <code>src/bed.zig</code></p>
+<p><strong>How zslice uses it:</strong> The origin of the model at the center of the printable area, 0.45 mm down; the printer coordinates of the "bbl-3dp-" models; the texture over the box of the printable area, 12 mm more to the front for Bambu Lab.</p>
+<h3 id="printer-fans-and-enclosures">Printer fans and enclosures</h3>
+<div class="ref"><span class="kind k-data">data</span><span class="area">printers</span><dl><dt>Source</dt><dd>Printer makers</dd><dt>What zslice uses</dt><dd>The cooling of the printer families in the machine profiles of the library (<code>machine.chamber_temp</code>, <code>machine.part_fan_air</code>).</dd><dt>License</dt><dd>Product pages</dd><dt>Link</dt><dd><a href="https://us.store.bambulab.com/products/auxiliary-part-cooling-fan">https://us.store.bambulab.com/products/auxiliary-part-cooling-fan</a></dd><dt>Used in</dt><dd><a href="https://github.com/beetlebugorg/zslice/blob/main/src/printers.zig"><code>src/printers.zig</code></a></dd></dl></div>
+<p>The fans and the enclosures of printer families, from the makers and their parts stores: Bambu Lab, "Auxiliary Part Cooling Fan" (a 12 W fan on the left side of the chamber of the X1 and P1 series), <a href="https://us.store.bambulab.com/products/auxiliary-part-cooling-fan">https://us.store.bambulab.com/products/auxiliary-part-cooling-fan</a>; Creality K1 side blower fan, <a href="https://spool3d.ca/creality-k1-auxillary-side-blower-fan/">https://spool3d.ca/creality-k1-auxillary-side-blower-fan/</a>, a 12032 radial fan (<a href="https://printables.com/model/524431-creality-k1-side-fan-cover-12032">https://printables.com/model/524431-creality-k1-side-fan-cover-12032</a>); Creality Ender 3 V2 4010 blower, <a href="https://store.dremc.com.au/products/ender-3-v2-hotend-axial-and-blower-fan">https://store.dremc.com.au/products/ender-3-v2-hotend-axial-and-blower-fan</a>; Prusa print fan blowers, <a href="https://www.prusa3d.com/product/print-fan-blower/">https://www.prusa3d.com/product/print-fan-blower/</a>, <a href="https://partsbuilt.com/print-cooling-fan-mk4-xl-original-prusa">https://partsbuilt.com/print-cooling-fan-mk4-xl-original-prusa</a>, and <a href="https://www.123-3d.co.uk/Prusa-Print-Fan-Blower-for-MK4S-MK3-9-Core-One-i13409.html">https://www.123-3d.co.uk/Prusa-Print-Fan-Blower-for-MK4S-MK3-9-Core-One-i13409.html</a> (a 5015 blower), and the chamber of the Core One, <a href="https://help.prusa3d.com/article/chamber-temperature-is-critical-31261-core-one-l-35261-core-one-17261-xl_861880">https://help.prusa3d.com/article/chamber-temperature-is-critical-31261-core-one-l-35261-core-one-17261-xl_861880</a>; the Voron Stealthburner fans (a 5015 part cooling blower), <a href="https://forum.vorondesign.com/threads/stealthburner-fan-specifications.985">https://forum.vorondesign.com/threads/stealthburner-fan-specifications.985</a>; QIDI X-Max 3 (a heated chamber to 65 °C), <a href="https://qidi3d.com/products/qidi-x-max-3">https://qidi3d.com/products/qidi-x-max-3</a>, and the X-Plus 3 auxiliary fan, <a href="https://qidi3d.com/products/x-plus-3-auxiliary-fan">https://qidi3d.com/products/x-plus-3-auxiliary-fan</a>; UltiMaker S3 and S5 radial fans (35 x 35 x 10 mm, one on each side of the head), <a href="https://shop.cadmicro.com/products/ultimaker-radial-fan-35x35x10-for-um3-series-s3-s5">https://shop.cadmicro.com/products/ultimaker-radial-fan-35x35x10-for-um3-series-s3-s5</a>; the LulzBot SE tool head (a 24 V radial blower), <a href="https://lulzbot.com/store/lulzbot-se-tool-head-nickel-plated-copper-0-5-mm-kt-cp0136">https://lulzbot.com/store/lulzbot-se-tool-head-nickel-plated-copper-0-5-mm-kt-cp0136</a></p>
+<p><strong>License:</strong> Product pages</p>
+<p><strong>Used in:</strong> <code>src/printers.zig</code></p>
+<p><strong>How zslice uses it:</strong> The cooling of the printer families in the machine profiles of the library (<code>machine.chamber_temp</code>, <code>machine.part_fan_air</code>). The fans and the enclosures come from these pages. The air speeds are estimates from the fan sizes, and the air of a closed printer with PLA is an estimate.</p><nav class="pager"><a class="prev" href="../../references/slicer-techniques/"><span>Previous</span><b>Slicer techniques</b></a><a class="next" href="../../references/klipper-marlin-firmware/"><span>Next</span><b>Firmware and G-code</b></a></nav>
+</main>
+</div>
+<footer>zslice is free software (AGPL-3.0-or-later). <a href="../../privacy/">Privacy</a>: no analytics, no cookies, nothing from other sites. <a href="https://github.com/beetlebugorg/zslice/blob/main/docs/build.py">docs/build.py</a> writes this site from <a href="https://github.com/beetlebugorg/zslice/blob/main/docs/references/printer-data.md">docs/references/printer-data.md</a>.</footer>
+</body>
+</html>

@@ -5,7 +5,7 @@
 Read `AGENTS.md` at the root of the repo. It has the rules for all contributors, people and agents:
 
 - The goals of the project.
-- Licenses and references: each source that you use goes in `REFERENCES.md` and in the header comment of the file.
+- Licenses and references: credit each source. Each idea, data, or code that you take from another project gets an entry in [the references](../references/README.md): what you took, from where (a link and a commit or a version), its license, and where it lives in zslice. Name the source in the header comment of the file too.
 - The writing style for comments and docs.
 - The checks before a commit.
 

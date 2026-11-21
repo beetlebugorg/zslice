@@ -41,7 +41,7 @@
 //! the top or bottom layers under its shape. The region of a label wins
 //! over the paint and the roots (see `Split.labelLayer`).
 //!
-//! References (see REFERENCES.md): the multi-material segmentation of
+//! References (see docs/references/): the multi-material segmentation of
 //! PrusaSlicer (MultiMaterialSegmentation.cpp: the colored edges of a
 //! layer, the projection of painted top and bottom surfaces); the text
 //! tools of PrusaSlicer and Bambu Studio and the segmented region width
@@ -388,7 +388,7 @@ pub const Split = struct {
     /// its walls and infill in the root, and A prints walls around it.
     /// This is the method of zslice; Cura and OrcaSlicer join two
     /// materials with an interlocking structure of beams instead (see
-    /// REFERENCES.md).
+    /// docs/references/).
     fn anchor(s: *Split, outlines: []const Paths, cut_z: []const f64, width: f64, top: f64, bottom: f64, roots: Anchor) Allocator.Error!void {
         const gpa = s.gpa;
         const n = s.layers;

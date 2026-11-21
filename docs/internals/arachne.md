@@ -1,6 +1,6 @@
 # Arachne walls
 
-With `project.wall_generator = arachne`, the walls of each layer come from Arachne, the variable-width wall method of Cura. The code is a port to Zig of CuraEngine (AGPL-3.0-or-later). The Voronoi diagram is a port of boost::polygon (Boost Software License 1.0). See `REFERENCES.md` for the files, the commit hashes, and the copyright lines.
+With `project.wall_generator = arachne`, the walls of each layer come from Arachne, the variable-width wall method of Cura. The code is a port to Zig of CuraEngine (AGPL-3.0-or-later). The Voronoi diagram is a port of boost::polygon (Boost Software License 1.0). See [Cura and CuraEngine](../references/cura.md) and [Libraries and tools](../references/libraries.md) for the files, the commit hashes, and the copyright lines.
 
 ## Why
 

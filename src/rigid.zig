@@ -5,14 +5,14 @@
 //! - **Mass.** The volume, the center of mass, and the inertia tensor of
 //!   the closed mesh, from the signed tetrahedra of its faces with the
 //!   origin (the method of D. Eberly, "Polyhedral Mass Properties"; see
-//!   REFERENCES.md). The density is even: the walls and the infill differ,
+//!   docs/references/physics-and-materials.md). The density is even: the walls and the infill differ,
 //!   but the fall depends on the shape far more than on the infill.
 //! - **Shape.** The points of the convex hull that touch the bed: the
 //!   vertices of the mesh that are the farthest in 642 even directions (an
 //!   icosphere). A part rests on its convex hull, and a flat face or a
 //!   corner is always one of these points.
 //! - **Solver.** Sequential impulses (E. Catto, "Iterative Dynamics with
-//!   Temporal Coherence", GDC 2005; see REFERENCES.md): each contact with
+//!   Temporal Coherence", GDC 2005; see docs/references/physics-and-materials.md): each contact with
 //!   the bed gets a normal impulse and two friction impulses, the sums
 //!   clamped (the normal sum at 0 or more, the friction in the cone of the
 //!   normal sum), and a small push out of the bed (Baumgarte). The step is

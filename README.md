@@ -85,6 +85,6 @@ The Linux app (GTK 4) and the macOS app (SwiftUI and Metal) are in `linux/` and 
 
 ## License
 
-AGPL-3.0-or-later. See `LICENSE`. The sources that zslice uses, and the licenses of the code in its binaries, are in `REFERENCES.md`.
+AGPL-3.0-or-later. See `LICENSE`. The sources that zslice uses, and the licenses of the code in its binaries, are in [docs/references](docs/references/README.md).
 
 The pictures show a slice of [3DBenchy](https://www.3dbenchy.com/) by Creative Tools, licensed under CC BY-ND 4.0. The model is not in this repository.

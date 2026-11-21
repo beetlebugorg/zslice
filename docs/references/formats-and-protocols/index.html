@@ -1,0 +1,253 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Formats and protocols · zslice</title>
+<meta name="description" content="The file formats, the network protocols, the printer APIs, and the platform documents that zslice reads and writes.">
+<link rel="canonical" href="https://zslice.beetlebug.org/references/formats-and-protocols/">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%23171717'/%3E%3Crect x='11' y='8' width='10' height='4' rx='1' fill='%23f4f0e6'/%3E%3Crect x='8' y='14' width='16' height='4' rx='1' fill='%23f4f0e6'/%3E%3Crect x='5' y='20' width='22' height='4' rx='1' fill='%23ff5a1f'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="../../site.css">
+</head>
+<body>
+<input type="checkbox" id="menu">
+<header class="top">
+  <a class="brand" href="../../docs.html"><span class="mark">ZSLICE</span><span class="docs">DOCS</span></a>
+  <label class="menu-btn" for="menu">Contents</label>
+  <nav class="top-links"><a href="../../index.html">Open the app</a><a href="../../user/getting-started/">Get started</a><a href="../../roadmap/">Roadmap</a><a href="../../privacy/">Privacy</a><a href="https://github.com/beetlebugorg/zslice">GitHub</a></nav>
+</header>
+<div class="layout">
+<aside class="side"><nav><a href="../../docs.html">Home</a>
+<a href="../../contents/">All documents</a>
+<div class="group">Start</div>
+<a href="../../user/getting-started/"><span class="n">1</span>Your first print</a>
+<div class="group">Everyday tasks</div>
+<a href="../../user/look/"><span class="n">2</span>Look at the print</a>
+<a href="../../user/lines/"><span class="n">3</span>Click a line</a>
+<a href="../../user/change-settings/"><span class="n">4</span>Change a setting</a>
+<a href="../../user/parts/"><span class="n">5</span>Place the parts</a>
+<a href="../../user/support/"><span class="n">6</span>Add support</a>
+<a href="../../user/filaments/"><span class="n">7</span>Print in colors</a>
+<a href="../../user/labels/"><span class="n">8</span>Labels on a part</a>
+<a href="../../user/check/"><span class="n">9</span>Check the print</a>
+<a href="../../user/plates/"><span class="n">10</span>Plates and files</a>
+<a href="../../user/printers/"><span class="n">11</span>Send to a printer</a>
+<a href="../../user/history/"><span class="n">12</span>Undo and history</a>
+<div class="group">Features</div>
+<a href="../../user/features/"><span class="n">13</span>The best features</a>
+<a href="../../user/print-as-it-forms/"><span class="n">14</span>The print as it forms</a>
+<a href="../../user/projects/"><span class="n">15</span>printdeck projects</a>
+<a href="../../user/farm/"><span class="n">16</span>A print farm</a>
+<div class="group">Reference</div>
+<a href="../../user/keys/">Keys and mouse</a>
+<a href="../../user/settings/">Settings</a>
+<a href="../../user/expert/">Formulas and rules</a>
+<a href="../../user/profiles/">Profiles</a>
+<a href="../../user/command-line/">The command line</a>
+<a href="../../user/apps/">Web, Linux, and Mac</a>
+<a href="../../user/macos/">The macOS app</a>
+<a href="../../user/troubleshooting/">Problems and errors</a>
+<div class="group">Embedding</div>
+<a href="../../embedding/">Overview</a>
+<a href="../../embedding/c/">C</a>
+<a href="../../embedding/zig/">Zig</a>
+<a href="../../embedding/javascript/">JavaScript</a>
+<a href="../../embedding/print-view/">The print view</a>
+<a href="../../embedding/viewer/">The G-code viewer</a>
+<a href="../../embedding/labels/">Labels</a>
+<div class="group">Internals</div>
+<a href="../../internals/architecture/">Architecture</a>
+<a href="../../internals/one-view/">Plan: one view</a>
+<a href="../../internals/how-slicing-works/">How slicing works</a>
+<a href="../../internals/layer-settings/">Settings for some layers</a>
+<a href="../../internals/arachne/">Arachne walls</a>
+<a href="../../internals/print-sim/">The print simulation</a>
+<a href="../../internals/cura-compare/">Compared with other slicers</a>
+<a href="../../internals/contributing/">Contributing</a>
+<a href="../../internals/code-quality/">Code quality</a>
+<a href="../../internals/macos/">The macOS app</a>
+<div class="group">Project</div>
+<a href="../../app/">App</a>
+<a href="../../roadmap/">Roadmap</a>
+<a href="../../privacy/">Privacy</a>
+<div class="group">References</div>
+<a href="../../references/">References</a>
+<a href="../../references/explore/">Explorer</a>
+<a href="../../references/libraries/">Libraries and tools</a>
+<a href="../../references/cura/">Cura</a>
+<a href="../../references/orcaslicer/">OrcaSlicer</a>
+<a href="../../references/prusaslicer/">PrusaSlicer</a>
+<a href="../../references/bambu-studio/">Bambu Studio</a>
+<a href="../../references/slicer-techniques/">Slicer techniques</a>
+<a href="../../references/printer-data/">Printer data</a>
+<a href="../../references/klipper-marlin-firmware/">Firmware and G-code</a>
+<a href="../../references/fonts/">Fonts</a>
+<a href="../../references/papers-and-algorithms/">Papers and algorithms</a>
+<a href="../../references/physics-and-materials/">Physics and materials</a>
+<a href="../../references/formats-and-protocols/" aria-current="page">Formats and protocols</a></nav></aside>
+<main>
+<p class="eyebrow">References</p>
+<h1>Formats and protocols</h1>
+<p class="lede">The file formats, the network protocols, the printer APIs, and the platform documents that zslice reads and writes.</p>
+<h2 id="algorithms-formats-and-conventions">Algorithms, formats, and conventions</h2>
+<h3 id="svg-11-path-data-and-arcs">SVG 1.1 path data and arcs</h3>
+<div class="ref"><span class="kind k-format">format</span><span class="area">ui</span><dl><dt>Source</dt><dd>W3C</dd><dt>What zslice uses</dt><dd>The Mac app draws the glyphs of the history steps (the SVG paths of <code>web/app/history.js</code>) with SwiftUI paths.</dd><dt>License</dt><dd>W3C standard</dd><dt>Link</dt><dd><a href="https://www.w3.org/TR/SVG11/">https://www.w3.org/TR/SVG11/</a></dd><dt>Used in</dt><dd><a href="https://github.com/beetlebugorg/zslice/blob/main/macos/Sources/ZSlice/Views/HistoryGlyph.swift"><code>macos/Sources/ZSlice/Views/HistoryGlyph.swift</code></a>, <a href="https://github.com/beetlebugorg/zslice/blob/main/web/app/history.js"><code>web/app/history.js</code></a></dd></dl></div>
+<p>Scalable Vector Graphics (SVG) 1.1, W3C Recommendation: path data, and the conversion of an arc from its end points to its center (appendix F.6.5), <a href="https://www.w3.org/TR/SVG11/">https://www.w3.org/TR/SVG11/</a></p>
+<p><strong>License:</strong> W3C standard</p>
+<p><strong>Used in:</strong> <code>macos/Sources/ZSlice/Views/HistoryGlyph.swift</code></p>
+<p><strong>How zslice uses it:</strong> The Mac app draws the glyphs of the history steps (the SVG paths of <code>web/app/history.js</code>) with SwiftUI paths. The code is new.</p>
+<h3 id="toml-v100">TOML v1.0.0</h3>
+<div class="ref"><span class="kind k-format">format</span><span class="area">files</span><dl><dt>Source</dt><dd>TOML</dd><dt>What zslice uses</dt><dd>The profile file format.</dd><dt>License</dt><dd>MIT</dd><dt>Link</dt><dd><a href="https://toml.io/en/v1.0.0">https://toml.io/en/v1.0.0</a></dd><dt>Used in</dt><dd><a href="https://github.com/beetlebugorg/zslice/blob/main/src/toml.zig"><code>src/toml.zig</code></a>, <a href="https://github.com/beetlebugorg/zslice/blob/main/src/profile.zig"><code>src/profile.zig</code></a></dd></dl></div>
+<p>TOML v1.0.0, <a href="https://toml.io/en/v1.0.0">https://toml.io/en/v1.0.0</a></p>
+<p><strong>License:</strong> MIT (the specification)</p>
+<p><strong>Used in:</strong> <code>src/toml.zig</code>, <code>src/profile.zig</code></p>
+<p><strong>How zslice uses it:</strong> The profile file format. zslice parses a subset.</p>
+<h3 id="github-rest-api-and-git-lfs-pointers">GitHub REST API and Git LFS pointers</h3>
+<div class="ref"><span class="kind k-format">format</span><span class="area">network</span><dl><dt>Source</dt><dd>GitHub</dd><dt>What zslice uses</dt><dd>Open a printdeck.yml project from a public repository with no login.</dd><dt>License</dt><dd>The APIs and the format</dd><dt>Link</dt><dd><a href="https://docs.github.com/rest">https://docs.github.com/rest</a></dd><dt>Used in</dt><dd><a href="https://github.com/beetlebugorg/zslice/blob/main/web/app/project.js"><code>web/app/project.js</code></a>, <a href="https://github.com/beetlebugorg/zslice/blob/main/linux/src/net/project-source.c"><code>linux/src/net/project-source.c</code></a></dd></dl></div>
+<p>GitHub REST API, <a href="https://docs.github.com/rest">https://docs.github.com/rest</a> (<code>GET /repos/{owner}/{repo}</code> for <code>default_branch</code>, <code>GET /repos/{owner}/{repo}/commits/{ref}</code> for <code>sha</code>, <code>GET /repos/{owner}/{repo}/git/trees/{sha}?recursive=1</code>), the files at <code>raw.githubusercontent.com/{owner}/{repo}/{sha}/{path}</code>, and the Git LFS pointer file (<a href="https://github.com/git-lfs/git-lfs">https://github.com/git-lfs/git-lfs</a>, <code>docs/spec.md</code>: a small text file that starts with <code>version https://git-lfs</code>) with the file at <code>media.githubusercontent.com/media/{owner}/{repo}/{sha}/{path}</code></p>
+<p><strong>License:</strong> The APIs and the format (facts, no code)</p>
+<p><strong>Used in:</strong> <code>web/app/project.js</code>, <code>linux/src/net/project-source.c</code></p>
+<p><strong>How zslice uses it:</strong> Open a printdeck.yml project from a public repository with no login.</p>
+<h3 id="octoprint-rest-api">OctoPrint REST API</h3>
+<div class="ref"><span class="kind k-format">format</span><span class="area">network</span><dl><dt>Source</dt><dd>OctoPrint</dd><dt>What zslice uses</dt><dd>Read the state of a printer, and send G-code to it.</dd><dt>License</dt><dd>AGPL-3.0</dd><dt>Link</dt><dd><a href="https://docs.octoprint.org/en/master/api/">https://docs.octoprint.org/en/master/api/</a></dd><dt>Used in</dt><dd><a href="https://github.com/beetlebugorg/zslice/blob/main/linux/src/net/printer-link.c"><code>linux/src/net/printer-link.c</code></a>, <a href="https://github.com/beetlebugorg/zslice/blob/main/tools/farm_sim/farm_sim.py"><code>tools/farm_sim/farm_sim.py</code></a></dd></dl></div>
+<p>OctoPrint REST API, <a href="https://docs.octoprint.org/en/master/api/">https://docs.octoprint.org/en/master/api/</a> (<code>/api/printer</code>, <code>/api/printerprofiles</code>, <code>/api/job</code>, <code>/api/files/local</code>, the <code>X-Api-Key</code> header)</p>
+<p><strong>License:</strong> AGPL-3.0 (OctoPrint; the API, not code)</p>
+<p><strong>Used in:</strong> <code>linux/src/net/printer-link.c</code>, <code>tools/farm_sim/farm_sim.py</code></p>
+<p><strong>How zslice uses it:</strong> Read the state of a printer, and send G-code to it. printdeck has the same API.</p>
+<h3 id="octoprint-app-keys">OctoPrint App Keys</h3>
+<div class="ref"><span class="kind k-format">format</span><span class="area">network</span><dl><dt>Source</dt><dd>OctoPrint</dd><dt>What zslice uses</dt><dd>"Get a key": the printer asks its user to allow zslice, and gives zslice an API key of its own.</dd><dt>License</dt><dd>AGPL-3.0</dd><dt>Link</dt><dd><a href="https://docs.octoprint.org/en/master/bundledplugins/appkeys.html">https://docs.octoprint.org/en/master/bundledplugins/appkeys.html</a></dd><dt>Used in</dt><dd><a href="https://github.com/beetlebugorg/zslice/blob/main/linux/src/net/printer-link.c"><code>linux/src/net/printer-link.c</code></a>, <a href="https://github.com/beetlebugorg/zslice/blob/main/web/app/link.js"><code>web/app/link.js</code></a></dd></dl></div>
+<p>The App Keys plugin of OctoPrint, <a href="https://docs.octoprint.org/en/master/bundledplugins/appkeys.html">https://docs.octoprint.org/en/master/bundledplugins/appkeys.html</a> (<code>POST /plugin/appkeys/request</code> with the app name, then <code>GET /plugin/appkeys/request/&lt;app_token&gt;</code>: 202 wait, 200 with <code>api_key</code>, 404 denied)</p>
+<p><strong>License:</strong> AGPL-3.0 (OctoPrint; the API, not code)</p>
+<p><strong>Used in:</strong> <code>linux/src/net/printer-link.c</code>, <code>web/app/link.js</code></p>
+<p><strong>How zslice uses it:</strong> "Get a key": the printer asks its user to allow zslice, and gives zslice an API key of its own. printdeck has the same flow.</p>
+<h3 id="dns-multicast-dns-and-dns-sd">DNS, Multicast DNS, and DNS-SD</h3>
+<div class="ref"><span class="kind k-format">format</span><span class="area">network</span><dl><dt>Source</dt><dd>IETF</dd><dt>What zslice uses</dt><dd>The query packet (PTR questions with the unicast bit) and the reading of the PTR, SRV, TXT, and A records of an answer.</dd><dt>License</dt><dd>IETF RFCs</dd><dt>Link</dt><dd><a href="https://www.rfc-editor.org">https://www.rfc-editor.org</a></dd><dt>Used in</dt><dd><a href="https://github.com/beetlebugorg/zslice/blob/main/src/discovery.zig"><code>src/discovery.zig</code></a></dd></dl></div>
+<p>RFC 1035 (DNS messages and name compression), RFC 6762 (Multicast DNS), and RFC 6763 (DNS-Based Service Discovery), <a href="https://www.rfc-editor.org">https://www.rfc-editor.org</a></p>
+<p><strong>License:</strong> IETF RFCs (the formats)</p>
+<p><strong>Used in:</strong> <code>src/discovery.zig</code></p>
+<p><strong>How zslice uses it:</strong> The query packet (PTR questions with the unicast bit) and the reading of the PTR, SRV, TXT, and A records of an answer. A query from a port other than 5353 gets a unicast answer (RFC 6762, section 6.7).</p>
+<h3 id="service-types-of-printer-servers">Service types of printer servers</h3>
+<div class="ref"><span class="kind k-format">format</span><span class="area">network</span><dl><dt>Source</dt><dd>OctoPrint, Moonraker, PrusaLink, printdeck</dd><dt>What zslice uses</dt><dd>The service types that the finder asks for, and the TXT keys <code>path</code>, <code>model</code>, and <code>version</code>. The <code>text</code> of <code>/api/version</code> tells printdeck ("Printdeck") and PrusaLink from OctoPrint.</dd><dt>License</dt><dd>The names and the TXT keys</dd><dt>Link</dt><dd><a href="https://github.com/OctoPrint/OctoPrint">https://github.com/OctoPrint/OctoPrint</a></dd><dt>Used in</dt><dd><a href="https://github.com/beetlebugorg/zslice/blob/main/src/discovery.zig"><code>src/discovery.zig</code></a></dd></dl></div>
+<p>The service types of printer servers: <code>_octoprint._tcp</code> of the OctoPrint discovery plugin (<a href="https://github.com/OctoPrint/OctoPrint">https://github.com/OctoPrint/OctoPrint</a>, <code>src/octoprint/plugins/discovery/__init__.py</code>, AGPL-3.0), <code>_moonraker._tcp</code> of the Moonraker zeroconf component (<a href="https://github.com/Arksine/moonraker">https://github.com/Arksine/moonraker</a>, <code>moonraker/components/zeroconf.py</code>, GPL-3.0), <code>_prusalink._tcp</code> and <code>_octoprint._tcp</code> of PrusaLink (<a href="https://github.com/prusa3d/Prusa-Link">https://github.com/prusa3d/Prusa-Link</a>, <code>prusa/link/service_discovery.py</code>, GPL-3.0), and the printdeck service file (<code>os/board/rootfs/usr/lib/systemd/dnssd/printdeck.dnssd</code>: <code>_octoprint._tcp</code>, port 80)</p>
+<p><strong>License:</strong> The names and the TXT keys (facts, no code)</p>
+<p><strong>Used in:</strong> <code>src/discovery.zig</code></p>
+<p><strong>How zslice uses it:</strong> The service types that the finder asks for, and the TXT keys <code>path</code>, <code>model</code>, and <code>version</code>. The <code>text</code> of <code>/api/version</code> tells printdeck ("Printdeck") and PrusaLink from OctoPrint. The toolhead object of Klipper through Moonraker (<code>/printer/objects/query?toolhead</code>, <code>axis_minimum</code> and <code>axis_maximum</code>) gives the size of the bed. PrusaSlicer (<code>src/slic3r/GUI/BonjourDialog.cpp</code>) also finds printers as <code>_octoprint._tcp</code> with the TXT keys <code>version</code> and <code>model</code>.</p>
+<h3 id="moonraker-api">Moonraker API</h3>
+<div class="ref"><span class="kind k-format">format</span><span class="area">network</span><dl><dt>Source</dt><dd>Moonraker</dd><dt>What zslice uses</dt><dd>The same, for Klipper printers.</dd><dt>License</dt><dd>GPL-3.0</dd><dt>Link</dt><dd><a href="https://moonraker.readthedocs.io/">https://moonraker.readthedocs.io/</a></dd><dt>Used in</dt><dd><a href="https://github.com/beetlebugorg/zslice/blob/main/linux/src/net/printer-link.c"><code>linux/src/net/printer-link.c</code></a>, <a href="https://github.com/beetlebugorg/zslice/blob/main/tools/farm_sim/farm_sim.py"><code>tools/farm_sim/farm_sim.py</code></a></dd></dl></div>
+<p>Moonraker API, <a href="https://moonraker.readthedocs.io/">https://moonraker.readthedocs.io/</a> (<code>/printer/objects/query</code>, <code>/server/files/upload</code>)</p>
+<p><strong>License:</strong> GPL-3.0 (Moonraker; the API, not code)</p>
+<p><strong>Used in:</strong> <code>linux/src/net/printer-link.c</code>, <code>tools/farm_sim/farm_sim.py</code></p>
+<p><strong>How zslice uses it:</strong> The same, for Klipper printers.</p>
+<h3 id="printer-webcams">Printer webcams</h3>
+<div class="ref"><span class="kind k-format">format</span><span class="area">network</span><dl><dt>Source</dt><dd>OctoPrint, Moonraker, printdeck</dd><dt>What zslice uses</dt><dd>The address of the MJPEG stream and of the snapshot of each printer.</dd><dt>License</dt><dd>AGPL-3.0</dd><dt>Link</dt><dd><a href="https://docs.octoprint.org/en/master/api/settings.html">https://docs.octoprint.org/en/master/api/settings.html</a></dd><dt>Used in</dt><dd><a href="https://github.com/beetlebugorg/zslice/blob/main/src/app/printer_status.zig"><code>src/app/printer_status.zig</code></a>, <a href="https://github.com/beetlebugorg/zslice/blob/main/web/app/link.js"><code>web/app/link.js</code></a>, <a href="https://github.com/beetlebugorg/zslice/blob/main/web/app/camera.js"><code>web/app/camera.js</code></a>, <a href="https://github.com/beetlebugorg/zslice/blob/main/tools/farm_sim/farm_sim.py"><code>tools/farm_sim/farm_sim.py</code></a></dd></dl></div>
+<p>The webcams of printers: the <code>webcam</code> object of the OctoPrint settings API, <a href="https://docs.octoprint.org/en/master/api/settings.html">https://docs.octoprint.org/en/master/api/settings.html</a> (<code>webcamEnabled</code>, <code>streamUrl</code>, <code>snapshotUrl</code>, <code>flipH</code>, <code>flipV</code>, <code>rotate90</code>, and the <code>webcams[]</code> list with <code>compat.stream</code> and <code>compat.snapshot</code> of OctoPrint 1.9 and later); the webcam API of Moonraker, <a href="https://moonraker.readthedocs.io/en/latest/external_api/webcams/">https://moonraker.readthedocs.io/en/latest/external_api/webcams/</a> (<code>GET /server/webcams/list</code>: <code>enabled</code>, <code>service</code>, <code>stream_url</code>, <code>snapshot_url</code>, <code>flip_horizontal</code>, <code>flip_vertical</code>, <code>rotation</code> in degrees clockwise); the webcam of printdeck (<code>../printdeck</code>, <code>deck/internal/octoapi/webcam.go</code>: <code>/webcam/stream</code>, <code>/webcam/snapshot</code>, the parameters <code>w</code> and <code>fps</code>)</p>
+<p><strong>License:</strong> AGPL-3.0 (OctoPrint), GPL-3.0 (Moonraker), printdeck; the APIs, no code</p>
+<p><strong>Used in:</strong> <code>src/app/printer_status.zig</code>, <code>web/app/link.js</code>, <code>web/app/camera.js</code>, <code>tools/farm_sim/farm_sim.py</code></p>
+<p><strong>How zslice uses it:</strong> The address of the MJPEG stream and of the snapshot of each printer. zslice reads <code>rotate90</code> as a turn of 90° counterclockwise, as the OctoPrint web page shows it (not checked with a real OctoPrint). The Moonraker services <code>mjpegstreamer</code> and <code>uv4l-mjpeg</code> give an MJPEG stream; for the other services, zslice polls the snapshot.</p>
+<h3 id="mjpeg-over-http">MJPEG over HTTP</h3>
+<div class="ref"><span class="kind k-format">format</span><span class="area">network</span><dl><dt>Source</dt><dd>IETF</dd><dt>What zslice uses</dt><dd>The live camera of a printer.</dd><dt>License</dt><dd>Public standard</dd><dt>Link</dt><dd><a href="https://www.rfc-editor.org/rfc/rfc2046">https://www.rfc-editor.org/rfc/rfc2046</a></dd><dt>Used in</dt><dd><a href="https://github.com/beetlebugorg/zslice/blob/main/web/app/camera.js"><code>web/app/camera.js</code></a>, <a href="https://github.com/beetlebugorg/zslice/blob/main/linux/src/ui/camera-view.c"><code>linux/src/ui/camera-view.c</code></a>, <a href="https://github.com/beetlebugorg/zslice/blob/main/macos/Sources/ZSlice/Core/Camera.swift"><code>macos/Sources/ZSlice/Core/Camera.swift</code></a>, <a href="https://github.com/beetlebugorg/zslice/blob/main/tools/farm_sim/farm_sim.py"><code>tools/farm_sim/farm_sim.py</code></a></dd></dl></div>
+<p>MJPEG over HTTP: a <code>multipart/x-mixed-replace</code> reply with one JPEG in each part, as mjpg-streamer, ustreamer, and printdeck send it; the multipart format of RFC 2046, <a href="https://www.rfc-editor.org/rfc/rfc2046">https://www.rfc-editor.org/rfc/rfc2046</a></p>
+<p><strong>License:</strong> Public standard</p>
+<p><strong>Used in:</strong> <code>web/app/camera.js</code> (the browser plays it in an <code>&lt;img&gt;</code>), <code>linux/src/ui/camera-view.c</code>, <code>macos/Sources/ZSlice/Core/Camera.swift</code> (URLSession reads the parts), <code>tools/farm_sim/farm_sim.py</code></p>
+<p><strong>How zslice uses it:</strong> The live camera of a printer.</p>
+<h3 id="cross-origin-embedder-policy-credentialless">Cross-Origin-Embedder-Policy credentialless</h3>
+<div class="ref"><span class="kind k-format">format</span><span class="area">network</span><dl><dt>Source</dt><dd>Web standards</dd><dt>What zslice uses</dt><dd>The page stays cross-origin isolated (the threads of the slice), and the <code>&lt;img&gt;</code> of a printer camera on another origin loads with no cookies.</dd><dt>License</dt><dd>The web standard</dd><dt>Link</dt><dd><a href="https://developer.mozilla.org/docs/Web/HTTP/Headers/Cross-Origin-Embedder-Policy">https://developer.mozilla.org/docs/Web/HTTP/Headers/Cross-Origin-Embedder-Policy</a></dd><dt>Used in</dt><dd><a href="https://github.com/beetlebugorg/zslice/blob/main/web/app/serve.py"><code>web/app/serve.py</code></a>, <a href="https://github.com/beetlebugorg/zslice/blob/main/web/app/README.md"><code>web/app/README.md</code></a></dd></dl></div>
+<p><code>Cross-Origin-Embedder-Policy: credentialless</code>, <a href="https://developer.mozilla.org/docs/Web/HTTP/Headers/Cross-Origin-Embedder-Policy">https://developer.mozilla.org/docs/Web/HTTP/Headers/Cross-Origin-Embedder-Policy</a></p>
+<p><strong>License:</strong> The web standard (HTML)</p>
+<p><strong>Used in:</strong> <code>web/app/serve.py</code>, <code>web/app/README.md</code></p>
+<p><strong>How zslice uses it:</strong> The page stays cross-origin isolated (the threads of the slice), and the <code>&lt;img&gt;</code> of a printer camera on another origin loads with no cookies.</p>
+<h3 id="printdeck-deck-api">printdeck deck API</h3>
+<div class="ref"><span class="kind k-format">format</span><span class="area">network</span><dl><dt>Source</dt><dd>printdeck</dd><dt>What zslice uses</dt><dd>The filament in the printer, for "Use the filament in the printer".</dd><dt>License</dt><dd>AGPL-3.0</dd><dt>Used in</dt><dd><a href="https://github.com/beetlebugorg/zslice/blob/main/linux/src/net/printer-link.c"><code>linux/src/net/printer-link.c</code></a></dd></dl></div>
+<p>printdeck deck API (same author, AGPL-3.0), <code>deck/internal/octoapi</code> of printdeck: <code>/api/plugin/printdeck</code> (the filament, the spools, the job)</p>
+<p><strong>License:</strong> AGPL-3.0</p>
+<p><strong>Used in:</strong> <code>linux/src/net/printer-link.c</code></p>
+<p><strong>How zslice uses it:</strong> The filament in the printer, for "Use the filament in the printer".</p>
+<h3 id="stl-file-format">STL file format</h3>
+<div class="ref"><span class="kind k-format">format</span><span class="area">files</span><dl><dt>Source</dt><dd>3D Systems</dd><dt>What zslice uses</dt><dd>The binary and ASCII STL loader and the binary STL writer.</dd><dt>License</dt><dd>File format</dd><dt>Link</dt><dd><a href="https://en.wikipedia.org/wiki/STL_(file_format">https://en.wikipedia.org/wiki/STL_(file_format</a></dd><dt>Used in</dt><dd><a href="https://github.com/beetlebugorg/zslice/blob/main/src/mesh.zig"><code>src/mesh.zig</code></a></dd></dl></div>
+<p>STL file format, 3D Systems. Description: <a href="https://en.wikipedia.org/wiki/STL_(file_format">https://en.wikipedia.org/wiki/STL_(file_format</a>)</p>
+<p><strong>License:</strong> File format</p>
+<p><strong>Used in:</strong> <code>src/mesh.zig</code></p>
+<p><strong>How zslice uses it:</strong> The binary and ASCII STL loader and the binary STL writer.</p>
+<h3 id="zip-file-format">ZIP file format</h3>
+<div class="ref"><span class="kind k-format">format</span><span class="area">files</span><dl><dt>Source</dt><dd>PKWARE</dd><dt>What zslice uses</dt><dd>The zip records (local header, central directory, end record, and the zip64 records and extra field).</dd><dt>License</dt><dd>Public specification</dd><dt>Link</dt><dd><a href="https://pkware.cachefly.net/webdocs/casestudies/APPNOTE.TXT">https://pkware.cachefly.net/webdocs/casestudies/APPNOTE.TXT</a></dd><dt>Used in</dt><dd><a href="https://github.com/beetlebugorg/zslice/blob/main/src/zipfile.zig"><code>src/zipfile.zig</code></a></dd></dl></div>
+<p>PKWARE, ".ZIP File Format Specification" (APPNOTE.TXT), <a href="https://pkware.cachefly.net/webdocs/casestudies/APPNOTE.TXT">https://pkware.cachefly.net/webdocs/casestudies/APPNOTE.TXT</a></p>
+<p><strong>License:</strong> Public specification</p>
+<p><strong>Used in:</strong> <code>src/zipfile.zig</code></p>
+<p><strong>How zslice uses it:</strong> The zip records (local header, central directory, end record, and the zip64 records and extra field). The header structs and deflate come from the Zig standard library (MIT).</p>
+<h3 id="ed25519-signatures">Ed25519 signatures</h3>
+<div class="ref"><span class="kind k-format">format</span><span class="area">gcode</span><dl><dt>Source</dt><dd>IETF</dd><dt>What zslice uses</dt><dd>Ed25519 signs the G-code files.</dd><dt>License</dt><dd>IETF document</dd><dt>Link</dt><dd><a href="https://www.rfc-editor.org/rfc/rfc8032">https://www.rfc-editor.org/rfc/rfc8032</a></dd><dt>Used in</dt><dd><a href="https://github.com/beetlebugorg/zslice/blob/main/src/gcode_sign.zig"><code>src/gcode_sign.zig</code></a>, <a href="https://github.com/beetlebugorg/zslice/blob/main/web/app/signing.js"><code>web/app/signing.js</code></a>, <a href="https://github.com/beetlebugorg/zslice/blob/main/linux/src/net/signing.c"><code>linux/src/net/signing.c</code></a>, <a href="https://github.com/beetlebugorg/zslice/blob/main/macos/Sources/ZSlice/Core/Signing.swift"><code>macos/Sources/ZSlice/Core/Signing.swift</code></a></dd></dl></div>
+<p>RFC 8032, "Edwards-Curve Digital Signature Algorithm (EdDSA)", <a href="https://www.rfc-editor.org/rfc/rfc8032">https://www.rfc-editor.org/rfc/rfc8032</a></p>
+<p><strong>License:</strong> IETF document</p>
+<p><strong>Used in:</strong> <code>src/gcode_sign.zig</code>, <code>web/app/signing.js</code>, <code>linux/src/net/signing.c</code>, <code>macos/Sources/ZSlice/Core/Signing.swift</code></p>
+<p><strong>How zslice uses it:</strong> Ed25519 signs the G-code files. The code is <code>std.crypto.sign.Ed25519</code> of the Zig standard library (MIT) in the core, and WebCrypto in the browser. The test uses the key pair of test 1 of section 7.1.</p>
+<h3 id="sha-256">SHA-256</h3>
+<div class="ref"><span class="kind k-format">format</span><span class="area">gcode</span><dl><dt>Source</dt><dd>NIST</dd><dt>What zslice uses</dt><dd>SHA-256 hashes the G-code before the signature, and makes the key id.</dd><dt>License</dt><dd>Public specification</dd><dt>Link</dt><dd><a href="https://csrc.nist.gov/pubs/fips/180-4/upd1/final">https://csrc.nist.gov/pubs/fips/180-4/upd1/final</a></dd><dt>Used in</dt><dd><a href="https://github.com/beetlebugorg/zslice/blob/main/src/gcode_sign.zig"><code>src/gcode_sign.zig</code></a>, <a href="https://github.com/beetlebugorg/zslice/blob/main/web/app/signing.js"><code>web/app/signing.js</code></a></dd></dl></div>
+<p>NIST FIPS 180-4, "Secure Hash Standard", <a href="https://csrc.nist.gov/pubs/fips/180-4/upd1/final">https://csrc.nist.gov/pubs/fips/180-4/upd1/final</a></p>
+<p><strong>License:</strong> Public specification</p>
+<p><strong>Used in:</strong> <code>src/gcode_sign.zig</code>, <code>web/app/signing.js</code></p>
+<p><strong>How zslice uses it:</strong> SHA-256 hashes the G-code before the signature, and makes the key id. The code is <code>std.crypto.hash.sha2</code> of the Zig standard library (MIT), and WebCrypto in the browser.</p>
+<h3 id="base64">Base64</h3>
+<div class="ref"><span class="kind k-format">format</span><span class="area">gcode</span><dl><dt>Source</dt><dd>IETF</dd><dt>What zslice uses</dt><dd>The base64 of the keys and the signatures (<code>std.base64.standard</code>).</dd><dt>License</dt><dd>IETF document</dd><dt>Link</dt><dd><a href="https://www.rfc-editor.org/rfc/rfc4648">https://www.rfc-editor.org/rfc/rfc4648</a></dd><dt>Used in</dt><dd><a href="https://github.com/beetlebugorg/zslice/blob/main/src/gcode_sign.zig"><code>src/gcode_sign.zig</code></a></dd></dl></div>
+<p>RFC 4648, "The Base16, Base32, and Base64 Data Encodings", <a href="https://www.rfc-editor.org/rfc/rfc4648">https://www.rfc-editor.org/rfc/rfc4648</a></p>
+<p><strong>License:</strong> IETF document</p>
+<p><strong>Used in:</strong> <code>src/gcode_sign.zig</code></p>
+<p><strong>How zslice uses it:</strong> The base64 of the keys and the signatures (<code>std.base64.standard</code>).</p>
+<h3 id="metal-and-swiftui-documentation">Metal and SwiftUI documentation</h3>
+<div class="ref"><span class="kind k-format">format</span><span class="area">ui</span><dl><dt>Source</dt><dd>Apple</dd><dt>What zslice uses</dt><dd>The Metal API and the SwiftUI windows of the macOS app.</dd><dt>License</dt><dd>Documentation</dd><dt>Link</dt><dd><a href="https://developer.apple.com/documentation/">https://developer.apple.com/documentation/</a></dd><dt>Used in</dt><dd><a href="https://github.com/beetlebugorg/zslice/tree/main/macos/Sources/ZSlice/Render/"><code>macos/Sources/ZSlice/Render/</code></a>, <a href="https://github.com/beetlebugorg/zslice/tree/main/macos/Sources/ZSlice/Views/"><code>macos/Sources/ZSlice/Views/</code></a></dd></dl></div>
+<p>Apple, "Metal Shading Language Specification" and the Metal, AppKit, and SwiftUI documentation, <a href="https://developer.apple.com/documentation/">https://developer.apple.com/documentation/</a></p>
+<p><strong>License:</strong> Documentation</p>
+<p><strong>Used in:</strong> <code>macos/Sources/ZSlice/Render/</code>, <code>macos/Sources/ZSlice/Views/</code></p>
+<p><strong>How zslice uses it:</strong> The Metal API, the shader language, <code>CAMetalLayer</code>, the display link of a view (macOS 14), and the document windows of SwiftUI. The shaders port <code>src/render/shaders/*</code> to the Metal Shading Language. The code is new.</p>
+<h3 id="uniform-type-identifiers">Uniform Type Identifiers</h3>
+<div class="ref"><span class="kind k-format">format</span><span class="area">ui</span><dl><dt>Source</dt><dd>Apple</dd><dt>What zslice uses</dt><dd>The file types that the app opens.</dd><dt>License</dt><dd>Apple documentation</dd><dt>Used in</dt><dd><a href="https://github.com/beetlebugorg/zslice/blob/main/macos/Info.plist"><code>macos/Info.plist</code></a>, <a href="https://github.com/beetlebugorg/zslice/blob/main/macos/Sources/ZSlice/ZSliceApp.swift"><code>macos/Sources/ZSlice/ZSliceApp.swift</code></a></dd></dl></div>
+<p>Uniform Type Identifiers: <code>public.standard-tesselated-geometry-format</code> (STL, a system type of macOS) and <code>org.3mf.3mf</code> (3MF, declared by the app)</p>
+<p><strong>License:</strong> Apple documentation</p>
+<p><strong>Used in:</strong> <code>macos/Info.plist</code>, <code>macos/Sources/ZSlice/ZSliceApp.swift</code></p>
+<p><strong>How zslice uses it:</strong> The file types that the app opens.</p>
+<h3 id="deflate-and-gzip">DEFLATE and gzip</h3>
+<div class="ref"><span class="kind k-format">format</span><span class="area">network</span><dl><dt>Source</dt><dd>IETF</dd><dt>What zslice uses</dt><dd>The gzip header and trailer around the raw DEFLATE stream of the Compression framework of Apple, for the estimate of a printdeck.</dd><dt>License</dt><dd>IETF RFC</dd><dt>Link</dt><dd><a href="https://www.rfc-editor.org/rfc/rfc1952">https://www.rfc-editor.org/rfc/rfc1952</a></dd><dt>Used in</dt><dd><a href="https://github.com/beetlebugorg/zslice/blob/main/macos/Sources/ZSlice/Core/Gzip.swift"><code>macos/Sources/ZSlice/Core/Gzip.swift</code></a></dd></dl></div>
+<p>RFC 1951 (DEFLATE) and RFC 1952 (the gzip file format, with the CRC-32), <a href="https://www.rfc-editor.org/rfc/rfc1952">https://www.rfc-editor.org/rfc/rfc1952</a></p>
+<p><strong>License:</strong> IETF RFC</p>
+<p><strong>Used in:</strong> <code>macos/Sources/ZSlice/Core/Gzip.swift</code></p>
+<p><strong>How zslice uses it:</strong> The gzip header and trailer around the raw DEFLATE stream of the Compression framework of Apple, for the estimate of a printdeck. The code is new.</p>
+<h3 id="3mf-core-specification">3MF Core Specification</h3>
+<div class="ref"><span class="kind k-format">format</span><span class="area">files</span><dl><dt>Source</dt><dd>3MF Consortium</dd><dt>What zslice uses</dt><dd>The 3MF package, the model file, objects, components, build items, transforms, and units.</dd><dt>License</dt><dd>BSD-2-Clause</dd><dt>Link</dt><dd><a href="https://github.com/3MFConsortium/spec_core">https://github.com/3MFConsortium/spec_core</a></dd><dt>Used in</dt><dd><a href="https://github.com/beetlebugorg/zslice/blob/main/src/threemf.zig"><code>src/threemf.zig</code></a></dd></dl></div>
+<p>3MF Consortium, "3MF Core Specification" 1.3 and "Production Extension", <a href="https://github.com/3MFConsortium/spec_core">https://github.com/3MFConsortium/spec_core</a></p>
+<p><strong>License:</strong> BSD-2-Clause (the specification)</p>
+<p><strong>Used in:</strong> <code>src/threemf.zig</code></p>
+<p><strong>How zslice uses it:</strong> The 3MF package, the model file, objects, components, build items, transforms, and units. The code is new.</p>
+<h3 id="printdeck-api-and-queue">printdeck API and queue</h3>
+<div class="ref"><span class="kind k-format">format</span><span class="area">network</span><dl><dt>Source</dt><dd>printdeck</dd><dt>What zslice uses</dt><dd>The simulated printdecks of the farm simulator answer as printdeck does, and keep a file in the queue until a press on the deck.</dd><dt>License</dt><dd>AGPL-3.0</dd><dt>Link</dt><dd><a href="https://github.com/beetlebugorg/printdeck">https://github.com/beetlebugorg/printdeck</a></dd><dt>Used in</dt><dd><a href="https://github.com/beetlebugorg/zslice/blob/main/tools/farm_sim/farm_sim.py"><code>tools/farm_sim/farm_sim.py</code></a></dd></dl></div>
+<p>The printdeck API (deck/internal/octoapi in <a href="https://github.com/beetlebugorg/printdeck">https://github.com/beetlebugorg/printdeck</a>): <code>/api/plugin/printdeck</code> (the roll, the limits, the job) and its queue (<code>/api/plugin/printdeck/queue</code>, the move and the delete of an item); a printdeck never starts a print by itself</p>
+<p><strong>License:</strong> AGPL-3.0 (printdeck; the API, not code)</p>
+<p><strong>Used in:</strong> <code>tools/farm_sim/farm_sim.py</code></p>
+<p><strong>How zslice uses it:</strong> The simulated printdecks of the farm simulator answer as printdeck does, and keep a file in the queue until a press on the deck.</p>
+<h3 id="ftp-ftps-and-mqtt">FTP, FTPS, and MQTT</h3>
+<div class="ref"><span class="kind k-format">format</span><span class="area">network</span><dl><dt>Source</dt><dd>IETF, OASIS</dd><dt>What zslice uses</dt><dd>The FTPS upload and the MQTT packets of the Bambu link of the macOS app.</dd><dt>License</dt><dd>Public standards</dd><dt>Link</dt><dd><a href="https://www.rfc-editor.org/rfc/rfc959">https://www.rfc-editor.org/rfc/rfc959</a></dd><dt>Used in</dt><dd><a href="https://github.com/beetlebugorg/zslice/blob/main/macos/Sources/ZSlice/Core/Bambu.swift"><code>macos/Sources/ZSlice/Core/Bambu.swift</code></a>, <a href="https://github.com/beetlebugorg/zslice/blob/main/macos/tools/fake_bambu.py"><code>macos/tools/fake_bambu.py</code></a>, <a href="https://github.com/beetlebugorg/zslice/blob/main/src/mqtt.zig"><code>src/mqtt.zig</code></a></dd></dl></div>
+<p>RFC 959 (FTP), <a href="https://www.rfc-editor.org/rfc/rfc959">https://www.rfc-editor.org/rfc/rfc959</a>; RFC 4217 (FTP over TLS: <code>PBSZ</code>, <code>PROT P</code>, and the implicit TLS of port 990), <a href="https://www.rfc-editor.org/rfc/rfc4217">https://www.rfc-editor.org/rfc/rfc4217</a>; MQTT Version 3.1.1 (OASIS Standard), <a href="https://docs.oasis-open.org/mqtt/mqtt/v3.1.1/mqtt-v3.1.1.html">https://docs.oasis-open.org/mqtt/mqtt/v3.1.1/mqtt-v3.1.1.html</a></p>
+<p><strong>License:</strong> Public standards</p>
+<p><strong>Used in:</strong> <code>macos/Sources/ZSlice/Core/Bambu.swift</code>, <code>macos/tools/fake_bambu.py</code>, <code>src/mqtt.zig</code></p>
+<p><strong>How zslice uses it:</strong> The FTPS upload (<code>USER</code>, <code>PASS</code>, <code>TYPE I</code>, <code>PASV</code>, <code>STOR</code>, the replies) and the MQTT packets (<code>CONNECT</code>, <code>CONNACK</code>, <code>SUBSCRIBE</code>, <code>PUBLISH</code>, <code>DISCONNECT</code>, the remaining length) of the Bambu link of the macOS app, and of its test server. The code is new.</p>
+<h3 id="rtsp-rtp-and-h264">RTSP, RTP, and H.264</h3>
+<div class="ref"><span class="kind k-format">format</span><span class="area">network</span><dl><dt>Source</dt><dd>IETF, ITU-T</dd><dt>What zslice uses</dt><dd>The RTSP camera session of a Bambu Lab printer and its H.264 frames.</dd><dt>License</dt><dd>Public standards</dd><dt>Link</dt><dd><a href="https://www.rfc-editor.org/rfc/rfc2326">https://www.rfc-editor.org/rfc/rfc2326</a></dd><dt>Used in</dt><dd><a href="https://github.com/beetlebugorg/zslice/blob/main/src/rtsp.zig"><code>src/rtsp.zig</code></a>, <a href="https://github.com/beetlebugorg/zslice/blob/main/macos/Sources/ZSlice/Core/Camera.swift"><code>macos/Sources/ZSlice/Core/Camera.swift</code></a>, <a href="https://github.com/beetlebugorg/zslice/blob/main/macos/Sources/ZSlice/Core/H264Decoder.swift"><code>macos/Sources/ZSlice/Core/H264Decoder.swift</code></a></dd></dl></div>
+<p>RFC 2326 (RTSP 1.0), <a href="https://www.rfc-editor.org/rfc/rfc2326">https://www.rfc-editor.org/rfc/rfc2326</a>; RFC 2617 (HTTP Digest and Basic login, MD5), <a href="https://www.rfc-editor.org/rfc/rfc2617">https://www.rfc-editor.org/rfc/rfc2617</a>; RFC 4566 (SDP), <a href="https://www.rfc-editor.org/rfc/rfc4566">https://www.rfc-editor.org/rfc/rfc4566</a>; RFC 3550 (RTP), <a href="https://www.rfc-editor.org/rfc/rfc3550">https://www.rfc-editor.org/rfc/rfc3550</a>; RFC 6184 (H.264 over RTP: single NAL units, STAP-A, FU-A, sprop-parameter-sets), <a href="https://www.rfc-editor.org/rfc/rfc6184">https://www.rfc-editor.org/rfc/rfc6184</a>; ITU-T H.264 Annex B (the byte stream with start codes), <a href="https://www.itu.int/rec/T-REC-H.264">https://www.itu.int/rec/T-REC-H.264</a></p>
+<p><strong>License:</strong> Public standards</p>
+<p><strong>Used in:</strong> <code>src/rtsp.zig</code>, <code>macos/Sources/ZSlice/Core/Camera.swift</code>, <code>macos/Sources/ZSlice/Core/H264Decoder.swift</code></p>
+<p><strong>How zslice uses it:</strong> The RTSP session of the camera of a Bambu Lab printer (DESCRIBE, SETUP with RTP over the TCP connection, PLAY, the keep-alive, the login), and the H.264 frames that it gives in Annex B. The Mac app decodes them with VideoToolbox of macOS. The code is new.</p>
+<h3 id="png">PNG</h3>
+<div class="ref"><span class="kind k-format">format</span><span class="area">files</span><dl><dt>Source</dt><dd>W3C</dd><dt>What zslice uses</dt><dd>The chunks, the filters of the rows (Paeth among them), and the color types of the texture reader.</dd><dt>License</dt><dd>W3C specification</dd><dt>Link</dt><dd><a href="https://www.w3.org/TR/png-3/">https://www.w3.org/TR/png-3/</a></dd><dt>Used in</dt><dd><a href="https://github.com/beetlebugorg/zslice/blob/main/src/bed.zig"><code>src/bed.zig</code></a></dd></dl></div>
+<p>PNG (Portable Network Graphics) Specification, W3C, <a href="https://www.w3.org/TR/png-3/">https://www.w3.org/TR/png-3/</a></p>
+<p><strong>License:</strong> W3C specification</p>
+<p><strong>Used in:</strong> <code>src/bed.zig</code></p>
+<p><strong>How zslice uses it:</strong> The chunks, the filters of the rows (Paeth among them), and the color types of the texture reader. The zlib stream goes through <code>std.compress.flate</code> of the Zig standard library.</p>
+<h3 id="the-header-and-end-comments-of-slicer-g-code">The header and end comments of slicer G-code</h3>
+<div class="ref"><span class="kind k-format">format</span><span class="area">gcode</span><dl><dt>Source</dt><dd>CuraEngine, PrusaSlicer, OrcaSlicer, Bambu Studio</dd><dt>What zslice uses</dt><dd>The G-code viewer reads the name of the slicer, the filament length and weight, and the settings of a G-code file from the comments that these slicers write.</dd><dt>License</dt><dd>the conventions of the files (no code)</dd><dt>Link</dt><dd><a href="https://github.com/Ultimaker/CuraEngine">https://github.com/Ultimaker/CuraEngine</a></dd><dt>Used in</dt><dd><a href="https://github.com/beetlebugorg/zslice/blob/main/src/gcode_meta.zig"><code>src/gcode_meta.zig</code></a></dd></dl></div>
+<p>The header and end comments of the G-code of CuraEngine (<code>;Filament used:</code>, <code>;Generated with Cura_SteamEngine</code>), PrusaSlicer and OrcaSlicer (<code>; generated by</code>, <code>; filament used [mm] =</code>), and Bambu Studio (<code>; BambuStudio</code>, <code>; total filament length [mm] :</code>).</p>
+<p><strong>License:</strong> the conventions of the files (no code)</p>
+<p><strong>Used in:</strong> <code>src/gcode_meta.zig</code></p>
+<p><strong>How zslice uses it:</strong> The name of the slicer, the filament length and weight, and the settings of a G-code file, for the embeddable viewer and the printdeck deck. The code is new.</p><nav class="pager"><a class="prev" href="../../references/physics-and-materials/"><span>Previous</span><b>Physics and materials</b></a></nav>
+</main>
+</div>
+<footer>zslice is free software (AGPL-3.0-or-later). <a href="../../privacy/">Privacy</a>: no analytics, no cookies, nothing from other sites. <a href="https://github.com/beetlebugorg/zslice/blob/main/docs/build.py">docs/build.py</a> writes this site from <a href="https://github.com/beetlebugorg/zslice/blob/main/docs/references/formats-and-protocols.md">docs/references/formats-and-protocols.md</a>.</footer>
+</body>
+</html>

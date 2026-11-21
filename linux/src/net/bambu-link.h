@@ -14,7 +14,7 @@
  * number. A later connection with another certificate stops in the TLS
  * handshake, before the access code goes out: a device on the network
  * that claims the address of the printer does not get the code. The link
- * reads only. See src/bambu.zig and REFERENCES.md.
+ * reads only. See src/bambu.zig and docs/references/bambu-studio.md.
  *
  * For tests, ZSLICE_BAMBU_MQTT_PORT, ZSLICE_BAMBU_JPEG_PORT, and
  * ZSLICE_BAMBU_RTSPS_PORT move the ports (tools/fake_bambu.py).

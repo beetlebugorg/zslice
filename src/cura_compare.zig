@@ -29,7 +29,7 @@
 //! The core does no file I/O, so the stack comes through a
 //! `import_cura.Source` callback.
 //!
-//! References (see REFERENCES.md): the Cura profile formats and the Cura
+//! References (see docs/references/cura.md): the Cura profile formats and the Cura
 //! setting names.
 
 const std = @import("std");

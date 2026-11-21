@@ -32,7 +32,7 @@
 //!   camera or new colors draw the cache again. See `recordCached`.
 //!
 //! The structure follows the Vulkan backend of charttable (same author, MIT
-//! license, see REFERENCES.md): run-time loading, a surface from the shell,
+//! license, see docs/references/libraries.md): run-time loading, a surface from the shell,
 //! a swapchain sized by the host because a Wayland surface has no size of
 //! its own, and a UNORM swapchain format because the colors are already in
 //! sRGB.

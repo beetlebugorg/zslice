@@ -10,7 +10,7 @@
 //! The vertex order of a triangle gives the outside of the mesh. Seen from
 //! outside, the vertices are counterclockwise (the right-hand rule).
 //!
-//! STL format: see REFERENCES.md.
+//! STL format: see docs/references/.
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;

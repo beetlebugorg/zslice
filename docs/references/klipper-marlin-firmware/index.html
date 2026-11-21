@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Firmware and G-code · zslice</title>
+<meta name="description" content="The firmware commands, the G-code conventions, and the motion models of Klipper, Marlin, RepRapFirmware, and grbl.">
+<link rel="canonical" href="https://zslice.beetlebug.org/references/klipper-marlin-firmware/">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%23171717'/%3E%3Crect x='11' y='8' width='10' height='4' rx='1' fill='%23f4f0e6'/%3E%3Crect x='8' y='14' width='16' height='4' rx='1' fill='%23f4f0e6'/%3E%3Crect x='5' y='20' width='22' height='4' rx='1' fill='%23ff5a1f'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="../../site.css">
+</head>
+<body>
+<input type="checkbox" id="menu">
+<header class="top">
+  <a class="brand" href="../../docs.html"><span class="mark">ZSLICE</span><span class="docs">DOCS</span></a>
+  <label class="menu-btn" for="menu">Contents</label>
+  <nav class="top-links"><a href="../../index.html">Open the app</a><a href="../../user/getting-started/">Get started</a><a href="../../roadmap/">Roadmap</a><a href="../../privacy/">Privacy</a><a href="https://github.com/beetlebugorg/zslice">GitHub</a></nav>
+</header>
+<div class="layout">
+<aside class="side"><nav><a href="../../docs.html">Home</a>
+<a href="../../contents/">All documents</a>
+<div class="group">Start</div>
+<a href="../../user/getting-started/"><span class="n">1</span>Your first print</a>
+<div class="group">Everyday tasks</div>
+<a href="../../user/look/"><span class="n">2</span>Look at the print</a>
+<a href="../../user/lines/"><span class="n">3</span>Click a line</a>
+<a href="../../user/change-settings/"><span class="n">4</span>Change a setting</a>
+<a href="../../user/parts/"><span class="n">5</span>Place the parts</a>
+<a href="../../user/support/"><span class="n">6</span>Add support</a>
+<a href="../../user/filaments/"><span class="n">7</span>Print in colors</a>
+<a href="../../user/labels/"><span class="n">8</span>Labels on a part</a>
+<a href="../../user/check/"><span class="n">9</span>Check the print</a>
+<a href="../../user/plates/"><span class="n">10</span>Plates and files</a>
+<a href="../../user/printers/"><span class="n">11</span>Send to a printer</a>
+<a href="../../user/history/"><span class="n">12</span>Undo and history</a>
+<div class="group">Features</div>
+<a href="../../user/features/"><span class="n">13</span>The best features</a>
+<a href="../../user/print-as-it-forms/"><span class="n">14</span>The print as it forms</a>
+<a href="../../user/projects/"><span class="n">15</span>printdeck projects</a>
+<a href="../../user/farm/"><span class="n">16</span>A print farm</a>
+<div class="group">Reference</div>
+<a href="../../user/keys/">Keys and mouse</a>
+<a href="../../user/settings/">Settings</a>
+<a href="../../user/expert/">Formulas and rules</a>
+<a href="../../user/profiles/">Profiles</a>
+<a href="../../user/command-line/">The command line</a>
+<a href="../../user/apps/">Web, Linux, and Mac</a>
+<a href="../../user/macos/">The macOS app</a>
+<a href="../../user/troubleshooting/">Problems and errors</a>
+<div class="group">Embedding</div>
+<a href="../../embedding/">Overview</a>
+<a href="../../embedding/c/">C</a>
+<a href="../../embedding/zig/">Zig</a>
+<a href="../../embedding/javascript/">JavaScript</a>
+<a href="../../embedding/print-view/">The print view</a>
+<a href="../../embedding/viewer/">The G-code viewer</a>
+<a href="../../embedding/labels/">Labels</a>
+<div class="group">Internals</div>
+<a href="../../internals/architecture/">Architecture</a>
+<a href="../../internals/one-view/">Plan: one view</a>
+<a href="../../internals/how-slicing-works/">How slicing works</a>
+<a href="../../internals/layer-settings/">Settings for some layers</a>
+<a href="../../internals/arachne/">Arachne walls</a>
+<a href="../../internals/print-sim/">The print simulation</a>
+<a href="../../internals/cura-compare/">Compared with other slicers</a>
+<a href="../../internals/contributing/">Contributing</a>
+<a href="../../internals/code-quality/">Code quality</a>
+<a href="../../internals/macos/">The macOS app</a>
+<div class="group">Project</div>
+<a href="../../app/">App</a>
+<a href="../../roadmap/">Roadmap</a>
+<a href="../../privacy/">Privacy</a>
+<div class="group">References</div>
+<a href="../../references/">References</a>
+<a href="../../references/explore/">Explorer</a>
+<a href="../../references/libraries/">Libraries and tools</a>
+<a href="../../references/cura/">Cura</a>
+<a href="../../references/orcaslicer/">OrcaSlicer</a>
+<a href="../../references/prusaslicer/">PrusaSlicer</a>
+<a href="../../references/bambu-studio/">Bambu Studio</a>
+<a href="../../references/slicer-techniques/">Slicer techniques</a>
+<a href="../../references/printer-data/">Printer data</a>
+<a href="../../references/klipper-marlin-firmware/" aria-current="page">Firmware and G-code</a>
+<a href="../../references/fonts/">Fonts</a>
+<a href="../../references/papers-and-algorithms/">Papers and algorithms</a>
+<a href="../../references/physics-and-materials/">Physics and materials</a>
+<a href="../../references/formats-and-protocols/">Formats and protocols</a></nav></aside>
+<main>
+<p class="eyebrow">References</p>
+<h1>Firmware and G-code</h1>
+<p class="lede">The firmware commands, the G-code conventions, and the motion models of Klipper, Marlin, RepRapFirmware, and grbl.</p>
+<h2 id="algorithms-formats-and-conventions">Algorithms, formats, and conventions</h2>
+<h3 id="g-code-variables-and-macro-languages">G-code variables and macro languages</h3>
+<div class="ref"><span class="kind k-format">format</span><span class="area">gcode</span><dl><dt>Source</dt><dd>Cura, PrusaSlicer, OrcaSlicer, Bambu Studio, RepRapFirmware, Repetier</dd><dt>What zslice uses</dt><dd>The variable names of each slicer, the expression syntax, and the heat rule of a start G-code.</dd><dt>License</dt><dd>LGPL-3.0</dd><dt>Link</dt><dd><a href="https://github.com/Ultimaker/Cura">https://github.com/Ultimaker/Cura</a></dd><dt>Used in</dt><dd><a href="https://github.com/beetlebugorg/zslice/blob/main/src/gcode_vars.zig"><code>src/gcode_vars.zig</code></a>, <a href="https://github.com/beetlebugorg/zslice/blob/main/src/gcode.zig"><code>src/gcode.zig</code></a>, <a href="https://github.com/beetlebugorg/zslice/blob/main/tools/profile_check.py"><code>tools/profile_check.py</code></a></dd></dl></div>
+<p>The G-code variables and the macro languages of the start and end G-code: the Cura settings of <code>fdmprinter.def.json</code> and the Cura 5 start G-code syntax (<code>{name}</code>, <code>{name, extruder}</code>, <code>{if}</code>, <code>{elif}</code>, <code>{else}</code>, <code>{endif}</code>), <a href="https://github.com/Ultimaker/Cura">https://github.com/Ultimaker/Cura</a>; the PrusaSlicer macro language and list of placeholders (<a href="https://help.prusa3d.com/article/macros_1775">https://help.prusa3d.com/article/macros_1775</a> and <a href="https://help.prusa3d.com/article/list-of-placeholders_205643">https://help.prusa3d.com/article/list-of-placeholders_205643</a>); the OrcaSlicer placeholder list (<a href="https://github.com/SoftFever/OrcaSlicer/wiki">https://github.com/SoftFever/OrcaSlicer/wiki</a>, "Built-in placeholders variables"); the Bambu Studio placeholders in its machine presets (through the OrcaSlicer <code>BBL</code> profiles); the object model expressions of RepRapFirmware (<a href="https://docs.duet3d.com">https://docs.duet3d.com</a>, "GCode Meta Commands")</p>
+<p><strong>License:</strong> LGPL-3.0 (Cura), AGPL-3.0 (PrusaSlicer, OrcaSlicer, Bambu Studio); the names, the syntax, and the documented behavior, no code</p>
+<p><strong>Used in:</strong> <code>src/gcode_vars.zig</code>, <code>src/gcode.zig</code>, <code>tools/profile_check.py</code></p>
+<p><strong>How zslice uses it:</strong> The variable names of each slicer and the zslice value of each, the expression syntax (<code>[name]</code>, <code>{expr}</code>, <code>? :</code>, <code>=~ /regex/</code>, <code>is_nil</code>, <code>local</code>, <code>if ... then</code>), and the rule of PrusaSlicer and CuraEngine that heats the bed and the nozzle before a start G-code that does not. zslice has its own parser and its own small regular expression matcher. The acceleration commands of RepRapFirmware (<code>M204 P T</code>, <code>M566</code> in mm/min, <a href="https://docs.duet3d.com/User_manual/Reference/Gcodes">https://docs.duet3d.com/User_manual/Reference/Gcodes</a>) and Repetier-Firmware (<code>M201</code>, <code>M207</code>, <a href="https://github.com/repetier/Repetier-Firmware">https://github.com/repetier/Repetier-Firmware</a>)</p>
+<h3 id="g-code-over-a-serial-port">G-code over a serial port</h3>
+<div class="ref"><span class="kind k-format">format</span><span class="area">network</span><dl><dt>Source</dt><dd>RepRap</dd><dt>What zslice uses</dt><dd>The USB connection.</dd><dt>License</dt><dd>Protocol</dd><dt>Link</dt><dd><a href="https://reprap.org/wiki/G-code">https://reprap.org/wiki/G-code</a></dd><dt>Used in</dt><dd><a href="https://github.com/beetlebugorg/zslice/blob/main/linux/src/net/printer-link.c"><code>linux/src/net/printer-link.c</code></a></dd></dl></div>
+<p>G-code over a serial port: one command, then wait for the line <code>ok</code> (the Marlin and RepRap host protocol), <a href="https://reprap.org/wiki/G-code">https://reprap.org/wiki/G-code</a></p>
+<p><strong>License:</strong> Protocol</p>
+<p><strong>Used in:</strong> <code>linux/src/net/printer-link.c</code></p>
+<p><strong>How zslice uses it:</strong> The USB connection.</p>
+<h3 id="junction-deviation">Junction deviation</h3>
+<div class="ref"><span class="kind k-idea">idea</span><span class="area">gcode</span><dl><dt>Source</dt><dd>grbl</dd><dt>What zslice uses</dt><dd>The speed limit at a junction of two moves, from the angle and the corner speed.</dd><dt>License</dt><dd>MIT</dd><dt>Link</dt><dd><a href="https://github.com/grbl/grbl">https://github.com/grbl/grbl</a></dd><dt>Used in</dt><dd><a href="https://github.com/beetlebugorg/zslice/blob/main/src/motion.zig"><code>src/motion.zig</code></a></dd></dl></div>
+<p>Junction deviation, Sonny Jeon, grbl (<a href="https://github.com/grbl/grbl">https://github.com/grbl/grbl</a>, "Improving Grbl: Cornering Algorithm", 2011)</p>
+<p><strong>License:</strong> MIT (grbl); the method, not code</p>
+<p><strong>Used in:</strong> <code>src/motion.zig</code></p>
+<p><strong>How zslice uses it:</strong> The speed limit at a junction of two moves, from the angle and the corner speed.</p>
+<h3 id="klipper-kinematics">Klipper kinematics</h3>
+<div class="ref"><span class="kind k-idea">idea</span><span class="area">gcode</span><dl><dt>Source</dt><dd>Klipper</dd><dt>What zslice uses</dt><dd>The look-ahead and the junction speeds of the motion estimate.</dd><dt>License</dt><dd>GPL-3.0</dd><dt>Link</dt><dd><a href="https://www.klipper3d.org/Kinematics.html">https://www.klipper3d.org/Kinematics.html</a></dd><dt>Used in</dt><dd><a href="https://github.com/beetlebugorg/zslice/blob/main/src/motion.zig"><code>src/motion.zig</code></a></dd></dl></div>
+<p>Klipper kinematics documentation, <code>docs/Kinematics.md</code> (<a href="https://www.klipper3d.org/Kinematics.html">https://www.klipper3d.org/Kinematics.html</a>): look-ahead, the square corner velocity, and the minimum cruise ratio</p>
+<p><strong>License:</strong> GPL-3.0 (Klipper); the method, not code</p>
+<p><strong>Used in:</strong> <code>src/motion.zig</code></p>
+<p><strong>How zslice uses it:</strong> The look-ahead passes, the junction speed from the square corner velocity, the limit of the arc to the middle of each move, the extruder corner speed, and the peak of a group of moves with the minimum cruise ratio. zslice has its own implementation.</p>
+<h3 id="filament-change-commands">Filament change commands</h3>
+<div class="ref"><span class="kind k-format">format</span><span class="area">gcode</span><dl><dt>Source</dt><dd>Marlin, RepRapFirmware, Klipper, Prusa</dd><dt>What zslice uses</dt><dd>A change of the filament between layers or parts.</dd><dt>License</dt><dd>Public documents</dd><dt>Link</dt><dd><a href="https://marlinfw.org/docs/gcode/M600.html">https://marlinfw.org/docs/gcode/M600.html</a></dd><dt>Used in</dt><dd><a href="https://github.com/beetlebugorg/zslice/blob/main/src/filaments.zig"><code>src/filaments.zig</code></a>, <a href="https://github.com/beetlebugorg/zslice/blob/main/src/gcode.zig"><code>src/gcode.zig</code></a></dd></dl></div>
+<p>The filament change commands of the firmwares: Marlin <code>M600</code> (Filament Change, <a href="https://marlinfw.org/docs/gcode/M600.html">https://marlinfw.org/docs/gcode/M600.html</a>), RepRapFirmware <code>M600</code> (<a href="https://docs.duet3d.com/User_manual/Reference/Gcodes">https://docs.duet3d.com/User_manual/Reference/Gcodes</a>, it runs <code>filament-change.g</code>), Klipper <code>PAUSE</code> (the <code>pause_resume</code> module, <a href="https://www.klipper3d.org/G-Codes.html#pause_resume">https://www.klipper3d.org/G-Codes.html#pause_resume</a>), and the tool change <code>Tn</code> of the units that feed many filaments (the Prusa MMU3, <a href="https://help.prusa3d.com/article/mmu3-printing-in-multi-material_417224">https://help.prusa3d.com/article/mmu3-printing-in-multi-material_417224</a>)</p>
+<p><strong>License:</strong> Public documents</p>
+<p><strong>Used in:</strong> <code>src/filaments.zig</code>, <code>src/gcode.zig</code></p>
+<p><strong>How zslice uses it:</strong> A change of the filament between layers or parts: a pause with M600 (PAUSE on Klipper) for a printer with one filament path, or a tool change Tn for a unit that feeds many filaments.</p><nav class="pager"><a class="prev" href="../../references/printer-data/"><span>Previous</span><b>Printer data</b></a><a class="next" href="../../references/fonts/"><span>Next</span><b>Fonts</b></a></nav>
+</main>
+</div>
+<footer>zslice is free software (AGPL-3.0-or-later). <a href="../../privacy/">Privacy</a>: no analytics, no cookies, nothing from other sites. <a href="https://github.com/beetlebugorg/zslice/blob/main/docs/build.py">docs/build.py</a> writes this site from <a href="https://github.com/beetlebugorg/zslice/blob/main/docs/references/klipper-marlin-firmware.md">docs/references/klipper-marlin-firmware.md</a>.</footer>
+</body>
+</html>

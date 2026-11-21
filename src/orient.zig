@@ -21,7 +21,7 @@
 //! - the height (a tie-break: a lower part prints faster and is more
 //!   stable). This is the method of "auto
 //! orientation" in other slicers (for example the Tweaker method in Cura
-//! and PrusaSlicer, see REFERENCES.md); the code is new.
+//! and PrusaSlicer, see docs/references/slicer-techniques.md); the code is new.
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;

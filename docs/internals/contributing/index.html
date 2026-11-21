@@ -68,16 +68,30 @@
 <a href="../../internals/macos/">The macOS app</a>
 <div class="group">Project</div>
 <a href="../../app/">App</a>
-<a href="../../references/">References</a>
 <a href="../../roadmap/">Roadmap</a>
-<a href="../../privacy/">Privacy</a></nav></aside>
+<a href="../../privacy/">Privacy</a>
+<div class="group">References</div>
+<a href="../../references/">References</a>
+<a href="../../references/explore/">Explorer</a>
+<a href="../../references/libraries/">Libraries and tools</a>
+<a href="../../references/cura/">Cura</a>
+<a href="../../references/orcaslicer/">OrcaSlicer</a>
+<a href="../../references/prusaslicer/">PrusaSlicer</a>
+<a href="../../references/bambu-studio/">Bambu Studio</a>
+<a href="../../references/slicer-techniques/">Slicer techniques</a>
+<a href="../../references/printer-data/">Printer data</a>
+<a href="../../references/klipper-marlin-firmware/">Firmware and G-code</a>
+<a href="../../references/fonts/">Fonts</a>
+<a href="../../references/papers-and-algorithms/">Papers and algorithms</a>
+<a href="../../references/physics-and-materials/">Physics and materials</a>
+<a href="../../references/formats-and-protocols/">Formats and protocols</a></nav></aside>
 <main>
 <p class="eyebrow">Internals</p>
 <h1>Contributing</h1>
 
 <nav class="onpage"><b>On this page</b><ol><li><a href="#rules">Rules</a></li><li><a href="#set-up">Set up</a></li><li><a href="#tests">Tests</a></li><li><a href="#add-a-setting">Add a setting</a></li><li><a href="#add-a-feature-type">Add a feature type</a></li><li><a href="#add-an-infill-pattern">Add an infill pattern</a></li><li><a href="#change-the-geometry-code">Change the geometry code</a></li><li><a href="#commits">Commits</a></li></ol></nav><h2 id="rules">Rules</h2>
 <p>Read <code>AGENTS.md</code> at the root of the repo. It has the rules for all contributors, people and agents:</p>
-<ul><li>The goals of the project.</li><li>Licenses and references: each source that you use goes in <code>REFERENCES.md</code> and in the header comment of the file.</li><li>The writing style for comments and docs.</li><li>The checks before a commit.</li></ul>
+<ul><li>The goals of the project.</li><li>Licenses and references: credit each source. Each idea, data, or code that you take from another project gets an entry in <a href="../../references/">the references</a>: what you took, from where (a link and a commit or a version), its license, and where it lives in zslice. Name the source in the header comment of the file too.</li><li>The writing style for comments and docs.</li><li>The checks before a commit.</li></ul>
 <h2 id="set-up">Set up</h2>
 <pre><code>zig version          # must be 0.16.x
 zig build test       # the unit tests

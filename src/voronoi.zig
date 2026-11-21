@@ -64,7 +64,7 @@
 //!
 //! Copyright Andrii Sydorchuk 2010-2012.
 //! Distributed under the Boost Software License, Version 1.0. See
-//! licenses/boost-BSL-1.0.txt and REFERENCES.md.
+//! licenses/boost-BSL-1.0.txt and docs/references/.
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;

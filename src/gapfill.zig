@@ -34,7 +34,7 @@
 //!
 //! This is the "gap fill" of PrusaSlicer and the "fill gaps between walls"
 //! of Cura. The cut of a polygon to a box is the method of Sutherland and
-//! Hodgman. See REFERENCES.md.
+//! Hodgman. See docs/references/.
 //!
 //! SPDX-License-Identifier: AGPL-3.0-or-later
 

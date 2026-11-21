@@ -26,7 +26,7 @@
 //! shell have their own resolver. The built-in profiles (src/profiles/) are
 //! the last place to look.
 //!
-//! References (see REFERENCES.md): TOML v1.0.0, of which toml.zig parses a
+//! References (see docs/references/formats-and-protocols.md): TOML v1.0.0, of which toml.zig parses a
 //! subset.
 
 const std = @import("std");

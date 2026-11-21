@@ -56,7 +56,7 @@
 //!
 //! The method (overhang by angle, columns down, gaps in XY and Z, dense
 //! interface layers) is the common "grid" or "normal" support of FDM
-//! slicers (see REFERENCES.md). The code is new.
+//! slicers (see docs/references/). The code is new.
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;

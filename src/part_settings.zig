@@ -23,7 +23,7 @@
 //!
 //! Each Cura key that zslice does not use gets a note.
 //!
-//! References (see REFERENCES.md): the Cura project 3MF metadata, and the
+//! References (see docs/references/cura.md): the Cura project 3MF metadata, and the
 //! infill meshes of CuraEngine (the behavior, not code).
 
 const std = @import("std");

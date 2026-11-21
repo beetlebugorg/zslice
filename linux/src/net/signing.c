@@ -1,7 +1,7 @@
 /* signing.c: see signing.h.
  *
  * Ed25519 (RFC 8032) and SHA-256 (FIPS 180-4) are in the core
- * (zs_sign_gcode). See REFERENCES.md.
+ * (zs_sign_gcode). See docs/references/formats-and-protocols.md.
  *
  * SPDX-License-Identifier: AGPL-3.0-or-later
  */

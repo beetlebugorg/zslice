@@ -42,7 +42,7 @@
 //! The emitter (gcode.zig) adds the heating commands that a start G-code
 //! leaves out.
 //!
-//! References (see REFERENCES.md): the Cura start G-code settings, the
+//! References (see docs/references/): the Cura start G-code settings, the
 //! PrusaSlicer macro language and placeholder list, and the OrcaSlicer
 //! and Bambu Studio placeholder lists. This file uses their names and
 //! their syntax. It has no code from them.

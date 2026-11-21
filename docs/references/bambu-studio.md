@@ -1,0 +1,86 @@
+# Bambu Studio and Bambu Lab
+
+The data, the G-code templates, and the formats that zslice uses from Bambu Studio (AGPL-3.0) and the Bambu Lab printers.
+
+## Data in the binaries
+
+### Bambu Lab X2D project settings and G-code layout
+
+```ref
+kind: data
+source: Bambu Studio
+license: AGPL-3.0
+files: src/bambu.zig, src/gcode.zig
+area: printers
+summary: The keys guide `gcode.Emitter.bambuBlocks` and `src/bambu.zig`. The G-code templates of this file are the same as those of the presets of Bambu Studio (next line).
+```
+
+The whole project_settings.config of the Bambu Lab X2D (in `src/printers/bambu/bambu-lab-x2d-project.json`, the base of the project settings of an X2D file), its G-code config block (`src/printers/bambu/bambu-lab-x2d-config.txt`), the layout of its G-code (the header, config, and executable blocks, `; MACHINE_START_GCODE_END`, `; MACHINE_END_GCODE_START`, `M981`), and the keys of its slice_info.config: a .gcode.3mf that Bambu Studio 02.09.01.70 wrote for the X2D (the user's file, 19 November 2026)
+
+**License:** AGPL-3.0 (the license of Bambu Studio and its profiles)
+
+**Text:** `LICENSE`
+
+**Notes:** The keys guide `gcode.Emitter.bambuBlocks` and `src/bambu.zig`. The G-code templates of this file are the same as those of the presets of Bambu Studio (next line).
+
+### Bambu Lab printer facts and G-code templates
+
+```ref
+kind: data
+source: Bambu Studio
+license: AGPL-3.0
+link: https://github.com/bambulab/BambuStudio
+version: commit 8e524a39d4c4cd0541801c1c46d2f77debb0bf1d
+files: tools/bambu_facts.py, src/printers/bambu.txt, src/gcode_vars.zig
+area: printers
+summary: The facts and the G-code templates of the Bambu Lab printers, as data and as embedded templates.
+```
+
+The facts and the G-code templates of the Bambu Lab printers: model_id (the model code, for example N6 for the X2D) of the machine models; nozzle_diameter, extruder_printable_area, extruder_printable_height, extruder_type, default_nozzle_volume_type, retract_length_toolchange, hotend_heating_rate, hotend_cooling_rate, retraction_distances_when_cut, and long_retractions_when_cut of the 0.4 nozzle presets; and their machine_start_gcode, machine_end_gcode, layer_change_gcode, and change_filament_gcode (each in a preset "<preset> template <key>"), in `resources/profiles/BBL/machine` of Bambu Studio, https://github.com/bambulab/BambuStudio, commit `8e524a39d4c4cd0541801c1c46d2f77debb0bf1d` (17 November 2026)
+
+**License:** AGPL-3.0 (the license of the Bambu Studio repository)
+
+**Text:** `LICENSE`
+
+**Notes:** `tools/bambu_facts.py` reads them into `src/printers/bambu.txt` (as data) and writes the templates as they are into `src/printers/bambu/<id>-start.gcode`, `-end.gcode`, `-layer.gcode`, and `src/printers/change/<id>.gcode`. `printers.bambu` gives the facts: the profile of a printer with two nozzles gets the reach of each nozzle, its .gcode.3mf gets printer_model_id and printer_model, and `src/gcode_vars.zig` gives the values of the presets to the templates. `printers.bambuTemplate` and `printers.changeGcode` embed the templates in all binaries, the wasm module too.
+
+## Algorithms, formats, and conventions
+
+### Bambu Lab filament change
+
+```ref
+kind: format
+source: Bambu Studio
+license: AGPL-3.0
+link: https://github.com/bambulab/BambuStudio
+files: src/gcode_vars.zig, src/filaments.zig, src/gcode.zig
+area: gcode
+summary: The variables of a change G-code.
+```
+
+The filament change of Bambu Lab printers: the `change_filament_gcode` of the machine presets (for example `Bambu Lab X2D 0.4 nozzle template change_filament_gcode.json` in the BBL profiles of Bambu Studio, https://github.com/bambulab/BambuStudio, `resources/profiles/BBL/machine`), and its placeholders (`next_filament_id`, `flush_length`, `old_filament_temp`, `new_filament_temp`, `toolchange_count`, `x_after_toolchange`, `old_retract_length_toolchange`, `new_retract_length_toolchange`, `new_extruder_retracted_length`, as `GCode::set_extruder` of Bambu Studio sets them); the flushing volumes and their multiplier, as the Bambu Lab wiki describes them ("Reduce wasting during filament change", https://wiki.bambulab.com/en/software/bambu-studio/reduce-wasting-during-filament-change)
+
+**License:** AGPL-3.0 (the profiles, as data: the names of the placeholders, no code); the wiki is a public document
+
+**Used in:** `src/gcode_vars.zig`, `src/filaments.zig`, `src/gcode.zig`
+
+**How zslice uses it:** The variables of a change G-code. The rule that a change from a dark color to a light color flushes more; zslice has its own simple formula for the volume (see `src/filaments.zig`).
+
+### Bambu Lab LAN mode
+
+```ref
+kind: format
+source: Bambu Lab
+license: Public documents and tools; the formats and messages, no code
+files: src/discovery.zig, src/bambu.zig, src/app/printer_status.zig, macos/Sources/ZSlice/Core/Bambu.swift, linux/src/net/bambu-link.c, linux/src/ui/camera-view.c, macos/Sources/ZSlice/Core/Camera.swift
+area: network
+summary: zslice finds Bambu printers on the network, writes the file they print, and makes the messages that start a print and read its status.
+```
+
+The LAN mode of Bambu Lab printers: the SSDP packets on UDP port 2021 (`DevModel.bambu.com`, `DevName.bambu.com`, `USN`), the `.gcode.3mf` layout (`Metadata/plate_1.gcode` and its `.md5`), the FTPS upload (port 990, user `bblp`, the access code), and the MQTT topics and messages (`device/<serial>/request`, `project_file`, `pushall`, the `print` report fields), as the Bambu Lab wiki and open source LAN tools describe them (for example the Home Assistant integration ha-bambulab, MIT)
+
+**License:** Public documents and tools; the formats and messages, no code
+
+**Used in:** `src/discovery.zig`, `src/bambu.zig`, `src/app/printer_status.zig`, `macos/Sources/ZSlice/Core/Bambu.swift`, `linux/src/net/bambu-link.c`, `linux/src/ui/camera-view.c`, `macos/Sources/ZSlice/Core/Camera.swift`
+
+**How zslice uses it:** zslice finds Bambu printers on the network, writes the file they print, and makes the messages that start a print and read its status. The temperatures (`nozzle_temper`, `bed_temper`, `chamber_temper`, the targets, and the packed `device.extruder.info[].temp` of the printers with two nozzles, as ha-bambulab reads it). The camera: RTSP over TLS on port 322 at `/streaming/live/1` (X1, H2, P2S, X2D, with "LAN Only Liveview" on), or JPEG frames over TLS on port 6000 after an 80-byte login (P1, A1), as ha-bambulab (MIT) and open-bambu-networking (https://github.com/ClusterM/open-bambu-networking) describe them. Status and RTSPS camera read from a real X2D in November 2026; the upload and the start are not yet tested with a real printer.

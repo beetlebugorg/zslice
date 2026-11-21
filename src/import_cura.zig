@@ -57,7 +57,7 @@
 //! Cura measures an infill angle from the Y axis, and zslice from the X
 //! axis: a Cura angle a is the zslice angle 90 - a.
 //!
-//! References (see REFERENCES.md): the Cura profile formats (`.def.json`,
+//! References (see docs/references/cura.md): the Cura profile formats (`.def.json`,
 //! `.inst.cfg`, `.xml.fdm_material`) and the Cura setting names; the Cura
 //! project 3MF metadata; the infill line distance and the infill angles
 //! of CuraEngine.

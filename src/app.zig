@@ -41,7 +41,7 @@
 //!   the plastic), as toolpaths.
 //!
 //! The split of a core and native shells comes from Lookout Marine (see
-//! REFERENCES.md).
+//! docs/references/libraries.md).
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;

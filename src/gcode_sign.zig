@@ -22,7 +22,7 @@
 //! comes from the random source of the shell (the OS), because the core
 //! has no random source of its own.
 //!
-//! See REFERENCES.md: RFC 8032, FIPS 180-4, and RFC 4648.
+//! See docs/references/formats-and-protocols.md: RFC 8032, FIPS 180-4, and RFC 4648.
 
 const std = @import("std");
 const Ed25519 = std.crypto.sign.Ed25519;

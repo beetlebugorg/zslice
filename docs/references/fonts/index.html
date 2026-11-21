@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fonts · zslice</title>
+<meta name="description" content="The font of the labels (src/fonts/Inter-Bold-Latin.ttf) is a subset of Inter Bold. src/font.zig embeds it in all binaries, the wasm module too.">
+<link rel="canonical" href="https://zslice.beetlebug.org/references/fonts/">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%23171717'/%3E%3Crect x='11' y='8' width='10' height='4' rx='1' fill='%23f4f0e6'/%3E%3Crect x='8' y='14' width='16' height='4' rx='1' fill='%23f4f0e6'/%3E%3Crect x='5' y='20' width='22' height='4' rx='1' fill='%23ff5a1f'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="../../site.css">
+</head>
+<body>
+<input type="checkbox" id="menu">
+<header class="top">
+  <a class="brand" href="../../docs.html"><span class="mark">ZSLICE</span><span class="docs">DOCS</span></a>
+  <label class="menu-btn" for="menu">Contents</label>
+  <nav class="top-links"><a href="../../index.html">Open the app</a><a href="../../user/getting-started/">Get started</a><a href="../../roadmap/">Roadmap</a><a href="../../privacy/">Privacy</a><a href="https://github.com/beetlebugorg/zslice">GitHub</a></nav>
+</header>
+<div class="layout">
+<aside class="side"><nav><a href="../../docs.html">Home</a>
+<a href="../../contents/">All documents</a>
+<div class="group">Start</div>
+<a href="../../user/getting-started/"><span class="n">1</span>Your first print</a>
+<div class="group">Everyday tasks</div>
+<a href="../../user/look/"><span class="n">2</span>Look at the print</a>
+<a href="../../user/lines/"><span class="n">3</span>Click a line</a>
+<a href="../../user/change-settings/"><span class="n">4</span>Change a setting</a>
+<a href="../../user/parts/"><span class="n">5</span>Place the parts</a>
+<a href="../../user/support/"><span class="n">6</span>Add support</a>
+<a href="../../user/filaments/"><span class="n">7</span>Print in colors</a>
+<a href="../../user/labels/"><span class="n">8</span>Labels on a part</a>
+<a href="../../user/check/"><span class="n">9</span>Check the print</a>
+<a href="../../user/plates/"><span class="n">10</span>Plates and files</a>
+<a href="../../user/printers/"><span class="n">11</span>Send to a printer</a>
+<a href="../../user/history/"><span class="n">12</span>Undo and history</a>
+<div class="group">Features</div>
+<a href="../../user/features/"><span class="n">13</span>The best features</a>
+<a href="../../user/print-as-it-forms/"><span class="n">14</span>The print as it forms</a>
+<a href="../../user/projects/"><span class="n">15</span>printdeck projects</a>
+<a href="../../user/farm/"><span class="n">16</span>A print farm</a>
+<div class="group">Reference</div>
+<a href="../../user/keys/">Keys and mouse</a>
+<a href="../../user/settings/">Settings</a>
+<a href="../../user/expert/">Formulas and rules</a>
+<a href="../../user/profiles/">Profiles</a>
+<a href="../../user/command-line/">The command line</a>
+<a href="../../user/apps/">Web, Linux, and Mac</a>
+<a href="../../user/macos/">The macOS app</a>
+<a href="../../user/troubleshooting/">Problems and errors</a>
+<div class="group">Embedding</div>
+<a href="../../embedding/">Overview</a>
+<a href="../../embedding/c/">C</a>
+<a href="../../embedding/zig/">Zig</a>
+<a href="../../embedding/javascript/">JavaScript</a>
+<a href="../../embedding/print-view/">The print view</a>
+<a href="../../embedding/viewer/">The G-code viewer</a>
+<a href="../../embedding/labels/">Labels</a>
+<div class="group">Internals</div>
+<a href="../../internals/architecture/">Architecture</a>
+<a href="../../internals/one-view/">Plan: one view</a>
+<a href="../../internals/how-slicing-works/">How slicing works</a>
+<a href="../../internals/layer-settings/">Settings for some layers</a>
+<a href="../../internals/arachne/">Arachne walls</a>
+<a href="../../internals/print-sim/">The print simulation</a>
+<a href="../../internals/cura-compare/">Compared with other slicers</a>
+<a href="../../internals/contributing/">Contributing</a>
+<a href="../../internals/code-quality/">Code quality</a>
+<a href="../../internals/macos/">The macOS app</a>
+<div class="group">Project</div>
+<a href="../../app/">App</a>
+<a href="../../roadmap/">Roadmap</a>
+<a href="../../privacy/">Privacy</a>
+<div class="group">References</div>
+<a href="../../references/">References</a>
+<a href="../../references/explore/">Explorer</a>
+<a href="../../references/libraries/">Libraries and tools</a>
+<a href="../../references/cura/">Cura</a>
+<a href="../../references/orcaslicer/">OrcaSlicer</a>
+<a href="../../references/prusaslicer/">PrusaSlicer</a>
+<a href="../../references/bambu-studio/">Bambu Studio</a>
+<a href="../../references/slicer-techniques/">Slicer techniques</a>
+<a href="../../references/printer-data/">Printer data</a>
+<a href="../../references/klipper-marlin-firmware/">Firmware and G-code</a>
+<a href="../../references/fonts/" aria-current="page">Fonts</a>
+<a href="../../references/papers-and-algorithms/">Papers and algorithms</a>
+<a href="../../references/physics-and-materials/">Physics and materials</a>
+<a href="../../references/formats-and-protocols/">Formats and protocols</a></nav></aside>
+<main>
+<p class="eyebrow">References</p>
+<h1>Fonts</h1>
+<p class="lede">The font of the labels (<code>src/fonts/Inter-Bold-Latin.ttf</code>) is a subset of Inter Bold. <code>src/font.zig</code> embeds it in all binaries, the wasm module too.</p>
+<nav class="onpage"><b>On this page</b><ol><li><a href="#data-in-the-binaries">Data in the binaries</a></li><li><a href="#algorithms-formats-and-conventions">Algorithms, formats, and conventions</a></li></ol></nav><h2 id="data-in-the-binaries">Data in the binaries</h2>
+<h3 id="inter-bold">Inter Bold</h3>
+<div class="ref"><span class="kind k-font">font</span><span class="area">fonts</span><dl><dt>Source</dt><dd>Inter</dd><dt>What zslice uses</dt><dd>A subset of Inter Bold (Latin, with kerning) is the font of the labels.</dd><dt>License</dt><dd>SIL Open Font License 1.1</dd><dt>Link</dt><dd><a href="https://github.com/rsms/inter">https://github.com/rsms/inter</a></dd><dt>Version</dt><dd>release v4.1</dd><dt>Used in</dt><dd><a href="https://github.com/beetlebugorg/zslice/blob/main/tools/font_subset.py"><code>tools/font_subset.py</code></a>, <a href="https://github.com/beetlebugorg/zslice/blob/main/src/fonts/Inter-Bold-Latin.ttf"><code>src/fonts/Inter-Bold-Latin.ttf</code></a>, <a href="https://github.com/beetlebugorg/zslice/blob/main/src/font.zig"><code>src/font.zig</code></a></dd><dt>License texts</dt><dd><a href="https://github.com/beetlebugorg/zslice/blob/main/licenses/ofl-1.1-inter.txt"><code>licenses/ofl-1.1-inter.txt</code></a></dd></dl></div>
+<p>Inter, Rasmus Andersson and the Inter Project Authors, <a href="https://github.com/rsms/inter">https://github.com/rsms/inter</a>, release <code>v4.1</code> (<code>Inter-4.1.zip</code>, SHA-256 <code>9883fdd4a49d4fb66bd8177ba6625ef9a64aa45899767dde3d36aa425756b11e</code>), the file <code>extras/ttf/Inter-Bold.ttf</code> (SHA-256 <code>288316099b1e0a47a4716d159098005eef7c0066921f34e3200393dbdb01947f</code>). "Copyright (c) 2016 The Inter Project Authors."</p>
+<p><strong>License:</strong> SIL Open Font License 1.1</p>
+<p><strong>Text:</strong> <code>licenses/ofl-1.1-inter.txt</code> (the <code>LICENSE.txt</code> of the release)</p>
+<p><strong>Notes:</strong> <code>tools/font_subset.py</code> keeps Basic Latin and Latin-1 (190 characters, 214 glyphs), drops the hinting and the OpenType layout tables, and writes the pair kerning of the GPOS <code>kern</code> feature as a <code>kern</code> table (4663 pairs). The license names no Reserved Font Name, so the subset keeps the name. The OFL allows the font in a program under the AGPL-3.0; the font keeps its own license.</p>
+<h2 id="algorithms-formats-and-conventions">Algorithms, formats, and conventions</h2>
+<h3 id="opentype-specification">OpenType specification</h3>
+<div class="ref"><span class="kind k-format">format</span><span class="area">fonts</span><dl><dt>Source</dt><dd>Microsoft</dd><dt>What zslice uses</dt><dd>The reader of the font of the labels.</dd><dt>License</dt><dd>The format</dd><dt>Link</dt><dd><a href="https://learn.microsoft.com/en-us/typography/opentype/spec/">https://learn.microsoft.com/en-us/typography/opentype/spec/</a></dd><dt>Used in</dt><dd><a href="https://github.com/beetlebugorg/zslice/blob/main/src/font.zig"><code>src/font.zig</code></a>, <a href="https://github.com/beetlebugorg/zslice/blob/main/tools/font_subset.py"><code>tools/font_subset.py</code></a></dd></dl></div>
+<p>The OpenType and TrueType specification (Microsoft, <a href="https://learn.microsoft.com/en-us/typography/opentype/spec/">https://learn.microsoft.com/en-us/typography/opentype/spec/</a>): the table directory and the tables <code>head</code>, <code>maxp</code>, <code>hhea</code>, <code>hmtx</code>, <code>cmap</code> (formats 4 and 12), <code>loca</code>, <code>glyf</code> (simple and composite glyphs, quadratic curves), <code>kern</code> (format 0), <code>OS/2</code> (the cap height), and the pair adjustment of <code>GPOS</code> (formats 1 and 2)</p>
+<p><strong>License:</strong> The format</p>
+<p><strong>Used in:</strong> <code>src/font.zig</code>, <code>tools/font_subset.py</code></p>
+<p><strong>How zslice uses it:</strong> The reader of the font of the labels. The tool reads GPOS with fontTools (<a href="https://github.com/fonttools/fonttools">https://github.com/fonttools/fonttools</a>, MIT; a tool, no code in zslice).</p><nav class="pager"><a class="prev" href="../../references/klipper-marlin-firmware/"><span>Previous</span><b>Firmware and G-code</b></a><a class="next" href="../../references/papers-and-algorithms/"><span>Next</span><b>Papers and algorithms</b></a></nav>
+</main>
+</div>
+<footer>zslice is free software (AGPL-3.0-or-later). <a href="../../privacy/">Privacy</a>: no analytics, no cookies, nothing from other sites. <a href="https://github.com/beetlebugorg/zslice/blob/main/docs/build.py">docs/build.py</a> writes this site from <a href="https://github.com/beetlebugorg/zslice/blob/main/docs/references/fonts.md">docs/references/fonts.md</a>.</footer>
+</body>
+</html>

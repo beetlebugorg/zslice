@@ -73,7 +73,7 @@
 //! The G-code writes each point with its own Z (see gcode.zig). The layer
 //! plan has the z and the bead area of each point (`LayerPlan.point_z`).
 //!
-//! References (see REFERENCES.md): extra beads between the layers to fill
+//! References (see docs/references/): extra beads between the layers to fill
 //! the stair of a slope (IBM, US 5,402,351, expired); the anti-aliasing
 //! of fused filament deposition (Song, Ray, Sokolov, and Lefebvre, CAD
 //! 2017); nonplanar surface layers and the nozzle collision check of

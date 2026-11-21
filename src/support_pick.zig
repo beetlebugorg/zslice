@@ -20,7 +20,7 @@
 //!    app/support_areas.zig), so a hull over a concave overhang adds no
 //!    support under the faces that do not face down.
 //!
-//! The hull is the monotone chain of A. M. Andrew (see REFERENCES.md).
+//! The hull is the monotone chain of A. M. Andrew (see docs/references/papers-and-algorithms.md).
 //!
 //! SPDX-License-Identifier: AGPL-3.0-or-later
 

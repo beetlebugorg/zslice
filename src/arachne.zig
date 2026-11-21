@@ -17,7 +17,7 @@
 //!
 //! They are ports to Zig of CuraEngine (AGPL-3.0-or-later). The Voronoi
 //! diagram of the outline segments (`voronoi.zig`) is a port of
-//! boost::polygon. See REFERENCES.md.
+//! boost::polygon. See docs/references/.
 
 pub const beading = @import("arachne/beading.zig");
 pub const extrusion = @import("arachne/extrusion.zig");

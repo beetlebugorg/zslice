@@ -37,7 +37,7 @@
 //! 4. The time of each move: a trapezoid of speed, from the start speed up
 //!    to the cruise speed and down to the end speed.
 //!
-//! References (see REFERENCES.md): the junction deviation of grbl (Sonny
+//! References (see docs/references/klipper-marlin-firmware.md): the junction deviation of grbl (Sonny
 //! Jeon), and the look-ahead and the minimum cruise ratio as Klipper
 //! documents them (docs/Kinematics.md).
 

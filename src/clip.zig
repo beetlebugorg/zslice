@@ -31,10 +31,10 @@
 //! 6. Join the output edges into closed loops.
 //!
 //! The method is simpler than the sweep-line method that Clipper uses
-//! (Vatti, see REFERENCES.md), and it gives correct output for any input: self-intersecting
+//! (Vatti, see docs/references/papers-and-algorithms.md), and it gives correct output for any input: self-intersecting
 //! polygons, shared edges, and polygons that touch at one point.
 //!
-//! References (see REFERENCES.md): winding numbers and fill rules, the
+//! References (see docs/references/papers-and-algorithms.md): winding numbers and fill rules, the
 //! uniform grid with the Amanatides-Woo walk and a radix sort, the half-edge structure
 //! (DCEL), iterated snap rounding, snap rounding with hot pixels, the slab
 //! index, and the CSR layout.

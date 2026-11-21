@@ -19,7 +19,7 @@
 //! the type of the setting. The parser does not allocate: the strings point
 //! into the input, except strings with escapes, which go in the arena.
 //!
-//! TOML: https://toml.io/en/v1.0.0 (see REFERENCES.md).
+//! TOML: https://toml.io/en/v1.0.0 (see docs/references/).
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;

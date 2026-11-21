@@ -63,7 +63,7 @@
 //!    out in time. A branch in the avoidance area moves out of it, if it
 //!    can in one step. So a branch over the part bends out and around the
 //!    part, and goes down beside it to the bed. (Cura's tree support uses
-//!    an avoidance area in the same way; see REFERENCES.md.)
+//!    an avoidance area in the same way; see docs/references/.)
 //!    A branch keeps the XY gap from the part (`fit` moves it before it
 //!    makes it thinner); its top layers keep only the smaller gap under
 //!    an overhang, so that the tips under a slope stay. A branch in the
@@ -97,7 +97,7 @@
 //!    print filled (the loop and the support lines): the `fill_layers`
 //!    layers over the bed layer, so that the foot is stiff, and the
 //!    `fill_layers` layers under each tip, under the pad. (Cura prints a
-//!    tree with one wall and no lines; see REFERENCES.md.)
+//!    tree with one wall and no lines; see docs/references/.)
 //!
 //! The edges of the part come from an edge index (geom.EdgeIndex), made
 //! once per layer. The unions of the circles run on all threads. A fast
@@ -105,7 +105,7 @@
 //! with a larger layer step.
 //!
 //! The idea of tree support is common in FDM slicers (Cura "tree support",
-//! PrusaSlicer "organic" support; see REFERENCES.md). The method and the
+//! PrusaSlicer "organic" support; see docs/references/). The method and the
 //! code here are new.
 
 const std = @import("std");

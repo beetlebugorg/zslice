@@ -54,8 +54,8 @@ Mark an item done when its commit is in `master`. Add an item when you find a pr
 
 ## 7. Consistency
 
-- [x] The source files that use a source in `REFERENCES.md` name it in their header comment: `import_cura.zig`, `profile.zig`, `plate.zig`, and `native-surface.c` did not.
-- [ ] `src/engine.zig` uses memoization (see `REFERENCES.md`) and does not name it in its header.
+- [x] The source files that use a source in `docs/references/` name it in their header comment: `import_cura.zig`, `profile.zig`, `plate.zig`, and `native-surface.c` did not.
+- [ ] `src/engine.zig` uses memoization (see `docs/references/papers-and-algorithms.md`) and does not name it in its header.
 - [x] One list of the `ZSLICE_*` test hooks of the GTK shell, in `docs/app/README.md`.
 - [x] No TODO without an entry in `ROADMAP.md`. There is no TODO in the code.
 - [x] `docs/internals/architecture.md` lists all modules, with `app/`, `c_api/`, and `render/`.

@@ -79,7 +79,7 @@
 //! Each layer only reads the outlines of the other layers, so many layers
 //! can be planned at the same time on different threads.
 //!
-//! References (see REFERENCES.md): the greedy nearest-neighbor order with
+//! References (see docs/references/): the greedy nearest-neighbor order with
 //! a uniform grid search, the order by island, the opening, memoization
 //! (see `Memo`), combined infill (the idea of PrusaSlicer and Cura), the
 //! infill meshes of CuraEngine (see `Modifier`), and the trihexagon

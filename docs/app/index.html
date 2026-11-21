@@ -68,9 +68,23 @@
 <a href="../internals/macos/">The macOS app</a>
 <div class="group">Project</div>
 <a href="../app/" aria-current="page">App</a>
-<a href="../references/">References</a>
 <a href="../roadmap/">Roadmap</a>
-<a href="../privacy/">Privacy</a></nav></aside>
+<a href="../privacy/">Privacy</a>
+<div class="group">References</div>
+<a href="../references/">References</a>
+<a href="../references/explore/">Explorer</a>
+<a href="../references/libraries/">Libraries and tools</a>
+<a href="../references/cura/">Cura</a>
+<a href="../references/orcaslicer/">OrcaSlicer</a>
+<a href="../references/prusaslicer/">PrusaSlicer</a>
+<a href="../references/bambu-studio/">Bambu Studio</a>
+<a href="../references/slicer-techniques/">Slicer techniques</a>
+<a href="../references/printer-data/">Printer data</a>
+<a href="../references/klipper-marlin-firmware/">Firmware and G-code</a>
+<a href="../references/fonts/">Fonts</a>
+<a href="../references/papers-and-algorithms/">Papers and algorithms</a>
+<a href="../references/physics-and-materials/">Physics and materials</a>
+<a href="../references/formats-and-protocols/">Formats and protocols</a></nav></aside>
 <main>
 <p class="eyebrow">Project</p>
 <h1>The zslice app</h1>
@@ -113,7 +127,7 @@
 <div class="table-wrap"><table><thead><tr><th>Feature</th><th>Color</th></tr></thead><tbody><tr><td>Outer wall</td><td><code>#d9480f</code></td></tr><tr><td>Inner wall</td><td><code>#f59f00</code></td></tr><tr><td>Skin</td><td><code>#1c7ed6</code></td></tr><tr><td>Infill</td><td><code>#2b8a3e</code></td></tr><tr><td>Ironing</td><td><code>#ae3ec9</code></td></tr><tr><td>Skirt and brim</td><td><code>#8d6e63</code></td></tr><tr><td>Support</td><td><code>#adb5bd</code></td></tr><tr><td>Support interface</td><td><code>#495057</code></td></tr><tr><td>Slope smoothing</td><td><code>#0ca6ae</code></td></tr><tr><td>Slope ironing</td><td><code>#82c91e</code></td></tr><tr><td>Bridge</td><td><code>#66ccf2</code></td></tr></tbody></table></div>
 <h2 id="add-a-shell">Add a shell</h2>
 <ol><li>Build the core for the platform: <code>zig build lib -Dtarget=&lt;target&gt; -Doptimize=ReleaseFast</code>. It makes <code>libzslice.a</code> and the two headers.</li><li>Wrap <code>zs_set</code> (or one <code>zs_app</code>) in one object of the platform (a GObject, an ObservableObject, a ViewModel) that owns the core and moves the events to the UI thread. See <code>linux/src/model/app-model.c</code>.</li><li>Build the window: open, export, the settings panel, the preview with a layer slider, a status bar, and a Licenses screen.</li><li>Use the GTK shell as the reference for the behavior.</li></ol>
-<p>The structure follows the Lookout Marine app (a Zig core with native shells for each platform, by the same author).</p><nav class="pager"><a class="prev" href="../internals/macos/"><span>Previous</span><b>The macOS app</b></a><a class="next" href="../references/"><span>Next</span><b>References</b></a></nav>
+<p>The structure follows the Lookout Marine app (a Zig core with native shells for each platform, by the same author).</p><nav class="pager"><a class="prev" href="../internals/macos/"><span>Previous</span><b>The macOS app</b></a><a class="next" href="../roadmap/"><span>Next</span><b>Roadmap</b></a></nav>
 </main>
 </div>
 <footer>zslice is free software (AGPL-3.0-or-later). <a href="../privacy/">Privacy</a>: no analytics, no cookies, nothing from other sites. <a href="https://github.com/beetlebugorg/zslice/blob/main/docs/build.py">docs/build.py</a> writes this site from <a href="https://github.com/beetlebugorg/zslice/blob/main/docs/app/README.md">docs/app/README.md</a>.</footer>

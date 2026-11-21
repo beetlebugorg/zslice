@@ -45,7 +45,7 @@
 //!
 //! Copyright (c) 2026 UltiMaker. CuraEngine is released under the terms of
 //! the AGPLv3 or higher. This port is part of zslice (AGPL-3.0-or-later).
-//! See REFERENCES.md.
+//! See docs/references/.
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;

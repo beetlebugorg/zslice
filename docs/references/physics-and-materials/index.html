@@ -1,0 +1,241 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Physics and materials · zslice</title>
+<meta name="description" content="The physics, the material data, and the papers behind the print simulation, the bond of the first layer, and the rigid body placement.">
+<link rel="canonical" href="https://zslice.beetlebug.org/references/physics-and-materials/">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%23171717'/%3E%3Crect x='11' y='8' width='10' height='4' rx='1' fill='%23f4f0e6'/%3E%3Crect x='8' y='14' width='16' height='4' rx='1' fill='%23f4f0e6'/%3E%3Crect x='5' y='20' width='22' height='4' rx='1' fill='%23ff5a1f'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="../../site.css">
+</head>
+<body>
+<input type="checkbox" id="menu">
+<header class="top">
+  <a class="brand" href="../../docs.html"><span class="mark">ZSLICE</span><span class="docs">DOCS</span></a>
+  <label class="menu-btn" for="menu">Contents</label>
+  <nav class="top-links"><a href="../../index.html">Open the app</a><a href="../../user/getting-started/">Get started</a><a href="../../roadmap/">Roadmap</a><a href="../../privacy/">Privacy</a><a href="https://github.com/beetlebugorg/zslice">GitHub</a></nav>
+</header>
+<div class="layout">
+<aside class="side"><nav><a href="../../docs.html">Home</a>
+<a href="../../contents/">All documents</a>
+<div class="group">Start</div>
+<a href="../../user/getting-started/"><span class="n">1</span>Your first print</a>
+<div class="group">Everyday tasks</div>
+<a href="../../user/look/"><span class="n">2</span>Look at the print</a>
+<a href="../../user/lines/"><span class="n">3</span>Click a line</a>
+<a href="../../user/change-settings/"><span class="n">4</span>Change a setting</a>
+<a href="../../user/parts/"><span class="n">5</span>Place the parts</a>
+<a href="../../user/support/"><span class="n">6</span>Add support</a>
+<a href="../../user/filaments/"><span class="n">7</span>Print in colors</a>
+<a href="../../user/labels/"><span class="n">8</span>Labels on a part</a>
+<a href="../../user/check/"><span class="n">9</span>Check the print</a>
+<a href="../../user/plates/"><span class="n">10</span>Plates and files</a>
+<a href="../../user/printers/"><span class="n">11</span>Send to a printer</a>
+<a href="../../user/history/"><span class="n">12</span>Undo and history</a>
+<div class="group">Features</div>
+<a href="../../user/features/"><span class="n">13</span>The best features</a>
+<a href="../../user/print-as-it-forms/"><span class="n">14</span>The print as it forms</a>
+<a href="../../user/projects/"><span class="n">15</span>printdeck projects</a>
+<a href="../../user/farm/"><span class="n">16</span>A print farm</a>
+<div class="group">Reference</div>
+<a href="../../user/keys/">Keys and mouse</a>
+<a href="../../user/settings/">Settings</a>
+<a href="../../user/expert/">Formulas and rules</a>
+<a href="../../user/profiles/">Profiles</a>
+<a href="../../user/command-line/">The command line</a>
+<a href="../../user/apps/">Web, Linux, and Mac</a>
+<a href="../../user/macos/">The macOS app</a>
+<a href="../../user/troubleshooting/">Problems and errors</a>
+<div class="group">Embedding</div>
+<a href="../../embedding/">Overview</a>
+<a href="../../embedding/c/">C</a>
+<a href="../../embedding/zig/">Zig</a>
+<a href="../../embedding/javascript/">JavaScript</a>
+<a href="../../embedding/print-view/">The print view</a>
+<a href="../../embedding/viewer/">The G-code viewer</a>
+<a href="../../embedding/labels/">Labels</a>
+<div class="group">Internals</div>
+<a href="../../internals/architecture/">Architecture</a>
+<a href="../../internals/one-view/">Plan: one view</a>
+<a href="../../internals/how-slicing-works/">How slicing works</a>
+<a href="../../internals/layer-settings/">Settings for some layers</a>
+<a href="../../internals/arachne/">Arachne walls</a>
+<a href="../../internals/print-sim/">The print simulation</a>
+<a href="../../internals/cura-compare/">Compared with other slicers</a>
+<a href="../../internals/contributing/">Contributing</a>
+<a href="../../internals/code-quality/">Code quality</a>
+<a href="../../internals/macos/">The macOS app</a>
+<div class="group">Project</div>
+<a href="../../app/">App</a>
+<a href="../../roadmap/">Roadmap</a>
+<a href="../../privacy/">Privacy</a>
+<div class="group">References</div>
+<a href="../../references/">References</a>
+<a href="../../references/explore/">Explorer</a>
+<a href="../../references/libraries/">Libraries and tools</a>
+<a href="../../references/cura/">Cura</a>
+<a href="../../references/orcaslicer/">OrcaSlicer</a>
+<a href="../../references/prusaslicer/">PrusaSlicer</a>
+<a href="../../references/bambu-studio/">Bambu Studio</a>
+<a href="../../references/slicer-techniques/">Slicer techniques</a>
+<a href="../../references/printer-data/">Printer data</a>
+<a href="../../references/klipper-marlin-firmware/">Firmware and G-code</a>
+<a href="../../references/fonts/">Fonts</a>
+<a href="../../references/papers-and-algorithms/">Papers and algorithms</a>
+<a href="../../references/physics-and-materials/" aria-current="page">Physics and materials</a>
+<a href="../../references/formats-and-protocols/">Formats and protocols</a></nav></aside>
+<main>
+<p class="eyebrow">References</p>
+<h1>Physics and materials</h1>
+<p class="lede">The physics, the material data, and the papers behind the print simulation, the bond of the first layer, and the rigid body placement.</p>
+<h2 id="algorithms-formats-and-conventions">Algorithms, formats, and conventions</h2>
+<h3 id="euler-buckling-and-cantilever-bend">Euler buckling and cantilever bend</h3>
+<div class="ref"><span class="kind k-idea">idea</span><span class="area">support</span><dl><dt>Source</dt><dd>Timoshenko and Gere</dd><dt>What zslice uses</dt><dd>The least radius of a tree branch at each height (the bend rule and the buckling rule), and the foot radius (the pull of the nozzle push on a disk on the bed).</dd><dt>License</dt><dd>Textbook physics</dd><dt>Used in</dt><dd><a href="https://github.com/beetlebugorg/zslice/blob/main/src/tree_support.zig"><code>src/tree_support.zig</code></a>, <a href="https://github.com/beetlebugorg/zslice/blob/main/src/support.zig"><code>src/support.zig</code></a></dd></dl></div>
+<p>Euler buckling of a column fixed at one end and free at the other (P = pi^2 E I / (4 L^2)), and the bend of a cantilever under an end load (F L^3 / (3 E I)), with I = pi r^3 t for a thin-walled tube; standard results of beam theory (for example S. Timoshenko and J. Gere, "Theory of Elastic Stability")</p>
+<p><strong>License:</strong> Textbook physics</p>
+<p><strong>Used in:</strong> <code>src/tree_support.zig</code>, <code>src/support.zig</code></p>
+<p><strong>How zslice uses it:</strong> The least radius of a tree branch at each height (the bend rule and the buckling rule), and the foot radius (the pull of the nozzle push on a disk on the bed).</p>
+<h3 id="polyhedral-mass-properties">Polyhedral mass properties</h3>
+<div class="ref"><span class="kind k-paper">paper</span><span class="area">physics</span><dl><dt>Source</dt><dd>Eberly</dd><dt>What zslice uses</dt><dd>The volume, the center of mass, and the inertia tensor of a closed mesh, from the integrals over its faces.</dd><dt>License</dt><dd>Paper</dd><dt>Link</dt><dd><a href="https://www.geometrictools.com/Documentation/PolyhedralMassProperties.pdf">https://www.geometrictools.com/Documentation/PolyhedralMassProperties.pdf</a></dd><dt>Used in</dt><dd><a href="https://github.com/beetlebugorg/zslice/blob/main/src/rigid.zig"><code>src/rigid.zig</code></a></dd></dl></div>
+<p>David Eberly, "Polyhedral Mass Properties (Revisited)", Geometric Tools, 2002, <a href="https://www.geometrictools.com/Documentation/PolyhedralMassProperties.pdf">https://www.geometrictools.com/Documentation/PolyhedralMassProperties.pdf</a></p>
+<p><strong>License:</strong> Paper</p>
+<p><strong>Used in:</strong> <code>src/rigid.zig</code></p>
+<p><strong>How zslice uses it:</strong> The volume, the center of mass, and the inertia tensor of a closed mesh, from the integrals over its faces.</p>
+<h3 id="sequential-impulses">Sequential impulses</h3>
+<div class="ref"><span class="kind k-paper">paper</span><span class="area">physics</span><dl><dt>Source</dt><dd>Catto</dd><dt>What zslice uses</dt><dd>The contact solver: sequential impulses with accumulated clamping, friction in the cone of the normal impulse, warm starting, and a Baumgarte push.</dd><dt>License</dt><dd>Paper</dd><dt>Link</dt><dd><a href="https://box2d.org/publications/">https://box2d.org/publications/</a></dd><dt>Used in</dt><dd><a href="https://github.com/beetlebugorg/zslice/blob/main/src/rigid.zig"><code>src/rigid.zig</code></a></dd></dl></div>
+<p>Erin Catto, "Iterative Dynamics with Temporal Coherence", GDC 2005, and "Fast and Simple Physics using Sequential Impulses", GDC 2006, <a href="https://box2d.org/publications/">https://box2d.org/publications/</a></p>
+<p><strong>License:</strong> Paper</p>
+<p><strong>Used in:</strong> <code>src/rigid.zig</code></p>
+<p><strong>How zslice uses it:</strong> The contact solver: sequential impulses with accumulated clamping, friction in the cone of the normal impulse, warm starting, and a Baumgarte push. No code is copied.</p>
+<h3 id="bond-pla-and-petg-on-aluminum">Bond: PLA and PETG on aluminum</h3>
+<div class="ref"><span class="kind k-paper">paper</span><span class="area">physics</span><dl><dt>Source</dt><dd>Campos-Jurado et al.</dd><dt>What zslice uses</dt><dd>The order of the tensile bond of a printed first layer: pull-off tests of PLA (0.40 to 1.71 N/mm²) and PETG (0.62 to about 2 N/mm²) printed on a metal bed.</dd><dt>License</dt><dd>Paper</dd><dt>Link</dt><dd><a href="https://doi.org/10.3390/polym17162210">https://doi.org/10.3390/polym17162210</a></dd><dt>Used in</dt><dd><a href="https://github.com/beetlebugorg/zslice/blob/main/src/bond.zig"><code>src/bond.zig</code></a></dd></dl></div>
+<p>Bond of the first layer: Manuel Campos-Jurado, Óscar Rodríguez-Alabanda, and Guillermo Guerrero-Vacas, "Manufacturing of Polymer-Metal Composite by Fused Filament Fabrication: Adhesion of PLA and PETG on Aluminum", Polymers 17(16):2210, 2025, <a href="https://doi.org/10.3390/polym17162210">https://doi.org/10.3390/polym17162210</a></p>
+<p><strong>License:</strong> Paper (CC BY 4.0); data only</p>
+<p><strong>Used in:</strong> <code>src/bond.zig</code></p>
+<p><strong>How zslice uses it:</strong> The order of the tensile bond of a printed first layer: pull-off tests of PLA (0.40 to 1.71 N/mm²) and PETG (0.62 to about 2 N/mm²) printed on a metal bed. zslice takes 0.3 N/mm² for PLA on PEI, and 1.5 times that for PETG (the ratio of the least values).</p>
+<h3 id="bond-print-speed-and-temperature">Bond: print speed and temperature</h3>
+<div class="ref"><span class="kind k-paper">paper</span><span class="area">physics</span><dl><dt>Source</dt><dd>Laumann et al.</dd><dt>What zslice uses</dt><dd>The bond of PLA on three build surfaces reaches 0.56 N/mm² with a tuned first layer.</dd><dt>License</dt><dd>Paper; data only</dd><dt>Link</dt><dd><a href="https://doi.org/10.1080/00218464.2022.2093640">https://doi.org/10.1080/00218464.2022.2093640</a></dd><dt>Used in</dt><dd><a href="https://github.com/beetlebugorg/zslice/blob/main/src/bond.zig"><code>src/bond.zig</code></a></dd></dl></div>
+<p>Bond of the first layer: D. Laumann, D. Spiehl, E. Dörsam, and A. Blaeser, "Interaction of printing speed and temperature settings on the build plate adhesion of 3D-printed polylactide acid parts", The Journal of Adhesion 99(7):1186-1204, 2023, <a href="https://doi.org/10.1080/00218464.2022.2093640">https://doi.org/10.1080/00218464.2022.2093640</a></p>
+<p><strong>License:</strong> Paper; data only</p>
+<p><strong>Used in:</strong> <code>src/bond.zig</code></p>
+<p><strong>How zslice uses it:</strong> The bond of PLA on three build surfaces reaches 0.56 N/mm² with a tuned first layer. zslice takes a usual value below it.</p>
+<h3 id="bond-bed-temperature">Bond: bed temperature</h3>
+<div class="ref"><span class="kind k-paper">paper</span><span class="area">physics</span><dl><dt>Source</dt><dd>Snapp, Gongora, and Brown</dd><dt>What zslice uses</dt><dd>PLA parts on bare glass need 0.27 times the side force to come off as on a polymer film (polyimide) on glass.</dd><dt>License</dt><dd>Paper; data only</dd><dt>Link</dt><dd><a href="https://doi.org/10.1115/1.4050177">https://doi.org/10.1115/1.4050177</a></dd><dt>Used in</dt><dd><a href="https://github.com/beetlebugorg/zslice/blob/main/src/bond.zig"><code>src/bond.zig</code></a></dd></dl></div>
+<p>Bond of the first layer: Kelsey L. Snapp, Aldair E. Gongora, and Keith A. Brown, "Increasing Throughput in Fused Deposition Modeling by Modulating Bed Temperature", Journal of Manufacturing Science and Engineering 143(9):094502, 2021, <a href="https://doi.org/10.1115/1.4050177">https://doi.org/10.1115/1.4050177</a></p>
+<p><strong>License:</strong> Paper; data only</p>
+<p><strong>Used in:</strong> <code>src/bond.zig</code></p>
+<p><strong>How zslice uses it:</strong> PLA parts on bare glass need 0.27 times the side force to come off as on a polymer film (polyimide) on glass. zslice uses this ratio for glass. The test also shows that a taller part comes off with less force: the force acts with a longer lever, as in the model.</p>
+<h3 id="bond-bed-temperature-and-glass-transition">Bond: bed temperature and glass transition</h3>
+<div class="ref"><span class="kind k-paper">paper</span><span class="area">physics</span><dl><dt>Source</dt><dd>Spoerk et al.</dd><dt>What zslice uses</dt><dd>PLA and ABS reach the same shear-off forces, and the bond grows when the bed is just above the glass transition of the plastic.</dd><dt>License</dt><dd>Paper; data only</dd><dt>Link</dt><dd><a href="https://doi.org/10.1080/14658011.2017.1399531">https://doi.org/10.1080/14658011.2017.1399531</a></dd><dt>Used in</dt><dd><a href="https://github.com/beetlebugorg/zslice/blob/main/src/bond.zig"><code>src/bond.zig</code></a></dd></dl></div>
+<p>Bond of the first layer: M. Spoerk, J. Gonzalez-Gutierrez, J. Sapkota, S. Schuschnigg, and C. Holzer, "Effect of the printing bed temperature on the adhesion of parts produced by fused filament fabrication", Plastics, Rubber and Composites 47(1):17-24, 2018, <a href="https://doi.org/10.1080/14658011.2017.1399531">https://doi.org/10.1080/14658011.2017.1399531</a></p>
+<p><strong>License:</strong> Paper; data only</p>
+<p><strong>Used in:</strong> <code>src/bond.zig</code></p>
+<p><strong>How zslice uses it:</strong> PLA and ABS reach the same shear-off forces, and the bond grows when the bed is just above the glass transition of the plastic. zslice gives ABS the value of PLA.</p>
+<h3 id="bend-of-a-beam">Bend of a beam</h3>
+<div class="ref"><span class="kind k-idea">idea</span><span class="area">physics</span><dl><dt>Source</dt><dd>Timoshenko and Gere</dd><dt>What zslice uses</dt><dd>The moment that the bond of the first layer holds about the edge that the part tips over.</dd><dt>License</dt><dd>Textbook physics</dd><dt>Used in</dt><dd><a href="https://github.com/beetlebugorg/zslice/blob/main/src/bond.zig"><code>src/bond.zig</code></a></dd></dl></div>
+<p>The bend of a beam: the stress grows in a straight line from the neutral axis, and a section holds a moment sigma I / c; standard beam theory (for example S. Timoshenko and J. Gere, "Mechanics of Materials")</p>
+<p><strong>License:</strong> Textbook physics</p>
+<p><strong>Used in:</strong> <code>src/bond.zig</code></p>
+<p><strong>How zslice uses it:</strong> The moment that the bond of the first layer holds about the edge that the part tips over.</p>
+<h3 id="position-based-dynamics">Position Based Dynamics</h3>
+<div class="ref"><span class="kind k-paper">paper</span><span class="area">physics</span><dl><dt>Source</dt><dd>Muller et al.</dd><dt>What zslice uses</dt><dd>The solver of the strands that swing and fall: move each mass by its speed and gravity, correct the places to keep the links, and take the speed from the change of place.</dd><dt>License</dt><dd>Paper</dd><dt>Used in</dt><dd><a href="https://github.com/beetlebugorg/zslice/blob/main/src/print_sim.zig"><code>src/print_sim.zig</code></a></dd></dl></div>
+<p>Matthias Müller, Bruno Heidelberger, Marcus Hennix, John Ratcliff, "Position Based Dynamics", Journal of Visual Communication and Image Representation 18(2), 2007</p>
+<p><strong>License:</strong> Paper</p>
+<p><strong>Used in:</strong> <code>src/print_sim.zig</code></p>
+<p><strong>How zslice uses it:</strong> The solver of the strands that swing and fall: move each mass by its speed and gravity, correct the places to keep the links, and take the speed from the change of place.</p>
+<h3 id="long-range-attachments">Long Range Attachments</h3>
+<div class="ref"><span class="kind k-paper">paper</span><span class="area">physics</span><dl><dt>Source</dt><dd>Kim, Chentanez, Muller-Fischer</dd><dt>What zslice uses</dt><dd>A strand that fell and is held at both ends: each mass stays within the arc length of each held end.</dd><dt>License</dt><dd>Paper</dd><dt>Used in</dt><dd><a href="https://github.com/beetlebugorg/zslice/blob/main/src/print_sim.zig"><code>src/print_sim.zig</code></a></dd></dl></div>
+<p>Tae-Yong Kim, Nuttapong Chentanez, Matthias Müller-Fischer, "Long Range Attachments - A Method to Simulate Inextensible Clothing in Computer Games", ACM SIGGRAPH/Eurographics Symposium on Computer Animation (SCA) 2012</p>
+<p><strong>License:</strong> Paper</p>
+<p><strong>Used in:</strong> <code>src/print_sim.zig</code></p>
+<p><strong>How zslice uses it:</strong> A strand that fell and is held at both ends: each mass stays within the arc length of each held end.</p>
+<h3 id="follow-the-leader-strands">Follow the leader strands</h3>
+<div class="ref"><span class="kind k-paper">paper</span><span class="area">physics</span><dl><dt>Source</dt><dd>Muller, Kim, Chentanez</dd><dt>What zslice uses</dt><dd>Follow the leader: a strand held at one end keeps the length of each link in one pass from the held end, with the speed correction (s_damping).</dd><dt>License</dt><dd>Paper</dd><dt>Used in</dt><dd><a href="https://github.com/beetlebugorg/zslice/blob/main/src/print_sim.zig"><code>src/print_sim.zig</code></a></dd></dl></div>
+<p>Matthias Müller, Tae-Yong Kim, Nuttapong Chentanez, "Fast Simulation of Inextensible Hair and Fur", VRIPHYS 2012</p>
+<p><strong>License:</strong> Paper</p>
+<p><strong>Used in:</strong> <code>src/print_sim.zig</code></p>
+<p><strong>How zslice uses it:</strong> Follow the leader: a strand held at one end keeps the length of each link in one pass from the held end, with the speed correction (s_damping).</p>
+<h3 id="catenary">Catenary</h3>
+<div class="ref"><span class="kind k-idea">idea</span><span class="area">physics</span><dl><dt>Source</dt><dd>General</dd><dt>What zslice uses</dt><dd>The static shape of a soft run held at both ends (a bridge), the solve of a from the span and the arc length, and the tension that makes the hot plastic creep.</dd><dt>License</dt><dd>Mathematics</dd><dt>Used in</dt><dd><a href="https://github.com/beetlebugorg/zslice/blob/main/src/print_sim.zig"><code>src/print_sim.zig</code></a></dd></dl></div>
+<p>The catenary: a hanging chain of weight w per length has the shape z = a cosh(x / a) + c, the arc length a sinh(x / a), and the horizontal tension H = a w (Bernoulli, Huygens, and Leibniz, Acta Eruditorum 1691; in texts on statics)</p>
+<p><strong>License:</strong> Mathematics</p>
+<p><strong>Used in:</strong> <code>src/print_sim.zig</code></p>
+<p><strong>How zslice uses it:</strong> The static shape of a soft run held at both ends (a bridge), the solve of a from the span and the arc length, and the tension that makes the hot plastic creep.</p>
+<h3 id="extensional-viscosity">Extensional viscosity</h3>
+<div class="ref"><span class="kind k-paper">paper</span><span class="area">physics</span><dl><dt>Source</dt><dd>Trouton</dd><dt>What zslice uses</dt><dd>The extensional viscosity of a Newtonian fluid is 3 times its viscosity: a strand stretches at the rate sigma / (3 eta).</dd><dt>License</dt><dd>Paper</dd><dt>Used in</dt><dd><a href="https://github.com/beetlebugorg/zslice/blob/main/src/print_sim.zig"><code>src/print_sim.zig</code></a></dd></dl></div>
+<p>Frederick T. Trouton, "On the coefficient of viscous traction and its relation to that of viscosity", Proceedings of the Royal Society A 77, 1906</p>
+<p><strong>License:</strong> Paper</p>
+<p><strong>Used in:</strong> <code>src/print_sim.zig</code></p>
+<p><strong>How zslice uses it:</strong> The extensional viscosity of a Newtonian fluid is 3 times its viscosity: a strand stretches at the rate sigma / (3 eta).</p>
+<h3 id="pla-viscosity-ingeo-4032d">PLA viscosity (Ingeo 4032D)</h3>
+<div class="ref"><span class="kind k-paper">paper</span><span class="area">physics</span><dl><dt>Source</dt><dd>Yoo, Jeong, Choi</dd><dt>What zslice uses</dt><dd>The viscosity of PLA at low shear: about 3037 Pa s at 180 °C and 733 Pa s at 210 °C (Ingeo 4032D).</dd><dt>License</dt><dd>Paper</dd><dt>Link</dt><dd><a href="https://doi.org/10.1515/epoly-2021-0071">https://doi.org/10.1515/epoly-2021-0071</a></dd><dt>Used in</dt><dd><a href="https://github.com/beetlebugorg/zslice/blob/main/src/print_sim.zig"><code>src/print_sim.zig</code></a></dd></dl></div>
+<p>Hyeong-Min Yoo, Su-Yeon Jeong, Sung-Woong Choi, "Analysis of the rheological property and crystallization behavior of polylactic acid (Ingeo Biopolymer 4032D) at different process temperatures", e-Polymers 21(1), 702-709, 2021, <a href="https://doi.org/10.1515/epoly-2021-0071">https://doi.org/10.1515/epoly-2021-0071</a></p>
+<p><strong>License:</strong> Paper (data)</p>
+<p><strong>Used in:</strong> <code>src/print_sim.zig</code></p>
+<p><strong>How zslice uses it:</strong> The viscosity of PLA at low shear: about 3037 Pa s at 180 °C and 733 Pa s at 210 °C (Ingeo 4032D). A cross-check of the PLA values of Colón Quintana (2021).</p>
+<h3 id="wlf-law">WLF law</h3>
+<div class="ref"><span class="kind k-paper">paper</span><span class="area">physics</span><dl><dt>Source</dt><dd>Williams, Landel, Ferry</dd><dt>What zslice uses</dt><dd>The WLF law with the universal constants (C1 = 17.44, C2 = 51.6 K) near the glass point of PLA, from 1e12 Pa s at the glass point.</dd><dt>License</dt><dd>Paper</dd><dt>Used in</dt><dd><a href="https://github.com/beetlebugorg/zslice/blob/main/src/print_sim.zig"><code>src/print_sim.zig</code></a></dd></dl></div>
+<p>Malcolm L. Williams, Robert F. Landel, John D. Ferry, "The Temperature Dependence of Relaxation Mechanisms in Amorphous Polymers and Other Glass-forming Liquids", Journal of the American Chemical Society 77(14), 1955</p>
+<p><strong>License:</strong> Paper</p>
+<p><strong>Used in:</strong> <code>src/print_sim.zig</code></p>
+<p><strong>How zslice uses it:</strong> The WLF law with the universal constants (C1 = 17.44, C2 = 51.6 K) near the glass point of PLA, from 1e12 Pa s at the glass point.</p>
+<h3 id="cooling-of-a-bead">Cooling of a bead</h3>
+<div class="ref"><span class="kind k-idea">idea</span><span class="area">physics</span><dl><dt>Source</dt><dd>Incropera and DeWitt</dd><dt>What zslice uses</dt><dd>The cooling of a soft bead, in still air and at the fan.</dd><dt>License</dt><dd>Textbook methods</dd><dt>Used in</dt><dd><a href="https://github.com/beetlebugorg/zslice/blob/main/src/print_sim.zig"><code>src/print_sim.zig</code></a></dd></dl></div>
+<p>Newton's law of cooling and the lumped heat model (tau = rho c V / (h A)); the Hilpert correlation for a cylinder in cross flow (Nu = C Re^m Pr^(1/3)) and the Churchill-Chu correlation for natural convection, as in F. P. Incropera, D. P. DeWitt, "Fundamentals of Heat and Mass Transfer"</p>
+<p><strong>License:</strong> Textbook methods</p>
+<p><strong>Used in:</strong> <code>src/print_sim.zig</code></p>
+<p><strong>How zslice uses it:</strong> The cooling of a soft bead, in still air and at the fan.</p>
+<h3 id="pla-material-values">PLA material values</h3>
+<div class="ref"><span class="kind k-data">data</span><span class="area">physics</span><dl><dt>Source</dt><dd>NatureWorks</dd><dt>What zslice uses</dt><dd>The weight, the heat, and the setting of the plastic.</dd><dt>License</dt><dd>Data</dd><dt>Used in</dt><dd><a href="https://github.com/beetlebugorg/zslice/blob/main/src/print_sim.zig"><code>src/print_sim.zig</code></a></dd></dl></div>
+<p>PLA material values: density 1.24 g/cm³ and glass point 55 to 60 °C (NatureWorks Ingeo 4043D data sheet); heat capacity of the melt about 1.8 kJ/(kg K)</p>
+<p><strong>License:</strong> Data</p>
+<p><strong>Used in:</strong> <code>src/print_sim.zig</code></p>
+<p><strong>How zslice uses it:</strong> The weight, the heat, and the setting of the plastic.</p>
+<h3 id="pla-zero-shear-viscosity">PLA zero-shear viscosity</h3>
+<div class="ref"><span class="kind k-paper">paper</span><span class="area">physics</span><dl><dt>Source</dt><dd>Patti et al.</dd><dt>What zslice uses</dt><dd>Two commercial PLA filaments have a zero-shear viscosity of about 1e4 Pa s at 170 °C. A cross-check of the PLA values of Colón Quintana (2021).</dd><dt>License</dt><dd>Paper</dd><dt>Link</dt><dd><a href="https://doi.org/10.3390/chemengineering7010001">https://doi.org/10.3390/chemengineering7010001</a></dd><dt>Used in</dt><dd><a href="https://github.com/beetlebugorg/zslice/blob/main/src/print_sim.zig"><code>src/print_sim.zig</code></a></dd></dl></div>
+<p>Antonella Patti, Stefano Acierno, Gianluca Cicala, Domenico Acierno, "Predicting the Printability of Poly(Lactide) Acid Filaments in Fused Deposition Modeling (FDM) Technology: Rheological Measurements and Experimental Evidence", ChemEngineering 7(1), 1, 2022, <a href="https://doi.org/10.3390/chemengineering7010001">https://doi.org/10.3390/chemengineering7010001</a></p>
+<p><strong>License:</strong> Paper (data), CC BY 4.0</p>
+<p><strong>Used in:</strong> <code>src/print_sim.zig</code></p>
+<p><strong>How zslice uses it:</strong> Two commercial PLA filaments have a zero-shear viscosity of about 1e4 Pa s at 170 °C. A cross-check of the PLA values of Colón Quintana (2021).</p>
+<h3 id="melting-in-fff-materials">Melting in FFF (materials)</h3>
+<div class="ref"><span class="kind k-paper">paper</span><span class="area">physics</span><dl><dt>Source</dt><dd>Colon Quintana</dd><dt>What zslice uses</dt><dd>The materials of the simulated print.</dd><dt>License</dt><dd>Thesis</dd><dt>Link</dt><dd><a href="https://additive-mfg.me.wisc.edu/wp-content/uploads/sites/950/2022/04/main.pdf">https://additive-mfg.me.wisc.edu/wp-content/uploads/sites/950/2022/04/main.pdf</a></dd><dt>Used in</dt><dd><a href="https://github.com/beetlebugorg/zslice/blob/main/src/print_sim.zig"><code>src/print_sim.zig</code></a></dd></dl></div>
+<p>José Luis Colón Quintana, "Understanding Melting in Fused Filament Fabrication Process", PhD preliminary report, University of Wisconsin-Madison, 2021, <a href="https://additive-mfg.me.wisc.edu/wp-content/uploads/sites/950/2022/04/main.pdf">https://additive-mfg.me.wisc.edu/wp-content/uploads/sites/950/2022/04/main.pdf</a></p>
+<p><strong>License:</strong> Thesis (data)</p>
+<p><strong>Used in:</strong> <code>src/print_sim.zig</code></p>
+<p><strong>How zslice uses it:</strong> The materials of the simulated print. PLA (MatterHackers): zero-shear viscosity 3546 Pa s at 200 °C, Arrhenius with 80.6 kJ/mol, glass point 58.9 °C, density 1250 kg/m³, heat capacity 1800 J/(kg K), conductivity 0.163 W/(m K). ABS (MG94): 13 250 Pa s at 200 °C, WLF with C1 = 3.938 and C2 = 128.6 K, glass point 104.5 °C, density 1060 kg/m³, heat capacity 1381 J/(kg K), conductivity 0.17 W/(m K).</p>
+<h3 id="petg-melt-viscosity-us-9962913">PETG melt viscosity (US 9,962,913)</h3>
+<div class="ref"><span class="kind k-data">data</span><span class="area">physics</span><dl><dt>Source</dt><dd>USPTO</dd><dt>What zslice uses</dt><dd>The melt viscosity of a PETG: about 28 795 to 48 077 poise (2880 to 4810 Pa s) at 1 rad/s and 220 °C. zslice uses the middle, 3844 Pa s.</dd><dt>License</dt><dd>Patent</dd><dt>Link</dt><dd><a href="https://image-ppubs.uspto.gov/dirsearch-public/print/downloadPdf/9962913">https://image-ppubs.uspto.gov/dirsearch-public/print/downloadPdf/9962913</a></dd><dt>Used in</dt><dd><a href="https://github.com/beetlebugorg/zslice/blob/main/src/print_sim.zig"><code>src/print_sim.zig</code></a></dd></dl></div>
+<p>US patent 9,962,913, "Multilayer film", <a href="https://image-ppubs.uspto.gov/dirsearch-public/print/downloadPdf/9962913">https://image-ppubs.uspto.gov/dirsearch-public/print/downloadPdf/9962913</a></p>
+<p><strong>License:</strong> Patent (data)</p>
+<p><strong>Used in:</strong> <code>src/print_sim.zig</code></p>
+<p><strong>How zslice uses it:</strong> The melt viscosity of a PETG: about 28 795 to 48 077 poise (2880 to 4810 Pa s) at 1 rad/s and 220 °C. zslice uses the middle, 3844 Pa s.</p>
+<h3 id="petg-data-sheet">PETG data sheet</h3>
+<div class="ref"><span class="kind k-data">data</span><span class="area">physics</span><dl><dt>Source</dt><dd>3D Universe</dd><dt>What zslice uses</dt><dd>PETG: glass point 80 °C, density 1.29 g/cm³.</dd><dt>License</dt><dd>Data sheet</dd><dt>Link</dt><dd><a href="https://shop3duniverse.com/cdn/shop/t/134/assets/3D_Universe_PETG_filament_TDS.pdf">https://shop3duniverse.com/cdn/shop/t/134/assets/3D_Universe_PETG_filament_TDS.pdf</a></dd><dt>Used in</dt><dd><a href="https://github.com/beetlebugorg/zslice/blob/main/src/print_sim.zig"><code>src/print_sim.zig</code></a></dd></dl></div>
+<p>3D Universe, "PETG 3D Filament Data Sheet", <a href="https://shop3duniverse.com/cdn/shop/t/134/assets/3D_Universe_PETG_filament_TDS.pdf">https://shop3duniverse.com/cdn/shop/t/134/assets/3D_Universe_PETG_filament_TDS.pdf</a></p>
+<p><strong>License:</strong> Data sheet</p>
+<p><strong>Used in:</strong> <code>src/print_sim.zig</code></p>
+<p><strong>How zslice uses it:</strong> PETG: glass point 80 °C, density 1.29 g/cm³.</p>
+<h3 id="bridge-sag-of-pla">Bridge sag of PLA</h3>
+<div class="ref"><span class="kind k-paper">paper</span><span class="area">physics</span><dl><dt>Source</dt><dd>Yang et al.</dd><dt>What zslice uses</dt><dd>PLA bridges (0.4 mm nozzle, 0.2 mm layers, fan on): almost no visible sag below 33 mm, loose strands under the deck past 37 mm, and about 1 to 1.5 mm of sag in a 35 mm deck.</dd><dt>License</dt><dd>Paper</dd><dt>Link</dt><dd><a href="https://doi.org/10.1088/1755-1315/772/1/012069">https://doi.org/10.1088/1755-1315/772/1/012069</a></dd><dt>Used in</dt><dd><a href="https://github.com/beetlebugorg/zslice/blob/main/src/print_sim.zig"><code>src/print_sim.zig</code></a>, <a href="https://github.com/beetlebugorg/zslice/blob/main/src/app/sim_calib.zig"><code>src/app/sim_calib.zig</code></a>, <a href="https://github.com/beetlebugorg/zslice/tree/main/tools/calib/"><code>tools/calib/</code></a></dd></dl></div>
+<p>Chun Yang, Jianhua Liu, Xiaohui Ao, Huanxiong Xia, "Experimental Study on the Dimension Error of Bridged Structures Printed by Fused Deposition Modeling", IOP Conf. Series: Earth and Environmental Science 772, 012069, 2021, <a href="https://doi.org/10.1088/1755-1315/772/1/012069">https://doi.org/10.1088/1755-1315/772/1/012069</a></p>
+<p><strong>License:</strong> Paper (data), CC BY 3.0</p>
+<p><strong>Used in:</strong> <code>src/print_sim.zig</code>, <code>src/app/sim_calib.zig</code>, <code>tools/calib/</code></p>
+<p><strong>How zslice uses it:</strong> PLA bridges (0.4 mm nozzle, 0.2 mm layers, fan on): almost no visible sag below 33 mm, loose strands under the deck past 37 mm, and about 1 to 1.5 mm of sag in a 35 mm deck. The limit of <code>fail_drop</code> and the targets of the bridge calibration test.</p>
+<h3 id="critical-overhang-angle">Critical overhang angle</h3>
+<div class="ref"><span class="kind k-paper">paper</span><span class="area">physics</span><dl><dt>Source</dt><dd>Mititelu et al.</dd><dt>What zslice uses</dt><dd>PLA overhangs keep their shape up to about 25 degrees from horizontal (65 from vertical).</dd><dt>License</dt><dd>Paper</dd><dt>Link</dt><dd><a href="https://doi.org/10.1002/masy.70376">https://doi.org/10.1002/masy.70376</a></dd><dt>Used in</dt><dd><a href="https://github.com/beetlebugorg/zslice/blob/main/src/app/sim_calib.zig"><code>src/app/sim_calib.zig</code></a></dd></dl></div>
+<p>Mititelu et al., "Investigation of the Critical Overhang Angle in Fused Filament Fabrication Technology", Macromolecular Symposia, 2026, <a href="https://doi.org/10.1002/masy.70376">https://doi.org/10.1002/masy.70376</a> (abstract)</p>
+<p><strong>License:</strong> Paper (data)</p>
+<p><strong>Used in:</strong> <code>src/app/sim_calib.zig</code></p>
+<p><strong>How zslice uses it:</strong> PLA overhangs keep their shape up to about 25 degrees from horizontal (65 from vertical). The target of the overhang calibration test.</p>
+<h3 id="overhang-threshold-and-temperature">Overhang threshold and temperature</h3>
+<div class="ref"><span class="kind k-paper">paper</span><span class="area">physics</span><dl><dt>Source</dt><dd>Jiang, Xu, Stringer</dd><dt>What zslice uses</dt><dd>The 45 degree rule for overhangs, and its change with the fan, the speed, and the temperature.</dd><dt>License</dt><dd>Paper</dd><dt>Link</dt><dd><a href="https://doi.org/10.1016/j.procir.2019.04.047">https://doi.org/10.1016/j.procir.2019.04.047</a></dd><dt>Used in</dt><dd><a href="https://github.com/beetlebugorg/zslice/blob/main/src/app/sim_calib.zig"><code>src/app/sim_calib.zig</code></a></dd></dl></div>
+<p>Jingchao Jiang, Xun Xu, Jonathan Stringer, "Effect of Extrusion Temperature on Printable Threshold Overhang in Additive Manufacturing", Procedia CIRP 81, 2019, <a href="https://doi.org/10.1016/j.procir.2019.04.047">https://doi.org/10.1016/j.procir.2019.04.047</a>; and Jiang, Stringer, Xu, Zhong, International Journal of Computer Integrated Manufacturing 31(10), 2018, <a href="https://doi.org/10.1080/0951192X.2018.1466398">https://doi.org/10.1080/0951192X.2018.1466398</a> (abstracts)</p>
+<p><strong>License:</strong> Paper</p>
+<p><strong>Used in:</strong> <code>src/app/sim_calib.zig</code></p>
+<p><strong>How zslice uses it:</strong> The 45 degree rule for overhangs, and its change with the fan, the speed, and the temperature.</p><nav class="pager"><a class="prev" href="../../references/papers-and-algorithms/"><span>Previous</span><b>Papers and algorithms</b></a><a class="next" href="../../references/formats-and-protocols/"><span>Next</span><b>Formats and protocols</b></a></nav>
+</main>
+</div>
+<footer>zslice is free software (AGPL-3.0-or-later). <a href="../../privacy/">Privacy</a>: no analytics, no cookies, nothing from other sites. <a href="https://github.com/beetlebugorg/zslice/blob/main/docs/build.py">docs/build.py</a> writes this site from <a href="https://github.com/beetlebugorg/zslice/blob/main/docs/references/physics-and-materials.md">docs/references/physics-and-materials.md</a>.</footer>
+</body>
+</html>

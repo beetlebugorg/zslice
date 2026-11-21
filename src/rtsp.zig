@@ -34,7 +34,7 @@
 //! Each length from the network is bounded: a header block of 16 KiB, a
 //! body of 64 KiB, a frame of 4 MiB, and 32 frames that wait. Over a
 //! bound, the session fails (a header or a body) or drops the frame (the
-//! video). See REFERENCES.md.
+//! video). See docs/references/formats-and-protocols.md.
 //!
 //! SPDX-License-Identifier: AGPL-3.0-or-later
 

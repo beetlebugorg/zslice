@@ -51,7 +51,7 @@
 //! over FTPS (port 990) and commands over MQTT (port 8883), with its
 //! access code (on its screen).
 //!
-//! References (see REFERENCES.md): RFC 1035 (DNS messages and name
+//! References (see docs/references/): RFC 1035 (DNS messages and name
 //! compression), RFC 6762 (mDNS), RFC 6763 (DNS-SD), the OctoPrint
 //! discovery plugin, the Moonraker zeroconf component, PrusaLink, and the
 //! printdeck service file.

@@ -27,7 +27,7 @@
 //! multiplier (`project.flush_multiplier`) scales the result, as the
 //! multiplier of Bambu Studio does.
 //!
-//! References (see REFERENCES.md): the M600 command of Marlin, the PAUSE
+//! References (see docs/references/): the M600 command of Marlin, the PAUSE
 //! command of Klipper, and the flushing volumes of Bambu Studio (Bambu Lab
 //! wiki, "Reduce wasting during filament change").
 //!

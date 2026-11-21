@@ -5,7 +5,7 @@
 //! decide topology: "is this point left of this line" and "do these two
 //! segments cross". Floating point can give a different answer for the same
 //! test at two places in the code, and the polygon operations then make
-//! broken output. CuraEngine uses the same unit (see REFERENCES.md).
+//! broken output. CuraEngine uses the same unit (see docs/references/).
 //!
 //! Cross products of two vectors can be as large as (2^31)^2, so the code
 //! does them in i128. Wasm has no instruction for a 64 x 64 -> 128 bit
@@ -13,7 +13,7 @@
 //! products first test if all factors are small (see `mulSub`), and then
 //! use 64-bit products. Both forms give the same value.
 //!
-//! References (see REFERENCES.md): the shoelace formula for the area, and
+//! References (see docs/references/): the shoelace formula for the area, and
 //! polyline simplification with an anchor point and a distance bound.
 
 const std = @import("std");

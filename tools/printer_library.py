@@ -50,7 +50,7 @@ records (in the order of step 3) that has one.
 
 The format of the library is in the header comment of src/printers.zig.
 
-References (see REFERENCES.md): the Cura definition format, the
+References (see docs/references/printer-data.md): the Cura definition format, the
 PrusaSlicer vendor bundle format, and the OrcaSlicer profile format.
 """
 

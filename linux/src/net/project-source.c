@@ -2,7 +2,7 @@
  *
  * The GitHub REST API (docs.github.com/rest: repos, commits, git/trees)
  * and the Git LFS pointer format (github.com/git-lfs/git-lfs, docs/spec.md).
- * The same requests as web/app/project.js. See REFERENCES.md.
+ * The same requests as web/app/project.js. See docs/references/formats-and-protocols.md.
  *
  * SPDX-License-Identifier: AGPL-3.0-or-later
  */

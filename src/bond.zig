@@ -32,7 +32,7 @@
 //!   says if the part stands with no brim, and the least ratio of the
 //!   hold to the moment (the margin).
 //!
-//! The numbers (see REFERENCES.md, "Bond of the first layer"):
+//! The numbers (see docs/references/, "Bond of the first layer"):
 //!
 //! - Pull-off tests of printed PLA and PETG give 0.4 to about 2 N/mm² on a
 //!   metal bed (Campos-Jurado et al. 2025). PLA reaches up to 0.56 N/mm²

@@ -73,7 +73,7 @@
 #
 # Usage: python3 -I tools/farm_sim/farm_sim.py --printers 50 --speed 60
 #
-# See REFERENCES.md: the OctoPrint, Moonraker, and printdeck APIs.
+# See docs/references/formats-and-protocols.md: the OctoPrint, Moonraker, and printdeck APIs.
 #
 # SPDX-License-Identifier: AGPL-3.0-or-later
 

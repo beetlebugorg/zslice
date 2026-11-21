@@ -1,5 +1,5 @@
 //! The licenses of zslice and of the code in its binaries, for the
-//! Licenses screen of a shell. See REFERENCES.md, "Code in the binaries".
+//! Licenses screen of a shell. See docs/references/, "Code in the binaries".
 
 pub const License = struct {
     name: [:0]const u8,

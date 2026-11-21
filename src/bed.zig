@@ -43,7 +43,7 @@
 //! from the center of the bed. The view adds half of the bed size when it
 //! draws them, so a change of the bed size does not need a new build.
 //!
-//! References (see REFERENCES.md): the PNG specification (W3C, third
+//! References (see docs/references/): the PNG specification (W3C, third
 //! edition), and the bed placement code of Cura, PrusaSlicer, and
 //! OrcaSlicer.
 

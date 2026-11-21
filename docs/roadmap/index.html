@@ -68,9 +68,23 @@
 <a href="../internals/macos/">The macOS app</a>
 <div class="group">Project</div>
 <a href="../app/">App</a>
-<a href="../references/">References</a>
 <a href="../roadmap/" aria-current="page">Roadmap</a>
-<a href="../privacy/">Privacy</a></nav></aside>
+<a href="../privacy/">Privacy</a>
+<div class="group">References</div>
+<a href="../references/">References</a>
+<a href="../references/explore/">Explorer</a>
+<a href="../references/libraries/">Libraries and tools</a>
+<a href="../references/cura/">Cura</a>
+<a href="../references/orcaslicer/">OrcaSlicer</a>
+<a href="../references/prusaslicer/">PrusaSlicer</a>
+<a href="../references/bambu-studio/">Bambu Studio</a>
+<a href="../references/slicer-techniques/">Slicer techniques</a>
+<a href="../references/printer-data/">Printer data</a>
+<a href="../references/klipper-marlin-firmware/">Firmware and G-code</a>
+<a href="../references/fonts/">Fonts</a>
+<a href="../references/papers-and-algorithms/">Papers and algorithms</a>
+<a href="../references/physics-and-materials/">Physics and materials</a>
+<a href="../references/formats-and-protocols/">Formats and protocols</a></nav></aside>
 <main>
 <p class="eyebrow">Project</p>
 <h1>Roadmap</h1>
@@ -96,7 +110,7 @@
 <h2 id="performance">Performance</h2>
 <ul class="tasks"><li><span class="box done" aria-label="done"></span><div>The polygon boolean was O(n^2) for long edges. It now finds crossings with a grid and winding numbers by a walk over the faces.</div></li><li><span class="box none"></span><div>The support column pass (<code>support.zig</code> step 2) runs on one thread. The slowest corpus file with support takes 11 s on 2 threads. Split the layers into bands that run in parallel, or use a coarser area for the carry.</div></li><li><span class="box none"></span><div>Clip open lines (infill, ironing) with a direct method, not with the scanline of a region.</div></li><li><span class="box none"></span><div>Pass one scratch arena for each layer to the boolean and offset calls.</div></li></ul>
 <h2 id="ideas-to-test">Ideas to test</h2>
-<ul><li>Zigzag walls. Replace the inner walls with one path that goes back and forth across the wall band, around the part. The goal is a stronger wall. The outer wall stays a loop for a good surface. Test: print test bars with loop walls and with zigzag walls, and break them.</li><li>Speed from limits. The project sets a speed ratio for each feature, and the engine computes the speed from the limits of the machine and the filament. This is in milestone 1. Next: add the acceleration limits.</li></ul><nav class="pager"><a class="prev" href="../references/"><span>Previous</span><b>References</b></a><a class="next" href="../privacy/"><span>Next</span><b>Privacy</b></a></nav>
+<ul><li>Zigzag walls. Replace the inner walls with one path that goes back and forth across the wall band, around the part. The goal is a stronger wall. The outer wall stays a loop for a good surface. Test: print test bars with loop walls and with zigzag walls, and break them.</li><li>Speed from limits. The project sets a speed ratio for each feature, and the engine computes the speed from the limits of the machine and the filament. This is in milestone 1. Next: add the acceleration limits.</li></ul><nav class="pager"><a class="prev" href="../app/"><span>Previous</span><b>App</b></a><a class="next" href="../privacy/"><span>Next</span><b>Privacy</b></a></nav>
 </main>
 </div>
 <footer>zslice is free software (AGPL-3.0-or-later). <a href="../privacy/">Privacy</a>: no analytics, no cookies, nothing from other sites. <a href="https://github.com/beetlebugorg/zslice/blob/main/docs/build.py">docs/build.py</a> writes this site from <a href="https://github.com/beetlebugorg/zslice/blob/main/ROADMAP.md">ROADMAP.md</a>.</footer>

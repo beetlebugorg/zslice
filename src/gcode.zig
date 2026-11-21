@@ -29,7 +29,7 @@
 //!   the old color out (the flush counts in the filament of the new slot).
 //! - Comments mark each layer (";LAYER:n") and each feature
 //!   (";TYPE:WALL-OUTER"). These follow the CuraEngine convention (see
-//!   REFERENCES.md), which G-code viewers and printdeck read.
+//!   docs/references/), which G-code viewers and printdeck read.
 //!
 //! Time: the emitter writes each layer in two passes. The first pass makes
 //! the moves of the layer with no text, and the motion planner (see

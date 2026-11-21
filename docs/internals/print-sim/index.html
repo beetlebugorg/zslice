@@ -68,15 +68,29 @@
 <a href="../../internals/macos/">The macOS app</a>
 <div class="group">Project</div>
 <a href="../../app/">App</a>
-<a href="../../references/">References</a>
 <a href="../../roadmap/">Roadmap</a>
-<a href="../../privacy/">Privacy</a></nav></aside>
+<a href="../../privacy/">Privacy</a>
+<div class="group">References</div>
+<a href="../../references/">References</a>
+<a href="../../references/explore/">Explorer</a>
+<a href="../../references/libraries/">Libraries and tools</a>
+<a href="../../references/cura/">Cura</a>
+<a href="../../references/orcaslicer/">OrcaSlicer</a>
+<a href="../../references/prusaslicer/">PrusaSlicer</a>
+<a href="../../references/bambu-studio/">Bambu Studio</a>
+<a href="../../references/slicer-techniques/">Slicer techniques</a>
+<a href="../../references/printer-data/">Printer data</a>
+<a href="../../references/klipper-marlin-firmware/">Firmware and G-code</a>
+<a href="../../references/fonts/">Fonts</a>
+<a href="../../references/papers-and-algorithms/">Papers and algorithms</a>
+<a href="../../references/physics-and-materials/">Physics and materials</a>
+<a href="../../references/formats-and-protocols/">Formats and protocols</a></nav></aside>
 <main>
 <p class="eyebrow">Internals</p>
 <h1>The print simulation</h1>
 
 <nav class="onpage"><b>On this page</b><ol><li><a href="#use-it">Use it</a></li><li><a href="#the-model">The model</a></li><li><a href="#numbers">Numbers</a></li><li><a href="#calibration">Calibration</a></li><li><a href="#limits">Limits</a></li></ol></nav><p>zslice can simulate the plastic of a slice: it comes out of the nozzle, rests where the bed or an earlier layer holds it, and hangs or falls where no plastic holds it. It cools with the fan and sets. The next layers print on the shape that formed. So a bridge sags, an overhang droops, and a slab with no support falls in strands, and the layers after it print on the strands.</p>
-<p>To see it in the app, read <a href="../../user/print-as-it-forms/">The print as it forms</a>. The code is in <code>src/print_sim.zig</code> (the model) and <code>src/app/sim_print.zig</code> (the toolpaths in and out). The sources are in <a href="../../references/">REFERENCES.md</a>.</p>
+<p>To see it in the app, read <a href="../../user/print-as-it-forms/">The print as it forms</a>. The code is in <code>src/print_sim.zig</code> (the model) and <code>src/app/sim_print.zig</code> (the toolpaths in and out). The sources are in <a href="../../references/physics-and-materials/">Physics and materials</a>.</p>
 <h2 id="use-it">Use it</h2>
 <ul><li>Zig: <code>App.simulatePrint()</code> runs it on the last slice and returns its numbers. Then <code>App.allToolpaths()</code> gives the paths as the plastic set, until <code>App.showSimulated(false)</code> or the next slice.</li><li>C: <code>zs_app_simulate_print(app, &amp;stats)</code>, then <code>zs_view_load(view, app)</code> to draw it. The stats give the failed masses, the first failed layer, the largest drop, and the plastic that the simulation used. <code>zs_app_sim_stats</code> gives them again with no new simulation, and <code>zs_app_sim_layer</code> gives the largest drop and the failed masses of each layer. <code>zs_app_show_simulated(app, 0)</code> shows the slice again, and <code>zs_app_show_simulated(app, 1)</code> the simulation.</li><li>After each slice: with <code>App.auto_simulate</code> (C: <code>zs_app_set_auto_simulate</code>), the simulation runs on the thread of the slice, in pieces with a check of the cancel flag, so a change stops it at once. <code>ZS_EVENT_SIMULATED</code> tells the shell, and <code>zs_app_sim_adopt</code> (or <code>zs_app_show_simulated(app, 1)</code>) shows it. A shell with no threads (the web worker) runs it in pieces: <code>zs_app_sim_begin</code>, then <code>zs_app_sim_advance</code> between its messages. The Linux app and the web app do this after each slice, and their colors menu switches between the simulated plastic and the plan.</li><li><code>zslice bench part.stl --only sim --runs 1</code> measures it (see <a href="../../user/command-line/">The command line</a>).</li></ul>
 <p>A path whose plastic set where it printed keeps its points. A path with plastic that moved gets a point for each mass, with a nozzle z (<code>point_z</code>) and a bead area (<code>point_area</code>) for each point. A view draws such a bead down to the top of the layer under the path. Plastic that fell under that layer keeps the bead height of its path, and each link spans the z of its two ends, so a strand that hangs or falls is one continuous bead (<code>src/render/view.zig</code>).</p>

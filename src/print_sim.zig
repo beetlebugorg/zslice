@@ -66,7 +66,7 @@
 //! - **Time.** The time jumps over the times with no free soft mass, so a
 //!   print costs little more than its count of masses.
 //!
-//! The sources are in REFERENCES.md. Units: mm, s, g, °C. With mm and g, a
+//! The sources are in docs/references/physics-and-materials.md. Units: mm, s, g, °C. With mm and g, a
 //! stress in g / (mm s²) is a stress in Pa.
 //!
 //! SPDX-License-Identifier: AGPL-3.0-or-later
@@ -136,7 +136,7 @@ const Bead = struct {
 };
 
 /// A plastic: the viscosity of its melt and its law of temperature, its
-/// glass point, and its heat. The sources are in REFERENCES.md.
+/// glass point, and its heat. The sources are in docs/references/physics-and-materials.md.
 pub const Material = struct {
     name: []const u8,
     /// The zero-shear viscosity of the melt (Pa s) at `visc_ref_t` (°C).

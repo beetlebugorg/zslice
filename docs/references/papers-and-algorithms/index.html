@@ -1,0 +1,331 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Papers and algorithms · zslice</title>
+<meta name="description" content="The papers and the general techniques of geometry and computer science that zslice uses. zslice does not copy code from them. Each zslice file that uses a source names it in its header comment.">
+<link rel="canonical" href="https://zslice.beetlebug.org/references/papers-and-algorithms/">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%23171717'/%3E%3Crect x='11' y='8' width='10' height='4' rx='1' fill='%23f4f0e6'/%3E%3Crect x='8' y='14' width='16' height='4' rx='1' fill='%23f4f0e6'/%3E%3Crect x='5' y='20' width='22' height='4' rx='1' fill='%23ff5a1f'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="../../site.css">
+</head>
+<body>
+<input type="checkbox" id="menu">
+<header class="top">
+  <a class="brand" href="../../docs.html"><span class="mark">ZSLICE</span><span class="docs">DOCS</span></a>
+  <label class="menu-btn" for="menu">Contents</label>
+  <nav class="top-links"><a href="../../index.html">Open the app</a><a href="../../user/getting-started/">Get started</a><a href="../../roadmap/">Roadmap</a><a href="../../privacy/">Privacy</a><a href="https://github.com/beetlebugorg/zslice">GitHub</a></nav>
+</header>
+<div class="layout">
+<aside class="side"><nav><a href="../../docs.html">Home</a>
+<a href="../../contents/">All documents</a>
+<div class="group">Start</div>
+<a href="../../user/getting-started/"><span class="n">1</span>Your first print</a>
+<div class="group">Everyday tasks</div>
+<a href="../../user/look/"><span class="n">2</span>Look at the print</a>
+<a href="../../user/lines/"><span class="n">3</span>Click a line</a>
+<a href="../../user/change-settings/"><span class="n">4</span>Change a setting</a>
+<a href="../../user/parts/"><span class="n">5</span>Place the parts</a>
+<a href="../../user/support/"><span class="n">6</span>Add support</a>
+<a href="../../user/filaments/"><span class="n">7</span>Print in colors</a>
+<a href="../../user/labels/"><span class="n">8</span>Labels on a part</a>
+<a href="../../user/check/"><span class="n">9</span>Check the print</a>
+<a href="../../user/plates/"><span class="n">10</span>Plates and files</a>
+<a href="../../user/printers/"><span class="n">11</span>Send to a printer</a>
+<a href="../../user/history/"><span class="n">12</span>Undo and history</a>
+<div class="group">Features</div>
+<a href="../../user/features/"><span class="n">13</span>The best features</a>
+<a href="../../user/print-as-it-forms/"><span class="n">14</span>The print as it forms</a>
+<a href="../../user/projects/"><span class="n">15</span>printdeck projects</a>
+<a href="../../user/farm/"><span class="n">16</span>A print farm</a>
+<div class="group">Reference</div>
+<a href="../../user/keys/">Keys and mouse</a>
+<a href="../../user/settings/">Settings</a>
+<a href="../../user/expert/">Formulas and rules</a>
+<a href="../../user/profiles/">Profiles</a>
+<a href="../../user/command-line/">The command line</a>
+<a href="../../user/apps/">Web, Linux, and Mac</a>
+<a href="../../user/macos/">The macOS app</a>
+<a href="../../user/troubleshooting/">Problems and errors</a>
+<div class="group">Embedding</div>
+<a href="../../embedding/">Overview</a>
+<a href="../../embedding/c/">C</a>
+<a href="../../embedding/zig/">Zig</a>
+<a href="../../embedding/javascript/">JavaScript</a>
+<a href="../../embedding/print-view/">The print view</a>
+<a href="../../embedding/viewer/">The G-code viewer</a>
+<a href="../../embedding/labels/">Labels</a>
+<div class="group">Internals</div>
+<a href="../../internals/architecture/">Architecture</a>
+<a href="../../internals/one-view/">Plan: one view</a>
+<a href="../../internals/how-slicing-works/">How slicing works</a>
+<a href="../../internals/layer-settings/">Settings for some layers</a>
+<a href="../../internals/arachne/">Arachne walls</a>
+<a href="../../internals/print-sim/">The print simulation</a>
+<a href="../../internals/cura-compare/">Compared with other slicers</a>
+<a href="../../internals/contributing/">Contributing</a>
+<a href="../../internals/code-quality/">Code quality</a>
+<a href="../../internals/macos/">The macOS app</a>
+<div class="group">Project</div>
+<a href="../../app/">App</a>
+<a href="../../roadmap/">Roadmap</a>
+<a href="../../privacy/">Privacy</a>
+<div class="group">References</div>
+<a href="../../references/">References</a>
+<a href="../../references/explore/">Explorer</a>
+<a href="../../references/libraries/">Libraries and tools</a>
+<a href="../../references/cura/">Cura</a>
+<a href="../../references/orcaslicer/">OrcaSlicer</a>
+<a href="../../references/prusaslicer/">PrusaSlicer</a>
+<a href="../../references/bambu-studio/">Bambu Studio</a>
+<a href="../../references/slicer-techniques/">Slicer techniques</a>
+<a href="../../references/printer-data/">Printer data</a>
+<a href="../../references/klipper-marlin-firmware/">Firmware and G-code</a>
+<a href="../../references/fonts/">Fonts</a>
+<a href="../../references/papers-and-algorithms/" aria-current="page">Papers and algorithms</a>
+<a href="../../references/physics-and-materials/">Physics and materials</a>
+<a href="../../references/formats-and-protocols/">Formats and protocols</a></nav></aside>
+<main>
+<p class="eyebrow">References</p>
+<h1>Papers and algorithms</h1>
+<p class="lede">The papers and the general techniques of geometry and computer science that zslice uses. zslice does not copy code from them. Each zslice file that uses a source names it in its header comment.</p>
+<h2 id="algorithms-formats-and-conventions">Algorithms, formats, and conventions</h2>
+<h3 id="clipper2-offset-method">Clipper2 offset method</h3>
+<div class="ref"><span class="kind k-idea">idea</span><span class="area">slicing</span><dl><dt>Source</dt><dd>Clipper2</dd><dt>What zslice uses</dt><dd>The offset method.</dd><dt>License</dt><dd>Boost Software License 1.0</dd><dt>Link</dt><dd><a href="https://github.com/AngusJohnson/Clipper2">https://github.com/AngusJohnson/Clipper2</a></dd><dt>Used in</dt><dd><a href="https://github.com/beetlebugorg/zslice/blob/main/src/offset.zig"><code>src/offset.zig</code></a></dd></dl></div>
+<p>Clipper2, Angus Johnson. <a href="https://github.com/AngusJohnson/Clipper2">https://github.com/AngusJohnson/Clipper2</a></p>
+<p><strong>License:</strong> Boost Software License 1.0</p>
+<p><strong>Used in:</strong> <code>src/offset.zig</code></p>
+<p><strong>How zslice uses it:</strong> The offset method: move each edge along its normal, join at the vertices (miter, round, or a loop through the original vertex at a closing corner), then a union with the "positive" fill rule. zslice has its own implementation.</p>
+<h3 id="vatti-polygon-clipping">Vatti polygon clipping</h3>
+<div class="ref"><span class="kind k-paper">paper</span><span class="area">slicing</span><dl><dt>Source</dt><dd>Vatti</dd><dt>What zslice uses</dt><dd>Named as the sweep-line method that Clipper uses.</dd><dt>License</dt><dd>Paper</dd><dt>Used in</dt><dd><a href="https://github.com/beetlebugorg/zslice/blob/main/src/clip.zig"><code>src/clip.zig</code></a></dd></dl></div>
+<p>Bala R. Vatti, "A generic solution to polygon clipping", Communications of the ACM 35(7), 1992</p>
+<p><strong>License:</strong> Paper</p>
+<p><strong>Used in:</strong> <code>src/clip.zig</code></p>
+<p><strong>How zslice uses it:</strong> Named as the sweep-line method that Clipper uses. zslice uses a different method (planar arrangement and winding numbers).</p>
+<h3 id="winding-numbers-and-fill-rules">Winding numbers and fill rules</h3>
+<div class="ref"><span class="kind k-idea">idea</span><span class="area">slicing</span><dl><dt>Source</dt><dd>General</dd><dt>What zslice uses</dt><dd>The rule that decides if a point is inside a polygon set.</dd><dt>License</dt><dd>General computational geometry; the names follow the SVG and PostScript fill rules and Clipper2</dd><dt>Used in</dt><dd><a href="https://github.com/beetlebugorg/zslice/blob/main/src/clip.zig"><code>src/clip.zig</code></a>, <a href="https://github.com/beetlebugorg/zslice/blob/main/src/offset.zig"><code>src/offset.zig</code></a></dd></dl></div>
+<p>Winding numbers and fill rules (even-odd, non-zero, positive)</p>
+<p><strong>License:</strong> General computational geometry; the names follow the SVG and PostScript fill rules and Clipper2</p>
+<p><strong>Used in:</strong> <code>src/clip.zig</code>, <code>src/offset.zig</code></p>
+<p><strong>How zslice uses it:</strong> The rule that decides if a point is inside a polygon set.</p>
+<h3 id="shoelace-formula">Shoelace formula</h3>
+<div class="ref"><span class="kind k-idea">idea</span><span class="area">slicing</span><dl><dt>Source</dt><dd>General</dd><dt>What zslice uses</dt><dd>The signed area of a polygon.</dd><dt>License</dt><dd>Mathematics</dd><dt>Used in</dt><dd><a href="https://github.com/beetlebugorg/zslice/blob/main/src/geom.zig"><code>src/geom.zig</code></a></dd></dl></div>
+<p>Shoelace formula for polygon area</p>
+<p><strong>License:</strong> Mathematics</p>
+<p><strong>Used in:</strong> <code>src/geom.zig</code></p>
+<p><strong>How zslice uses it:</strong> The signed area of a polygon.</p>
+<h3 id="fast-voxel-traversal">Fast voxel traversal</h3>
+<div class="ref"><span class="kind k-paper">paper</span><span class="area">slicing</span><dl><dt>Source</dt><dd>Amanatides and Woo</dd><dt>What zslice uses</dt><dd>The walk of an edge through the cells of the uniform grid that finds candidate crossings.</dd><dt>License</dt><dd>Paper</dd><dt>Used in</dt><dd><a href="https://github.com/beetlebugorg/zslice/blob/main/src/clip.zig"><code>src/clip.zig</code></a></dd></dl></div>
+<p>John Amanatides and Andrew Woo, "A Fast Voxel Traversal Algorithm for Ray Tracing", Eurographics 1987</p>
+<p><strong>License:</strong> Paper</p>
+<p><strong>Used in:</strong> <code>src/clip.zig</code></p>
+<p><strong>How zslice uses it:</strong> The walk of an edge through the cells of the uniform grid that finds candidate crossings.</p>
+<h3 id="doubly-connected-edge-list">Doubly connected edge list</h3>
+<div class="ref"><span class="kind k-idea">idea</span><span class="area">slicing</span><dl><dt>Source</dt><dd>General</dd><dt>What zslice uses</dt><dd>The faces of the arrangement, walked to find the winding numbers.</dd><dt>License</dt><dd>Textbook method</dd><dt>Used in</dt><dd><a href="https://github.com/beetlebugorg/zslice/blob/main/src/clip.zig"><code>src/clip.zig</code></a></dd></dl></div>
+<p>Doubly connected edge list (half-edge structure), as in de Berg et al., "Computational Geometry: Algorithms and Applications"</p>
+<p><strong>License:</strong> Textbook method</p>
+<p><strong>Used in:</strong> <code>src/clip.zig</code></p>
+<p><strong>How zslice uses it:</strong> The faces of the arrangement, walked to find the winding numbers.</p>
+<h3 id="douglas-peucker-line-reduction">Douglas-Peucker line reduction</h3>
+<div class="ref"><span class="kind k-paper">paper</span><span class="area">support</span><dl><dt>Source</dt><dd>Douglas and Peucker</dd><dt>What zslice uses</dt><dd>A branch path of one point a layer becomes a chain of nodes: split the path at its worst point until each segment is within the tolerance.</dd><dt>License</dt><dd>Paper</dd><dt>Used in</dt><dd><a href="https://github.com/beetlebugorg/zslice/blob/main/src/support_skeleton.zig"><code>src/support_skeleton.zig</code></a></dd></dl></div>
+<p>David H. Douglas and Thomas K. Peucker, "Algorithms for the reduction of the number of points required to represent a digitized line or its caricature", The Canadian Cartographer 10(2), 1973</p>
+<p><strong>License:</strong> Paper (the method)</p>
+<p><strong>Used in:</strong> <code>src/support_skeleton.zig</code></p>
+<p><strong>How zslice uses it:</strong> A branch path of one point a layer becomes a chain of nodes: split the path at its worst point until each segment is within the tolerance.</p>
+<h3 id="reciprocal-nearest-neighbors-and-union-find">Reciprocal nearest neighbors and union-find</h3>
+<div class="ref"><span class="kind k-idea">idea</span><span class="area">support</span><dl><dt>Source</dt><dd>General</dd><dt>What zslice uses</dt><dd>The plan of the tree joins: rounds of joins of mutual nearest branches, and the groups of regions and of tips, with no dependence on the order of the nodes.</dd><dt>License</dt><dd>General techniques</dd><dt>Used in</dt><dd><a href="https://github.com/beetlebugorg/zslice/blob/main/src/tree_support.zig"><code>src/tree_support.zig</code></a></dd></dl></div>
+<p>Agglomerative clustering by reciprocal nearest neighbors (pairs of points that are each other's nearest point join), and union-find (disjoint sets); general techniques</p>
+<p><strong>License:</strong> General techniques</p>
+<p><strong>Used in:</strong> <code>src/tree_support.zig</code></p>
+<p><strong>How zslice uses it:</strong> The plan of the tree joins: rounds of joins of mutual nearest branches, and the groups of regions and of tips, with no dependence on the order of the nodes.</p>
+<h3 id="ribbed-support-vaults">Ribbed Support Vaults</h3>
+<div class="ref"><span class="kind k-paper">paper</span><span class="area">infill</span><dl><dt>Source</dt><dd>Tricard, Claux, and Lefebvre</dd><dt>What zslice uses</dt><dd>The method that the Cura lightning infill comes from.</dd><dt>License</dt><dd>Paper</dd><dt>Link</dt><dd><a href="https://diglib.eg.org/handle/10.1111/cgf13750">https://diglib.eg.org/handle/10.1111/cgf13750</a></dd><dt>Used in</dt><dd><a href="https://github.com/beetlebugorg/zslice/blob/main/src/lightning.zig"><code>src/lightning.zig</code></a></dd></dl></div>
+<p>Thibault Tricard, Frédéric Claux, and Sylvain Lefebvre, "Ribbed Support Vaults for 3D Printing of Hollowed Objects", Computer Graphics Forum 39(1), 2020, <a href="https://diglib.eg.org/handle/10.1111/cgf13750">https://diglib.eg.org/handle/10.1111/cgf13750</a></p>
+<p><strong>License:</strong> Paper</p>
+<p><strong>Used in:</strong> <code>src/lightning.zig</code></p>
+<p><strong>How zslice uses it:</strong> The method that the Cura lightning infill comes from: walls under the surfaces of a hollow object that get smaller and straighter on the way down, and merge into the walls of the object.</p>
+<h3 id="clever-support">Clever Support</h3>
+<div class="ref"><span class="kind k-paper">paper</span><span class="area">support</span><dl><dt>Source</dt><dd>Vanek, Garcia Galicia, and Benes</dd><dt>What zslice uses</dt><dd>Tree-like support: points under an overhang that join on the way down.</dd><dt>License</dt><dd>Paper</dd><dt>Used in</dt><dd><a href="https://github.com/beetlebugorg/zslice/blob/main/src/lightning.zig"><code>src/lightning.zig</code></a>, <a href="https://github.com/beetlebugorg/zslice/blob/main/src/tree_support.zig"><code>src/tree_support.zig</code></a></dd></dl></div>
+<p>Juraj Vanek, Jorge A. Garcia Galicia, and Bedrich Benes, "Clever Support: Efficient Support Structure Generation for Digital Fabrication", Computer Graphics Forum 33(5) (SGP 2014)</p>
+<p><strong>License:</strong> Paper (prior art)</p>
+<p><strong>Used in:</strong> <code>src/lightning.zig</code>, <code>src/tree_support.zig</code></p>
+<p><strong>How zslice uses it:</strong> Tree-like support: points under an overhang that join on the way down. Listed as prior art of branch structures.</p>
+<h3 id="reentrant-polygon-clipping">Reentrant polygon clipping</h3>
+<div class="ref"><span class="kind k-paper">paper</span><span class="area">slicing</span><dl><dt>Source</dt><dd>Sutherland and Hodgman</dd><dt>What zslice uses</dt><dd>The cut of a polygon to a box, one side of the box at a time.</dd><dt>License</dt><dd>Paper</dd><dt>Used in</dt><dd><a href="https://github.com/beetlebugorg/zslice/blob/main/src/gapfill.zig"><code>src/gapfill.zig</code></a></dd></dl></div>
+<p>Ivan E. Sutherland, Gary W. Hodgman, "Reentrant polygon clipping", Communications of the ACM 17(1), 1974</p>
+<p><strong>License:</strong> Paper</p>
+<p><strong>Used in:</strong> <code>src/gapfill.zig</code></p>
+<p><strong>How zslice uses it:</strong> The cut of a polygon to a box, one side of the box at a time.</p>
+<h3 id="fortune-sweepline-voronoi">Fortune sweepline Voronoi</h3>
+<div class="ref"><span class="kind k-paper">paper</span><span class="area">walls</span><dl><dt>Source</dt><dd>Fortune</dd><dt>What zslice uses</dt><dd>The sweep line method of the Voronoi diagram, which boost::polygon extends to segments.</dd><dt>License</dt><dd>Paper</dd><dt>Used in</dt><dd><a href="https://github.com/beetlebugorg/zslice/blob/main/src/voronoi.zig"><code>src/voronoi.zig</code></a></dd></dl></div>
+<p>Steven Fortune, "A sweepline algorithm for Voronoi diagrams", Algorithmica 2, 1987</p>
+<p><strong>License:</strong> Paper</p>
+<p><strong>Used in:</strong> <code>src/voronoi.zig</code></p>
+<p><strong>How zslice uses it:</strong> The sweep line method of the Voronoi diagram, which boost::polygon extends to segments. The code is a port of boost::polygon (see "Code in the binaries").</p>
+<h3 id="arachne-adaptive-width-control">Arachne: adaptive width control</h3>
+<div class="ref"><span class="kind k-paper">paper</span><span class="area">walls</span><dl><dt>Source</dt><dd>Kuipers et al.</dd><dt>What zslice uses</dt><dd>The Arachne method: the skeletal trapezoidation of the medial axis, the beading strategies, and the transitions between bead counts.</dd><dt>License</dt><dd>Paper</dd><dt>Used in</dt><dd><a href="https://github.com/beetlebugorg/zslice/tree/main/src/arachne/"><code>src/arachne/</code></a></dd></dl></div>
+<p>Tim Kuipers, Eugeni L. Doubrovski, Jun Wu, Charlie C. L. Wang, "A framework for adaptive width control of dense contour-parallel toolpaths in fused deposition modeling", Computer-Aided Design 128, 2020</p>
+<p><strong>License:</strong> Paper</p>
+<p><strong>Used in:</strong> <code>src/arachne/</code></p>
+<p><strong>How zslice uses it:</strong> The Arachne method: the skeletal trapezoidation of the medial axis, the beading strategies, and the transitions between bead counts. The code is a port of CuraEngine (see "Code in the binaries").</p>
+<h3 id="gyroid">Gyroid</h3>
+<div class="ref"><span class="kind k-idea">idea</span><span class="area">infill</span><dl><dt>Source</dt><dd>General</dd><dt>What zslice uses</dt><dd>The gyroid infill pattern.</dd><dt>License</dt><dd>Mathematics</dd><dt>Used in</dt><dd><a href="https://github.com/beetlebugorg/zslice/blob/main/src/infill.zig"><code>src/infill.zig</code></a></dd></dl></div>
+<p>The gyroid, a triply periodic minimal surface (Alan Schoen, 1970), with the common approximation sin x cos y + sin y cos z + sin z cos x = 0. Gyroid infill is in CuraEngine and PrusaSlicer</p>
+<p><strong>License:</strong> Mathematics (the surface); general slicer technique (its use as infill)</p>
+<p><strong>Used in:</strong> <code>src/infill.zig</code></p>
+<p><strong>How zslice uses it:</strong> The gyroid infill pattern. zslice solves the equation for one coordinate in closed form.</p>
+<h3 id="scanline-polygon-fill">Scanline polygon fill</h3>
+<div class="ref"><span class="kind k-idea">idea</span><span class="area">infill</span><dl><dt>Source</dt><dd>General</dd><dt>What zslice uses</dt><dd>The line infill.</dd><dt>License</dt><dd>General computer graphics technique</dd><dt>Used in</dt><dd><a href="https://github.com/beetlebugorg/zslice/blob/main/src/infill.zig"><code>src/infill.zig</code></a></dd></dl></div>
+<p>Scanline polygon fill (sort the edge crossings on each line, fill between them by winding number)</p>
+<p><strong>License:</strong> General computer graphics technique</p>
+<p><strong>Used in:</strong> <code>src/infill.zig</code></p>
+<p><strong>How zslice uses it:</strong> The line infill.</p>
+<h3 id="greedy-nearest-neighbor-order">Greedy nearest-neighbor order</h3>
+<div class="ref"><span class="kind k-idea">idea</span><span class="area">slicing</span><dl><dt>Source</dt><dd>General</dd><dt>What zslice uses</dt><dd>The order of the paths in a layer.</dd><dt>License</dt><dd>General technique</dd><dt>Used in</dt><dd><a href="https://github.com/beetlebugorg/zslice/blob/main/src/layer.zig"><code>src/layer.zig</code></a></dd></dl></div>
+<p>Greedy nearest-neighbor path order</p>
+<p><strong>License:</strong> General technique</p>
+<p><strong>Used in:</strong> <code>src/layer.zig</code></p>
+<p><strong>How zslice uses it:</strong> The order of the paths in a layer.</p>
+<h3 id="morphological-opening">Morphological opening</h3>
+<div class="ref"><span class="kind k-idea">idea</span><span class="area">slicing</span><dl><dt>Source</dt><dd>General</dd><dt>What zslice uses</dt><dd>Removes skin areas that are too thin to print.</dd><dt>License</dt><dd>General technique</dd><dt>Used in</dt><dd><a href="https://github.com/beetlebugorg/zslice/blob/main/src/offset.zig"><code>src/offset.zig</code></a>, <a href="https://github.com/beetlebugorg/zslice/blob/main/src/layer.zig"><code>src/layer.zig</code></a></dd></dl></div>
+<p>Mathematical morphology "opening" (erode, then dilate)</p>
+<p><strong>License:</strong> General technique</p>
+<p><strong>Used in:</strong> <code>src/offset.zig</code>, <code>src/layer.zig</code></p>
+<p><strong>How zslice uses it:</strong> Removes skin areas that are too thin to print.</p>
+<h3 id="slab-index">Slab index</h3>
+<div class="ref"><span class="kind k-idea">idea</span><span class="area">slicing</span><dl><dt>Source</dt><dd>General</dd><dt>What zslice uses</dt><dd>Finds the edges that a winding ray crosses.</dd><dt>License</dt><dd>General technique</dd><dt>Used in</dt><dd><a href="https://github.com/beetlebugorg/zslice/blob/main/src/clip.zig"><code>src/clip.zig</code></a></dd></dl></div>
+<p>Slab index (bucket edges into equal bands of one axis, then cast a ray only against one band)</p>
+<p><strong>License:</strong> General technique</p>
+<p><strong>Used in:</strong> <code>src/clip.zig</code></p>
+<p><strong>How zslice uses it:</strong> Finds the edges that a winding ray crosses.</p>
+<h3 id="compressed-sparse-row-layout">Compressed sparse row layout</h3>
+<div class="ref"><span class="kind k-idea">idea</span><span class="area">slicing</span><dl><dt>Source</dt><dd>General</dd><dt>What zslice uses</dt><dd>The slab index and the per-layer face index.</dd><dt>License</dt><dd>General technique</dd><dt>Used in</dt><dd><a href="https://github.com/beetlebugorg/zslice/blob/main/src/clip.zig"><code>src/clip.zig</code></a>, <a href="https://github.com/beetlebugorg/zslice/blob/main/src/slicer.zig"><code>src/slicer.zig</code></a></dd></dl></div>
+<p>Compressed sparse row (CSR) layout: one array of items and one array of start offsets</p>
+<p><strong>License:</strong> General technique</p>
+<p><strong>Used in:</strong> <code>src/clip.zig</code>, <code>src/slicer.zig</code></p>
+<p><strong>How zslice uses it:</strong> The slab index and the per-layer face index.</p>
+<h3 id="join-cut-segments-by-edge-id">Join cut segments by edge ID</h3>
+<div class="ref"><span class="kind k-idea">idea</span><span class="area">slicing</span><dl><dt>Source</dt><dd>General</dd><dt>What zslice uses</dt><dd>Makes closed loops from the segments of a layer without a coordinate tolerance.</dd><dt>License</dt><dd>General mesh technique</dd><dt>Used in</dt><dd><a href="https://github.com/beetlebugorg/zslice/blob/main/src/slicer.zig"><code>src/slicer.zig</code></a></dd></dl></div>
+<p>Joining cut segments by the ID of the mesh edge that they cross</p>
+<p><strong>License:</strong> General mesh technique</p>
+<p><strong>Used in:</strong> <code>src/slicer.zig</code></p>
+<p><strong>How zslice uses it:</strong> Makes closed loops from the segments of a layer without a coordinate tolerance.</p>
+<h3 id="polyline-simplification">Polyline simplification</h3>
+<div class="ref"><span class="kind k-idea">idea</span><span class="area">slicing</span><dl><dt>Source</dt><dd>General</dd><dt>What zslice uses</dt><dd>Removes points that change a shape by less than the tolerance.</dd><dt>License</dt><dd>General technique</dd><dt>Used in</dt><dd><a href="https://github.com/beetlebugorg/zslice/blob/main/src/geom.zig"><code>src/geom.zig</code></a></dd></dl></div>
+<p>Polyline simplification with an anchor point and a distance bound</p>
+<p><strong>License:</strong> General technique</p>
+<p><strong>Used in:</strong> <code>src/geom.zig</code></p>
+<p><strong>How zslice uses it:</strong> Removes points that change a shape by less than the tolerance.</p>
+<h3 id="closest-point-on-a-triangle">Closest point on a triangle</h3>
+<div class="ref"><span class="kind k-idea">idea</span><span class="area">plate</span><dl><dt>Source</dt><dd>Ericson</dd><dt>What zslice uses</dt><dd>The side of a part nearest to a picked point, for "this side on the bed".</dd><dt>License</dt><dd>General computational geometry technique</dd><dt>Used in</dt><dd><a href="https://github.com/beetlebugorg/zslice/blob/main/src/plate.zig"><code>src/plate.zig</code></a></dd></dl></div>
+<p>Christer Ericson, "Real-Time Collision Detection" (2005), 5.1.5: the closest point on a triangle</p>
+<p><strong>License:</strong> General computational geometry technique</p>
+<p><strong>Used in:</strong> <code>src/plate.zig</code> (<code>pointTriangle2</code>)</p>
+<p><strong>How zslice uses it:</strong> The side of a part nearest to a picked point, for "this side on the bed".</p>
+<h3 id="iterated-snap-rounding">Iterated snap rounding</h3>
+<div class="ref"><span class="kind k-idea">idea</span><span class="area">slicing</span><dl><dt>Source</dt><dd>General</dd><dt>What zslice uses</dt><dd>Makes the boolean operations robust after crossing points are rounded to the grid.</dd><dt>License</dt><dd>General computational geometry technique</dd><dt>Used in</dt><dd><a href="https://github.com/beetlebugorg/zslice/blob/main/src/clip.zig"><code>src/clip.zig</code></a></dd></dl></div>
+<p>Iterated snap rounding (repeat the intersection pass on the rounded result)</p>
+<p><strong>License:</strong> General computational geometry technique</p>
+<p><strong>Used in:</strong> <code>src/clip.zig</code></p>
+<p><strong>How zslice uses it:</strong> Makes the boolean operations robust after crossing points are rounded to the grid.</p>
+<h3 id="snap-rounding-with-hot-pixels">Snap rounding with hot pixels</h3>
+<div class="ref"><span class="kind k-paper">paper</span><span class="area">slicing</span><dl><dt>Source</dt><dd>Hobby</dd><dt>What zslice uses</dt><dd>If the passes of iterated snap rounding do not end, the boolean starts again, and each edge through the unit square around a vertex or a rounded crossing point splits at that point.</dd><dt>License</dt><dd>Paper</dd><dt>Link</dt><dd><a href="https://doi.org/10.1016/S0925-7721(99">https://doi.org/10.1016/S0925-7721(99</a></dd><dt>Used in</dt><dd><a href="https://github.com/beetlebugorg/zslice/blob/main/src/clip.zig"><code>src/clip.zig</code></a></dd></dl></div>
+<p>Snap rounding with hot pixels: J. D. Hobby, "Practical segment intersection with finite precision output", Computational Geometry 13(4), 1999, <a href="https://doi.org/10.1016/S0925-7721(99">https://doi.org/10.1016/S0925-7721(99</a>)00021-8</p>
+<p><strong>License:</strong> Paper (method only)</p>
+<p><strong>Used in:</strong> <code>src/clip.zig</code></p>
+<p><strong>How zslice uses it:</strong> If the passes of iterated snap rounding do not end, the boolean starts again, and each edge through the unit square around a vertex or a rounded crossing point splits at that point. The code is new.</p>
+<h3 id="radix-sort">Radix sort</h3>
+<div class="ref"><span class="kind k-idea">idea</span><span class="area">slicing</span><dl><dt>Source</dt><dd>General</dd><dt>What zslice uses</dt><dd>Sorts the cell entries of the crossing grid by cell.</dd><dt>License</dt><dd>General technique</dd><dt>Used in</dt><dd><a href="https://github.com/beetlebugorg/zslice/blob/main/src/clip.zig"><code>src/clip.zig</code></a></dd></dl></div>
+<p>Least significant digit radix sort (a stable counting sort for each digit, from the low digit to the high digit)</p>
+<p><strong>License:</strong> General technique</p>
+<p><strong>Used in:</strong> <code>src/clip.zig</code></p>
+<p><strong>How zslice uses it:</strong> Sorts the cell entries of the crossing grid by cell.</p>
+<h3 id="counting-sort">Counting sort</h3>
+<div class="ref"><span class="kind k-idea">idea</span><span class="area">slicing</span><dl><dt>Source</dt><dd>General</dd><dt>What zslice uses</dt><dd>Puts the split points of each edge together (<code>sortSplits</code>).</dd><dt>License</dt><dd>General technique</dd><dt>Used in</dt><dd><a href="https://github.com/beetlebugorg/zslice/blob/main/src/clip.zig"><code>src/clip.zig</code></a></dd></dl></div>
+<p>Counting sort (count the items of each key, then place each item at the start offset of its key)</p>
+<p><strong>License:</strong> General technique</p>
+<p><strong>Used in:</strong> <code>src/clip.zig</code></p>
+<p><strong>How zslice uses it:</strong> Puts the split points of each edge together (<code>sortSplits</code>).</p>
+<h3 id="structure-of-arrays-box-test">Structure of arrays box test</h3>
+<div class="ref"><span class="kind k-idea">idea</span><span class="area">slicing</span><dl><dt>Source</dt><dd>General</dd><dt>What zslice uses</dt><dd>The box test of the edge pairs in a grid cell (<code>testCellsWide</code>).</dd><dt>License</dt><dd>General technique</dd><dt>Used in</dt><dd><a href="https://github.com/beetlebugorg/zslice/blob/main/src/clip.zig"><code>src/clip.zig</code></a></dd></dl></div>
+<p>Structure of arrays with a vector compare: the boxes of many items in one array for each coordinate, tested several at a time, as in the broad phase of collision detection</p>
+<p><strong>License:</strong> General technique</p>
+<p><strong>Used in:</strong> <code>src/clip.zig</code></p>
+<p><strong>How zslice uses it:</strong> The box test of the edge pairs in a grid cell (<code>testCellsWide</code>).</p>
+<h3 id="monotone-chain-convex-hull">Monotone chain convex hull</h3>
+<div class="ref"><span class="kind k-paper">paper</span><span class="area">support</span><dl><dt>Source</dt><dd>Andrew</dd><dt>What zslice uses</dt><dd>The convex hull of a loop, for the test that a loop vanishes in an offset; the outline of an overhang under the pointer of the support tool.</dd><dt>License</dt><dd>Paper</dd><dt>Used in</dt><dd><a href="https://github.com/beetlebugorg/zslice/blob/main/src/offset.zig"><code>src/offset.zig</code></a>, <a href="https://github.com/beetlebugorg/zslice/blob/main/src/support_pick.zig"><code>src/support_pick.zig</code></a></dd></dl></div>
+<p>A. M. Andrew, "Another efficient algorithm for convex hulls in two dimensions", Information Processing Letters 9(5), 1979 (the monotone chain)</p>
+<p><strong>License:</strong> Paper</p>
+<p><strong>Used in:</strong> <code>src/offset.zig</code>, <code>src/support_pick.zig</code></p>
+<p><strong>How zslice uses it:</strong> The convex hull of a loop, for the test that a loop vanishes in an offset; the outline of an overhang under the pointer of the support tool.</p>
+<h3 id="chamfer-distance-transform">Chamfer distance transform</h3>
+<div class="ref"><span class="kind k-paper">paper</span><span class="area">physics</span><dl><dt>Source</dt><dd>Rosenfeld, Pfaltz, and Borgefors</dd><dt>What zslice uses</dt><dd>The distance of each cell of the grid to the first layer, for the area of the brim.</dd><dt>License</dt><dd>Paper</dd><dt>Used in</dt><dd><a href="https://github.com/beetlebugorg/zslice/blob/main/src/bond.zig"><code>src/bond.zig</code></a></dd></dl></div>
+<p>Distance transform with chamfer steps (1 and sqrt(2)) in two passes: A. Rosenfeld and J. Pfaltz, "Sequential operations in digital picture processing", Journal of the ACM 13(4), 1966, and G. Borgefors, "Distance transformations in digital images", Computer Vision, Graphics, and Image Processing 34(3), 1986</p>
+<p><strong>License:</strong> Paper (the method)</p>
+<p><strong>Used in:</strong> <code>src/bond.zig</code></p>
+<p><strong>How zslice uses it:</strong> The distance of each cell of the grid to the first layer, for the area of the brim.</p>
+<h3 id="inscribed-circle-bound">Inscribed circle bound</h3>
+<div class="ref"><span class="kind k-idea">idea</span><span class="area">slicing</span><dl><dt>Source</dt><dd>General</dd><dt>What zslice uses</dt><dd>The bound r &lt;= 2 A / P on the largest circle in a convex hull.</dd><dt>License</dt><dd>Mathematics</dd><dt>Used in</dt><dd><a href="https://github.com/beetlebugorg/zslice/blob/main/src/offset.zig"><code>src/offset.zig</code></a></dd></dl></div>
+<p>A convex shape with an inscribed circle of radius r has area A &gt;= r P / 2 (P is the perimeter)</p>
+<p><strong>License:</strong> Mathematics</p>
+<p><strong>Used in:</strong> <code>src/offset.zig</code></p>
+<p><strong>How zslice uses it:</strong> The bound r &lt;= 2 A / P on the largest circle in a convex hull.</p>
+<h3 id="uniform-grid-nearest-search">Uniform grid nearest search</h3>
+<div class="ref"><span class="kind k-idea">idea</span><span class="area">slicing</span><dl><dt>Source</dt><dd>General</dd><dt>What zslice uses</dt><dd>Finds the nearest path start in the greedy path order.</dd><dt>License</dt><dd>General technique</dd><dt>Used in</dt><dd><a href="https://github.com/beetlebugorg/zslice/blob/main/src/layer.zig"><code>src/layer.zig</code></a></dd></dl></div>
+<p>Uniform grid search for the nearest point, ring by ring</p>
+<p><strong>License:</strong> General technique</p>
+<p><strong>Used in:</strong> <code>src/layer.zig</code></p>
+<p><strong>How zslice uses it:</strong> Finds the nearest path start in the greedy path order.</p>
+<h3 id="memoization">Memoization</h3>
+<div class="ref"><span class="kind k-idea">idea</span><span class="area">slicing</span><dl><dt>Source</dt><dd>General</dd><dt>What zslice uses</dt><dd>The memo of each layer, which keeps the slow results between slices.</dd><dt>License</dt><dd>General technique</dd><dt>Used in</dt><dd><a href="https://github.com/beetlebugorg/zslice/blob/main/src/layer.zig"><code>src/layer.zig</code></a>, <a href="https://github.com/beetlebugorg/zslice/blob/main/src/engine.zig"><code>src/engine.zig</code></a></dd></dl></div>
+<p>Memoization: keep a result with the inputs that made it, and use it again for the same inputs</p>
+<p><strong>License:</strong> General technique</p>
+<p><strong>Used in:</strong> <code>src/layer.zig</code>, <code>src/engine.zig</code></p>
+<p><strong>How zslice uses it:</strong> The memo of each layer, which keeps the slow results between slices.</p>
+<h3 id="arena-pools">Arena pools</h3>
+<div class="ref"><span class="kind k-idea">idea</span><span class="area">slicing</span><dl><dt>Source</dt><dd>General</dd><dt>What zslice uses</dt><dd>The work memory of the booleans and offsets.</dd><dt>License</dt><dd>General technique</dd><dt>Used in</dt><dd><a href="https://github.com/beetlebugorg/zslice/blob/main/src/scratch.zig"><code>src/scratch.zig</code></a></dd></dl></div>
+<p>Arena allocators kept in a pool and reset between uses</p>
+<p><strong>License:</strong> General technique</p>
+<p><strong>Used in:</strong> <code>src/scratch.zig</code></p>
+<p><strong>How zslice uses it:</strong> The work memory of the booleans and offsets.</p>
+<h3 id="beads-between-layers-us-5402351">Beads between layers (US 5,402,351)</h3>
+<div class="ref"><span class="kind k-paper">paper</span><span class="area">slicing</span><dl><dt>Source</dt><dd>IBM</dd><dt>What zslice uses</dt><dd>The idea of the slope smoothing pass: after a layer, beads at heights between two layers fill the steps.</dd><dt>License</dt><dd>Expired; free to use</dd><dt>Used in</dt><dd><a href="https://github.com/beetlebugorg/zslice/blob/main/src/slope.zig"><code>src/slope.zig</code></a></dd></dl></div>
+<p>Extra beads at Z heights between the layers, to fill the stair of a sloped surface: IBM, US 5,402,351 (filed 1991, expired)</p>
+<p><strong>License:</strong> Expired; free to use</p>
+<p><strong>Used in:</strong> <code>src/slope.zig</code></p>
+<p><strong>How zslice uses it:</strong> The idea of the slope smoothing pass: after a layer, beads at heights between two layers fill the steps.</p>
+<h3 id="anti-aliasing-for-fused-filament-deposition">Anti-aliasing for fused filament deposition</h3>
+<div class="ref"><span class="kind k-paper">paper</span><span class="area">slicing</span><dl><dt>Source</dt><dd>Song et al.</dd><dt>What zslice uses</dt><dd>Small Z changes inside a layer, so that the edge of each layer follows the true surface between the layers.</dd><dt>License</dt><dd>Paper</dd><dt>Used in</dt><dd><a href="https://github.com/beetlebugorg/zslice/blob/main/src/slope.zig"><code>src/slope.zig</code></a></dd></dl></div>
+<p>Hai-Chuan Song, Nicolas Ray, Dmitry Sokolov, Sylvain Lefebvre, "Anti-aliasing for fused filament deposition", Computer-Aided Design 89, 2017</p>
+<p><strong>License:</strong> Paper</p>
+<p><strong>Used in:</strong> <code>src/slope.zig</code></p>
+<p><strong>How zslice uses it:</strong> Small Z changes inside a layer, so that the edge of each layer follows the true surface between the layers. zslice uses the idea for its smoothing beads: a Z for each point between two layers.</p>
+<h3 id="nonplanar-layers">Nonplanar layers</h3>
+<div class="ref"><span class="kind k-paper">paper</span><span class="area">slicing</span><dl><dt>Source</dt><dd>Ahlers et al.</dd><dt>What zslice uses</dt><dd>Non-planar moves on top surfaces, and the check of the nozzle shape (a cone) against the printed part.</dd><dt>License</dt><dd>Paper</dd><dt>Used in</dt><dd><a href="https://github.com/beetlebugorg/zslice/blob/main/src/slope.zig"><code>src/slope.zig</code></a></dd></dl></div>
+<p>Daniel Ahlers, Florens Wasserfall, Norman Hendrich, Jianwei Zhang, "3D Printing of Nonplanar Layers for Smooth Surface Generation", IEEE CASE 2019</p>
+<p><strong>License:</strong> Paper</p>
+<p><strong>Used in:</strong> <code>src/slope.zig</code></p>
+<p><strong>How zslice uses it:</strong> Non-planar moves on top surfaces, and the check of the nozzle shape (a cone) against the printed part. zslice uses a cone on a flat tip, and checks it against the layer that it just printed, for the smoothing beads and the slope ironing.</p>
+<h3 id="curved-layer-fdm-paths">Curved layer FDM paths</h3>
+<div class="ref"><span class="kind k-paper">paper</span><span class="area">slicing</span><dl><dt>Source</dt><dd>Chakraborty et al.</dd><dt>What zslice uses</dt><dd>Extrusion paths with a Z that changes along the path.</dd><dt>License</dt><dd>Paper</dd><dt>Used in</dt><dd><a href="https://github.com/beetlebugorg/zslice/blob/main/src/slope.zig"><code>src/slope.zig</code></a></dd></dl></div>
+<p>Debapriya Chakraborty, B. Aneesh Reddy, A. Roy Choudhury, "Extruder path generation for Curved Layer Fused Deposition Modeling", Computer-Aided Design 40(2), 2008</p>
+<p><strong>License:</strong> Paper</p>
+<p><strong>Used in:</strong> <code>src/slope.zig</code></p>
+<p><strong>How zslice uses it:</strong> Extrusion paths with a Z that changes along the path.</p>
+<h3 id="triangle-volume-and-point-to-segment-distance">Triangle volume and point to segment distance</h3>
+<div class="ref"><span class="kind k-idea">idea</span><span class="area">slicing</span><dl><dt>Source</dt><dd>General</dd><dt>What zslice uses</dt><dd>The plastic of a smoothing bead, and the room for the nozzle.</dd><dt>License</dt><dd>Mathematics</dd><dt>Used in</dt><dd><a href="https://github.com/beetlebugorg/zslice/blob/main/src/slope.zig"><code>src/slope.zig</code></a>, <a href="https://github.com/beetlebugorg/zslice/blob/main/src/geom.zig"><code>src/geom.zig</code></a></dd></dl></div>
+<p>Volume of a triangle (h * L / 2) and the distance from a point to a segment</p>
+<p><strong>License:</strong> Mathematics</p>
+<p><strong>Used in:</strong> <code>src/slope.zig</code>, <code>src/geom.zig</code></p>
+<p><strong>How zslice uses it:</strong> The plastic of a smoothing bead, and the room for the nozzle.</p>
+<h3 id="paint-brush-and-pick">Paint brush and pick</h3>
+<div class="ref"><span class="kind k-paper">paper</span><span class="area">ui</span><dl><dt>Source</dt><dd>Ericson, Moller and Trumbore, Amanatides and Woo</dd><dt>What zslice uses</dt><dd>The brush (which triangles a sphere touches), and the pick of a triangle under the pointer for the paint tool.</dd><dt>License</dt><dd>Published methods</dd><dt>Used in</dt><dd><a href="https://github.com/beetlebugorg/zslice/blob/main/src/paint.zig"><code>src/paint.zig</code></a></dd></dl></div>
+<p>The closest point of a triangle to a point: Christer Ericson, "Real-Time Collision Detection" (2005), 5.1.5; the ray and triangle test of Möller and Trumbore, "Fast, Minimum Storage Ray/Triangle Intersection" (1997); the cell walk of a ray through a grid of Amanatides and Woo, "A Fast Voxel Traversal Algorithm for Ray Tracing" (1987)</p>
+<p><strong>License:</strong> Published methods</p>
+<p><strong>Used in:</strong> <code>src/paint.zig</code></p>
+<p><strong>How zslice uses it:</strong> The brush (which triangles a sphere touches), and the pick of a triangle under the pointer for the paint tool.</p><nav class="pager"><a class="prev" href="../../references/fonts/"><span>Previous</span><b>Fonts</b></a><a class="next" href="../../references/physics-and-materials/"><span>Next</span><b>Physics and materials</b></a></nav>
+</main>
+</div>
+<footer>zslice is free software (AGPL-3.0-or-later). <a href="../../privacy/">Privacy</a>: no analytics, no cookies, nothing from other sites. <a href="https://github.com/beetlebugorg/zslice/blob/main/docs/build.py">docs/build.py</a> writes this site from <a href="https://github.com/beetlebugorg/zslice/blob/main/docs/references/papers-and-algorithms.md">docs/references/papers-and-algorithms.md</a>.</footer>
+</body>
+</html>

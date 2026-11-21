@@ -68,14 +68,28 @@
 <a href="../../internals/macos/">The macOS app</a>
 <div class="group">Project</div>
 <a href="../../app/">App</a>
-<a href="../../references/">References</a>
 <a href="../../roadmap/">Roadmap</a>
-<a href="../../privacy/">Privacy</a></nav></aside>
+<a href="../../privacy/">Privacy</a>
+<div class="group">References</div>
+<a href="../../references/">References</a>
+<a href="../../references/explore/">Explorer</a>
+<a href="../../references/libraries/">Libraries and tools</a>
+<a href="../../references/cura/">Cura</a>
+<a href="../../references/orcaslicer/">OrcaSlicer</a>
+<a href="../../references/prusaslicer/">PrusaSlicer</a>
+<a href="../../references/bambu-studio/">Bambu Studio</a>
+<a href="../../references/slicer-techniques/">Slicer techniques</a>
+<a href="../../references/printer-data/">Printer data</a>
+<a href="../../references/klipper-marlin-firmware/">Firmware and G-code</a>
+<a href="../../references/fonts/">Fonts</a>
+<a href="../../references/papers-and-algorithms/">Papers and algorithms</a>
+<a href="../../references/physics-and-materials/">Physics and materials</a>
+<a href="../../references/formats-and-protocols/">Formats and protocols</a></nav></aside>
 <main>
 <p class="eyebrow">Internals</p>
 <h1>Arachne walls</h1>
 
-<nav class="onpage"><b>On this page</b><ol><li><a href="#why">Why</a></li><li><a href="#the-method">The method</a></li><li><a href="#the-settings">The settings</a></li><li><a href="#in-the-layer-plan">In the layer plan</a></li><li><a href="#tests">Tests</a></li></ol></nav><p>With <code>project.wall_generator = arachne</code>, the walls of each layer come from Arachne, the variable-width wall method of Cura. The code is a port to Zig of CuraEngine (AGPL-3.0-or-later). The Voronoi diagram is a port of boost::polygon (Boost Software License 1.0). See <code>REFERENCES.md</code> for the files, the commit hashes, and the copyright lines.</p>
+<nav class="onpage"><b>On this page</b><ol><li><a href="#why">Why</a></li><li><a href="#the-method">The method</a></li><li><a href="#the-settings">The settings</a></li><li><a href="#in-the-layer-plan">In the layer plan</a></li><li><a href="#tests">Tests</a></li></ol></nav><p>With <code>project.wall_generator = arachne</code>, the walls of each layer come from Arachne, the variable-width wall method of Cura. The code is a port to Zig of CuraEngine (AGPL-3.0-or-later). The Voronoi diagram is a port of boost::polygon (Boost Software License 1.0). See <a href="../../references/cura/">Cura and CuraEngine</a> and <a href="../../references/libraries/">Libraries and tools</a> for the files, the commit hashes, and the copyright lines.</p>
 <h2 id="why">Why</h2>
 <p>A classic wall is the outline moved in by a whole number of line widths. A part that is 1.0 mm thick, with 0.44 mm lines, gets two lines and a gap of 0.12 mm in the middle. A part thinner than one line gets no wall, or a thin wall loop (<code>thin_walls</code>). Arachne measures the thickness of the part at each point, and fills it with a whole number of lines whose widths add up to the thickness. Where the bead count changes (a wedge), one line splits into two, or two lines join into one, over a short transition.</p>
 <h2 id="the-method">The method</h2>

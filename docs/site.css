@@ -35,6 +35,37 @@ th { font: 700 11px var(--mono); text-transform: uppercase; letter-spacing: .08e
 td:first-child { font-family: var(--mono); font-size: 14px; }
 td code { overflow-wrap: anywhere; }
 
+/* The references: the card of an entry, and the explorer */
+.ref { margin: 8px 0 14px; padding: 10px 14px; border: 2px solid var(--edge); border-radius: 8px; background: var(--plate2); font-size: 14px; }
+.ref dl { display: grid; grid-template-columns: max-content 1fr; gap: 2px 12px; margin: 8px 0 0; }
+.ref dt { font: 700 11px/1.9 var(--mono); text-transform: uppercase; letter-spacing: .08em; color: var(--dim); }
+.ref dd { margin: 0; overflow-wrap: anywhere; }
+.kind, .area { display: inline-block; font: 700 11px var(--mono); text-transform: uppercase; letter-spacing: .08em;
+  padding: 1px 7px; border-radius: 4px; margin-right: 6px; background: var(--plate); border: 1px solid var(--edge); color: var(--ink); }
+.kind.k-code { background: var(--orange); border-color: var(--orange); color: #fff; }
+.kind.k-data, .kind.k-font { background: var(--blue); border-color: var(--blue); color: var(--paper); }
+.kind.k-paper { border-color: var(--ink); }
+.area { background: none; color: var(--dim); }
+.rx input[type=search] { width: 100%; font: 15px var(--sans); padding: 8px 12px; border: 2px solid var(--ink); border-radius: 6px;
+  background: var(--paper); color: var(--ink); }
+.rx-label { margin: 12px 0 4px; font: 700 11px var(--mono); text-transform: uppercase; letter-spacing: .12em; color: var(--dim); }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip { font: 600 12px var(--mono); padding: 3px 10px; border: 2px solid var(--edge); border-radius: 999px; background: var(--paper);
+  color: var(--ink); cursor: pointer; }
+.chip small { color: var(--dim); }
+.chip[aria-pressed="true"] { border-color: var(--orange); background: var(--orange); color: #fff; }
+.chip[aria-pressed="true"] small { color: #fff; }
+.rx-count { font: 600 13px var(--mono); color: var(--dim); }
+.rx-list { list-style: none; padding: 0; }
+.rx-item { max-width: none; display: grid; grid-template-columns: max-content 1fr; gap: 2px 8px; padding: 10px 0; border-top: 2px solid var(--edge); }
+.rx-item[hidden] { display: none; }
+.rx-title { font-weight: 600; }
+.rx-src, .rx-sum, .rx-files { grid-column: 2; font-size: 14px; }
+.rx-src { color: var(--dim); }
+.rx-files a { margin-right: 6px; }
+details { margin: 6px 0; } details summary { font: 700 14px var(--mono); cursor: pointer; }
+details summary small { color: var(--dim); }
+
 /* The task lists of the roadmap */
 ul.tasks { list-style: none; padding-left: 4px; }
 ul.tasks li { display: grid; grid-template-columns: 26px 1fr; }

@@ -24,7 +24,7 @@
 //!    from meshes that intersect each other, and it turns loops from
 //!    inside-out meshes the correct way.
 //!
-//! References (see REFERENCES.md): the cut plane at the middle of the
+//! References (see docs/references/): the cut plane at the middle of the
 //! layer, joining segments by mesh edge ID, and the CSR layout of the face
 //! index.
 

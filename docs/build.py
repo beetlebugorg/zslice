@@ -9,7 +9,8 @@ Each Markdown file of the repository below is one page of the site:
   docs/embedding/*.md          the library guides
   docs/internals/*.md          the internals
   docs/app/README.md           the app
-  REFERENCES.md, ROADMAP.md    the references and the roadmap
+  docs/references/*.md         the references (the explorer comes from their ref blocks)
+  ROADMAP.md                   the roadmap
 
 A page goes in its own folder, as index.html (the home page is docs.html). A link to one of these files goes to its page. A
 link to another file of the repository goes to the file on GitHub.
@@ -81,9 +82,22 @@ SOURCES = [
     ("docs/internals/code-quality.md", "internals/code-quality/", "Internals", "Code quality"),
     ("docs/internals/macos.md", "internals/macos/", "Internals", "The macOS app"),
     ("docs/app/README.md", "app/", "Project", "App"),
-    ("REFERENCES.md", "references/", "Project", "References"),
     ("ROADMAP.md", "roadmap/", "Project", "Roadmap"),
     ("PRIVACY.md", "privacy/", "Project", "Privacy"),
+    ("docs/references/README.md", "references/", "References", "References"),
+    ("docs/references/explore.md", "references/explore/", "References", "Explorer"),
+    ("docs/references/libraries.md", "references/libraries/", "References", "Libraries and tools"),
+    ("docs/references/cura.md", "references/cura/", "References", "Cura"),
+    ("docs/references/orcaslicer.md", "references/orcaslicer/", "References", "OrcaSlicer"),
+    ("docs/references/prusaslicer.md", "references/prusaslicer/", "References", "PrusaSlicer"),
+    ("docs/references/bambu-studio.md", "references/bambu-studio/", "References", "Bambu Studio"),
+    ("docs/references/slicer-techniques.md", "references/slicer-techniques/", "References", "Slicer techniques"),
+    ("docs/references/printer-data.md", "references/printer-data/", "References", "Printer data"),
+    ("docs/references/klipper-marlin-firmware.md", "references/klipper-marlin-firmware/", "References", "Firmware and G-code"),
+    ("docs/references/fonts.md", "references/fonts/", "References", "Fonts"),
+    ("docs/references/papers-and-algorithms.md", "references/papers-and-algorithms/", "References", "Papers and algorithms"),
+    ("docs/references/physics-and-materials.md", "references/physics-and-materials/", "References", "Physics and materials"),
+    ("docs/references/formats-and-protocols.md", "references/formats-and-protocols/", "References", "Formats and protocols"),
 ]
 PAGE_OF = {src: path for src, path, _, _ in SOURCES}
 
@@ -203,6 +217,12 @@ class Markdown:
             line = lines[i]
             if not line.strip():
                 i += 1
+            elif line.strip() == "```ref":
+                j = i + 1
+                while j < n and not lines[j].lstrip().startswith("```"):
+                    j += 1
+                out.append(self.ref_card(ref_fields(lines[i + 1:j])))
+                i = j + 1
             elif line.lstrip().startswith("```"):
                 fence = line[:len(line) - len(line.lstrip())]
                 j = i + 1
@@ -232,6 +252,24 @@ class Markdown:
                 out.append(self.paragraph(" ".join(s.strip() for s in lines[i:j])))
                 i = j
         return "\n".join(out)
+
+    def ref_card(self, f):
+        """The fields of a reference entry, as a card (see docs/references/README.md)."""
+        rows = []
+        for key, label in REF_LABELS:
+            v = f.get(key)
+            if not v:
+                continue
+            if key == "link":
+                h = f'<a href="{esc(v)}">{esc(v)}</a>'
+            elif key in ("files", "texts"):
+                h = ", ".join(f'<a href="{esc(repo_url(x))}"><code>{esc(x)}</code></a>' for x in split_list(v))
+            else:
+                h = self.inline(v)
+            rows.append(f"<dt>{label}</dt><dd>{h}</dd>")
+        kind = esc(f.get("kind", ""))
+        return (f'<div class="ref"><span class="kind k-{kind}">{kind}</span>'
+                f'<span class="area">{esc(f.get("area", ""))}</span><dl>{"".join(rows)}</dl></div>')
 
     def paragraph(self, text):
         """A paragraph. A paragraph of one picture is a figure, with the title of the picture as
@@ -358,6 +396,193 @@ def parse(src, root):
 
 
 # ---------------------------------------------------------------------------------------------
+# The references. Each entry of docs/references/*.md is a level 3 heading and a ref block of
+# fields. The explorer page lists all entries, with filters, a search, and an index by area.
+
+REF_DIR = "docs/references"
+REF_KINDS = ("idea", "code", "data", "font", "paper", "format", "tool", "setting")
+REF_AREAS = ("slicing", "walls", "infill", "support", "gcode", "printers", "plate", "physics",
+             "files", "network", "fonts", "ui", "build")
+REF_NEEDED = ("kind", "source", "license", "files", "area", "summary")
+REF_LABELS = (("source", "Source"), ("summary", "What zslice uses"), ("license", "License"),
+              ("link", "Link"), ("version", "Version"), ("files", "Used in"), ("texts", "License texts"))
+
+
+def ref_fields(lines):
+    """The fields of a ref block: one "key: value" line each."""
+    f = {}
+    for line in lines:
+        key, sep, value = line.partition(":")
+        if sep and key.strip():
+            f[key.strip()] = value.strip()
+    return f
+
+
+def split_list(value):
+    return [x.strip() for x in value.split(",") if x.strip()]
+
+
+def repo_url(path):
+    kind = "tree" if (ROOT / path).is_dir() else "blob"
+    return f"{REPO}/{kind}/{BRANCH}/{path}"
+
+
+def ref_pages():
+    return [src for src, _, group, _ in SOURCES
+            if group == "References" and src.startswith(REF_DIR + "/") and not src.endswith(("README.md", "explore.md"))]
+
+
+def load_refs():
+    """All entries: the fields, the title, the page, and the anchor of each."""
+    refs = []
+    for src in ref_pages():
+        lines = read(src).split("\n")
+        ids = Markdown("", "")
+        title, fence, i = None, False, 0
+        while i < len(lines):
+            line = lines[i]
+            if line.strip() == "```ref" and not fence:
+                j = i + 1
+                while j < len(lines) and not lines[j].lstrip().startswith("```"):
+                    j += 1
+                refs.append(dict(ref_fields(lines[i + 1:j]), title=title[0] if title else "", anchor=title[1] if title else "",
+                                 page=PAGE_OF[src], src=src))
+                i = j + 1
+                continue
+            if line.lstrip().startswith("```"):
+                fence = not fence
+            elif not fence and (m := re.match(r"^(#{2,6}) +(.*?)#*$", line)):
+                title = (m.group(2).strip(), ids.heading_id(m.group(2).strip()))
+            i += 1
+    return refs
+
+
+def check_refs(refs):
+    """Stops with an error for an entry with no title, a missing field, an unknown kind or
+    area, or a path in files or texts that does not exist."""
+    bad = []
+    for r in refs:
+        where = f"{r['src']}: {r['title'] or '(no heading)'}"
+        if not r["title"]:
+            bad.append(f"{where}: no level 3 heading")
+        for key in REF_NEEDED:
+            if not r.get(key):
+                bad.append(f"{where}: no {key}")
+        if r.get("kind") and r["kind"] not in REF_KINDS:
+            bad.append(f"{where}: kind {r['kind']} is not one of {', '.join(REF_KINDS)}")
+        if r.get("area") and r["area"] not in REF_AREAS:
+            bad.append(f"{where}: area {r['area']} is not one of {', '.join(REF_AREAS)}")
+        for key in ("files", "texts"):
+            for path in split_list(r.get(key, "")):
+                if not (ROOT / path).exists():
+                    bad.append(f"{where}: {path} does not exist")
+    if bad:
+        print("Reference entries with problems:")
+        print("\n".join("  " + b for b in bad))
+        sys.exit(1)
+    print(f"checked {len(refs)} reference entries")
+
+
+def chips(name, values):
+    out = [f'<button type="button" class="chip" data-{name}="" aria-pressed="true">All</button>']
+    out += [f'<button type="button" class="chip" data-{name}="{esc(v)}" aria-pressed="false">{esc(v)} <small>{n}</small></button>'
+            for v, n in values]
+    return f'<div class="chips" role="group" aria-label="{name}">{"".join(out)}</div>'
+
+
+def explorer(refs, root):
+    """The explorer: the chips, the search box, the list of entries, and the index by area. The
+    list is plain HTML; the script only hides the entries that do not match."""
+    def count(key, many=False):
+        c = {}
+        # The authors of a paper are not chips: the search finds them.
+        for r in (r for r in refs if not many or r["kind"] != "paper"):
+            for v in (split_list(r[key]) if many else [r[key]]):
+                c[v] = c.get(v, 0) + 1
+        return c
+    kinds = count("kind")
+    areas = count("area")
+    sources = sorted(((v, n) for v, n in count("source", True).items() if n > 1 and v != "General"),
+                     key=lambda x: (-x[1], x[0]))
+    conv = Markdown(REF_DIR, root)
+    items = []
+    for r in sorted(refs, key=lambda r: r["title"].lower()):
+        href = f"{root}{r['page']}#{r['anchor']}"
+        files = " ".join(f'<a href="{esc(repo_url(x))}"><code>{esc(x)}</code></a>' for x in split_list(r["files"]))
+        link = f' · <a href="{esc(r["link"])}">source</a>' if r.get("link") else ""
+        ver = f' · {esc(r["version"])}' if r.get("version") else ""
+        text = " ".join([r["title"], r["source"], r["license"], r["summary"], r["files"], r.get("version", "")]).lower()
+        items.append(
+            f'<li class="rx-item" data-kind="{esc(r["kind"])}" data-area="{esc(r["area"])}" '
+            f'data-source="|{esc("|".join(split_list(r["source"])))}|" data-text="{esc(text)}">'
+            f'<span class="kind k-{esc(r["kind"])}">{esc(r["kind"])}</span>'
+            f'<a class="rx-title" href="{href}">{esc(r["title"])}</a>'
+            f'<span class="rx-src">{esc(r["source"])} · {esc(r["license"])}{ver}{link}</span>'
+            f'<span class="rx-sum">{conv.inline(r["summary"])}</span>'
+            f'<span class="rx-files">{files}</span></li>')
+    index = []
+    for area in REF_AREAS:
+        rs = sorted((r for r in refs if r["area"] == area), key=lambda r: r["title"].lower())
+        if not rs:
+            continue
+        links = "".join(f'<li><a href="{root}{r["page"]}#{r["anchor"]}">{esc(r["title"])}</a> '
+                        f'<span class="kind k-{esc(r["kind"])}">{esc(r["kind"])}</span></li>' for r in rs)
+        index.append(f'<details><summary>{esc(area)} <small>{len(rs)}</small></summary><ul>{links}</ul></details>')
+    by_file = {}
+    for r in refs:
+        for x in split_list(r["files"]):
+            by_file.setdefault(x, []).append(r)
+    files = "".join(
+        f'<li><a href="{esc(repo_url(x))}"><code>{esc(x)}</code></a>: '
+        + ", ".join(f'<a href="{root}{r["page"]}#{r["anchor"]}">{esc(r["title"])}</a>' for r in by_file[x]) + "</li>"
+        for x in sorted(by_file))
+    return f"""
+<div class="rx" id="rx">
+<input type="search" id="rx-q" placeholder="Search: a name, a license, a file such as src/offset.zig" aria-label="Search the references">
+<p class="rx-label">Kind</p>{chips("kind", sorted(kinds.items()))}
+<p class="rx-label">Area of zslice</p>{chips("area", [(a, areas[a]) for a in REF_AREAS if a in areas])}
+<p class="rx-label">Source</p>{chips("source", sources)}
+<p class="rx-count" id="rx-count">{len(refs)} entries</p>
+<ul class="rx-list">{"".join(items)}</ul>
+</div>
+<h2 id="used-in-by-area">Used in, by area</h2>
+{"".join(index)}
+<h2 id="used-in-by-file">Used in, by file</h2>
+<details><summary>All files <small>{len(by_file)}</small></summary><ul class="rx-files-index">{files}</ul></details>
+<script>
+(() => {{
+  const q = document.getElementById("rx-q"), count = document.getElementById("rx-count");
+  const items = [...document.querySelectorAll(".rx-item")];
+  const pick = {{ kind: "", area: "", source: "" }};
+  function apply() {{
+    const words = q.value.toLowerCase().split(/\\s+/).filter(Boolean);
+    let shown = 0;
+    for (const li of items) {{
+      const ok = (!pick.kind || li.dataset.kind === pick.kind) && (!pick.area || li.dataset.area === pick.area) &&
+        (!pick.source || li.dataset.source.includes("|" + pick.source + "|")) &&
+        words.every((w) => li.dataset.text.includes(w));
+      li.hidden = !ok;
+      if (ok) shown++;
+    }}
+    count.textContent = shown + " of " + items.length + " entries";
+  }}
+  for (const name of Object.keys(pick)) {{
+    const group = document.querySelectorAll("[data-" + name + "].chip");
+    for (const b of group) b.addEventListener("click", () => {{
+      pick[name] = b.dataset[name];
+      for (const o of group) o.setAttribute("aria-pressed", String(o === b));
+      apply();
+    }});
+  }}
+  q.addEventListener("input", apply);
+  const h = new URLSearchParams(location.search);
+  if (h.get("q")) {{ q.value = h.get("q"); apply(); }}
+}})();
+</script>
+"""
+
+
+# ---------------------------------------------------------------------------------------------
 # The pages.
 
 CSS = r"""
@@ -397,6 +622,37 @@ td, th { border-top: 2px solid var(--edge); padding: 7px 10px; vertical-align: t
 th { font: 700 11px var(--mono); text-transform: uppercase; letter-spacing: .08em; color: var(--dim); border-top: 0; border-bottom: 2px solid var(--ink); }
 td:first-child { font-family: var(--mono); font-size: 14px; }
 td code { overflow-wrap: anywhere; }
+
+/* The references: the card of an entry, and the explorer */
+.ref { margin: 8px 0 14px; padding: 10px 14px; border: 2px solid var(--edge); border-radius: 8px; background: var(--plate2); font-size: 14px; }
+.ref dl { display: grid; grid-template-columns: max-content 1fr; gap: 2px 12px; margin: 8px 0 0; }
+.ref dt { font: 700 11px/1.9 var(--mono); text-transform: uppercase; letter-spacing: .08em; color: var(--dim); }
+.ref dd { margin: 0; overflow-wrap: anywhere; }
+.kind, .area { display: inline-block; font: 700 11px var(--mono); text-transform: uppercase; letter-spacing: .08em;
+  padding: 1px 7px; border-radius: 4px; margin-right: 6px; background: var(--plate); border: 1px solid var(--edge); color: var(--ink); }
+.kind.k-code { background: var(--orange); border-color: var(--orange); color: #fff; }
+.kind.k-data, .kind.k-font { background: var(--blue); border-color: var(--blue); color: var(--paper); }
+.kind.k-paper { border-color: var(--ink); }
+.area { background: none; color: var(--dim); }
+.rx input[type=search] { width: 100%; font: 15px var(--sans); padding: 8px 12px; border: 2px solid var(--ink); border-radius: 6px;
+  background: var(--paper); color: var(--ink); }
+.rx-label { margin: 12px 0 4px; font: 700 11px var(--mono); text-transform: uppercase; letter-spacing: .12em; color: var(--dim); }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip { font: 600 12px var(--mono); padding: 3px 10px; border: 2px solid var(--edge); border-radius: 999px; background: var(--paper);
+  color: var(--ink); cursor: pointer; }
+.chip small { color: var(--dim); }
+.chip[aria-pressed="true"] { border-color: var(--orange); background: var(--orange); color: #fff; }
+.chip[aria-pressed="true"] small { color: #fff; }
+.rx-count { font: 600 13px var(--mono); color: var(--dim); }
+.rx-list { list-style: none; padding: 0; }
+.rx-item { max-width: none; display: grid; grid-template-columns: max-content 1fr; gap: 2px 8px; padding: 10px 0; border-top: 2px solid var(--edge); }
+.rx-item[hidden] { display: none; }
+.rx-title { font-weight: 600; }
+.rx-src, .rx-sum, .rx-files { grid-column: 2; font-size: 14px; }
+.rx-src { color: var(--dim); }
+.rx-files a { margin-right: 6px; }
+details { margin: 6px 0; } details summary { font: 700 14px var(--mono); cursor: pointer; }
+details summary small { color: var(--dim); }
 
 /* The task lists of the roadmap */
 ul.tasks { list-style: none; padding-left: 4px; }
@@ -671,9 +927,12 @@ def landing():
          description="The documentation of zslice, a slicer for FDM 3D printers, written from scratch in Zig.")
 
 
-def doc_pages():
+def doc_pages(refs):
     for src, path, group, _ in SOURCES[1:]:
-        title, lede, body = parse(src, "../" * path.count("/"))
+        root = "../" * path.count("/")
+        title, lede, body = parse(src, root)
+        if src == REF_DIR + "/explore.md":
+            body += explorer(refs, root)
         page(path, group or "Documentation", title, lede, body, src)
 
 
@@ -724,8 +983,10 @@ def check_links():
 
 def main():
     check_sources()
+    refs = load_refs()
+    check_refs(refs)
     landing()
-    doc_pages()
+    doc_pages(refs)
     (DOCS / "site.css").write_text(CSS.strip() + "\n", encoding="utf-8")
     for path, doc in PAGES.items():
         out = DOCS / path if path.endswith(".html") else DOCS / path / "index.html"

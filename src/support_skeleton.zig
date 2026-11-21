@@ -16,7 +16,7 @@
 //! keeps only the nodes that the straight segments need. A node is kept
 //! where the path bends, or where the radius changes its rate, by more
 //! than a set tolerance (a split at the worst point, as in the method of
-//! Douglas and Peucker; see REFERENCES.md).
+//! Douglas and Peucker; see docs/references/papers-and-algorithms.md).
 //!
 //! The editor works on branches. A branch is a run of nodes between
 //! joins: a node and its `down` node are on the same branch if no other

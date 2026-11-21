@@ -1,7 +1,7 @@
 /* cura-stack.c: see cura-stack.h.
  *
  * The Cura files (cura.cfg, the .cfg files of the stacks, and the
- * containers) are in the layout of Ultimaker Cura (see REFERENCES.md).
+ * containers) are in the layout of Ultimaker Cura (see docs/references/cura.md).
  * This file only reads them.
  *
  * SPDX-License-Identifier: AGPL-3.0-or-later

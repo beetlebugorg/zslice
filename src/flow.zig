@@ -14,7 +14,7 @@
 //! area = (w - h) * h + pi * h^2 / 4
 //!
 //! The flow model of Slic3r and PrusaSlicer uses this shape (see
-//! REFERENCES.md). A rectangle (w * h, as in CuraEngine) gives 10.8 % more
+//! docs/references/prusaslicer.md). A rectangle (w * h, as in CuraEngine) gives 10.8 % more
 //! plastic than a bead of width w holds at h = 0.2 mm and w = 0.44 mm.
 //!
 //! The G-code emitter uses `beadArea` to compute how much filament to push.

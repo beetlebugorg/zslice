@@ -40,7 +40,7 @@
 //! other; the infill areas and the areas that need support (step 4) are
 //! made before, on all threads.
 //!
-//! Prior art (see REFERENCES.md): Vanek et al., "Clever Support" (SGP
+//! Prior art (see docs/references/): Vanek et al., "Clever Support" (SGP
 //! 2014); the tree supports of Meshmixer and of Cura (2017 to 2018); the
 //! "Support Cubic" infill of PrusaSlicer 2.3 (2020 to 2021); Tricard,
 //! Claux, and Lefebvre, "Ribbed Support Vaults for 3D Printing of Hollowed

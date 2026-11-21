@@ -39,7 +39,7 @@
 //! as one job of its mesh: then the plan of a level is the plan of the
 //! job, with its own skirt and brim.
 //!
-//! References (see REFERENCES.md): the greedy nearest-neighbor order.
+//! References (see docs/references/papers-and-algorithms.md): the greedy nearest-neighbor order.
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;

@@ -54,7 +54,7 @@ height, zslice the bead of flow.zig. The volumes differ by the two bead
 models.
 
 CuraEngine (AGPL-3.0) is a tool that this script runs. No code is copied.
-See REFERENCES.md.
+See docs/references/libraries.md.
 
 SPDX-License-Identifier: AGPL-3.0-or-later
 """

@@ -38,7 +38,7 @@ The files that zslice writes:
 The files of the sources are untrusted data. The tool parses them as data
 and runs no code from them. rsvg-convert reads each SVG with a time limit.
 
-References (see REFERENCES.md): the bed placement code of Cura (Uranium
+References (see docs/references/): the bed placement code of Cura (Uranium
 Platform.py and the mesh readers), PrusaSlicer (3DBed.cpp), and OrcaSlicer
 (3DBed.cpp and PartPlate.cpp). zslice copies no code from them.
 """

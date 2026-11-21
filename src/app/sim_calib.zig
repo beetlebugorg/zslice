@@ -15,7 +15,7 @@
 //!   under it falls in strands, and the layers on it fall too.
 //!
 //! The parts in tools/calib print the same tests on a real printer. The
-//! sources are in REFERENCES.md.
+//! sources are in docs/references/physics-and-materials.md.
 //!
 //! SPDX-License-Identifier: AGPL-3.0-or-later
 

@@ -16,7 +16,7 @@
 //!    volume at the layers of the job, with the same z and the same move
 //!    as the part. The plans then give the area of each volume its own
 //!    settings (see layer.Modifier). The idea is the infill mesh of
-//!    CuraEngine (see REFERENCES.md).
+//!    CuraEngine (see docs/references/).
 //!
 //! A plate of many parts is one job for each part, and the G-code merges
 //! their layers by z (see plate_job.zig). It uses step 5 of this file with

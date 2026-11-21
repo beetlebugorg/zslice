@@ -4,7 +4,7 @@
 //! outline moved in by half a line width. Each next wall is one line width
 //! further in. The area that is left in the middle is for infill.
 //!
-//! The method comes from Clipper2 (see REFERENCES.md):
+//! The method comes from Clipper2 (see docs/references/):
 //!
 //! 1. Move each edge along its normal by the distance. The normal of an edge
 //!    points to its right. With counterclockwise outer boundaries and
@@ -31,7 +31,7 @@
 //! Also before step 1, the code drops each loop that surely vanishes: a
 //! boundary that shrinks (or a hole that grows) by more than the radius of
 //! the largest circle in its convex hull (see `vanishes`; the hull is
-//! Andrew's monotone chain, see REFERENCES.md).
+//! Andrew's monotone chain, see docs/references/).
 //! 3. A union with the "positive" fill rule removes all parts that turn the
 //!    wrong way. These parts include the small loops from step 2 and all of
 //!    a shape that the offset made smaller than zero.

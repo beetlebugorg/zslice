@@ -24,7 +24,7 @@
 //! size. So a thread does that before it uses memory past the size that
 //! it has seen (`see`), and before each task of the pool (`sync`).
 //!
-//! Reference (see REFERENCES.md): the WasmAllocator of the Zig standard
+//! Reference (see docs/references/): the WasmAllocator of the Zig standard
 //! library (MIT).
 
 const std = @import("std");

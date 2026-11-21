@@ -29,7 +29,7 @@
 //! 3MF file (Metadata/zslice_labels.json). The reader checks each value,
 //! so a bad file or call gives an error and no label.
 //!
-//! References (see REFERENCES.md): the text and SVG tools of PrusaSlicer
+//! References (see docs/references/prusaslicer.md): the text and SVG tools of PrusaSlicer
 //! and the text tool of Bambu Studio (a label on a surface); the method,
 //! no code.
 //!

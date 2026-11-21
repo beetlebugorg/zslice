@@ -5,7 +5,7 @@
  * moves the bytes. It sends CONNECT, SUBSCRIBE, PINGREQ (each 30 s, to
  * keep the connection), and DISCONNECT. It sends no PUBLISH. Each report
  * goes to the main thread, which feeds the core. The topic and the fields
- * follow the LAN mode documents of Bambu Lab printers (see REFERENCES.md).
+ * follow the LAN mode documents of Bambu Lab printers (see docs/references/bambu-studio.md).
  *
  * SPDX-License-Identifier: AGPL-3.0-or-later
  */

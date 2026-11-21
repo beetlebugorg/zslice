@@ -56,7 +56,7 @@ again. CuraEngine runs as in compare_cura.py; OrcaSlicer runs with the profiles 
 <out folder>/orca (see orca-profiles), with no display.
 
 CuraEngine (AGPL-3.0) and OrcaSlicer (AGPL-3.0) are tools that this script
-runs. No code is copied. See REFERENCES.md.
+runs. No code is copied. See docs/references/orcaslicer.md.
 
 SPDX-License-Identifier: AGPL-3.0-or-later
 """

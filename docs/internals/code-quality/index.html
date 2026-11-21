@@ -68,9 +68,23 @@
 <a href="../../internals/macos/">The macOS app</a>
 <div class="group">Project</div>
 <a href="../../app/">App</a>
-<a href="../../references/">References</a>
 <a href="../../roadmap/">Roadmap</a>
-<a href="../../privacy/">Privacy</a></nav></aside>
+<a href="../../privacy/">Privacy</a>
+<div class="group">References</div>
+<a href="../../references/">References</a>
+<a href="../../references/explore/">Explorer</a>
+<a href="../../references/libraries/">Libraries and tools</a>
+<a href="../../references/cura/">Cura</a>
+<a href="../../references/orcaslicer/">OrcaSlicer</a>
+<a href="../../references/prusaslicer/">PrusaSlicer</a>
+<a href="../../references/bambu-studio/">Bambu Studio</a>
+<a href="../../references/slicer-techniques/">Slicer techniques</a>
+<a href="../../references/printer-data/">Printer data</a>
+<a href="../../references/klipper-marlin-firmware/">Firmware and G-code</a>
+<a href="../../references/fonts/">Fonts</a>
+<a href="../../references/papers-and-algorithms/">Papers and algorithms</a>
+<a href="../../references/physics-and-materials/">Physics and materials</a>
+<a href="../../references/formats-and-protocols/">Formats and protocols</a></nav></aside>
 <main>
 <p class="eyebrow">Internals</p>
 <h1>Code quality plan</h1>
@@ -91,7 +105,7 @@
 <h2 id="6-tests">6. Tests</h2>
 <ul class="tasks"><li><span class="box done" aria-label="done"></span><div>Settings validation: the text forms of each kind, a bad value keeps the old one, the combinations that <code>resolve</code> rejects, the wall count from a wall thickness.</div></li><li><span class="box done" aria-label="done"></span><div>3MF in the app: a bad file keeps the plate; an override of an unknown setting is left out.</div></li><li><span class="box done" aria-label="done"></span><div>The plate in the app: the name, a turn, the arrangement, remove, clear, and the part of a path.</div></li><li><span class="box done" aria-label="done"></span><div>Support marks: the layer, the radius, replace, remove, and clear.</div></li><li><span class="box done" aria-label="done"></span><div>Profiles in the app: the round trip of a group through <code>writeState</code> and <code>applyProfile</code>, a bad text that changes nothing, and <code>resetGroup</code>.</div></li><li><span class="box" aria-label="to do"></span><div>Combing: <code>src/gcode.zig</code> now tests that the combing index gives the same answers as <code>combClear</code>. An end-to-end test is still missing: a slice with combing on has no travel that crosses a wall.</div></li><li><span class="box" aria-label="to do"></span><div>The GTK shell has no unit tests. <code>toolpath-nav.c</code> and <code>layer-draw.c</code> have no widgets, so they can have tests first. A move of the navigation into the core (item 3) gives Zig tests.</div></li></ul>
 <h2 id="7-consistency">7. Consistency</h2>
-<ul class="tasks"><li><span class="box done" aria-label="done"></span><div>The source files that use a source in <code>REFERENCES.md</code> name it in their header comment: <code>import_cura.zig</code>, <code>profile.zig</code>, <code>plate.zig</code>, and <code>native-surface.c</code> did not.</div></li><li><span class="box" aria-label="to do"></span><div><code>src/engine.zig</code> uses memoization (see <code>REFERENCES.md</code>) and does not name it in its header.</div></li><li><span class="box done" aria-label="done"></span><div>One list of the <code>ZSLICE_*</code> test hooks of the GTK shell, in <code>docs/app/README.md</code>.</div></li><li><span class="box done" aria-label="done"></span><div>No TODO without an entry in <code>ROADMAP.md</code>. There is no TODO in the code.</div></li><li><span class="box done" aria-label="done"></span><div><code>docs/internals/architecture.md</code> lists all modules, with <code>app/</code>, <code>c_api/</code>, and <code>render/</code>.</div></li></ul>
+<ul class="tasks"><li><span class="box done" aria-label="done"></span><div>The source files that use a source in <code>docs/references/</code> name it in their header comment: <code>import_cura.zig</code>, <code>profile.zig</code>, <code>plate.zig</code>, and <code>native-surface.c</code> did not.</div></li><li><span class="box" aria-label="to do"></span><div><code>src/engine.zig</code> uses memoization (see <code>docs/references/papers-and-algorithms.md</code>) and does not name it in its header.</div></li><li><span class="box done" aria-label="done"></span><div>One list of the <code>ZSLICE_*</code> test hooks of the GTK shell, in <code>docs/app/README.md</code>.</div></li><li><span class="box done" aria-label="done"></span><div>No TODO without an entry in <code>ROADMAP.md</code>. There is no TODO in the code.</div></li><li><span class="box done" aria-label="done"></span><div><code>docs/internals/architecture.md</code> lists all modules, with <code>app/</code>, <code>c_api/</code>, and <code>render/</code>.</div></li></ul>
 <h2 id="8-build-hygiene">8. Build hygiene</h2>
 <ul class="tasks"><li><span class="box done" aria-label="done"></span><div>No warnings from <code>zig build</code>, <code>zig build test</code>, <code>zig build wasm</code>, and <code>ninja -C linux/build</code> (meson <code>warning_level=2</code>).</div></li><li><span class="box done" aria-label="done"></span><div><code>zig fmt</code> for the files outside the slicing stages.</div></li><li><span class="box" aria-label="to do"></span><div><code>zig fmt --check</code> fails for <code>src/engine.zig</code>, <code>src/layer.zig</code>, and <code>src/support.zig</code>. Run <code>zig fmt</code> on them when no other branch changes them.</div></li></ul>
 <h2 id="later-files-that-other-work-changes-now">Later: files that other work changes now</h2>

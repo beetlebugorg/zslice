@@ -34,7 +34,7 @@
 //! no memory for it. A brush splits only the triangles on its edge, to
 //! the depth that gives a clean border, so the memory stays small.
 //!
-//! References (see REFERENCES.md): the paint of PrusaSlicer
+//! References (see docs/references/): the paint of PrusaSlicer
 //! (TriangleSelector, the 3MF attribute slic3rpe:mmu_segmentation) and
 //! Bambu Studio (paint_color): the form and the rules only, the code is
 //! new. The closest point of a triangle (Ericson), the ray and triangle

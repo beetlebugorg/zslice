@@ -55,7 +55,7 @@
 //! word of the brand, the series, or the model. A match at the start of the
 //! model name, and an exact match of the whole name, rank first.
 //!
-//! References (see REFERENCES.md): the Cura definition format, the
+//! References (see docs/references/printer-data.md): the Cura definition format, the
 //! PrusaSlicer vendor bundles, and the OrcaSlicer profiles.
 
 const std = @import("std");
@@ -621,7 +621,7 @@ pub fn changeGcode(id: []const u8) ?[]const u8 {
 /// around the print with PLA (`machine.chamber_temp`, °C), and the air
 /// speed of the part cooling fans at the bead (`machine.part_fan_air`,
 /// m/s). The fans and the enclosures come from the makers and their parts
-/// stores (see REFERENCES.md). The air speeds are estimates from the size
+/// stores (see docs/references/printer-data.md). The air speeds are estimates from the size
 /// of the fans: a 5015 radial blower through a duct about 6 m/s, a 4010
 /// blower about 4 m/s, two 3510 blowers about 5 m/s, and a 5015 with a
 /// large side fan (Bambu Lab, Creality K1, QIDI) about 10 m/s. A closed

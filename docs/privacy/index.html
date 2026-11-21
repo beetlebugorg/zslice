@@ -68,9 +68,23 @@
 <a href="../internals/macos/">The macOS app</a>
 <div class="group">Project</div>
 <a href="../app/">App</a>
-<a href="../references/">References</a>
 <a href="../roadmap/">Roadmap</a>
-<a href="../privacy/" aria-current="page">Privacy</a></nav></aside>
+<a href="../privacy/" aria-current="page">Privacy</a>
+<div class="group">References</div>
+<a href="../references/">References</a>
+<a href="../references/explore/">Explorer</a>
+<a href="../references/libraries/">Libraries and tools</a>
+<a href="../references/cura/">Cura</a>
+<a href="../references/orcaslicer/">OrcaSlicer</a>
+<a href="../references/prusaslicer/">PrusaSlicer</a>
+<a href="../references/bambu-studio/">Bambu Studio</a>
+<a href="../references/slicer-techniques/">Slicer techniques</a>
+<a href="../references/printer-data/">Printer data</a>
+<a href="../references/klipper-marlin-firmware/">Firmware and G-code</a>
+<a href="../references/fonts/">Fonts</a>
+<a href="../references/papers-and-algorithms/">Papers and algorithms</a>
+<a href="../references/physics-and-materials/">Physics and materials</a>
+<a href="../references/formats-and-protocols/">Formats and protocols</a></nav></aside>
 <main>
 <p class="eyebrow">Project</p>
 <h1>Privacy</h1>
@@ -86,7 +100,7 @@
 <ul><li>the printers that you set up (printdeck, OctoPrint, Moonraker, PrusaLink), to send prints and read their state;</li><li>your local network, to find printers (mDNS, when you open the printer list). These packets stay on your network;</li><li>GitHub, when you open a project from a GitHub repository (the Project tab). The app makes the same requests as the web app: the commit and the list of files from <code>api.github.com</code>, and the files that a plate needs from <code>raw.githubusercontent.com</code> (and <code>media.githubusercontent.com</code> for a file in Git LFS). It sends no login and no data of yours. After a restart, it gets the list of files of the open project again, at the same commit. GitHub sees these requests under the <a href="https://docs.github.com/site-policy/privacy-policies/github-general-privacy-statement">GitHub Privacy Statement</a>.</li></ul>
 <p>It keeps its settings in your user folder (<code>~/.config/zslice</code> on Linux). The open project (its printdeck.yml, the counts, and the status of each plate) is in <code>project.json</code> there.</p>
 <h2 id="questions">Questions</h2>
-<p>Open an issue on <a href="https://github.com/beetlebugorg/zslice/issues">GitHub</a>.</p><nav class="pager"><a class="prev" href="../roadmap/"><span>Previous</span><b>Roadmap</b></a></nav>
+<p>Open an issue on <a href="https://github.com/beetlebugorg/zslice/issues">GitHub</a>.</p><nav class="pager"><a class="prev" href="../roadmap/"><span>Previous</span><b>Roadmap</b></a><a class="next" href="../references/"><span>Next</span><b>References</b></a></nav>
 </main>
 </div>
 <footer>zslice is free software (AGPL-3.0-or-later). <a href="../privacy/">Privacy</a>: no analytics, no cookies, nothing from other sites. <a href="https://github.com/beetlebugorg/zslice/blob/main/docs/build.py">docs/build.py</a> writes this site from <a href="https://github.com/beetlebugorg/zslice/blob/main/PRIVACY.md">PRIVACY.md</a>.</footer>

@@ -68,9 +68,23 @@
 <a href="../../internals/macos/">The macOS app</a>
 <div class="group">Project</div>
 <a href="../../app/">App</a>
-<a href="../../references/">References</a>
 <a href="../../roadmap/">Roadmap</a>
-<a href="../../privacy/">Privacy</a></nav></aside>
+<a href="../../privacy/">Privacy</a>
+<div class="group">References</div>
+<a href="../../references/">References</a>
+<a href="../../references/explore/">Explorer</a>
+<a href="../../references/libraries/">Libraries and tools</a>
+<a href="../../references/cura/">Cura</a>
+<a href="../../references/orcaslicer/">OrcaSlicer</a>
+<a href="../../references/prusaslicer/">PrusaSlicer</a>
+<a href="../../references/bambu-studio/">Bambu Studio</a>
+<a href="../../references/slicer-techniques/">Slicer techniques</a>
+<a href="../../references/printer-data/">Printer data</a>
+<a href="../../references/klipper-marlin-firmware/">Firmware and G-code</a>
+<a href="../../references/fonts/">Fonts</a>
+<a href="../../references/papers-and-algorithms/">Papers and algorithms</a>
+<a href="../../references/physics-and-materials/">Physics and materials</a>
+<a href="../../references/formats-and-protocols/">Formats and protocols</a></nav></aside>
 <main>
 <p class="eyebrow">Internals</p>
 <h1>zslice and other slicers</h1>
@@ -85,7 +99,7 @@
 <p>"Yes" means that the slicer has the feature in its main release. "Some" means a part of it, or a plugin.</p>
 <div class="table-wrap"><table><thead><tr><th>Feature</th><th>zslice</th><th>Cura</th><th>PrusaSlicer</th><th>OrcaSlicer</th><th>Bambu Studio</th></tr></thead><tbody><tr><td>Explains each line of the preview (real speed, why)</td><td>Yes</td><td>No</td><td>No</td><td>No</td><td>No</td></tr><tr><td>Slices again while a slider moves</td><td>Yes</td><td>No</td><td>No</td><td>No</td><td>No</td></tr><tr><td>Runs in a web browser, files stay local</td><td>Yes</td><td>No</td><td>No</td><td>No</td><td>No</td></tr><tr><td>Gaps view with settings that close each gap</td><td>Yes</td><td>No</td><td>No</td><td>No</td><td>No</td></tr><tr><td>History of changes with a timeline</td><td>Yes</td><td>No</td><td>No</td><td>No</td><td>No</td></tr><tr><td>Embeddable library with a C API</td><td>Yes</td><td>Some (CuraEngine program)</td><td>No</td><td>No</td><td>No</td></tr><tr><td>Variable line width walls (Arachne)</td><td>Yes</td><td>Yes</td><td>Yes</td><td>Yes</td><td>Yes</td></tr><tr><td>Tree support</td><td>Yes</td><td>Yes</td><td>Yes</td><td>Yes</td><td>Yes</td></tr><tr><td>Support blockers and enforcers</td><td>Yes (marks)</td><td>Yes</td><td>Yes (painted)</td><td>Yes (painted)</td><td>Yes (painted)</td></tr><tr><td>Bridges detected and printed as bridges</td><td>Yes</td><td>Yes</td><td>Yes</td><td>Yes</td><td>Yes</td></tr><tr><td>Ironing</td><td>Yes</td><td>Yes</td><td>Yes</td><td>Yes</td><td>Yes</td></tr><tr><td>Settings for each part, modifier volumes</td><td>Yes</td><td>Yes</td><td>Yes</td><td>Yes</td><td>Yes</td></tr><tr><td>Settings for some layers</td><td>Yes</td><td>Some</td><td>Yes</td><td>Yes</td><td>Yes</td></tr><tr><td>Automatic orientation and arrangement</td><td>Yes</td><td>Some</td><td>Yes</td><td>Yes</td><td>Yes</td></tr><tr><td>Printer library with bed models</td><td>Yes</td><td>Yes</td><td>Yes</td><td>Yes</td><td>Bambu printers</td></tr><tr><td>Send to printer (OctoPrint, Moonraker, own)</td><td>Yes</td><td>Some</td><td>Yes</td><td>Yes</td><td>Bambu printers</td></tr><tr><td>Measure tool</td><td>On the sliced lines</td><td>No</td><td>On the model</td><td>On the model</td><td>On the model</td></tr><tr><td>Multi-material and color</td><td>No</td><td>Yes</td><td>Yes</td><td>Yes</td><td>Yes</td></tr><tr><td>Variable layer height</td><td>No</td><td>Yes (adaptive)</td><td>Yes</td><td>Yes</td><td>Yes</td></tr><tr><td>Arc fitting</td><td>No</td><td>Some</td><td>Yes</td><td>Yes</td><td>Yes</td></tr><tr><td>Calibration prints</td><td>No</td><td>Some</td><td>Some</td><td>Yes</td><td>Yes</td></tr><tr><td>Resin printers</td><td>No</td><td>No</td><td>Yes</td><td>No</td><td>No</td></tr><tr><td>License</td><td>AGPL-3.0</td><td>LGPL-3.0</td><td>AGPL-3.0</td><td>AGPL-3.0</td><td>AGPL-3.0</td></tr></tbody></table></div>
 <h2 id="testing-against-curaengine">Testing against CuraEngine</h2>
-<p><code>tools/compare_cura.py</code> slices a folder of STL files with zslice and with CuraEngine, with the same main settings, and compares the results: failures, time, memory, and the print time and the plastic of each part. CuraEngine is a test oracle; no Cura code is in zslice (see <code>REFERENCES.md</code>).</p>
+<p><code>tools/compare_cura.py</code> slices a folder of STL files with zslice and with CuraEngine, with the same main settings, and compares the results: failures, time, memory, and the print time and the plastic of each part. CuraEngine is a test oracle (see <a href="../../references/libraries/#test-tools">Libraries and tools</a>).</p>
 <pre><code>zig build -Doptimize=ReleaseFast
 python3 -I tools/compare_cura.py run zig-out/bin/zslice &lt;out folder&gt; --root &lt;folder of STL files&gt;
 python3 -I tools/compare_cura.py summary &lt;out folder&gt;

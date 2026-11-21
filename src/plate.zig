@@ -31,7 +31,7 @@
 //! part (`Part.shape`): a turn or a scale changes the shape, and then the
 //! app drops the trees.
 //!
-//! References (see REFERENCES.md): the closest point on a triangle
+//! References (see docs/references/papers-and-algorithms.md): the closest point on a triangle
 //! (Ericson, "Real-Time Collision Detection"), for the side of a part
 //! nearest to a picked point.
 

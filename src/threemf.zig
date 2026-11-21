@@ -37,7 +37,7 @@
 //! slicers do not read the entry.
 //!
 //! Format: 3MF Core Specification 1.3 and the Production Extension, 3MF
-//! Consortium, and the Cura project metadata (see REFERENCES.md). The XML reader handles the elements and
+//! Consortium, and the Cura project metadata (see docs/references/). The XML reader handles the elements and
 //! attributes of these files; it is not a general XML parser.
 
 const std = @import("std");

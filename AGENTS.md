@@ -22,12 +22,12 @@ zslice is licensed under AGPL-3.0-or-later. The main slicer engines (CuraEngine,
 
 Follow these rules for all work:
 
-1. Record each reference. A reference is any source that the work uses: an algorithm, a paper, a file format, a convention, another project, or code. Add it to `REFERENCES.md`. Give the name, the link, the license, and how zslice uses it.
-2. Name the reference in the header comment of each source file that uses it. Point to `REFERENCES.md`.
+1. Record each reference. A reference is any source that the work uses: an idea, an algorithm, a setting and its meaning, a paper, a file format, a convention, data, another project, or code. Credit each source: each idea, data, or code taken from another project gets an entry in `docs/references/`, on the page of its source or area. The entry says what zslice uses, from where (a link, and a commit, a tag, or a version), its license, and where it lives in zslice. Read `docs/references/README.md` for the form of an entry. `python3 -I docs/build.py` checks the fields and the paths.
+2. Name the reference in the header comment of each source file that uses it. Point to its page in `docs/references/`.
 3. Obey the license of each dependency and each source that zslice copies or ports. Before you copy or port code, check that its license is compatible with AGPL-3.0-or-later. Keep its copyright notice in the file.
-4. Put the license text of each dependency whose code goes into a zslice binary or wasm file in `licenses/`. List it in `REFERENCES.md` under "Code in the binaries".
+4. Put the license text of each dependency whose code goes into a zslice binary or wasm file in `licenses/`. List it in `docs/references/libraries.md` under "Code in the binaries".
 5. Do not add a dependency or copy code with an unknown license, or with a license that is incompatible with AGPL-3.0. Ask first.
-6. The Zig standard library has ports of code from other projects. The file header of each port names its source. Before you call a std function that is new to zslice, read the header of its file. If it names a source that is not in `REFERENCES.md`, add the source and its license text before the call. Known ports in zslice binaries: musl (math), Go (`std.fmt.parseFloat`, `std.math.pow`), and ARM optimized-routines (`std.math.acos`).
+6. The Zig standard library has ports of code from other projects. The file header of each port names its source. Before you call a std function that is new to zslice, read the header of its file. If it names a source that is not in `docs/references/`, add the source and its license text before the call. Known ports in zslice binaries: musl (math), Go (`std.fmt.parseFloat`, `std.math.pow`), and ARM optimized-routines (`std.math.acos`).
 
 ## Writing
 

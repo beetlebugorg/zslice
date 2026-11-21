@@ -26,7 +26,7 @@
 //! subset of Basic Latin and Latin-1 that `tools/font_subset.py` makes.
 //! The tool moves the kerning of the font (GPOS) into a `kern` table.
 //!
-//! References (see REFERENCES.md): the OpenType specification (the
+//! References (see docs/references/fonts.md): the OpenType specification (the
 //! tables above); the Inter font.
 //!
 //! SPDX-License-Identifier: AGPL-3.0-or-later

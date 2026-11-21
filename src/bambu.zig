@@ -19,7 +19,7 @@
 //! the file is empty: the printer prints the G-code.
 //!
 //! The file layout and the messages follow the public documents of the
-//! LAN mode and the open source tools for it (see REFERENCES.md). No code
+//! LAN mode and the open source tools for it (see docs/references/bambu-studio.md). No code
 //! comes from them.
 //!
 //! SPDX-License-Identifier: AGPL-3.0-or-later
@@ -769,7 +769,7 @@ pub const CameraKind = enum(u8) {
 };
 
 /// The camera kind of a printer of the library (its id, for example
-/// "bambu-lab-x2d"), from the open source LAN tools (see REFERENCES.md).
+/// "bambu-lab-x2d"), from the open source LAN tools (see docs/references/bambu-studio.md).
 pub fn cameraOf(model_id: []const u8) CameraKind {
     const jpeg = [_][]const u8{ "bambu-lab-a1", "bambu-lab-a1-mini", "bambu-lab-p1p", "bambu-lab-p1s" };
     for (jpeg) |m| if (std.mem.eql(u8, model_id, m)) return .jpeg;

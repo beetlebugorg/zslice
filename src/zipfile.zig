@@ -6,7 +6,7 @@
 //! the offset of the central directory. The reader starts at the end
 //! record. The writer deflates each entry. The reader also reads the zip64
 //! records that some writers use for small files too; the writer does not
-//! write them (no 3MF of zslice is 4 GB). Format: PKWARE APPNOTE.TXT (see REFERENCES.md); the header
+//! write them (no 3MF of zslice is 4 GB). Format: PKWARE APPNOTE.TXT (see docs/references/formats-and-protocols.md); the header
 //! structs and deflate come from the Zig standard library.
 
 const std = @import("std");
