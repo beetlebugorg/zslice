@@ -58,6 +58,7 @@ An adaptive layer height (thin layers where a surface has a small slope) can use
 | `first_layer_bed_temp` | no | gcode | The first layer only. The start G-code sets it, and the second layer sets `bed_temp`. |
 | `max_flow` | yes | settings (`Resolved.speed`) | The speed limit of each layer. |
 | `flow_ratio` | yes | gcode | The extrusion of each line. |
+| `pressure_advance` | yes | gcode | The command of the firmware (M900, SET_PRESSURE_ADVANCE, M572) at the start of a layer with another value: the bands of the pressure advance tower. |
 | `fan_speed`, `fan_max_speed`, `fan_boost_time` | yes | gcode | The fan of each layer. |
 | `fan_off_layers` | no | gcode | A count of layers from the bed. Set `fan_speed` to 0 for a range. |
 | `min_layer_time`, `min_speed`, `cooling_mode` | yes | gcode | The cooling of each layer. |

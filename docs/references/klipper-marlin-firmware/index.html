@@ -30,14 +30,15 @@
 <a href="../../user/filaments/"><span class="n">7</span>Print in colors</a>
 <a href="../../user/labels/"><span class="n">8</span>Labels on a part</a>
 <a href="../../user/check/"><span class="n">9</span>Check the print</a>
-<a href="../../user/plates/"><span class="n">10</span>Plates and files</a>
-<a href="../../user/printers/"><span class="n">11</span>Send to a printer</a>
-<a href="../../user/history/"><span class="n">12</span>Undo and history</a>
+<a href="../../user/calibrate/"><span class="n">10</span>Calibrate the filament</a>
+<a href="../../user/plates/"><span class="n">11</span>Plates and files</a>
+<a href="../../user/printers/"><span class="n">12</span>Send to a printer</a>
+<a href="../../user/history/"><span class="n">13</span>Undo and history</a>
 <div class="group">Features</div>
-<a href="../../user/features/"><span class="n">13</span>The best features</a>
-<a href="../../user/print-as-it-forms/"><span class="n">14</span>The print as it forms</a>
-<a href="../../user/projects/"><span class="n">15</span>printdeck projects</a>
-<a href="../../user/farm/"><span class="n">16</span>A print farm</a>
+<a href="../../user/features/"><span class="n">14</span>The best features</a>
+<a href="../../user/print-as-it-forms/"><span class="n">15</span>The print as it forms</a>
+<a href="../../user/projects/"><span class="n">16</span>printdeck projects</a>
+<a href="../../user/farm/"><span class="n">17</span>A print farm</a>
 <div class="group">Reference</div>
 <a href="../../user/keys/">Keys and mouse</a>
 <a href="../../user/settings/">Settings</a>
@@ -136,7 +137,10 @@
 <p>The comments that start a layer (<code>;LAYER:</code> of Cura, <code>;LAYER_CHANGE</code> of PrusaSlicer and OrcaSlicer, <code>; CHANGE_LAYER</code> of Bambu Studio), give its height (<code>;Z:</code>, <code>;HEIGHT:</code>), name a feature (<code>;TYPE:</code>, <code>; FEATURE:</code>), and give the print time (<code>;TIME:</code> of Cura, with 6666 as the value of CuraEngine with no estimate; <code>= 1h 2m 3s</code> of PrusaSlicer and OrcaSlicer). The rule of Klipper for absolute E (G90 and M82). The conventions only; no code is copied.</p>
 <h3 id="planner-limits-of-marlin-and-klipper">Planner limits of Marlin and Klipper</h3>
 <div class="ref"><span class="kind k-idea">idea</span><span class="area">gcode</span><dl><dt>Source</dt><dd>Marlin, Klipper</dd><dt>What zslice uses</dt><dd>The acceleration limits of the motors of a CoreXY in Marlin, and the extruder limits of Marlin and Klipper, for the time estimate.</dd><dt>License</dt><dd>GPL-3.0</dd><dt>Link</dt><dd><a href="https://marlinfw.org/docs/gcode/M201.html">https://marlinfw.org/docs/gcode/M201.html</a></dd><dt>Used in</dt><dd><a href="https://github.com/beetlebugorg/zslice/blob/main/src/motion.zig"><code>src/motion.zig</code></a>, <a href="https://github.com/beetlebugorg/zslice/blob/main/src/gcode.zig"><code>src/gcode.zig</code></a>, <a href="https://github.com/beetlebugorg/zslice/blob/main/src/settings.zig"><code>src/settings.zig</code></a></dd></dl></div>
-<p>Marlin applies <code>M201 X Y</code> to the motors A = X + Y and B = X - Y of a CoreXY, and has an extruder jerk of 5 mm/s and no cruise ratio. Klipper limits the head in all directions alike, has a minimum cruise ratio, and limits the acceleration of the filament (<code>max_extrude_only_accel</code>). Klipper sets limits with <code>SET_VELOCITY_LIMIT</code>. The documented behavior only; no code is copied (<a href="https://www.klipper3d.org/Config_Reference.html">https://www.klipper3d.org/Config_Reference.html</a>).</p><nav class="pager"><a class="prev" href="../../references/printer-data/"><span>Previous</span><b>Printer data</b></a><a class="next" href="../../references/fonts/"><span>Next</span><b>Fonts</b></a></nav>
+<p>Marlin applies <code>M201 X Y</code> to the motors A = X + Y and B = X - Y of a CoreXY, and has an extruder jerk of 5 mm/s and no cruise ratio. Klipper limits the head in all directions alike, has a minimum cruise ratio, and limits the acceleration of the filament (<code>max_extrude_only_accel</code>). Klipper sets limits with <code>SET_VELOCITY_LIMIT</code>. The documented behavior only; no code is copied (<a href="https://www.klipper3d.org/Config_Reference.html">https://www.klipper3d.org/Config_Reference.html</a>).</p>
+<h3 id="the-pressure-advance-tuning-tower">The pressure advance tuning tower</h3>
+<div class="ref"><span class="kind k-idea">idea</span><span class="area">gcode</span><dl><dt>Source</dt><dd>Klipper</dd><dt>What zslice uses</dt><dd>The pressure advance test: a hollow square tower with a higher pressure advance on each layer, read at its corners.</dd><dt>License</dt><dd>GPL-3.0</dd><dt>Link</dt><dd><a href="https://www.klipper3d.org/Pressure_Advance.html">https://www.klipper3d.org/Pressure_Advance.html</a></dd><dt>Version</dt><dd>the documentation of Klipper, read on 2026-11-21</dd><dt>Used in</dt><dd><a href="https://github.com/beetlebugorg/zslice/blob/main/src/calib.zig"><code>src/calib.zig</code></a>, <a href="https://github.com/beetlebugorg/zslice/blob/main/src/gcode.zig"><code>src/gcode.zig</code></a>, <a href="https://github.com/beetlebugorg/zslice/blob/main/docs/user/calibrate.md"><code>docs/user/calibrate.md</code></a></dd></dl></div>
+<p>Klipper tunes pressure advance with a large hollow square (<code>docs/prints/square_tower.stl</code>), no infill, about 100 mm/s, and <code>TUNING_TOWER COMMAND=SET_PRESSURE_ADVANCE PARAMETER=ADVANCE START=0 FACTOR=.005</code> (direct drive) or <code>FACTOR=.020</code> (bowden). Too little pressure advance gives a blob at each corner; too much gives a round corner and a thin line before it. The corner where the layer changes does not count. Klipper also suggests <code>SET_VELOCITY_LIMIT SQUARE_CORNER_VELOCITY=1 ACCEL=500</code> for the test. zslice makes its own tower (<code>calib.zig</code>): one wall and no top, the full wall speed, and bands of 4 mm with a value each in place of a value for each layer, so the same G-code works with Marlin (M900 K) and RepRapFirmware (M572). Each band is a layer range of <code>filament.pressure_advance</code>, and the G-code writer sets the value at the first layer of each band. The method only; no code.</p><nav class="pager"><a class="prev" href="../../references/printer-data/"><span>Previous</span><b>Printer data</b></a><a class="next" href="../../references/fonts/"><span>Next</span><b>Fonts</b></a></nav>
 </main>
 </div>
 <footer>zslice is free software (AGPL-3.0-or-later). <a href="../../privacy/">Privacy</a>: no analytics, no cookies, nothing from other sites. <a href="https://github.com/beetlebugorg/zslice/blob/main/docs/build.py">docs/build.py</a> writes this site from <a href="https://github.com/beetlebugorg/zslice/blob/main/docs/references/klipper-marlin-firmware.md">docs/references/klipper-marlin-firmware.md</a>.</footer>

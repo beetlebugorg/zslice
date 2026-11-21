@@ -1382,6 +1382,30 @@ int zs_app_part_remove(zs_app *app, size_t i);
  * by_object (one part at a time). ZS_OUT_OF_RANGE for a bad index. */
 int zs_app_part_reorder(zs_app *app, size_t i, size_t to);
 
+/* Calibration prints (src/calib.zig, src/app/calibrate.zig). */
+enum zs_calibration {
+    ZS_CALIB_TEMPERATURE = 0,     /* a block for each nozzle temperature */
+    ZS_CALIB_RETRACTION = 1,      /* a retraction length for each band */
+    ZS_CALIB_FLOW = 2,            /* a cube for each flow ratio */
+    ZS_CALIB_PRESSURE_ADVANCE = 3 /* a pressure advance for each band */
+};
+/* Puts the test part of a calibration on the plate of the app, which must
+ * be empty (make a new plate with zs_set_add first). A tower gets a named
+ * layer range for each step; the flow test gets a part with its own flow
+ * for each step. With machine.filament_change = tool, each step gets a
+ * label with its value in filament 2. ZS_INVALID_ARGUMENT: a plate with
+ * parts, or a bad kind. ZS_INVALID_SETTINGS: a retraction test with
+ * machine.retract_length 0. */
+int zs_app_calibration_add(zs_app *app, int kind);
+/* The calibration of the plate, one item a line (fields split by tabs):
+ * "kind\t<temperature|retraction|flow|pressure_advance>", "name\t<a name
+ * for the plate>", "setting\t<the setting of the test>", "note\t<how to
+ * read the print>", then "step\t<text>\t<value of the setting>" for each
+ * step, the bottom (or the first part) first. To use a step, set the
+ * setting to its value on each plate (zs_app_setting_set). ZS_NO_RESULT:
+ * the plate has no calibration. The same buffer rules as
+ * zs_app_setting_get. */
+int zs_app_calibration_get(const zs_app *app, char *buf, size_t cap, size_t *out_len);
 /* Packs all parts on the bed, the largest first. 1 if all fit. */
 int zs_app_plate_arrange(zs_app *app);
 int zs_app_plate_clear(zs_app *app);

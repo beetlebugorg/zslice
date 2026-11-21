@@ -1721,6 +1721,95 @@ static void on_smart_place_action(GSimpleAction *a, GVariant *v, gpointer data) 
     }
 }
 
+/* ---- calibration prints (src/app/calibrate.zig) ---- */
+
+static void on_calibration_use(GtkButton *b, gpointer data) {
+    Window *w = data;
+    const char *setting = g_object_get_data(G_OBJECT(b), "zg-setting");
+    const char *value = g_object_get_data(G_OBJECT(b), "zg-value");
+    if (!zg_model_calibration_use(w->model, setting, value)) show_error(w, "The value was not set", "A plate refused the value.");
+    GtkRoot *root = gtk_widget_get_root(GTK_WIDGET(b));
+    if (GTK_IS_WINDOW(root)) gtk_window_destroy(GTK_WINDOW(root));
+}
+
+/* How to read the test of the active plate, and a button for each of its
+ * values: the button sets the value on each plate. */
+static void show_calibration(Window *w) {
+    char *text = zg_model_calibration(w->model);
+    if (!text) {
+        show_error(w, "This plate has no calibration test", "Open Calibrate in the main menu to make one.");
+        return;
+    }
+    char *name = NULL, *setting = NULL, *note = NULL;
+    GtkWidget *flow = gtk_flow_box_new();
+    gtk_flow_box_set_selection_mode(GTK_FLOW_BOX(flow), GTK_SELECTION_NONE);
+    gtk_flow_box_set_max_children_per_line(GTK_FLOW_BOX(flow), 6);
+    char **lines = g_strsplit(text, "\n", -1);
+    for (char **l = lines; *l; l++) {
+        char **f = g_strsplit(*l, "\t", -1);
+        guint n = g_strv_length(f);
+        if (n >= 2 && strcmp(f[0], "name") == 0) name = g_strdup(f[1]);
+        else if (n >= 2 && strcmp(f[0], "setting") == 0) setting = g_strdup(f[1]);
+        else if (n >= 2 && strcmp(f[0], "note") == 0) note = g_strdup(f[1]);
+        else if (n >= 3 && strcmp(f[0], "step") == 0 && setting) {
+            char *label = g_strdup_printf("Use %s", f[1]);
+            GtkWidget *b = gtk_button_new_with_label(label);
+            char *tip = g_strdup_printf("Set %s to %s on each plate", setting, f[2]);
+            gtk_widget_set_tooltip_text(b, tip);
+            g_object_set_data_full(G_OBJECT(b), "zg-setting", g_strdup(setting), g_free);
+            g_object_set_data_full(G_OBJECT(b), "zg-value", g_strdup(f[2]), g_free);
+            g_signal_connect(b, "clicked", G_CALLBACK(on_calibration_use), w);
+            gtk_flow_box_append(GTK_FLOW_BOX(flow), b);
+            g_free(tip);
+            g_free(label);
+        }
+        g_strfreev(f);
+    }
+    g_strfreev(lines);
+    GtkWidget *win = gtk_window_new();
+    gtk_window_set_title(GTK_WINDOW(win), name ? name : "Calibration");
+    gtk_window_set_transient_for(GTK_WINDOW(win), GTK_WINDOW(w->window));
+    gtk_window_set_default_size(GTK_WINDOW(win), 520, -1);
+    GtkWidget *box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 12);
+    gtk_widget_set_margin_start(box, 16);
+    gtk_widget_set_margin_end(box, 16);
+    gtk_widget_set_margin_top(box, 16);
+    gtk_widget_set_margin_bottom(box, 16);
+    GtkWidget *label = gtk_label_new(note ? note : "");
+    gtk_label_set_wrap(GTK_LABEL(label), TRUE);
+    gtk_label_set_xalign(GTK_LABEL(label), 0);
+    gtk_label_set_max_width_chars(GTK_LABEL(label), 60);
+    gtk_box_append(GTK_BOX(box), label);
+    gtk_box_append(GTK_BOX(box), flow);
+    gtk_window_set_child(GTK_WINDOW(win), box);
+    gtk_window_present(GTK_WINDOW(win));
+    g_free(name);
+    g_free(setting);
+    g_free(note);
+    g_free(text);
+}
+
+static void on_calibrate_action(GSimpleAction *a, GVariant *v, gpointer data) {
+    Window *w = get(data);
+    const char *what = g_variant_get_string(v, NULL);
+    static const char *kinds[] = {"temperature", "retraction", "flow", "pressure_advance"};
+    for (int k = 0; k < 4; k++) {
+        if (strcmp(what, kinds[k]) != 0) continue;
+        GError *error = NULL;
+        if (!zg_model_calibrate(w->model, k, &error)) {
+            show_error(w, "The test did not load", error ? error->message : "");
+            g_clear_error(&error);
+            return;
+        }
+        show_calibration(w);
+        return;
+    }
+}
+
+static void on_calibration_action(GSimpleAction *a, GVariant *v, gpointer data) {
+    show_calibration(get(data));
+}
+
 static void on_clear_action(GSimpleAction *a, GVariant *v, gpointer data) {
     zg_model_plate_clear(get(data)->model);
 }
@@ -2319,6 +2408,8 @@ GtkWindow *zg_window_new(GtkApplication *app, ZgModel *model) {
         {.name = "preferences", .activate = on_prefs_action},
         {.name = "compare-cura", .activate = on_compare_cura_action},
         {.name = "arrange", .activate = on_arrange_action},
+        {.name = "calibrate", .activate = on_calibrate_action, .parameter_type = "s"},
+        {.name = "calibration", .activate = on_calibration_action},
         {.name = "remove-plate", .activate = on_remove_plate_action},
         {.name = "smart-place", .activate = on_smart_place_action},
         {.name = "send-all", .activate = on_send_all_action},
@@ -2362,6 +2453,17 @@ GtkWindow *zg_window_new(GtkApplication *app, ZgModel *model) {
     g_menu_append(menu, "Arrange the plate", "win.arrange");
     g_menu_append(menu, "Clear the plate", "win.clear-plate");
     g_menu_append(menu, "Remove this plate", "win.remove-plate");
+    GMenu *calib = g_menu_new();
+    g_menu_append(calib, "Temperature tower", "win.calibrate::temperature");
+    g_menu_append(calib, "Retraction test", "win.calibrate::retraction");
+    g_menu_append(calib, "Flow test", "win.calibrate::flow");
+    g_menu_append(calib, "Pressure advance tower", "win.calibrate::pressure_advance");
+    GMenu *calib_use = g_menu_new();
+    g_menu_append(calib_use, "Use a value of this test\u2026", "win.calibration");
+    g_menu_append_section(calib, NULL, G_MENU_MODEL(calib_use));
+    g_object_unref(calib_use);
+    g_menu_append_submenu(menu, "Calibrate", G_MENU_MODEL(calib));
+    g_object_unref(calib);
     g_menu_append(menu, "Compare with Cura\u2026", "win.compare-cura");
     GMenu *places = g_menu_new();
     g_menu_append(places, "Open a project\u2026", "win.show-page::project");

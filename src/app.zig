@@ -383,6 +383,9 @@ pub const App = struct {
     mesh_out: ?zs.Mesh = null,
     /// The report of the last profile import (zs_app_profile_import).
     import_report: std.ArrayList(u8) = .empty,
+    /// The calibration print of this plate (app/calibrate.zig), or null.
+    /// Its strings are in `strings`.
+    calibration: ?@import("app/calibrate.zig").Calibration = null,
 
     pub fn create(gpa: Allocator, event_fn: ?EventFn, user: ?*anyopaque) Allocator.Error!*App {
         const app = try gpa.create(App);
@@ -467,6 +470,7 @@ pub const App = struct {
         // The edits were for the lines of the old parts.
         app.edits.list.clearRetainingCapacity();
         app.plate.clear(app.gpa);
+        app.calibration = null;
     }
 
     /// Adds a model file (STL or 3MF) to the plate. Returns the index of
@@ -3409,6 +3413,7 @@ test {
     _ = @import("app/feature_settings.zig");
     _ = @import("app/farm.zig");
     _ = @import("app/session.zig");
+    _ = @import("app/calibrate.zig");
 }
 
 /// The changes of a part with the skin and infill angles turned by `rot`

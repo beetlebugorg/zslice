@@ -95,7 +95,8 @@ The goal is the features that people use in PrusaSlicer and Cura. zslice designs
 - [x] Acceleration and jerk control for each feature; a time estimate with acceleration
 - [ ] Arc fitting (G2/G3)
 - [x] Pressure advance for each filament (`filament.pressure_advance`: M900, SET_PRESSURE_ADVANCE, M572)
-- [ ] Pressure advance and input shaper calibration prints
+- [x] Pressure advance calibration print (a tower with a value for each band)
+- [ ] Input shaper calibration print
 - [x] Cooling: minimum layer time, fan boost on short layers, slow down for small layers
 - [x] Firmware flavors: Marlin, Klipper, RepRapFirmware, Repetier; Bambu Lab .gcode.3mf files with the header, the config blocks, and the slice info of Bambu Studio
 - [x] Exclude-object labels (Klipper EXCLUDE_OBJECT, M486; `machine.label_objects`)
@@ -131,7 +132,7 @@ The goal is the features that people use in PrusaSlicer and Cura. zslice designs
 - [x] Send to printer: printdeck, OctoPrint, Moonraker (native; the web app since 0.1.0-beta, and printer.json for a printer that serves the app)
 - [x] Send to a Bambu Lab printer in LAN mode (MQTT, the certificate pinned), and through a printdeck
 - [x] Signed prints: the core signs and checks G-code files, and the apps pin the certificate of a printer
-- [ ] Calibration prints: temperature tower, flow, retraction, pressure advance
+- [x] Calibration prints: temperature tower, flow, retraction, pressure advance (the Calibrate menu: a test part on a new plate, its values in layer ranges or part settings, and a button that sets the chosen value)
 
 ## App
 

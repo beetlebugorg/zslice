@@ -555,6 +555,7 @@ pub const Exit = struct {
     hop_len: f64 = 0,
     nozzle_temp: ?f64 = null,
     bed_temp: ?f64 = null,
+    pressure_advance: ?f64 = null,
     extruded: bool = false,
     feature: ?Feature = null,
     accel: f64 = 0,
@@ -657,6 +658,9 @@ pub const Emitter = struct {
     /// layer (the start G-code sets them).
     nozzle_temp: ?f64 = null,
     bed_temp: ?f64 = null,
+    /// The last pressure advance of a layer, or null before the first
+    /// layer that changes it (`begin` sets the one of the filament).
+    pressure_advance: ?f64 = null,
     /// The next travel is the first of the layer: after the layer change,
     /// which lifts the nozzle, so it has no z hop.
     layer_start: bool = false,
@@ -865,6 +869,7 @@ pub const Emitter = struct {
             .hop_len = self.hop_len,
             .nozzle_temp = self.nozzle_temp,
             .bed_temp = self.bed_temp,
+            .pressure_advance = self.pressure_advance,
             .extruded = self.extruded,
             .feature = self.feature,
             .accel = self.accel,
@@ -926,6 +931,7 @@ pub const Emitter = struct {
         if (x.hop_len != Exit.unset) self.hop_len = x.hop_len;
         self.nozzle_temp = x.nozzle_temp;
         self.bed_temp = x.bed_temp;
+        self.pressure_advance = x.pressure_advance;
         self.extruded = x.extruded;
         self.feature = x.feature;
         if (x.accel != Exit.unset) self.accel = x.accel;
@@ -1497,6 +1503,11 @@ pub const Emitter = struct {
             try self.w.writeAll("\n");
         }
         self.bed_temp = bed;
+        // A layer with another pressure advance (the bands of a
+        // calibration tower) sets it.
+        const pa = s.filament.pressure_advance;
+        if (pa != (self.pressure_advance orelse g.filament.pressure_advance)) try self.writePressureAdvance(pa);
+        self.pressure_advance = pa;
         // The text run of a layer takes the plan of its dry run (see
         // Prepared.plan_moves).
         if (!self.dry) if (self.prep) |pr| if (pr.have_plan) {
@@ -2903,6 +2914,11 @@ pub const Emitter = struct {
     /// `GCodeWriter::set_pressure_advance` writes it), or nothing for 0.
     fn pressureAdvance(self: *Emitter, pa: f64) Writer.Error!void {
         if (!(pa > 0)) return;
+        try self.writePressureAdvance(pa);
+    }
+
+    /// The pressure advance command of the firmware for `pa`, also for 0.
+    fn writePressureAdvance(self: *Emitter, pa: f64) Writer.Error!void {
         if (self.bambu_blocks) {
             try self.w.writeAll("M900 K");
             try writeNum(self.w, pa, 4);

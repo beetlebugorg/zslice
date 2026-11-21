@@ -2969,6 +2969,32 @@ export fn zs_app_plate_smart_place(a: ?*App) c_int {
     return @intFromBool(app.smartPlacePlate() catch return 0);
 }
 
+/// Puts the test of a calibration (calib.Kind) on the empty plate of the
+/// app (app/calibrate.zig).
+export fn zs_app_calibration_add(a: ?*App, kind: c_int) c_int {
+    const app = a orelse return @intFromEnum(Status.invalid_argument);
+    if (kind < 0 or kind > 3) return @intFromEnum(Status.invalid_argument);
+    @import("../app/calibrate.zig").add(app, @enumFromInt(@as(u8, @intCast(kind)))) catch |e| return switch (e) {
+        error.OutOfMemory => @intFromEnum(Status.out_of_memory),
+        error.NoRetraction => @intFromEnum(Status.invalid_settings),
+        error.NotEmpty => @intFromEnum(Status.invalid_argument),
+        else => @intFromEnum(Status.invalid_value),
+    };
+    noted(app, null, true);
+    return ok;
+}
+
+/// The calibration of the plate as text (calibrate.write), or
+/// no_result.
+export fn zs_app_calibration_get(a: ?*const App, buf: ?[*]u8, cap: usize, out_len: ?*usize) c_int {
+    const app = a orelse return @intFromEnum(Status.invalid_argument);
+    const cal = app.calibration orelse return @intFromEnum(Status.no_result);
+    var aw: Writer.Allocating = .init(gpa);
+    defer aw.deinit();
+    @import("../app/calibrate.zig").write(cal, &aw.writer) catch return @intFromEnum(Status.out_of_memory);
+    return copyOut(aw.written(), buf, cap, out_len);
+}
+
 /// Moves part i to place `to` of the plate list (App.reorderPart).
 export fn zs_app_part_reorder(a: ?*App, i: usize, to: usize) c_int {
     const app = a orelse return @intFromEnum(Status.invalid_argument);

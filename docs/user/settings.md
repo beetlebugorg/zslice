@@ -330,7 +330,7 @@ The maximum plastic flow that the hot end melts with this filament. This limits 
 
 A multiplier for all extrusion, to calibrate the flow.
 
-**`filament.pressure_advance`** (number). Default: `0`
+**`filament.pressure_advance`** (number; per layer). Default: `0`
 
 The pressure advance of this filament, in seconds: the firmware pushes the filament ahead of a speed change by this time. zslice writes it after the start G-code (M900 K on Marlin, SET_PRESSURE_ADVANCE on Klipper, M572 on RepRapFirmware). 0: no command, so the value of the firmware stays. As "Pressure advance" in OrcaSlicer (`enable_pressure_advance` and `pressure_advance`).
 

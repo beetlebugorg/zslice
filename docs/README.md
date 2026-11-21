@@ -12,6 +12,7 @@
 - [Place the parts](user/parts.md): move, turn, grab, scale, and cut.
 - [Add support](user/support.md): support from the settings, support where you click, and the tree editor.
 - [Check the print](user/check.md): the check list, the gaps, and the measure tape.
+- [Calibrate the filament](user/calibrate.md): a temperature tower, a retraction test, a flow test, and a pressure advance tower.
 - [Plates and files](user/plates.md): plates, the project file, and Cura projects.
 - [Send to a printer](user/printers.md): add a printer, connect it, and print.
 - [Undo and history](user/history.md): go back to any change.

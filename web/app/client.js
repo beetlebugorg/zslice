@@ -14,7 +14,7 @@ const SLICE_OPS = new Set(["set", "reset", "quality", "profile", "setScoped", "r
   "undo", "redo", "historyGoto", "historyRevert", "historyTruncate",
   // The worker cannot take a call of the plate set while a plate slices in
   // the background: it slices again later.
-  "plateAdd", "plateActivate", "plateRemove", "projectSet"]);
+  "plateAdd", "plateActivate", "plateRemove", "projectSet", "calibrate", "calibrationUse"]);
 //
 // SPDX-License-Identifier: AGPL-3.0-or-later
 

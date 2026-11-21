@@ -152,3 +152,18 @@ summary: The acceleration limits of the motors of a CoreXY in Marlin, and the ex
 ```
 
 Marlin applies `M201 X Y` to the motors A = X + Y and B = X - Y of a CoreXY, and has an extruder jerk of 5 mm/s and no cruise ratio. Klipper limits the head in all directions alike, has a minimum cruise ratio, and limits the acceleration of the filament (`max_extrude_only_accel`). Klipper sets limits with `SET_VELOCITY_LIMIT`. The documented behavior only; no code is copied (https://www.klipper3d.org/Config_Reference.html).
+
+### The pressure advance tuning tower
+
+```ref
+kind: idea
+source: Klipper
+license: GPL-3.0
+link: https://www.klipper3d.org/Pressure_Advance.html
+version: the documentation of Klipper, read on 2026-11-21
+files: src/calib.zig, src/gcode.zig, docs/user/calibrate.md
+area: gcode
+summary: The pressure advance test: a hollow square tower with a higher pressure advance on each layer, read at its corners.
+```
+
+Klipper tunes pressure advance with a large hollow square (`docs/prints/square_tower.stl`), no infill, about 100 mm/s, and `TUNING_TOWER COMMAND=SET_PRESSURE_ADVANCE PARAMETER=ADVANCE START=0 FACTOR=.005` (direct drive) or `FACTOR=.020` (bowden). Too little pressure advance gives a blob at each corner; too much gives a round corner and a thin line before it. The corner where the layer changes does not count. Klipper also suggests `SET_VELOCITY_LIMIT SQUARE_CORNER_VELOCITY=1 ACCEL=500` for the test. zslice makes its own tower (`calib.zig`): one wall and no top, the full wall speed, and bands of 4 mm with a value each in place of a value for each layer, so the same G-code works with Marlin (M900 K) and RepRapFirmware (M572). Each band is a layer range of `filament.pressure_advance`, and the G-code writer sets the value at the first layer of each band. The method only; no code.
