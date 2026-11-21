@@ -165,6 +165,7 @@ open build/zslice.app</code></pre>
 <p>A printdeck or an OctoPrint printer that you add with no API key gets one in one step. A sheet opens at once and asks you to tap Allow on the screen of the printdeck (or in the web page of OctoPrint). It shows the key id to check, and counts down the 2 minutes. After Deny or the time-out, it says why and offers Try Again.</p>
 <h3 id="the-printer-of-a-plate">The printer of a plate</h3>
 <p>The printer menu in the plate bar gives the plate a printer. The plate slices for that printer (its bed, nozzle, and limits), the toolbar shows the printer of the plate in view, and the Printers page sends the plate there.</p>
+<p>Each printer keeps its filament. When you change the printer, zslice keeps the filament settings for the printer you leave, and loads the filament that the new printer was last used with. A printer that has none yet keeps the filament you have now.</p>
 <p>With a connection and its API key, the details show the state of the printer: its job and progress, or the roll in it and the grams left. A printdeck also gives its own estimate of the print time after each slice ("Workhorse: 1h 41m (3 min start)"). For the estimate, zslice sends the G-code to the printdeck, compressed; the printer does not keep it or print it.</p>
 <h3 id="send-a-print">Send a print</h3>
 <p>Before each print, zslice asks if the bed of the printer is clear.</p>

@@ -361,6 +361,7 @@ Measure puts a tape between two points (`zs_view_surface_point`). A click on a c
 - **The key in one step** (`PairSheet`): the App Keys flow of OctoPrint (`requestKey`). The printer asks its user "Allow zslice?", and the app gets a key of its own after Allow. The printer keeps a request for 2 minutes.
 - **The printers of a deck**: after Allow, a printdeck lists its printers in `/slicer/printer.json`, the one at the root of the deck too. Each added printer gets the root of the deck and its path as its address, its name on the deck (`deckName`), the key, and the profile of its model (`PrinterLibrary.findModel`, as in web/app/printers.js: the first of the 8 best of the search whose brand, name, and title have all the words of the product name).
 - **Connect a Printdeck** (`ConnectDeckSheet`): the address of a deck, checked with GET /api/version (its text names printdeck), then a placeholder entry and `PairSheet` in a fresh mode. All the printers of the deck start checked. The placeholder goes, and the first printer added is the printer now.
+- **The filament of each printer**: `usePrinter` saves the filament group (`zs_app_state_write`) in the `filament` field of the printer it leaves, and applies the saved text of the new printer (`zs_app_group_reset`, then `zs_app_profile_apply`; the filament before comes back if it does not load). A printer with no saved filament keeps the filament now.
 - **The Keychain**: the API key of each printer, never in a file. A key goes when its printer goes. A test run (`ZSLICE_FRESH`) keeps the keys in memory, so its printers leave no Keychain items.
 
 ### Bambu Lab
@@ -433,6 +434,7 @@ Like the GTK shell, the app reads environment variables for tests and screenshot
 - `ZSLICE_LAYERS=lo,hi` sets the layer range after the first slice (layer numbers from 1). `ZSLICE_TIME=t` shows the replay at t seconds.
 - `ZSLICE_MODE=n` sets the colors (0 filament, 1 line type, 2 speed, 3 flow, 4 layer time, 5 line width).
 - `ZSLICE_PICK=x,y` picks the line at that point (in points) after the first slice, as a click does. `ZSLICE_DOUBLE_CLICK=x,y` is a double click there. `ZSLICE_CARD_LOG=1` logs the screen box of a clicked line.
+- `ZSLICE_USE_PRINTERS="k[:color],..."` switches to printer k of the store in turn, 4 s apart, and then sets the color of the filament if one is given. `ZSLICE_SWITCH_LOG=1` logs the filament after each switch.
 - `ZSLICE_RIGHT_DRAG=1` sends a right drag of 100 points of a mouse to the view and logs whether the camera panned or orbited (it must orbit); `ZSLICE_RIGHT_DRAG=touch` sends it with the subtype of a trackpad (it must pan). `ZSLICE_INPUT_LOG=1` logs the subtype of each right press, to check a real trackpad.
 - `ZSLICE_PICK_LATER="x,y;rx,y;..."` picks each point in turn, one a second from 6 s after the start (`r`: the run of the line, as a Shift-click). With `ZSLICE_TIMING=1`, each upload of the beads is logged; a patch also checks that the whole buffer equals the beads of the core.
 - `ZSLICE_RUN_AT=x,y` (or `center`) is a Shift-click of the Select tool; `ZSLICE_RUN_LOG=1` logs the run, and a plain pick 1.5 s later logs that the run is cleared.

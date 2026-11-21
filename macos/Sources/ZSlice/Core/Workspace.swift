@@ -1141,6 +1141,21 @@ final class Workspace {
         if let xy = env["ZSLICE_PICK"]?.split(separator: ",").compactMap({ Double($0) }), xy.count == 2 {
             pick(at: CGPoint(x: xy[0], y: xy[1]))
         }
+        // ZSLICE_USE_PRINTERS="k[:color],..." switches to printer k of the
+        // store in turn, 4 s apart, and then sets the color of the filament
+        // if one is given. ZSLICE_SWITCH_LOG=1 logs the filament after each
+        // switch: each printer keeps the filament it was last used with.
+        if let spec = env["ZSLICE_USE_PRINTERS"] {
+            for (n, step) in spec.split(separator: ",").enumerated() {
+                let f = step.split(separator: ":", maxSplits: 1).map(String.init)
+                guard let k = Int(f[0]) else { continue }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 4 * Double(n + 1)) { [weak self] in
+                    guard let self, PrinterStore.shared.printers.indices.contains(k) else { return }
+                    usePrinter(PrinterStore.shared.printers[k])
+                    if f.count == 2 { model.set("filament.color", f[1]) }
+                }
+            }
+        }
         // ZSLICE_RIGHT_DRAG=1 sends a right drag of 100 points of a mouse to
         // the view, and =touch the same drag from a trackpad (the subtype
         // of two fingers clicked down), and logs the camera: a pan moves the
@@ -1750,11 +1765,47 @@ final class Workspace {
 
     /// Makes a printer of the user the printer of the active plate: its
     /// machine settings replace the machine settings of the plate.
+    ///
+    /// Each printer keeps its filament (as the GTK app and the web app): a
+    /// switch saves the filament settings for the printer before, and loads
+    /// the ones that the new printer was last used with. A printer with no
+    /// saved filament keeps the filament now.
     func usePrinter(_ p: Printer) {
-        PrinterStore.shared.currentID = p.id
+        let store = PrinterStore.shared
+        if var before = store.current, before.id != p.id,
+           let text = coreString({ zs_app_state_write(model.core, Int32(ZS_GROUP_FILAMENT.rawValue), $0, $1, $2) }) {
+            before.filament = text
+            store.update(before)
+        }
+        store.currentID = p.id
         setPlatePrinter(model.active, p)
-        guard applyMachine(p, to: model.core) else { return }
+        let machine = applyMachine(p, to: model.core)
+        let filament = applyFilament(of: store.printers.first { $0.id == p.id } ?? p)
+        if ProcessInfo.processInfo.environment["ZSLICE_SWITCH_LOG"] != nil {
+            NSLog("zslice switch: printer %@, filament %@ %@ (%@), outer_wall_accel %@", p.name, model.setting("filament.material"), model.setting("filament.color"),
+                  filament ? "its own" : "kept", model.setting("machine.outer_wall_accel"))
+        }
+        guard machine || filament else { return }
         model.settingsChanged()
+    }
+
+    /// The filament settings that printer p was last used with, on the
+    /// active plate. False if it has none (or they do not load: the
+    /// filament stays as it was).
+    private func applyFilament(of p: Printer) -> Bool {
+        guard !p.filament.isEmpty else { return false }
+        let group = Int32(ZS_GROUP_FILAMENT.rawValue)
+        let before = coreString({ zs_app_state_write(model.core, group, $0, $1, $2) }) ?? ""
+        zs_app_group_reset(model.core, group)
+        var message = [CChar](repeating: 0, count: 256)
+        let rc = p.filament.withCString { zs_app_profile_apply(model.core, group, $0, strlen($0), &message, message.count) }
+        guard rc == 0 else {
+            NSLog("zslice: the filament of the printer %@ did not load: %@", p.name, message.withUnsafeBufferPointer { coreText($0.baseAddress) })
+            zs_app_group_reset(model.core, group)
+            _ = before.withCString { zs_app_profile_apply(model.core, group, $0, strlen($0), nil, 0) }
+            return false
+        }
+        return true
     }
 
     /// The machine profile of a printer on the app of a plate.
