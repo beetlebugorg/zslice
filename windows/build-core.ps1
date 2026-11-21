@@ -1,6 +1,8 @@
 # Builds the Zig core for the Windows shell, with the MSVC ABI.
 #
-# The result is zig-out\lib\zslice.lib and the headers in zig-out\include.
+# The result is lib\zslice.lib and the headers in include\, under
+# zig-out\windows-x64 or zig-out\windows-arm64, so the two platforms can
+# stay built side by side.
 # A Release core is ReleaseFast. For a target that is not the architecture
 # of this machine, Zig does not find the MSVC and SDK libraries, so this
 # script gives it a libc file with their paths.
@@ -25,7 +27,8 @@ $zigTarget = if ($Platform -eq 'x64') { 'x86_64-windows-msvc' } else { 'aarch64-
 $hostDir = if ($env:PROCESSOR_ARCHITECTURE -eq 'ARM64') { 'arm64' } else { 'x64' }
 $targetDir = $Platform.ToLowerInvariant()
 
-$buildArgs = @('lib', "-Dtarget=$zigTarget", "-Doptimize=$opt", '-Dcompiler-rt=true')
+$prefix = Join-Path $repo "zig-out\windows-$targetDir"
+$buildArgs = @('lib', "-Dtarget=$zigTarget", "-Doptimize=$opt", '-Dcompiler-rt=true', '--prefix', $prefix)
 
 $libcFile = $null
 if ($hostDir -ne $targetDir) {
@@ -53,4 +56,4 @@ finally {
     if ($libcFile) { Remove-Item $libcFile -Force -ErrorAction SilentlyContinue }
 }
 
-Write-Host "core ready: $repo\zig-out\lib\zslice.lib ($Platform, $opt)"
+Write-Host "core ready: $prefix\lib\zslice.lib ($Platform, $opt)"
