@@ -3222,3 +3222,38 @@ test "second nozzle: combined infill on the second nozzle every second layer" {
     try testing.expect(comb.changes <= 2 * n_comb + 4);
     try testing.expect(each.changes + 4 >= n_each and each.changes <= n_each + 4);
 }
+
+test "second nozzle: a change to a nozzle that keeps its filament has no flush" {
+    const gpa = testing.allocator;
+    var s = twoNozzleSettings();
+    s.project.prime_tower = false;
+    var m1 = try testBox(60, 90, 90, 120, 3);
+    defer m1.deinit(gpa);
+    var m2 = try testBox(130, 90, 160, 120, 3);
+    defer m2.deinit(gpa);
+    var second = s.filament;
+    second.color = "#d93a3a";
+    second.nozzle = 1;
+    const parts = [_]PartInput{
+        .{ .mesh = &m1, .part = 0 },
+        .{ .mesh = &m2, .part = 1, .changes = &.{.{ .name = "project.filament", .value = "2" }} },
+    };
+    var pj = try PlateJob.init(gpa, s, &parts, .{ .filaments = &.{second} });
+    defer pj.deinit();
+    var out: Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    const st = try pj.writeGcode(&out.writer);
+    // Each nozzle has one filament of the plate.
+    try testing.expect(st.changes > 5);
+    try testing.expectEqual(@as(f64, 0), st.flush_mm);
+    // A third filament on the main nozzle: a change to the main nozzle
+    // can find the other filament in it, so it flushes.
+    var third = s.filament;
+    third.color = "#2040d0";
+    var pj3 = try PlateJob.init(gpa, s, &parts, .{ .filaments = &.{ second, third } });
+    defer pj3.deinit();
+    var out3: Writer.Allocating = .init(gpa);
+    defer out3.deinit();
+    const st3 = try pj3.writeGcode(&out3.writer);
+    try testing.expect(st3.flush_mm > 0);
+}

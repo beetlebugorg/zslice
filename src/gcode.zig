@@ -1661,7 +1661,10 @@ pub const Emitter = struct {
         const to = self.slots[next];
         try self.retractHop(false);
         self.stats.changes += 1;
-        const full_mm3 = if (m.filament_change == .tool) filaments.flushVolume(from.color, to.color, m.flush_volume, g.project.flush_multiplier) else 0;
+        // A change to the other nozzle of a head with two, where the
+        // filament stays loaded, has no flush (see `stillLoaded`).
+        const loaded = self.stillLoaded(next);
+        const full_mm3 = if (m.filament_change == .tool and !loaded) filaments.flushVolume(from.color, to.color, m.flush_volume, g.project.flush_multiplier) else 0;
         const hidden_mm3 = if (full_mm3 > min_flush_mm3) @min(self.hiddenRun(lp, i, self.tool, next), full_mm3 - min_flush_mm3) else 0;
         const flush_mm3 = full_mm3 - hidden_mm3;
         const flush_mm = flush_mm3 / self.r.filament_area;
@@ -1708,8 +1711,21 @@ pub const Emitter = struct {
         self.accel = Exit.unset;
         self.fan = -1;
         if (self.towers.n > 0 and m.filament_change == .tool) {
-            try self.towerPurge(self.towers.of_slot[@min(next, filaments.max_slots - 1)], if (into_tower) flush_mm3 else tower_prime_mm3, first);
+            try self.towerPurge(self.towers.of_slot[@min(next, filaments.max_slots - 1)], if (into_tower and !loaded) flush_mm3 else tower_prime_mm3, first);
         }
+    }
+
+    /// True if a change to slot `next` is a change of the nozzle with the
+    /// filament still in it: a head with two nozzles, the filament in the
+    /// nozzle now is on the other nozzle, and `next` is the only filament
+    /// of the plate on its nozzle. Each nozzle keeps its own filament
+    /// loaded, so the change needs no flush, only the prime on the tower.
+    fn stillLoaded(self: *const Emitter, next: u32) bool {
+        if (self.r.settings.machine.nozzles < 2 or next >= self.slots.len or self.tool >= self.slots.len) return false;
+        const on = @min(self.slots[next].nozzle, 1);
+        if (@min(self.slots[self.tool].nozzle, 1) == on) return false;
+        for (self.slots, 0..) |f, k| if (k != next and @min(f.nozzle, 1) == on) return false;
+        return true;
     }
 
     /// True if path `path` of slot `to` is a hidden line for the flush of

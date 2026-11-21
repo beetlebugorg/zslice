@@ -101,6 +101,8 @@ Search for **infill filament**, and pick a filament of the second nozzle. The se
 
 With **Infill layers** at 2, the infill prints once every two layers, as one bead two layers tall. Example: layers of 0.1 mm for the walls, and the infill in beads of 0.2 mm. The second nozzle then prints the infill on every second layer: it prints after the walls of that layer, and the first nozzle starts the next layer. The narrow areas of infill that print on each layer stay on the filament of the part. A bead is never taller than the diameter of its nozzle or its line width. When the layers of the group are too thick for that, the Check tells you.
 
+When each nozzle has only one filament of the plate, a change of the nozzle flushes no plastic. The prime tower gets a small prime.
+
 ## Where to go next
 
 - → [Add support](support.md)
