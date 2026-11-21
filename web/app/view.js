@@ -262,6 +262,25 @@ export class View3D {
     return this.w.u32(c);
   }
 
+  // The beads of the body of lightConnected (the same rule), for the
+  // filament of the body (zs_app_paint_body): a Float32Array of 9 floats
+  // for each bead, or null. The light does not change.
+  connectedBeads(start, lo, hi) {
+    if (start < 0) return null;
+    const c = this.w.cell;
+    if (this.x.zs_view_connected_beads(this.v, start, Math.min(lo, hi), Math.max(lo, hi), c, c + 4) !== 0) return null;
+    const n = this.w.u32(c + 4);
+    if (n === 0) return null;
+    return new Float32Array(this.x.memory.buffer, this.w.u32(c), n).slice();
+  }
+
+  // The color of the lit paths: "#rrggbb", or null for the yellow of a
+  // selection.
+  lightColor(hex) {
+    const m = /^#([0-9a-f]{6})$/i.exec(hex || "");
+    this.x.zs_view_light_color(this.v, m ? parseInt(m[1], 16) : -1);
+  }
+
   // Lights the layers lo to hi as a selection (a drag of the Select tool),
   // or none (lo < 0). The other beads are ghosts.
   lightLayers(lo, hi) {

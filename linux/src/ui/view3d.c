@@ -46,6 +46,7 @@
 #include "native-surface.h"
 #include "paint-tool.h"
 #include "part-mesh.h"
+#include "filaments.h"
 #include "range-card.h"
 #include "setting-editor.h"
 #include "support-tool.h"
@@ -97,6 +98,14 @@ typedef struct {
     gint64 light_path;
     ptrdiff_t light_layer;
     size_t light_lo, light_hi;
+    /* A point of the start line (mm), to find it again after a load: a
+     * slice can number the lines again (a new filament of a body splits
+     * its layers). light_pt: there is one. */
+    double light_x, light_y;
+    gboolean light_pt;
+    /* The color of the lit body: the filament the user gave it
+     * (0xRRGGBB), or -1 for the yellow of a selection. */
+    gint32 light_rgb;
     /* Shift+K and Shift+J: the first layer of the range, the layer that
      * moves, and the selected line at the start. key_on while that range
      * shows. */
@@ -1450,12 +1459,18 @@ static void more_from_model(View3d *v) {
     g_free(list);
 }
 
+static gboolean path_point(View3d *v, gint64 path, gint64 seg, double *x, double *y, double *z);
+
 /* Lights layers lo to hi: from line `path`, its body of its part on them
  * (zs_view_light_connected); with no line (-1), all their lines. */
 static void light_range(View3d *v, gint64 path, size_t lo, size_t hi) {
     zs_view_light_layers(v->view, 1, 0);
     v->run_lit = FALSE;
     v->light_on = TRUE;
+    double z;
+    v->light_pt = path >= 0 && path_point(v, path, -1, &v->light_x, &v->light_y, &z);
+    v->light_rgb = -1;
+    zs_view_light_color(v->view, -1);
     v->light_path = path;
     v->light_layer = path >= 0 ? zs_app_path_layer(zg_model_core(v->model), (size_t)path) : -1;
     v->light_lo = MIN(lo, hi);
@@ -1470,12 +1485,20 @@ static void light_range(View3d *v, gint64 path, size_t lo, size_t hi) {
 static void relight(View3d *v) {
     if (!v->light_on || !zg_range_card_open(zg_range_card_of(v->area))) return;
     gint64 path = v->light_path;
+    if (path >= 0 && v->light_pt && v->light_layer >= 0) {
+        size_t seg = 0;
+        size_t p = zs_view_pick_layer(v->view, (size_t)v->light_layer, v->light_x, v->light_y, &seg);
+        if (p != (size_t)-1) path = v->light_path = (gint64)p;
+    }
+    zs_view_light_color(v->view, v->light_rgb);
+    /* No lit layers from a load before, under the lit body. */
+    zs_view_light_layers(v->view, 1, 0);
     if (path >= 0 && zs_app_path_layer(zg_model_core(v->model), (size_t)path) != v->light_layer) path = -1;
     if (path < 0 || zs_view_light_connected(v->view, (size_t)path, v->light_lo, v->light_hi, NULL) != ZS_OK)
         zs_view_light_layers(v->view, v->light_lo, v->light_hi);
     if (g_getenv("ZSLICE_SELECT_TEST"))
-        g_message("select test: lit again after a load, %s (line %" G_GINT64_FORMAT ", layer %td)", path >= 0 ? "the body" : "the layers",
-                  v->light_path, v->light_layer);
+        g_message("select test: lit again after a load, %s (line %" G_GINT64_FORMAT ", layer %td, color %d)", path >= 0 ? "the body" : "the layers",
+                  v->light_path, v->light_layer, v->light_rgb);
 }
 
 /* The layer under the pointer at x, y in a drag over layers: the pointer
@@ -1550,9 +1573,29 @@ void zg_view3d_light_clear(GtkWidget *view) {
     if (!v || !v->view) return;
     v->light_on = FALSE;
     v->key_on = FALSE;
+    v->light_rgb = -1;
+    zs_view_light_color(v->view, -1);
     zs_view_light_layers(v->view, 1, 0);
     more_from_model(v);
     queue_frame(v);
+}
+
+gboolean zg_view3d_body_lit(GtkWidget *view) {
+    View3d *v = g_object_get_data(G_OBJECT(view), "zg-view3d");
+    return v && v->view && v->light_on && v->light_path >= 0;
+}
+
+gboolean zg_view3d_paint_body(GtkWidget *view, int filament) {
+    View3d *v = g_object_get_data(G_OBJECT(view), "zg-view3d");
+    if (!v || !v->view || !v->light_on || v->light_path < 0 || filament < 1) return FALSE;
+    const float *beads = NULL;
+    size_t n = 0;
+    if (zs_view_connected_beads(v->view, (size_t)v->light_path, v->light_lo, v->light_hi, &beads, &n) != ZS_OK || n == 0) return FALSE;
+    /* The body in the color of the filament at once; the slice follows. */
+    v->light_rgb = (gint32)zg_filament_rgb24(v->model, filament);
+    zs_view_light_color(v->view, v->light_rgb);
+    queue_frame(v);
+    return zg_model_paint_body(v->model, beads, n, (guint)filament);
 }
 
 /* Shift+K (dir 1) and Shift+J (dir -1): a range of layers that grows from
@@ -1574,8 +1617,9 @@ void zg_view3d_key_range(GtkWidget *view, int dir) {
     long b = (long)v->key_b + dir;
     v->key_b = (size_t)CLAMP(b, 0, (long)tp.layer_count - 1);
     size_t lo = MIN(v->key_a, v->key_b), hi = MAX(v->key_a, v->key_b);
-    zg_range_card_show(card, lo, hi);
+    /* The light first: the card shows the row of a lit body. */
     light_range(v, v->key_path, lo, hi);
+    zg_range_card_show(card, lo, hi);
     v->key_on = TRUE;
     queue_frame(v);
 }
@@ -2376,6 +2420,12 @@ static void clip_hook(gpointer data) {
     g_message("clip test: %s ready", mode);
 }
 
+static void close_card_hook(gpointer data) {
+    View3d *v = data;
+    zg_range_card_close(zg_range_card_of(v->area));
+    g_message("select test: the card closed");
+}
+
 static void select_hook(gpointer data) {
     View3d *v = data;
     char **f = g_strsplit(g_getenv("ZSLICE_SELECT_TEST"), " ", 4);
@@ -2417,6 +2467,20 @@ static void select_hook(gpointer data) {
         char **kv = set ? g_strsplit(set, "=", 2) : NULL;
         if (kv && kv[0] && kv[1]) zg_model_set(v->model, kv[0], kv[1], NULL);
         g_strfreev(kv);
+        /* ZSLICE_SELECT_BODY=n: the lit body gets filament n (a second
+         * filament first, if the plate has one), as a chip of "This body"
+         * on the card. */
+        const char *bf = g_getenv("ZSLICE_SELECT_BODY");
+        if (bf) {
+            int fil = atoi(bf);
+            while ((int)zs_app_filament_count(zg_model_core(v->model)) < fil && zg_model_filament_add(v->model) >= 0) {}
+            gboolean painted = zg_view3d_paint_body(v->area, fil);
+            g_message("select test: body filament %d, painted %d, body lit %d", fil, painted, zg_view3d_body_lit(v->area));
+            /* ZSLICE_SELECT_CLOSE=s: the card closes s seconds later, so
+             * the body shows in its new filament with no light. */
+            const char *cs = g_getenv("ZSLICE_SELECT_CLOSE");
+            if (cs) g_timeout_add_once((guint)(1000 * atoi(cs)), close_card_hook, v);
+        }
     } else if (g_strcmp0(f[0], "support") == 0 && f[1] && f[2]) {
         /* A style ("tree" or "grid"): support on in that style first; the
          * hook runs again after that slice. */

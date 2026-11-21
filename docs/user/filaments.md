@@ -15,6 +15,7 @@ Click the Filament button in the top bar. It shows a dot for each filament.
 
 - **A part**: select it, and pick a filament chip on its card.
 - **Some layers**: drag over the layers (see [Click a line](lines.md)), and pick a filament chip on the card of the layers.
+- **One body on some layers**: drag over the layers from a line of that body. Pick a chip in the row **This body**. Only the lit body gets the filament, and the other bodies on those layers keep theirs. See [Give a body a filament](lines.md#give-a-body-a-filament).
 - **A face or some letters**: use the Paint tool (P). A click paints a whole face. The brush paints where you drag.
 - **Text or marks on a face**: use the Label tool (L). See [Labels on a part](labels.md).
 

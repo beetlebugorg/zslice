@@ -6,12 +6,18 @@
  * it closes. The card does no work for each frame but its place: 8
  * projections (zg_view3d_on_frame).
  *
+ * A lit body (a drag from a line) gets a row "This body" first: a chip
+ * paints the body with that filament (zg_view3d_paint_body). The row of
+ * project.filament then reads "All of these layers".
+ *
  * SPDX-License-Identifier: AGPL-3.0-or-later
  */
 #include "range-card.h"
 
 #include <math.h>
+#include <string.h>
 
+#include "filaments.h"
 #include "float.h"
 #include "preview.h"
 #include "setting-editor.h"
@@ -21,16 +27,76 @@
 /* The settings of the card, in order, when the setting can change for
  * some layers (as RANGE_SETTINGS of web/app/rangecard.js). */
 static const char *const SETTINGS[] = {
-    "project.infill_density", "project.infill_pattern", "project.wall_count", "project.top_thickness",
+    "project.filament", "project.infill_density", "project.infill_pattern", "project.wall_count", "project.top_thickness",
     "project.outer_wall_speed", "project.infill_speed", "filament.fan_speed", "filament.nozzle_temp",
 };
 
 typedef struct {
     ZgModel *model;
     GtkWidget *preview, *card, *title, *facts, *settings;
+    /* The row of the filament of a lit body, its chips, and the filament
+     * that the user gave the body (0: none yet). */
+    GtkWidget *body_row, *body_chips;
+    int body_value;
     size_t lo, hi;
     gboolean open;
 } RangeCard;
+
+static void body_chips_draw(RangeCard *c);
+
+static gboolean on_body_idle(gpointer data) {
+    RangeCard *c = data;
+    body_chips_draw(c);
+    return G_SOURCE_REMOVE;
+}
+
+static void on_body_chip(GtkButton *b, gpointer data) {
+    RangeCard *c = data;
+    int f = GPOINTER_TO_INT(g_object_get_data(G_OBJECT(b), "zg-value"));
+    if (f < 1) {
+        /* "+": a new filament of the plate, for the body. */
+        gint64 i = zg_model_filament_add(c->model);
+        if (i < 0) return;
+        f = (int)i + 1;
+    }
+    if (!zg_view3d_paint_body(zg_preview_view3d(c->preview), f)) return;
+    c->body_value = f;
+    /* Not in the click of the chip that goes. */
+    g_idle_add(on_body_idle, c);
+}
+
+/* The chips of the body: one for each filament of the plate, and "+". */
+static void body_chips_draw(RangeCard *c) {
+    GtkWidget *child;
+    while ((child = gtk_widget_get_first_child(c->body_chips))) gtk_box_remove(GTK_BOX(c->body_chips), child);
+    size_t n = zs_app_filament_count(zg_model_core(c->model));
+    for (size_t i = 0; i < n; i++) {
+        char *color = zg_model_filament_get(c->model, i, "filament.color");
+        char *mat = zg_model_filament_get(c->model, i, "filament.material");
+        char num[16];
+        g_snprintf(num, sizeof num, "%zu", i + 1);
+        GtkWidget *chip = zg_filament_chip_new(color, num, c->body_value == (int)i + 1);
+        char *tip = g_strdup_printf("This body: filament %zu \u00b7 %s (%s)", i + 1, mat[0] ? mat : "filament", color);
+        gtk_widget_set_tooltip_text(chip, tip);
+        g_object_set_data(G_OBJECT(chip), "zg-value", GINT_TO_POINTER((int)i + 1));
+        g_signal_connect(chip, "clicked", G_CALLBACK(on_body_chip), c);
+        gtk_box_append(GTK_BOX(c->body_chips), chip);
+        g_free(tip);
+        g_free(mat);
+        g_free(color);
+    }
+    if (n < 16) {
+        GtkWidget *plus = zg_filament_chip_new(NULL, "+", FALSE);
+        gtk_widget_set_tooltip_text(plus, "Add a filament to the plate, for this body");
+        g_signal_connect(plus, "clicked", G_CALLBACK(on_body_chip), c);
+        gtk_box_append(GTK_BOX(c->body_chips), plus);
+    }
+}
+
+static void on_filaments_changed(GtkWidget *owner) {
+    RangeCard *c = g_object_get_data(G_OBJECT(owner), "zg-range-card");
+    if (c && c->open) body_chips_draw(c);
+}
 
 static gboolean layer_z(RangeCard *c, size_t layer, double *top, double *bottom) {
     zs_toolpaths tp;
@@ -76,7 +142,8 @@ static void fill(RangeCard *c) {
     for (size_t i = 0; i < G_N_ELEMENTS(SETTINGS); i++) {
         zs_setting_info s;
         if (!zg_setting_find(SETTINGS[i], &s) || !s.per_layer) continue;
-        GtkWidget *name = gtk_label_new(s.label);
+        gboolean body = strcmp(s.name, "project.filament") == 0 && gtk_widget_get_visible(c->body_row);
+        GtkWidget *name = gtk_label_new(body ? "All of these layers" : s.label);
         gtk_label_set_xalign(GTK_LABEL(name), 0);
         gtk_label_set_wrap(GTK_LABEL(name), TRUE);
         gtk_label_set_wrap_mode(GTK_LABEL(name), PANGO_WRAP_WORD);
@@ -115,6 +182,9 @@ void zg_range_card_show(GtkWidget *card, size_t lo, size_t hi) {
     zg_model_set_scope(c->model, TRUE, t0, t1, t0);
     zg_float_forget(c->card);
     c->open = TRUE;
+    c->body_value = 0;
+    gtk_widget_set_visible(c->body_row, zg_view3d_body_lit(zg_preview_view3d(c->preview)));
+    body_chips_draw(c);
     fill(c);
     gtk_widget_set_visible(c->card, TRUE);
     place(c);
@@ -185,6 +255,17 @@ GtkWidget *zg_range_card_new(ZgModel *model, GtkWidget *preview) {
     gtk_widget_add_css_class(note, "dim-label");
     gtk_widget_add_css_class(note, "caption");
     gtk_box_append(GTK_BOX(c->card), note);
+    c->body_row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
+    gtk_widget_set_margin_top(c->body_row, 4);
+    GtkWidget *body_name = gtk_label_new("This body");
+    gtk_label_set_xalign(GTK_LABEL(body_name), 0);
+    gtk_widget_set_hexpand(body_name, TRUE);
+    gtk_widget_set_tooltip_text(body_name, "The filament of the lit body only, on these layers. The paint of the part keeps it.");
+    c->body_chips = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 2);
+    gtk_box_append(GTK_BOX(c->body_row), body_name);
+    gtk_box_append(GTK_BOX(c->body_row), c->body_chips);
+    gtk_widget_set_visible(c->body_row, FALSE);
+    gtk_box_append(GTK_BOX(c->card), c->body_row);
     c->settings = gtk_grid_new();
     gtk_grid_set_row_spacing(GTK_GRID(c->settings), 4);
     gtk_grid_set_column_spacing(GTK_GRID(c->settings), 6);
@@ -196,6 +277,7 @@ GtkWidget *zg_range_card_new(ZgModel *model, GtkWidget *preview) {
     gtk_widget_set_visible(c->card, FALSE);
     g_object_set_data_full(G_OBJECT(c->card), "zg-range-card", c, card_free);
     g_object_set_data(G_OBJECT(preview), "zg-range-card-of", c->card);
+    zg_filaments_follow(model, c->card, FALSE, on_filaments_changed);
     zg_view3d_on_frame(zg_preview_view3d(preview), c->card, place, c);
     return c->card;
 }

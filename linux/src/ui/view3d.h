@@ -46,6 +46,14 @@ void zg_view3d_set_bed_hidden(GtkWidget *view, gboolean hidden);
 /* Ends the light of a range of layers (the card of the range closed): no
  * lit layers, and no lit body (zs_view_light_connected). */
 void zg_view3d_light_clear(GtkWidget *view);
+/* TRUE if the lit range lights one body of a part (a drag or Shift+K from
+ * a line). With no line, the range lights all the lines of its layers
+ * and this is FALSE. */
+gboolean zg_view3d_body_lit(GtkWidget *view);
+/* Gives the lit body filament `filament` (from 1): the paint of its part
+ * under its lines (zs_app_paint_body), one step of the history, and a
+ * slice. The body shows in the color of the filament at once. */
+gboolean zg_view3d_paint_body(GtkWidget *view, int filament);
 /* Shift+K (dir 1) and Shift+J (dir -1): the range of layers grows up or
  * down from the layer of the selected line, and its card opens. With a
  * selected line, the body of its part lights up; else all the lines of

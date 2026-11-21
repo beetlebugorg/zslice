@@ -1059,6 +1059,14 @@ int zs_app_part_paint_set(zs_app *app, size_t i, const char *text, size_t len);
 /* The states that the paint of part i uses: bit k for state k (bit 0:
  * the filament of the part; bit k + 1: filament k). 0: no paint. */
 int zs_app_part_paint_used(const zs_app *app, size_t i, uint32_t *out);
+/* Paints a body of a range of layers with filament `filament` (from 1):
+ * the mesh of each part under the beads (`n` floats, from
+ * zs_view_connected_beads). The paint follows later changes of the walls,
+ * the layer height, and the place of the part. The filament of a part is
+ * no paint on it. `changed` (may be NULL): the count of triangles whose
+ * paint changed. A change is a step of the undo list (kind filament), and
+ * the next slice splits the part. */
+int zs_app_paint_body(zs_app *app, const float *beads, size_t n, uint32_t filament, size_t *changed);
 
 typedef struct zs_paint zs_paint;
 /* A session of a mesh (mm). It keeps the regions of the smart select: the
@@ -1828,6 +1836,15 @@ int zs_view_highlight_more(zs_view *view, const size_t *paths, size_t n);
  * layer before, grown by 0.8 mm) as a multiple selection, and gives their
  * count in `count` (may be NULL). A new load clears them. */
 int zs_view_light_connected(zs_view *view, size_t start, size_t lo, size_t hi, size_t *count);
+/* The beads of the body of zs_view_light_connected (the same rule), for
+ * zs_app_paint_body: 9 floats for each bead (its part, its layer, its top
+ * z, its height, its ends a and b, and its width, mm). `out` points to `n`
+ * floats, valid until the next call. The light does not change. */
+int zs_view_connected_beads(zs_view *view, size_t start, size_t lo, size_t hi, const float **out, size_t *n);
+/* The color of the lit paths: 0xRRGGBB, or -1 for the yellow of a
+ * selection. Give the color of the filament of a lit body, so it shows at
+ * once, before the slice comes back. */
+int zs_view_light_color(zs_view *view, int32_t rgb);
 /* Draws and presents one frame. Call it after a change. */
 int zs_view_draw(zs_view *view);
 

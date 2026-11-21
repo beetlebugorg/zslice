@@ -447,6 +447,12 @@ pub const Sphere = struct {
         if (s.dist2(q) > s.r * s.r) return 0;
         return 1;
     }
+
+    /// A small leaf on the edge gets the paint if its center is in the
+    /// sphere.
+    fn holds(s: Sphere, v: [3]V3) bool {
+        return s.dist2(.{ (v[0][0] + v[1][0] + v[2][0]) / 3, (v[0][1] + v[1][1] + v[2][1]) / 3, (v[0][2] + v[1][2] + v[2][2]) / 3 }) <= s.r * s.r;
+    }
 };
 
 fn sub(a: V3, b: V3) V3 {
@@ -504,9 +510,25 @@ fn longest(v: [3]V3) f32 {
 /// triangle on the edge of the sphere splits until its pieces are smaller
 /// than `fine` (mm), or `max_depth`. Returns true if the paint changed.
 pub fn brushTriangle(p: *Paint, gpa: Allocator, m: *const Mesh, tri: usize, s: Sphere, state: u8, fine: f32) Allocator.Error!bool {
+    return paintTriangle(p, gpa, m, tri, s, state, fine);
+}
+
+/// Paints the part of triangle `tri` in `shape` with `state`. The shape
+/// has two tests:
+///
+/// - `cover(v)`: 2 if the triangle v is all in the shape, 0 if no part of
+///   it is, else 1.
+/// - `holds(v)`: true if a small piece v on the edge of the shape gets
+///   the paint.
+///
+/// A triangle on the edge of the shape splits until its pieces are
+/// smaller than `fine` (mm), or `max_depth`. Returns true if the paint
+/// changed. The brush (`Sphere`) and the body of a range of layers
+/// (paint_body.zig) use it.
+pub fn paintTriangle(p: *Paint, gpa: Allocator, m: *const Mesh, tri: usize, shape: anytype, state: u8, fine: f32) Allocator.Error!bool {
     const face = m.faces.items[tri];
     const v = [3]V3{ vec(m, face[0]), vec(m, face[1]), vec(m, face[2]) };
-    const cov = s.cover(v);
+    const cov = shape.cover(v);
     if (cov == 0) return false;
     const old = p.stateOf(tri);
     if (cov == 2) {
@@ -522,7 +544,7 @@ pub fn brushTriangle(p: *Paint, gpa: Allocator, m: *const Mesh, tri: usize, s: S
         try t.read(gpa, &r);
     } else try t.nodes.append(gpa, .{ .state = old });
     var changed = false;
-    try brushNode(&t, gpa, 0, v, s, state, fine, 0, &changed);
+    try paintNode(&t, gpa, 0, v, shape, state, fine, 0, &changed);
     if (!changed) return false;
     t.simplify(0);
     const root = t.nodes.items[0];
@@ -542,8 +564,8 @@ pub fn brushTriangle(p: *Paint, gpa: Allocator, m: *const Mesh, tri: usize, s: S
     return true;
 }
 
-fn brushNode(t: *Tree, gpa: Allocator, i: u32, v: [3]V3, s: Sphere, state: u8, fine: f32, depth: u32, changed: *bool) Allocator.Error!void {
-    const cov = s.cover(v);
+fn paintNode(t: *Tree, gpa: Allocator, i: u32, v: [3]V3, shape: anytype, state: u8, fine: f32, depth: u32, changed: *bool) Allocator.Error!void {
+    const cov = shape.cover(v);
     if (cov == 0) return;
     const n = t.nodes.items[i];
     if (n.sides == 0) {
@@ -554,9 +576,8 @@ fn brushNode(t: *Tree, gpa: Allocator, i: u32, v: [3]V3, s: Sphere, state: u8, f
             try t.nodes.appendNTimes(gpa, .{ .state = n.state }, 4);
             t.nodes.items[i] = .{ .sides = 3, .side = 0, .first = first };
         } else {
-            // A small leaf on the edge takes the paint if its center is in
-            // the sphere.
-            if (cov == 2 or s.dist2(.{ (v[0][0] + v[1][0] + v[2][0]) / 3, (v[0][1] + v[1][1] + v[2][1]) / 3, (v[0][2] + v[1][2] + v[2][2]) / 3 }) <= s.r * s.r) {
+            // A small leaf on the edge gets the paint if the shape holds it.
+            if (cov == 2 or shape.holds(v)) {
                 t.nodes.items[i].state = state;
                 changed.* = true;
             }
@@ -565,7 +586,7 @@ fn brushNode(t: *Tree, gpa: Allocator, i: u32, v: [3]V3, s: Sphere, state: u8, f
     }
     const node = t.nodes.items[i];
     const ch = children(v, node.sides, node.side);
-    for (0..ch.n) |k| try brushNode(t, gpa, node.first + @as(u32, @intCast(k)), ch.t[k], s, state, fine, depth + 1, changed);
+    for (0..ch.n) |k| try paintNode(t, gpa, node.first + @as(u32, @intCast(k)), ch.t[k], shape, state, fine, depth + 1, changed);
 }
 
 // ---- the features: the smart select ----

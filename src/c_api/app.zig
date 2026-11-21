@@ -2356,6 +2356,25 @@ export fn zs_app_part_paint_set(a: ?*App, i: usize, text: ?[*]const u8, len: usi
     return ok;
 }
 
+/// Paints a body of a range of layers with filament `filament` (from 1):
+/// the mesh of each part under the beads of `beads` (`n` floats, see
+/// zs_view_connected_beads). The filament of a part is no paint on it.
+/// `changed` (may be NULL): the count of triangles whose paint changed. A
+/// change is a step of the undo list, and the next slice splits the part.
+export fn zs_app_paint_body(a: ?*App, beads: ?[*]align(1) const f32, n: usize, filament: u32, changed: ?*usize) c_int {
+    const app = a orelse return @intFromEnum(Status.invalid_argument);
+    // A copy with the alignment of f32 (the web app gives bytes).
+    const list = gpa.alloc(f32, if (beads != null) n else 0) catch return @intFromEnum(Status.out_of_memory);
+    defer gpa.free(list);
+    if (beads) |b| for (list, 0..) |*d, i| {
+        d.* = b[i];
+    };
+    const count = app.paintBody(list, filament) catch return @intFromEnum(Status.out_of_memory);
+    if (count > 0) noted(app, null, true);
+    if (changed) |out| out.* = count;
+    return ok;
+}
+
 /// The states that the paint of part i uses: bit k for state k (0 is the
 /// filament of the part, k + 1 filament k). 0: no paint.
 export fn zs_app_part_paint_used(a: ?*const App, i: usize, out: ?*u32) c_int {

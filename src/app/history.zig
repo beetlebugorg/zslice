@@ -341,7 +341,8 @@ pub const Kind = enum {
     printer,
     other,
     /// The filaments of the plate: a color, a material, a filament added
-    /// or removed, and the filament of a part or of the support.
+    /// or removed, the filament of a part or of the support, and the
+    /// paint of a part.
     filament,
     /// A label of a part: its text, shapes, size, turn, or depth.
     label,
@@ -376,6 +377,9 @@ pub fn kindOf(c: Change) Kind {
         if (eq(u8, c.key, "position")) return .move;
         if (eq(u8, c.key, "rotation") or eq(u8, c.key, "orientation")) return .rotate;
         if (eq(u8, c.key, "scale")) return .scale;
+        // The paint of a part (the Paint tool, or the filament of a body of
+        // some layers): its filaments.
+        if (eq(u8, c.key, "(paint)")) return .filament;
         if (std.mem.startsWith(u8, c.key, "label ")) {
             if (c.old.len == 0) return .add;
             if (c.new.len == 0) return .remove;
@@ -912,6 +916,7 @@ test "history: the kind of a step" {
 test "a change of a filament slot or of the filament of a part is a filament step" {
     try testing.expectEqual(Kind.filament, kindOf(.{ .scope = "filament 2", .key = "filament.color", .old = "#d0d0cc", .new = "#d93a3a" }));
     try testing.expectEqual(Kind.filament, kindOf(.{ .scope = "", .key = "project.support_filament", .old = "0", .new = "2" }));
+    try testing.expectEqual(Kind.filament, kindOf(.{ .scope = "part:Benchy", .key = "(paint)", .old = "", .new = "9f3a" }));
     try testing.expectEqual(Kind.heat, kindOf(.{ .scope = "", .key = "filament.nozzle_temp", .old = "", .new = "215" }));
 }
 

@@ -59,6 +59,19 @@ Shift+J and Shift+K do the same from a selected line. Release the button: a card
 
 A drag that starts on the bed or in the air turns the view.
 
+## Give a body a filament
+
+A drag from a line lights one body. The card then has the row **This body** first:
+
+1. Pick a filament chip in **This body**.
+2. The body turns the color of that filament at once. The slice follows.
+
+Only the lit body changes. To give all the lines of these layers a filament, use the row **All of these layers**.
+
+zslice paints the faces of the part under the lines of the body, as the Paint tool does. So the color stays when you change the walls, the layer height, or the place of the part. The color goes into the body by about 2 mm from its surface. The core of a wide body keeps the filament of the part, because nobody sees it.
+
+To take the color away, pick the filament of the part in **This body**. Each change is one step of the history, and Ctrl+Z undoes it. The project file keeps the paint.
+
 ## Select a support
 
 Use the Select tool (V), and click a support line:

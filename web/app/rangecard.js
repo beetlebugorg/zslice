@@ -10,6 +10,14 @@
 // plate (filaments.js). A filament of its own makes a filament change at
 // the first layer and back after the last.
 //
+// A drag that starts on a line lights one body of the part (a tube that
+// rises from a lid). Then the card has a row "This body" first: a chip
+// paints the body with that filament (zs_app_paint_body: the mesh of the
+// part under the lines of the body, see src/paint_body.zig). The body
+// shows in the color of the filament at once, and the slice follows. The
+// row of the layer setting then reads "All of these layers". The
+// filament of the part removes the paint of the body.
+//
 // One call to the worker opens the card (setScoped with no change
 // returns the values too), and one call makes each edit. The card does no
 // work for each frame: app.js calls `place` after a frame, which projects
@@ -21,6 +29,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { el } from "./settings.js";
+import { filamentEditor } from "./filaments.js";
 import { movable } from "./drag.js";
 import { spatial, savedPlace, remember } from "./spatial.js";
 import { placeBeside, freeArea } from "./place.js";
@@ -46,7 +55,9 @@ export class RangeCard {
   //        layer l, mm), layerBottom(l), edit(name, value, zmin, zmax,
   //        names) -> Promise<{ error, at }>, reset(name, zmin, zmax,
   //        names) -> Promise<{ at }>, values(zmin, names) -> Promise<at>,
-  //        search(text, scope), close() }
+  //        search(text, scope), close(), body() -> true if the range
+  //        lights one body, paintBody(filament) -> Promise<error or null>,
+  //        addFilament() -> Promise<index> }
   constructor(ctx) {
     this.ctx = ctx;
     this.node = null;
@@ -74,11 +85,16 @@ export class RangeCard {
 
   async show(lo, hi) {
     this.range = [Math.min(lo, hi), Math.max(lo, hi)];
+    this.bodyPicked = false;
     if (!this.node) this.build();
     const [a, b] = this.range;
     this.title.textContent = a === b ? `Layer ${a + 1}` : `Layers ${a + 1}–${b + 1}`;
     const [z0, z1] = this.zRange();
     this.facts.textContent = `z ${(this.ctx.layerBottom(a)).toFixed(2)} to ${z1.toFixed(2)} mm · ${b - a + 1} ${b === a ? "layer" : "layers"}`;
+    const body = !!this.ctx.body?.();
+    this.bodyRow.hidden = !body;
+    const fil = this.rows.find((r) => r.info.name === "project.filament");
+    if (fil) fil.name.textContent = body ? "All of these layers" : fil.info.label;
     this.fill(await this.ctx.values(z0, this.names()));
     this.place();
   }
@@ -89,6 +105,7 @@ export class RangeCard {
     this.node = null;
     this.range = null;
     this.userAt = null;
+    this.bodyPicked = false;
     this.ctx.close?.();
   }
 
@@ -126,6 +143,18 @@ export class RangeCard {
         this.close();
       }
     });
+    // The filament of the lit body (see the header).
+    this.bodyRow = el("div", "lc-row range-body");
+    const bodyLabel = el("div", "lc-label");
+    bodyLabel.append(el("div", "lc-name", "This body"));
+    bodyLabel.title = "The filament of the lit body only, on these layers. The paint of the part keeps it.";
+    this.bodyEditor = filamentEditor(
+      { name: "body.filament", doc: "A filament for the lit body only" },
+      (v) => this.paintBody(Number(v)),
+      this.ctx.addFilament ?? this.ctx.browser.ctx?.addFilament ?? null,
+    );
+    this.bodyRow.append(bodyLabel, this.bodyEditor.node);
+    this.box.append(this.bodyRow);
     const byName = this.ctx.browser.byName;
     this.rows = [];
     for (const name of RANGE_SETTINGS) {
@@ -140,7 +169,8 @@ export class RangeCard {
     if (this.rows.some((r) => r.info.name === info.name)) return;
     const row = el("div", "lc-row");
     const label = el("div", "lc-label");
-    label.append(el("div", "lc-name", info.label));
+    const name = el("div", "lc-name", info.label);
+    label.append(name);
     label.title = info.doc;
     const editor = this.ctx.browser.makeEditor(info, "range", (n, v) => this.set(n, v));
     const reset = el("button", "flat icon pc-clear", "↺");
@@ -149,12 +179,14 @@ export class RangeCard {
     reset.onclick = () => this.reset(info.name);
     row.append(label, editor.node, reset);
     this.box.append(row);
-    this.rows.push({ info, editor, reset });
+    this.rows.push({ info, editor, reset, name });
   }
 
-  // The values at the first layer: { name: entry } (core.valueAt).
+  // The values at the first layer: { name: entry } (core.valueAt). The
+  // chips of the body start at the filament of the layers.
   fill(at) {
     if (!this.node || !at) return;
+    if (!this.bodyPicked && at["project.filament"]) this.bodyEditor.update(at["project.filament"]);
     for (const r of this.rows) {
       const entry = at[r.info.name];
       if (!entry) continue;
@@ -169,6 +201,13 @@ export class RangeCard {
     const r = await this.ctx.edit(name, value, z0, z1, this.names());
     this.fill(r.at);
     return r.error;
+  }
+
+  // Paints the lit body with filament `f` (from 1).
+  async paintBody(f) {
+    if (!this.range) return "No layers.";
+    this.bodyPicked = true;
+    return (await this.ctx.paintBody(f)) ?? null;
   }
 
   async reset(name) {

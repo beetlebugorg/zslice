@@ -247,6 +247,9 @@ pub const View = struct {
     /// The other selected paths (a multiple selection): their beads are
     /// yellow in the instance buffer. A load clears them.
     more: std.ArrayList(usize) = .empty,
+    /// The color of the beads of `more`: yellow, or the color of a filament
+    /// that the user gave to the lit body (see `setMoreColor`).
+    more_rgb: [3]u8 = more_yellow,
     /// The bead of a selected segment (see setSegment), or null.
     seg_bead: ?usize = null,
     /// The points of the measure tape (see `setMeasure`): 0, 1, or 2.
@@ -4012,6 +4015,42 @@ pub const View = struct {
         }
     }
 
+    /// The yellow of a multiple selection.
+    pub const more_yellow: [3]u8 = .{ 0xff, 0xc7, 0x0d };
+
+    /// The color of the paths of the multiple selection (`more_yellow` for
+    /// a selection). A filament given to a lit body shows in its color at
+    /// once, before the slice comes back.
+    pub fn setMoreColor(v: *View, rgb: [3]u8) Error!void {
+        if (std.mem.eql(u8, &v.more_rgb, &rgb)) return;
+        v.more_rgb = rgb;
+        if (v.more.items.len == 0) return;
+        // All the paths again, in the new color.
+        const list = gpa.dupe(usize, v.more.items) catch return error.OutOfMemory;
+        defer gpa.free(list);
+        v.more.clearRetainingCapacity();
+        return v.setMore(list);
+    }
+
+    /// The beads of `paths` for the paint of a body (paint_body.zig): for
+    /// each bead, its part, its layer, its top z, its height, its ends,
+    /// and its width, in `out` (cleared first). The frame is the frame of
+    /// the beads: the part on the bed.
+    pub fn bodyBeads(v: *const View, paths: []const usize, out: *std.ArrayList(f32)) Error!void {
+        out.clearRetainingCapacity();
+        const ends = v.layer_path_end.items;
+        const n_paths = v.path_start.items.len -| 1;
+        for (paths) |p| {
+            if (p >= n_paths) continue;
+            var l: usize = 0;
+            while (l < ends.len and ends[l] <= p) l += 1;
+            const part: f32 = if (p < v.path_part.items.len) @floatFromInt(v.path_part.items[p]) else -1;
+            for (v.beads.items[v.path_start.items[p]..v.path_start.items[p + 1]]) |b| {
+                out.appendSlice(gpa, &.{ part, @floatFromInt(l), b.z, b.h, b.ax, b.ay, b.bx, b.by, b.w }) catch return error.OutOfMemory;
+            }
+        }
+    }
+
     /// The other paths of a multiple selection: yellow, as the highlighted
     /// path. Only the beads of the paths that join or leave the selection
     /// change in the instances of the renderer (see `patchMore`).
@@ -4026,7 +4065,7 @@ pub const View = struct {
         defer gpa.free(copy);
         for (paths) |p| {
             if (p >= v.path_start.items.len -| 1) continue;
-            for (copy[v.path_start.items[p]..v.path_start.items[p + 1]]) |*b| b.rgba = .{ 0xff, 0xc7, 0x0d, b.rgba[3] };
+            for (copy[v.path_start.items[p]..v.path_start.items[p + 1]]) |*b| b.rgba = .{ v.more_rgb[0], v.more_rgb[1], v.more_rgb[2], b.rgba[3] };
         }
         try v.renderer.setInstances(copy, v.marks.items);
     }
@@ -4069,7 +4108,7 @@ pub const View = struct {
             state[p] = 0;
             const a = v.path_start.items[p];
             const b = v.path_start.items[p + 1];
-            for (inst[a..b], v.beads.items[a..b]) |*d, s| d.rgba = if (st == 2) .{ 0xff, 0xc7, 0x0d, s.rgba[3] } else s.rgba;
+            for (inst[a..b], v.beads.items[a..b]) |*d, s| d.rgba = if (st == 2) .{ v.more_rgb[0], v.more_rgb[1], v.more_rgb[2], s.rgba[3] } else s.rgba;
             lo = @min(lo, a);
             hi = @max(hi, b);
         };
@@ -6148,6 +6187,20 @@ test "the joined paths: a start or a range of layers from outside stays in the s
     try std.testing.expectEqualSlices(usize, &.{ 5, 1 }, out.items);
     try v.connectedPaths(1, 2, 2, &out);
     try std.testing.expectEqualSlices(usize, &.{ 1, 5, 9 }, out.items);
+}
+
+test "the beads of a body: part, layer, z, height, ends, and width" {
+    var v = try testScene(3, 4, 5);
+    defer destroyTest(&v);
+    var out: std.ArrayList(f32) = .empty;
+    defer out.deinit(View.gpa);
+    try v.bodyBeads(&.{ 5, 99 }, &out);
+    // Path 5: beads 25 to 30, on layer 1; path 99 is out of the slice.
+    try std.testing.expectEqual(@as(usize, 5 * 9), out.items.len);
+    const b = v.beads.items[25];
+    try std.testing.expectEqualSlices(f32, &.{ 1, b.z, b.h, b.ax, b.ay, b.bx, b.by, b.w }, out.items[1..9]);
+    // No part list: part -1.
+    try std.testing.expectEqual(@as(f32, -1), out.items[0]);
 }
 
 test "the steps along the print go on to the next path, and pass paths with no segment" {
