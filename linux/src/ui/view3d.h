@@ -25,6 +25,12 @@ void zg_view3d_reset(GtkWidget *view);
 /* The origin of the bed of plate i in the world of the view (mm), for a
  * label over the plate. */
 gboolean zg_view3d_plate_origin(GtkWidget *view, size_t i, double *x, double *y);
+/* The plate under a point of the view (pixels), or -1. */
+gint64 zg_view3d_plate_at(GtkWidget *view, double x, double y);
+/* The signs of the plates (zs_view_set_signs): n rects (x, y, w, h) in an
+ * RGBA image of width x height pixels (straight alpha), and the image
+ * pixels for one device pixel of the view. The view keeps a reference. */
+void zg_view3d_set_signs(GtkWidget *view, size_t n, const float *rects, guint width, guint height, GBytes *rgba, float scale);
 /* Moves the camera smoothly to show all plates of the row (All). */
 void zg_view3d_frame_all(GtkWidget *view);
 /* TRUE while the view moves on its own: the camera animates, a part

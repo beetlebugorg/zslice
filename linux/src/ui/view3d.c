@@ -130,6 +130,13 @@ typedef struct {
     gint64 bench_last, bench_edit;
     /* The calls after each frame (zg_view3d_on_frame). */
     GArray *hooks;
+    /* The signs of the plates (zg_view3d_set_signs): a copy, for a view
+     * that starts later. */
+    GBytes *sign_rgba;
+    float *sign_rects;
+    size_t sign_n;
+    guint sign_w, sign_h;
+    float sign_scale;
     /* The rings of the Turn tool are on (the core view draws them). */
     gboolean rings_on;
     /* A drag of a ring: its axis (-1: none), the angle of the press, the
@@ -175,6 +182,8 @@ typedef struct {
     double hand_h, hand_px, hand_py, turn_x, turn_y;
     double yaw, tilt, yaw_sent, tilt_sent;
 } View3d;
+
+static void apply_signs(View3d *v);
 
 typedef struct {
     GtkWidget *owner;
@@ -638,6 +647,7 @@ static void on_map(GtkWidget *w, gpointer data) {
         return;
     }
     zg_support_set_view(v->support, v->view);
+    apply_signs(v);
     if (g_getenv("ZSLICE_BENCH")) v->bench = 1;
     apply_dark(v);
     load_data(v);
@@ -1885,6 +1895,13 @@ static void on_release(GtkGestureClick *g, int n, double x, double y, gpointer d
     View3d *v = data;
     if (n != 1 || !v->view || fabs(x - v->press_x) > 4 || fabs(y - v->press_y) > 4) return;
     int scale = gtk_widget_get_scale_factor(v->area);
+    /* A click on the sign of a plate makes that plate active. A sign
+     * never covers a part: it gets only the clicks on itself. */
+    gint64 sign = zs_view_sign_at(v->view, (float)(x * scale), (float)(y * scale));
+    if (sign >= 0) {
+        zg_model_plate_select(v->model, (size_t)sign);
+        return;
+    }
     /* Ctrl+click: select a part (to move, turn, or remove it). A click: a
      * line. Shift+click in the Select tool: the run of the line. In the
      * other tools Shift+click, and Ctrl+Shift+click in the Select tool:
@@ -2115,6 +2132,38 @@ static void on_reset_view(GSimpleAction *a, GVariant *p, gpointer data) {
     if (!v->view) return;
     zs_view_reset_smooth(v->view);
     start_animation(v);
+}
+
+static void apply_signs(View3d *v) {
+    if (!v->view) return;
+    if (!v->sign_rgba || v->sign_n == 0) {
+        zs_view_set_signs(v->view, 0, NULL, 0, 0, NULL, 1);
+        return;
+    }
+    int rc = zs_view_set_signs(v->view, v->sign_n, v->sign_rects, v->sign_w, v->sign_h, g_bytes_get_data(v->sign_rgba, NULL), v->sign_scale);
+    if (rc != ZS_OK) g_warning("zslice: the signs of the plates did not load: %s", zg_status_text(rc));
+}
+
+gint64 zg_view3d_plate_at(GtkWidget *view, double x, double y) {
+    View3d *v = g_object_get_data(G_OBJECT(view), "zg-view3d");
+    if (!v || !v->view) return -1;
+    int s = gtk_widget_get_scale_factor(v->area);
+    return zs_view_plate_at(v->view, (float)(x * s), (float)(y * s));
+}
+
+void zg_view3d_set_signs(GtkWidget *view, size_t n, const float *rects, guint width, guint height, GBytes *rgba, float scale) {
+    View3d *v = g_object_get_data(G_OBJECT(view), "zg-view3d");
+    if (!v) return;
+    if (v->sign_rgba) g_bytes_unref(v->sign_rgba);
+    g_free(v->sign_rects);
+    v->sign_rgba = n > 0 && rgba ? g_bytes_ref(rgba) : NULL;
+    v->sign_rects = n > 0 ? g_memdup2(rects, n * 4 * sizeof(float)) : NULL;
+    v->sign_n = v->sign_rgba ? n : 0;
+    v->sign_w = width;
+    v->sign_h = height;
+    v->sign_scale = scale;
+    apply_signs(v);
+    queue_frame(v);
 }
 
 gboolean zg_view3d_plate_origin(GtkWidget *view, size_t i, double *x, double *y) {
@@ -2502,6 +2551,8 @@ static void view_free(gpointer data) {
     for (guint i = 0; v->hooks && i < v->hooks->len; i++)
         g_signal_handlers_disconnect_by_data(g_array_index(v->hooks, FrameHook, i).owner, v);
     if (v->hooks) g_array_free(v->hooks, TRUE);
+    if (v->sign_rgba) g_bytes_unref(v->sign_rgba);
+    g_free(v->sign_rects);
     if (v->group) g_array_free(v->group, TRUE);
     if (v->group_xy) g_array_free(v->group_xy, TRUE);
     zg_support_free(v->support);

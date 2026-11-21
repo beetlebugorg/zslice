@@ -62,9 +62,9 @@ typedef struct {
     GtkWidget *check, *check_list; /* the printability check */
     /* The plates: a button for each, and "+". */
     GtkWidget *plates, *plate_prev, *plate_name, *plate_next, *plate_all;
-    /* The labels of the plates of a row, at the top of the view (one for
-     * each plate with two plates or more). */
-    GPtrArray *plate_labels;
+    /* The key of the signs of the plates that the view has (see
+     * fill_plate_signs). */
+    char *sign_key;
     /* The scrub bar: the nozzle through the top layer (0 its start, 1 the
      * layer done), and its time label. */
     GtkWidget *scrub, *scrub_label, *scrub_box;
@@ -388,11 +388,8 @@ static void place_measure(Preview *p) {
     zg_float_place(p->measure_label, px, py);
 }
 
-static void place_plate_labels(Preview *p);
-
 static void on_view_frame(gpointer data) {
     place_measure(data);
-    place_plate_labels(data);
 }
 
 /* The measure tape in the 2D view (the 3D view draws it in the core): a
@@ -806,95 +803,186 @@ static void make_plate_bar(Preview *p) {
         if (GTK_IS_BUTTON(c)) gtk_widget_add_css_class(c, "flat");
 }
 
-/* ---- the labels of the plates ----
+/* ---- the signs of the plates ----
  *
- * With two plates or more, a label for each plate in a row at the top of
- * the view, over the middle of its plate, as on the web: they never cover
- * a part. A label that covers one at its left moves right, and all stay
- * in the view. A click makes its plate active. */
+ * A sign is a small card on the bed just in front of each plate: its
+ * number and name, its printer, and its status (or its print time and
+ * filament after a slice). This code draws the text of all signs into one
+ * image with cairo and pango, as the web draws them with a canvas
+ * (web/app/signs.js). The core view draws each sign flat on the bed in
+ * the world (zs_view_set_signs): the signs turn and tilt with the plates,
+ * and the parts hide them. A click on a sign makes its plate active (see
+ * view3d.c). */
 
-static void on_plate_label(GtkButton *b, gpointer data) {
-    Preview *p = data;
-    zg_model_plate_select(p->model, (size_t)GPOINTER_TO_SIZE(g_object_get_data(G_OBJECT(b), "zg-plate")));
+/* The pixels of the image for one pixel of the sign, and the height of a
+ * sign on the screen (pixels), within the limits of the core. */
+#define SIGN_S 2
+#define SIGN_SCREEN_H 46
+
+static const char *sign_status_text[] = {"Empty", "To slice", "Slicing", "", "The slice failed", "Resin: not yet"};
+
+/* The two lines of the sign of plate i. */
+static void sign_lines(zs_set *set, size_t i, const zs_plate_info *info, char **title, char **sub) {
+    *title = g_strdup_printf("%zu  %s", i + 1, info->name[0] ? info->name : "Empty plate");
+    GString *s = g_string_new(NULL);
+    const char *nl = strchr(info->printer_key ? info->printer_key : "", '\n');
+    if (nl && nl[1]) g_string_append(s, nl + 1);
+    zs_totals t;
+    if (info->status == ZS_PLATE_STATUS_DONE && zs_set_plate_totals(set, i, &t) == ZS_OK && t.sliced > 0) {
+        int m = (int)lround(t.time_s / 60);
+        char *time = m >= 60 ? g_strdup_printf("%d h %d min", m / 60, m % 60) : g_strdup_printf("%d min", m);
+        g_string_append_printf(s, "%s%s · %.1f g", s->len ? " · " : "", time, t.filament_g);
+        g_free(time);
+    } else if (info->status >= 0 && info->status <= ZS_PLATE_STATUS_CANNOT && sign_status_text[info->status][0]) {
+        g_string_append_printf(s, "%s%s", s->len ? " · " : "", sign_status_text[info->status]);
+    }
+    *sub = g_string_free(s, FALSE);
 }
 
-static void fill_plate_labels(Preview *p) {
-    if (!p->plate_labels || !p->root) return;
+static PangoLayout *sign_layout(cairo_t *cr, const char *text, int weight, double px) {
+    PangoLayout *l = pango_cairo_create_layout(cr);
+    PangoFontDescription *fd = pango_font_description_from_string("Sans");
+    pango_font_description_set_weight(fd, weight);
+    pango_font_description_set_absolute_size(fd, px * SIGN_S * PANGO_SCALE);
+    pango_layout_set_font_description(l, fd);
+    pango_font_description_free(fd);
+    pango_layout_set_text(l, text, -1);
+    return l;
+}
+
+static void fill_plate_signs(Preview *p) {
+    if (!p->root) return;
     zs_set *set = zg_model_plate_set(p->model);
     size_t n = zs_set_count(set), a = zs_set_active(set);
-    size_t want = n > 1 ? n : 0;
-    while (p->plate_labels->len > want) {
-        GtkWidget *l = g_ptr_array_steal_index(p->plate_labels, p->plate_labels->len - 1);
-        gtk_overlay_remove_overlay(GTK_OVERLAY(p->root), l);
-    }
-    while (p->plate_labels->len < want) {
-        GtkWidget *l = gtk_button_new_with_label("");
-        gtk_widget_add_css_class(l, "zg-plate-label");
-        gtk_widget_set_focus_on_click(l, FALSE);
-        gtk_widget_set_halign(l, GTK_ALIGN_START);
-        gtk_widget_set_valign(l, GTK_ALIGN_START);
-        g_object_set_data(G_OBJECT(l), "zg-plate", GSIZE_TO_POINTER(p->plate_labels->len));
-        g_signal_connect(l, "clicked", G_CALLBACK(on_plate_label), p);
-        gtk_overlay_add_overlay(GTK_OVERLAY(p->root), l);
-        g_ptr_array_add(p->plate_labels, l);
-    }
-    for (size_t i = 0; i < want; i++) {
-        GtkWidget *l = g_ptr_array_index(p->plate_labels, i);
+    gboolean dark = zg_theme_dark(p->root);
+    char **titles = g_new0(char *, n + 1), **subs = g_new0(char *, n + 1);
+    /* The key of the signs: the same key keeps the image of the view. */
+    GString *key = g_string_new(dark ? "d" : "l");
+    for (size_t i = 0; i < n; i++) {
         zs_plate_info info;
         if (zs_set_plate_info(set, i, &info) != ZS_OK) continue;
-        const char *status = info.status >= 0 && info.status <= ZS_PLATE_STATUS_CANNOT ? plate_status_text[info.status] : "";
-        char *text = g_strdup_printf("%zu. %s%s%s", i + 1, info.name[0] ? info.name : "Empty plate", status[0] ? " \u00b7 " : "", status);
-        gtk_button_set_label(GTK_BUTTON(l), text);
-        g_free(text);
-        if (i == a) gtk_widget_add_css_class(l, "active");
-        else gtk_widget_remove_css_class(l, "active");
+        sign_lines(set, i, &info, &titles[i], &subs[i]);
+        g_string_append_printf(key, "\n%s\n%s\n%d", titles[i], subs[i], i == a && n > 1);
     }
-    place_plate_labels(p);
+    int sf = gtk_widget_get_scale_factor(p->root);
+    g_string_append_printf(key, "\n%d", sf);
+    if (p->sign_key && strcmp(p->sign_key, key->str) == 0) {
+        g_string_free(key, TRUE);
+        g_strfreev(titles);
+        g_strfreev(subs);
+        return;
+    }
+    g_free(p->sign_key);
+    p->sign_key = g_string_free(key, FALSE);
+    /* The size of each sign: its longest line, with no shortening. */
+    const double h1 = 15, h2 = 12.5, pad = 10 * SIGN_S, bar = 4 * SIGN_S;
+    const int height = (int)lround(pad * 2 + (h1 * 1.25 + h2 * 1.35) * SIGN_S), gap = 4;
+    cairo_surface_t *probe = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, 1, 1);
+    cairo_t *pc = cairo_create(probe);
+    int *widths = g_new0(int, n + 1);
+    int W = 1;
+    for (size_t i = 0; i < n; i++) {
+        if (!titles[i]) continue;
+        int tw, sw = 0;
+        PangoLayout *l = sign_layout(pc, titles[i], PANGO_WEIGHT_BOLD, h1);
+        pango_layout_get_pixel_size(l, &tw, NULL);
+        g_object_unref(l);
+        if (subs[i][0]) {
+            l = sign_layout(pc, subs[i], PANGO_WEIGHT_NORMAL, h2);
+            pango_layout_get_pixel_size(l, &sw, NULL);
+            g_object_unref(l);
+        }
+        widths[i] = (int)ceil(MAX(MAX(tw, sw), 90 * SIGN_S) + pad * 2 + bar);
+        W = MAX(W, widths[i]);
+    }
+    cairo_destroy(pc);
+    cairo_surface_destroy(probe);
+    int H = MAX(1, (int)n * (height + gap));
+    cairo_surface_t *surf = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, W, H);
+    cairo_t *cr = cairo_create(surf);
+    float *rects = g_new0(float, 4 * (n + 1));
+    GdkRGBA accent = {0.21, 0.52, 0.89, 1};
+    for (size_t i = 0; i < n; i++) {
+        if (!titles[i]) continue;
+        double y = (double)i * (height + gap), w = widths[i], r = 9 * SIGN_S;
+        gboolean active = i == a && n > 1;
+        cairo_new_sub_path(cr);
+        cairo_arc(cr, 1 + w - 2 - r, y + 1 + r, r, -G_PI / 2, 0);
+        cairo_arc(cr, 1 + w - 2 - r, y + height - 1 - r, r, 0, G_PI / 2);
+        cairo_arc(cr, 1 + r, y + height - 1 - r, r, G_PI / 2, G_PI);
+        cairo_arc(cr, 1 + r, y + 1 + r, r, G_PI, 3 * G_PI / 2);
+        cairo_close_path(cr);
+        if (dark) cairo_set_source_rgba(cr, 40 / 255.0, 40 / 255.0, 44 / 255.0, 0.9);
+        else cairo_set_source_rgba(cr, 1, 1, 1, 0.92);
+        cairo_fill_preserve(cr);
+        cairo_set_line_width(cr, SIGN_S);
+        if (active) gdk_cairo_set_source_rgba(cr, &accent);
+        else if (dark) cairo_set_source_rgba(cr, 1, 1, 1, 0.16);
+        else cairo_set_source_rgba(cr, 0, 0, 0, 0.14);
+        cairo_stroke_preserve(cr);
+        /* The active plate: a bar in the accent color at the left. */
+        if (active) {
+            cairo_save(cr);
+            cairo_clip(cr);
+            gdk_cairo_set_source_rgba(cr, &accent);
+            cairo_rectangle(cr, 0, y, bar + 1, height);
+            cairo_fill(cr);
+            cairo_restore(cr);
+        }
+        cairo_new_path(cr);
+        PangoLayout *l = sign_layout(cr, titles[i], PANGO_WEIGHT_BOLD, h1);
+        if (dark) cairo_set_source_rgb(cr, 0xf6 / 255.0, 0xf5 / 255.0, 0xf4 / 255.0);
+        else cairo_set_source_rgb(cr, 0x24 / 255.0, 0x1f / 255.0, 0x31 / 255.0);
+        int base = pango_layout_get_baseline(l) / PANGO_SCALE;
+        cairo_move_to(cr, bar + pad, y + pad + h1 * SIGN_S - base);
+        pango_cairo_show_layout(cr, l);
+        g_object_unref(l);
+        if (subs[i][0]) {
+            l = sign_layout(cr, subs[i], PANGO_WEIGHT_NORMAL, h2);
+            if (dark) cairo_set_source_rgb(cr, 0xc0 / 255.0, 0xbf / 255.0, 0xbc / 255.0);
+            else cairo_set_source_rgb(cr, 0x5e / 255.0, 0x5c / 255.0, 0x64 / 255.0);
+            base = pango_layout_get_baseline(l) / PANGO_SCALE;
+            cairo_move_to(cr, bar + pad, y + pad + (h1 * 1.25 + h2 * 1.1) * SIGN_S - base);
+            pango_cairo_show_layout(cr, l);
+            g_object_unref(l);
+        }
+        float *rc = rects + 4 * i;
+        rc[0] = 0;
+        rc[1] = (float)y;
+        rc[2] = (float)w;
+        rc[3] = (float)height;
+    }
+    cairo_destroy(cr);
+    cairo_surface_flush(surf);
+    /* Cairo has premultiplied BGRA (on little-endian) or ARGB words; the
+     * core wants straight RGBA bytes. */
+    const unsigned char *src = cairo_image_surface_get_data(surf);
+    int stride = cairo_image_surface_get_stride(surf);
+    guint8 *rgba = g_malloc((size_t)W * H * 4);
+    for (int y = 0; y < H; y++) {
+        const guint32 *row = (const guint32 *)(src + (size_t)y * stride);
+        for (int x = 0; x < W; x++) {
+            guint32 px = row[x];
+            guint8 al = px >> 24, rr = (px >> 16) & 0xff, gg = (px >> 8) & 0xff, bb = px & 0xff;
+            guint8 *o = rgba + ((size_t)y * W + x) * 4;
+            o[0] = al ? (guint8)MIN(255, rr * 255 / al) : 0;
+            o[1] = al ? (guint8)MIN(255, gg * 255 / al) : 0;
+            o[2] = al ? (guint8)MIN(255, bb * 255 / al) : 0;
+            o[3] = al;
+        }
+    }
+    cairo_surface_destroy(surf);
+    GBytes *bytes = g_bytes_new_take(rgba, (size_t)W * H * 4);
+    zg_view3d_set_signs(p->view3d, n, rects, (guint)W, (guint)H, bytes, (float)height / (SIGN_SCREEN_H * sf));
+    g_bytes_unref(bytes);
+    g_free(rects);
+    g_free(widths);
+    g_strfreev(titles);
+    g_strfreev(subs);
 }
 
-static int cmp_label_x(const void *a, const void *b) {
-    double x = ((const double *)a)[0], y = ((const double *)b)[0];
-    return x < y ? -1 : x > y;
-}
-
-static void place_plate_labels(Preview *p) {
-    if (!p->plate_labels || p->plate_labels->len == 0) return;
-    gboolean shown = strcmp(gtk_stack_get_visible_child_name(GTK_STACK(p->stack)), "3d") == 0;
-    zs_set *set = zg_model_plate_set(p->model);
-    int W = gtk_widget_get_width(p->root);
-    guint n = p->plate_labels->len;
-    /* x (the left edge), the width, and the label, for each label that
-     * shows. */
-    typedef double Row[3];
-    Row *row = g_new(Row, n);
-    guint k = 0;
-    for (guint i = 0; i < n; i++) {
-        GtkWidget *l = g_ptr_array_index(p->plate_labels, i);
-        zs_plate_info info;
-        double ox, oy, px, py;
-        gboolean at = shown && zs_set_plate_info(set, i, &info) == ZS_OK && zg_view3d_plate_origin(p->view3d, i, &ox, &oy) &&
-                      zg_view3d_pixel_of(p->view3d, ox + (info.bed_x > 0 ? info.bed_x : 220) / 2, oy + (info.bed_y > 0 ? info.bed_y : 220) / 2, 0, &px, &py) &&
-                      px > -40 && px < W + 40;
-        gtk_widget_set_visible(l, at);
-        if (!at) continue;
-        int w = 0;
-        gtk_widget_measure(l, GTK_ORIENTATION_HORIZONTAL, -1, NULL, &w, NULL, NULL);
-        row[k][0] = px - w / 2.0;
-        row[k][1] = w;
-        row[k][2] = i;
-        k++;
-    }
-    qsort(row, k, sizeof row[0], cmp_label_x);
-    double edge = 70; /* right of the tool strip */
-    for (guint j = 0; j < k; j++) {
-        double x = MAX(row[j][0], edge);
-        x = MIN(x, W - row[j][1] - 8);
-        GtkWidget *l = g_ptr_array_index(p->plate_labels, (guint)row[j][2]);
-        double ox, oy;
-        if (!zg_float_get(l, &ox, &oy) || fabs(ox - x) > 0.5 || fabs(oy - 8) > 0.5) zg_float_place(l, x, 8);
-        edge = x + row[j][1] + 6;
-    }
-    g_free(row);
+static void on_theme_signs(gpointer data) {
+    fill_plate_signs(data);
 }
 
 /* The text of the bar, and a tooltip with the name and the status of
@@ -918,7 +1006,7 @@ static void fill_plates(Preview *p) {
     }
     gtk_widget_set_tooltip_text(p->plate_name, tip->str);
     g_string_free(tip, TRUE);
-    fill_plate_labels(p);
+    fill_plate_signs(p);
 }
 
 static void on_plates_changed(ZgModel *model, gpointer data) {
@@ -1077,7 +1165,7 @@ static void preview_free(gpointer data) {
     /* The 3D view can be gone already (its tick callback with it). */
     if (p->tick && GTK_IS_WIDGET(p->view3d)) gtk_widget_remove_tick_callback(p->view3d, p->tick);
     if (p->keys_timer) g_source_remove(p->keys_timer);
-    if (p->plate_labels) g_ptr_array_free(p->plate_labels, TRUE);
+    g_free(p->sign_key);
     if (p->note_timer) g_source_remove(p->note_timer);
     /* The view bar is in the header bar, and can live on: its signals
      * stop here. The preview keeps a reference to it. */
@@ -2142,8 +2230,7 @@ GtkWidget *zg_preview_new(ZgModel *model) {
     /* The layer slider keeps over the dock (on_bottom_position). */
     g_signal_connect(box, "get-child-position", G_CALLBACK(on_bottom_position), p);
     p->root = box;
-    p->plate_labels = g_ptr_array_new();
-    g_signal_connect_swapped(stack, "notify::visible-child", G_CALLBACK(place_plate_labels), p);
+    zg_on_theme_changed(box, on_theme_signs, p);
     gtk_overlay_add_overlay(GTK_OVERLAY(box), strip);
     gtk_overlay_add_overlay(GTK_OVERLAY(box), p->slider_box);
 
@@ -2415,6 +2502,8 @@ void zg_preview_refresh(GtkWidget *preview) {
         set_sim_check(p);
     }
     gtk_widget_set_visible(p->empty, empty);
+    /* The status of the active plate is on its sign. */
+    fill_plate_signs(p);
     gtk_widget_set_visible(p->scrub_box, !empty);
     gtk_widget_set_visible(p->slider_box, !empty);
     if (state == ZS_STATE_EMPTY) {
