@@ -1185,7 +1185,7 @@ pub const Emitter = struct {
         const first = s.filament.first_layer_nozzle_temp;
         if (got.bed == null and !got.macro_bed) {
             try self.w.writeAll("M190 S");
-            try writeNum(self.w, s.filament.bed_temp, 0);
+            try writeNum(self.w, s.filament.firstBedTemp(), 0);
             try self.w.writeAll(" ; zslice: the start G-code does not heat the bed\n");
         }
         if (got.nozzle == null and !got.macro_nozzle) {
@@ -1434,12 +1434,15 @@ pub const Emitter = struct {
             try self.w.writeAll("\n");
         }
         self.nozzle_temp = nozzle;
-        if (s.filament.bed_temp != (self.bed_temp orelse g.filament.bed_temp)) {
+        // The bed: the first layer temperature on layer 0, then the
+        // temperature of each layer.
+        const bed = if (lp.index == 0) s.filament.firstBedTemp() else s.filament.bed_temp;
+        if (bed != (self.bed_temp orelse g.filament.firstBedTemp())) {
             try self.w.writeAll(if (lp.index == 0) "M190 S" else "M140 S");
-            try writeNum(self.w, s.filament.bed_temp, 0);
+            try writeNum(self.w, bed, 0);
             try self.w.writeAll("\n");
         }
-        self.bed_temp = s.filament.bed_temp;
+        self.bed_temp = bed;
         // The text run of a layer takes the plan of its dry run (see
         // Prepared.plan_moves).
         if (!self.dry) if (self.prep) |pr| if (pr.have_plan) {
@@ -2683,11 +2686,18 @@ pub const Emitter = struct {
         return buf[0..n];
     }
 
+    /// The speed of a travel move: `first_layer_travel_speed` on the first
+    /// layer, if it is set, else `travel_speed`.
+    fn travelSpeed(self: *const Emitter) f64 {
+        const m = self.r.settings.machine;
+        return if (self.layer_index == 0 and m.first_layer_travel_speed > 0) m.first_layer_travel_speed else m.travel_speed;
+    }
+
     /// A travel move in a straight line, with no retraction.
     fn move(self: *Emitter, x: f64, y: f64) Error!void {
         const d = @import("geom.zig").hypot(x - self.x, y - self.y);
         if (d < 1e-4) return;
-        const speed = self.r.settings.machine.travel_speed;
+        const speed = self.travelSpeed();
         var line: Line = .{ .skip = self.dry };
         line.add("G0 X");
         line.num(x + self.r.settings.machine.origin_x, 3);
@@ -2815,7 +2825,7 @@ pub const Emitter = struct {
             const q = if (i < way.len) way[i] else [2]f64{ x, y };
             const l = @import("geom.zig").hypot(q[0] - px, q[1] - py);
             if (l > 1e-6) {
-                moves[k] = .{ .dir = .{ (q[0] - px) / l, (q[1] - py) / l }, .len = l, .speed = m.travel_speed, .accel = a };
+                moves[k] = .{ .dir = .{ (q[0] - px) / l, (q[1] - py) / l }, .len = l, .speed = self.travelSpeed(), .accel = a };
                 k += 1;
             }
             px = q[0];
@@ -2824,7 +2834,7 @@ pub const Emitter = struct {
         const t_way = motion.plan(moves[0..k], self.limits());
         const hop = self.lr.settings.project.z_hop;
         const stop = 2 * self.retractTime(self.lr.retract_length) + if (hop > 0) 2 * motion.restTime(hop, m.max_z_speed, m.max_z_accel) else 0;
-        return t_way > motion.restTime(d, m.travel_speed, a) + stop;
+        return t_way > motion.restTime(d, self.travelSpeed(), a) + stop;
     }
 
     const Crossing = struct {

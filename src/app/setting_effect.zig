@@ -52,6 +52,7 @@ pub const mark_retract: u32 = 1 << (feature_names.len + 2);
 /// the retractions.
 const mark_settings = [_]struct { []const u8, u32 }{
     .{ "project.seam", mark_seam },
+    .{ "project.seam_corner", mark_seam },
     .{ "project.retract_min_travel", mark_travel | mark_retract },
     .{ "project.combing", mark_travel | mark_retract },
     .{ "project.combing_max_distance", mark_travel | mark_retract },
@@ -60,6 +61,7 @@ const mark_settings = [_]struct { []const u8, u32 }{
     .{ "project.outer_wall_wipe", mark_retract },
     .{ "project.retract_layer_change", mark_travel | mark_retract },
     .{ "machine.travel_speed", mark_travel },
+    .{ "machine.first_layer_travel_speed", mark_travel },
     .{ "machine.retract_length", mark_retract | mark_travel },
     .{ "machine.retract_speed", mark_retract | mark_travel },
     .{ "filament.retract_ratio", mark_retract | mark_travel },
@@ -107,6 +109,7 @@ const preview_notes = [_]struct { []const u8, [:0]const u8 }{
     .{ "filament.nozzle_temp", "A G-code temperature. It changes no line." },
     .{ "filament.first_layer_nozzle_temp", "A G-code temperature for the first layer. It changes no line." },
     .{ "filament.bed_temp", "A G-code temperature. It changes no line." },
+    .{ "filament.first_layer_bed_temp", "A G-code temperature of the first layer. It changes no line." },
     .{ "machine.chamber_temp", "The air around the print, for the simulated print. It changes no line." },
     .{ "machine.part_fan_air", "The air of the fans, for the simulated print. It changes no line." },
     .{ "filament.standby_temp", "A G-code temperature. It changes no line." },

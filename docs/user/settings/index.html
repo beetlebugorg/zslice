@@ -132,6 +132,8 @@
 <p>The maximum speed of the print head in X and Y.</p>
 <p><strong><code>machine.travel_speed</code></strong> (number). Default: <code>150</code></p>
 <p>The speed of travel moves (moves with no extrusion).</p>
+<p><strong><code>machine.first_layer_travel_speed</code></strong> (number). Default: <code>0</code></p>
+<p>The speed of the travel moves of the first layer, in mm/s. A slower travel does not pull the new lines off the bed. 0: <code>travel_speed</code>. As "Initial Layer Travel Speed" in Cura and "Initial layer travel speed" in OrcaSlicer.</p>
 <p><strong><code>machine.max_z_speed</code></strong> (number). Default: <code>10</code></p>
 <p>The speed of Z moves at each layer change.</p>
 <p><strong><code>machine.max_z_accel</code></strong> (number). Default: <code>100</code></p>
@@ -238,6 +240,8 @@ M84</code></pre>
 <p>The nozzle temperature on the first layer.</p>
 <p><strong><code>filament.bed_temp</code></strong> (number; per layer). Default: <code>60</code></p>
 <p>The bed temperature.</p>
+<p><strong><code>filament.first_layer_bed_temp</code></strong> (number). Default: <code>0</code></p>
+<p>The bed temperature on the first layer. From the second layer, the bed goes to <code>bed_temp</code> (M140, no wait). 0: <code>bed_temp</code> on all layers. As "Build Plate Temperature Initial Layer" in Cura and "Initial layer" bed temperature in OrcaSlicer.</p>
 <h3 id="flow">Flow</h3>
 <p><strong><code>filament.max_flow</code></strong> (number; per layer). Default: <code>12</code></p>
 <p>The maximum plastic flow that the hot end melts with this filament. This limits the speed of wide and tall lines.</p>
@@ -295,6 +299,8 @@ M84</code></pre>
 <p>Print parts of the outline that are thinner than one line width (a thin fin, a sheet, a label): a loop inside each thin part, with a narrower line, so that its two sides fill the thickness. Without it, these parts print nothing. Off by default.</p>
 <p><strong><code>project.seam</code></strong> (one of: <code>hidden</code>, <code>sharpest</code>, <code>rear</code>, <code>nearest</code>, <code>random</code>; per layer). Default: <code>hidden</code></p>
 <p>Where each wall loop starts and ends (the seam). <code>hidden</code>: at the point where the seam is hardest to see: an inside corner first, then an outside corner, toward the back, and not where the wall hangs over air; similar layers pick the same point, so the seam is one clean line. <code>sharpest</code>: in the deepest inside corner, or else in the sharpest outside corner, or else at the rear. <code>rear</code>: at the back of the part (the largest y), in one straight line. <code>nearest</code>: at the point nearest to the nozzle, which is the fastest. <code>random</code>: at a different point on each layer, so that no seam line shows.</p>
+<p><strong><code>project.seam_corner</code></strong> (one of: <code>auto</code>, <code>none</code>, <code>inner</code>, <code>outer</code>, <code>any</code>, <code>weighted</code>; per layer). Default: <code>auto</code></p>
+<p>The corners that the <code>sharpest</code> seam looks for, as "Seam Corner Preference" in Cura. <code>auto</code>: the zslice score (an inside corner, or else the sharpest outside corner). <code>inner</code>: inside corners, the sharper the better. <code>outer</code>: outside corners. <code>any</code>: the sharpest corner of either kind. <code>weighted</code>: any corner, but an inside corner counts twice. <code>none</code>: no corner, so the seam goes to the back right. With the other kinds of seam it has no effect.</p>
 <p><strong><code>project.wall_generator</code></strong> (one of: <code>classic</code>, <code>arachne</code>; per layer). Default: <code>classic</code></p>
 <p>The method that makes the walls. <code>classic</code>: each wall is the outline moved in by a whole number of line widths, with one line width. <code>arachne</code>: the walls follow the center lines of the part, and the width of each line changes along it, so that a whole number of lines fills the part. A part thinner than two lines gets one line in its middle, so <code>thin_walls</code> has no effect. This is the method of Cura and the other open source slicers.</p>
 <p><strong><code>project.min_wall_line_width</code></strong> (number; per layer). Default: <code>0</code></p>

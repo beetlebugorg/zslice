@@ -84,6 +84,15 @@
 //! (see `Memo`), combined infill (the idea of PrusaSlicer and Cura), the
 //! infill meshes of CuraEngine (see `Modifier`), and the trihexagon
 //! pattern of CuraEngine.
+//!
+//! `cornerSeamIndex` and its helpers are a port to Zig of the seam corner
+//! choice of CuraEngine (`CornerScoringCriterion.cpp`,
+//! `BestElementFinder.cpp`, `DistanceScoringCriterion.cpp`, the
+//! `SharpestCorner` part of `PathOrderOptimizer.h`, and `getAngleLeft` of
+//! `linear_alg_2d.cpp`), https://github.com/Ultimaker/CuraEngine, commit
+//! 2dcc3ec1be6ac7d0327e1860f25c45f4c18f2bdd. "Copyright (c) 2026
+//! UltiMaker". "CuraEngine is released under the terms of the AGPLv3 or
+//! higher." See docs/references/cura.md.
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
@@ -697,6 +706,7 @@ pub const Memo = struct {
         gen: u32,
         /// The seam vertex of each loop for `seam_mode` (for a wall).
         seam_mode: ?settings_mod.SeamMode = null,
+        seam_corner: settings_mod.SeamCorner = .auto,
         seams: []u32 = &.{},
     };
     const ThinEntry = struct { w: i64, thin: Paths, widths: []f32, gen: u32 };
@@ -981,10 +991,11 @@ pub const Memo = struct {
     fn seams(self: *Memo, walls: Paths, rule: Seam) Allocator.Error!?[]const u32 {
         for (self.offsets.items) |*e| {
             if (e.paths.points.items.ptr != walls.points.items.ptr or e.paths.count() != walls.count()) continue;
-            if (e.seam_mode != rule.mode) {
+            if (e.seam_mode != rule.mode or e.seam_corner != rule.corner) {
                 e.seams = try self.arena.allocator().alloc(u32, walls.count());
-                try seamIndices(walls, rule, e.seams);
+                try seamIndices(self.arena.allocator(), walls, rule, e.seams);
                 e.seam_mode = rule.mode;
+                e.seam_corner = rule.corner;
             }
             return e.seams;
         }
@@ -1696,7 +1707,7 @@ pub fn plan(gpa: Allocator, ctx: Context, i: usize) Allocator.Error!LayerPlan {
     var pos: Point = if (outline.points.items.len > 0) outline.points.items[0] else .init(0, 0);
     // The index of the layer below, made when a hidden seam needs it.
     var below: BelowIndex = .{ .s = s, .outline = if (i > 0) ctx.outlines[i - 1] else .empty };
-    const seam: Seam = .{ .mode = p.seam, .layer = i, .below = &below, .memo = memo };
+    const seam: Seam = .{ .mode = p.seam, .corner = p.seam_corner, .layer = i, .below = &below, .memo = memo };
     for (rings.items) |ring| try addOrdered(s, a, &lp, &pos, ring, true, .skirt);
     try addGroup(s, a, &lp, &pos, sup_walls, true, .support, sup_seams, null);
     try addOrdered(s, a, &lp, &pos, sup_lines, false, .support);
@@ -2286,6 +2297,154 @@ fn seamIndex(path: []const Point, mode: settings_mod.SeamMode, salt: u64) usize 
             return best orelse rearIndex(path);
         },
     }
+}
+
+/// The sharpest seam with a corner preference, as CuraEngine picks it
+/// (`PathOrderOptimizer::findStartLocation` with `CornerScoringCriterion`
+/// and `BestElementFinder`, see docs/references/cura.md):
+///
+/// 1. The corner angle of each vertex: the angle of the loop between the
+///    points 1 mm back and 1 mm on (at most half the loop), as a number
+///    from -1 to 1. Below 0 is an inside corner (the material angle is
+///    more than 180 degrees), above 0 an outside corner.
+/// 2. The score of the corner for the preference, from 0 to 1. The
+///    vertices within 0.05 of the best score stay.
+/// 3. Of these, the vertices within 0.01 of the best score for the back
+///    (1 / (1 + the distance in mm to the back of the loop)) stay.
+/// 4. Of these, the vertex nearest to the right side of the loop.
+///
+/// A tie keeps the first vertex. Cura also avoids the overhang areas and
+/// a texture; zslice does not.
+fn cornerSeamIndex(a: Allocator, path: []const Point, pref: settings_mod.SeamCorner) Allocator.Error!usize {
+    const n = path.len;
+    if (n < 3) return 0;
+    const keep = try a.alloc(u32, n);
+    defer a.free(keep);
+    const scores = try a.alloc(f64, n);
+    defer a.free(scores);
+    var total: i64 = 0;
+    for (0..n) |i| total += segLen(path, i);
+    const reach = @min(@as(i64, 1000), @divTrunc(total, 2));
+    var box_max: Point = path[0];
+    for (path) |q| {
+        box_max.x = @max(box_max.x, q.x);
+        box_max.y = @max(box_max.y, q.y);
+    }
+    // Pass 1: the corner score.
+    var count: usize = 0;
+    for (0..n) |i| keep[i] = @intCast(i);
+    count = n;
+    var best: f64 = -std.math.inf(f64);
+    for (0..n) |i| {
+        const c = cornerAngle(path, i, reach);
+        scores[i] = switch (pref) {
+            .inner => (1.0 - c) / 2.0,
+            .outer => (c + 1.0) / 2.0,
+            .any => @abs(c),
+            .weighted => if (c < 0) -c else c / 2.0,
+            .none, .auto => 0,
+        };
+        if (scores[i] > best) best = scores[i];
+    }
+    count = filterKeep(keep[0..count], scores, best, 0.05);
+    if (count == 1) return keep[0];
+    // Pass 2: toward the back (Y only).
+    best = -std.math.inf(f64);
+    for (keep[0..count]) |i| {
+        scores[i] = 1.0 / (1.0 + @abs(geom.toMm(path[i].y - box_max.y)));
+        if (scores[i] > best) best = scores[i];
+    }
+    count = filterKeep(keep[0..count], scores, best, 0.01);
+    if (count == 1) return keep[0];
+    // Pass 3: toward the right (X only), the best one.
+    var pick: u32 = keep[0];
+    var pick_score: f64 = -std.math.inf(f64);
+    for (keep[0..count]) |i| {
+        const sc = 1.0 / (1.0 + @abs(geom.toMm(path[i].x - box_max.x)));
+        if (sc > pick_score) {
+            pick = i;
+            pick_score = sc;
+        }
+    }
+    return pick;
+}
+
+/// Keeps the indices of `keep` whose score is within `delta` of `best`, in
+/// their order. Returns the count.
+fn filterKeep(keep: []u32, scores: []const f64, best: f64, delta: f64) usize {
+    const d = delta + std.math.floatEps(f64);
+    var k: usize = 0;
+    for (keep) |i| if (!(best - scores[i] > d)) {
+        keep[k] = i;
+        k += 1;
+    };
+    return k;
+}
+
+/// The length of the edge from vertex i to the next vertex of a loop, in
+/// micrometers.
+fn segLen(path: []const Point, i: usize) i64 {
+    const a = path[i];
+    const b = path[(i + 1) % path.len];
+    const dx: f64 = @floatFromInt(b.x - a.x);
+    const dy: f64 = @floatFromInt(b.y - a.y);
+    return @intFromFloat(@sqrt(dx * dx + dy * dy));
+}
+
+/// The point at distance `dist` along the loop from vertex i, forward
+/// (dist > 0) or back (dist < 0), as CuraEngine finds it
+/// (`CornerScoringCriterion::findNeighbourPoint`).
+fn loopPointAt(path: []const Point, i: usize, dist: i64) Point {
+    const n: i64 = @intCast(path.len);
+    const dir: i64 = if (dist > 0) 1 else -1;
+    const size_delta: i64 = if (dist > 0) -1 else 0;
+    const want = if (dist < 0) -dist else dist;
+    var delta: i64 = 0;
+    var walked: i64 = 0;
+    var seg: i64 = 0;
+    const ii: i64 = @intCast(i);
+    while (walked < want) {
+        delta += dir;
+        seg = segLen(path, @intCast(@mod(ii + delta + size_delta, n)));
+        walked += seg;
+        if (seg == 0 and @abs(delta) > n) break;
+    }
+    const next = path[@intCast(@mod(ii + delta, n))];
+    if (walked > want and seg > 0) {
+        const prev = path[@intCast(@mod(ii + delta - dir, n))];
+        // The integer steps of CuraEngine: a unit vector times 1000.
+        const ux = @divTrunc((next.x - prev.x) * 1000, seg);
+        const uy = @divTrunc((next.y - prev.y) * 1000, seg);
+        const back = seg - (walked - want);
+        return .{ .x = prev.x + @divTrunc(ux * back, 1000), .y = prev.y + @divTrunc(uy * back, 1000) };
+    }
+    return next;
+}
+
+/// The corner angle of vertex i of a loop with the material on its left,
+/// from -1 (an inside corner) to 1 (an outside corner); 0 is straight.
+/// CuraEngine measures it on the loop as it prints it (clockwise for an
+/// outer wall), so the point back here is the point on there.
+fn cornerAngle(path: []const Point, i: usize, reach: i64) f64 {
+    const here = path[i];
+    const a = loopPointAt(path, i, reach);
+    const c = loopPointAt(path, i, -reach);
+    // getAngleLeft(a, here, c) of CuraEngine.
+    const bax: f64 = @floatFromInt(a.x - here.x);
+    const bay: f64 = @floatFromInt(a.y - here.y);
+    const bcx: f64 = @floatFromInt(c.x - here.x);
+    const bcy: f64 = @floatFromInt(c.y - here.y);
+    const det = bax * bcy - bay * bcx;
+    const dot = bax * bcx + bay * bcy;
+    var left: f64 = undefined;
+    if (det == 0) {
+        const same = (bax != 0 and (bax > 0) == (bcx > 0)) or (bax == 0 and (bay > 0) == (bcy > 0));
+        left = if (same) 0 else std.math.pi;
+    } else {
+        const ang = -std.math.atan2(det, dot);
+        left = if (ang >= 0) ang else 2 * std.math.pi + ang;
+    }
+    return (left - std.math.pi) / std.math.pi;
 }
 
 /// The hidden seam: the vertex with the best score.
@@ -3243,6 +3402,8 @@ fn addOrdered(s: Allocator, a: Allocator, lp: *LayerPlan, pos: *Point, set: Path
 
 const Seam = struct {
     mode: settings_mod.SeamMode,
+    /// The corners of the `sharpest` seam (see `Project.seam_corner`).
+    corner: settings_mod.SeamCorner = .auto,
     layer: usize,
     /// The outline of the layer below: the hidden seam avoids a point over
     /// air.
@@ -3269,10 +3430,12 @@ const BelowIndex = struct {
 };
 
 /// The seam vertex of each loop of `set` for `rule` (see `Seam`).
-fn seamIndices(set: Paths, rule: Seam, out: []u32) Allocator.Error!void {
+fn seamIndices(a: Allocator, set: Paths, rule: Seam, out: []u32) Allocator.Error!void {
     const below = if (rule.mode == .hidden) try rule.below.get() else null;
     for (out, 0..) |*v, j| v.* = @intCast(if (rule.mode == .hidden)
         hiddenIndex(set.get(j), below)
+    else if (rule.mode == .sharpest and rule.corner != .auto)
+        try cornerSeamIndex(a, set.get(j), rule.corner)
     else
         seamIndex(set.get(j), rule.mode, rule.layer *% 1_000_003 +% j));
 }
@@ -3283,7 +3446,7 @@ fn seamsFor(s: Allocator, set: Paths, rule: Seam) Allocator.Error!?[]const u32 {
     if (rule.mode == .nearest or set.count() == 0) return null;
     if (rule.memo) |m| if (try m.seams(set, rule)) |f| return f;
     const f = try s.alloc(u32, set.count());
-    try seamIndices(set, rule, f);
+    try seamIndices(s, set, rule, f);
     return f;
 }
 
@@ -3612,6 +3775,38 @@ test "skirt and brim on the first layer" {
     var l1 = try plan(gpa, ctx, 1);
     defer l1.deinit();
     for (l1.paths.items) |path| try testing.expect(path.feature != .skirt);
+}
+
+test "seam corner preference: the vertex that CuraEngine picks" {
+    const gpa = testing.allocator;
+    // The L shape of "seam placement": the inside corner is vertex 3,
+    // the five outside corners have 90 degrees.
+    const l = [_]Point{ .init(0, 0), .init(20_000, 0), .init(20_000, 10_000), .init(10_000, 10_000), .init(10_000, 20_000), .init(0, 20_000) };
+    // The corner angles, as CornerScoringCriterion::cornerAngle gives them
+    // on the loop as Cura prints it: -0.5 inside, 0.5 outside.
+    try testing.expectApproxEqAbs(@as(f64, -0.5), cornerAngle(&l, 3, 1000), 1e-9);
+    try testing.expectApproxEqAbs(@as(f64, 0.5), cornerAngle(&l, 0, 1000), 1e-9);
+    // Inner and weighted: the inside corner.
+    try testing.expectEqual(@as(usize, 3), try cornerSeamIndex(gpa, &l, .inner));
+    try testing.expectEqual(@as(usize, 3), try cornerSeamIndex(gpa, &l, .weighted));
+    // Outer, any, and none: a tie of corners. Cura takes the vertices at
+    // the back (y = 20 mm), then the one nearest to the right: (10, 20).
+    try testing.expectEqual(@as(usize, 4), try cornerSeamIndex(gpa, &l, .outer));
+    try testing.expectEqual(@as(usize, 4), try cornerSeamIndex(gpa, &l, .any));
+    try testing.expectEqual(@as(usize, 4), try cornerSeamIndex(gpa, &l, .none));
+    // A square with no inside corner: inner gives all four the score 0.25,
+    // so the back right corner wins.
+    const sq = [_]Point{ .init(0, 0), .init(10_000, 0), .init(10_000, 10_000), .init(0, 10_000) };
+    try testing.expectEqual(@as(usize, 2), try cornerSeamIndex(gpa, &sq, .inner));
+    // A loop of many short edges: the angle is measured 1 mm away, so a
+    // round corner of a CAD export still counts as one corner.
+    var round: [40]Point = undefined;
+    for (&round, 0..) |*q, k| {
+        const t = @as(f64, @floatFromInt(k)) / 40.0 * 2 * std.math.pi;
+        q.* = .init(@intFromFloat(5000 * @cos(t)), @intFromFloat(5000 * @sin(t)));
+    }
+    // A circle has no corner: the vertex at the back (90 degrees).
+    try testing.expectEqual(@as(usize, 10), try cornerSeamIndex(gpa, &round, .inner));
 }
 
 test "seam placement" {

@@ -116,6 +116,15 @@ const Conv = enum {
     support_type,
     /// support_structure: normal (grid) or tree.
     support_structure,
+    /// A percentage that becomes a ratio with no upper limit (shrinkage:
+    /// 100.3 becomes 1.003).
+    ratio,
+    /// z_seam_corner.
+    seam_corner,
+    /// support_interface_pattern.
+    interface_pattern,
+    /// A zslice choice that prepareProfile wrote (a "zslice:" key).
+    choice,
 };
 
 const machine_map = [_]Map{
@@ -155,17 +164,24 @@ const project_map = [_]Map{
     .{ .cura = "infill_pattern", .group = "project", .key = "infill_pattern", .conv = .infill_pattern },
     .{ .cura = "ironing_enabled", .group = "project", .key = "ironing", .conv = .boolean },
     .{ .cura = "z_seam_type", .group = "project", .key = "seam", .conv = .seam },
+    .{ .cura = "z_seam_corner", .group = "project", .key = "seam_corner", .conv = .seam_corner },
+    // top_bottom_pattern and skin_monotonic, as prepareProfile converts
+    // them.
+    .{ .cura = "zslice:skin_pattern", .group = "project", .key = "skin_pattern", .conv = .choice },
     .{ .cura = "support_type", .group = "project", .key = "support", .conv = .support_type },
     .{ .cura = "support_structure", .group = "project", .key = "support_style", .conv = .support_structure },
     .{ .cura = "support_angle", .group = "project", .key = "support_angle" },
     .{ .cura = "support_infill_rate", .group = "project", .key = "support_density", .conv = .percent },
     .{ .cura = "support_xy_distance", .group = "project", .key = "support_xy_gap" },
+    .{ .cura = "support_interface_density", .group = "project", .key = "support_interface_density", .conv = .percent },
+    .{ .cura = "support_interface_pattern", .group = "project", .key = "support_interface_pattern", .conv = .interface_pattern },
     .{ .cura = "skirt_line_count", .group = "project", .key = "skirt_loops" },
     .{ .cura = "skirt_gap", .group = "project", .key = "skirt_distance" },
     .{ .cura = "brim_width", .group = "project", .key = "brim_width" },
     .{ .cura = "retraction_min_travel", .group = "project", .key = "retract_min_travel" },
     .{ .cura = "retraction_combing_max_distance", .group = "project", .key = "combing_max_distance" },
     .{ .cura = "retraction_hop", .group = "project", .key = "z_hop" },
+    .{ .cura = "retract_at_layer_change", .group = "project", .key = "retract_layer_change", .conv = .boolean },
     .{ .cura = "wall_0_wipe_dist", .group = "project", .key = "outer_wall_wipe" },
     .{ .cura = "speed_wall_0", .group = "project", .key = "outer_wall_speed", .conv = .speed },
     .{ .cura = "speed_wall_x", .group = "project", .key = "inner_wall_speed", .conv = .speed },
@@ -173,16 +189,30 @@ const project_map = [_]Map{
     .{ .cura = "speed_infill", .group = "project", .key = "infill_speed", .conv = .speed },
     .{ .cura = "speed_layer_0", .group = "project", .key = "first_layer_speed", .conv = .speed },
     .{ .cura = "speed_travel", .group = "machine", .key = "travel_speed" },
+    .{ .cura = "speed_travel_layer_0", .group = "machine", .key = "first_layer_travel_speed" },
     .{ .cura = "retraction_amount", .group = "machine", .key = "retract_length" },
     .{ .cura = "retraction_speed", .group = "machine", .key = "retract_speed" },
     .{ .cura = "cool_min_layer_time", .group = "filament", .key = "min_layer_time" },
     .{ .cura = "cool_min_speed", .group = "filament", .key = "min_speed" },
     .{ .cura = "cool_fan_speed", .group = "filament", .key = "fan_speed", .conv = .percent },
+    // The regular fan speed of Cura; cool_fan_speed sets it by default.
+    .{ .cura = "cool_fan_speed_min", .group = "filament", .key = "fan_speed", .conv = .percent },
+    // cool_fan_full_layer, as prepareProfile converts it.
+    .{ .cura = "zslice:fan_off_layers", .group = "filament", .key = "fan_off_layers" },
+    .{ .cura = "zslice:fan_ramp_layers", .group = "filament", .key = "fan_ramp_layers" },
     .{ .cura = "cool_fan_speed_max", .group = "filament", .key = "fan_max_speed", .conv = .percent },
     .{ .cura = "cool_min_layer_time_fan_speed_max", .group = "filament", .key = "fan_boost_time" },
     .{ .cura = "material_print_temperature", .group = "filament", .key = "nozzle_temp" },
     .{ .cura = "material_print_temperature_layer_0", .group = "filament", .key = "first_layer_nozzle_temp" },
     .{ .cura = "material_bed_temperature", .group = "filament", .key = "bed_temp" },
+    .{ .cura = "material_bed_temperature_layer_0", .group = "filament", .key = "first_layer_bed_temp" },
+    .{ .cura = "material_standby_temperature", .group = "filament", .key = "standby_temp" },
+    // The shrinkage of the material: the general value, then each
+    // direction.
+    .{ .cura = "material_shrinkage_percentage", .group = "filament", .key = "shrinkage_xy", .conv = .ratio },
+    .{ .cura = "material_shrinkage_percentage", .group = "filament", .key = "shrinkage_z", .conv = .ratio },
+    .{ .cura = "material_shrinkage_percentage_xy", .group = "filament", .key = "shrinkage_xy", .conv = .ratio },
+    .{ .cura = "material_shrinkage_percentage_z", .group = "filament", .key = "shrinkage_z", .conv = .ratio },
     .{ .cura = "material_flow", .group = "filament", .key = "flow_ratio", .conv = .percent },
     .{ .cura = "xy_offset", .group = "filament", .key = "xy_offset" },
     .{ .cura = "hole_xy_offset", .group = "filament", .key = "hole_xy_offset" },
@@ -198,7 +228,7 @@ const gcode_vars = [_][2][]const u8{
     .{ "material_print_temperature", "nozzle_temp" },
     .{ "material_print_temperature_layer_0", "first_layer_nozzle_temp" },
     .{ "material_bed_temperature", "bed_temp" },
-    .{ "material_bed_temperature_layer_0", "bed_temp" },
+    .{ "material_bed_temperature_layer_0", "first_layer_bed_temp" },
     .{ "material_standby_temperature", "standby_temp" },
     .{ "layer_height", "layer_height" },
     .{ "layer_height_0", "first_layer_height" },
@@ -327,9 +357,42 @@ pub fn resolveStack(arena: Allocator, src: Source, diag: *Diagnostic) Error!Stac
 /// converts: the speeds that follow speed_print, the thickness from layer
 /// counts, the brim, and the support.
 fn prepareProfile(arena: Allocator, values: *Values, machine: *const Values) Error!void {
+    // The wall speeds that Cura derives from speed_wall.
+    if (values.get("speed_wall")) |sw| {
+        for ([_][]const u8{ "speed_wall_0", "speed_wall_x" }) |k| if (values.get(k) == null) try values.put(arena, k, sw);
+    }
     // Speeds that Cura derives from speed_print.
     if (values.get("speed_print")) |sp| {
         for (speed_keys[1..]) |k| if (values.get(k) == null) try values.put(arena, k, sp);
+    }
+    // The fan of the first layers (CuraEngine
+    // `ExtruderPlan::processFanSpeedForFirstLayers`): cool_fan_speed_0 on
+    // the first layer, then a line up to the regular speed on layer n of
+    // cool_fan_full_layer (from 1). With cool_fan_speed_0 at 0, layer k
+    // (from 0) of the line gets k / (n - 1) of the speed: the zslice fan
+    // off on 1 layer, then n - 2 layers of ramp.
+    if (values.get("cool_fan_full_layer")) |fl| if (number(fl.text)) |n| {
+        const s0 = if (values.get("cool_fan_speed_0")) |z| number(z.text) else 0;
+        if (s0 != null and s0.? == 0) {
+            const full: u32 = @intFromFloat(@max(1, @round(n)));
+            try values.put(arena, "zslice:fan_off_layers", .{ .text = if (full <= 1) "0" else "1", .from = fl.from });
+            try values.put(arena, "zslice:fan_ramp_layers", .{ .text = try std.fmt.allocPrint(arena, "{d}", .{if (full <= 2) 0 else full - 2}), .from = fl.from });
+            _ = values.orderedRemove("cool_fan_full_layer");
+            _ = values.orderedRemove("cool_fan_speed_0");
+        }
+    };
+    // The skin pattern: top_bottom_pattern, and skin_monotonic for lines.
+    {
+        const pat = if (values.get("top_bottom_pattern")) |t| t.text else "lines";
+        const mono = if (values.get("skin_monotonic")) |m| std.ascii.eqlIgnoreCase(m.text, "true") else false;
+        const from = if (values.get("skin_monotonic")) |m| m.from else if (values.get("top_bottom_pattern")) |t| t.from else "";
+        const lines = std.mem.eql(u8, pat, "lines") or std.mem.eql(u8, pat, "zigzag");
+        const zs: ?[]const u8 = if (lines) (if (mono) "monotonic" else "lines") else if (std.mem.eql(u8, pat, "concentric")) "concentric" else null;
+        if (zs) |z| if (values.get("top_bottom_pattern") != null or values.get("skin_monotonic") != null) {
+            try values.put(arena, "zslice:skin_pattern", .{ .text = z, .from = from });
+            _ = values.orderedRemove("top_bottom_pattern");
+            _ = values.orderedRemove("skin_monotonic");
+        };
     }
     // Thickness from layer counts, when Cura gives counts.
     try thicknessFromLayers(arena, values, "top_layers", "top_thickness");
@@ -561,6 +624,7 @@ fn writeMapped(arena: Allocator, w: *Writer, values: *const Values, map: []const
     while (it.next()) |e| {
         const is_expr = e.value_ptr.text.len > 0 and e.value_ptr.text[0] == '=';
         if (used.contains(e.key_ptr.*) and !is_expr) continue;
+        if (!is_expr and isDerivedKey(e.key_ptr.*)) continue;
         const machine_key = std.mem.startsWith(u8, e.key_ptr.*, "machine_");
         if (machine_key != (filter == .machine_keys)) continue;
         if (first) {
@@ -574,6 +638,14 @@ fn writeMapped(arena: Allocator, w: *Writer, values: *const Values, map: []const
             try w.print("#   {s} = (long value)\n", .{e.key_ptr.*});
         }
     }
+}
+
+/// Keys that the importer uses through other keys: speed_print and
+/// speed_wall give the speeds that a profile does not set
+/// (prepareProfile), and the machine profile has material_diameter.
+fn isDerivedKey(key: []const u8) bool {
+    for ([_][]const u8{ "speed_print", "speed_wall", "material_diameter" }) |k| if (std.mem.eql(u8, k, key)) return true;
+    return false;
 }
 
 /// Converts a Cura value to the TOML value of a zslice setting, or null if
@@ -624,6 +696,24 @@ fn convert(arena: Allocator, conv: Conv, text: []const u8, speed: SpeedBase) !?[
             if (std.mem.eql(u8, text, "normal")) return "\"grid\"";
             return null;
         },
+        .ratio => {
+            const n = number(text) orelse return null;
+            return try std.fmt.allocPrint(arena, "{d}", .{n / 100.0});
+        },
+        .seam_corner => {
+            const pairs = [_][2][]const u8{
+                .{ "z_seam_corner_none", "none" },   .{ "z_seam_corner_inner", "inner" }, .{ "z_seam_corner_outer", "outer" },
+                .{ "z_seam_corner_any", "any" },     .{ "z_seam_corner_weighted", "weighted" },
+            };
+            for (pairs) |pr| if (std.mem.eql(u8, text, pr[0])) return try std.fmt.allocPrint(arena, "\"{s}\"", .{pr[1]});
+            return null;
+        },
+        .interface_pattern => {
+            if (std.mem.eql(u8, text, "lines") or std.mem.eql(u8, text, "zigzag")) return "\"lines\"";
+            if (std.mem.eql(u8, text, "grid")) return "\"grid\"";
+            return null;
+        },
+        .choice => return try std.fmt.allocPrint(arena, "\"{s}\"", .{text}),
         .support_type => {
             if (std.mem.eql(u8, text, "buildplate")) return "\"buildplate\"";
             if (std.mem.eql(u8, text, "everywhere")) return "\"everywhere\"";
@@ -1371,6 +1461,7 @@ fn mapSettings(arena: Allocator, meta: anytype, base: *const @import("settings.z
                 .seam => (try convert(arena, .seam, v, .{ .base = 0, .precise = false })),
                 .support_type => (try convert(arena, .support_type, v, .{ .base = 0, .precise = false })),
                 .support_structure => (try convert(arena, .support_structure, v, .{ .base = 0, .precise = false })),
+                .ratio, .seam_corner, .interface_pattern => (try convert(arena, m_.conv, v, .{ .base = 0, .precise = false })),
                 else => null,
             };
             const text = value orelse {
@@ -1405,6 +1496,7 @@ pub fn applyPart(s: *@import("settings.zig").Settings, part: PartSettings) ?Part
 const testing = std.testing;
 const profile = @import("profile.zig");
 const Settings = @import("settings.zig").Settings;
+const settings_mod_t = @import("settings.zig");
 
 const TestSource = struct {
     files: []const [2][]const u8,
@@ -1415,6 +1507,83 @@ const TestSource = struct {
         return null;
     }
 };
+
+test "import the settings of the Printdeck BLTouch mount profile" {
+    // The quality_changes of the BLTouch mount of Printdeck (Cura 5.14,
+    // LulzBot TAZ Workhorse SE): each key has a zslice setting.
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    var files: TestSource = .{ .files = &.{
+        .{
+            "cura.json",
+            \\{"cura": "5.14.0", "machine": "test_printer", "extruder": "test_extruder",
+            \\ "profiles": {"mount": {"quality_changes": "q.inst.cfg", "quality_changes_extruder": "q_e0.inst.cfg"}}}
+        },
+        .{ "definitions/test_printer.def.json", "{\"name\": \"Test\", \"inherits\": \"fdmprinter\", \"overrides\": {\"machine_width\": {\"default_value\": 280}}}" },
+        .{ "definitions/test_extruder.def.json", "{\"name\": \"E\", \"inherits\": \"fdmextruder\", \"overrides\": {\"machine_nozzle_size\": {\"default_value\": 0.5}}}" },
+        .{
+            "q.inst.cfg",
+            \\[values]
+            \\layer_height = 0.2
+            \\layer_height_0 = 0.3
+            \\material_bed_temperature = 75
+            \\material_bed_temperature_layer_0 = 70
+            \\material_shrinkage_percentage_xy = 100.3
+            \\material_shrinkage_percentage_z = 100.2
+        },
+        .{
+            "q_e0.inst.cfg",
+            \\[values]
+            \\cool_fan_full_layer = 5
+            \\cool_fan_speed_max = 50
+            \\cool_fan_speed_min = 40
+            \\retract_at_layer_change = True
+            \\skin_monotonic = True
+            \\speed_print = 50
+            \\speed_wall = 40
+            \\speed_wall_x = 45
+            \\speed_travel = 150
+            \\speed_travel_layer_0 = 100
+            \\z_seam_type = sharpest_corner
+            \\z_seam_corner = z_seam_corner_inner
+            \\material_standby_temperature = 160
+        },
+    } };
+    var diag: Diagnostic = .{};
+    const outs = try importStack(a, .{ .ctx = &files, .read = TestSource.read }, &diag);
+    var s: Settings = .{};
+    var pd: profile.Diagnostic = .{};
+    var project_text: []const u8 = "";
+    for (outs) |o| {
+        const g = std.meta.stringToEnum(profile.Group, o.group).?;
+        if (g == .project) project_text = o.text;
+        profile.apply(a, &s, g, o.name, o.text, null, &pd) catch |e| {
+            std.debug.print("{s}: line {d}: {s}\n{s}\n", .{ o.name, pd.line, pd.message, o.text });
+            return e;
+        };
+    }
+    try testing.expectEqual(@as(f64, 70), s.filament.first_layer_bed_temp);
+    try testing.expectApproxEqAbs(@as(f64, 1.003), s.filament.shrinkage_xy, 1e-9);
+    try testing.expectApproxEqAbs(@as(f64, 1.002), s.filament.shrinkage_z, 1e-9);
+    // Cura: layer k (from 0) below cool_fan_full_layer - 1 gets k / 4 of
+    // the regular speed (cool_fan_speed_min). zslice: off on 1 layer, then
+    // 3 layers of ramp at 1/4, 2/4, 3/4.
+    try testing.expectEqual(@as(f64, 0.4), s.filament.fan_speed);
+    try testing.expectEqual(@as(u32, 1), s.filament.fan_off_layers);
+    try testing.expectEqual(@as(u32, 3), s.filament.fan_ramp_layers);
+    try testing.expect(s.project.retract_layer_change);
+    try testing.expectEqual(settings_mod_t.SkinPattern.monotonic, s.project.skin_pattern);
+    try testing.expectEqual(settings_mod_t.SeamMode.sharpest, s.project.seam);
+    try testing.expectEqual(settings_mod_t.SeamCorner.inner, s.project.seam_corner);
+    try testing.expectEqual(@as(f64, 100), s.machine.first_layer_travel_speed);
+    try testing.expectEqual(@as(f64, 160), s.filament.standby_temp);
+    // speed_wall gives speed_wall_0 (40), and speed_wall_x keeps its own.
+    try testing.expectApproxEqAbs(@as(f64, 40), s.project.outer_wall_speed * s.machine.max_speed, 0.1);
+    try testing.expectApproxEqAbs(@as(f64, 45), s.project.inner_wall_speed * s.machine.max_speed, 0.1);
+    // No key of the profile is left out.
+    try testing.expect(std.mem.indexOf(u8, project_text, "not imported") == null);
+}
 
 test "import a small Cura stack and load the result" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
@@ -1509,7 +1678,7 @@ test "import a small Cura stack and load the result" {
     try testing.expectEqual(@as(f64, 0.5), s.project.outer_wall_speed);
     try testing.expectEqual(@as(f64, 3), s.project.brim_width); // 6 lines of 0.5 mm
     try testing.expectApproxEqAbs(@as(f64, 0.8), s.project.top_thickness, 1e-9);
-    try testing.expect(std.mem.indexOf(u8, s.machine.start_gcode, "BED={bed_temp} LAYER={first_layer_height}") != null);
+    try testing.expect(std.mem.indexOf(u8, s.machine.start_gcode, "BED={first_layer_bed_temp} LAYER={first_layer_height}") != null);
     try testing.expect(std.mem.indexOf(u8, s.machine.start_gcode, "M117 {job_name}") != null);
     try testing.expectEqual(@as(u32, 2), s.project.wall_count); // the expression is not imported
     try testing.expectEqual(@import("settings.zig").SupportMode.buildplate, s.project.support);

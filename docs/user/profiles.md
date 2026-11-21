@@ -149,6 +149,11 @@ What the import does:
 | G-code variables, for example `{material_bed_temperature_layer_0}` | The same text: zslice reads the Cura variables (see [Start and end G-code](#start-and-end-g-code)) |
 | A value that is an expression (it starts with `=`) | Not imported |
 | The settings of a material for other printers (`<machine>` blocks) | Not imported |
+| `speed_wall`, `speed_print` | The value of the wall speeds and the other speeds that the profile does not set, as the Cura formulas give them |
+| `cool_fan_full_layer` (with `cool_fan_speed_0` at 0) | `filament.fan_off_layers` 1 and `filament.fan_ramp_layers` n - 2: the same fan speed on each layer as Cura |
+| `top_bottom_pattern` and `skin_monotonic` | `project.skin_pattern` (`lines`, `monotonic`, or `concentric`) |
+| `z_seam_type` and `z_seam_corner` | `project.seam` and `project.seam_corner` |
+| `material_shrinkage_percentage_xy` and `_z` (100.3) | `filament.shrinkage_xy` and `shrinkage_z` (1.003) |
 
 Each Cura setting that has no zslice setting yet is in a comment at the end of the profile. Read these comments: they show what the import did not keep.
 

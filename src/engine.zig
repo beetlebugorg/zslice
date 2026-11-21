@@ -3372,6 +3372,49 @@ test "start G-code: zslice heats if it does not, and the first layer sets the fi
     try testing.expect(std.mem.indexOf(u8, b, "; zslice: the start G-code does not heat") == null);
 }
 
+test "first layer bed temperature and travel speed, as Cura writes them" {
+    const gpa = testing.allocator;
+    var s: Settings = .{};
+    s.filament.bed_temp = 60;
+    s.filament.first_layer_bed_temp = 70;
+    s.machine.travel_speed = 150;
+    s.machine.first_layer_travel_speed = 100;
+    s.machine.start_gcode = "G28";
+    const a = try demoGcodeWith(gpa, s, &.{});
+    defer gpa.free(a);
+    // CuraEngine heats the bed to material_bed_temperature_layer_0 before
+    // the print, and sets material_bed_temperature (M140, no wait) when
+    // layer 1 starts.
+    try testing.expect(std.mem.indexOf(u8, a, "M190 S70 ; zslice") != null);
+    const l0 = std.mem.indexOf(u8, a, ";LAYER:0\n").?;
+    const l1 = std.mem.indexOf(u8, a, ";LAYER:1\n").?;
+    const l2 = std.mem.indexOf(u8, a, ";LAYER:2\n").?;
+    try testing.expect(std.mem.indexOf(u8, a[l1..l2], "\nM140 S60\n") != null);
+    try testing.expect(std.mem.indexOf(u8, a[0..l1], "M140") == null);
+    const l3 = std.mem.indexOf(u8, a, ";LAYER:3\n").?;
+    try testing.expect(std.mem.indexOf(u8, a[l2..l3], "M140") == null);
+    // The travel moves of layer 0 go at speed_travel_layer_0, the others
+    // at speed_travel.
+    try testing.expect(std.mem.indexOf(u8, a[l0..l1], "F6000") != null);
+    try testing.expect(std.mem.indexOf(u8, a[l0..l1], "F9000") == null);
+    try testing.expect(std.mem.indexOf(u8, a[l1..], "F9000") != null);
+    // A start G-code with the variable of the first layer bed.
+    s.machine.start_gcode = "M190 S{material_bed_temperature_layer_0}\nG28";
+    const b = try demoGcodeWith(gpa, s, &.{});
+    defer gpa.free(b);
+    try testing.expect(std.mem.indexOf(u8, b, "M190 S70\nG28") != null);
+    try testing.expect(std.mem.indexOf(u8, b, "; zslice: the start G-code does not heat the bed") == null);
+    // 0: the bed temperature on all layers, and one travel speed.
+    s.filament.first_layer_bed_temp = 0;
+    s.machine.first_layer_travel_speed = 0;
+    s.machine.start_gcode = "G28";
+    const c = try demoGcodeWith(gpa, s, &.{});
+    defer gpa.free(c);
+    try testing.expect(std.mem.indexOf(u8, c, "M190 S60 ; zslice") != null);
+    try testing.expect(std.mem.indexOf(u8, c, "M140 S60") == null);
+    try testing.expect(std.mem.indexOf(u8, c, "F6000") == null);
+}
+
 test "gcode: a wipe retraction stays inside the part" {
     const gpa = testing.allocator;
     var b: mesh_mod.Builder = .init(gpa);

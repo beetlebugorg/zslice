@@ -25,6 +25,28 @@ CuraEngine, UltiMaker, https://github.com/Ultimaker/CuraEngine, commit `5eff812d
 
 **Notes:** The Arachne walls (`project.wall_generator = arachne`) are a port to Zig of these files: `src/arachne/SkeletalTrapezoidation.cpp`, `src/arachne/SkeletalTrapezoidationGraph.cpp`, `src/arachne/STHalfEdge.cpp`, `src/arachne/STHalfEdgeNode.cpp` and their headers in `include/arachne/` (`SkeletalTrapezoidation.h`, `SkeletalTrapezoidationGraph.h`, `SkeletalTrapezoidationEdge.h`, `SkeletalTrapezoidationJoint.h`, `STHalfEdge.h`, `STHalfEdgeNode.h`) to `src/arachne/skeletal.zig`; `src/beading_strategy/BeadingStrategy.cpp`, `DistributedBeadingStrategy.cpp`, `RedistributeBeadingStrategy.cpp`, `WideningBeadingStrategy.cpp`, `OuterWallInsetBeadingStrategy.cpp`, `InnerWallInsetBeadingStrategy.cpp`, `LimitedBeadingStrategy.cpp`, their headers in `include/beading_strategy/`, and `src/utils/beading_strategy_factory.cpp` to `src/arachne/beading.zig`; `src/types/geometry/ExtrusionJunction.cpp`, `ExtrusionLine.cpp`, `PolylineStitcher.cpp`, and the extrusion line parts of `Simplify.cpp` to `src/arachne/extrusion.zig`; `src/WallToolPaths.cpp` and `src/types/geometry/MendedShape.cpp` to `src/arachne/walls.zig`; the parts of `src/utils/voronoi_utils.cpp` that the trapezoidation uses (the parabola steps) to `src/arachne/skeletal.zig`. Each file keeps the copyright line and names its sources.
 
+### CuraEngine seam corner preference
+
+```ref
+kind: code
+source: CuraEngine
+license: AGPL-3.0-or-later
+link: https://github.com/Ultimaker/CuraEngine
+version: commit 2dcc3ec1be6ac7d0327e1860f25c45f4c18f2bdd
+files: src/layer.zig
+area: walls
+summary: `project.seam_corner` is a Zig port of the CuraEngine choice of the sharpest corner seam: the corner angle, the corner score, and the passes to the back and to the right.
+```
+
+CuraEngine, UltiMaker, https://github.com/Ultimaker/CuraEngine, commit `2dcc3ec1be6ac7d0327e1860f25c45f4c18f2bdd` (21 November 2026). "Copyright (c) 2026 UltiMaker". "CuraEngine is released under the terms of the AGPLv3 or higher."
+
+**License:** AGPL-3.0-or-later
+
+**Text:** `LICENSE` (the same AGPL-3.0 text as zslice)
+
+**Notes:** `cornerSeamIndex`, `cornerAngle`, `loopPointAt`, and `filterKeep` in `src/layer.zig` are a port to Zig of `src/types/scoring/CornerScoringCriterion.cpp` (the corner angle at 1 mm on each side and the score of each preference), `src/types/scoring/BestElementFinder.cpp` (the passes that keep the candidates within a score delta), `src/types/scoring/DistanceScoringCriterion.cpp` (the scores for the back and the right), the `SharpestCorner` part of `PathOrderOptimizer::findStartLocation` in `include/PathOrderOptimizer.h`, and `getAngleLeft` of `src/utils/linear_alg_2d.cpp`. The overhang and the texture criteria of CuraEngine are not in the port. The header of `src/layer.zig` keeps the copyright line and names the sources.
+
+
 ## Algorithms, formats, and conventions
 
 ### Cura profile files
@@ -312,3 +334,33 @@ summary: The camera turns with a right drag, around the vertical axis of the wor
 ```
 
 Cura turns the camera with a right drag, and keeps the bed level. The orbit of zslice (`src/render/view.zig`) has the same controls. Tinkercad and Fusion turn the camera in the same way. The code is new.
+
+### First layer fan ramp
+
+```ref
+kind: setting
+source: CuraEngine, Cura
+license: AGPL-3.0-or-later
+link: https://github.com/Ultimaker/CuraEngine
+version: commit 2dcc3ec1be6ac7d0327e1860f25c45f4c18f2bdd
+files: src/import_cura.zig
+area: gcode
+summary: The importer turns `cool_fan_full_layer` into `filament.fan_off_layers` and `filament.fan_ramp_layers`, with the line of CuraEngine.
+```
+
+CuraEngine `ExtruderPlan::processFanSpeedForFirstLayers` (`src/LayerPlan.cpp`) gives layer k (from 0) below `cool_fan_full_layer` (a layer number from 1, so index n - 1) the speed `cool_fan_speed_0 + (cool_fan_speed_min - cool_fan_speed_0) * k / (n - 1)`. With `cool_fan_speed_0` at 0 (the default), this is the zslice fan off on one layer and a ramp of n - 2 layers. The importer converts it so (`prepareProfile` in `src/import_cura.zig`). The G-code of the Printdeck BLTouch mount (Cura 5.14, `cool_fan_full_layer = 5`) has the same fan speeds on layers 0 to 4.
+
+### Cura settings of the Printdeck BLTouch mount
+
+```ref
+kind: setting
+source: Cura
+license: LGPL-3.0
+link: https://github.com/Ultimaker/Cura
+version: Cura 5.14, fdmprinter.def.json at commit 1a221ec29a86960d16a412940becc1f63534c41f
+files: src/import_cura.zig, src/settings.zig, src/gcode.zig, src/gcode_vars.zig
+area: gcode
+summary: The Cura keys of the BLTouch mount profile and their zslice settings: the first layer bed temperature and travel speed, the shrinkage, the fan, the skin order, and the seam corner.
+```
+
+The Printdeck BLTouch mount is sliced with CuraEngine from a quality_changes profile (`lulzbot/bltouch/mount/cura/make_profiles.py` of Printdeck). zslice imports each of its keys: `material_bed_temperature_layer_0` (`filament.first_layer_bed_temp`, new; CuraEngine `GCodeExport` heats the bed to it and sets `material_bed_temperature` on layer 1), `speed_travel_layer_0` (`machine.first_layer_travel_speed`, new; `PathConfigStorage`), `material_shrinkage_percentage_xy` and `_z` (`filament.shrinkage_xy` and `shrinkage_z`; CuraEngine `MeshGroup::scaleFromBottom`), `cool_fan_speed_min` and `cool_fan_full_layer` (see "First layer fan ramp"), `retract_at_layer_change`, `skin_monotonic` (`project.skin_pattern = monotonic`), `z_seam_corner` (`project.seam_corner`, new; see "CuraEngine seam corner preference"), `speed_wall` (the importer gives it to `speed_wall_0` and `speed_wall_x`, as the Cura formulas do), and `material_standby_temperature`. `layer_0_z_overlap` and `raft_airgap` have an effect only with a raft, which zslice does not have.

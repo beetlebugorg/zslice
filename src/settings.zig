@@ -27,6 +27,8 @@ const flow = @import("flow.zig");
 
 pub const InfillPattern = enum { lines, grid, triangles, trihexagon, cubic, gyroid, concentric, honeycomb, zigzag, flow, lightning };
 pub const SeamMode = enum { hidden, sharpest, rear, nearest, random };
+/// The corners that the sharpest seam looks for. See `Project.seam_corner`.
+pub const SeamCorner = enum { auto, none, inner, outer, any, weighted };
 /// Where the grid of the sparse infill starts: the center of each part (a
 /// symmetric part gets symmetric infill, and copies of a part get the same
 /// infill), or the origin of the bed (the infill of all parts lines up).
@@ -147,6 +149,11 @@ pub const Machine = struct {
     max_speed: f64 = 150,
     /// The speed of travel moves (moves with no extrusion).
     travel_speed: f64 = 150,
+    /// The speed of the travel moves of the first layer, in mm/s. A slower
+    /// travel does not pull the new lines off the bed. 0: `travel_speed`.
+    /// As "Initial Layer Travel Speed" in Cura and "Initial layer travel
+    /// speed" in OrcaSlicer.
+    first_layer_travel_speed: f64 = 0,
     /// The speed of Z moves at each layer change.
     max_z_speed: f64 = 10,
     /// The acceleration of Z moves (the layer change and the z hop), in
@@ -328,6 +335,11 @@ pub const Filament = struct {
     first_layer_nozzle_temp: f64 = 215,
     /// The bed temperature.
     bed_temp: f64 = 60,
+    /// The bed temperature on the first layer. From the second layer, the
+    /// bed goes to `bed_temp` (M140, no wait). 0: `bed_temp` on all layers.
+    /// As "Build Plate Temperature Initial Layer" in Cura and "Initial
+    /// layer" bed temperature in OrcaSlicer.
+    first_layer_bed_temp: f64 = 0,
 
     // Flow
     /// The maximum plastic flow that the hot end melts with this filament.
@@ -384,6 +396,12 @@ pub const Filament = struct {
     /// A multiplier for the retraction length of the machine. Soft filament
     /// needs less.
     retract_ratio: f64 = 1.0,
+
+    /// The bed temperature of the first layer: `first_layer_bed_temp`, or
+    /// `bed_temp` if it is 0.
+    pub fn firstBedTemp(f: Filament) f64 {
+        return if (f.first_layer_bed_temp > 0) f.first_layer_bed_temp else f.bed_temp;
+    }
 };
 
 pub const Project = struct {
@@ -421,6 +439,14 @@ pub const Project = struct {
     /// point nearest to the nozzle, which is the fastest. `random`: at a
     /// different point on each layer, so that no seam line shows.
     seam: SeamMode = .hidden,
+    /// The corners that the `sharpest` seam looks for, as "Seam Corner
+    /// Preference" in Cura. `auto`: the zslice score (an inside corner, or
+    /// else the sharpest outside corner). `inner`: inside corners, the
+    /// sharper the better. `outer`: outside corners. `any`: the sharpest
+    /// corner of either kind. `weighted`: any corner, but an inside corner
+    /// counts twice. `none`: no corner, so the seam goes to the back right.
+    /// With the other kinds of seam it has no effect.
+    seam_corner: SeamCorner = .auto,
     /// The method that makes the walls. `classic`: each wall is the outline
     /// moved in by a whole number of line widths, with one line width.
     /// `arachne`: the walls follow the center lines of the part, and the
@@ -1257,6 +1283,7 @@ pub const limits = [_]struct { []const u8, f64, f64 }{
     .{ "machine.part_fan_air", 0, 40 },
     .{ "machine.max_speed", 1, 2000 },
     .{ "machine.travel_speed", 1, 2000 },
+    .{ "machine.first_layer_travel_speed", 0, 2000 },
     .{ "machine.max_z_speed", 0.1, 200 },
     .{ "machine.max_z_accel", 1, 100000 },
     .{ "machine.hour_rate", 0, 100000 },
@@ -1281,6 +1308,7 @@ pub const limits = [_]struct { []const u8, f64, f64 }{
     .{ "filament.nozzle_temp", 0, 450 },
     .{ "filament.first_layer_nozzle_temp", 0, 450 },
     .{ "filament.bed_temp", 0, 150 },
+    .{ "filament.first_layer_bed_temp", 0, 150 },
     .{ "filament.max_flow", 0.5, 100 },
     .{ "filament.flow_ratio", 0.5, 2 },
     .{ "filament.fan_speed", 0, 1 },
@@ -1429,6 +1457,7 @@ test "limits: each number has one, and each default is in it" {
 /// combing ways. `cooling_mode` moves the nozzle.
 pub const patch_settings = [_][]const u8{
     "filament.nozzle_temp",      "filament.first_layer_nozzle_temp", "filament.bed_temp",
+    "filament.first_layer_bed_temp",
     "filament.fan_speed",        "filament.fan_off_layers",          "filament.fan_max_speed",
     "filament.fan_boost_time",   "filament.min_layer_time",          "filament.min_speed",
     "filament.fan_ramp_layers",  "machine.chamber_temp",             "machine.part_fan_air",
@@ -1530,6 +1559,7 @@ pub const plate_settings = [_][]const u8{
     "filament.nozzle",
     "filament.diameter",              "filament.density",           "filament.price_per_kg",
     "filament.nozzle_temp",           "filament.first_layer_nozzle_temp", "filament.bed_temp",
+    "filament.first_layer_bed_temp",
     "filament.standby_temp",          "filament.fan_speed",         "filament.fan_off_layers",
     "filament.fan_ramp_layers",
     "filament.fan_max_speed",         "filament.fan_boost_time",    "filament.min_layer_time",
@@ -1618,6 +1648,7 @@ pub const layer_settings = [_][]const u8{
     "project.filament",
     "project.wall_count",
     "project.seam",
+    "project.seam_corner",
     "project.top_thickness",
     "project.bottom_thickness",
     "project.skin_pattern",

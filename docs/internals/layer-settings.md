@@ -55,6 +55,7 @@ An adaptive layer height (thin layers where a surface has a small slope) can use
 | `nozzle_temp` | yes | gcode | M104 at the start of a layer with another value (no wait). |
 | `first_layer_nozzle_temp` | no | gcode | The first layer only. The start G-code sets it. |
 | `bed_temp` | yes | gcode | M140 at the start of a layer with another value (no wait). The start G-code sets the value of the print. |
+| `first_layer_bed_temp` | no | gcode | The first layer only. The start G-code sets it, and the second layer sets `bed_temp`. |
 | `max_flow` | yes | settings (`Resolved.speed`) | The speed limit of each layer. |
 | `flow_ratio` | yes | gcode | The extrusion of each line. |
 | `fan_speed`, `fan_max_speed`, `fan_boost_time` | yes | gcode | The fan of each layer. |
@@ -73,7 +74,7 @@ An adaptive layer height (thin layers where a surface has a small slope) can use
 | `first_layer_height` | no | slicer | The first layer only. |
 | `line_width` | yes | layer, gcode | The support areas and the island search use the line width of the print. |
 | `first_layer_line_width` | no | layer | The first layer only. |
-| `wall_count`, `wall_thickness`, `thin_walls`, `seam` | yes | layer | |
+| `wall_count`, `wall_thickness`, `thin_walls`, `seam`, `seam_corner` | yes | layer | |
 | `wall_generator`, `min_wall_line_width`, `min_feature_size`, `min_bead_width`, `wall_transition_length`, `wall_transition_angle`, `wall_transition_filter_distance`, `wall_distribution_count` | yes | layer | Arachne makes the walls of each layer from the outline of that layer only. The memo keeps the walls of each layer by their settings (see `Memo.arachneWalls`). |
 | `top_thickness`, `bottom_thickness` | yes | layer | Counted with the heights of the layers. |
 | `skin_removal_width`, `skin_expand_distance`, `solid_infill_width` | yes | layer | |

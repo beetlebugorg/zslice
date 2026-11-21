@@ -90,6 +90,10 @@ The maximum speed of the print head in X and Y.
 
 The speed of travel moves (moves with no extrusion).
 
+**`machine.first_layer_travel_speed`** (number). Default: `0`
+
+The speed of the travel moves of the first layer, in mm/s. A slower travel does not pull the new lines off the bed. 0: `travel_speed`. As "Initial Layer Travel Speed" in Cura and "Initial layer travel speed" in OrcaSlicer.
+
 **`machine.max_z_speed`** (number). Default: `10`
 
 The speed of Z moves at each layer change.
@@ -294,6 +298,10 @@ The nozzle temperature on the first layer.
 
 The bed temperature.
 
+**`filament.first_layer_bed_temp`** (number). Default: `0`
+
+The bed temperature on the first layer. From the second layer, the bed goes to `bed_temp` (M140, no wait). 0: `bed_temp` on all layers. As "Build Plate Temperature Initial Layer" in Cura and "Initial layer" bed temperature in OrcaSlicer.
+
 ### Flow
 
 **`filament.max_flow`** (number; per layer). Default: `12`
@@ -407,6 +415,10 @@ Print parts of the outline that are thinner than one line width (a thin fin, a s
 **`project.seam`** (one of: `hidden`, `sharpest`, `rear`, `nearest`, `random`; per layer). Default: `hidden`
 
 Where each wall loop starts and ends (the seam). `hidden`: at the point where the seam is hardest to see: an inside corner first, then an outside corner, toward the back, and not where the wall hangs over air; similar layers pick the same point, so the seam is one clean line. `sharpest`: in the deepest inside corner, or else in the sharpest outside corner, or else at the rear. `rear`: at the back of the part (the largest y), in one straight line. `nearest`: at the point nearest to the nozzle, which is the fastest. `random`: at a different point on each layer, so that no seam line shows.
+
+**`project.seam_corner`** (one of: `auto`, `none`, `inner`, `outer`, `any`, `weighted`; per layer). Default: `auto`
+
+The corners that the `sharpest` seam looks for, as "Seam Corner Preference" in Cura. `auto`: the zslice score (an inside corner, or else the sharpest outside corner). `inner`: inside corners, the sharper the better. `outer`: outside corners. `any`: the sharpest corner of either kind. `weighted`: any corner, but an inside corner counts twice. `none`: no corner, so the seam goes to the back right. With the other kinds of seam it has no effect.
 
 **`project.wall_generator`** (one of: `classic`, `arachne`; per layer). Default: `classic`
 

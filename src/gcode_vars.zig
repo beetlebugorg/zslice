@@ -185,6 +185,7 @@ pub const Key = enum {
     nozzle_temp,
     first_layer_nozzle_temp,
     bed_temp,
+    first_layer_bed_temp,
     standby_temp,
     idle_temp,
     standby_delta,
@@ -346,6 +347,7 @@ pub const names = std.StaticStringMap(Entry).initComptime(.{
     .{ "nozzle_temp", just(.nozzle_temp) },
     .{ "first_layer_nozzle_temp", just(.first_layer_nozzle_temp) },
     .{ "bed_temp", just(.bed_temp) },
+    .{ "first_layer_bed_temp", just(.first_layer_bed_temp) },
     .{ "standby_temp", just(.standby_temp) },
     .{ "layer_height", just(.layer_height) },
     .{ "first_layer_height", just(.first_layer_height) },
@@ -370,25 +372,25 @@ pub const names = std.StaticStringMap(Entry).initComptime(.{
     .{ "material_initial_print_temperature", each(.first_layer_nozzle_temp) },
     .{ "first_layer_temperature", each(.first_layer_nozzle_temp) },
     .{ "nozzle_temperature_initial_layer", each(.first_layer_nozzle_temp) },
-    // The bed: zslice has one bed temperature for all layers. b: each
-    // plate type has its own name.
+    // The bed, and the bed of the first layer (first_layer_bed_temp, or
+    // bed_temp if it is 0). b: each plate type has its own name.
     .{ "material_bed_temperature", each(.bed_temp) },
-    .{ "material_bed_temperature_layer_0", each(.bed_temp) },
+    .{ "material_bed_temperature_layer_0", each(.first_layer_bed_temp) },
     .{ "print_bed_temperature", each(.bed_temp) },
     .{ "bed_temperature", each(.bed_temp) },
-    .{ "first_layer_bed_temperature", each(.bed_temp) },
-    .{ "bed_temperature_initial_layer", each(.bed_temp) },
-    .{ "bed_temperature_initial_layer_single", just(.bed_temp) },
+    .{ "first_layer_bed_temperature", each(.first_layer_bed_temp) },
+    .{ "bed_temperature_initial_layer", each(.first_layer_bed_temp) },
+    .{ "bed_temperature_initial_layer_single", just(.first_layer_bed_temp) },
     .{ "hot_plate_temp", each(.bed_temp) },
-    .{ "hot_plate_temp_initial_layer", each(.bed_temp) },
+    .{ "hot_plate_temp_initial_layer", each(.first_layer_bed_temp) },
     .{ "cool_plate_temp", each(.bed_temp) },
-    .{ "cool_plate_temp_initial_layer", each(.bed_temp) },
+    .{ "cool_plate_temp_initial_layer", each(.first_layer_bed_temp) },
     .{ "eng_plate_temp", each(.bed_temp) },
-    .{ "eng_plate_temp_initial_layer", each(.bed_temp) },
+    .{ "eng_plate_temp_initial_layer", each(.first_layer_bed_temp) },
     .{ "textured_plate_temp", each(.bed_temp) },
-    .{ "textured_plate_temp_initial_layer", each(.bed_temp) },
+    .{ "textured_plate_temp_initial_layer", each(.first_layer_bed_temp) },
     .{ "supertack_plate_temp", each(.bed_temp) },
-    .{ "supertack_plate_temp_initial_layer", each(.bed_temp) },
+    .{ "supertack_plate_temp_initial_layer", each(.first_layer_bed_temp) },
     // A tool that waits. p: idle_temperature has no value when the
     // filament does not set it (is_nil). p: standby_temperature_delta.
     .{ "material_standby_temperature", each(.standby_temp) },
@@ -1026,7 +1028,7 @@ const Renderer = struct {
                 .nozzle_temp, .first_layer_nozzle_temp => if (self.in_output) {
                     self.used_nozzle = true;
                 },
-                .bed_temp => if (self.in_output) {
+                .bed_temp, .first_layer_bed_temp => if (self.in_output) {
                     self.used_bed = true;
                 },
                 else => {},
@@ -1064,6 +1066,7 @@ const Renderer = struct {
             .nozzle_temp => num(@round(f.nozzle_temp)),
             .first_layer_nozzle_temp => num(@round(f.first_layer_nozzle_temp)),
             .bed_temp => num(@round(f.bed_temp)),
+            .first_layer_bed_temp => num(@round(f.firstBedTemp())),
             .standby_temp => num(@round(f.standby_temp)),
             .idle_temp => if (f.standby_temp > 0) num(@round(f.standby_temp)) else .nil,
             // The PrusaSlicer default: a tool that waits is 5 °C cooler.
