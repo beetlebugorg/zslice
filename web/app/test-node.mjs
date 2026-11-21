@@ -10,7 +10,7 @@ import { Wasm } from "./wasm.js";
 import { Core, STATE } from "./core.js";
 import { View3D } from "./view.js";
 import { clipText, parseClipText } from "./clipboard.js";
-import { outlineOf, placeAt, newItem, scaleLabel, withAngle, angleOf, turned, nextFilament, changeShape, labelName } from "./label.js";
+import { outlineOf, placeAt, newItem, scaleLabel, withAngle, angleOf, turned, nextFilament, changeShape, labelName, svgItem, resizeBox, resized, turnedAbout, toBed, handleGeom, hitHandle } from "./label.js";
 
 const [wasmPath, stlPath] = process.argv.slice(2);
 if (!wasmPath || !stlPath) {
@@ -159,6 +159,14 @@ console.log(`second slice (infill density): ${(performance.now() - t0).toFixed(0
   const s = wasm.u32(wasm.cell);
   // A ray at the side of the hull, along +y.
   const at = placeAt(wasm, s, [(x0 + x1) / 2, y0 - 50, 8, 0, 1, 0]);
+  // The face under a label on the flat bottom of the hull (the smart
+  // guides): a face with a box.
+  const fc = wasm.alloc(72);
+  new Float64Array(wasm.x.memory.buffer, fc, 9).set([(x0 + x1) / 2, (y0 + y0 + 20) / 2, 0, 0, 0, -1, 1, 0, 0]);
+  const faceText = wasm.readText((b, cap, ol) => wasm.x.zs_label_face(s, fc, b, cap, ol));
+  wasm.free(fc, 72);
+  const face = faceText && JSON.parse(faceText);
+  check(face && face.box[2] > face.box[0] && Array.isArray(face.holes), `the face of the bottom (${faceText && faceText.slice(0, 120)})`);
   wasm.x.zs_paint_free(s);
   check(at && at.normal[1] < -0.5, `the pick of the hull (${JSON.stringify(at)})`);
   let label = { origin: at.origin, normal: at.normal, right: at.right, filament: 2, depth: 0, items: [newItem("text")] };
@@ -172,6 +180,32 @@ console.log(`second slice (infill density): ${(performance.now() - t0).toFixed(0
   check(outlineOf(wasm, { items: [{ kind: "bar", width: 4 }] }) === null, "a bad shape has no outline");
   for (const k of ["line", "bar", "ring", "ticks", "polyline"]) check(outlineOf(wasm, { items: [newItem(k)] }), `the outline of a new ${k}`);
   check(changeShape(newItem("text"), "ticks").kind === "ticks", "a change of shape");
+  // An SVG shape: 10 mm tall, centered.
+  const so = outlineOf(wasm, { items: [svgItem("<svg><circle cx='5' cy='5' r='5'/></svg>", 10)] });
+  check(so && Math.abs(so.box[3] - so.box[1] - 10) < 0.01 && Math.abs(so.box[0] + 5) < 0.05, `the outline of an SVG (${so && so.box})`);
+  check(outlineOf(wasm, { items: [svgItem("<svg></svg>")] }) === null, "an SVG with no shape has no outline");
+  // The handles: a resize from a corner, free or with the aspect, and a
+  // turn about the center of the box.
+  const rb = resizeBox([0, 0, 10, 5], [1, 1], [20, 10], false);
+  check(Math.abs(rb.k[0] - 2) < 1e-9 && rb.box[2] === 20 && rb.box[3] === 10, `a resize keeps the aspect (${JSON.stringify(rb)})`);
+  const rf = resizeBox([0, 0, 10, 5], [-1, 1], [-5, 5], true);
+  check(rf.box[0] === -5 && rf.box[2] === 10 && Math.abs(rf.k[0] - 1.5) < 1e-9 && rf.k[1] === 1, `a free resize from the left (${JSON.stringify(rf)})`);
+  const r2 = resized(label, rf.anchor, rf.k, true);
+  const fixed = toBed(label, 10, 0);
+  const fixed2 = toBed(r2, 15, 0);
+  check(Math.hypot(fixed[0] - fixed2[0], fixed[1] - fixed2[1], fixed[2] - fixed2[2]) < 1e-9 && r2.stretch[0] === 1.5, "a resize keeps the opposite corner");
+  const ta = turnedAbout(label, 90, [3, 1]);
+  const c0 = toBed(label, 3, 1);
+  const c1 = toBed(ta, 3, 1);
+  check(Math.hypot(c0[0] - c1[0], c0[1] - c1[1], c0[2] - c1[2]) < 1e-9 && Math.abs(angleOf(ta) - angleOf(label) - 90) < 1e-6, "a turn about the center of the box");
+  const hg = handleGeom([0, 0, 10, 5], 0.1);
+  check(hitHandle(hg, 10.4, 5.4)?.corner?.join() === "1,1" && hitHandle(hg, hg.turn[0], hg.turn[1])?.kind === "turn" && hitHandle(hg, 5, 2.5) === null, "the handles under the pointer");
+  // A snap: the box of a label 0.3 mm from the edge of another.
+  const fr = { origin: [0, 0, 0], normal: [0, 0, 1], right: [1, 0, 0] };
+  const snapIn = JSON.stringify({ op: "move", frame: fr, box: [0.3, 10, 8.3, 14], tol: 0.5, others: [{ ...fr, box: [0, 0, 10, 5] }], face: null });
+  const snapText = wasm.withBytes(new TextEncoder().encode(snapIn), (p, n) => wasm.readText((b, cap, ol) => wasm.x.zs_label_snap(p, n, b, cap, ol)));
+  const sn = snapText && JSON.parse(snapText);
+  check(sn && Math.abs(sn.d[0] + 0.3) < 1e-9 && sn.guides.length === 1, `a snap to the edge of another label (${snapText})`);
   label = withAngle(label, 0);
   const id = core.labelAdd(0, label);
   check(id >= 1, "the core accepts the label");

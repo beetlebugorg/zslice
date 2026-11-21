@@ -1,15 +1,20 @@
 // label.js: the Label tool (E). It puts labels on the surface of a part:
-// text, a line, a bar, a ring, the ticks of a dial, or a free line, each
-// in a filament of its own. The slice prints a label flush in the outer
-// skin of the part (docs/embedding/labels.md).
+// text, a line, a bar, a ring, the ticks of a dial, a free line, or an
+// SVG picture, each in a filament of its own. The slice prints a label
+// flush in the outer skin of the part (ink), out of the surface
+// (raised), or cut into it (cut) (docs/user/labels.md).
 //
 // - A click on a face of a part adds a label there ("LABEL", 5 mm), in
 //   the filament after the filament of the part. A click on a label
 //   selects it, and its card opens (labelcard.js).
 // - A drag of a label moves it on the surface; Shift keeps its plane.
 //   The wheel over the selected label turns it 1° a step (Shift: 15°).
-//   The handle at its corner scales it; the round handle over it turns
-//   it. Delete removes it.
+//   The handles on the surface around it: a corner resizes it (Shift:
+//   each axis on its own), the round handle over it turns it (Shift: 15°
+//   steps). A move or a resize snaps to the smart guides (the core:
+//   zs_label_face, zs_label_snap); Alt moves free. Delete removes it.
+// - "Place an SVG…" on the card, or an SVG file dropped on a part, makes
+//   an SVG picture a shape of a label.
 // - The view keeps the beads. The labels of the part show as decals on
 //   its surface (gl.js, setLabels): the outline of each label comes from
 //   the core (zs_label_outline) with no slice, so a drag, a turn, or a key
@@ -29,7 +34,14 @@ import { filaments } from "./filaments.js";
 // ---- the model ----
 
 export const SHAPES = ["text", "line", "bar", "ring", "ticks", "polyline"];
-export const SHAPE_NAMES = { text: "Text", line: "Line", bar: "Bar", ring: "Ring", ticks: "Ticks", polyline: "Free" };
+export const SHAPE_NAMES = { text: "Text", line: "Line", bar: "Bar", ring: "Ring", ticks: "Ticks", polyline: "Free", svg: "SVG" };
+// The modes of a label, and their names on the card.
+export const MODES = ["ink", "raised", "cut"];
+export const MODE_NAMES = { ink: "Ink", raised: "Raised", cut: "Cut in" };
+// The relief of a raised or cut label with a relief of 0 (the core), mm.
+export const DEFAULT_RELIEF = 0.6;
+// The height of a new SVG shape, mm.
+export const SVG_SIZE = 15;
 // The face curves more than this under a label: the label stretches.
 export const CURVE_LIMIT = 60;
 export const CURVE_TEXT = "The face curves too much here; the label stretches.";
@@ -65,6 +77,7 @@ const LENGTHS = {
   ring: ["outer", "inner"],
   ticks: ["radius", "length", "length_end", "width"],
   polyline: ["width"],
+  svg: ["size"],
 };
 
 // The size of an item for the card, mm: the cap height of a text, the
@@ -81,8 +94,19 @@ export function itemSize(it) {
       const xs = it.points.map((p) => p[0]);
       return Math.max(...xs) - Math.min(...xs);
     }
+    case "svg": return it.size;
   }
   return 0;
+}
+
+// A file of an SVG picture.
+export function isSvgFile(f) {
+  return /\.svg$/i.test(f?.name ?? "") || f?.type === "image/svg+xml";
+}
+
+// An SVG shape of the source `svg`.
+export function svgItem(svg, size = SVG_SIZE) {
+  return { kind: "svg", svg, size };
 }
 
 // The item scaled by k: its lengths, its place, and its points.
@@ -150,6 +174,16 @@ export function turned(label, deg) {
   const a = (deg * Math.PI) / 180;
   const up = upOf(label);
   return { ...label, right: unit(add(label.right.map((v) => v * Math.cos(a)), up, Math.sin(a))) };
+}
+
+// The label turned by `deg` around its normal, about the point `c` [x, y]
+// of its plane: that point stays.
+export function turnedAbout(label, deg, c) {
+  const t = turned(label, deg);
+  const u0 = upOf(label);
+  const u1 = upOf(t);
+  const o = add(add(label.origin, add(label.right, t.right, -1), c[0]), add(u0, u1, -1), c[1]);
+  return { ...t, origin: o };
 }
 
 // The label at a new point and normal of the surface. Its right keeps its
@@ -240,10 +274,134 @@ export function nextFilament(base, count) {
   return base === 1 ? 2 : 1;
 }
 
+// ---- the handles: the geometry, with no DOM ----
+
+// The snap distance of the smart guides, CSS pixels.
+export const SNAP_PX = 6;
+// The sizes of the handles, CSS pixels: the gap of the frame around the
+// label, the side of a corner square, the radius of the turn handle and
+// its distance over the frame.
+const HANDLE = { gap: 4, side: 9, r: 5, over: 22 };
+
+// The handles of a label with the outline box `box` (mm in its plane) at
+// `mpp` mm for each pixel: { box (the frame), hs (the half side of a
+// corner), turn [x, y], r }.
+export function handleGeom(box, mpp) {
+  const g = HANDLE.gap * mpp;
+  const b = [box[0] - g, box[1] - g, box[2] + g, box[3] + g];
+  return { box: b, hs: (HANDLE.side / 2) * mpp, turn: [(b[0] + b[2]) / 2, b[3] + HANDLE.over * mpp], r: HANDLE.r * mpp };
+}
+
+// The handle at the point (x, y) of the plane: { kind: "corner", corner:
+// [sx, sy] (+1: the high side) } or { kind: "turn" }, or null. A handle
+// has a hit area a little larger than its decal.
+export function hitHandle(g, x, y) {
+  const m = 1.6;
+  if (Math.hypot(x - g.turn[0], y - g.turn[1]) <= g.r * m) return { kind: "turn" };
+  for (const sx of [-1, 1]) for (const sy of [-1, 1]) {
+    const cx = sx > 0 ? g.box[2] : g.box[0];
+    const cy = sy > 0 ? g.box[3] : g.box[1];
+    if (Math.abs(x - cx) <= g.hs * m && Math.abs(y - cy) <= g.hs * m) return { kind: "corner", corner: [sx, sy] };
+  }
+  return null;
+}
+
+// The box of a resize from the corner `corner` of box b0 to the point p
+// of the plane: the opposite corner stays. With `free`, each axis on its
+// own; else one scale. { box, anchor, k: [ks, kt] }.
+export function resizeBox(b0, corner, p, free) {
+  const anchor = [corner[0] > 0 ? b0[0] : b0[2], corner[1] > 0 ? b0[1] : b0[3]];
+  const c0 = [corner[0] > 0 ? b0[2] : b0[0], corner[1] > 0 ? b0[3] : b0[1]];
+  const v = [c0[0] - anchor[0], c0[1] - anchor[1]];
+  let k;
+  if (free) {
+    k = [Math.abs(v[0]) > 1e-9 ? (p[0] - anchor[0]) / v[0] : 1, Math.abs(v[1]) > 1e-9 ? (p[1] - anchor[1]) / v[1] : 1];
+  } else {
+    const kk = ((p[0] - anchor[0]) * v[0] + (p[1] - anchor[1]) * v[1]) / Math.max(1e-12, v[0] * v[0] + v[1] * v[1]);
+    k = [kk, kk];
+  }
+  k = k.map((x) => Math.max(0.05, x));
+  return { box: boxFrom(anchor, c0, k), anchor, k };
+}
+
+function boxFrom(anchor, c0, k) {
+  const c = [anchor[0] + k[0] * (c0[0] - anchor[0]), anchor[1] + k[1] * (c0[1] - anchor[1])];
+  return [Math.min(anchor[0], c[0]), Math.min(anchor[1], c[1]), Math.max(anchor[0], c[0]), Math.max(anchor[1], c[1])];
+}
+
+// The scales of a box b against box b0: [ks, kt].
+export function scalesOf(b0, b) {
+  return [(b[2] - b[0]) / Math.max(1e-12, b0[2] - b0[0]), (b[3] - b[1]) / Math.max(1e-12, b0[3] - b0[1])];
+}
+
+// The label `start` resized by k = [ks, kt] about the point `anchor` of
+// its plane. One scale: the sizes of the shapes change. Two scales: the
+// stretch changes.
+export function resized(start, anchor, k, free) {
+  let next;
+  if (free) {
+    const s = start.stretch ?? [1, 1];
+    next = { ...start, stretch: [s[0] * k[0], s[1] * k[1]] };
+  } else next = scaleLabel(start, k[0]);
+  const up = upOf(start);
+  const ds = (1 - k[0]) * anchor[0];
+  const dt = (1 - k[1]) * anchor[1];
+  next.origin = add(add(start.origin, start.right, ds), up, dt);
+  return next;
+}
+
+// Label l in the plane of the frame f (origin, normal): the normals
+// within 2.5° and the origin of l within 0.2 mm of the plane of f.
+export function samePlane(f, l) {
+  if (dot(f.normal, l.normal) < Math.cos((2.5 * Math.PI) / 180)) return false;
+  return Math.abs(dot(add(l.origin, f.origin, -1), f.normal)) < 0.2;
+}
+
+// A rectangle (counterclockwise) as points [x, y].
+export function rect(x0, y0, x1, y1) {
+  return [[x0, y0], [x1, y0], [x1, y1], [x0, y1]];
+}
+
+export function circle(cx, cy, r, n = 24) {
+  const out = [];
+  for (let k = 0; k < n; k++) out.push([cx + r * Math.cos((2 * Math.PI * k) / n), cy + r * Math.sin((2 * Math.PI * k) / n)]);
+  return out;
+}
+
+// A guide [s0, t0, s1, t1] as a thin rectangle of width w, or null.
+export function segment(s, w) {
+  const dx = s[2] - s[0];
+  const dy = s[3] - s[1];
+  const l = Math.hypot(dx, dy);
+  if (!(l > 1e-9)) return null;
+  const nx = (-dy / l) * (w / 2);
+  const ny = (dx / l) * (w / 2);
+  return [[s[0] - nx, s[1] - ny], [s[2] - nx, s[3] - ny], [s[2] + nx, s[3] + ny], [s[0] + nx, s[1] + ny]];
+}
+
+// A decal of polygons in the plane of label l (gl.js, setLabels).
+export function decal(l, polys, color, edge = null) {
+  let n = 0;
+  for (const p of polys) n += p.length;
+  const pts = new Float32Array(3 * n);
+  const ends = new Uint32Array(polys.length);
+  let i = 0;
+  polys.forEach((p, k) => {
+    for (const [x, y] of p) pts.set(toBed(l, x, y, 2 * LIFT), 3 * i++);
+    ends[k] = i;
+  });
+  return { pts, ends, color, edge };
+}
+
 function rgb(hex) {
   const m = /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(hex || "");
   if (!m) return [0.82, 0.82, 0.8];
   return m.slice(1).map((h) => parseInt(h, 16) / 255);
+}
+
+// The name of a label of an SVG file: the file name with no ".svg".
+function svgName(name) {
+  return (name || "").replace(/\.svg$/i, "").slice(0, 120);
 }
 
 // ---- the tool ----
@@ -278,7 +436,9 @@ export class LabelTool {
     this.timer = 0;
     this.pending = -1; // the label with a change that waits (see change)
     this.card = null;
-    this.handle = null;
+    this.guides = []; // the lines of the smart guides in a drag
+    this.face = null; // the features of the face (faceAt)
+    this.handleScale = 0; // the mm of a pixel of the handles drawn
     this.attach();
   }
 
@@ -449,6 +609,8 @@ export class LabelTool {
       const edge = l.id === this.sel ? (light > 0.5 ? [0.1, 0.1, 0.12] : [1, 0.85, 0.2]) : null;
       list.push({ pts, ends: o.ends, color, edge });
     }
+    const sl = this.label;
+    if (sl && this.ctx.page() === "3d") list.push(...this.handleDecals(sl));
     this.ctx.gl.setLabels(list);
     this.ctx.requestFrame();
   }
@@ -468,16 +630,12 @@ export class LabelTool {
       this.curve = 0;
       this.card?.close();
       this.card = null;
-      this.handle?.remove();
-      this.handle = null;
-      this.turnHandle?.remove();
-      this.turnHandle = null;
+      this.guides = [];
       this.redraw();
       return;
     }
     if (!this.card) this.card = new this.ctx.Card(this, this.ctx.host);
     this.card.show(l);
-    this.makeHandle();
     this.redraw();
     this.loadInfo();
   }
@@ -513,7 +671,7 @@ export class LabelTool {
     this.pending = l.id;
     // A drag sends the label at its end (one step of the history).
     if (commit) this.flush();
-    else if (!this.drag && !this.scaling) this.timer = setTimeout(() => this.flush(), COMMIT_MS);
+    else if (!this.drag) this.timer = setTimeout(() => this.flush(), COMMIT_MS);
     return true;
   }
 
@@ -574,6 +732,73 @@ export class LabelTool {
 
   setDepth(mm) {
     this.change((l) => ({ ...l, depth: Math.max(0, Math.min(10, mm)) }), true);
+  }
+
+  // Ink, raised, or cut.
+  setMode(mode) {
+    this.change((l) => {
+      const out = { ...l, mode };
+      if (mode === "ink") delete out.relief;
+      else out.relief = l.relief || DEFAULT_RELIEF;
+      return out;
+    }, true);
+  }
+
+  setRelief(mm) {
+    this.change((l) => ({ ...l, relief: Math.max(0, Math.min(10, mm)) }), true);
+  }
+
+  // An SVG picture into the selected label: it replaces the new text
+  // "LABEL", else it goes under the shapes. false for a picture
+  // with no shape that the core reads.
+  placeSvg(svg, name = "") {
+    const it = svgItem(svg);
+    if (!outlineOf(this.w, { items: [it] })) {
+      this.ctx.toast("The SVG has no filled shape to place.");
+      return false;
+    }
+    this.change((l) => {
+      const fresh = l.items.length === 1 && l.items[0].kind === "text" && l.items[0].text === "LABEL";
+      if (fresh) return { ...l, name: l.name || svgName(name), items: [it] };
+      const o = this.outline(l);
+      return { ...l, items: [...l.items, { ...it, at: [0, (o ? o.box[1] : 0) - it.size / 2 - 1] }] };
+    }, true);
+    this.card?.show(this.label);
+    return true;
+  }
+
+  // An SVG file dropped at a CSS pixel: a new label of it on the face of
+  // the part there.
+  async dropSvg(svg, px, py, name = "") {
+    if (!outlineOf(this.w, { items: [svgItem(svg)] })) {
+      this.ctx.toast("The SVG has no filled shape to place.");
+      return;
+    }
+    if (!this.on) await this.open(-1, 0);
+    const dpr = window.devicePixelRatio || 1;
+    const part = await this.ctx.partAt(px * dpr, py * dpr);
+    if (!part) {
+      this.ctx.toast("Drop the SVG on a part.");
+      return;
+    }
+    if (part.index !== this.index) await this.load(part.index);
+    const s = await this.session(part.index);
+    const r = this.ray(px, py);
+    const at = s && r ? placeAt(this.w, s, [...r[0], ...r[1]]) : null;
+    if (!at) {
+      this.ctx.toast("Drop the SVG on a face of the part.");
+      return;
+    }
+    const count = filaments().length;
+    const label = { name: svgName(name), origin: at.origin, normal: at.normal, right: at.right, filament: nextFilament(this.base, count), depth: 0, items: [svgItem(svg)] };
+    const res = await this.ctx.client.call("labelAdd", { index: part.index, label });
+    if (!(res.id >= 0)) {
+      this.ctx.toast("The SVG does not fit here.");
+      return;
+    }
+    this.labels = res.labels;
+    this.curve = at.curve;
+    this.select(res.id);
   }
 
   setAngle(deg) {
@@ -769,32 +994,48 @@ export class LabelTool {
         this.drawPoint(px, py);
         return;
       }
+      const capture = () => {
+        try {
+          canvas.setPointerCapture(e.pointerId);
+        } catch {
+          // A pointer the browser does not know (a test): no capture.
+        }
+      };
+      const hk = this.handleAt(px, py);
+      if (hk) {
+        capture();
+        this.startHandle(hk, px, py);
+        return;
+      }
       const hit = this.labelAt(px, py);
       if (!hit) {
         this.missAt(px, py);
         return;
       }
       if (hit.label.id !== this.sel) this.select(hit.label.id);
-      canvas.setPointerCapture(e.pointerId);
+      capture();
       const l = this.label;
-      this.drag = { id: l.id, dx: hit.x, dy: hit.y, start: { ...l }, moved: false, px, py };
+      this.drag = { mode: "move", id: l.id, dx: hit.x, dy: hit.y, start: { ...l }, moved: false, px, py };
       this.session(this.index);
     }, { capture: true });
     canvas.addEventListener("pointermove", (e) => {
-      if (!this.on || !this.drag) return;
-      e.stopImmediatePropagation();
+      if (!this.on) return;
       const [px, py] = at(e);
-      const d = this.drag;
-      if (!d.moved && Math.hypot(px - d.px, py - d.py) < 3) return;
-      d.moved = true;
-      this.moveTo(px, py, e.shiftKey);
+      if (!this.drag) {
+        // The cursor over a handle.
+        if (this.sel >= 0 && this.ctx.page() === "3d" && this.drawing < 0) {
+          const hk = this.handleAt(px, py);
+          canvas.style.cursor = !hk ? "crosshair" : hk.kind === "turn" ? "grab" : hk.corner[0] === hk.corner[1] ? "nesw-resize" : "nwse-resize";
+        }
+        return;
+      }
+      e.stopImmediatePropagation();
+      this.dragTo(px, py, e.shiftKey, e.altKey);
     }, { capture: true });
     const end = (e) => {
       if (!this.on || !this.drag) return;
       e.stopImmediatePropagation();
-      const d = this.drag;
-      this.drag = null;
-      if (d.moved) this.flush();
+      this.endDrag();
     };
     canvas.addEventListener("pointerup", end, { capture: true });
     canvas.addEventListener("pointercancel", end, { capture: true });
@@ -811,131 +1052,126 @@ export class LabelTool {
       if (!delta) return;
       this.turn((delta < 0 ? 1 : -1) * (e.shiftKey ? 15 : 1));
     }, { capture: true, passive: false });
+    // An SVG file dropped on a part: a label of it there.
+    this.ctx.host?.addEventListener("drop", (e) => {
+      const f = [...(e.dataTransfer?.files ?? [])].find((x) => isSvgFile(x));
+      if (!f) return;
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      this.ctx.host.classList.remove("drop");
+      const [px, py] = at(e);
+      f.text().then((t) => this.dropSvg(t, px, py, f.name));
+    }, { capture: true });
+  }
+
+  // A drag of a handle starts (hk: handleAt).
+  startHandle(hk, px, py) {
+    const l = this.label;
+    const o = l && this.outline(l);
+    if (!o) return;
+    this.session(this.index);
+    if (hk.kind === "corner") {
+      this.drag = { mode: "resize", id: l.id, corner: hk.corner, start: { ...l }, box0: o.box.slice(), moved: false, px, py };
+      return;
+    }
+    const c = this.screenCenter();
+    if (!c) return;
+    // The way the label turns on the screen: its right and up axes as
+    // the screen shows them (the label can face the camera or not).
+    const cx = (o.box[0] + o.box[2]) / 2;
+    const cy = (o.box[1] + o.box[3]) / 2;
+    const p0 = this.screen(l, cx, cy);
+    const pr = this.screen(l, cx + 1, cy);
+    const pu = this.screen(l, cx, cy + 1);
+    const cr = p0 && pr && pu ? (pr[0] - p0[0]) * (pu[1] - p0[1]) - (pr[1] - p0[1]) * (pu[0] - p0[0]) : -1;
+    // The center of the box in the plane stays where it is: a turn of
+    // the frame turns the shapes about the origin of the plane.
+    this.drag = { mode: "turn", id: l.id, start: { ...l }, c, a0: Math.atan2(py - c[1], px - c[0]), sign: cr < 0 ? -1 : 1, center: [cx, cy], base: angleOf(l), moved: false, px, py };
+  }
+
+  // The pointer moves in a drag.
+  dragTo(px, py, shift, alt) {
+    const d = this.drag;
+    if (!d.moved && Math.hypot(px - d.px, py - d.py) < 3) return;
+    d.moved = true;
+    if (d.mode === "move") this.moveTo(px, py, shift, alt);
+    else if (d.mode === "resize") this.resizeTo(px, py, shift, alt);
+    else this.turnTo(px, py, shift);
+  }
+
+  endDrag() {
+    const d = this.drag;
+    this.drag = null;
+    this.guides = [];
+    this.redraw();
+    if (d.moved) this.flush();
   }
 
   // The selected label under the pointer while it drags: on the surface,
-  // or in its plane with Shift.
-  moveTo(px, py, keepPlane) {
+  // or in its plane with Shift. It snaps to the guides (Alt: free).
+  moveTo(px, py, keepPlane, free = false) {
     const d = this.drag;
     const r = this.ray(px, py);
     if (!r) return;
+    let next;
     if (keepPlane) {
       const h = planeHit(d.start, r[0], r[1]);
       if (!h) return;
       const up = upOf(d.start);
       const origin = add(add(h.p, d.start.right, -d.dx), up, -d.dy);
-      this.change((l) => ({ ...l, origin, normal: d.start.normal, right: d.start.right }));
-      return;
-    }
-    const s = this.sessions.get(this.index);
-    if (!s) return;
-    const p = placeAt(this.w, s, [...r[0], ...r[1]]);
-    if (!p) return;
-    this.change((l) => {
-      const m = moved(l, p.origin, p.normal);
-      m.origin = add(add(m.origin, m.right, -d.dx), upOf(m), -d.dy);
-      return m;
-    });
-    if (Math.abs(p.curve - this.curve) > 1e-6) {
-      this.curve = p.curve;
-      this.card?.showCurve(this.curve);
-    }
-  }
-
-  // ---- the corner handle: a drag scales the label ----
-
-  makeHandle() {
-    if (this.handle) return;
-    const h = document.createElement("div");
-    h.className = "label-handle";
-    h.title = "Drag to make the label larger or smaller";
-    h.setAttribute("aria-hidden", "true");
-    h.addEventListener("pointerdown", (e) => {
-      if (e.button !== 0) return;
-      e.preventDefault();
-      e.stopPropagation();
-      const l = this.label;
-      const c = this.screenCenter();
-      if (!l || !c) return;
-      h.setPointerCapture(e.pointerId);
-      const host = this.ctx.host.getBoundingClientRect();
-      const d0 = Math.max(4, Math.hypot(e.clientX - host.left - c[0], e.clientY - host.top - c[1]));
-      const start = { ...l };
-      this.scaling = true;
-      const move = (ev) => {
-        const k = Math.max(0.05, Math.hypot(ev.clientX - host.left - c[0], ev.clientY - host.top - c[1]) / d0);
-        this.change(() => scaleLabel(start, k));
-      };
-      const up = () => {
-        h.removeEventListener("pointermove", move);
-        h.removeEventListener("pointerup", up);
-        h.removeEventListener("pointercancel", up);
-        this.scaling = false;
-        this.flush();
-      };
-      h.addEventListener("pointermove", move);
-      h.addEventListener("pointerup", up);
-      h.addEventListener("pointercancel", up);
-    });
-    this.ctx.host.append(h);
-    this.handle = h;
-    this.makeTurnHandle();
-  }
-
-  // ---- the turn handle: a drag around the label turns it ----
-
-  makeTurnHandle() {
-    if (this.turnHandle) return;
-    const h = document.createElement("div");
-    h.className = "label-turn";
-    h.title = "Drag to turn the label. Shift: steps of 15°.";
-    h.setAttribute("aria-hidden", "true");
-    h.addEventListener("pointerdown", (e) => {
-      if (e.button !== 0) return;
-      e.preventDefault();
-      e.stopPropagation();
-      const l = this.label;
-      const c = this.screenCenter();
-      const o = l && this.outline(l);
-      if (!l || !c || !o) return;
-      try {
-        h.setPointerCapture(e.pointerId);
-      } catch {
-        // A pointer the browser does not know (a test): no capture.
+      next = { ...this.label, origin, normal: d.start.normal, right: d.start.right };
+    } else {
+      const s = this.sessions.get(this.index);
+      if (!s) return;
+      const p = placeAt(this.w, s, [...r[0], ...r[1]]);
+      if (!p) return;
+      next = moved(this.label, p.origin, p.normal);
+      next.origin = add(add(next.origin, next.right, -d.dx), upOf(next), -d.dy);
+      if (Math.abs(p.curve - this.curve) > 1e-6) {
+        this.curve = p.curve;
+        this.card?.showCurve(this.curve);
       }
-      const host = this.ctx.host.getBoundingClientRect();
-      const at = (ev) => Math.atan2(ev.clientY - host.top - c[1], ev.clientX - host.left - c[0]);
-      const a0 = at(e);
-      const start = { ...l };
-      const base = angleOf(start);
-      // The way the label turns on the screen: its right and up axes as
-      // the screen shows them (the label can face the camera or not).
-      const cx = (o.box[0] + o.box[2]) / 2;
-      const cy = (o.box[1] + o.box[3]) / 2;
-      const p0 = this.screen(l, cx, cy);
-      const pr = this.screen(l, cx + 1, cy);
-      const pu = this.screen(l, cx, cy + 1);
-      const cross = p0 && pr && pu ? (pr[0] - p0[0]) * (pu[1] - p0[1]) - (pr[1] - p0[1]) * (pu[0] - p0[0]) : -1;
-      const sign = cross < 0 ? -1 : 1;
-      this.scaling = true;
-      const move = (ev) => {
-        let d = (sign * (at(ev) - a0) * 180) / Math.PI;
-        if (ev.shiftKey) d = Math.round((base + d) / 15) * 15 - base;
-        this.change(() => turned(start, d));
-      };
-      const up = () => {
-        h.removeEventListener("pointermove", move);
-        h.removeEventListener("pointerup", up);
-        h.removeEventListener("pointercancel", up);
-        this.scaling = false;
-        this.flush();
-      };
-      h.addEventListener("pointermove", move);
-      h.addEventListener("pointerup", up);
-      h.addEventListener("pointercancel", up);
-    });
-    this.ctx.host.append(h);
-    this.turnHandle = h;
+    }
+    this.guides = [];
+    const o = this.outline(next);
+    if (!free && o) {
+      const sn = this.snapBox(next, o.box, "move");
+      if (sn) {
+        next.origin = add(add(next.origin, next.right, sn.d[0]), upOf(next), sn.d[1]);
+        this.guides = sn.guides;
+      }
+    }
+    this.change(() => next);
+  }
+
+  // A corner handle under the pointer: the opposite corner stays. Shift:
+  // each axis on its own. It snaps to the guides (Alt: free).
+  resizeTo(px, py, freeAspect, free) {
+    const d = this.drag;
+    const r = this.ray(px, py);
+    const h = r && planeHit(d.start, r[0], r[1]);
+    if (!h) return;
+    const rb = resizeBox(d.box0, d.corner, [h.x, h.y], freeAspect);
+    let k = rb.k;
+    this.guides = [];
+    if (!free) {
+      const sn = this.snapBox(d.start, rb.box, "resize", { corner: d.corner, aspect: !freeAspect });
+      if (sn) {
+        k = scalesOf(d.box0, sn.box);
+        if (!freeAspect) k = [k[0], k[0]];
+        this.guides = sn.guides;
+      }
+    }
+    this.change(() => resized(d.start, rb.anchor, k, freeAspect));
+  }
+
+  // The turn handle under the pointer: the label turns about the center
+  // of its box. Shift: steps of 15°.
+  turnTo(px, py, steps) {
+    const d = this.drag;
+    let deg = (d.sign * (Math.atan2(py - d.c[1], px - d.c[0]) - d.a0) * 180) / Math.PI;
+    if (steps) deg = Math.round((d.base + deg) / 15) * 15 - d.base;
+    this.change(() => turnedAbout(d.start, deg, d.center));
   }
 
   // A point of the plane of the selected label on the screen (CSS pixels
@@ -955,14 +1191,14 @@ export class LabelTool {
   }
 
   // The box of the selected label on the screen (CSS pixels of the
-  // host), with its handle, or null.
+  // host), with its handles, or null.
   screenBox() {
     const l = this.label;
-    const o = l && this.outline(l);
-    if (!o) return null;
+    const g = l && this.handleGeom(l);
+    if (!g) return null;
     const box = [Infinity, Infinity, -Infinity, -Infinity];
-    const m = 1;
-    for (const x of [o.box[0] - m, o.box[2] + m]) for (const y of [o.box[1] - m, o.box[3] + m]) {
+    const pts = [[g.box[0], g.box[1]], [g.box[2], g.box[1]], [g.box[2], g.box[3]], [g.box[0], g.box[3]], [g.turn[0], g.turn[1] + g.r]];
+    for (const [x, y] of pts) {
       const q = this.screen(l, x, y);
       if (!q) continue;
       box[0] = Math.min(box[0], q[0]);
@@ -971,34 +1207,135 @@ export class LabelTool {
       box[3] = Math.max(box[3], q[1]);
     }
     if (!(box[0] <= box[2])) return null;
-    const g = 12; // the handle
-    return [box[0] - g, box[1] - g, box[2] + g, box[3] + g];
+    const m = 8;
+    return [box[0] - m, box[1] - m, box[2] + m, box[3] + m];
   }
 
-  // After each frame: the handle at the upper right corner of the label,
-  // and the card beside the label.
+  // After each frame: the handles keep their size on the screen (a zoom
+  // draws them again), and the card goes beside the label.
   place() {
     if (!this.on || this.sel < 0) return;
     const l = this.label;
-    const o = l && this.outline(l);
-    if (this.handle) {
-      const q = o && this.ctx.page() === "3d" ? this.screen(l, o.box[2] + 0.5, o.box[3] + 0.5) : null;
-      this.handle.hidden = !q;
-      if (q) {
-        this.handle.style.left = `${q[0]}px`;
-        this.handle.style.top = `${q[1]}px`;
-      }
-    }
-    // The turn handle: 3 mm over the middle of the top of the label.
-    if (this.turnHandle) {
-      const q = o && this.ctx.page() === "3d" ? this.screen(l, (o.box[0] + o.box[2]) / 2, o.box[3] + 3) : null;
-      this.turnHandle.hidden = !q;
-      if (q) {
-        this.turnHandle.style.left = `${q[0]}px`;
-        this.turnHandle.style.top = `${q[1]}px`;
-      }
+    if (l && this.handleScale) {
+      const mpp = this.mmPerPx(l);
+      if (Math.abs(mpp - this.handleScale) > 0.08 * this.handleScale) this.redraw();
     }
     this.card?.place(this.screenBox());
+  }
+
+  // ---- the handles and the smart guides ----
+  //
+  // The selected label has a frame on the surface, a square handle at
+  // each corner (a drag resizes it: the aspect stays, Shift frees it),
+  // and a round handle over it (a drag turns it: Shift, 15° steps). They
+  // are decals in the plane of the label, with sizes in pixels of the
+  // screen. A drag of the body moves the label. A move or a resize snaps
+  // to the smart guides of the core (zs_label_face, zs_label_snap): the
+  // other labels of the face, its holes, and the centers of the face and
+  // of the part. Alt moves free. The guides show as thin lines.
+
+  // The mm of the plane of label l in one CSS pixel at its center.
+  mmPerPx(l) {
+    const o = this.outline(l);
+    if (!o) return 0.1;
+    const cx = (o.box[0] + o.box[2]) / 2;
+    const cy = (o.box[1] + o.box[3]) / 2;
+    const p0 = this.screen(l, cx, cy);
+    const pr = this.screen(l, cx + 1, cy);
+    const pu = this.screen(l, cx, cy + 1);
+    if (!p0 || !pr || !pu) return 0.1;
+    const d = Math.max(Math.hypot(pr[0] - p0[0], pr[1] - p0[1]), Math.hypot(pu[0] - p0[0], pu[1] - p0[1]));
+    return d > 1e-6 ? 1 / d : 0.1;
+  }
+
+  // The places of the handles of label l in its plane (mm): the frame
+  // box, the half side of a corner square, and the center and the radius
+  // of the turn handle.
+  handleGeom(l, mpp = this.mmPerPx(l)) {
+    const o = this.outline(l);
+    if (!o) return null;
+    return handleGeom(o.box, mpp);
+  }
+
+  // The handle of the selected label at a CSS pixel: { kind: "corner",
+  // corner: [sx, sy] } or { kind: "turn" }, or null.
+  handleAt(px, py) {
+    const l = this.label;
+    if (!l || this.ctx.page() !== "3d") return null;
+    const r = this.ray(px, py);
+    const g = this.handleGeom(l);
+    if (!r || !g) return null;
+    const h = planeHit(l, r[0], r[1]);
+    if (!h) return null;
+    return hitHandle(g, h.x, h.y);
+  }
+
+  // The features of the face under label l (zs_label_face), kept while
+  // the label stays in the same plane.
+  faceAt(l) {
+    const s = this.sessions.get(this.index);
+    if (!s) return null;
+    const f = this.face;
+    if (f && f.index === this.index && samePlane(f.frame, l)) return f.json;
+    // A curved face changes the plane at each step: a new face at most
+    // each 150 ms there.
+    const now = performance.now();
+    if (f && f.index === this.index && now - f.time < 150) return null;
+    const w = this.w;
+    const c = w.alloc(72);
+    let json = null;
+    try {
+      new Float64Array(w.x.memory.buffer, c, 9).set([...l.origin, ...l.normal, ...l.right]);
+      const t = w.readText((b, cap, ol) => w.x.zs_label_face(s, c, b, cap, ol));
+      json = t ? JSON.parse(t) : null;
+    } finally {
+      w.free(c, 72);
+    }
+    this.face = { index: this.index, frame: { origin: l.origin.slice(), normal: l.normal.slice() }, json, time: now };
+    return json;
+  }
+
+  // The snap of a box of label l (zs_label_snap): { box, d, guides }, or
+  // null.
+  snapBox(l, box, op, extra = {}) {
+    const mpp = this.mmPerPx(l);
+    const others = [];
+    for (const x of this.labels) {
+      if (x.id === l.id) continue;
+      const o = this.outline(x);
+      if (o && o.pts.length > 0) others.push({ origin: x.origin, normal: x.normal, right: x.right, box: o.box });
+    }
+    const json = JSON.stringify({ op, frame: { origin: l.origin, normal: l.normal, right: l.right }, box, tol: SNAP_PX * mpp, others, face: this.faceAt(l), ...extra });
+    const w = this.w;
+    const t = w.withBytes(new TextEncoder().encode(json), (p, n) => w.readText((b, cap, ol) => w.x.zs_label_snap(p, n, b, cap, ol)));
+    return t ? JSON.parse(t) : null;
+  }
+
+  // The decals of the handles and the guides of the selected label.
+  handleDecals(l) {
+    const mpp = this.mmPerPx(l);
+    this.handleScale = mpp;
+    const g = this.handleGeom(l, mpp);
+    if (!g) return [];
+    const out = [];
+    const accent = [0.16, 0.5, 1];
+    const lw = 1.5 * mpp;
+    const [b0, b1, b2, b3] = g.box;
+    // The frame: a ring of the width of a line.
+    out.push(decal(l, [rect(b0 - lw / 2, b1 - lw / 2, b2 + lw / 2, b3 + lw / 2), rect(b0 + lw / 2, b1 + lw / 2, b2 - lw / 2, b3 - lw / 2).reverse()], accent));
+    // The stem and the turn handle.
+    const mx = (b0 + b2) / 2;
+    out.push(decal(l, [rect(mx - lw / 2, b3, mx + lw / 2, g.turn[1] - g.r)], accent));
+    out.push(decal(l, [circle(g.turn[0], g.turn[1], g.r)], [1, 1, 1], accent));
+    // The corners.
+    for (const [x, y] of [[b0, b1], [b2, b1], [b2, b3], [b0, b3]]) out.push(decal(l, [rect(x - g.hs, y - g.hs, x + g.hs, y + g.hs)], [1, 1, 1], accent));
+    // The guides.
+    const gw = 1.2 * mpp;
+    for (const s of this.guides ?? []) {
+      const p = segment(s, gw);
+      if (p) out.push(decal(l, [p], [0.95, 0.2, 0.6]));
+    }
+    return out;
   }
 
   // After a new list of filaments: the colors and the chips again.

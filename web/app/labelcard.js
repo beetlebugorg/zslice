@@ -5,9 +5,11 @@
 //
 // The card has:
 // - the shapes of the label, each with the chips Text, Line, Bar, Ring,
-//   Ticks, and Free, and its fields (the text, the size, the ticks of a
-//   dial, ...), and "+ Add a shape";
-// - the turn of the label, its filament (chips), and its depth;
+//   Ticks, and Free (and SVG for a picture), and its fields (the text,
+//   the size, the ticks of a dial, ...), "+ Add a shape", and "Place an
+//   SVG…";
+// - the turn of the label, its mode (Ink, Raised, Cut in) and relief,
+//   its filament (chips), and its depth;
 // - the stroke check (the thinnest stroke, the sizes of text that print
 //   clean and fair, and one line of advice), and the cost (the filament
 //   changes, the minutes, and the grams), from zs_app_label_info;
@@ -22,7 +24,7 @@ import { movable } from "./drag.js";
 import { spatial, savedPlace, remember } from "./spatial.js";
 import { placeBeside, freeArea } from "./place.js";
 import { filaments, inkOn } from "./filaments.js";
-import { SHAPES, SHAPE_NAMES, CURVE_LIMIT, CURVE_TEXT, angleOf, labelName } from "./label.js";
+import { SHAPES, SHAPE_NAMES, MODES, MODE_NAMES, DEFAULT_RELIEF, CURVE_LIMIT, CURVE_TEXT, angleOf, labelName } from "./label.js";
 
 const KIND = "label-card";
 
@@ -56,6 +58,9 @@ const FIELDS = {
   ],
   polyline: [
     ["width", "Width", "mm", 0, 100, 0.1, "The width of the line (0 with Filled)"],
+  ],
+  svg: [
+    ["size", "Height", "mm", 0.1, 500, 0.1, "The height of the picture"],
   ],
 };
 
@@ -132,7 +137,17 @@ export class LabelCard {
     addSel.onchange = () => {
       if (addSel.value) tool.addItem(addSel.value);
     };
-    addRow.append(addSel);
+    // An SVG picture from a file.
+    const svgBtn = el("button", "pc-action label-svg", "Place an SVG…");
+    svgBtn.title = "Put the filled shapes of an SVG file on the label. You can also drop an SVG file on a part.";
+    const file = Object.assign(document.createElement("input"), { type: "file", accept: ".svg,image/svg+xml", hidden: true });
+    svgBtn.onclick = () => file.click();
+    file.onchange = async () => {
+      const f = file.files[0];
+      file.value = "";
+      if (f) tool.placeSvg(await f.text(), f.name);
+    };
+    addRow.append(addSel, svgBtn, file);
     card.append(addRow);
 
     // The turn.
@@ -147,6 +162,28 @@ export class LabelCard {
     turnRow.append(el("span", "label-k", "Turn"), turn, el("span", "dim", "°"));
     this.inputs.push({ node: turn, get: angle });
     card.append(turnRow);
+
+    // The mode: ink, raised, or cut in, and the relief.
+    const modeRow = el("div", "pc-cut-row label-mode");
+    modeRow.append(el("span", "label-k", "Print"));
+    this.modeButtons = MODES.map((m) => {
+      const b = el("button", "pc-action", MODE_NAMES[m]);
+      b.title = m === "ink" ? "Flush with the surface, in the filament of the label" : m === "raised" ? "Out of the surface by the relief" : "Cut into the surface by the relief";
+      b.onclick = () => tool.setMode(m);
+      modeRow.append(b);
+      return b;
+    });
+    card.append(modeRow);
+    this.reliefRow = el("label", "pc-cut-row label-relief");
+    const relief = numInput(l.relief || DEFAULT_RELIEF, 0.1, 10, 0.1);
+    relief.title = "The height of a raised label, or the depth of a cut, mm";
+    relief.oninput = () => {
+      const v = Number(relief.value);
+      if (relief.value !== "" && v > 0 && v <= 10) tool.setRelief(v);
+    };
+    this.reliefRow.append(el("span", "label-k", "Relief"), relief, el("span", "dim", "mm"));
+    this.inputs.push({ node: relief, get: (x) => x.relief || DEFAULT_RELIEF });
+    card.append(this.reliefRow);
 
     // The filament.
     card.append(el("div", "pc-heading", "Filament"));
@@ -214,12 +251,13 @@ export class LabelCard {
     const tool = this.tool;
     const box = el("div", "label-item");
     const chips = el("div", "pc-actions label-shapes");
-    for (const k of SHAPES) {
+    const kinds = it.kind === "svg" ? ["svg", ...SHAPES] : SHAPES;
+    for (const k of kinds) {
       const b = el("button", "pc-action", SHAPE_NAMES[k]);
       b.classList.toggle("on", it.kind === k);
       b.setAttribute("aria-pressed", String(it.kind === k));
-      b.title = k === "polyline" ? "A free line: click points on the face" : `Make this shape a ${SHAPE_NAMES[k].toLowerCase()}`;
-      b.onclick = () => tool.setShape(i, k);
+      b.title = k === "svg" ? "An SVG picture" : k === "polyline" ? "A free line: click points on the face" : `Make this shape a ${SHAPE_NAMES[k].toLowerCase()}`;
+      b.onclick = () => k !== "svg" && tool.setShape(i, k);
       chips.append(b);
     }
     if (l.items.length > 1) {
@@ -329,6 +367,12 @@ export class LabelCard {
     this.depthButtons[0].classList.toggle("on", !(l.depth > 0));
     const lw = this.tool.info?.line_width || 0.42;
     this.depthButtons[1].classList.toggle("on", Math.abs((l.depth || 0) - 2 * lw) < 1e-6);
+    const mode = l.mode || "ink";
+    MODES.forEach((m, k) => {
+      this.modeButtons[k].classList.toggle("on", m === mode);
+      this.modeButtons[k].setAttribute("aria-pressed", String(m === mode));
+    });
+    this.reliefRow.hidden = mode === "ink";
     this.drawChips(l);
   }
 
@@ -355,7 +399,7 @@ export class LabelCard {
     this.chips.replaceChildren(...chips);
     // A label in the filament of the part does not show.
     this.notice.replaceChildren();
-    if (l.filament === base) {
+    if (l.filament === base && (l.mode || "ink") === "ink") {
       if (list.length <= 1) {
         const add = el("button", "pc-action", "Add a filament");
         add.title = "Add a second filament to the plate, and print the label with it";
