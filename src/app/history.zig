@@ -300,7 +300,9 @@ const LabelFacts = struct {
 fn writeLabelChange(w: *std.Io.Writer, c: Change) std.Io.Writer.Error!void {
     const old = LabelFacts.parse(c.old);
     const new = LabelFacts.parse(c.new);
-    const any = if (c.new.len > 0) new else old;
+    // The name of the label as it was before the change: a new text reads
+    // "Label “LABEL” → “VOLUME”".
+    const any = if (c.old.len > 0) old else new;
     if (any.text.len > 0) try w.print("Label \u{201c}{s}\u{201d}", .{any.text}) else if (any.kind.len > 0 and !std.mem.eql(u8, any.kind, "text")) try w.print("Label ({s})", .{any.kind}) else try w.writeAll("Label");
     if (c.old.len == 0) return w.writeAll(" added");
     if (c.new.len == 0) return w.writeAll(" removed");
@@ -866,6 +868,14 @@ test "history: the words of a label" {
         try testing.expectEqualStrings(wd, std.mem.trimEnd(u8, words.written()["Part Box\t".len..], "\n"));
         try testing.expectEqual(kd, try stepKind(testing.allocator, ch));
     }
+}
+
+test "history: a new text of a label names the old text first" {
+    const ch = "part:Box\tlabel 1\ttext \"LABEL\", filament 2, shape 1a2b, at 20.0 10.0 5.0, facing 100 0 0, turned 0\ttext \"VOLUME\", filament 2, shape 1a2b, at 20.0 10.0 5.0, facing 100 0 0, turned 0\n";
+    var words: std.Io.Writer.Allocating = .init(testing.allocator);
+    defer words.deinit();
+    try describe(testing.allocator, ch, 1e5, &.{}, &words.writer);
+    try testing.expectEqualStrings("Part Box\tLabel \u{201c}LABEL\u{201d} \u{2192} \u{201c}VOLUME\u{201d}", std.mem.trimEnd(u8, words.written(), "\n"));
 }
 
 test "history: the scope of a layer range in words" {
