@@ -56,6 +56,7 @@
 - [Settings for some layers](internals/layer-settings.md): which settings can change per layer, and which code reads them.
 - [Arachne walls](internals/arachne.md): walls with a variable line width, ported from CuraEngine.
 - [The print simulation](internals/print-sim.md): the physics of the plastic: bridges that sag, and strands that fall with no support.
+- [Speed: the lower bound of a slice](internals/performance.md): the least time of each stage on one machine, and the time of zslice against it.
 - [Contributing](internals/contributing.md): the rules, the tests, and step-by-step guides to add a setting, a feature, or an infill pattern.
 - [Code quality](internals/code-quality.md): the plan to make the code clearer, ranked by value.
 - [The macOS app](internals/macos.md): the SwiftUI shell, its build, and the Metal renderer of the 3D view.

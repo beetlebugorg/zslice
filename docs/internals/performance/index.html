@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Speed: the lower bound of a slice · zslice</title>
+<meta name="description" content="This page gives the least time that a slicer needs for one part, and the time of zslice against it. Use it to find the stage that is furthest from its bound before you tune a stage.">
+<link rel="canonical" href="https://zslice.beetlebug.org/internals/performance/">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%23171717'/%3E%3Crect x='11' y='8' width='10' height='4' rx='1' fill='%23f4f0e6'/%3E%3Crect x='8' y='14' width='16' height='4' rx='1' fill='%23f4f0e6'/%3E%3Crect x='5' y='20' width='22' height='4' rx='1' fill='%23ff5a1f'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="../../site.css">
+</head>
+<body>
+<input type="checkbox" id="menu">
+<header class="top">
+  <a class="brand" href="../../docs.html"><span class="mark">ZSLICE</span><span class="docs">DOCS</span></a>
+  <label class="menu-btn" for="menu">Contents</label>
+  <nav class="top-links"><a href="../../index.html">Open the app</a><a href="../../user/getting-started/">Get started</a><a href="../../roadmap/">Roadmap</a><a href="../../privacy/">Privacy</a><a href="https://github.com/beetlebugorg/zslice">GitHub</a></nav>
+</header>
+<div class="layout">
+<aside class="side"><nav><a href="../../docs.html">Home</a>
+<a href="../../contents/">All documents</a>
+<div class="group">Start</div>
+<a href="../../user/getting-started/"><span class="n">1</span>Your first print</a>
+<div class="group">Everyday tasks</div>
+<a href="../../user/look/"><span class="n">2</span>Look at the print</a>
+<a href="../../user/lines/"><span class="n">3</span>Click a line</a>
+<a href="../../user/change-settings/"><span class="n">4</span>Change a setting</a>
+<a href="../../user/parts/"><span class="n">5</span>Place the parts</a>
+<a href="../../user/support/"><span class="n">6</span>Add support</a>
+<a href="../../user/filaments/"><span class="n">7</span>Print in colors</a>
+<a href="../../user/labels/"><span class="n">8</span>Labels on a part</a>
+<a href="../../user/check/"><span class="n">9</span>Check the print</a>
+<a href="../../user/calibrate/"><span class="n">10</span>Calibrate the filament</a>
+<a href="../../user/plates/"><span class="n">11</span>Plates and files</a>
+<a href="../../user/printers/"><span class="n">12</span>Send to a printer</a>
+<a href="../../user/history/"><span class="n">13</span>Undo and history</a>
+<div class="group">Features</div>
+<a href="../../user/features/"><span class="n">14</span>The best features</a>
+<a href="../../user/print-as-it-forms/"><span class="n">15</span>The print as it forms</a>
+<a href="../../user/projects/"><span class="n">16</span>printdeck projects</a>
+<a href="../../user/farm/"><span class="n">17</span>A print farm</a>
+<div class="group">Reference</div>
+<a href="../../user/keys/">Keys and mouse</a>
+<a href="../../user/settings/">Settings</a>
+<a href="../../user/expert/">Formulas and rules</a>
+<a href="../../user/profiles/">Profiles</a>
+<a href="../../user/setting-coverage/">Cura and OrcaSlicer settings</a>
+<a href="../../user/command-line/">The command line</a>
+<a href="../../user/apps/">Web, Linux, and Mac</a>
+<a href="../../user/macos/">The macOS app</a>
+<a href="../../user/windows/">The Windows app</a>
+<a href="../../user/troubleshooting/">Problems and errors</a>
+<div class="group">Embedding</div>
+<a href="../../embedding/">Overview</a>
+<a href="../../embedding/c/">C</a>
+<a href="../../embedding/zig/">Zig</a>
+<a href="../../embedding/javascript/">JavaScript</a>
+<a href="../../embedding/print-view/">The print view</a>
+<a href="../../embedding/viewer/">The G-code viewer</a>
+<a href="../../embedding/labels/">Labels</a>
+<div class="group">Internals</div>
+<a href="../../internals/architecture/">Architecture</a>
+<a href="../../internals/one-view/">Plan: one view</a>
+<a href="../../internals/how-slicing-works/">How slicing works</a>
+<a href="../../internals/layer-settings/">Settings for some layers</a>
+<a href="../../internals/arachne/">Arachne walls</a>
+<a href="../../internals/print-sim/">The print simulation</a>
+<a href="../../internals/performance/" aria-current="page">Speed: the lower bound</a>
+<a href="../../internals/cura-compare/">Compared with other slicers</a>
+<a href="../../internals/contributing/">Contributing</a>
+<a href="../../internals/code-quality/">Code quality</a>
+<a href="../../internals/macos/">The macOS app</a>
+<a href="../../internals/windows/">The Windows app</a>
+<a href="../../internals/release/">CI and releases</a>
+<div class="group">Project</div>
+<a href="../../app/">App</a>
+<a href="../../roadmap/">Roadmap</a>
+<a href="../../privacy/">Privacy</a>
+<div class="group">References</div>
+<a href="../../references/">References</a>
+<a href="../../references/explore/">Explorer</a>
+<a href="../../references/libraries/">Libraries and tools</a>
+<a href="../../references/cura/">Cura</a>
+<a href="../../references/orcaslicer/">OrcaSlicer</a>
+<a href="../../references/prusaslicer/">PrusaSlicer</a>
+<a href="../../references/bambu-studio/">Bambu Studio</a>
+<a href="../../references/slicer-techniques/">Slicer techniques</a>
+<a href="../../references/printer-data/">Printer data</a>
+<a href="../../references/klipper-marlin-firmware/">Firmware and G-code</a>
+<a href="../../references/fonts/">Fonts</a>
+<a href="../../references/papers-and-algorithms/">Papers and algorithms</a>
+<a href="../../references/physics-and-materials/">Physics and materials</a>
+<a href="../../references/formats-and-protocols/">Formats and protocols</a></nav></aside>
+<main>
+<p class="eyebrow">Internals</p>
+<h1>Speed: the lower bound of a slice</h1>
+<p class="lede">This page gives the least time that a slicer needs for one part, and the time of zslice against it. Use it to find the stage that is furthest from its bound before you tune a stage.</p>
+<nav class="onpage"><b>On this page</b><ol><li><a href="#the-input-and-the-output">The input and the output</a></li><li><a href="#the-machine">The machine</a></li><li><a href="#the-bound-of-each-stage">The bound of each stage</a></li><li><a href="#zslice-against-the-bound">zslice against the bound</a></li><li><a href="#the-outline-tolerance">The outline tolerance</a></li><li><a href="#rules">Rules</a></li></ol></nav><p>The part is the 3DBenchy with the default settings. The machine is an Intel Core i7-6700K (4 cores, 8 threads, 8 MB of L3 cache). The date of the numbers is 2026-11-21.</p>
+<h2 id="the-input-and-the-output">The input and the output</h2>
+<p>A slice reads the mesh and writes the G-code. Each number below is a count from the files or from the slice.</p>
+<div class="table-wrap"><table><thead><tr><th>Item</th><th>Size</th></tr></thead><tbody><tr><td>The STL file</td><td>11 255 184 bytes, 225 102 triangles</td></tr><tr><td>The layers</td><td>239</td></tr><tr><td>The crossings of a triangle and a layer plane</td><td>275 662 (each gives one outline segment)</td></tr><tr><td>The G-code</td><td>2 765 484 bytes, 93 970 moves, 283 158 numbers</td></tr><tr><td>The offsets of the plan</td><td>2885 calls, 265 420 points in, 205 892 points out</td></tr><tr><td>The booleans of the plan (the offsets have their own)</td><td>4857 calls, 1 097 282 points in, 401 428 points out</td></tr><tr><td>The gap fill lines</td><td>215 calls, 29 689 points in, 8102 points out</td></tr></tbody></table></div>
+<h2 id="the-machine">The machine</h2>
+<p>A small C program measured these rates on one thread. Other programs used the machine during the measurement (a load average of 13), so each rate is the best of nine runs. A second measurement with more load gave rates up to three times as slow.</p>
+<div class="table-wrap"><table><thead><tr><th>Operation</th><th>Rate</th></tr></thead><tbody><tr><td>Memory: a copy of 256 MB</td><td>14.3 GB/s of traffic on 1 thread, 16.0 GB/s on 8 threads</td></tr><tr><td>Memory: the triad of the STREAM test (a = b + 3 c)</td><td>11.4 GB/s on 1 thread, 12.4 GB/s on 8 threads</td></tr><tr><td>A G-code move from three integers (<code>G1 X Y E</code>)</td><td>31.1 ns, 10.4 ns for each number, 935 MB/s</td></tr><tr><td>The STL file to nine floats for each triangle</td><td>1.58 ms, 7.0 ns for each triangle</td></tr><tr><td>The cut of all triangles by all layer planes</td><td>5.71 ms, 20.7 ns for each segment</td></tr><tr><td>A radix sort of 64-bit keys</td><td>22.2 ns for each key</td></tr><tr><td>The normal of an edge and the moved point of a corner</td><td>24.6 ns for each point</td></tr><tr><td>The crossing of an edge and a scan line</td><td>34.0 ns for each crossing, 6.35 ns for each edge</td></tr><tr><td>A crossing test of two edges (four orientations)</td><td>3.13 ns for each pair</td></tr></tbody></table></div>
+<p>The memory test follows the STREAM test (see <a href="../../references/papers-and-algorithms/">Papers and algorithms</a>).</p>
+<h2 id="the-bound-of-each-stage">The bound of each stage</h2>
+<p>The bound of a stage is the count of its work items times the measured rate of the fastest kernel for one item. A stage that needs an order of its items gets one radix sort. The bound is for one thread.</p>
+<div class="table-wrap"><table><thead><tr><th>Stage</th><th>The least work</th><th>Bound</th></tr></thead><tbody><tr><td>Mesh cut</td><td>275 662 segments x 20.7 ns, and one sort of the segments to chain them (275 662 x 22.2 ns)</td><td>5.7 + 6.1 = 11.8 ms</td></tr><tr><td>Offsets</td><td>For each of 265 420 points: the moved point (24.6 ns), one grid key (22.2 ns), and 4 pair tests (12.5 ns). The offsets inside other stages add a quarter (an estimate).</td><td>15.7 x 1.25 = 20 ms</td></tr><tr><td>Booleans</td><td>For each of 1 097 282 points: one sort key (22.2 ns), 4 pair tests (12.5 ns), and the winding and the output (10 ns, an estimate)</td><td>49 ms</td></tr><tr><td>Gap fill</td><td>A center line needs an order of its 29 689 sites: 29 689 x 14.9 steps x 10 ns (an estimate)</td><td>5 ms</td></tr><tr><td>Fill lines, seams, order</td><td>55 878 line ends x 34 ns, 401 428 region points x 6.35 ns, and the order of the paths (2 ms, an estimate)</td><td>6.5 ms</td></tr><tr><td>G-code text</td><td>283 158 numbers x 10.4 ns</td><td>2.9 ms</td></tr><tr><td>Total, one thread</td><td></td><td>95 ms</td></tr><tr><td>Total, 4 cores</td><td>Each stage works on one layer at a time. An outline of 1000 points is 16 kB, and a core has 256 kB of L2 cache.</td><td>24 ms</td></tr></tbody></table></div>
+<p>Three more bounds help to read the table:</p>
+<ul><li><strong>The memory bound.</strong> A slicer that only reads the mesh and writes the G-code moves 14 MB. At 12 GB/s that is 1.2 ms. The G-code alone is 0.23 ms. No stage is near the memory bound, so the stages are limited by the instructions for each point.</li><li><strong>The line cut form.</strong> The skin of all layers from line cuts needs 18.5 ms on one thread (<code>zslice bench --only dexel</code>, measured with the same load). The intersections are 788 895 of the points into the booleans, and 35 ms of their bound. With line cuts in their place the total is 95 - 35 + 18.5 = 79 ms on one thread and 20 ms on 4 cores. The skin lines at thin pieces then differ from the lines of today.</li><li><strong>A desktop with 16 cores.</strong> With cores 2.2 times as fast as the cores of this machine (an assumption: no such machine was measured), the bound is 95 / 2.2 / 16 = 2.7 ms.</li></ul>
+<p>A GPU can run the mesh cut, the line cuts, and a distance field. Each of these is a pass with no branch on the data. The compute time of each pass is far below 1 ms. The time of a pass is then the start of the pass and the copy of its result to the CPU: about 1 ms for each stage (an estimate). The order of the paths, the chains of the loops, and the G-code text stay on the CPU.</p>
+<h2 id="zslice-against-the-bound">zslice against the bound</h2>
+<p>The time of a full slice is 1477 ms of CPU (<code>zslice bench --only full --runs 5</code>, the median of three rounds). The share of each stage comes from a callgrind profile of <code>zslice slice</code>.</p>
+<div class="table-wrap"><table><thead><tr><th>Stage</th><th>Now (CPU)</th><th>Bound</th><th>Ratio</th></tr></thead><tbody><tr><td>Mesh cut, with the face index</td><td>77 ms</td><td>11.8 ms</td><td>6.5</td></tr><tr><td>Offsets</td><td>563 ms</td><td>20 ms</td><td>28</td></tr><tr><td>Booleans outside the offsets</td><td>471 ms</td><td>49 ms</td><td>9.6</td></tr><tr><td>Gap fill (Arachne, without its offsets and booleans)</td><td>215 ms</td><td>5 ms</td><td>43</td></tr><tr><td>Fill lines, seams, order, and the search for gaps</td><td>116 ms</td><td>6.5 ms</td><td>18</td></tr><tr><td>G-code text and motion plan</td><td>36 ms</td><td>2.9 ms</td><td>12</td></tr><tr><td>Total</td><td>1477 ms</td><td>95 ms</td><td>15.5</td></tr></tbody></table></div>
+<p>The gap fill and the offsets are furthest from their bounds. Together with the booleans they are 85 % of the time.</p>
+<ul><li><strong>Gap fill.</strong> The exact path of the Voronoi circle events makes 2.25 M products of long integers for one 3DBenchy. Most of them have one or two chunks of 32 bits, and are one CPU product (<code>voronoi_ctypes.ExtendedIntN</code>).</li><li><strong>Offsets.</strong> Each closing corner adds a loop through the vertex of the outline, and the loops of corners next to each other cross. The unions of the 2885 offsets find 585 000 split points on 434 000 edges. A split point is rounded, so a second search follows. The later searches are a third of the time of the offsets, and they find 5120 more split points.</li><li><strong>Booleans.</strong> A layer has 13 intersections on average (3112 for 239 layers). For the skin, the plan cuts the inner area of a layer with the surface of each layer near it (<code>layer.Memo.part</code>).</li></ul>
+<h2 id="the-outline-tolerance">The outline tolerance</h2>
+<p>The cost of each stage follows the count of the outline points. The slicer removes the points within <code>engine.resolution</code> (0.005 mm) of a straight line before all other work (<code>geom.simplifyClosed</code>). A larger value gives fewer points to each offset, boolean, and line of G-code.</p>
+<p>The 3DBenchy, with the outer walls compared to the walls at 0.005 mm (<code>tools/gcode_distance.py</code>, the distance of each end and each middle of a bead segment to the nearest bead of the other file):</p>
+<div class="table-wrap"><table><thead><tr><th><code>engine.resolution</code></th><th>Outline points</th><th>Points into the offsets</th><th>Points into the booleans</th><th>CPU of a full slice</th><th>G-code</th><th>Outer wall: median, 99 %</th><th>Points over 0.1 mm</th></tr></thead><tbody><tr><td>0.005 mm (the default)</td><td>35 739</td><td>265 420</td><td>1 097 282</td><td>1477 ms</td><td>2.77 MB</td><td></td><td></td></tr><tr><td>0.010 mm</td><td>25 790</td><td>192 039</td><td>815 679</td><td>1200 ms (19 % less)</td><td>2.24 MB</td><td>3.2 µm, 10.4 µm</td><td>55 of 174 162</td></tr><tr><td>0.025 mm</td><td>17 538</td><td>133 477</td><td>596 216</td><td>951 ms (36 % less)</td><td>1.78 MB</td><td>9.4 µm, 25.0 µm</td><td>85 of 151 734</td></tr><tr><td>0.050 mm</td><td>13 840</td><td>107 757</td><td>490 194</td><td>852 ms (42 % less)</td><td>1.57 MB</td><td>20.4 µm, 49.8 µm</td><td>129 of 141 084</td></tr></tbody></table></div>
+<ul><li>The outer walls stay within the tolerance for 99 % of their points. The few points over 0.1 mm are short pieces of wall that one of the two slices has and the other does not: a loop at the limit of the least size.</li><li>The skin and the fill change more: a line at a threshold appears or goes (11 % of the skin points move more than 0.05 mm at 0.010 mm).</li><li>The gap fill does not get faster: 215 calls and 260 to 335 ms on one thread at each value.</li><li>The gain depends on the mesh. The bunny of the test parts has long edges: its outlines have 17 014 points at 0.005 mm and 16 622 at 0.025 mm, and its slice needs 1312 ms of CPU at each value.</li></ul>
+<p>A rule with a least segment length and a largest deviation, as Cura has it, is weaker than the rule of zslice. The rule of zslice removes a point within the tolerance for an edge of any length. With a limit of 0.5 mm for the new edge and a tolerance of 0.025 mm, the 3DBenchy keeps 27 793 points. The plain tolerance of 0.010 mm keeps 25 790 points with less than half the error.</p>
+<p>The default stays at 0.005 mm. A change of the default changes the G-code of each part, so it is a decision of the owner.</p>
+<h2 id="rules">Rules</h2>
+<ul><li>Compare CPU times when other programs use the machine. The wall time of a full slice was 500 to 680 ms during these measurements, and its CPU time changed by less than 1 % between rounds.</li><li>Compare instruction counts too (<code>perf stat -e instructions:u</code>) for a change of less than 3 %.</li><li>A change of a stage must give the same G-code, byte for byte, or it goes behind a setting that is off.</li></ul><nav class="pager"><a class="prev" href="../../internals/print-sim/"><span>Previous</span><b>The print simulation</b></a><a class="next" href="../../internals/cura-compare/"><span>Next</span><b>Compared with other slicers</b></a></nav>
+</main>
+</div>
+<footer>zslice is free software (AGPL-3.0-or-later). <a href="../../privacy/">Privacy</a>: no analytics, no cookies, nothing from other sites. <a href="https://github.com/beetlebugorg/zslice/blob/main/docs/build.py">docs/build.py</a> writes this site from <a href="https://github.com/beetlebugorg/zslice/blob/main/docs/internals/performance.md">docs/internals/performance.md</a>.</footer>
+</body>
+</html>

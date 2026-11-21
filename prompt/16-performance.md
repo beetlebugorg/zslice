@@ -8,6 +8,7 @@ Make a change of a setting show in the view at once, at 60 frames a second, and 
 
 - [README.md](../README.md), section "Speed": the user-facing numbers.
 - [Architecture](../docs/internals/architecture.md), sections "Memory model", "Threads", and "Speed in WebAssembly".
+- [Speed: the lower bound of a slice](../docs/internals/performance.md): the bound of each stage, and the stages that are furthest from it.
 - [The command line](../docs/user/command-line.md), section "Measure the speed".
 - [web/app/README.md](../web/app/README.md), section "Performance".
 - [The macOS app internals](../docs/internals/macos.md), sections "The 3D view" and "The beads".
@@ -34,7 +35,8 @@ On a 3DBenchy with 8 cores (from the README):
 7. **The fast offset experiment** (`project.fast_offsets`, off by default): 2440 of the 3699 unions of a Benchy had more than 16 crossings from the small loops of closing corners. Put the crossing point in place of the loop: about 11 % less CPU. The outer walls stay within 1.4 µm. Off, the G-code is the same.
 8. **A coarse slice during a drag.** A turned part slices with thick layers, one wall, no skin, and no infill during a ring drag: 85 ms against 864 ms in the browser for a Benchy.
 9. **Light levels and culling in the view** (part 08), and a detail governor while the view moves on the web.
-10. **Keep the UI thread free.** History steps as snapshots (297 ms to 11 ms per move). The session written on a thread (Linux, 490 to 660 ms off the UI thread). The web session in IndexedDB from the worker (0.5 s off the main thread). Scene bytes made by the worker (88 to 109 ms off the UI thread).
+10. **Short integers in the exact Voronoi path** (`voronoi_ctypes.ExtendedIntN`): a product, a sum, or a difference of values with one or two chunks is one 128-bit operation in the caller. The gap fill lines of a 3DBenchy need 11 % less CPU. Wasm keeps the chunk loops.
+11. **Keep the UI thread free.** History steps as snapshots (297 ms to 11 ms per move). The session written on a thread (Linux, 490 to 660 ms off the UI thread). The web session in IndexedDB from the worker (0.5 s off the main thread). Scene bytes made by the worker (88 to 109 ms off the UI thread).
 
 ## WebAssembly rules
 

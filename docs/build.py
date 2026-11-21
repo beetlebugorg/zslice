@@ -80,6 +80,7 @@ SOURCES = [
     ("docs/internals/layer-settings.md", "internals/layer-settings/", "Internals", "Settings for some layers"),
     ("docs/internals/arachne.md", "internals/arachne/", "Internals", "Arachne walls"),
     ("docs/internals/print-sim.md", "internals/print-sim/", "Internals", "The print simulation"),
+    ("docs/internals/performance.md", "internals/performance/", "Internals", "Speed: the lower bound"),
     ("docs/internals/cura-compare.md", "internals/cura-compare/", "Internals", "Compared with other slicers"),
     ("docs/internals/contributing.md", "internals/contributing/", "Internals", "Contributing"),
     ("docs/internals/code-quality.md", "internals/code-quality/", "Internals", "Code quality"),
