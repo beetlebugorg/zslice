@@ -390,7 +390,7 @@ static void fill_menu(GtkMenuButton *button, gpointer data) {
         char *action = g_strdup_printf("profiles%d.pick('builtin:%s')", m->group, n);
         if (m->group == ZS_GROUP_PROJECT) {
             /* A quality: its name with a capital, and its main points in
-             * small text under it (zs_quality_summary). */
+             * a second line under it (zs_quality_summary). */
             char *name = quality_name(n);
             size_t len = 0;
             char *sum = NULL;
@@ -398,16 +398,13 @@ static void fill_menu(GtkMenuButton *button, gpointer data) {
                 sum = g_malloc(len + 1);
                 zs_quality_summary(n, sum, len + 1, NULL);
             }
-            char *name_m = g_markup_escape_text(name, -1);
-            char *sum_m = g_markup_escape_text(sum ? sum : "", -1);
-            char *markup = sum && sum[0] ? g_strdup_printf("%s\n<small>%s</small>", name_m, sum_m) : g_strdup(name_m);
-            GMenuItem *item = g_menu_item_new(markup, action);
-            g_menu_item_set_attribute(item, "use-markup", "b", TRUE);
+            /* Plain text on two lines: the popover menu of this GTK shows
+             * markup as text. */
+            char *text = sum && sum[0] ? g_strdup_printf("%s\n%s", name, sum) : g_strdup(name);
+            GMenuItem *item = g_menu_item_new(text, action);
             g_menu_append_item(builtin, item);
             g_object_unref(item);
-            g_free(markup);
-            g_free(name_m);
-            g_free(sum_m);
+            g_free(text);
             g_free(sum);
             g_free(name);
         } else {
