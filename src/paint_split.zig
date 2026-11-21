@@ -96,6 +96,9 @@ pub const Split = struct {
     regions: []Paths = &.{},
     layers: usize = 0,
     done: bool = false,
+    /// A cancel of the slice: `compute` stops between layers with
+    /// error.Canceled, and a later `compute` starts again.
+    cancel: ?*const std.atomic.Value(bool) = null,
     /// The volume (mm³) of the roots of the anchors (see `anchor`), for
     /// the tests and the stats.
     anchor_mm3: f64 = 0,
@@ -245,6 +248,13 @@ pub const Split = struct {
         if (s.done) return;
         const gpa = s.gpa;
         const n = outlines.len;
+        // The regions of a compute that a cancel stopped.
+        for (s.regions) |*r| r.deinit(gpa);
+        gpa.free(s.regions);
+        s.regions = &.{};
+        gpa.free(s.root_only);
+        s.root_only = &.{};
+        s.anchor_mm3 = 0;
         s.layers = n;
         s.regions = try gpa.alloc(Paths, n * s.states.len);
         @memset(s.regions, .empty);
@@ -257,11 +267,13 @@ pub const Split = struct {
             top: f64,
             bottom: f64,
             fn run(c: *const @This(), i: usize) anyerror!void {
+                if (c.s.canceled()) return error.Canceled;
                 try c.s.layer(i, c.outlines[i], c.frame.z_base + c.cut_z[i] / c.frame.z_scale, c.frame, c.w, c.top, c.bottom);
             }
         };
         const ctx: Pass = .{ .s = s, .outlines = outlines, .cut_z = cut_z, .frame = frame, .w = geom.fromMm(width), .top = top, .bottom = bottom };
         try parallel.forEach(threads, n, &ctx, Pass.run);
+        if (s.canceled()) return error.Canceled;
         if (roots.depth > 0 and s.states.len > 1) try s.anchor(outlines, cut_z, width, top, bottom, roots);
         if (s.labels.len > 0) {
             const LabelPass = struct {
@@ -272,13 +284,20 @@ pub const Split = struct {
                 width: f64,
                 min_bead: f64,
                 fn run(c: *const @This(), i: usize) anyerror!void {
+                    if (c.s.canceled()) return error.Canceled;
                     try c.s.labelLayer(i, c.outlines, c.cut_z, c.frame, c.width, c.min_bead);
                 }
             };
             const lp: LabelPass = .{ .s = s, .outlines = outlines, .cut_z = cut_z, .frame = frame, .width = width, .min_bead = min_bead };
             try parallel.forEach(threads, n, &lp, LabelPass.run);
         }
+        if (s.canceled()) return error.Canceled;
         s.done = true;
+    }
+
+    fn canceled(s: *const Split) bool {
+        const c = s.cancel orelse return false;
+        return c.load(.monotonic);
     }
 
     /// The labels on layer i (after the paint and the anchors). For each
@@ -585,6 +604,7 @@ pub const Split = struct {
         for (took, claimed) |*t, c| t.* = try c.clone(a);
         var step: usize = 0;
         while (!rest.isEmpty() and step < max_steps) : (step += 1) {
+            if (s.canceled()) return error.Canceled;
             var any_take = false;
             for (front, took) |*f, *t| {
                 if (f.isEmpty() or rest.isEmpty()) continue;
@@ -605,6 +625,7 @@ pub const Split = struct {
         var holes = false;
         for (0..rest.count()) |pi| holes = holes or geom.area2(rest.get(pi)) < 0;
         if (!holes) for (0..rest.count()) |pi| {
+            if (s.canceled()) return error.Canceled;
             var one: Paths = .empty;
             try one.append(a, rest.get(pi));
             const ring = try offset_mod.offset(a, one, w, .{});
@@ -1120,6 +1141,29 @@ test "paint split: a painted side colors a strip, and the rest is the part" {
     // steps), and the rest is the filament of the part.
     try testing.expectApproxEqAbs(@as(f64, 400), red_area + part_area, 1);
     try testing.expect(red_area > 25 and red_area < 50);
+}
+
+test "paint split: a cancel stops the compute, and a later compute starts again" {
+    const gpa = testing.allocator;
+    var m = try mesh_mod.shapes.box(gpa, 20, 20, 10);
+    defer m.deinit(gpa);
+    var p: paint_mod.Paint = .{};
+    defer p.deinit(gpa);
+    try p.setTriangle(gpa, 0, 2);
+    var s = try Split.init(gpa, &m, &p, 1);
+    defer s.deinit();
+    const b = m.bounds();
+    var outline: Paths = .empty;
+    defer outline.deinit(gpa);
+    try outline.append(gpa, &.{ .init(geom.fromMm(b.min[0]), geom.fromMm(b.min[1])), .init(geom.fromMm(b.max[0]), geom.fromMm(b.min[1])), .init(geom.fromMm(b.max[0]), geom.fromMm(b.max[1])), .init(geom.fromMm(b.min[0]), geom.fromMm(b.max[1])) });
+    var cancel: std.atomic.Value(bool) = .init(true);
+    s.cancel = &cancel;
+    try testing.expectError(error.Canceled, s.compute(&.{outline}, &.{5 - b.min[2]}, .{ .z_base = b.min[2] }, 0.4, 1, 1, 1, .{}, 0.34));
+    try testing.expect(!s.done);
+    cancel.store(false, .monotonic);
+    try s.compute(&.{outline}, &.{5 - b.min[2]}, .{ .z_base = b.min[2] }, 0.4, 1, 1, 1, .{}, 0.34);
+    try testing.expect(s.done);
+    try testing.expect(!s.region(0, 0).isEmpty());
 }
 
 // ---- the labels ----

@@ -475,6 +475,7 @@ pub const Job = struct {
             const p = s.project;
             const min_wall = if (p.min_wall_line_width > 0) p.min_wall_line_width else 0.85 * s.machine.nozzle_diameter;
             const min_bead = if (p.min_bead_width > 0) p.min_bead_width else min_wall;
+            pc.split.cancel = self.monitor.cancel;
             pc.split.compute(self.outlines, cut, frame, w, s.project.top_thickness, s.project.bottom_thickness, self.threads, roots, min_bead) catch |e| return @as(Error, @errorCast(e));
         }
         if (pc.split.layers != n) return error.InvalidSettings;
