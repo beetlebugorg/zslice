@@ -785,3 +785,23 @@ Gunilla Borgefors, "Distance transformations in digital images", Computer Vision
 **Used in:** `src/field.zig`
 
 **How zslice uses it:** `Field.stampSegment` writes the exact distance of each source to the nodes within a radius, and each node keeps the least value (the method of Hoff et al., on the CPU, a vector of nodes a step). `Field.chamfer` is the two-pass distance of Borgefors, for the test "is paint near this core". The jump flood is the plan for the same field on a GPU; zslice has no code of it.
+
+### Dexels: a solid as intervals on lines
+
+```ref
+kind: paper
+source: Van Hook, Menon and Voelcker
+license: Published methods
+files: src/dexel.zig
+area: infill
+summary: A layer as the intervals of a family of lines, so the boolean of two layers is a merge of sorted lists.
+```
+
+Tim Van Hook, "Real-Time Shaded NC Milling Display", SIGGRAPH 1986 (the dexel: a depth element, the intervals of a solid along a ray); Jai Menon and Herbert Voelcker, "On the completeness and conversion of ray representations of arbitrary solids", ACM Symposium on Solid Modeling 1995 (the ray representation). The idea to cut the part in two directions and to use the intersection as the fill lines is of the user of zslice
+
+**License:** Published methods
+
+**Used in:** `src/dexel.zig`
+
+**How zslice uses it:** `dexel.cut` cuts the outline of a layer with a family of lines one line width apart, and `dexel.boolean` merges the intervals of two layers line by line. `zslice bench --only dexel` measures the skin of all layers this way against the polygon booleans. The planner does not use it yet.
+
