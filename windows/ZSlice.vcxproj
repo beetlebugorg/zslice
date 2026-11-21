@@ -126,6 +126,7 @@
     <ClCompile Include="src\app\MainWindow.View.cpp" />
     <ClCompile Include="src\app\MainWindow.Session.cpp" />
     <ClCompile Include="src\app\MainWindow.Menu.cpp" />
+    <ClCompile Include="src\app\MainWindow.ContextMenu.cpp" />
     <!-- The test hooks: -p:ZsDevHooks=true. A shipped build has none. -->
     <ClCompile Include="src\app\MainWindow.DevHooks.cpp" Condition="'$(ZsDevHooks)'=='true'" />
     <ClCompile Include="src\app\winrt_glue.cpp" />
