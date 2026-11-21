@@ -68,6 +68,7 @@ SOURCES = [
     ("docs/embedding/zig.md", "embedding/zig/", "Embedding", "Zig"),
     ("docs/embedding/javascript.md", "embedding/javascript/", "Embedding", "JavaScript"),
     ("docs/embedding/print-view.md", "embedding/print-view/", "Embedding", "The print view"),
+    ("docs/embedding/viewer.md", "embedding/viewer/", "Embedding", "The G-code viewer"),
     ("docs/embedding/labels.md", "embedding/labels/", "Embedding", "Labels"),
     ("docs/internals/architecture.md", "internals/architecture/", "Internals", "Architecture"),
     ("docs/internals/one-view.md", "internals/one-view/", "Internals", "Plan: one view"),

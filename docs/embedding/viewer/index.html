@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The G-code viewer for a web page · zslice</title>
+<meta name="description" content="The G-code viewer for a web page: zslice documentation.">
+<link rel="canonical" href="https://zslice.beetlebug.org/embedding/viewer/">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%23171717'/%3E%3Crect x='11' y='8' width='10' height='4' rx='1' fill='%23f4f0e6'/%3E%3Crect x='8' y='14' width='16' height='4' rx='1' fill='%23f4f0e6'/%3E%3Crect x='5' y='20' width='22' height='4' rx='1' fill='%23ff5a1f'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="../../site.css">
+</head>
+<body>
+<input type="checkbox" id="menu">
+<header class="top">
+  <a class="brand" href="../../docs.html"><span class="mark">ZSLICE</span><span class="docs">DOCS</span></a>
+  <label class="menu-btn" for="menu">Contents</label>
+  <nav class="top-links"><a href="../../index.html">Open the app</a><a href="../../user/getting-started/">Get started</a><a href="../../roadmap/">Roadmap</a><a href="../../privacy/">Privacy</a><a href="https://github.com/beetlebugorg/zslice">GitHub</a></nav>
+</header>
+<div class="layout">
+<aside class="side"><nav><a href="../../docs.html">Home</a>
+<a href="../../contents/">All documents</a>
+<div class="group">Start</div>
+<a href="../../user/getting-started/"><span class="n">1</span>Your first print</a>
+<div class="group">Everyday tasks</div>
+<a href="../../user/look/"><span class="n">2</span>Look at the print</a>
+<a href="../../user/lines/"><span class="n">3</span>Click a line</a>
+<a href="../../user/change-settings/"><span class="n">4</span>Change a setting</a>
+<a href="../../user/parts/"><span class="n">5</span>Place the parts</a>
+<a href="../../user/support/"><span class="n">6</span>Add support</a>
+<a href="../../user/filaments/"><span class="n">7</span>Print in colors</a>
+<a href="../../user/labels/"><span class="n">8</span>Labels on a part</a>
+<a href="../../user/check/"><span class="n">9</span>Check the print</a>
+<a href="../../user/plates/"><span class="n">10</span>Plates and files</a>
+<a href="../../user/printers/"><span class="n">11</span>Send to a printer</a>
+<a href="../../user/history/"><span class="n">12</span>Undo and history</a>
+<div class="group">Features</div>
+<a href="../../user/features/"><span class="n">13</span>The best features</a>
+<a href="../../user/print-as-it-forms/"><span class="n">14</span>The print as it forms</a>
+<a href="../../user/projects/"><span class="n">15</span>printdeck projects</a>
+<a href="../../user/farm/"><span class="n">16</span>A print farm</a>
+<div class="group">Reference</div>
+<a href="../../user/keys/">Keys and mouse</a>
+<a href="../../user/settings/">Settings</a>
+<a href="../../user/expert/">Formulas and rules</a>
+<a href="../../user/profiles/">Profiles</a>
+<a href="../../user/command-line/">The command line</a>
+<a href="../../user/apps/">Web, Linux, and Mac</a>
+<a href="../../user/macos/">The macOS app</a>
+<a href="../../user/troubleshooting/">Problems and errors</a>
+<div class="group">Embedding</div>
+<a href="../../embedding/">Overview</a>
+<a href="../../embedding/c/">C</a>
+<a href="../../embedding/zig/">Zig</a>
+<a href="../../embedding/javascript/">JavaScript</a>
+<a href="../../embedding/print-view/">The print view</a>
+<a href="../../embedding/viewer/" aria-current="page">The G-code viewer</a>
+<a href="../../embedding/labels/">Labels</a>
+<div class="group">Internals</div>
+<a href="../../internals/architecture/">Architecture</a>
+<a href="../../internals/one-view/">Plan: one view</a>
+<a href="../../internals/how-slicing-works/">How slicing works</a>
+<a href="../../internals/layer-settings/">Settings for some layers</a>
+<a href="../../internals/arachne/">Arachne walls</a>
+<a href="../../internals/print-sim/">The print simulation</a>
+<a href="../../internals/cura-compare/">Compared with other slicers</a>
+<a href="../../internals/contributing/">Contributing</a>
+<a href="../../internals/code-quality/">Code quality</a>
+<a href="../../internals/macos/">The macOS app</a>
+<div class="group">Project</div>
+<a href="../../app/">App</a>
+<a href="../../references/">References</a>
+<a href="../../roadmap/">Roadmap</a>
+<a href="../../privacy/">Privacy</a></nav></aside>
+<main>
+<p class="eyebrow">Embedding</p>
+<h1>The G-code viewer for a web page</h1>
+
+<nav class="onpage"><b>On this page</b><ol><li><a href="#build">Build</a></li><li><a href="#serve">Serve</a></li><li><a href="#use">Use</a></li><li><a href="#the-calls">The calls</a></li><li><a href="#the-mouse-the-touchpad-and-touch">The mouse, the touchpad, and touch</a></li><li><a href="#large-files">Large files</a></li><li><a href="#test">Test</a></li></ol></nav><p>The viewer shows a G-code file in the 3D view of zslice, on a canvas of your page. It reads G-code of zslice, CuraEngine, PrusaSlicer, OrcaSlicer, and Bambu Studio. It has the beads, the light, and the feature colors of the app and of the printdeck screen. It has no tools and no panel. Your page draws its own controls, for example a layer slider.</p>
+<p>The viewer uses <code>zslice.wasm</code>, the module with no threads. It needs no worker and no cross-origin isolation.</p>
+<h2 id="build">Build</h2>
+<pre><code>zig build web-view</code></pre>
+<p>The files go in <code>zig-out/web/view</code>:</p>
+<div class="table-wrap"><table><thead><tr><th>File</th><th>What it has</th></tr></thead><tbody><tr><td><code>zslice-view.js</code></td><td>The module of the viewer. Import this file.</td></tr><tr><td><code>view.js</code>, <code>gl.js</code>, <code>input.js</code>, <code>wasm.js</code></td><td>The files of the web app that the viewer uses: the view, the WebGL2 drawing, the mouse and touch input, and the wasm helpers</td></tr><tr><td><code>zslice.wasm</code></td><td>The core</td></tr><tr><td><code>example.html</code></td><td>An example page: drop a G-code file on it</td></tr><tr><td><code>LICENSE</code></td><td>AGPL-3.0-or-later</td></tr></tbody></table></div>
+<p>Put all files in one folder of your site. The npm package <code>@beetlebugorg/zslice</code> has them in <code>view/</code>.</p>
+<h2 id="serve">Serve</h2>
+<ul><li>Send <code>zslice.wasm</code> as <code>application/wasm</code>. With another type, the viewer still works, but the browser cannot compile the module while it downloads.</li><li>Send the <code>.js</code> files as <code>text/javascript</code>.</li><li>A Content-Security-Policy needs <code>script-src &#x27;self&#x27; &#x27;wasm-unsafe-eval&#x27;</code>.</li></ul>
+<p>To try the example:</p>
+<pre><code>cd zig-out/web/view
+python3 -m http.server 8000</code></pre>
+<p>Then open <code>http://127.0.0.1:8000/example.html</code>. <code>?gcode=&lt;url&gt;</code> loads a file at the start.</p>
+<h2 id="use">Use</h2>
+<pre><code>import { ZsliceView } from "./zslice/zslice-view.js";
+
+const v = await ZsliceView.create(canvas, { wasm: "./zslice/zslice.wasm" });
+const info = await v.loadGcode(await fetch("/plate.gcode"), { bedX: 280, bedY: 280 });
+slider.max = info.layers;
+slider.oninput = () =&gt; v.setLayer(slider.value - 1);</code></pre>
+<p>The canvas gets its size from your CSS. The viewer sets the pixel size of the drawing to the size of the canvas on the page, and follows each change.</p>
+<h2 id="the-calls">The calls</h2>
+<p><code>ZsliceView.create(canvas, opts)</code> makes a viewer. The options:</p>
+<ul><li><code>wasm</code>: the URL of <code>zslice.wasm</code>. The default is the file next to <code>zslice-view.js</code>.</li><li><code>module</code>: a compiled <code>WebAssembly.Module</code>, in place of the URL. Use it for many viewers on one page.</li><li><code>dark</code>: <code>true</code>, <code>false</code>, or <code>&quot;auto&quot;</code> (the dark mode of the system). The default is <code>&quot;auto&quot;</code>.</li><li><code>byFeature</code>: a color for each feature. The default is <code>true</code>.</li><li><code>color</code>: the filament color, <code>0xRRGGBB</code>, when <code>byFeature</code> is <code>false</code>.</li></ul>
+<p><code>v.loadGcode(source, opts)</code> reads a file and shows it. It returns <code>v.info()</code>.</p>
+<ul><li><code>source</code>: a <code>Uint8Array</code>, an <code>ArrayBuffer</code>, a <code>Blob</code> (a dropped file), a <code>Response</code> (of <code>fetch</code>), or a <code>ReadableStream</code>. A <code>Response</code> or a stream goes to the reader as it downloads. The page never holds the whole text.</li><li><code>opts.bedX</code>, <code>opts.bedY</code>: the bed size in mm. With no size, the bed goes around the part.</li><li><code>opts.onProgress(bytes)</code>: the bytes read so far.</li><li><code>opts.signal</code>: an <code>AbortSignal</code> that stops the read.</li></ul>
+<p>The reader gets the file in pieces of 1 MB. After about 30 ms of work, it waits for the next task of the page, so the page can draw and take input. A second <code>loadGcode</code> stops the first one. The first one then fails with an <code>AbortError</code>.</p>
+<p><code>v.info()</code> gives the facts of the file:</p>
+<div class="table-wrap"><table><thead><tr><th>Field</th><th>What it is</th></tr></thead><tbody><tr><td><code>layers</code></td><td>The count of layers</td></tr><tr><td><code>layerHeights</code>, <code>layerZ</code></td><td>The height and the top z of each layer (mm)</td></tr><tr><td><code>seconds</code></td><td>The print time: from the comments of the slicer, else an estimate</td></tr><tr><td><code>meters</code></td><td>The filament length: from a comment, else the sum of the E of the beads</td></tr><tr><td><code>grams</code></td><td>The filament weight: from a comment, else an estimate for PLA (1.24 g/cm³)</td></tr><tr><td><code>gramsEstimated</code></td><td><code>true</code> when the file gives no weight</td></tr><tr><td><code>slicer</code></td><td>The slicer and its version, for example <code>Cura_SteamEngine 5.13.0</code>, or <code>&quot;&quot;</code></td></tr><tr><td><code>settings</code></td><td>Each <code>key = value</code> or <code>key: value</code> comment of the start and the end of the file, as an object. For CuraEngine: the header (<code>Layer height</code>, <code>MINX</code>, <code>FLAVOR</code>). For zslice: the settings at the end (<code>project.layer_height</code>). For PrusaSlicer and Bambu Studio: the config block.</td></tr><tr><td><code>filamentDiameter</code></td><td>The filament diameter (mm)</td></tr><tr><td><code>box</code></td><td>The box of the beads: min x, y, z, then max x, y, z (mm)</td></tr><tr><td><code>size</code>, <code>moves</code>, <code>beads</code></td><td>The bytes of the file, its moves, and its moves with plastic</td></tr></tbody></table></div>
+<p><code>v.layer(n)</code> gives layer <code>n</code> (from 0): <code>z</code>, <code>height</code>, <code>startSeconds</code>, <code>endSeconds</code>, and its bytes in the file (<code>start</code>, <code>end</code>).</p>
+<p><code>v.setLayer(n)</code> shows the layers 0 to <code>n</code> (from 0). The top layer is lit, and the layers under it are darker.</p>
+<p><code>v.setLayerRange(lo, hi)</code> shows the layers <code>lo</code> to <code>hi</code>. The layers under <code>lo</code> do not show, so the inside of the part at <code>lo</code> is visible.</p>
+<p><code>v.setPosition(offset)</code> shows the print at a byte offset of the file: the moves before it. Use it with the file position of a printer.</p>
+<p><code>v.setColors({ byFeature, color })</code> and <code>v.setDark(mode)</code> change the look.</p>
+<p><code>v.reset()</code> moves the camera back to the start view.</p>
+<p><code>v.resize()</code> sets the size of the drawing to the size of the canvas. A <code>ResizeObserver</code> calls it. Call it after a change that the observer does not see.</p>
+<p><code>v.destroy()</code> frees the wasm memory and the GPU data, and removes the listeners. The canvas stays on the page.</p>
+<h2 id="the-mouse-the-touchpad-and-touch">The mouse, the touchpad, and touch</h2>
+<p>The input is the input of the zslice app (<code>web/app/input.js</code>):</p>
+<ul><li>A left drag orbits. A right drag of a mouse orbits too.</li><li>A middle drag, or Shift and a drag, pans.</li><li>On a touchpad, two fingers clicked down and slid pan.</li><li>The wheel, a two-finger swipe on a touchpad, and a pinch zoom toward the pointer.</li><li>On a touch screen, one finger orbits. Two fingers pinch to zoom and move to pan.</li><li>A double click moves the camera back to the start view.</li></ul>
+<h2 id="large-files">Large files</h2>
+<p>The reader keeps 24 bytes for each move. The view puts 32 bytes for each bead in one GPU buffer, once. A new layer only changes how many beads draw.</p>
+<p>A CuraEngine file of 25 MB with 757 000 beads loaded in 0.4 s in Chromium on a desktop PC. The wasm memory grew to 97 MB. The longest wait between two frames of the page during the load was 0.12 s.</p>
+<p>The files to download: <code>zslice.wasm</code> is 5.8 MB (1.7 MB with gzip). The five <code>.js</code> files are 120 kB together. Turn on gzip or Brotli for <code>.wasm</code> on your server.</p>
+<h2 id="test">Test</h2>
+<pre><code>zig build web-view
+node web/view/test-view.mjs zig-out/web/view [file.gcode ...]</code></pre>
+<p>The test reads a CuraEngine file and a zslice file in pieces, checks the facts, and draws frames of the view.</p><nav class="pager"><a class="prev" href="../../embedding/print-view/"><span>Previous</span><b>The print view</b></a><a class="next" href="../../embedding/labels/"><span>Next</span><b>Labels</b></a></nav>
+</main>
+</div>
+<footer>zslice is free software (AGPL-3.0-or-later). <a href="../../privacy/">Privacy</a>: no analytics, no cookies, nothing from other sites. <a href="https://github.com/beetlebugorg/zslice/blob/main/docs/build.py">docs/build.py</a> writes this site from <a href="https://github.com/beetlebugorg/zslice/blob/main/docs/embedding/viewer.md">docs/embedding/viewer.md</a>.</footer>
+</body>
+</html>

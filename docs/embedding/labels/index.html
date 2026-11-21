@@ -53,6 +53,7 @@
 <a href="../../embedding/zig/">Zig</a>
 <a href="../../embedding/javascript/">JavaScript</a>
 <a href="../../embedding/print-view/">The print view</a>
+<a href="../../embedding/viewer/">The G-code viewer</a>
 <a href="../../embedding/labels/" aria-current="page">Labels</a>
 <div class="group">Internals</div>
 <a href="../../internals/architecture/">Architecture</a>
@@ -92,7 +93,7 @@
 <h2 id="the-sizes-that-print-well">The sizes that print well</h2>
 <p>The font is Inter Bold (SIL Open Font License 1.1). Its stem is 0.205 of the cap height. With a line width w, text with a cap height of 2 w / 0.205 has strokes of two lines and prints clean: 4.1 mm with w = 0.42. Text of w / 0.205 (2.0 mm) has strokes of one line: it prints, but rough. The card shows these sizes (<code>clean_size</code>, <code>fair_size</code>), and a weight (up to 0.3 mm) that makes the strokes wider.</p>
 <h2 id="the-cost">The cost</h2>
-<p>Each layer with a side label adds about one filament change: the flush planner orders the filaments of each layer, so a layer can start with the filament that the layer under it ended with. A label 5 mm tall at 0.2 mm layers covers 25 layers: about 25 changes. A top label costs its few layers (<code>top_changes</code>). The card shows <code>changes</code>, <code>minutes</code>, and <code>grams</code> before the slice (an estimate) and after it (from the G-code). A label on the top face costs much less: say so on the card when a side label costs more than 10 changes.</p><nav class="pager"><a class="prev" href="../../embedding/print-view/"><span>Previous</span><b>The print view</b></a><a class="next" href="../../internals/architecture/"><span>Next</span><b>Architecture</b></a></nav>
+<p>Each layer with a side label adds about one filament change: the flush planner orders the filaments of each layer, so a layer can start with the filament that the layer under it ended with. A label 5 mm tall at 0.2 mm layers covers 25 layers: about 25 changes. A top label costs its few layers (<code>top_changes</code>). The card shows <code>changes</code>, <code>minutes</code>, and <code>grams</code> before the slice (an estimate) and after it (from the G-code). A label on the top face costs much less: say so on the card when a side label costs more than 10 changes.</p><nav class="pager"><a class="prev" href="../../embedding/viewer/"><span>Previous</span><b>The G-code viewer</b></a><a class="next" href="../../internals/architecture/"><span>Next</span><b>Architecture</b></a></nav>
 </main>
 </div>
 <footer>zslice is free software (AGPL-3.0-or-later). <a href="../../privacy/">Privacy</a>: no analytics, no cookies, nothing from other sites. <a href="https://github.com/beetlebugorg/zslice/blob/main/docs/build.py">docs/build.py</a> writes this site from <a href="https://github.com/beetlebugorg/zslice/blob/main/docs/embedding/labels.md">docs/embedding/labels.md</a>.</footer>
