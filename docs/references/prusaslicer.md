@@ -111,18 +111,18 @@ kind: idea
 source: PrusaSlicer, Bambu Studio, OrcaSlicer
 license: AGPL-3.0
 link: https://help.prusa3d.com/article/text-tool_399460
-files: src/label.zig, src/paint_split.zig
+files: src/label.zig, src/paint_split.zig, src/plate_job.zig
 area: slicing
-summary: A label of zslice stays a 2D shape (text, ticks, bars) in the project.
+summary: A label of zslice stays a 2D shape (text, ticks, bars, an SVG picture) in the project, printed as ink, raised, or cut.
 ```
 
 The text and SVG emboss tools of PrusaSlicer 2.6 and later (https://help.prusa3d.com/article/text-tool_399460, https://help.prusa3d.com/article/svg-embossing-tool_686167), the 3D text tool of Bambu Studio and OrcaSlicer (https://wiki.bambulab.com/en/software/bambu-studio/3d-text), and the setting `mmu_segmented_region_max_width` of PrusaSlicer and OrcaSlicer (https://www.orcaslicer.com/wiki/print_settings/multimaterial/multimaterial_settings_advanced): a text or a shape on the surface of a part as a modifier with a filament, and a painted region cut to a band from the surface, with thin slivers joined to the next region
 
 **License:** AGPL-3.0 (the method, no code)
 
-**Used in:** `src/label.zig`, `src/paint_split.zig`
+**Used in:** `src/label.zig`, `src/paint_split.zig`, `src/plate_job.zig`
 
-**How zslice uses it:** A label of zslice stays a 2D shape (text, ticks, bars) in the project. Each layer gets the prism of the shape along its normal, cut to the band of the depth of the label from the outline of the layer, with a clean-up of strokes and gaps narrower than the narrowest line.
+**How zslice uses it:** A label of zslice stays a 2D shape (text, ticks, bars, an SVG picture) in the project. Each layer gets the prism of the shape along its normal, cut to the band of the depth of the label from the outline of the layer, with a clean-up of strokes and gaps narrower than the narrowest line. The tools of PrusaSlicer make a text or an SVG a part (raised) or a negative volume (cut) as well as a modifier. zslice has the same three choices as a mode of the label: ink, raised, and cut. A raised or cut label changes the outlines of the layers in the band of its relief, with no new mesh (a raised label on a top face adds walls to the mesh).
 
 ## G-code and settings
 

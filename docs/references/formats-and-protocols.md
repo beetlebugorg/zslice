@@ -24,6 +24,26 @@ Scalable Vector Graphics (SVG) 1.1, W3C Recommendation: path data, and the conve
 
 **How zslice uses it:** The Mac app draws the glyphs of the history steps (the SVG paths of `web/app/history.js`) with SwiftUI paths. The code is new.
 
+### SVG 1.1 pictures on labels
+
+```ref
+kind: format
+source: W3C
+license: W3C standard
+link: https://www.w3.org/TR/SVG11/
+files: src/svg_path.zig, src/label.zig
+area: files
+summary: An SVG picture on a label: the path data, the basic shapes, the transforms, the fill rules, and the arc conversion.
+```
+
+Scalable Vector Graphics (SVG) 1.1 (Second Edition), W3C Recommendation 16 August 2011: the path data (chapter 8), the basic shapes (chapter 9), the transform attribute (7.6), the fill rules nonzero and evenodd (11.3), and the conversion of an arc from its end points to its center (appendix F.6.5 and F.6.6), https://www.w3.org/TR/SVG11/
+
+**License:** W3C standard
+
+**Used in:** `src/svg_path.zig`, `src/label.zig`
+
+**How zslice uses it:** svg_path.zig reads the filled shapes of an SVG file into polygons for a label: the commands M L H V C S Q T A Z, the elements path, rect, circle, ellipse, polygon, polyline, and line, the transforms, and the fill rules. A stroke with no fill becomes a simple outline. The code is new.
+
 ### TOML v1.0.0
 
 ```ref
