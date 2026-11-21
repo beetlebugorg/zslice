@@ -37,7 +37,9 @@ A profile is a built-in name or a `.toml` file (`zslice import cura` of the nati
 
 A 3MF file is a plate. Each object prints at the place of its build item, also near the edge of the bed or near another part. The command stops if a part is not on the bed. An object can have its own settings in its metadata: Cura keys (`cura:infill_sparse_density`) or zslice settings (`zslice:project.wall_count`). The command stops on a setting that a part cannot have, for example a brim (zslice keeps it for the whole plate).
 
-`--stats` writes JSON: `printTimeS`, `filamentMm`, `filamentM`, `filamentG`, `layerCount`, `layerHeight`, `firstLayerHeight`, `retractions`, `travelMm`, `parts`, and `bounds` (`{ "min": [x, y, z], "max": [x, y, z] }` in mm: the box of the extrusions, with the skirt and the brim).
+`--stats` writes JSON: `printTimeS`, `filamentMm`, `filamentM`, `filamentG`, `layerCount`, `layerHeight`, `firstLayerHeight`, `retractions`, `travelMm`, `parts`, and `bounds` (`{ "min": [x, y, z], "max": [x, y, z] }` in mm: the box of the extrusions, with the skirt and the brim). It also has `filamentGrams` (the grams of each filament), `filamentChanges`, and `flushG`.
+
+`--bambu part.gcode.3mf` writes the file that a Bambu Lab printer prints. Use it with a Bambu Lab machine profile, for example `-m bambu-lab-x2d`. A Bambu Studio 3MF with `Metadata/model_settings.config` and `Metadata/project_settings.config` gives each part its filament and each filament its color.
 
 ## Serve the web app
 
