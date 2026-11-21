@@ -95,6 +95,8 @@ pub const DXGI_SCALING_STRETCH: u32 = 0;
 pub const DXGI_SWAP_EFFECT_FLIP_DISCARD: u32 = 4;
 pub const DXGI_ALPHA_MODE_PREMULTIPLIED: u32 = 2;
 pub const DXGI_ALPHA_MODE_IGNORE: u32 = 3;
+pub const DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT: u32 = 0x40;
+pub const WAIT_OBJECT_0: u32 = 0;
 pub const DXGI_CREATE_FACTORY_DEBUG: u32 = 1;
 pub const DXGI_MWA_NO_ALT_ENTER: u32 = 2;
 pub const DXGI_ADAPTER_FLAG_SOFTWARE: u32 = 2;
@@ -725,9 +727,9 @@ pub const IDXGISwapChain3 = extern struct {
         // IDXGISwapChain2
         SetSourceSize: Unused,
         GetSourceSize: Unused,
-        SetMaximumFrameLatency: Unused,
+        SetMaximumFrameLatency: *const fn (*anyopaque, u32) callconv(.winapi) HRESULT,
         GetMaximumFrameLatency: Unused,
-        GetFrameLatencyWaitableObject: Unused,
+        GetFrameLatencyWaitableObject: *const fn (*anyopaque) callconv(.winapi) ?HANDLE,
         SetMatrixTransform: Unused,
         GetMatrixTransform: Unused,
         // IDXGISwapChain3
@@ -750,6 +752,12 @@ pub const IDXGISwapChain3 = extern struct {
     }
     pub inline fn GetDesc1(self: *IDXGISwapChain3, d: *DXGI_SWAP_CHAIN_DESC1) HRESULT {
         return self.v.GetDesc1(self, d);
+    }
+    pub inline fn SetMaximumFrameLatency(self: *IDXGISwapChain3, frames: u32) HRESULT {
+        return self.v.SetMaximumFrameLatency(self, frames);
+    }
+    pub inline fn GetFrameLatencyWaitableObject(self: *IDXGISwapChain3) ?HANDLE {
+        return self.v.GetFrameLatencyWaitableObject(self);
     }
     pub inline fn GetCurrentBackBufferIndex(self: *IDXGISwapChain3) u32 {
         return self.v.GetCurrentBackBufferIndex(self);

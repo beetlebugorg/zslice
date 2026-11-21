@@ -233,6 +233,11 @@ pub const Renderer = struct {
     frame_value: u64 = 0,
 
     swapchain: ?*d3d.IDXGISwapChain3 = null,
+    /// Signaled when the swapchain can take one more frame. With it, a
+    /// present does not block the UI thread.
+    latency: ?d3d.HANDLE = null,
+    /// The wait on `latency` succeeded, and no present used it yet.
+    latency_held: bool = false,
     back: [sc_buffers]?*d3d.ID3D12Resource = @splat(null),
     back_count: u32 = 0,
     depth: ?*d3d.ID3D12Resource = null,
@@ -414,6 +419,7 @@ pub const Renderer = struct {
     /// Releases each object that exists. The GPU is idle.
     fn release(r: *Renderer) void {
         r.releaseTargets();
+        if (r.latency) |h| _ = d3d.CloseHandle(h);
         if (r.swapchain) |s| _ = s.Release();
         if (r.target) |t| _ = t.Release();
         r.freeBuffer(&r.readback);
@@ -986,6 +992,7 @@ pub const Renderer = struct {
             .Format = r.format,
             .BufferCount = sc_buffers,
             .AlphaMode = d3d.DXGI_ALPHA_MODE_IGNORE,
+            .Flags = d3d.DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT,
         };
         var sc: ?*d3d.IDXGISwapChain3 = null;
         var hr = r.factory.CreateSwapChainForComposition(r.queue, &desc, &sc);
@@ -995,13 +1002,16 @@ pub const Renderer = struct {
         }
         try check(hr, "CreateSwapChainForComposition");
         r.swapchain = sc;
+        try check(sc.?.SetMaximumFrameLatency(1), "SetMaximumFrameLatency");
+        r.latency = sc.?.GetFrameLatencyWaitableObject() orelse return error.D3D12Failed;
         try r.adoptBackBuffers();
     }
 
     fn resizeSwapchain(r: *Renderer) Error!void {
         r.waitIdle();
         r.releaseTargets();
-        try check(r.swapchain.?.ResizeBuffers(0, r.want_width, r.want_height, d3d.DXGI_FORMAT_UNKNOWN, 0), "ResizeBuffers");
+        // The flags of a swapchain must stay the same.
+        try check(r.swapchain.?.ResizeBuffers(0, r.want_width, r.want_height, d3d.DXGI_FORMAT_UNKNOWN, d3d.DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT), "ResizeBuffers");
         try r.adoptBackBuffers();
     }
 
@@ -1053,6 +1063,12 @@ pub const Renderer = struct {
         r.frames_done = r.frames_sent;
         if (r.stale) try r.resizeSwapchain();
         if (r.back_count == 0) return;
+        // The compositor holds the frame before: skip this one. The wait
+        // takes one count of the object, so it stays held until a present.
+        if (!r.latency_held) {
+            if (d3d.WaitForSingleObject(r.latency.?, 0) != d3d.WAIT_OBJECT_0) return error.FrameBusy;
+            r.latency_held = true;
+        }
         try r.syncPlates(frame);
 
         const sc = r.swapchain.?;
@@ -1073,6 +1089,7 @@ pub const Renderer = struct {
         }
         try r.execute(cmd);
         const presented = sc.Present(1, 0);
+        r.latency_held = false;
         try r.signalFrame();
         try check(presented, "Present");
     }
