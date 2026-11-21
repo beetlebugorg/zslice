@@ -119,6 +119,7 @@ namespace winrt::ZSlice::implementation
         WireTools();
         WireSession();
         WireMenu();
+        Wire2D();
         Closed([this](auto &&, auto &&) {
             SaveSession(true);
             CloseView();
@@ -260,6 +261,11 @@ namespace winrt::ZSlice::implementation
         draw_queued = false;
         if (view == nullptr)
             return;
+        if (show_2d)
+        {
+            Draw2D();
+            return;
+        }
         int rc = zs_view_draw(view);
         // The GPU or the compositor holds the frame before.
         if (rc == ZS_BUSY && !retry_timer.IsRunning())
@@ -335,6 +341,7 @@ namespace winrt::ZSlice::implementation
 
     void MainWindow::ShowSlice()
     {
+        layer2d_dirty = true;
         SliceProgress().Visibility(Visibility::Collapsed);
         // A change came during the slice: this result shows, and the newest
         // settings slice next.
