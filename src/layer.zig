@@ -88,8 +88,9 @@
 //! alternate layers of Cura and OrcaSlicer (`wall_order`,
 //! `alternate_extra_wall`, see docs/references/cura.md), and the slower
 //! overhang walls of OrcaSlicer and Cura (`markOverhangWalls`, see
-//! docs/references/orcaslicer.md), and the fuzzy skin of Cura
-//! (`fuzzWalls`, see docs/references/cura.md).
+//! docs/references/orcaslicer.md), the fuzzy skin of Cura
+//! (`fuzzWalls`), and the spiral vase mode of Cura (`spiralize`, see
+//! docs/references/cura.md).
 //!
 //! `cornerSeamIndex` and its helpers are a port to Zig of the seam corner
 //! choice of CuraEngine (`CornerScoringCriterion.cpp`,
@@ -1818,6 +1819,12 @@ pub fn plan(gpa: Allocator, ctx: Context, i: usize) Allocator.Error!LayerPlan {
         try markOverhangWalls(s, a, &lp, ctx.outlines[i - 1], w, p.overhang_wall_threshold);
     }
 
+    // Spiral vase mode: one rising outer wall (see `spiralize`).
+    if (p.spiral_vase and i >= r.bottom_layers) {
+        try spiralize(s, a, &lp, i == r.bottom_layers);
+        return lp;
+    }
+
     // Step 10: slope smoothing, after all other paths of the layer, then
     // slope ironing.
     const slope_in: slope.Input = .{ .resolved = r, .layers = ctx.layers, .outlines = ctx.outlines, .tops = ctx.tops };
@@ -3316,6 +3323,70 @@ fn splitBridgeWalls(s: Allocator, a: Allocator, lp: *LayerPlan, memo: *Memo, bel
     }
 }
 
+/// Spiral vase mode on a layer after the bottom layers: the plan keeps the
+/// skirt, the brim, the support, and the outer wall loop of the largest
+/// outline. The other paths go. The loop becomes an open path back to its
+/// start, with a z for each point: from the top of the layer below at
+/// its start up to the top of this layer at its end, by its length. The
+/// nozzle so rises along the wall with no layer change and no seam. On
+/// the first spiral layer (`first`), the bead grows from zero at the
+/// start to a full bead at the end, on the flat top of the bottom layers.
+/// This is the spiralize mode of Cura (the idea, not its code).
+fn spiralize(s: Allocator, a: Allocator, lp: *LayerPlan, first: bool) Allocator.Error!void {
+    // The outer wall loop with the largest area.
+    var best: ?usize = null;
+    var best_area: f64 = 0;
+    for (lp.paths.items, 0..) |pth, k| {
+        if (pth.feature != .outer_wall or !pth.closed or pth.z_start != Path.planar) continue;
+        const pts = lp.points.get(k);
+        if (pts.len < 3) continue;
+        const ar: f64 = @floatFromInt(geom.area2(pts));
+        if (ar > best_area) {
+            best_area = ar;
+            best = k;
+        }
+    }
+    var paths: std.ArrayList(Path) = .empty;
+    var points: Paths = .empty;
+    for (lp.paths.items, 0..) |pth, k| switch (pth.feature) {
+        .skirt, .support, .support_interface => {
+            try paths.append(a, pth);
+            try points.append(a, lp.points.get(k));
+        },
+        else => {},
+    };
+    if (best) |k| {
+        const loop = lp.points.get(k);
+        var open = try s.alloc(Point, loop.len + 1);
+        @memcpy(open[0..loop.len], loop);
+        open[loop.len] = loop[0];
+        var total: f64 = 0;
+        for (1..open.len) |j| total += open[j - 1].dist(open[j]);
+        if (total <= 0) total = 1;
+        const full: f32 = @floatCast(@import("flow.zig").beadArea(lp.width, lp.height));
+        var pth = lp.paths.items[k];
+        pth.closed = false;
+        pth.w_start = Path.planar;
+        pth.width = 0;
+        pth.overhang = false;
+        pth.z_start = @intCast(lp.point_z.items.len);
+        var at: f64 = 0;
+        for (open, 0..) |q, j| {
+            if (j > 0) at += open[j - 1].dist(q);
+            const t = at / total;
+            try lp.point_z.append(a, .{
+                .z = @floatCast(lp.z - lp.height + lp.height * t),
+                .area = if (first) full * @as(f32, @floatCast(t)) else full,
+            });
+        }
+        try paths.append(a, pth);
+        try points.append(a, open);
+    }
+    lp.paths = paths;
+    lp.points = points;
+    lp.sparse_area = .empty;
+}
+
 /// Fuzzy skin: each closed outer wall (of one width, or Arachne) gets new
 /// points along it, a random distance apart (from 3/4 to 5/4 of
 /// `fuzzy_skin_point_distance`), each moved a random distance across the
@@ -4627,6 +4698,40 @@ test "fuzzy skin: random points along the outer wall, within the band" {
     var first0 = try planPrism(gpa, outline, smooth, 0);
     defer first0.deinit();
     try testing.expectEqualSlices(Point, first0.points.points.items, first.points.points.items);
+}
+
+test "spiral vase: one rising outer wall after the bottom layers" {
+    const gpa = testing.allocator;
+    var outline: Paths = .empty;
+    defer outline.deinit(gpa);
+    try outline.append(gpa, &.{ .init(0, 0), .init(20_000, 0), .init(20_000, 15_000), .init(0, 15_000) });
+    try outline.append(gpa, &.{ .init(5_000, 5_000), .init(5_000, 10_000), .init(10_000, 10_000), .init(10_000, 5_000) });
+    var st: settings_mod.Settings = .{};
+    st.project.spiral_vase = true;
+    const r = try st.resolve();
+    // A bottom layer prints as usual.
+    var bottom = try planPrism(gpa, outline, st, 1);
+    defer bottom.deinit();
+    try testing.expect(bottom.count() > 2);
+    for (bottom.paths.items) |path| try testing.expectEqual(Path.planar, path.z_start);
+    for ([_]usize{ r.bottom_layers, 12 }) |i| {
+        var lp = try planPrism(gpa, outline, st, i);
+        defer lp.deinit();
+        try testing.expectEqual(@as(usize, 1), lp.count());
+        const path = lp.paths.items[0];
+        try testing.expectEqual(Feature.outer_wall, path.feature);
+        try testing.expect(!path.closed);
+        const pts = lp.points.get(0);
+        // The outside only (no hole), back to its start.
+        for (pts) |q| try testing.expect(q.x < 4_000 or q.x > 11_000 or q.y < 4_000 or q.y > 11_000);
+        try testing.expectEqual(pts[0], pts[pts.len - 1]);
+        const zs = lp.point_z.items[path.z_start..][0..pts.len];
+        try testing.expectApproxEqAbs(lp.z - lp.height, zs[0].z, 1e-5);
+        try testing.expectApproxEqAbs(lp.z, zs[pts.len - 1].z, 1e-5);
+        for (1..pts.len) |k| try testing.expect(zs[k].z >= zs[k - 1].z);
+        // The first spiral layer grows its bead from zero.
+        if (i == r.bottom_layers) try testing.expectEqual(@as(f32, 0), zs[0].area) else try testing.expect(zs[0].area > 0);
+    }
 }
 
 test "a brim in the holes, outside, or both" {

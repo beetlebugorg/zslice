@@ -17,8 +17,8 @@ The lists come from Cura `resources/definitions/fdmprinter.def.json` and `fdmext
 
 | Slicer | Settings | Same | Covered | Missing | Not for zslice |
 |---|---|---|---|---|---|
-| Cura | 762 | 166 | 89 | 444 | 63 |
-| OrcaSlicer | 1013 | 158 | 120 | 503 | 232 |
+| Cura | 762 | 167 | 89 | 443 | 63 |
+| OrcaSlicer | 1013 | 159 | 120 | 502 | 232 |
 
 ## Cura
 
@@ -646,7 +646,7 @@ The lists come from Cura `resources/definitions/fdmprinter.def.json` and `fdmext
 | `support_mesh` (Support Mesh) | Covered | the support areas of zslice |
 | `anti_overhang_mesh` (Anti Overhang Mesh) | Covered | the support areas of zslice (an area that blocks support) |
 | `magic_mesh_surface_mode` (Surface Mode) | Missing | print the surface of a mesh only |
-| `magic_spiralize` (Spiralize Outer Contour) | Missing | spiral vase mode |
+| `magic_spiralize` (Spiralize Outer Contour) | Same | `project.spiral_vase` |
 | `smooth_spiralized_contours` (Smooth Spiralized Contours) | Missing | spiral vase mode |
 | `relative_extrusion` (Relative Extrusion) | Covered | zslice writes relative extrusion (M83) |
 
@@ -991,6 +991,7 @@ The print, printer, and filament settings first, by status. The settings of resi
 | `sparse_infill_density` (Sparse infill density) | `project.infill_density` |
 | `sparse_infill_pattern` (Sparse infill pattern) | `project.infill_pattern` |
 | `sparse_infill_speed` (Sparse infill) | `project.infill_speed` |
+| `spiral_mode` (Spiral vase) | `project.spiral_vase` |
 | `support_angle` (Pattern angle) | `project.support_angle` |
 | `support_base_pattern_spacing` (Base pattern spacing) | `project.support_density` (a density in place of a spacing) |
 | `support_filament` (Support/raft base) | `project.support_filament` |
@@ -1521,7 +1522,6 @@ The print, printer, and filament settings first, by status. The settings of resi
 | `sparse_infill_strategy` (Sparse infill strategy) | Sparse infill strategy |
 | `sparse_infill_volumetric_flow` (Sparse infill) | Sparse infill |
 | `spiral_finishing_flow_ratio` (Spiral finishing flow ratio) | Spiral finishing flow ratio |
-| `spiral_mode` (Spiral vase) | spiral vase mode |
 | `spiral_mode_max_xy_smoothing` (Max XY Smoothing) | Max XY Smoothing |
 | `spiral_mode_smooth` (Smooth Spiral) | Smooth Spiral |
 | `spiral_starting_flow_ratio` (Spiral starting flow ratio) | Spiral starting flow ratio |

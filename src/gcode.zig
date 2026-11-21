@@ -25,6 +25,10 @@
 //!   layer.markOverhangWalls) prints at `overhang_wall_speed` times the
 //!   wall speed, with the fan at `overhang_wall_fan`: the overhang speeds
 //!   of OrcaSlicer and Cura (see docs/references/orcaslicer.md).
+//! - Spiral vase mode (see layer.spiralize): a layer that starts with a
+//!   rising outer wall has no Z move of its own; the wall rises from the
+//!   z of the layer below (the spiralize mode of Cura, see
+//!   docs/references/cura.md).
 //! - A plate can have many filaments (see filaments.zig). Each path
 //!   prints with the filament of its settings (`project.filament`). Before
 //!   a path of another filament, the emitter changes the filament: the
@@ -2094,13 +2098,20 @@ pub const Emitter = struct {
         defer self.outline = null;
         self.comb_index = if (self.prep) |pr| (if (pr.index) |*ix| ix else null) else null;
         defer self.comb_index = null;
-        try self.zMove(lp.z - self.z);
-        self.z = lp.z;
-        try self.w.writeAll("G0 Z");
-        try writeNum(self.w, self.z, 3);
-        try self.w.writeAll(" F");
-        try writeNum(self.w, s.machine.max_z_speed * 60, 0);
-        try self.w.writeAll("\n");
+        if (spiralStart(lp)) {
+            // Spiral vase mode: the wall rises from the top of the layer
+            // below, where the nozzle is. No Z move.
+            if (self.nozzle_z == null) self.nozzle_z = self.z;
+            self.z = lp.z;
+        } else {
+            try self.zMove(lp.z - self.z);
+            self.z = lp.z;
+            try self.w.writeAll("G0 Z");
+            try writeNum(self.w, self.z, 3);
+            try self.w.writeAll(" F");
+            try writeNum(self.w, s.machine.max_z_speed * 60, 0);
+            try self.w.writeAll("\n");
+        }
         self.feed = -1;
         self.stats.layer_count += 1;
 
@@ -2230,6 +2241,14 @@ pub const Emitter = struct {
         }
     }
 
+    /// True if the layer starts with a rising outer wall (spiral vase mode,
+    /// see layer.spiralize): an open outer wall with a z for each point.
+    fn spiralStart(lp: *const LayerPlan) bool {
+        if (lp.paths.items.len == 0) return false;
+        const p = lp.paths.items[0];
+        return p.feature == .outer_wall and !p.closed and p.z_start != layer_mod.Path.planar;
+    }
+
     /// The filament length (mm) for 1 mm of a planar path of one width,
     /// before the path rules. `lr`: the settings of the layer, and
     /// `e_per_mm` the length for 1 mm of a line of the layer with them.
@@ -2340,6 +2359,8 @@ pub const Emitter = struct {
             area_sum += d * area;
         }
         self.extruded = true;
+        // A rising wall (spiral vase mode) ends at the z of its last point.
+        if (path.feature == .outer_wall) self.nozzle_z = if (@abs(cz - self.z) < 1e-9) null else cz;
         try self.zTo(self.z);
         return if (len_sum > 0) area_sum / len_sum * flow_ratio else data[0].area * flow_ratio;
     }

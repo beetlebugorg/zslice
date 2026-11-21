@@ -324,6 +324,8 @@ M84</code></pre>
 <p>Fuzzy skin: the width of the band of the random points, in mm. A point goes up to half of it to the outside or to the inside of the wall. Keep it below the line width.</p>
 <p><strong><code>project.fuzzy_skin_point_distance</code></strong> (number; per layer). Default: <code>0.8</code></p>
 <p>Fuzzy skin: the mean distance between the random points, in mm.</p>
+<p><strong><code>project.spiral_vase</code></strong> (true or false). Default: <code>false</code></p>
+<p>Spiral vase mode: after the bottom layers, each layer prints only the outer wall of the part, and the nozzle rises along it, so the wall is one spiral with no seam. The part prints as a vase: no top, no infill, no inner walls, no holes. For a part with one outline on each layer. The bottom layers (<code>bottom_thickness</code>) print as usual.</p>
 <p><strong><code>project.thin_walls</code></strong> (true or false; per layer). Default: <code>false</code></p>
 <p>Print parts of the outline that are thinner than one line width (a thin fin, a sheet, a label): a loop inside each thin part, with a narrower line, so that its two sides fill the thickness. Without it, these parts print nothing. Off by default.</p>
 <p><strong><code>project.seam</code></strong> (one of: <code>hidden</code>, <code>sharpest</code>, <code>rear</code>, <code>nearest</code>, <code>random</code>; per layer). Default: <code>hidden</code></p>

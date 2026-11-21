@@ -458,6 +458,10 @@ Fuzzy skin: the width of the band of the random points, in mm. A point goes up t
 
 Fuzzy skin: the mean distance between the random points, in mm.
 
+**`project.spiral_vase`** (true or false). Default: `false`
+
+Spiral vase mode: after the bottom layers, each layer prints only the outer wall of the part, and the nozzle rises along it, so the wall is one spiral with no seam. The part prints as a vase: no top, no infill, no inner walls, no holes. For a part with one outline on each layer. The bottom layers (`bottom_thickness`) print as usual.
+
 **`project.thin_walls`** (true or false; per layer). Default: `false`
 
 Print parts of the outline that are thinner than one line width (a thin fin, a sheet, a label): a loop inside each thin part, with a narrower line, so that its two sides fill the thickness. Without it, these parts print nothing. Off by default.

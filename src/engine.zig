@@ -3499,6 +3499,39 @@ test "gcode: overhang walls print slower and with more fan" {
     try testing.expectApproxEqRel(st0.filament_mm, st1.filament_mm, 1e-3);
 }
 
+test "gcode: spiral vase mode rises with no layer change" {
+    const gpa = testing.allocator;
+    var mesh = try mesh_mod.shapes.frustum(gpa, 20, 20, 10, 12, 6, 48);
+    defer mesh.deinit(gpa);
+    var s: Settings = .{};
+    s.engine.threads = 1;
+    s.project.spiral_vase = true;
+    var job = try Job.init(gpa, &mesh, s);
+    defer job.deinit();
+    var out: std.Io.Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    _ = try job.writeGcode(&out.writer);
+    const text = out.written();
+    // After the bottom layers: the Z of the moves only goes up, and no
+    // layer has a Z move of its own.
+    const start = std.mem.indexOf(u8, text, ";LAYER:10\n") orelse return error.TestUnexpectedResult;
+    const end = std.mem.lastIndexOf(u8, text, ";LAYER:") orelse return error.TestUnexpectedResult;
+    var it = std.mem.splitScalar(u8, text[start..end], '\n');
+    var z: f64 = 0;
+    var rising: usize = 0;
+    while (it.next()) |line| {
+        try testing.expect(!std.mem.startsWith(u8, line, "G0 Z"));
+        const zi = std.mem.indexOf(u8, line, " Z") orelse continue;
+        if (!std.mem.startsWith(u8, line, "G1 X")) continue;
+        var words = std.mem.tokenizeScalar(u8, line[zi + 2 ..], ' ');
+        const nz = try std.fmt.parseFloat(f64, words.next().?);
+        try testing.expect(nz >= z - 1e-9);
+        if (nz > z) rising += 1;
+        z = nz;
+    }
+    try testing.expect(rising > 100);
+}
+
 test "gcode: a wipe retraction stays inside the part" {
     const gpa = testing.allocator;
     var b: mesh_mod.Builder = .init(gpa);

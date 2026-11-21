@@ -683,7 +683,7 @@ mold_angle | missing | a mold around the part
 support_mesh | derived | the support areas of zslice
 anti_overhang_mesh | derived | the support areas of zslice (an area that blocks support)
 magic_mesh_surface_mode | missing | print the surface of a mesh only
-magic_spiralize | missing | spiral vase mode
+magic_spiralize | same | project.spiral_vase
 smooth_spiralized_contours | missing | spiral vase mode
 relative_extrusion | derived | zslice writes relative extrusion (M83)
 
