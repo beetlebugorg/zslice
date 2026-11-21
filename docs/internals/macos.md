@@ -71,6 +71,7 @@ The package is `Package.swift`. `Sources/CZslice/module.modulemap` makes the C A
 | `Core/Simulation.swift` | The print as it forms. |
 | `Core/Checks.swift` | Gaps and Check. |
 | `Core/Calibration.swift` | Calibration prints (`calibrate`, `zs_app_calibration_add`, `zs_app_calibration_get`, `CalibrationSheet`), the import of a profile of another slicer (`importProfile`, `zs_app_profile_import`, `ImportReportSheet`), and the print order of one part at a time (`printOrder`, `reorderPart`, `zs_app_part_reorder`). `ZSLICE_CLIP` takes `calib:k`, `use:i`, `import:path`, `seq`, and `later` for them. |
+| `Core/OpenLink.swift` | `zslice://open?file=` links, as [Links that open a model](open-links.md) says: the Get URL event (`AppDelegate.urlEvent`, `CFBundleURLTypes`), `LinkRouter` (after the restore of the session, to the key window, one link at a time), the checks of the core (`zs_link_*`), the question as a sheet (Cancel on Return), and `LinkDownload` (an ephemeral session with no cookies, credentials, cache, or proxy; `getaddrinfo` and `zs_link_address_public` before each request and redirect). `ZSLICE_OPEN_LINK=link` opens a link; `ZSLICE_LINK_YES=1` answers yes and logs. |
 | `Core/Clipboard.swift` | Copy, cut, paste, and duplicate (`Clip`, `clipCopy`, `clipPaste`), and the plate items (`copyPlate`, `duplicatePlate`, `pasteAsPlate`). |
 | `Core/ContextMenu.swift` | The context menu of the view. |
 | `Core/Project.swift` | printdeck.yml projects, and projects from GitHub. |

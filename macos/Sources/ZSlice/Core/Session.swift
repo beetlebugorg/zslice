@@ -126,6 +126,16 @@ final class SessionStore {
         changedView()
     }
 
+    /// Each session of the last run is back in its window (for a link).
+    var isRestored: Bool { restored }
+
+    /// The workspace of a window, and the first window.
+    func workspace(of w: NSWindow) -> Workspace? {
+        windows.first { $0.workspace?.canvas.window === w }?.workspace
+    }
+
+    var firstWorkspace: Workspace? { windows.lazy.compactMap(\.workspace).first }
+
     /// The next session of the last run, for a new window.
     func takePending() -> Pending? {
         guard !pending.isEmpty else { return nil }
