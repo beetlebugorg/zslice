@@ -339,6 +339,18 @@ namespace winrt::ZSlice::implementation
                 zs::Log("dev: menu item %s\n", ran ? "ran" : "not found");
             }
         }
+        else if (verb == L"popups")
+        {
+            auto open = Microsoft::UI::Xaml::Media::VisualTreeHelper::GetOpenPopupsForXamlRoot(Content().XamlRoot());
+            zs::Log("dev: open popups %u at %lu ms\n", open.Size(), ::GetTickCount());
+            for (auto const &popup : open)
+            {
+                auto child = popup.Child().try_as<Microsoft::UI::Xaml::FrameworkElement>();
+                zs::Log("dev: popup at %.0f,%.0f constrained %d child %.0fx%.0f opacity %.2f\n", popup.HorizontalOffset(),
+                        popup.VerticalOffset(), popup.ShouldConstrainToRootBounds() ? 1 : 0, child ? child.ActualWidth() : -1.0,
+                        child ? child.ActualHeight() : -1.0, child ? child.Opacity() : -1.0);
+            }
+        }
         else if (verb == L"copy" || verb == L"cut" || verb == L"paste" || verb == L"dup")
         {
             ClipKey(verb == L"copy" ? VirtualKey::C : verb == L"cut" ? VirtualKey::X : verb == L"paste" ? VirtualKey::V : VirtualKey::D, has(L"shift"));
