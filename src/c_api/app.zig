@@ -276,6 +276,24 @@ export fn zs_printer_status_message(s: ?*const PStatus) [*:0]const u8 {
     return x.message.ptr;
 }
 
+/// The spools that the printer has loaded (the trays of its AMS and its
+/// external spools) as the JSON of a printdeck, {"filaments": [...]}, for
+/// zs_app_filaments_from_printer. ZS_NO_RESULT when the printer has not
+/// told its spools. The same buffer rules as zs_app_setting_get.
+export fn zs_printer_status_filaments(s: ?*const PStatus, buf: ?[*]u8, cap: usize, out_len: ?*usize) c_int {
+    const st = s orelse return @intFromEnum(Status.invalid_argument);
+    if (!st.has_trays) return @intFromEnum(Status.no_result);
+    const text = st.filamentsJson(gpa) catch return @intFromEnum(Status.out_of_memory);
+    defer gpa.free(text);
+    if (out_len) |l| l.* = text.len;
+    if (buf) |b| if (cap > 0) {
+        const k = @min(text.len, cap - 1);
+        @memcpy(b[0..k], text[0..k]);
+        b[k] = 0;
+    };
+    return ok;
+}
+
 /// The state for the farm (enum zs_farm_printer_state) from the state text.
 export fn zs_printer_status_farm_state(s: ?*const PStatus) c_int {
     const x = s orelse return 0;
@@ -602,6 +620,8 @@ fn bambuFileOf(app: *const App, g: []const u8, title: ?[*:0]const u8, out: ?*?[*
             // (a part of another filament still does).
             .for_support = support and (sup_slot == k or iface_slot == k),
             .for_object = !(support and p.support_filament > 0 and (sup_slot == k or iface_slot == k) and part_slot != k),
+            // The filament id of the spool in the printer.
+            .idx = if (app.slot_marks[k].printer) app.slot_marks[k].idx() else "",
         };
         n += 1;
     }
@@ -657,6 +677,27 @@ export fn zs_bambu_start_message(file: ?[*:0]const u8, title: ?[*:0]const u8, md
     o.* = m.ptr;
     l.* = m.len;
     return ok;
+}
+
+/// zs_bambu_start_packet with the tray of each filament of the file
+/// (zs_app_ams_mapping, `n` values): the ams_mapping and ams_mapping2 of
+/// Bambu Studio. The printer loads each filament from its tray.
+export fn zs_bambu_start_packet_trays(serial: ?[*:0]const u8, file: ?[*:0]const u8, title: ?[*:0]const u8, md5: ?[*:0]const u8, flags: c_int, trays: ?[*]const i32, n: usize, out: ?*?[*]u8, out_len: ?*usize) c_int {
+    const sn = serial orelse return @intFromEnum(Status.invalid_argument);
+    const f = file orelse return @intFromEnum(Status.invalid_argument);
+    if (n > 64) return @intFromEnum(Status.invalid_argument);
+    const msg = zs.bambu.startMessage(gpa, .{
+        .file = std.mem.span(f),
+        .title = if (title) |t| std.mem.span(t) else "zslice",
+        .bed_leveling = flags & 1 != 0,
+        .use_ams = flags & 2 != 0,
+        .timelapse = flags & 4 != 0,
+        .ftp_url = flags & 8 != 0,
+        .md5 = if (md5) |m| std.mem.span(m) else "",
+        .trays = if (trays) |t| t[0..n] else &.{},
+    }) catch return @intFromEnum(Status.out_of_memory);
+    defer gpa.free(msg);
+    return bambuRequest(std.mem.span(sn), msg, out, out_len);
 }
 
 /// The MD5 of G-code, as 32 upper case hex digits and a 0, in out (33
@@ -2370,23 +2411,46 @@ export fn zs_app_filament_set(a: ?*App, i: usize, name: ?[*:0]const u8, value: ?
         error.OutOfMemory => @intFromEnum(Status.out_of_memory),
         else => @intFromEnum(Status.invalid_value),
     };
+    // A value that the user sets: the slot keeps it when the printer
+    // tells other spools (app/printer_filaments.zig).
+    app_mod.printer_filaments.markHand(app, i);
     noted(app, if (i == 0) n else null, i != 0);
     return ok;
 }
 
-/// A value of filament i, as zs_app_setting_get gives it.
+/// A value of filament i, as zs_app_setting_get gives it. The names
+/// "source.printer" and "source.hand" give "1" or "0" (the values come
+/// from a spool of the printer, or the user set one by hand),
+/// "source.tray" the tray of the spool (-1: none), and "source.slot" its
+/// holder ("A1", "Ext", or "").
 export fn zs_app_filament_get(a: ?*const App, i: usize, name: ?[*:0]const u8, buf: ?[*]u8, cap: usize, out_len: ?*usize) c_int {
     const app = a orelse return @intFromEnum(Status.invalid_argument);
     const n = std.mem.span(name orelse return @intFromEnum(Status.invalid_argument));
-    if (!std.mem.startsWith(u8, n, "filament.")) return @intFromEnum(Status.unknown_setting);
-    var s: zs.Settings = .{};
-    s.filament = app_mod.filament_slots.get(app, i) orelse return @intFromEnum(Status.out_of_range);
     var aw: Writer.Allocating = .init(gpa);
     defer aw.deinit();
-    App.writeSettingOf(s, n, &aw.writer) catch |e| return switch (e) {
-        error.WriteFailed => @intFromEnum(Status.out_of_memory),
-        else => @intFromEnum(Status.unknown_setting),
-    };
+    if (std.mem.startsWith(u8, n, "source.")) {
+        if (i >= app_mod.filament_slots.count(app)) return @intFromEnum(Status.out_of_range);
+        const m = &app.slot_marks[i];
+        const field = n["source.".len..];
+        (if (std.mem.eql(u8, field, "printer"))
+            aw.writer.writeAll(if (m.printer) "1" else "0")
+        else if (std.mem.eql(u8, field, "hand"))
+            aw.writer.writeAll(if (m.hand) "1" else "0")
+        else if (std.mem.eql(u8, field, "tray"))
+            aw.writer.print("{d}", .{m.tray})
+        else if (std.mem.eql(u8, field, "slot"))
+            aw.writer.writeAll(m.name())
+        else
+            return @intFromEnum(Status.unknown_setting)) catch return @intFromEnum(Status.out_of_memory);
+    } else {
+        if (!std.mem.startsWith(u8, n, "filament.")) return @intFromEnum(Status.unknown_setting);
+        var s: zs.Settings = .{};
+        s.filament = app_mod.filament_slots.get(app, i) orelse return @intFromEnum(Status.out_of_range);
+        App.writeSettingOf(s, n, &aw.writer) catch |e| return switch (e) {
+            error.WriteFailed => @intFromEnum(Status.out_of_memory),
+            else => @intFromEnum(Status.unknown_setting),
+        };
+    }
     const text = aw.written();
     if (out_len) |l| l.* = text.len;
     if (buf) |b| {
@@ -2410,8 +2474,55 @@ export fn zs_app_filament_profile(a: ?*App, i: usize, name: ?[*:0]const u8, text
         error.OutOfMemory => @intFromEnum(Status.out_of_memory),
         else => @intFromEnum(Status.invalid_value),
     };
+    app_mod.printer_filaments.markHand(app, i);
     noted(app, null, true);
     return ok;
+}
+
+/// Makes the filaments of the plate the spools that a printer has loaded
+/// (app/printer_filaments.zig): `json` is the reply of a printdeck
+/// (GET /api/plugin/printdeck, with "filaments") or the list of
+/// zs_printer_status_filaments. flags: 1 the filaments that the user set
+/// by hand follow the printer too ("Use the printer's filament"); 2 the
+/// automatic follow of a change of the spools, which changes nothing on a
+/// printer that pauses for each filament change. `name`
+/// is the printer for the message, which goes to `message` (can be NULL).
+/// `changed` (can be NULL) gets 1 when a filament changed (slice again).
+/// ZS_NO_RESULT when the printer tells no spool that the plate can use.
+export fn zs_app_filaments_from_printer(a: ?*App, name: ?[*:0]const u8, json: ?[*]const u8, len: usize, flags: c_int, changed: ?*c_int, message: ?[*]u8, cap: usize) c_int {
+    const app = a orelse return @intFromEnum(Status.invalid_argument);
+    const j = (json orelse return @intFromEnum(Status.invalid_argument))[0..len];
+    var arena = std.heap.ArenaAllocator.init(gpa);
+    defer arena.deinit();
+    const ar = arena.allocator();
+    const pf = app_mod.printer_filaments;
+    const spools = pf.parse(ar, j) catch return @intFromEnum(Status.out_of_memory);
+    const how: app_mod.printer_filaments.How = if (flags & 1 != 0) .take_hand else if (flags & 2 != 0) .follow else .keep_hand;
+    const r = pf.apply(app, spools, how) catch |e| return switch (e) {
+        error.OutOfMemory => @intFromEnum(Status.out_of_memory),
+        else => @intFromEnum(Status.out_of_range),
+    };
+    if (message) |m| if (cap > 0) {
+        const text = pf.message(ar, app, spools, r, if (name) |p| std.mem.span(p) else "the printer") catch "";
+        const k = @min(text.len, cap - 1);
+        @memcpy(m[0..k], text[0..k]);
+        m[k] = 0;
+    };
+    if (changed) |ch| ch.* = @intFromBool(r.changed);
+    if (r.used == 0) return @intFromEnum(Status.no_result);
+    if (r.changed) noted(app, null, true);
+    return ok;
+}
+
+/// The tray of each filament of the plate (`out`, up to `cap`), for the
+/// ams_mapping of a print start on a Bambu Lab printer: the tray of the
+/// spool of the printer that the filament comes from (the AMS unit times
+/// 4 and the tray; 254 and 255 the external spools), or -1. Returns the
+/// count of filaments.
+export fn zs_app_ams_mapping(a: ?*const App, out: ?[*]i32, cap: usize) usize {
+    const app = a orelse return 0;
+    const o = out orelse return app_mod.filament_slots.count(app);
+    return app_mod.printer_filaments.amsMapping(app, o[0..cap]);
 }
 
 /// The filament of each slot in the last slice: `grams` gets the weight

@@ -288,10 +288,14 @@ fn overProject(a: Allocator, info: PlateInfo) ![]u8 {
             e.value_ptr.* = .{ .array = list };
         }
     }
-    // The generic filament of Bambu for each material ("GFL99").
+    // The filament id of the spool in the printer, else the generic
+    // filament of Bambu for each material ("GFL99").
     var ids = std.json.Array.init(a);
-    for (types.items) |t| {
-        const id = genericFilament(t.string);
+    for (types.items, 1..) |t, n| {
+        var id = genericFilament(t.string);
+        for (info.filaments) |f| if (f.id == n and f.idx.len > 0) {
+            id = f.idx;
+        };
         try ids.append(try str(a, if (id.len > 0) id else "GFL99"));
     }
     try o.put(a, "filament_ids", .{ .array = ids });
@@ -396,6 +400,9 @@ pub const FilamentUse = struct {
     /// The filament prints the parts, and the support.
     for_object: bool = true,
     for_support: bool = false,
+    /// The Bambu Lab filament id of the spool in the printer ("GFA00"), or
+    /// "": the generic id of the material (genericFilament).
+    idx: []const u8 = "",
 };
 
 /// `text` with the 5 special characters of XML escaped.
@@ -500,8 +507,8 @@ fn sliceInfo(a: Allocator, info: PlateInfo) Allocator.Error![]u8 {
         if (f.color.len == 7 and f.color[0] == '#') _ = std.ascii.upperString(&up, f.color);
         const color: []const u8 = &up;
         ww.print("    <filament id=\"{d}\"", .{f.id}) catch return error.OutOfMemory;
-        const idx = genericFilament(f.kind);
-        if (idx.len > 0) ww.print(" tray_info_idx=\"{s}\"", .{idx}) catch return error.OutOfMemory;
+        const idx = if (f.idx.len > 0) f.idx else genericFilament(f.kind);
+        if (idx.len > 0) ww.print(" tray_info_idx=\"{s}\"", .{try xmlText(a, idx)}) catch return error.OutOfMemory;
         ww.print(" type=\"{s}\" color=\"{s}\" used_m=\"{d:.2}\" used_g=\"{d:.2}\"", .{ try xmlText(a, f.kind), try xmlText(a, color), @max(0, f.meters), @max(0, f.grams) }) catch return error.OutOfMemory;
         ww.print(" group_id=\"{d}\" nozzle_diameter=\"{d:.2}\" volume_type=\"Standard\"", .{ if (two) @min(f.nozzle, 1) else 0, nozzle }) catch return error.OutOfMemory;
         ww.print(" used_for_object=\"{s}\" used_for_support=\"{s}\" directly_used=\"true\"", .{ if (f.for_object) "true" else "false", if (f.for_support) "true" else "false" }) catch return error.OutOfMemory;
@@ -706,6 +713,11 @@ pub const Start = struct {
     /// The url form "ftp://<file>" (P1 and A1, reported), in place of
     /// "file:///sdcard/<file>" (X1).
     ftp_url: bool = false,
+    /// The tray of each filament of the file, by filament number less 1
+    /// (zs_app_ams_mapping): the AMS unit times 4 and the tray, 254 or 255
+    /// an external spool, -1 a filament that the plate does not use. Empty:
+    /// ams_mapping [0], as before.
+    trays: []const i32 = &.{},
 };
 
 /// The MD5 of the G-code in upper case hex, as the .md5 entry of the file.
@@ -738,8 +750,34 @@ pub fn startMessage(gpa: Allocator, s: Start) Allocator.Error![]u8 {
             layer_inspect: bool = false,
             use_ams: bool,
             ams_mapping: []const i32 = &.{0},
+            /// The form of the H2D and the X2D (more than one nozzle).
+            ams_mapping2: ?[]const Pair = null,
         },
+        const Pair = struct { ams_id: i32, slot_id: i32 };
     };
+    // The trays as Bambu Studio sends them: an external spool is -1 in
+    // the flat list and its id in ams_mapping2 (a raw 254 or 255 in the
+    // flat list fails on the H2D and the X2D; see the printdeck deck).
+    var flat: []i32 = &.{};
+    var pairs: []Msg.Pair = &.{};
+    defer gpa.free(flat);
+    defer gpa.free(pairs);
+    if (s.trays.len > 0) {
+        flat = try gpa.alloc(i32, s.trays.len);
+        pairs = try gpa.alloc(Msg.Pair, s.trays.len);
+        for (s.trays, flat, pairs) |tr, *f, *pr| {
+            if (tr < 0) {
+                f.* = -1;
+                pr.* = .{ .ams_id = 255, .slot_id = 255 };
+            } else if (tr == 254 or tr == 255) {
+                f.* = -1;
+                pr.* = .{ .ams_id = tr, .slot_id = 0 };
+            } else {
+                f.* = tr;
+                pr.* = .{ .ams_id = @divTrunc(tr, 4), .slot_id = @mod(tr, 4) };
+            }
+        }
+    }
     const url = if (s.ftp_url) try std.fmt.allocPrint(gpa, "ftp://{s}", .{s.file}) else try std.fmt.allocPrint(gpa, "file:///sdcard/{s}", .{s.file});
     defer gpa.free(url);
     return std.json.Stringify.valueAlloc(gpa, Msg{ .print = .{
@@ -748,8 +786,10 @@ pub fn startMessage(gpa: Allocator, s: Start) Allocator.Error![]u8 {
         .md5 = s.md5,
         .timelapse = s.timelapse,
         .bed_levelling = s.bed_leveling,
-        .use_ams = s.use_ams,
-    } }, .{});
+        .use_ams = s.use_ams or s.trays.len > 0,
+        .ams_mapping = if (s.trays.len > 0) flat else &.{0},
+        .ams_mapping2 = if (s.trays.len > 0) pairs else null,
+    } }, .{ .emit_null_optional_fields = false });
 }
 
 /// The MQTT message that asks the printer for its full status.
@@ -970,6 +1010,13 @@ test "bambu: the start message" {
     defer gpa.free(m2);
     try testing.expect(std.mem.indexOf(u8, m2, "\"url\":\"ftp://a.gcode.3mf\"") != null);
     try testing.expect(std.mem.indexOf(u8, m2, &md5) != null);
+    try testing.expect(std.mem.indexOf(u8, m2, "\"ams_mapping\":[0]") != null);
+    try testing.expect(std.mem.indexOf(u8, m2, "ams_mapping2") == null);
+    // The trays of the filaments: filament 4 in tray A4, filament 2 on
+    // the external spool of the second nozzle.
+    const m3 = try startMessage(gpa, .{ .file = "a.gcode.3mf", .title = "A", .trays = &.{ -1, 254, -1, 3 } });
+    defer gpa.free(m3);
+    try testing.expect(std.mem.indexOf(u8, m3, "\"use_ams\":true,\"ams_mapping\":[-1,-1,-1,3],\"ams_mapping2\":[{\"ams_id\":255,\"slot_id\":255},{\"ams_id\":254,\"slot_id\":0},{\"ams_id\":255,\"slot_id\":255},{\"ams_id\":0,\"slot_id\":3}]") != null);
 }
 
 test "bambu: the slice info of a plate, for a printdeck" {

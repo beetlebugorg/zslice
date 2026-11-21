@@ -88,6 +88,24 @@ pub const Roll = struct {
     left: f64 = 0,
 };
 
+/// A spool that the printer has loaded: a tray of an AMS or an external
+/// spool, as a printdeck lists it ("filaments") and as a Bambu Lab report
+/// gives it (print.ams.ams[].tray[], vt_tray, vir_slot).
+pub const Tray = struct {
+    /// "A1" (AMS A, tray 1), "Ext", or "".
+    slot: [:0]const u8 = "",
+    /// The AMS unit times 4 and the tray; 254 and 255 the external spools;
+    /// -1 when not known.
+    tray: i32 = -1,
+    material: [:0]const u8 = "",
+    /// "#rrggbb", or "".
+    color: [:0]const u8 = "",
+    /// The Bambu Lab filament id ("GFA00"), or "".
+    idx: [:0]const u8 = "",
+    /// The spool feeds the second nozzle (X2D, H2D).
+    aux: bool = false,
+};
+
 /// The status. The strings are in the arena of the status.
 pub const Status = struct {
     arena: std.heap.ArenaAllocator,
@@ -128,6 +146,12 @@ pub const Status = struct {
     message: [:0]const u8 = "",
     heat: Heat = .{},
     camera: Camera = .{},
+    /// The loaded spools: the trays of the AMS units, then the external
+    /// spools. A Bambu Lab report sends each part only when it changes.
+    ams_trays: []Tray = &.{},
+    ext_trays: []Tray = &.{},
+    /// The printer told its spools (an empty list is "no spool").
+    has_trays: bool = false,
 
     pub fn init(gpa: Allocator) Status {
         return .{ .arena = .init(gpa) };
@@ -191,6 +215,25 @@ pub const Status = struct {
             s.corner_velocity = num(root, "limits.square_corner_velocity");
             s.max_z_velocity = num(root, "limits.max_z_velocity");
             s.max_z_accel = num(root, "limits.max_z_accel");
+            if (get(root, "filaments")) |list| if (list == .array) {
+                var trays: std.ArrayList(Tray) = .empty;
+                for (list.array.items) |e| {
+                    const material = (try str(a, e, "material")) orelse continue;
+                    if (material.len == 0) continue;
+                    const nozzle = get(e, "nozzle");
+                    try trays.append(a, .{
+                        .slot = (try str(a, e, "slot")) orelse "",
+                        .tray = if (get(e, "tray")) |v| @intFromFloat(std.math.clamp(numOf(v) orelse -1, -1, 999)) else -1,
+                        .material = material,
+                        .color = try colorOf(a, (try str(a, e, "color")) orelse ""),
+                        .idx = (try str(a, e, "idx")) orelse "",
+                        .aux = nozzle != null and nozzle.? == .string and std.mem.eql(u8, nozzle.?.string, "aux"),
+                    });
+                }
+                s.ams_trays = try trays.toOwnedSlice(a);
+                s.ext_trays = &.{};
+                s.has_trays = true;
+            };
             if (get(root, "spools")) |list| if (list == .array) {
                 const rolls = try a.alloc(Roll, list.array.items.len);
                 for (list.array.items, rolls) |e, *r| r.* = try rollOf(a, e);
@@ -213,6 +256,7 @@ pub const Status = struct {
                 const code: i64 = @intFromFloat(numOf(v) orelse 0);
                 s.message = if (code != 0) try std.fmt.allocPrintSentinel(a, "Error code {X:0>8}", .{@as(u64, @bitCast(code))}, 0) else "";
             }
+            try s.readBambuTrays(p);
             if (get(p, "mc_percent")) |v| s.progress = (numOf(v) orelse 0) / 100;
             // Minutes.
             if (get(p, "mc_remaining_time")) |v| s.time_left = (numOf(v) orelse -1) * 60;
@@ -264,6 +308,82 @@ pub const Status = struct {
             setNum(&s.heat.bed, st, "heater_bed.temperature");
             setNum(&s.heat.bed_target, st, "heater_bed.target");
         }
+    }
+
+    /// The trays of a Bambu Lab report: print.ams.ams (each unit, with its
+    /// trays), and the external spools: vt_tray (one), or vir_slot (the
+    /// printers with two nozzles: 255 feeds the main nozzle, 254 the
+    /// second). A tray with no tray_type has no spool.
+    fn readBambuTrays(s: *Status, p: Value) Allocator.Error!void {
+        const a = s.arena.allocator();
+        if (get(p, "ams.ams")) |units| if (units == .array) {
+            var trays: std.ArrayList(Tray) = .empty;
+            for (units.array.items) |u| {
+                const unit = idOf(u) orelse continue;
+                const list = get(u, "tray") orelse continue;
+                if (list != .array) continue;
+                for (list.array.items) |e| {
+                    const k = idOf(e) orelse continue;
+                    if (unit > 25 or k > 3) continue;
+                    if (try bambuTray(a, e, unit * 4 + k)) |tr| {
+                        var t = tr;
+                        t.slot = try std.fmt.allocPrintSentinel(a, "{c}{d}", .{ @as(u8, @intCast('A' + unit)), k + 1 }, 0);
+                        try trays.append(a, t);
+                    }
+                }
+            }
+            s.ams_trays = try trays.toOwnedSlice(a);
+            s.has_trays = true;
+        };
+        const ext = get(p, "vir_slot") orelse get(p, "vt_tray");
+        if (ext) |v| {
+            const two = v == .array;
+            const items: []const Value = if (two) v.array.items else &.{v};
+            var trays: std.ArrayList(Tray) = .empty;
+            for (items) |e| {
+                const id = idOf(e) orelse 254;
+                if (try bambuTray(a, e, id)) |tr| {
+                    var t = tr;
+                    t.slot = "Ext";
+                    t.aux = two and id == 254;
+                    try trays.append(a, t);
+                }
+            }
+            // The main nozzle first (255).
+            std.mem.sort(Tray, trays.items, {}, struct {
+                fn lt(_: void, x: Tray, y: Tray) bool {
+                    return x.tray > y.tray;
+                }
+            }.lt);
+            s.ext_trays = try trays.toOwnedSlice(a);
+            s.has_trays = true;
+        }
+    }
+
+    /// The loaded spools as the JSON of a printdeck: {"filaments": [{slot,
+    /// tray, nozzle, material, color, idx}]}, for
+    /// zs_app_filaments_from_printer. In `a`.
+    pub fn filamentsJson(s: *const Status, a: Allocator) Allocator.Error![]u8 {
+        var out: std.Io.Writer.Allocating = .init(a);
+        const w = &out.writer;
+        (blk: {
+            w.writeAll("{\"filaments\":[") catch |e| break :blk e;
+            var first = true;
+            for ([_][]const Tray{ s.ams_trays, s.ext_trays }) |list| for (list) |t| {
+                if (!first) w.writeByte(',') catch |e| break :blk e;
+                first = false;
+                std.json.Stringify.value(.{
+                    .slot = t.slot,
+                    .tray = t.tray,
+                    .nozzle = if (t.aux) "aux" else "main",
+                    .material = t.material,
+                    .color = t.color,
+                    .idx = t.idx,
+                }, .{}, w) catch |e| break :blk e;
+            };
+            w.writeAll("]}") catch |e| break :blk e;
+        }) catch return error.OutOfMemory;
+        return out.toOwnedSlice() catch error.OutOfMemory;
     }
 
     /// The webcam of OctoPrint and printdeck (/api/settings): the classic
@@ -396,6 +516,37 @@ fn rollOf(a: Allocator, v: ?Value) Allocator.Error!Roll {
     };
 }
 
+/// The "id" of a unit or a tray of a Bambu Lab report ("0", or 0).
+fn idOf(v: Value) ?i32 {
+    const id = get(v, "id") orelse return null;
+    const n: f64 = switch (id) {
+        .string => |t| std.fmt.parseFloat(f64, t) catch return null,
+        else => numOf(id) orelse return null,
+    };
+    if (!(n >= 0 and n < 1000)) return null;
+    return @intFromFloat(n);
+}
+
+/// A tray of a Bambu Lab report with a spool, or null: tray_type,
+/// tray_color ("FF0000FF": the color and its alpha), tray_info_idx.
+fn bambuTray(a: Allocator, e: Value, tray: i32) Allocator.Error!?Tray {
+    const material = (try str(a, e, "tray_type")) orelse return null;
+    if (material.len == 0) return null;
+    const raw = (try str(a, e, "tray_color")) orelse "";
+    var color: [:0]const u8 = "";
+    if (raw.len >= 6) color = try colorOf(a, try std.fmt.allocPrint(a, "#{s}", .{raw[0..6]}));
+    return .{ .tray = tray, .material = material, .color = color, .idx = (try str(a, e, "tray_info_idx")) orelse "" };
+}
+
+/// "#rrggbb" in lower case, or "" for another text.
+fn colorOf(a: Allocator, t: []const u8) Allocator.Error![:0]const u8 {
+    if (t.len != 7 or t[0] != '#') return "";
+    for (t[1..]) |c| if (!std.ascii.isHex(c)) return "";
+    const out = try a.allocSentinel(u8, 7, 0);
+    _ = std.ascii.lowerString(out, t);
+    return out;
+}
+
 /// The value at a dotted path ("job.file.name"), or null.
 fn get(v: Value, path: []const u8) ?Value {
     var cur = v;
@@ -427,6 +578,37 @@ fn str(a: Allocator, v: Value, path: []const u8) Allocator.Error!?[:0]const u8 {
 }
 
 const testing = std.testing;
+
+test "printer status: the loaded spools of a Bambu Lab report and of a printdeck" {
+    var s = Status.init(testing.allocator);
+    defer s.deinit();
+    try s.feed(.bambu, "report",
+        \\{"print":{"ams":{"ams":[{"id":"0","tray":[{"id":"0","tray_type":"PLA","tray_color":"FF0000FF","tray_info_idx":"GFA00"},{"id":"1"},{"id":"3","tray_type":"PETG","tray_color":"00FF00FF","tray_info_idx":"GFG99"}]}]},
+        \\"vir_slot":[{"id":"255","tray_type":""},{"id":"254","tray_type":"PLA","tray_color":"0000FFFF"}]}}
+    );
+    // A report of a change has no trays: they stay.
+    try s.feed(.bambu, "report", "{\"print\":{\"mc_percent\":3}}");
+    try testing.expectEqual(@as(usize, 2), s.ams_trays.len);
+    try testing.expectEqualStrings("A4", s.ams_trays[1].slot);
+    try testing.expectEqual(@as(i32, 3), s.ams_trays[1].tray);
+    try testing.expectEqualStrings("#00ff00", s.ams_trays[1].color);
+    try testing.expectEqual(@as(usize, 1), s.ext_trays.len);
+    try testing.expect(s.ext_trays[0].aux);
+    const json = try s.filamentsJson(testing.allocator);
+    defer testing.allocator.free(json);
+    try testing.expectEqualStrings(
+        \\{"filaments":[{"slot":"A1","tray":0,"nozzle":"main","material":"PLA","color":"#ff0000","idx":"GFA00"},{"slot":"A4","tray":3,"nozzle":"main","material":"PETG","color":"#00ff00","idx":"GFG99"},{"slot":"Ext","tray":254,"nozzle":"aux","material":"PLA","color":"#0000ff","idx":""}]}
+    , json);
+
+    var d = Status.init(testing.allocator);
+    defer d.deinit();
+    try d.feed(.printdeck, "/api/plugin/printdeck",
+        \\{"filaments":[{"slot":"A1","index":0,"tray":0,"material":"PLA","color":"#FF0000"},{"slot":"Ext","index":1,"tray":254,"nozzle":"aux","material":"PLA"}]}
+    );
+    try testing.expectEqual(@as(usize, 2), d.ams_trays.len);
+    try testing.expectEqualStrings("#ff0000", d.ams_trays[0].color);
+    try testing.expect(d.ams_trays[1].aux);
+}
 
 test "printer status: OctoPrint" {
     var s = Status.init(testing.allocator);
