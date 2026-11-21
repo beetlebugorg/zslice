@@ -15,6 +15,10 @@ Each plate has its own parts, settings, support, and undo history. The dock has 
 | **+ Plate** | Adds an empty plate, with the settings of the active plate. |
 | **×** | Removes the active plate. A plate with parts asks first. |
 
+A sign lies on the table in front of each plate. It gives the number and the name of the plate, its printer, and its status. After a slice, it gives the print time and the filament. The sign turns with the view, and the parts hide it. A click on a sign goes to its plate. A right click on a sign on the web gives its menu.
+
+An empty plate has a small **Open a model** button on the plate.
+
 All plates slice: the active plate first. With two plates or more, the print card gives the sums of all plates.
 
 **Make [10] in all** on the card of a part makes copies until there are that many: on its plate while they fit, then on new plates.

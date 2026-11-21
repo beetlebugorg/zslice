@@ -8,7 +8,7 @@ Open a model, slice it, and print it. You need only this page.
 
 1. **Open zslice.** Go to [zslice.beetlebug.org](https://zslice.beetlebug.org/). The web app needs no install. For the Linux and the Mac app, see [Web, Linux, and Mac](apps.md).
 2. **Pick your printer.** The picker opens at the first start. Type a part of the name, for example "ender 3" or "mk4". Click the printer, then **Next**, then **Add printer**.
-3. **Open a model.** Drop an STL or 3MF file on the view, or click **Open…** in the middle of the view. zslice slices the model at once.
+3. **Open a model.** Drop an STL or 3MF file on the view, or click **Open a model** on the plate. zslice slices the model at once.
 4. **Pick the filament and the quality.** Use the two menus next to the printer in the header, for example "generic PLA" and "standard" (0.2 mm layers).
 5. **Look at the print.** Drag to turn the view. Turn the wheel to zoom. The print card at the bottom right gives the time and the plastic.
 6. **Print.** Click **Export G-code…** and copy the file to your printer. With a printer connection, the button is **Print**.
