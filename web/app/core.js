@@ -1197,8 +1197,10 @@ export class Core {
 
   // ---- the filaments of the plate (zs_app_filament_*) ----
 
-  // The filaments: [{ index, name, material, color, nozzleTemp }].
-  // Filament 0 is the filament of the settings.
+  // The filaments: [{ index, name, material, color, nozzleTemp, nozzle,
+  // fromPrinter, hand, tray, slot }]. Filament 0 is the filament of the
+  // settings. fromPrinter: the values come from a spool of the printer
+  // (its tray and its holder "A1"); hand: the user set a value.
   filaments() {
     const w = this.w;
     const n = w.x.zs_app_filament_count(this.app);
@@ -1212,6 +1214,10 @@ export class Core {
         color: get(i, "filament.color"),
         nozzleTemp: Number(get(i, "filament.nozzle_temp")),
         nozzle: Number(get(i, "filament.nozzle")) || 0,
+        fromPrinter: get(i, "source.printer") === "1",
+        hand: get(i, "source.hand") === "1",
+        tray: Number(get(i, "source.tray") || -1),
+        slot: get(i, "source.slot"),
       });
     }
     return out;
@@ -1242,6 +1248,27 @@ export class Core {
     const w = this.w;
     const rc = w.withStrings([name, text], (n, t) => w.x.zs_app_filament_profile(this.app, i, n, t));
     return rc === 0 ? "" : `The profile did not apply (${statusText(rc)}).`;
+  }
+
+  // Makes the filaments of the plate the spools of a printer
+  // (zs_app_filaments_from_printer). json: the reply of a printdeck, or
+  // { filaments: [...] }. flags 1: the filaments set by hand follow too.
+  // Returns { ok, changed, message }.
+  filamentsFromPrinter(name, json, flags) {
+    const w = this.w;
+    const cap = 1024;
+    const msg = w.alloc(cap);
+    const changed = w.alloc(4);
+    w.u8[msg] = 0;
+    w.dv.setInt32(changed, 0, true);
+    try {
+      const bytes = new TextEncoder().encode(json);
+      const rc = w.withString(name, (n) => w.withBytes(bytes, (b, len) => w.x.zs_app_filaments_from_printer(this.app, n, b, len, flags | 0, changed, msg, cap)));
+      return { ok: rc === 0, changed: w.i32(changed) !== 0, message: w.cstr(msg) };
+    } finally {
+      w.free(msg, cap);
+      w.free(changed, 4);
+    }
   }
 
   // The filament of the last slice: { grams: [g of each filament],

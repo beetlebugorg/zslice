@@ -462,7 +462,7 @@ function tinyParts(c) {
   return out;
 }
 
-const PLATE_OPS = new Set(["fallStep", "load", "add", "plate", "projectLoad", "partAction", "partsAction", "partsMove", "partsSettingSet", "partsToPlate", "partsPaste", "partsCut", "platePaste", "plateDuplicate", "partCut", "partMove", "partFill", "partToPlate", "editAdd", "editDot", "editRemove", "partSettingSet", "paintSet", "labelAdd", "labelUpdate", "labelRemove", "filamentAdd", "filamentRemove", "filamentSet", "partPutDown", "partTurn", "putDown", "place", "partMove", "partRotate", "partScale", "partSettle", "markAdd", "supportRemoveAt", "supportKindAt", "markRemoveNear", "markSet", "markRemove", "marksClear", "supportAreaAdd", "supportAreaSet", "supportAreaKind", "supportAreaRemove", "treeMoveNode", "treeRadius", "treeMoveBranch", "treeDelete", "treeAdd", "treeReset"]);
+const PLATE_OPS = new Set(["fallStep", "load", "add", "plate", "projectLoad", "partAction", "partsAction", "partsMove", "partsSettingSet", "partsToPlate", "partsPaste", "partsCut", "platePaste", "plateDuplicate", "partCut", "partMove", "partFill", "partToPlate", "editAdd", "editDot", "editRemove", "partSettingSet", "paintSet", "labelAdd", "labelUpdate", "labelRemove", "filamentAdd", "filamentRemove", "filamentSet", "filamentsFromPrinter", "partPutDown", "partTurn", "putDown", "place", "partMove", "partRotate", "partScale", "partSettle", "markAdd", "supportRemoveAt", "supportKindAt", "markRemoveNear", "markSet", "markRemove", "marksClear", "supportAreaAdd", "supportAreaSet", "supportAreaKind", "supportAreaRemove", "treeMoveNode", "treeRadius", "treeMoveBranch", "treeDelete", "treeAdd", "treeReset"]);
 
 // The values of settings at z (core.valueAt): { name: entry }.
 function valuesAt({ z, names }) {
@@ -1312,6 +1312,14 @@ const ops = {
     const error = core.filamentSet(index, name, value);
     if (!error) wantSlice();
     return { error, list: core.filaments(), ...(index === 0 ? settingsState() : {}) };
+  },
+
+  // The spools of a printer for the filaments of the plate (flags 1: the
+  // filaments set by hand follow too). Slices again on a change.
+  filamentsFromPrinter({ name, json, flags }) {
+    const r = core.filamentsFromPrinter(name, json, flags);
+    if (r.changed) wantSlice();
+    return { ...r, list: core.filaments(), ...(r.changed ? settingsState() : {}) };
   },
 
   partSettings({ index }) {

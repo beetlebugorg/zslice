@@ -1541,7 +1541,7 @@ $("filament-menu").onclick = () => {
     const use = document.createElement("button");
     use.className = "fil-use";
     use.textContent = `Use the filaments of ${pr.name}`;
-    use.title = "Read the spools that the printer has loaded (the AMS trays and the external spool), and make the filaments of the plate the same: count, material, and color";
+    use.title = "Read the spools that the printer has loaded (the AMS trays and the external spool), and make the filaments of the plate the same: count, material, and color. The filaments that you set by hand follow the printer again.";
     use.onclick = async () => {
       use.disabled = true;
       use.textContent = "Reading the printer…";
@@ -1580,66 +1580,60 @@ $("filament-menu").onclick = () => {
   openPopover($("filament-menu"), box);
 };
 
-// Makes the filaments of the plate the loaded filaments of printer `pr`:
-// the same count, then the material and the color of each, in the order
-// of the printer (filament k prints from its spool k). A material that
-// zslice does not know keeps the material of the filament.
-async function useLoadedFilaments(pr) {
+// Makes the filaments of the plate the loaded filaments of printer `pr`
+// (zs_app_filaments_from_printer): the same count, then the material
+// (its built-in profile), the color, and the nozzle of each, in the order
+// of the printer (filament k prints from its spool k). take: the
+// filaments that the user set by hand follow the printer too; else the
+// automatic follow, which the core skips on a printer that pauses for
+// each change. Then the nozzle of the printer. Returns { ok, changed,
+// message }.
+async function useLoadedFilaments(pr, take = true) {
   const r = await loadedFilaments(pr);
   if (!r.ok) return r;
-  // zslice prints with one nozzle (next_hotend is 0 in the change
-  // G-code). A spool that feeds the second nozzle of a printer with two
-  // (the external spool of an X2D: "nozzle": "aux") stays out, or the
-  // change would ask for it in the main nozzle.
-  // A spool of the second nozzle ("nozzle": "aux", the external spool of
-  // an X2D) needs a printer with two nozzles in the settings
-  // (machine.nozzles = 2): then its filament prints on that nozzle. Else
-  // it stays out: the change would ask for it in the main nozzle.
-  const two = (Number(value("machine.nozzles")) || 1) >= 2;
-  const aux = two ? [] : r.list.filter((f) => f.nozzle === "aux");
-  const want = r.list.filter((f) => two || f.nozzle !== "aux").slice(0, 16);
-  if (want.length === 0) return { ok: false, message: `The spools of ${pr.name} feed its second nozzle only. Pick the printer profile of ${pr.name} (two nozzles), or load a spool in the AMS.` };
-  let have = filaments().length;
-  while (have < want.length) {
-    const a = await client.call("filamentAdd", {});
-    if (a.list) setFilaments(a.list);
-    if (!(a.index >= 0)) break;
-    have++;
-  }
-  while (have > want.length) {
-    const a = await client.call("filamentRemove", { index: have - 1 });
-    if (a.list) setFilaments(a.list);
-    have--;
-  }
-  for (let k = 0; k < Math.min(have, want.length); k++) {
-    const f = want[k];
-    const m = await client.call("filamentSet", { index: k, name: "filament.material", value: f.material.toUpperCase() });
-    if (m.list) setFilaments(m.list);
-    if (k === 0 && !m.error) applySettings(m);
-    if (/^#[0-9a-f]{6}$/i.test(f.color ?? "")) {
-      const c = await client.call("filamentSet", { index: k, name: "filament.color", value: f.color });
-      if (c.list) setFilaments(c.list);
-      if (k === 0) applySettings(c);
-    }
-    if (two) {
-      const n = await client.call("filamentSet", { index: k, name: "filament.nozzle", value: f.nozzle === "aux" ? "1" : "0" });
-      if (n.list) setFilaments(n.list);
-      if (k === 0) applySettings(n);
-    }
-  }
-  const words = want.map((f) => `${f.slot || "roll"} ${f.material}${two && f.nozzle === "aux" ? " (2nd nozzle)" : ""}`).join(", ");
+  const a = await client.call("filamentsFromPrinter", { name: pr.name, json: JSON.stringify({ filaments: r.list }), flags: take ? 1 : 2 });
+  if (a.list) setFilaments(a.list);
+  if (a.changed) applySettings(a);
   // The nozzle that the printer has (both nozzles of an X2D are the same
   // kind): the type and the flow of its file.
   let nozzleWords = "";
+  let changed = a.changed;
   const nz = (r.nozzles ?? []).map((n) => nozzleOfCode(n.type)).find(Boolean);
-  if (nz) {
+  if (nz && (value("machine.nozzle_type") !== nz.type || value("machine.nozzle_flow") !== nz.flow)) {
     await setSetting("machine.nozzle_type", nz.type);
     await setSetting("machine.nozzle_flow", nz.flow);
     nozzleWords = ` Nozzles: ${nz.type.replace("_", " ")}, ${nz.flow.replace("_", " ")}.`;
+    changed = true;
   }
-  const skipped = aux.length ? ` Not used: ${aux.map((f) => `${f.slot || "spool"} ${f.material}`).join(", ")} (the second nozzle: pick the printer profile of ${pr.name}, with two nozzles).` : "";
-  return { ok: true, message: `${want.length} ${want.length === 1 ? "filament" : "filaments"} from ${pr.name}: ${words}.${skipped}${nozzleWords}` };
+  return { ok: a.ok, changed, message: `${a.message}${nozzleWords}` };
 }
+
+// The plate uses the filaments that are in its printer: on a change of the
+// printer, then each 20 s while the page shows (a printdeck printer). A
+// filament that the user set by hand stays; "Use the filaments of" in the
+// filament menu makes it follow the printer again.
+const follow = { name: null, at: 0, busy: false };
+async function followPrinterFilaments() {
+  const pr = currentPrinter();
+  if (follow.busy || document.visibilityState === "hidden") return;
+  if (pr?.kind !== "printdeck" || !app.snapshot) {
+    follow.name = pr?.name ?? null;
+    return;
+  }
+  if (pr.name === follow.name && Date.now() - follow.at < 20000) return;
+  follow.busy = true;
+  follow.name = pr.name;
+  follow.at = Date.now();
+  try {
+    const r = await useLoadedFilaments(pr, false);
+    if (r.ok && r.changed) toast(r.message);
+  } catch (e) {
+    console.warn(`zslice: the filaments of ${pr.name}: ${e.message}`);
+  } finally {
+    follow.busy = false;
+  }
+}
+setInterval(followPrinterFilaments, 2000);
 
 // The filament button: a dot in the color of each filament of the plate,
 // and the name of the filament, or the count of filaments.
@@ -1657,8 +1651,16 @@ function drawFilamentButton() {
   }
   const text = document.createElement("span");
   text.textContent = list.length > 1 ? `${list.length} filaments` : name;
-  b.replaceChildren(dots, text);
-  b.title = list.length > 1 ? `The ${list.length} filaments of the plate: click to change them` : "The filament: click to change it, or to add filaments";
+  // The filaments that come from the spools of the printer.
+  const fromPrinter = list.length > 0 && list.every((f) => f.fromPrinter);
+  if (fromPrinter) {
+    const from = document.createElement("span");
+    from.className = "dim fil-from";
+    from.textContent = "From the printer";
+    b.replaceChildren(dots, text, from);
+  } else b.replaceChildren(dots, text);
+  b.title = (list.length > 1 ? `The ${list.length} filaments of the plate: click to change them` : "The filament: click to change it, or to add filaments") +
+    (fromPrinter ? `. They are the spools in ${store.printer || "the printer"}.` : "");
 }
 followFilaments(drawFilamentButton);
 

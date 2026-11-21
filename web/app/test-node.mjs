@@ -112,6 +112,31 @@ console.log(`second slice (infill density): ${(performance.now() - t0).toFixed(0
   core.slice();
 }
 
+// The filaments of a printdeck printer: the plate follows its spools, and
+// a filament that the user set by hand stays.
+{
+  const deck = JSON.stringify({ filaments: [
+    { slot: "A1", tray: 0, material: "PLA", color: "#FF0000" },
+    { slot: "A4", tray: 3, material: "PETG", color: "#00ff00" },
+  ] });
+  let r = core.filamentsFromPrinter("X2D", deck, 0);
+  check(r.ok && r.changed, `the spools of the printer (${JSON.stringify(r)})`);
+  check(r.message.startsWith("2 filaments from X2D: A1 PLA, A4 PETG."), `the message (${r.message})`);
+  let fs = core.filaments();
+  check(fs.length === 2 && fs[0].color === "#ff0000" && fs[1].material === "PETG", "the filaments are the spools");
+  check(fs[1].fromPrinter && fs[1].slot === "A4" && fs[1].tray === 3 && !fs[1].hand, `the source of filament 2 (${JSON.stringify(fs[1])})`);
+  check(!core.filamentsFromPrinter("X2D", deck, 0).changed, "the same spools change nothing");
+  check(core.filamentSet(1, "filament.color", "#123456") === "", "a color by hand");
+  check(core.filaments()[1].hand, "the filament is set by hand");
+  r = core.filamentsFromPrinter("X2D", deck, 0);
+  check(core.filaments()[1].color === "#123456", "the color of the user stays");
+  r = core.filamentsFromPrinter("X2D", deck, 1);
+  check(r.changed && core.filaments()[1].color === "#00ff00", "the printer's filament again");
+  check(!core.filamentsFromPrinter("X2D", "{\"filaments\":[]}", 0).ok, "no spools: no change");
+  check(core.filamentRemove(1), "remove the second filament");
+  core.slice();
+}
+
 // A label (label.js, labelcard.js): the JSON of the card, the pick on the
 // mesh, the outline, the facts, a slice in two filaments, and the removal.
 {

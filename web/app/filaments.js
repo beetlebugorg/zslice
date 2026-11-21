@@ -208,7 +208,11 @@ export class FilamentList {
       const grams = document.createElement("span");
       grams.className = "dim fil-g";
       const g = st?.grams?.[f.index];
-      grams.textContent = g > 0 ? `${g.toFixed(1)} g` : "";
+      // The spool of the printer that the filament comes from ("A1").
+      const from = f.fromPrinter ? f.slot || "Printer" : "";
+      grams.textContent = [from, g > 0 ? `${g.toFixed(1)} g` : ""].filter(Boolean).join(" · ");
+      if (f.fromPrinter) grams.title = `From the printer: ${f.slot ? `the spool in ${f.slot}` : "its spool"}`;
+      else if (f.hand) grams.title = "You set this filament. It stays when the printer has other spools.";
       row.append(sw, num, mat);
       // A printer with two nozzles: the nozzle of the filament.
       if ((this.ctx.nozzles?.() ?? 1) >= 2) {
