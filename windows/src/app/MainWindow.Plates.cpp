@@ -74,6 +74,9 @@ namespace winrt::ZSlice::implementation
         Title(name.empty() ? L"zslice" : name + L" - zslice");
         // With more plates the hint would cover their beds.
         EmptyHint().Visibility(zs_app_part_count(app) == 0 && model->PlateCount() == 1 ? Visibility::Visible : Visibility::Collapsed);
+        // The settings and the history are those of the new plate.
+        RefreshSettingValues();
+        RefreshHistoryButtons();
         // The slider of the new plate starts at its top.
         layer_count = 0;
         if (state == ZS_STATE_DONE)

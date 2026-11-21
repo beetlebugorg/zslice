@@ -25,10 +25,13 @@
 #include <winrt/Windows.Storage.h>
 #include <winrt/Windows.Storage.Pickers.h>
 #include <winrt/Windows.System.h>
+#include <winrt/Windows.UI.h>
 #include <winrt/Windows.UI.Core.h>
+#include <winrt/Windows.UI.Text.h>
 #include <winrt/Microsoft.UI.h>
 #include <winrt/Microsoft.UI.Dispatching.h>
 #include <winrt/Microsoft.UI.Input.h>
+#include <winrt/Microsoft.UI.Text.h>
 #include <winrt/Microsoft.UI.Windowing.h>
 #include <winrt/Microsoft.UI.Xaml.h>
 #include <winrt/Microsoft.UI.Xaml.Controls.h>

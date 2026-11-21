@@ -115,6 +115,7 @@ namespace winrt::ZSlice::implementation
         });
         Root().KeyDown([this](auto &&, Input::KeyRoutedEventArgs const &e) { OnKeyDown(e); });
         WirePlates();
+        WireSettings();
         Closed([this](auto &&, auto &&) { CloseView(); });
     }
 
@@ -194,6 +195,7 @@ namespace winrt::ZSlice::implementation
         retry_timer.Stop();
         animation_timer.Stop();
         scene_timer.Stop();
+        history_timer.Stop();
         // The view reads the apps of the set, so it goes first.
         if (view != nullptr)
             zs_view_free(view);
@@ -309,6 +311,10 @@ namespace winrt::ZSlice::implementation
     void MainWindow::ShowSlice()
     {
         SliceProgress().Visibility(Visibility::Collapsed);
+        // A change came during the slice: this result shows, and the newest
+        // settings slice next.
+        if (model->TakeSlicePending())
+            model->RequestSlice();
         int rc = zs_view_load(view, model->Active());
         if (rc != ZS_OK)
         {
@@ -505,8 +511,18 @@ namespace winrt::ZSlice::implementation
         // The keys of the shortcuts sheet of the other apps.
         constexpr auto bracket_left = static_cast<Windows::System::VirtualKey>(219);
         constexpr auto bracket_right = static_cast<Windows::System::VirtualKey>(221);
+        constexpr auto slash = static_cast<Windows::System::VirtualKey>(191);
+        // A key in a text field is text.
+        auto focused = Input::FocusManager::GetFocusedElement(Content().XamlRoot());
+        if (focused.try_as<TextBox>() != nullptr)
+            return;
         auto key = e.Key();
-        if (key == bracket_left || key == bracket_right)
+        if (key == slash)
+        {
+            ShowSettingsPane(true);
+            SettingsSearch().Focus(FocusState::Keyboard);
+        }
+        else if (key == bracket_left || key == bracket_right)
             StepPlate(key == bracket_left ? -1 : 1);
         else if (key == Windows::System::VirtualKey::Home && model->PlateCount() > 1)
             FramePlate((size_t)-1);

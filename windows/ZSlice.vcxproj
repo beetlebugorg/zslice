@@ -115,6 +115,7 @@
       <DependentUpon>MainWindow.xaml</DependentUpon>
     </ClCompile>
     <ClCompile Include="src\app\MainWindow.Plates.cpp" />
+    <ClCompile Include="src\app\MainWindow.Settings.cpp" />
     <ClCompile Include="src\app\winrt_glue.cpp" />
     <!-- The model has no WinRT, so a test program can link it. -->
     <ClCompile Include="src\model\zs_model.cpp">

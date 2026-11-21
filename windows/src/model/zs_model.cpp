@@ -62,6 +62,10 @@ namespace zs
         zs_app_set_auto_checks(app, 1);
         for (size_t i = 0; i < zs_set_count(set_); i++)
             zs_app_set_auto_scene(zs_set_app(set_, i), 1);
+        slice_pending_ = false;
+        // The first step of the undo list of a new plate.
+        if (zs_app_history_count(app) == 0)
+            HistoryCommit();
     }
 
     bool Model::AddPlate()
@@ -271,6 +275,119 @@ namespace zs
         if (rc != ZS_OK)
             message = zs_status_message(rc);
         return rc;
+    }
+
+    namespace
+    {
+        // The buffer rule of the core: a NULL buffer gives the length.
+        template <typename F>
+        std::string ReadText(F const &get)
+        {
+            size_t len = 0;
+            if (get(static_cast<char *>(nullptr), size_t{ 0 }, &len) != ZS_OK)
+                return {};
+            std::string text(len + 1, '\0');
+            if (get(text.data(), text.size(), &len) != ZS_OK)
+                return {};
+            text.resize(len);
+            return text;
+        }
+
+        int64_t NowMs()
+        {
+            FILETIME ft{};
+            ::GetSystemTimeAsFileTime(&ft);
+            ULARGE_INTEGER t{};
+            t.LowPart = ft.dwLowDateTime;
+            t.HighPart = ft.dwHighDateTime;
+            // From 1601 in units of 100 ns to 1970 in ms.
+            return (int64_t)(t.QuadPart / 10000) - 11644473600000LL;
+        }
+    }
+
+    std::string Model::GetSetting(char const *name) const
+    {
+        zs_app *app = Active();
+        return ReadText([&](char *buf, size_t cap, size_t *len) { return zs_app_setting_get(app, name, buf, cap, len); });
+    }
+
+    std::string Model::BaseValue(char const *name) const
+    {
+        zs_app *app = Active();
+        return ReadText([&](char *buf, size_t cap, size_t *len) { return zs_app_setting_base_get(app, name, buf, cap, len); });
+    }
+
+    std::string Model::Formula(char const *name) const
+    {
+        zs_app *app = Active();
+        return ReadText([&](char *buf, size_t cap, size_t *len) { return zs_app_formula_get(app, name, buf, cap, len); });
+    }
+
+    std::string Model::SourceTag(char const *name) const
+    {
+        int level = 0;
+        char profile[128] = "";
+        if (zs_app_setting_source(Active(), -1, name, &level, profile, sizeof profile) != ZS_OK)
+            return {};
+        std::string formula = Formula(name);
+        char const *f = formula.empty() ? nullptr : formula.c_str();
+        return ReadText([&](char *buf, size_t cap, size_t *len) { return zs_setting_source_text(level, profile, f, buf, cap, len); });
+    }
+
+    bool Model::SetSetting(char const *name, std::string const &value, std::string &error)
+    {
+        int rc = zs_app_setting_set(Active(), name, value.c_str());
+        if (rc != ZS_OK)
+        {
+            error = zs_status_message(rc);
+            return false;
+        }
+        RequestSlice();
+        return true;
+    }
+
+    void Model::RequestSlice()
+    {
+        zs_app *app = Active();
+        int state = zs_app_state(app);
+        // The running slice ends and shows, then the newest settings slice.
+        // A restart for each step of a drag would show nothing.
+        if (state == ZS_STATE_SLICING)
+            slice_pending_ = true;
+        else if (state != ZS_STATE_EMPTY)
+            zs_set_changed(set_, zs_set_active(set_));
+    }
+
+    bool Model::TakeSlicePending()
+    {
+        bool pending = slice_pending_;
+        slice_pending_ = false;
+        return pending;
+    }
+
+    bool Model::HistoryCommit()
+    {
+        return zs_app_history_commit(Active(), NowMs()) != 0;
+    }
+
+    bool Model::HistoryFocus(char const *name)
+    {
+        return zs_app_history_set_focus(Active(), name, NowMs()) != 0;
+    }
+
+    int Model::Undo()
+    {
+        return zs_app_history_undo(Active(), NowMs());
+    }
+
+    int Model::Redo()
+    {
+        return zs_app_history_redo(Active(), NowMs());
+    }
+
+    int Model::HistoryGoto(size_t step)
+    {
+        return zs_app_history_goto(Active(), step, NowMs());
     }
 
     std::wstring Model::Summary() const

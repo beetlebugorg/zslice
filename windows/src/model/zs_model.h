@@ -66,6 +66,26 @@ namespace zs
         // are in the folder `beds` beside the program, or ZSLICE_BEDS_DIR.
         void UpdateBed(zs_view *view);
 
+        // Settings of the active plate. SetSetting slices again, and on a
+        // failure `error` has the text for the user.
+        std::string GetSetting(char const *name) const;
+        std::string BaseValue(char const *name) const;
+        std::string Formula(char const *name) const;
+        std::string SourceTag(char const *name) const;
+        bool SetSetting(char const *name, std::string const &value, std::string &error);
+        // Slices the active plate. During a slice it waits for the end.
+        void RequestSlice();
+        // True once after a slice if a change came during it.
+        bool TakeSlicePending();
+
+        // The undo list of the active plate (see zs_app_history_commit).
+        // The undo calls return the bits of enum zs_history_restored.
+        bool HistoryCommit();
+        bool HistoryFocus(char const *name);
+        int Undo();
+        int Redo();
+        int HistoryGoto(size_t step);
+
     private:
         static void OnEvent(void *user, size_t plate, int event, double progress, int status);
         void SyncActive();
@@ -76,6 +96,7 @@ namespace zs
         bool printers_tried_ = false;
         zs_view *bed_view_ = nullptr;
         ptrdiff_t bed_shown_ = -2;
+        bool slice_pending_ = false;
     };
 
     std::string ToUtf8(std::wstring const &text);
