@@ -259,7 +259,9 @@ namespace winrt::ZSlice::implementation
             return;
         pointer_alt = Has(e.KeyModifiers(), VirtualKeyModifiers::Menu);
         // A right click on a dot of a picked support tree has its own menu.
-        if (press_right && std::abs(last_x - press_x) <= 4 && std::abs(last_y - press_y) <= 4 && SupportMenu(press_x, press_y))
+        // In the Support tool a right click adds nothing.
+        if (press_right && std::abs(last_x - press_x) <= 4 && std::abs(last_y - press_y) <= 4 &&
+            (SupportMenu(press_x, press_y) || tool == Tool::Support))
             return;
         // A press and a release at one place is a click.
         if (std::abs(last_x - press_x) <= 4 && std::abs(last_y - press_y) <= 4 && !was_tool)
