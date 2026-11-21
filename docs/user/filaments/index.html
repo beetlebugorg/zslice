@@ -120,6 +120,18 @@
 <h2 id="two-nozzles">Two nozzles</h2>
 <p>The Bambu Lab X2D and H2D have two nozzles. Each filament has a nozzle: <strong>Main</strong> or <strong>2nd</strong>.</p>
 <ul><li>On the X2D, the AMS feeds the main nozzle. The external spool feeds the second one.</li><li>The second nozzle does not reach the whole bed. The Check tells you when a part on it is out of its reach.</li></ul>
+<h3 id="settings-of-the-second-nozzle">Settings of the second nozzle</h3>
+<p>The printer settings have a <strong>Second nozzle</strong> section. It shows only for a printer with two nozzles. Each setting at 0 has the value of the first nozzle.</p>
+<ul><li><strong>Nozzle2 speed</strong>: the speed of each line of the second nozzle, as a part of the speed of the same line on the first nozzle. At 50 %, each line prints at half its speed. The speeds of the walls, the skin, and the infill keep their ratios.</li><li><strong>Nozzle2 max speed</strong>: the highest speed of a line of the second nozzle, in mm/s.</li><li><strong>Nozzle2 max accel</strong>: the highest acceleration of a line of the second nozzle.</li><li><strong>Nozzle2 diameter</strong> and <strong>Nozzle2 line width</strong>: the nozzle size and the line width of the walls, the skin, and the infill of the second nozzle.</li><li><strong>Nozzle2 retract length</strong> and <strong>Nozzle2 retract speed</strong>: the retraction of the second nozzle.</li></ul>
+<p>Travel moves keep the travel speed of the printer: one head moves both nozzles.</p>
+<p>The X2D profile of the printer library has the values of Bambu Studio for its second nozzle, a bowden extruder: at most 200 mm/s, an acceleration of 1000 mm/s², and a 2 mm retraction at 20 mm/s.</p>
+<h3 id="slow-down-the-second-nozzle">Slow down the second nozzle</h3>
+<p>To print the second nozzle at 50 mm/s:</p>
+<ol><li>Open the settings, and pick <strong>Printer</strong> &gt; <strong>Second nozzle</strong>.</li><li>Set <strong>Nozzle2 max speed</strong> to 50.</li><li>Slice again.</li></ol>
+<p>Click a line of the second nozzle. The line card shows <strong>2nd nozzle</strong> and the speed of the line.</p>
+<h3 id="infill-with-the-second-nozzle">Infill with the second nozzle</h3>
+<p>Search for <strong>infill filament</strong>, and pick a filament of the second nozzle. The second nozzle then prints the sparse infill, at its own line width. The walls and the skin stay on the filament of the part.</p>
+<p>With <strong>Infill layers</strong> at 2, the infill prints once every two layers, as one bead two layers tall. Example: layers of 0.1 mm for the walls, and the infill in beads of 0.2 mm. The second nozzle then prints the infill on every second layer: it prints after the walls of that layer, and the first nozzle starts the next layer. The narrow areas of infill that print on each layer stay on the filament of the part. A bead is never taller than the diameter of its nozzle or its line width. When the layers of the group are too thick for that, the Check tells you.</p>
 <h2 id="where-to-go-next">Where to go next</h2>
 <nav class="goto"><a class="go" href="../../user/support/"><span class="num">6</span><b>Add support</b><span></span></a><a class="go" href="../../user/printers/"><span class="num">12</span><b>Send to a printer</b><span></span></a></nav><nav class="pager"><a class="prev" href="../../user/support/"><span>Back to 6</span><b>Add support</b></a><a class="next" href="../../user/labels/"><span>Go to 8</span><b>Labels on a part</b></a></nav>
 </main>
