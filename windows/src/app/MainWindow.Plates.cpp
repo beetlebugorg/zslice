@@ -81,6 +81,7 @@ namespace winrt::ZSlice::implementation
         sim_item.IsChecked(false);
         GapCard().Visibility(Visibility::Collapsed);
         HandRelease();
+        SupportReload();
         selected_path = selected_segment = -1;
         line_anchored = false;
         selected_parts.clear();
@@ -101,7 +102,6 @@ namespace winrt::ZSlice::implementation
         // result has none to read.
         zs_view_load(view, app);
         SupportLoaded();
-        SupportReload();
         model->UpdateBed(view);
         zs_set_view_sync(model->Set(), view);
         LayerCard().Visibility(Visibility::Collapsed);
