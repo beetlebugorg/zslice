@@ -99,12 +99,19 @@ void zg_licenses_show(GtkWindow *parent) {
 
     GtkWidget *list_scroll = gtk_scrolled_window_new();
     gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(list_scroll), list);
-    gtk_widget_set_size_request(list_scroll, 260, -1);
+    gtk_widget_set_vexpand(list_scroll, TRUE);
+    /* The reference explorer: where zslice got its ideas, data, and code. */
+    GtkWidget *refs = gtk_link_button_new_with_label("https://zslice.beetlebug.org/references/explore/",
+                                                     "Where zslice got its ideas, data, and code");
+    GtkWidget *side = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
+    gtk_box_append(GTK_BOX(side), list_scroll);
+    gtk_box_append(GTK_BOX(side), refs);
+    gtk_widget_set_size_request(side, 260, -1);
     GtkWidget *text_scroll = gtk_scrolled_window_new();
     gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(text_scroll), l->view);
 
     GtkWidget *paned = gtk_paned_new(GTK_ORIENTATION_HORIZONTAL);
-    gtk_paned_set_start_child(GTK_PANED(paned), list_scroll);
+    gtk_paned_set_start_child(GTK_PANED(paned), side);
     gtk_paned_set_end_child(GTK_PANED(paned), text_scroll);
     gtk_paned_set_shrink_start_child(GTK_PANED(paned), FALSE);
     gtk_window_set_child(GTK_WINDOW(win), paned);

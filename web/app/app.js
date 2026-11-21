@@ -1725,6 +1725,14 @@ function showLicenses() {
   const close = document.createElement("button");
   close.textContent = "Close";
   close.onclick = () => d.close();
+  // The reference explorer: where zslice got its ideas, data, and code.
+  const refs = document.createElement("p");
+  const a = document.createElement("a");
+  a.href = "https://zslice.beetlebug.org/references/explore/";
+  a.target = "_blank";
+  a.rel = "noopener";
+  a.textContent = "The references: where zslice got its ideas, data, and code";
+  refs.append(a);
   const list = document.createElement("div");
   for (const l of wasm.licenses()) {
     const det = document.createElement("details");
@@ -1736,7 +1744,7 @@ function showLicenses() {
     det.append(sum, pre);
     list.append(det);
   }
-  d.append(list, close);
+  d.append(refs, list, close);
   d.onclose = () => d.remove();
   document.body.append(d);
   d.showModal();
