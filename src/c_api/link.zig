@@ -98,6 +98,20 @@ export fn zs_link_file_name(disposition: ?[*:0]const u8, link: ?*Link) c_int {
     return code(if (name.len == 0) .not_a_model else .ok);
 }
 
+/// The URL of the link (link->url), for a language that cannot read the
+/// long array of the struct (Swift imports no C array this long).
+export fn zs_link_url(link: ?*const Link) [*:0]const u8 {
+    const l = link orelse return "";
+    return @ptrCast(&l.url);
+}
+
+/// Sets the URL of the link (link->url), for example to the final URL
+/// after the redirects, before zs_link_file_name.
+export fn zs_link_set_url(link: ?*Link, url: ?[*:0]const u8) void {
+    const l = link orelse return;
+    put(&l.url, span(url));
+}
+
 /// 1 for a public address: 4 bytes (IPv4) or 16 bytes (IPv6).
 export fn zs_link_address_public(address: ?[*]const u8, len: usize) c_int {
     const a = address orelse return 0;
@@ -147,4 +161,10 @@ test "C API: a link, a redirect, and a name" {
     try std.testing.expectEqual(@as(c_int, 1), zs_link_address_public(&[_]u8{ 8, 8, 4, 4 }, 4));
     try std.testing.expectEqualStrings("The file is larger than 512 MB.", std.mem.span(zs_link_message(code(.too_large))));
     try std.testing.expectEqualStrings("The link did not open.", std.mem.span(zs_link_message(99)));
+}
+
+test "zs_link_url and zs_link_set_url read and write the URL of the link" {
+    var l: Link = undefined;
+    zs_link_set_url(&l, "https://example.org/a.stl");
+    try std.testing.expectEqualStrings("https://example.org/a.stl", std.mem.span(zs_link_url(&l)));
 }

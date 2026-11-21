@@ -200,6 +200,10 @@ int zs_link_check_reply(const char *content_type, int64_t length);
  * link->url, else the old link->name. ZS_LINK_NOT_A_MODEL if none of them
  * is a model name. */
 int zs_link_file_name(const char *disposition, zs_link *link);
+/* The URL of the link (link->url), and a way to set it, for a language
+ * that cannot read the long array of the struct (Swift). */
+const char *zs_link_url(const zs_link *link);
+void zs_link_set_url(zs_link *link, const char *url);
 /* 1 for a public address: 4 bytes (IPv4) or 16 bytes (IPv6), in network
  * order. 0 for loopback, private, link-local, multicast, and the other
  * local ranges. */
