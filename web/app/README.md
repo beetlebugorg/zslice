@@ -42,7 +42,7 @@ The host of the app sends these headers. `serve.py --csp` sends them too, to tes
 
 The page loads only its own scripts, styles, and wasm. `connect-src` and `img-src` allow any http and https address: the printers are on the local network at any address, and their cameras are pictures. `frame-ancestors 'none'` stops other sites from showing the page in a frame. Do not add `upgrade-insecure-requests`: it breaks the printers at http addresses.
 
-The test runs the code of the worker (`core.js`) and the view of the main thread (`view.js`) in Node, with no browser: settings, the saved state, a slice, the scene, frames of the view, the data of the 2D view, a pick, a step along the print, the Selected page of a line, the printer library, and a bed model in a frame.
+The test runs the code of the worker (`core.js`) and the view of the main thread (`view.js`) in Node, with no browser: settings, the saved state, a slice, the scene, frames of the view, the data of the 2D view, a pick, a step along the print, the Selected page of a line, a label (its outline, its pick, its facts, and a slice), the printer library, and a bed model in a frame.
 
 The picker opens at the first visit (no printer set up). `?printers` opens it at the start, with `&q=text` (a search), `&pick=id` (a model), and `&step=2` (the second step) or `&step=add` (add the printer at once).
 
@@ -69,6 +69,8 @@ The rule of `docs/app/README.md` holds: the app logic is in the core, and the we
 | `layers.js` | The layer slider with two knobs |
 | `support.js` | The Support tool (U): draw a support area on the part, and drag its points |
 | `paint.js` | The Paint tool (P): the mesh of a part in the colors of its paint, the smart select, and the brush (a paint session of the view, zs_paint_*) |
+| `label.js` | The Label tool (L): text and marks on the surface of a part, in a filament of their own. The pick on the mesh (zs_label_place), the decal of each label in the view (zs_label_outline), the drag, the turn, and the scale. The model of a label (its JSON and its frame) is at the top of the file, with no DOM |
+| `labelcard.js` | The card of the selected label: its shapes and their fields, the turn, the filament, the depth, the stroke check, and the cost (zs_app_label_info) |
 | `filaments.js` | The filaments of the plate: the chips of `project.filament`, and the list on the print card |
 | `menus.js` | The popup menus, the context menu, and the popovers |
 | `format.js` | The text of setting values, as the GTK shell shows them |

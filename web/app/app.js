@@ -69,6 +69,8 @@ import { PartCard } from "./partcard.js";
 import { RangeCard } from "./rangecard.js";
 import { FilamentList, setFilaments, filamentStats, filaments, followFilaments } from "./filaments.js";
 import { PaintTool } from "./paint.js";
+import { LabelTool } from "./label.js";
+import { LabelCard } from "./labelcard.js";
 import { TurnRings } from "./turn.js";
 import { attachViewInput } from "./input.js";
 import { FarmPage } from "./farm.js";
@@ -258,6 +260,7 @@ function drawFrame(now) {
   tools?.placeTape();
   partCard?.place();
   supportTool?.place();
+  labelTool?.place();
   if (rangeCard?.open) rangeCard.place();
   placeOpenButton();
   frameTimes[frameCount++ % frameTimes.length] = performance.now() - t0;
@@ -888,11 +891,47 @@ var paintTool = new PaintTool({
     return r.index;
   },
 });
-$("tool-paint").onclick = () => paintTool.toggle();
+$("tool-paint").onclick = () => {
+  labelTool?.close();
+  paintTool.toggle();
+};
+
+// The Label tool (L): text and marks on the surface of a part, in a
+// filament of their own (label.js, labelcard.js).
+var labelTool = new LabelTool({
+  client,
+  view,
+  gl,
+  canvas,
+  host: $("preview"),
+  button: $("tool-label"),
+  Card: LabelCard,
+  part: () => (tools.part ? tools.part.index : -1),
+  partAt: (px, py) => tools.partAt(px, py),
+  pixelOf: (p) => tools.pixelOf(p),
+  page: () => app.page,
+  requestFrame: () => requestFrame(),
+  toast: (t) => toast(t),
+  addFilament: async () => {
+    const r = await client.call("filamentAdd", {});
+    setFilaments(r.list);
+    return r.index;
+  },
+  // The tool opens: the paint tool closes, and the part card goes (the
+  // label card shows in its place).
+  opened: () => {
+    paintTool.close();
+    if (tools.tool !== "select") tools.set("select");
+    tools.selectPart(null);
+  },
+});
+$("tool-label").onclick = () => labelTool.toggle();
 $("sum-pop").insertBefore(filamentList.node, $("sum-took"));
 
 var partCard = new PartCard({
   client,
+  // A click on a label of the part: the Label tool selects it.
+  openLabel: (index, id) => labelTool.open(index, id),
   browser,
   host: $("preview"),
   pixelOf: (p) => tools.pixelOf(p),
@@ -2020,6 +2059,13 @@ function onPreviewKey(e) {
     e.stopPropagation();
     return;
   }
+  // The Label tool: Delete removes the selected label.
+  if (labelTool?.on && labelTool.sel >= 0 && (e.key === "Delete" || e.key === "Backspace") && !e.ctrlKey && !e.metaKey && !e.altKey && !e.target?.closest?.("input, textarea, select, [contenteditable], .panel, .search-layer, .keys-layer")) {
+    labelTool.remove();
+    e.preventDefault();
+    e.stopPropagation();
+    return;
+  }
   if (partKey(e)) return;
   // Ctrl+F and Ctrl+B (as in vi): a page of layers up or down, 5 % of the
   // layers of the print (at least 2).
@@ -2089,7 +2135,8 @@ function onPreviewKey(e) {
       e.preventDefault();
       return;
     case "m": case "M": tools.set("move"); e.preventDefault(); return;
-    case "p": case "P": paintTool.toggle(); e.preventDefault(); return;
+    case "p": case "P": labelTool.close(); paintTool.toggle(); e.preventDefault(); return;
+    case "l": labelTool.toggle(); e.preventDefault(); return;
     // Shift+H and Shift+L: the line before or after (as Shift with the
     // arrows). H alone is the Grab tool.
     case "H": if (e.shiftKey) { dir = -1; break; } tools.set("grab"); e.preventDefault(); return;
@@ -2104,6 +2151,13 @@ function onPreviewKey(e) {
       e.preventDefault();
       return;
     case "Escape":
+      if (labelTool.on) {
+        if (labelTool.drawing >= 0) labelTool.stopDrawing();
+        else if (labelTool.sel >= 0) labelTool.select(-1);
+        else labelTool.close();
+        e.preventDefault();
+        return;
+      }
       if (paintTool.on) {
         paintTool.close();
         e.preventDefault();
@@ -2643,6 +2697,8 @@ async function undoRedo(op) {
   applySettings(r);
   if (!r.ok) toast(op === "undo" ? "Nothing to undo." : "Nothing to redo.");
   history.refresh();
+  // The labels of the step (label.js).
+  labelTool?.reload();
 }
 
 // ---- the printability check ----
@@ -3162,6 +3218,8 @@ function onWorkerEvent(m) {
       // A "sliced" event of the simulated print has no filaments.
       if (m.filaments) setFilaments(m.filaments, m.filamentStats ?? null);
       paintTool?.refresh();
+      labelTool?.refresh();
+      labelTool?.reload();
       app.layers = m.layers;
       app.marks = m.marks;
       supportTool?.setAreas(m.areas);
@@ -3319,6 +3377,8 @@ async function activatePlate(i, frame) {
   }
   if (i === app.wantPlate) return;
   app.wantPlate = i;
+  // The labels of the Label tool are on a part of this plate.
+  labelTool?.close();
   const r = await client.call("plateActivate", { index: i });
   applySettings(r);
   const p = app.plates[r.index];
@@ -3832,6 +3892,7 @@ const search = new SearchOverlay({
     { label: "Remove this plate", hint: "the plate and its parts", run: () => removePlate(app.activePlate) },
     { label: "Check the print", hint: "problems and advice", run: () => openCheck() },
     { label: "The print as it forms", hint: "simulated plastic: it sags and droops where nothing holds it", run: () => toggleSimulation() },
+    { label: "Label tool", keys: "L", hint: "text and marks on the surface of a part, in another filament", run: () => labelTool.open() },
     { label: "Undo", keys: "Ctrl+Z", run: () => undoRedo("undo") },
     { label: "Redo", keys: "Ctrl+Shift+Z", run: () => undoRedo("redo") },
     { label: "2D layer view", keys: "2", run: () => showPage("2d") },
@@ -4109,6 +4170,7 @@ window.zslice = {
   shortcuts,
   partCard,
   paintTool,
+  labelTool,
   turnRings,
   supportTool,
   app, view, view2d, layers, browser, client, gl, inspector, gaps, history, undoRedo, tools, store, managePrinters, openPrinterSettings, loadProfile, setSetting, pickAt, topLayerPoint, openCheck, frameTimes,

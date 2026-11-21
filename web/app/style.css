@@ -1080,6 +1080,31 @@ button.destructive { background: #c01c28; color: #fff; }
 .paint-chips { margin: 4px 0 6px; }
 #tool-paint.on { background: var(--accent-bg, #3584e4); color: #fff; }
 
+/* The Label tool (label.js) and the card of a label (labelcard.js). */
+#tool-label.on { background: var(--accent-bg, #3584e4); color: #fff; }
+.label-card { width: 340px; max-height: calc(100% - 100px); }
+.label-item { display: flex; flex-direction: column; gap: 6px; padding: 6px 0; border-top: 1px solid rgba(255, 255, 255, 0.1); }
+.label-shapes .pc-action { min-height: 24px; padding: 2px 7px; }
+.label-shapes .pc-action.on, .label-depth .pc-action.on { background: var(--accent-bg, #3584e4); color: #fff; }
+.label-text { width: 100%; box-sizing: border-box; font-size: 1.05em; }
+.label-fields { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 4px 10px; }
+.label-card .pc-cut-n { width: 4.6em; min-width: 0; }
+.label-fields > .pc-cut-row:last-child { grid-column: 1 / -1; }
+.label-fields .pc-action { grid-column: 1 / -1; justify-self: start; }
+.label-fields .caption { grid-column: 1 / -1; }
+.label-k { min-width: 4.2em; overflow-wrap: anywhere; }
+.label-card input.bad { outline: 2px solid var(--warning, #e5a50a); }
+.label-notice button { margin-left: 4px; }
+.label-check, .label-cost { display: flex; flex-direction: column; gap: 4px; }
+.label-delete { align-self: flex-start; }
+.label-handle {
+  position: absolute; z-index: 5; width: 12px; height: 12px; margin: -6px 0 0 -6px;
+  background: #f5c211; border: 1.5px solid #1b1b1d; border-radius: 3px;
+  cursor: nesw-resize; touch-action: none;
+}
+.pc-labels { display: flex; flex-direction: column; gap: 2px; }
+.pc-labels button { justify-content: flex-start; text-align: left; min-height: 24px; padding: 2px 6px; font-size: 0.88em; overflow-wrap: anywhere; white-space: normal; }
+
 /* The card of a history bubble: the style of the line card. */
 .hist-card { width: 300px; max-height: 60vh; z-index: 40; }
 .hist-card-dot { flex: none; width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; margin-top: 1px; }
