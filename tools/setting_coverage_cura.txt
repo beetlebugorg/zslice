@@ -383,10 +383,10 @@ jerk_skirt_brim | missing | the jerk of each feature
 
 # travel
 retraction_enable | derived | machine.retract_length 0 is no retraction
-retract_at_layer_change | same | project.retract_layer_change
+retract_at_layer_change | same | machine.retract_layer_change
 retraction_amount | same | machine.retract_length
 retraction_speed | same | machine.retract_speed
-retraction_min_travel | same | project.retract_min_travel
+retraction_min_travel | same | machine.retract_min_travel
 retraction_retract_speed | derived | machine.retract_speed
 retraction_prime_speed | derived | machine.retract_speed
 retraction_extra_prime_amount | missing | more plastic after a retraction
@@ -402,9 +402,9 @@ travel_avoid_distance | missing | the distance of a travel from the parts
 layer_start_at_z_seam | missing | start each layer at the seam
 layer_start_x | missing | the start point of each layer
 layer_start_y | missing | the start point of each layer
-retraction_hop_enabled | derived | project.z_hop 0 is no hop
-retraction_hop_only_when_collides | same | project.z_hop_only_crossing
-retraction_hop | same | project.z_hop
+retraction_hop_enabled | derived | machine.z_hop 0 is no hop
+retraction_hop_only_when_collides | same | machine.z_hop_only_crossing
+retraction_hop | same | machine.z_hop
 retraction_hop_after_extruder_switch | missing | a z hop after a tool change
 retraction_hop_after_extruder_switch_height | missing | a z hop after a tool change
 
@@ -770,8 +770,8 @@ small_feature_speed_factor | missing | slower walls in small features
 small_feature_speed_factor_0 | missing | slower walls in small features
 material_alternate_walls | missing | the walls of two filaments in turn
 group_outer_walls | missing | print the outer walls of a layer together
-retraction_during_travel_ratio | derived | project.retract_wipe
-keep_retracting_during_travel | derived | project.retract_wipe
+retraction_during_travel_ratio | derived | machine.retract_wipe
+keep_retracting_during_travel | derived | machine.retract_wipe
 prime_during_travel_ratio | missing | a push back during the travel
 scarf_joint_seam_length | missing | a scarf seam
 scarf_joint_seam_start_height_ratio | missing | a scarf seam

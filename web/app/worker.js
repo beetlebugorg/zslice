@@ -579,7 +579,7 @@ const ops = {
     // features in the project settings. They load into the printer now,
     // and the answer below saves both groups in their new form.
     const moved = saved?.project ? wasm.withString(saved.project, (t, len) => wasm.x.zs_profile_moved(2, t, len)) : 0;
-    if (moved > 0) console.info(`zslice: the accelerations of the features are printer settings now; ${moved} saved values moved to the printer`);
+    if (moved > 0) console.info(`zslice: the accelerations and the travel retraction are printer settings now; ${moved} saved values moved to the printer`);
     const errors = core.restore(saved);
     // After the threads start, and only if the plate is still empty then.
     setTimeout(warmUp, 300);

@@ -64,13 +64,17 @@ A camera plays only while its card is on the screen. The picture goes from the p
 
 Each printer keeps its own printer settings: the bed, the nozzle, the speed limits, and the accelerations. The acceleration of each feature is a printer setting too: `outer_wall_accel`, `inner_wall_accel`, `skin_accel`, `infill_accel`, `travel_accel`, and `first_layer_accel`. 0 means the `max_accel` of the printer. When you change the printer, these values change with it.
 
+The retraction of the travels is a printer setting too: `z_hop`, `z_hop_only_crossing`, `retract_wipe`, `retract_wipe_distance`, `retract_layer_change`, and `retract_min_travel`. A printer from the printer library gets the values of its maker's profile. The Bambu Lab printers get the values of Bambu Studio: a lift of 0.4 mm for each travel that leaves the part, a wipe of 2 mm, a retraction at each layer change, and a retraction for each travel of 1 mm or more. The nozzle then does not drag over the tops of the support, and strings less between the support islands. A printer with no values in its profile keeps the values of zslice: no lift, no wipe.
+
+The wipe (`retract_wipe`) moves the nozzle on a small circle inside the part while the filament pulls back, before a travel that leaves the part. The circle stays clear of the outer wall by half a line width. With no room for a circle (a thin part, the support), the nozzle moves back along the line that it printed last. A travel that stays inside the part has no wipe.
+
 The print settings stay when you change the printer: the layer height, the walls, the infill, and the speed ratios.
 
 Each printer also keeps the filament that you last used with it. When you change to another printer, zslice saves the filament settings for the printer before. When you change back, its filament comes back, and the Filament menu shows it. A printer with no saved filament keeps the filament that you have now. In the Linux app, the roll that a printer reports still wins: its settings load at the next status of the printer.
 
 The settings panel shows which settings belong to the printer. A section of printer settings starts with a line such as "Printer · Bambu Lab X2D. Each printer keeps its own values here." The search of the panel shows a badge on each printer setting ("Printer · <name>") and each filament setting ("Filament · <name>"). The page of a setting says it too. Print settings have no badge. The `/` search tags each result with its group and section, for example "Printer · Speed" or "Part · Walls".
 
-Before this version, the accelerations were print settings. At the first start of this version, zslice moves your saved values to the printer that you use then. Old projects and sessions load too: their accelerations go to the printer of the plate.
+Before this version, the accelerations and the retraction of the travels were print settings. At the first start of this version, zslice moves your saved values to the printer that you use then. Old projects and sessions load too: their values go to the printer of the plate.
 
 ## Print
 

@@ -182,6 +182,32 @@ The retraction length of this extruder. A bowden extruder needs more.
 
 The speed of the filament during a retraction.
 
+### Travel retraction
+
+**`machine.retract_min_travel`** (number; per layer). Default: `1.5`
+
+Travel moves shorter than this do not retract. Each printer has its own value (Bambu Studio: 1 mm).
+
+**`machine.z_hop`** (number; per layer). Default: `0`
+
+Lift the nozzle by this distance during a travel move with a retraction, in mm. 0 turns it off. The nozzle then does not drag over the printed lines (the tops of the support too).
+
+**`machine.z_hop_only_crossing`** (true or false). Default: `true`
+
+Lift the nozzle (`z_hop`) only for a travel that leaves the part or crosses an edge of the layer (a hole), and for a travel to or from the support. A travel in a straight line inside the part (it retracts because it is longer than `combing_max_distance`) does not lift. Off: each travel with a retraction lifts.
+
+**`machine.retract_wipe`** (true or false; per layer). Default: `false`
+
+A retraction before a travel that leaves the part moves the nozzle on a small circle inside the part while the filament pulls back: the plastic that oozes goes inside, and not onto the surface or into a string. The circle stays clear of the outer wall by half a line width. With no room for it (a thin part, the support), the nozzle moves back along the line that it printed last. A travel that stays inside the part has no wipe.
+
+**`machine.retract_wipe_distance`** (number; per layer). Default: `0`
+
+The length of the wipe (`retract_wipe`), in mm: the length of the circle, or of the move back along the last line. 0: 1.9 mm (a circle of 0.4 mm radius).
+
+**`machine.retract_layer_change`** (true or false). Default: `false`
+
+Retract at each layer change. Off: the travel to the first path of the layer retracts by the rules of the other travels (combing). Off by default, as in Cura.
+
 ### Filament change
 
 **`machine.filament_change`** (one of: `pause`, `tool`). Default: `pause`
@@ -778,10 +804,6 @@ The layers after the first that print slower: their speed goes up in even steps 
 
 ### Travel
 
-**`project.retract_min_travel`** (number; per layer). Default: `1.5`
-
-Travel moves shorter than this do not retract.
-
 **`project.combing`** (true or false; per layer). Default: `true`
 
 Combing: a travel move that stays inside the part (it crosses no outline of the layer) does not retract, because an ooze there is inside the part. Off: each travel longer than `retract_min_travel` retracts.
@@ -789,14 +811,6 @@ Combing: a travel move that stays inside the part (it crosses no outline of the 
 **`project.combing_max_distance`** (number; per layer). Default: `0`
 
 A travel inside the part that is longer than this retracts all the same (a long move can ooze a string over a top surface). 0: no limit.
-
-**`project.z_hop`** (number; per layer). Default: `0`
-
-Lift the nozzle by this distance during a travel move with a retraction. 0 turns it off.
-
-**`project.retract_wipe`** (true or false; per layer). Default: `false`
-
-A retraction after a line of the part moves the nozzle on a small arc inside the part while the filament pulls back, as a hand wipes a drip off: the plastic that oozes goes inside, and not onto the surface. The arc stays inside the layer, or the retraction stays plain.
 
 **`project.outer_wall_wipe`** (number; per layer). Default: `0`
 
@@ -809,14 +823,6 @@ Coasting: the last part of each path moves with no plastic, for this volume of p
 **`project.coasting_speed`** (number; per layer). Default: `0.9`
 
 The speed of the coasting moves, as a ratio of the speed of the path.
-
-**`project.z_hop_only_crossing`** (true or false). Default: `true`
-
-Lift the nozzle (`z_hop`) only for a travel that crosses an edge of the layer: it leaves the part, or it goes over a hole. A travel in a straight line inside the part (it retracts because it is longer than `combing_max_distance`) does not lift. Off: each travel with a retraction lifts.
-
-**`project.retract_layer_change`** (true or false). Default: `false`
-
-Retract at each layer change. Off: the travel to the first path of the layer retracts by the rules of the other travels (combing). Off by default, as in Cura.
 
 ### Support
 

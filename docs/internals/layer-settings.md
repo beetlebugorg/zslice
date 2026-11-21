@@ -1,10 +1,10 @@
 # Settings for some layers
 
-An override changes one setting for the layers in a z range (`settings.Override`). Only the settings in `settings.layer_settings` can have an override for a z range. An override of the whole part can change any project or filament setting, and the accelerations of the printer.
+An override changes one setting for the layers in a z range (`settings.Override`). Only the settings in `settings.layer_settings` can have an override for a z range. An override of the whole part can change any project or filament setting, and the accelerations and the travel retraction of the printer.
 
-This page lists each project and filament setting, and the accelerations of the printer. It says if the setting can change per layer, which code reads it, and why a setting cannot change per layer. The other machine settings do not change per layer: they describe the printer.
+This page lists each project and filament setting, and the accelerations and the travel retraction of the printer. It says if the setting can change per layer, which code reads it, and why a setting cannot change per layer. The other machine settings do not change per layer: they describe the printer.
 
-The accelerations of the features (`machine.outer_wall_accel` and the others) are machine settings: each printer has its own values. A part or some layers can still have their own value, as before, when they were project settings. `settings.moved_settings` maps the old names (`project.outer_wall_accel`) to the new names, so an old file still loads.
+The accelerations of the features (`machine.outer_wall_accel` and the others) are machine settings: each printer has its own values. A part or some layers can still have their own value, as before, when they were project settings. `settings.moved_settings` maps the old names (`project.outer_wall_accel`) to the new names, so an old file still loads. The retraction of the travels (`machine.z_hop`, `machine.z_hop_only_crossing`, `machine.retract_wipe`, `machine.retract_wipe_distance`, `machine.retract_layer_change`, `machine.retract_min_travel`) moved to the machine settings in the same way.
 
 ## How the per-layer settings flow
 
@@ -96,9 +96,9 @@ An adaptive layer height (thin layers where a surface has a small slope) can use
 | `slow_layers` | no | settings | A count of layers from the bed. |
 | `machine.outer_wall_accel`, `machine.inner_wall_accel`, `machine.skin_accel`, `machine.infill_accel`, `machine.travel_accel` | yes | settings (`Resolved.accel`), gcode | |
 | `machine.first_layer_accel` | no | settings | The first layer only. |
-| `retract_min_travel`, `combing`, `combing_max_distance` | yes | gcode | The planning threads find the combing ways with the settings of the layer (`gcode.prepare`). |
-| `retract_wipe`, `outer_wall_wipe` | yes | gcode | The wipe of each layer. |
-| `z_hop` | yes | gcode | The preview draws the lift of a travel with the z hop of the print. |
+| `machine.retract_min_travel`, `combing`, `combing_max_distance` | yes | gcode | The planning threads find the combing ways with the settings of the layer (`gcode.prepare`). |
+| `machine.retract_wipe`, `machine.retract_wipe_distance`, `outer_wall_wipe` | yes | gcode | The wipe of each layer. |
+| `machine.z_hop` | yes | gcode | The preview draws the lift of a travel with the z hop of the print. |
 | `support`, `support_style` | no | support | The support areas of all layers come from one pass. A column or a branch goes through many layers. |
 | `support_tree_angle`, `support_tree_spacing`, `support_tree_tip` | no | support | As `support_style`. |
 | `support_angle`, `support_xy_gap` | no | support | As `support_style`. |

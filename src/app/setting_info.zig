@@ -115,7 +115,7 @@ pub const section_order = [_][]const u8{
     "Retraction",   "Size compensation",
     // machine
     "Printer",      "Nozzle",        "Bed",                 "Chamber and fans",
-    "Extruder",
+    "Extruder",     "Travel retraction",
     "Motion",       "Acceleration",  "G-code",
 };
 
@@ -145,7 +145,7 @@ pub const first_settings = [_][]const u8{
     "project.infill_speed",       "project.skin_speed",
     "project.first_layer_speed",
     // Travel
-    "project.z_hop",              "project.combing",
+    "project.combing",
     // Cooling
     "filament.fan_speed",         "filament.min_layer_time",
     "filament.fan_off_layers",    "filament.min_speed",
@@ -356,9 +356,10 @@ const units = [_][2][]const u8{
     .{ "machine.infill_accel", "mm/s²" },
     .{ "machine.travel_accel", "mm/s²" },
     .{ "machine.first_layer_accel", "mm/s²" },
-    .{ "project.retract_min_travel", "mm" },
+    .{ "machine.retract_min_travel", "mm" },
     .{ "project.combing_max_distance", "mm" },
-    .{ "project.z_hop", "mm" },
+    .{ "machine.z_hop", "mm" },
+    .{ "machine.retract_wipe_distance", "mm" },
     .{ "project.support_tree_angle", "\u{b0}" },
     .{ "project.support_tree_spacing", "mm" },
     .{ "project.support_tree_tip", "mm" },
@@ -510,9 +511,10 @@ const sliders = [_]struct { []const u8, f64, f64, f64 }{
     .{ "machine.infill_accel", 0, 20000, 100 },
     .{ "machine.travel_accel", 0, 20000, 100 },
     .{ "machine.first_layer_accel", 0, 20000, 100 },
-    .{ "project.retract_min_travel", 0, 10, 0.5 },
+    .{ "machine.retract_min_travel", 0, 10, 0.5 },
     .{ "project.combing_max_distance", 0, 200, 5 },
-    .{ "project.z_hop", 0, 1, 0.05 },
+    .{ "machine.z_hop", 0, 1, 0.05 },
+    .{ "machine.retract_wipe_distance", 0, 5, 0.1 },
     .{ "project.support_tree_angle", 10, 60, 1 },
     .{ "project.support_tree_spacing", 1, 10, 0.5 },
     .{ "project.support_tree_tip", 0, 3, 0.1 },

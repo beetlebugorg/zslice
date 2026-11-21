@@ -5,6 +5,13 @@
 //!   so that the nozzle does not ooze on the way. A travel from one tree
 //!   support path to the next has no retraction if it crosses no edge of
 //!   the part: the support comes off, and a tree has many small islands.
+//! - The retraction of the travels is a printer setting (`Machine.z_hop`
+//!   and the others). A travel that leaves the part, crosses an edge, or
+//!   goes to or from the support can string. With `retract_wipe`, its
+//!   retraction moves the nozzle on a small circle inside the part, clear
+//!   of the outer wall, or back along its last line (the wipe of Bambu
+//!   Studio, see docs/references/bambu-studio.md). With
+//!   `z_hop_only_crossing`, only such a travel lifts the nozzle.
 //! - An extrusion move (G1 with E) goes along each path. The E value is the
 //!   length of filament to push, in mm. The plastic that comes out of the
 //!   nozzle is a bead with a flat top and bottom and round sides (see
@@ -149,6 +156,11 @@ pub const PathInfo = struct {
 
 /// The most waypoints of a combing travel.
 const max_way = 64;
+/// The most points of a straight wipe along the last path (see
+/// `Emitter.keepTail`).
+const max_tail = 16;
+/// The angle of the wipe circle (see `Emitter.wipeRetract`): 270 degrees.
+const wipe_sweep = 1.5 * std.math.pi;
 /// The most polygons that one combing travel goes along.
 const max_walks = 8;
 
@@ -209,11 +221,12 @@ pub const Prepared = struct {
         n: i32 = unknown,
         /// The length of the move that closes the path, or 0.
         close: f64 = 0,
-        /// The center of the wipe arc of the retraction before the travel:
-        /// way_points[wipe], `retract` if no arc fits, or `unknown`.
+        /// The center of the wipe circle of the retraction before the
+        /// travel: way_points[wipe], `retract` if no circle fits, or
+        /// `unknown`.
         wipe: i32 = unknown,
-        /// The travel with a retraction lifts the nozzle (see
-        /// `Emitter.hopFor`).
+        /// The straight travel crosses an edge of the layer outline (see
+        /// `Emitter.crossesEdge`).
         hop: Fact = .unknown,
         /// The travel crosses no edge of the part (see
         /// `Emitter.supportHop`).
@@ -419,7 +432,7 @@ pub fn prepare(gpa: std.mem.Allocator, r: *const Resolved, lp: *const LayerPlan,
         const y = geom.toMm(pts[0].y);
         if (known) {
             const d = @import("geom.zig").hypot(x - em.x, y - em.y);
-            if (d >= 1e-4 and d > p.retract_min_travel) {
+            if (d >= 1e-4 and d > em.lr.settings.machine.retract_min_travel) {
                 var way: [max_way][2]f64 = undefined;
                 if (em.findWay(x, y, d, &way)) |n| {
                     t.start = @intCast(out.way_points.items.len);
@@ -729,6 +742,13 @@ pub const Emitter = struct {
     /// The nozzle is up by `hop_len` after a retraction.
     hopped: bool = false,
     hop_len: f64 = 0,
+    /// The straight wipe after the last path of the layer (see
+    /// `wipeLine`): the points along the path from `tail_from`, the end of
+    /// the path. Only with `retract_wipe`. A layer starts with none, so
+    /// that its runs do not depend on the layer before.
+    tail: [max_tail][2]f64 = undefined,
+    tail_n: usize = 0,
+    tail_from: [2]f64 = .{ 0, 0 },
     /// The last nozzle and bed temperatures, or null before the first
     /// layer (the start G-code sets them).
     nozzle_temp: ?f64 = null,
@@ -931,6 +951,7 @@ pub const Emitter = struct {
         self.tool = e.tool;
         self.retracted = false;
         self.hopped = false;
+        self.tail_n = 0;
         self.nozzle_z = null;
         self.retract_len = Exit.unset;
         self.hop_len = Exit.unset;
@@ -1786,7 +1807,7 @@ pub const Emitter = struct {
             const k = self.towers.of_slot[@min(self.tool, filaments.max_slots - 1)];
             if (k < self.towers.n and (lp.index <= self.towers.list[k].last_layer or self.tower_layer[k] == lp.index) and !self.laterInto(lp, i, k)) try self.towerFinish(k, first);
         }
-        try self.retractHop(false);
+        try self.retractHop(false, false);
         self.stats.changes += 1;
         // The flush: from the filament in the nozzle that prints next. On
         // a head with two nozzles, that nozzle can hold another filament
@@ -2350,7 +2371,9 @@ pub const Emitter = struct {
         // Go up to the new layer. The retraction has no z hop: the layer
         // change moves the nozzle up, and the travel to the first path
         // goes at the height of the new layer.
-        if (s.project.retract_layer_change) try self.retractHop(false);
+        // The wipe of a path stays in its layer (see `tail`).
+        self.tail_n = 0;
+        if (s.machine.retract_layer_change) try self.retractHop(false, false);
         // The travel to the first path has no z hop either.
         self.layer_start = true;
         self.setOutline(lp);
@@ -2457,6 +2480,7 @@ pub const Emitter = struct {
             const y0 = geom.toMm(pts[0].y);
             if (path.z_start != layer_mod.Path.planar) {
                 const area = try self.nonPlanar(lp, path, pts, speed, fr);
+                self.tail_n = 0;
                 if (self.record) |rec| rec.appendAssumeCapacity(.{ .start_time = start_time, .end_time = self.stats.print_time_s, .area = area, .retracted = retracted, .slowed = slow < 1 or lapped, .fan = fanByte(self.fan), .tool = @intCast(self.tool) });
                 continue;
             }
@@ -2479,6 +2503,7 @@ pub const Emitter = struct {
                 }
                 const mean_area = if (len_sum > 0) area_len / len_sum else flow.beadArea(widths[0], h);
                 if (self.record) |rec| rec.appendAssumeCapacity(.{ .start_time = start_time, .end_time = self.stats.print_time_s, .area = mean_area * fr, .retracted = retracted, .slowed = slow < 1 or lapped, .fan = fanByte(self.fan), .tool = @intCast(self.tool) });
+                self.keepTail(pts, path.closed);
                 try self.wallWipe(path, pts, path_r.settings.project.outer_wall_wipe, speed);
                 continue;
             }
@@ -2497,6 +2522,7 @@ pub const Emitter = struct {
                 if (path.closed and pts.len > 2) try self.extrude(x0, y0, e, speed);
             }
             if (self.record) |rec| rec.appendAssumeCapacity(.{ .start_time = start_time, .end_time = self.stats.print_time_s, .area = e * self.r.filament_area, .retracted = retracted, .slowed = slow < 1 or lapped, .fan = fanByte(self.fan), .tool = @intCast(self.tool) });
+            self.keepTail(pts, path.closed);
             try self.wallWipe(path, pts, path_r.settings.project.outer_wall_wipe, speed);
         }
         if (self.open_object != null) try self.objectEnd();
@@ -2854,11 +2880,11 @@ pub const Emitter = struct {
     }
 
     fn retract(self: *Emitter) Error!void {
-        return self.retractHop(true);
+        return self.retractHop(true, false);
     }
 
-    /// The arc of a wipe (see `Project.retract_wipe`): its center, inside
-    /// the layer, or null if no arc fits.
+    /// The circle of a wipe (see `Machine.retract_wipe`): its center,
+    /// inside the layer, or null if no circle fits.
     fn wipeCenter(self: *Emitter, r: f64, margin: f64) Error!?[2]f64 {
         if (self.outline == null) return null;
         const no_arc = Prepared.PathPrep.retract;
@@ -2906,64 +2932,158 @@ pub const Emitter = struct {
         return true;
     }
 
+    /// The center of a wipe circle of radius `r` near the nozzle: the
+    /// whole circle, and a margin around it, are inside the outline. The
+    /// circle goes through the nozzle, or it is one or two line widths
+    /// further in (after an outer wall, the nozzle is near the edge): the
+    /// nozzle then moves in to it first, inside the part.
     fn findWipeCenter(self: *const Emitter, r: f64, margin: f64) ?[2]f64 {
         const outline = self.outline orelse return null;
-        // Each direction from the nozzle, until the whole arc and a margin
-        // around it are inside.
-        for (0..8) |k| {
-            const a = std.math.pi * @as(f64, @floatFromInt(k)) / 4;
-            const c = [2]f64{ self.x + r * @cos(a), self.y + r * @sin(a) };
-            var ok = true;
-            for (0..12) |j| {
-                const t = 2 * std.math.pi * @as(f64, @floatFromInt(j)) / 12;
-                const q = geom.Point{ .x = geom.fromMm(c[0] + (r + margin) * @cos(t)), .y = geom.fromMm(c[1] + (r + margin) * @sin(t)) };
-                if (!geom.insideAny(outline.*, q)) {
-                    ok = false;
-                    break;
+        const from: geom.Point = .{ .x = geom.fromMm(self.x), .y = geom.fromMm(self.y) };
+        for (0..3) |step| {
+            const in = self.width * @as(f64, @floatFromInt(step));
+            // Each direction from the nozzle, until the whole circle and a
+            // margin around it are inside.
+            for (0..8) |k| {
+                const a = std.math.pi * @as(f64, @floatFromInt(k)) / 4;
+                const c = [2]f64{ self.x + (r + in) * @cos(a), self.y + (r + in) * @sin(a) };
+                var ok = true;
+                for (0..12) |j| {
+                    const t = 2 * std.math.pi * @as(f64, @floatFromInt(j)) / 12;
+                    const q = geom.Point{ .x = geom.fromMm(c[0] + (r + margin) * @cos(t)), .y = geom.fromMm(c[1] + (r + margin) * @sin(t)) };
+                    if (!geom.insideAny(outline.*, q)) {
+                        ok = false;
+                        break;
+                    }
                 }
+                if (!ok) continue;
+                // The move in to the circle crosses no edge.
+                if (step > 0) {
+                    const to: geom.Point = .{ .x = geom.fromMm(self.x + in * @cos(a)), .y = geom.fromMm(self.y + in * @sin(a)) };
+                    var hit: usize = 0;
+                    if (!self.clearOf(outline.*, self.boxes[0..self.n_boxes], from, to, &hit)) continue;
+                }
+                return c;
             }
-            if (ok) return c;
         }
         return null;
     }
 
-    /// A retraction on an arc inside the part: 270 degrees around a center
-    /// one radius from the nozzle, in 9 moves, each with its part of the
-    /// retraction. False if no arc fits (then the caller retracts plainly).
+    /// The length of the wipe (Machine.retract_wipe_distance; 0: a circle
+    /// of 0.4 mm radius).
+    fn wipeDistance(self: *const Emitter) f64 {
+        const d = self.lr.settings.machine.retract_wipe_distance;
+        return if (d > 0) d else wipe_sweep * 0.4;
+    }
+
+    /// A retraction on a small circle inside the part: the nozzle moves
+    /// in to the circle if it is not on it, then goes 270 degrees around
+    /// it in 9 moves. Each move has its part of the retraction. The circle
+    /// stays clear of the outer wall by half a line width. False if no
+    /// circle fits (then the caller tries `wipeLine`).
     fn wipeRetract(self: *Emitter, len: f64) Error!bool {
-        // After a line in the part: the arc check keeps the nozzle inside
-        // the layer. The support and the skirt are outside the part.
+        // After a line of the part: the check keeps the nozzle inside the
+        // layer. The support and the skirt are outside the part.
         const f = self.feature orelse return false;
-        if (f == .support or f == .support_interface or f == .skirt) return false;
-        const r = 0.4;
-        const c = try self.wipeCenter(r, self.width_mm() / 2) orelse return false;
+        if (outsidePart(f)) return false;
+        const r = self.wipeDistance() / wipe_sweep;
+        // Clear of the outer wall (one line width from the edge) by half
+        // a line width.
+        const c = try self.wipeCenter(r, 1.5 * self.width_mm()) orelse return false;
         const steps = 9;
-        const sweep = 1.5 * std.math.pi;
-        const arc = r * sweep;
-        // The arc lasts as long as the retraction, at most the travel speed.
+        const in = @max(geom.hypot(self.x - c[0], self.y - c[1]) - r, 0);
+        const first: usize = if (in > 1e-3) 0 else 1;
+        const moves: f64 = @floatFromInt(steps + 1 - first);
+        const arc = r * wipe_sweep + in;
+        // The wipe lasts as long as the retraction, at most the travel
+        // speed.
         const t = len / self.r.retractSpeedOn(self.nozzleNow());
         const speed = @min(self.r.settings.machine.travel_speed, arc / @max(t, 1e-3));
+        // The angle of the first point of the circle: the point nearest
+        // to the nozzle.
         const a0 = std.math.atan2(self.y - c[1], self.x - c[0]);
         try self.w.writeAll(";WIPE\n");
-        for (1..steps + 1) |k| {
-            const a = a0 + sweep * @as(f64, @floatFromInt(k)) / steps;
-            const x = c[0] + r * @cos(a);
-            const y = c[1] + r * @sin(a);
-            try self.w.writeAll("G1 X");
-            try writeNum(self.w, x + self.r.settings.machine.origin_x, 3);
-            try self.w.writeAll(" Y");
-            try writeNum(self.w, y + self.r.settings.machine.origin_y, 3);
-            try self.w.writeAll(" E-");
-            try writeNum(self.w, len / steps, 4);
-            if (k == 1) {
-                try self.w.writeAll(" F");
-                try writeNum(self.w, speed * 60, 0);
-            }
-            try self.w.writeAll("\n");
-            self.x = x;
-            self.y = y;
+        for (first..steps + 1) |k| {
+            const a = a0 + wipe_sweep * @as(f64, @floatFromInt(k)) / steps;
+            try self.wipeStep(c[0] + r * @cos(a), c[1] + r * @sin(a), len / moves, if (k == first) speed else null);
         }
         try self.addTime(@max(arc / speed, self.retractTime(len)));
+        return true;
+    }
+
+    /// One move of a wipe, with its part `e` of the retraction, and the
+    /// feed rate if `speed` is set.
+    fn wipeStep(self: *Emitter, x: f64, y: f64, e: f64, speed: ?f64) Error!void {
+        try self.w.writeAll("G1 X");
+        try writeNum(self.w, x + self.r.settings.machine.origin_x, 3);
+        try self.w.writeAll(" Y");
+        try writeNum(self.w, y + self.r.settings.machine.origin_y, 3);
+        try self.w.writeAll(" E-");
+        try writeNum(self.w, e, 4);
+        if (speed) |v| {
+            try self.w.writeAll(" F");
+            try writeNum(self.w, v * 60, 0);
+        }
+        try self.w.writeAll("\n");
+        self.x = x;
+        self.y = y;
+    }
+
+    /// Keeps the points of a wipe along the path that the nozzle printed
+    /// last (see `tail`): along the start of a closed path (over its
+    /// seam, as Bambu Studio does), or back along an open path, for the
+    /// wipe length. Only with `retract_wipe`.
+    fn keepTail(self: *Emitter, pts: []const geom.Point, closed: bool) void {
+        self.tail_n = 0;
+        if (!self.lr.settings.machine.retract_wipe or pts.len < 2) return;
+        self.tail_from = .{ self.x, self.y };
+        const want = self.wipeDistance();
+        var got: f64 = 0;
+        var prev = self.tail_from;
+        const n = pts.len;
+        for (0..n - 1) |k| {
+            const q = if (closed and n > 2) pts[(k + 1) % n] else pts[n - 2 - k];
+            const p = [2]f64{ geom.toMm(q.x), geom.toMm(q.y) };
+            const d = geom.hypot(p[0] - prev[0], p[1] - prev[1]);
+            if (d < 1e-4) continue;
+            if (got + d >= want) {
+                const t = (want - got) / d;
+                self.tail[self.tail_n] = .{ prev[0] + (p[0] - prev[0]) * t, prev[1] + (p[1] - prev[1]) * t };
+                self.tail_n += 1;
+                return;
+            }
+            self.tail[self.tail_n] = p;
+            self.tail_n += 1;
+            got += d;
+            prev = p;
+            if (self.tail_n == max_tail) return;
+        }
+    }
+
+    /// A retraction on a straight wipe along the path that the nozzle
+    /// printed last (see `keepTail`), with no plastic: the nozzle stays
+    /// over its own line. False if there is no such path, or the nozzle
+    /// moved from its end.
+    fn wipeLine(self: *Emitter, len: f64) Error!bool {
+        if (self.tail_n == 0 or self.tail_from[0] != self.x or self.tail_from[1] != self.y) return false;
+        var total: f64 = 0;
+        var prev = self.tail_from;
+        for (self.tail[0..self.tail_n]) |q| {
+            total += geom.hypot(q[0] - prev[0], q[1] - prev[1]);
+            prev = q;
+        }
+        if (total < 1e-3) return false;
+        const t = len / self.r.retractSpeedOn(self.nozzleNow());
+        const speed = @min(self.r.settings.machine.travel_speed, total / @max(t, 1e-3));
+        try self.w.writeAll(";WIPE\n");
+        prev = self.tail_from;
+        for (self.tail[0..self.tail_n], 0..) |q, k| {
+            const share = geom.hypot(q[0] - prev[0], q[1] - prev[1]) / total;
+            prev = q;
+            try self.wipeStep(q[0], q[1], len * share, if (k == 0) speed else null);
+        }
+        self.tail_n = 0;
+        try self.addTime(@max(total / speed, self.retractTime(len)));
         return true;
     }
 
@@ -2971,11 +3091,14 @@ pub const Emitter = struct {
         return self.width;
     }
 
-    /// A retraction, and a z hop if `hop` and `z_hop` is on.
-    fn retractHop(self: *Emitter, hop: bool) Error!void {
+    /// A retraction, and a z hop if `hop` and `z_hop` is on. With `wipe`
+    /// and `retract_wipe`, the retraction moves the nozzle on a small
+    /// circle inside the part (`wipeRetract`), or back along its last
+    /// line (`wipeLine`).
+    fn retractHop(self: *Emitter, hop: bool, wipe: bool) Error!void {
         const len = self.lr.retractLengthOn(self.nozzleNow());
         if (self.retracted or !self.extruded or len <= 0) return;
-        const wiped = self.lr.settings.project.retract_wipe and try self.wipeRetract(len);
+        const wiped = wipe and self.lr.settings.machine.retract_wipe and (try self.wipeRetract(len) or try self.wipeLine(len));
         if (!wiped) {
             try self.w.writeAll("G1 E-");
             try writeNum(self.w, len, 4);
@@ -2989,7 +3112,7 @@ pub const Emitter = struct {
         self.stats.retractions += 1;
         if (!wiped) try self.addTime(self.retractTime(len));
         self.stop = true;
-        const hop_len = self.lr.settings.project.z_hop;
+        const hop_len = self.lr.settings.machine.z_hop;
         if (hop and hop_len > 0) {
             try self.zMove(hop_len);
             try self.w.writeAll("G0 Z");
@@ -3005,7 +3128,7 @@ pub const Emitter = struct {
     /// before), and over to the first path of the layer. The layer change
     /// then goes down to the layer.
     fn liftOver(self: *Emitter, lp: *const LayerPlan) Error!void {
-        try self.retractHop(false);
+        try self.retractHop(false, false);
         const up = @max(lp.lift, self.z);
         if (up > self.z) {
             try self.zMove(up - self.z);
@@ -3048,13 +3171,20 @@ pub const Emitter = struct {
     fn travel(self: *Emitter, x: f64, y: f64, next: Feature) Error!void {
         const d = @import("geom.zig").hypot(x - self.x, y - self.y);
         if (d < 1e-4) return;
-        if (d > self.lr.settings.project.retract_min_travel and !self.supportHop(x, y, next)) {
+        if (d > self.lr.settings.machine.retract_min_travel and !self.supportHop(x, y, next)) {
             // Combing: a way inside the part needs no retraction (see
             // `findWay`).
             var way: [max_way][2]f64 = undefined;
             if (try self.wayOf(x, y, d, &way)) |w| {
                 for (w) |q| try self.move(q[0], q[1]);
-            } else try self.retractHop(!self.layer_start and self.hopFor(x, y));
+            } else {
+                // The wipe is for a travel that leaves the part or crosses
+                // an edge, or goes to or from the support: the travels
+                // that can string. A straight travel inside the part (it
+                // is longer than `combing_max_distance`) has none.
+                const wipe = self.lr.settings.machine.retract_wipe and self.leaves(x, y, next);
+                try self.retractHop(!self.layer_start and self.hopFor(x, y, next), wipe);
+            }
         }
         try self.move(x, y);
     }
@@ -3085,21 +3215,41 @@ pub const Emitter = struct {
     }
 
     /// True if a travel to x, y with a retraction lifts the nozzle: always
-    /// without `z_hop_only_crossing`, else only if the straight line
-    /// crosses an edge of the layer outline. The z hop is the one of the
-    /// layer (see `lr`).
-    fn hopFor(self: *Emitter, x: f64, y: f64) bool {
-        const p = self.lr.settings.project;
-        if (!p.z_hop_only_crossing or p.z_hop <= 0) return true;
+    /// without `z_hop_only_crossing`, else only if it leaves the part or
+    /// crosses an edge, or goes to or from the support (see `leaves`). The
+    /// z hop is the one of the layer (see `lr`).
+    fn hopFor(self: *Emitter, x: f64, y: f64, next: Feature) bool {
+        const m = self.lr.settings.machine;
+        if (!m.z_hop_only_crossing or m.z_hop <= 0) return true;
+        return self.leaves(x, y, next);
+    }
+
+    /// True if a travel to x, y can string: it goes to or from the
+    /// support or the skirt (outside the part, over printed lines), or its
+    /// straight line crosses an edge of the layer outline (it leaves the
+    /// part, or it goes over a hole).
+    fn leaves(self: *Emitter, x: f64, y: f64, next: Feature) bool {
+        if (outsidePart(self.feature) or outsidePart(next)) return true;
+        return self.crossesEdge(x, y);
+    }
+
+    fn outsidePart(f: ?Feature) bool {
+        const k = f orelse return false;
+        return k == .support or k == .support_interface or k == .skirt;
+    }
+
+    /// True if the straight line from the nozzle to x, y crosses an edge
+    /// of the layer outline. True with no outline.
+    fn crossesEdge(self: *Emitter, x: f64, y: f64) bool {
         const outline = self.outline orelse return true;
         if (self.known()) |t| if (t.hop != .unknown) return t.hop == .yes;
         if (self.needsOutline()) return true;
         const a: geom.Point = .{ .x = geom.fromMm(self.x), .y = geom.fromMm(self.y) };
         const b: geom.Point = .{ .x = geom.fromMm(x), .y = geom.fromMm(y) };
         var hit: usize = 0;
-        const hop = !self.clearOf(outline.*, self.boxes[0..self.n_boxes], a, b, &hit);
-        if (self.answers()) |t| t.hop = if (hop) .yes else .no;
-        return hop;
+        const cross = !self.clearOf(outline.*, self.boxes[0..self.n_boxes], a, b, &hit);
+        if (self.answers()) |t| t.hop = if (cross) .yes else .no;
+        return cross;
     }
 
     /// The combing way to x, y (see `comb`): from `prep` if it has the
@@ -3315,7 +3465,7 @@ pub const Emitter = struct {
             py = q[1];
         }
         const t_way = motion.plan(moves[0..k], self.limits());
-        const hop = self.lr.settings.project.z_hop;
+        const hop = self.lr.settings.machine.z_hop;
         const stop = 2 * self.retractTime(self.lr.retractLengthOn(self.nozzleNow())) + if (hop > 0) 2 * motion.restTime(hop, m.max_z_speed, m.max_z_accel) else 0;
         return t_way > motion.restTime(d, self.travelSpeed(), a) + stop;
     }

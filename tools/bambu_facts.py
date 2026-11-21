@@ -28,7 +28,12 @@ the retraction of a filament change (retract_length_toolchange, mm), the
 heating and the cooling rate of the hotend (hotend_heating_rate and
 hotend_cooling_rate, °C/s), the retraction before the cutter
 (retraction_distances_when_cut, mm), and a long retraction at the cut
-(long_retractions_when_cut, 0 or 1).
+(long_retractions_when_cut, 0 or 1). Then the retraction of the travels
+of the first nozzle, in the form of the last six fields of a P line of
+the printer library (see src/printers.zig): z_hop (mm), "c" for the
+z_hop_types "Auto Lift" or "a" for the other types, wipe (1 or 0),
+wipe_distance (mm), retract_when_changing_layer (1 or 0), and
+retraction_minimum_travel (mm).
 
 SPDX-License-Identifier: AGPL-3.0-or-later
 """
@@ -59,6 +64,34 @@ def source_of(d):
     url = url[:-4] if url.endswith(".git") else url
     name = "Bambu Studio" if "bambustudio" in url.lower() else "OrcaSlicer"
     return name, url or "https://github.com/bambulab/BambuStudio"
+
+
+def first(v):
+    """The value of the first nozzle of a preset value, as text, or ""."""
+    if isinstance(v, list):
+        v = v[0] if v else None
+    return "" if v is None else str(v).strip()
+
+
+def travel_of(get):
+    """The retraction of the travels: the last six fields of a P line of
+    the printer library. `get(key)` gives the value of a preset key."""
+    def num(key):
+        t = first(get(key))
+        try:
+            return "%g" % float(t)
+        except ValueError:
+            return ""
+
+    def flag(key):
+        t = first(get(key)).lower()
+        return "1" if t in ("1", "true") else "0" if t in ("0", "false") else ""
+
+    hop = first(get("z_hop_types"))
+    # Auto Lift lifts the travels that leave the part (zslice:
+    # z_hop_only_crossing); Normal, Slope, and Spiral Lift lift each one.
+    mode = "" if not hop else "c" if hop == "Auto Lift" else "a"
+    return [num("z_hop"), mode, flag("wipe"), num("wipe_distance"), flag("retract_when_changing_layer"), num("retraction_minimum_travel")]
 
 
 def main():
@@ -127,6 +160,7 @@ def main():
             return ";".join(out)
 
         extra = [per_nozzle(k) for k in ("retract_length_toolchange", "hotend_heating_rate", "hotend_cooling_rate", "retraction_distances_when_cut", "long_retractions_when_cut")]
+        extra += travel_of(lambda key: res(preset, key))
         row = ["B", lib_id, j["model_id"], name, str(n)] + reach + [";".join(types[:n]), ";".join(volumes[:n]), "|".join(variants[:n])] + extra
         print("\t".join(row))
         if a.gcode:

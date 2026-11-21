@@ -55,7 +55,7 @@ area: printers
 summary: The facts and the G-code templates of the Bambu Lab printers, as data and as embedded templates.
 ```
 
-The facts and the G-code templates of the Bambu Lab printers: model_id (the model code, for example N6 for the X2D) of the machine models; nozzle_diameter, extruder_printable_area, extruder_printable_height, extruder_type, default_nozzle_volume_type, retract_length_toolchange, hotend_heating_rate, hotend_cooling_rate, retraction_distances_when_cut, and long_retractions_when_cut of the 0.4 nozzle presets; and their machine_start_gcode, machine_end_gcode, layer_change_gcode, and change_filament_gcode (each in a preset "<preset> template <key>"), in `resources/profiles/BBL/machine` of Bambu Studio, https://github.com/bambulab/BambuStudio, commit `8e524a39d4c4cd0541801c1c46d2f77debb0bf1d` (17 November 2026)
+The facts and the G-code templates of the Bambu Lab printers: model_id (the model code, for example N6 for the X2D) of the machine models; nozzle_diameter, extruder_printable_area, extruder_printable_height, extruder_type, default_nozzle_volume_type, retract_length_toolchange, hotend_heating_rate, hotend_cooling_rate, retraction_distances_when_cut, and long_retractions_when_cut of the 0.4 nozzle presets; z_hop, z_hop_types, wipe, wipe_distance, retract_when_changing_layer, and retraction_minimum_travel of the first nozzle (the retraction of the travels, `machine.z_hop` and the others); and their machine_start_gcode, machine_end_gcode, layer_change_gcode, and change_filament_gcode (each in a preset "<preset> template <key>"), in `resources/profiles/BBL/machine` of Bambu Studio, https://github.com/bambulab/BambuStudio, commit `8e524a39d4c4cd0541801c1c46d2f77debb0bf1d` (17 November 2026)
 
 **License:** AGPL-3.0 (the license of the Bambu Studio repository)
 
@@ -171,6 +171,26 @@ The G-code of a Bambu Studio 02.09.01.70 project (X2D, `top_surface_pattern = mo
 **Used in:** `src/layer.zig` (`thinLinks`), `src/infill.zig` (`tour`)
 
 **How zslice uses it:** The skin of zslice joins its lines at the walls into zigzags, and the retractless skin joins the zigzags with walks along the walls. A link printed with the full line width put twice the plastic on the inner half of its bead, where the line ends are: a dot at each turn and a ridge along each walk. zslice keeps the links (they save the travel and the retraction), but prints them with half the bead area: the plastic for each area at the edge of the skin is then the same as in the middle. Bambu Studio puts no plastic on the links of its top surface.
+
+### The wipe and the lift of a travel
+
+```ref
+kind: idea
+source: Bambu Studio
+license: AGPL-3.0
+link: https://github.com/bambulab/BambuStudio
+files: src/gcode.zig
+area: gcode
+summary: The straight wipe of zslice goes along the start of a closed path and back along an open path, as the wipe of Bambu Studio.
+```
+
+The form of the retraction before a travel in the G-code of Bambu Studio 02.09.01.70 for the X2D (the user's file, 19 November 2026): a wipe of `wipe_distance` along the start of a closed path (over its seam) or back along an open path, with most of the retraction on it; then the travel with a lift of `z_hop` (a slope, or a spiral `G3 Z` over an overhang, for "Auto Lift"). In that file 2890 of 2973 retractions lift; the others are at the layer changes. zslice took the path of its straight wipe (`Emitter.wipeLine`) from it. Its lift stays a straight `G0 Z` up and down, and it adds its own wipe on a small circle inside the part.
+
+**License:** AGPL-3.0 (the license of Bambu Studio). zslice copied no code: only the path of the wipe, from the G-code.
+
+**Text:** `LICENSE`
+
+**Notes:** The values of the presets are in "Bambu Lab printer facts and G-code templates".
 
 ## G-code names and settings
 

@@ -34,6 +34,7 @@ const Allocator = std.mem.Allocator;
 const toml = @import("toml.zig");
 const settings_mod = @import("settings.zig");
 const meta = @import("settings_meta.zig");
+const printers = @import("printers.zig");
 const Settings = settings_mod.Settings;
 
 pub const Group = enum { machine, filament, project };
@@ -131,6 +132,29 @@ fn applyDepth(arena: Allocator, settings: *Settings, group: Group, name: []const
             return err;
         };
     }
+    if (group == .machine and travelFromModel(entries)) {
+        if (printers.bambu(settings.machine.model)) |b| b.travel.apply(&settings.machine);
+    }
+}
+
+/// The settings of the retraction of the travels (see
+/// `settings.Machine.z_hop`). They were project settings before.
+const travel_keys = [_][]const u8{ "z_hop", "z_hop_only_crossing", "retract_wipe", "retract_wipe_distance", "retract_layer_change", "retract_min_travel" };
+
+/// True if a machine text names its model and has none of the travel
+/// settings: a printer profile from before they were machine settings.
+/// Then a Bambu Lab printer gets the values of Bambu Studio (see
+/// `printers.Bambu.travel`). zslice writes `z_hop` in each text of a
+/// Bambu Lab printer (see `writeChangedFrom`), so a text from after the
+/// move keeps the values of the user.
+fn travelFromModel(entries: []const toml.Entry) bool {
+    var model = false;
+    for (entries) |e| {
+        if (e.table.len != 0 and !std.mem.eql(u8, e.table, "machine")) continue;
+        if (std.mem.eql(u8, e.key, "model")) model = true;
+        for (travel_keys) |k| if (std.mem.eql(u8, e.key, k)) return false;
+    }
+    return model;
 }
 
 /// The number of keys of a profile text that are old names of settings
@@ -282,7 +306,11 @@ pub fn writeChangedFrom(settings: Settings, from: Settings, group: Group, w: *st
                     .pointer => std.mem.eql(u8, v, d),
                     else => v == d,
                 };
-                if (!same) {
+                // A Bambu Lab printer always has its z hop in the text: the
+                // sign that the travel settings are machine settings (see
+                // `travelFromModel`).
+                const mark = g == .machine and (comptime std.mem.eql(u8, f.name, "z_hop")) and printers.bambu(settings.machine.model) != null;
+                if (!same or mark) {
                     const doc = comptime findDoc(@tagName(g) ++ "." ++ f.name);
                     try w.writeByte('\n');
                     if (doc.len > 0) try writeComment(w, doc);
@@ -529,4 +557,32 @@ test "a project text with the old acceleration keys loads into the machine" {
     try writeChanged(s, .project, &p.writer);
     try testing.expect(std.mem.indexOf(u8, p.written(), "_accel") == null);
     try testing.expectEqual(@as(usize, 0), try movedKeys(arena, .project, p.written()));
+}
+
+test "an older machine text of a Bambu Lab printer gets the travel values of Bambu Studio" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+    var diag: Diagnostic = .{};
+    // A saved text from before the move: a model, and no travel keys.
+    var s: Settings = .{};
+    try apply(arena, &s, .machine, "old", "model = \"bambu-lab-x2d\"\nmax_speed = 300\n", null, &diag);
+    try testing.expectEqual(@as(f64, 0.4), s.machine.z_hop);
+    try testing.expect(s.machine.retract_wipe);
+    try testing.expectEqual(@as(f64, 2), s.machine.retract_wipe_distance);
+    try testing.expect(s.machine.retract_layer_change);
+    try testing.expectEqual(@as(f64, 1), s.machine.retract_min_travel);
+    // The user turned the lift off: the text keeps z_hop = 0.
+    s.machine.z_hop = 0;
+    var w: std.Io.Writer.Allocating = .init(arena);
+    try writeChanged(s, .machine, &w.writer);
+    try testing.expect(std.mem.indexOf(u8, w.written(), "z_hop = 0\n") != null);
+    var again: Settings = .{};
+    try apply(arena, &again, .machine, "new", w.written(), null, &diag);
+    try testing.expectEqual(@as(f64, 0), again.machine.z_hop);
+    // Another printer keeps the defaults of zslice.
+    var other: Settings = .{};
+    try apply(arena, &other, .machine, "taz", "model = \"lulzbot-taz-workhorse-se-0-5-mm\"\n", null, &diag);
+    try testing.expectEqual(@as(f64, 0), other.machine.z_hop);
+    try testing.expect(!other.machine.retract_wipe);
 }

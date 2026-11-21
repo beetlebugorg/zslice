@@ -34,13 +34,19 @@ Steps:
 3. Merge the records of one model. The order of the sources is OrcaSlicer,
    PrusaSlicer, Cura for each field. The vendor bundle of a brand comes
    first for its own printers (PrusaSlicer for Prusa, Cura for UltiMaker).
-4. Translate the simple G-code variables to the names of zslice, and put
+4. Read the retraction of the travels of each record (the z hop and its
+   kind, the wipe, a retraction at each layer change, and the shortest
+   travel that retracts), from the keys of the printer itself: not the
+   defaults of the slicer (Cura fdmprinter, OrcaSlicer
+   fdm_machine_common). A field that no record of a model has stays
+   empty, and the model keeps the default of zslice.
+5. Translate the simple G-code variables to the names of zslice, and put
    the values of the printer that zslice does not have (its model, its
    notes, its machine limits for Z and E) in place of their variables.
    The core runs the rest: the variables of each slicer and the scripts
    (`{if ...}`, expressions, see src/gcode_vars.zig). A record with no
    G-code gets the generic start G-code of zslice.
-5. Write the library: the sources with their licenses, the G-code texts
+6. Write the library: the sources with their licenses, the G-code texts
    once each, the beds once each, and one line for each model, by brand.
 
 With --beds <folder>, the tool also writes the bed models and the bed
@@ -265,6 +271,91 @@ def boolean(v, default=None):
     if s in ("false", "0", "no"):
         return False
     return default
+
+
+# The fields of the retraction of the travels of a record (see
+# src/printers.zig, Travel): the z hop (mm), "c" if it lifts only for a
+# travel that crosses an edge or "a" for each retraction, the wipe, the
+# wipe length (mm), a retraction at each layer change, and the shortest
+# travel that retracts (mm). None: the source does not tell it.
+TRAVEL = ("z_hop", "hop", "wipe", "wipe_distance", "layer_change", "min_travel")
+
+
+def travel_orca(v, own):
+    """The retraction of the travels of an OrcaSlicer (or Bambu Studio)
+    preset `v`, from the keys in `own` only. z_hop_types "Auto Lift"
+    lifts the travels that leave the part; the other types lift each
+    retraction."""
+    def get(key):
+        return v.get(key) if key in own else None
+
+    t = {
+        "z_hop": num(get("z_hop")),
+        "hop": None,
+        "wipe": boolean(first_value(get("wipe"))),
+        "wipe_distance": num(get("wipe_distance")),
+        "layer_change": boolean(first_value(get("retract_when_changing_layer"))),
+        "min_travel": num(get("retraction_minimum_travel")),
+    }
+    kind = first_value(get("z_hop_types"))
+    if kind:
+        t["hop"] = "c" if str(kind) == "Auto Lift" else "a"
+    return t
+
+
+def travel_prusa(v):
+    """The retraction of the travels of a PrusaSlicer printer preset. A
+    PrusaSlicer lift (retract_lift) goes with each retraction."""
+    lift = num(v.get("retract_lift"))
+    return {
+        "z_hop": lift,
+        "hop": "a" if lift else None,
+        "wipe": boolean(first_value(v.get("wipe"))),
+        "wipe_distance": None,
+        "layer_change": boolean(first_value(v.get("retract_layer_change"))),
+        "min_travel": num(v.get("retract_before_travel")),
+    }
+
+
+def travel_cura(vals, own):
+    """The retraction of the travels of a Cura definition, from the keys
+    of the definition only (`own`). Cura has no wipe at a retraction."""
+    def get(key):
+        return vals.get(key) if key in own else None
+
+    t = dict.fromkeys(TRAVEL)
+    enabled = boolean(get("retraction_hop_enabled"))
+    hop = num(get("retraction_hop"))
+    if enabled is False:
+        t["z_hop"] = 0.0
+    elif enabled and hop is not None:
+        t["z_hop"] = hop
+    elif enabled:
+        t["z_hop"] = num(vals.get("retraction_hop"))
+    only = boolean(get("retraction_hop_only_when_collides"))
+    if only is not None:
+        t["hop"] = "c" if only else "a"
+    t["layer_change"] = boolean(get("retract_at_layer_change"))
+    t["min_travel"] = num(get("retraction_min_travel"))
+    return t
+
+
+def first_value(v):
+    """The first value of a list (a value for each extruder), or v."""
+    if isinstance(v, (list, tuple)):
+        return v[0] if v else None
+    if isinstance(v, str) and "," in v:
+        return v.split(",")[0]
+    return v
+
+
+def travel_fields(m):
+    t = m.get("travel") or {}
+
+    def flag(v):
+        return "" if v is None else "1" if v else "0"
+
+    return [fmt(t.get("z_hop")), t.get("hop") or "", flag(t.get("wipe")), fmt(t.get("wipe_distance")), flag(t.get("layer_change")), fmt(t.get("min_travel"))]
 
 
 def bed_from_polygon(points):
@@ -658,6 +749,7 @@ def read_cura(root, src="c", flat=False):
         for key, ck in (("max_speed", "machine_max_feedrate_x"), ("max_z_speed", "machine_max_feedrate_z"), ("max_accel", "machine_acceleration"), ("corner", "machine_max_jerk_xy"), ("retract", "retraction_amount"), ("retract_speed", "retraction_speed")):
             if ck not in own:
                 rec[key] = None
+        rec["travel"] = travel_cura(vals, own)
         records.append(rec)
     return records
 
@@ -801,6 +893,7 @@ def read_prusa(root):
                 "kinematics": "delta" if bed["shape"] == "round" else "",
                 "retract": num(v.get("retract_length")),
                 "retract_speed": num(v.get("retract_speed")),
+                "travel": travel_prusa(v),
                 "start": start,
                 "end": end,
                 "extruders": len((v.get("nozzle_diameter") or "0.4").split(",")),
@@ -859,12 +952,24 @@ def read_orca(root):
                 out[k] = v
             return out
 
+        def own_keys(table, name, depth=0):
+            """The keys that a preset and its parents set, without the
+            defaults of OrcaSlicer (fdm_machine_common)."""
+            d = table.get(name)
+            if d is None or depth > 20:
+                return set()
+            out = own_keys(table, d.get("inherits", ""), depth + 1) if d.get("inherits") else set()
+            if d["name"] != "fdm_machine_common":
+                out.update(d.keys())
+            return out
+
         models = {d["name"]: d for d in by_name.values() if d.get("type") == "machine_model"}
         presets = {}
         for d in by_name.values():
             if d.get("type") != "machine" or str(d.get("instantiation", "")).lower() != "true":
                 continue
             v = resolve(by_name, d["name"])
+            v["__own"] = own_keys(by_name, d["name"])
             # Newer OrcaSlicer profiles keep a G-code in its own preset:
             # "<preset name> template machine_start_gcode".
             for k in ("machine_start_gcode", "machine_end_gcode"):
@@ -943,6 +1048,7 @@ def read_orca(root):
                 "kinematics": structure if structure not in ("undefine", "") else ("delta" if bed["shape"] == "round" else ""),
                 "retract": num(v.get("retraction_length")),
                 "retract_speed": num(v.get("retraction_speed")),
+                "travel": travel_orca(v, v["__own"]),
                 "start": start,
                 "end": end,
                 "extruders": len(v.get("nozzle_diameter") or [0.4]) if isinstance(v.get("nozzle_diameter"), list) else 1,
@@ -997,6 +1103,9 @@ def merge(records):
                     if r.get(f):
                         m[f] = r[f]
                         break
+        # The retraction of the travels: each field from the first record
+        # that tells it (a 0 or a "no" too).
+        m["travel"] = {f: next((r["travel"][f] for r in rs if (r.get("travel") or {}).get(f) is not None), None) for f in TRAVEL}
         nozzles = set()
         for r in rs:
             nozzles.update(x for x in r["nozzles"] if x)
@@ -1094,7 +1203,7 @@ def write(models, versions, out, beds=None):
             fmt(m.get("retract")), fmt(m.get("retract_speed")),
             gid(m["start"]), gid(m["end"]), str(m.get("extruders") or 1),
             bid(m),
-        ]
+        ] + travel_fields(m)
         lines.append("\t".join(f.replace("\t", " ") for f in fields))
     out.write("zslice-printers 1\n")
     out.write("# The printer library of zslice. Made by tools/printer_library.py; do not edit.\n")

@@ -28,7 +28,7 @@ Cura printer definitions, UltiMaker, https://github.com/Ultimaker/Cura, `resourc
 
 **Text:** `licenses/lgpl-3.0.txt` (from the Cura repository), `licenses/gpl-3.0.txt` (the LGPL-3.0 adds to the GPL-3.0)
 
-**Notes:** The values of the `.def.json` files, and the G-code with the variables of zslice. The LGPL-3.0 allows the use in a work under the AGPL-3.0.
+**Notes:** The values of the `.def.json` files, and the G-code with the variables of zslice. The LGPL-3.0 allows the use in a work under the AGPL-3.0. The retraction of the travels of a printer (`machine.z_hop` and the others) comes from `retraction_hop_enabled`, `retraction_hop`, `retraction_hop_only_when_collides`, `retract_at_layer_change`, and `retraction_min_travel`, only where the definition sets them (not the defaults of `fdmprinter`).
 
 ### PrusaSlicer vendor bundles
 
@@ -49,7 +49,7 @@ PrusaSlicer vendor bundles, Prusa Research, https://github.com/prusa3d/PrusaSlic
 
 **Text:** `LICENSE` (the same AGPL-3.0 text as zslice)
 
-**Notes:** The `[printer_model:*]` and `[printer:*]` sections, with their `inherits`.
+**Notes:** The `[printer_model:*]` and `[printer:*]` sections, with their `inherits`. The retraction of the travels of a printer comes from `retract_lift` (a lift at each retraction), `wipe`, `retract_layer_change`, and `retract_before_travel`.
 
 ### OrcaSlicer printer profiles
 
@@ -70,7 +70,7 @@ OrcaSlicer profiles, https://github.com/SoftFever/OrcaSlicer, `resources/profile
 
 **Text:** `LICENSE`
 
-**Notes:** The `machine_model` and `machine` presets of each vendor, with their `inherits`.
+**Notes:** The `machine_model` and `machine` presets of each vendor, with their `inherits`. The retraction of the travels of a printer comes from `z_hop`, `z_hop_types` ("Auto Lift" is `machine.z_hop_only_crossing`), `wipe`, `wipe_distance`, `retract_when_changing_layer`, and `retraction_minimum_travel`, only where the presets of the vendor set them (not the defaults of `fdm_machine_common`).
 
 ### Cura LulzBot Edition printer definitions
 

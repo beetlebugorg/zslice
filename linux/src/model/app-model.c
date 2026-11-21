@@ -1793,7 +1793,7 @@ static void zg_model_init(ZgModel *self) {
      * (the current one). Save the groups once in their new form, so the
      * project text has no accelerations and each printer keeps its own. */
     if (moved) {
-        g_message("zslice: the accelerations of the features are printer settings now; the saved values moved to the printer %s",
+        g_message("zslice: the accelerations and the travel retraction are printer settings now; the saved values moved to the printer %s",
                   zg_printers_current()->name);
         self->dirty |= (1u << ZS_GROUP_MACHINE) | (1u << ZS_GROUP_PROJECT);
         save_state(self);

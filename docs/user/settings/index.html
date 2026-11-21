@@ -185,6 +185,19 @@
 <p>The retraction length of this extruder. A bowden extruder needs more.</p>
 <p><strong><code>machine.retract_speed</code></strong> (number). Default: <code>40</code></p>
 <p>The speed of the filament during a retraction.</p>
+<h3 id="travel-retraction">Travel retraction</h3>
+<p><strong><code>machine.retract_min_travel</code></strong> (number; per layer). Default: <code>1.5</code></p>
+<p>Travel moves shorter than this do not retract. Each printer has its own value (Bambu Studio: 1 mm).</p>
+<p><strong><code>machine.z_hop</code></strong> (number; per layer). Default: <code>0</code></p>
+<p>Lift the nozzle by this distance during a travel move with a retraction, in mm. 0 turns it off. The nozzle then does not drag over the printed lines (the tops of the support too).</p>
+<p><strong><code>machine.z_hop_only_crossing</code></strong> (true or false). Default: <code>true</code></p>
+<p>Lift the nozzle (<code>z_hop</code>) only for a travel that leaves the part or crosses an edge of the layer (a hole), and for a travel to or from the support. A travel in a straight line inside the part (it retracts because it is longer than <code>combing_max_distance</code>) does not lift. Off: each travel with a retraction lifts.</p>
+<p><strong><code>machine.retract_wipe</code></strong> (true or false; per layer). Default: <code>false</code></p>
+<p>A retraction before a travel that leaves the part moves the nozzle on a small circle inside the part while the filament pulls back: the plastic that oozes goes inside, and not onto the surface or into a string. The circle stays clear of the outer wall by half a line width. With no room for it (a thin part, the support), the nozzle moves back along the line that it printed last. A travel that stays inside the part has no wipe.</p>
+<p><strong><code>machine.retract_wipe_distance</code></strong> (number; per layer). Default: <code>0</code></p>
+<p>The length of the wipe (<code>retract_wipe</code>), in mm: the length of the circle, or of the move back along the last line. 0: 1.9 mm (a circle of 0.4 mm radius).</p>
+<p><strong><code>machine.retract_layer_change</code></strong> (true or false). Default: <code>false</code></p>
+<p>Retract at each layer change. Off: the travel to the first path of the layer retracts by the rules of the other travels (combing). Off by default, as in Cura.</p>
 <h3 id="filament-change">Filament change</h3>
 <p><strong><code>machine.filament_change</code></strong> (one of: <code>pause</code>, <code>tool</code>). Default: <code>pause</code></p>
 <p>How the printer changes to another filament of the plate. <code>pause</code>: one filament path; the print pauses (M600) and you change the filament by hand. <code>tool</code>: a unit that feeds many filaments (a Bambu Lab AMS, a Prusa MMU) changes it with a tool change (T0, T1, and on).</p>
@@ -487,26 +500,16 @@ M84</code></pre>
 <p><strong><code>project.slow_layers</code></strong> (integer). Default: <code>0</code></p>
 <p>The layers after the first that print slower: their speed goes up in even steps from the first layer speed to the full speed, so that the part bonds to the bed. 0: the second layer prints at full speed.</p>
 <h3 id="travel">Travel</h3>
-<p><strong><code>project.retract_min_travel</code></strong> (number; per layer). Default: <code>1.5</code></p>
-<p>Travel moves shorter than this do not retract.</p>
 <p><strong><code>project.combing</code></strong> (true or false; per layer). Default: <code>true</code></p>
 <p>Combing: a travel move that stays inside the part (it crosses no outline of the layer) does not retract, because an ooze there is inside the part. Off: each travel longer than <code>retract_min_travel</code> retracts.</p>
 <p><strong><code>project.combing_max_distance</code></strong> (number; per layer). Default: <code>0</code></p>
 <p>A travel inside the part that is longer than this retracts all the same (a long move can ooze a string over a top surface). 0: no limit.</p>
-<p><strong><code>project.z_hop</code></strong> (number; per layer). Default: <code>0</code></p>
-<p>Lift the nozzle by this distance during a travel move with a retraction. 0 turns it off.</p>
-<p><strong><code>project.retract_wipe</code></strong> (true or false; per layer). Default: <code>false</code></p>
-<p>A retraction after a line of the part moves the nozzle on a small arc inside the part while the filament pulls back, as a hand wipes a drip off: the plastic that oozes goes inside, and not onto the surface. The arc stays inside the layer, or the retraction stays plain.</p>
 <p><strong><code>project.outer_wall_wipe</code></strong> (number; per layer). Default: <code>0</code></p>
 <p>After a closed outer wall, the nozzle moves on along the start of the wall for this distance (mm), with no plastic, before the retraction. The end of the wall then joins its start with no gap, and the seam shows less. 0 turns it off.</p>
 <p><strong><code>project.coasting_volume</code></strong> (number; per layer). Default: <code>0</code></p>
 <p>Coasting: the last part of each path moves with no plastic, for this volume of plastic (mm³). The pressure in the nozzle prints it, so the end of the path has less of a blob, and the travel after it strings less. A path shorter than twice this volume prints as usual. 0 turns it off. Cura uses 0.064.</p>
 <p><strong><code>project.coasting_speed</code></strong> (number; per layer). Default: <code>0.9</code></p>
 <p>The speed of the coasting moves, as a ratio of the speed of the path.</p>
-<p><strong><code>project.z_hop_only_crossing</code></strong> (true or false). Default: <code>true</code></p>
-<p>Lift the nozzle (<code>z_hop</code>) only for a travel that crosses an edge of the layer: it leaves the part, or it goes over a hole. A travel in a straight line inside the part (it retracts because it is longer than <code>combing_max_distance</code>) does not lift. Off: each travel with a retraction lifts.</p>
-<p><strong><code>project.retract_layer_change</code></strong> (true or false). Default: <code>false</code></p>
-<p>Retract at each layer change. Off: the travel to the first path of the layer retracts by the rules of the other travels (combing). Off by default, as in Cura.</p>
 <h3 id="support">Support</h3>
 <p><strong><code>project.support</code></strong> (one of: <code>off</code>, <code>everywhere</code>, <code>buildplate</code>). Default: <code>off</code></p>
 <p>Support under overhangs. <code>off</code>: no support. <code>everywhere</code>: support can stand on the bed or on the part. <code>buildplate</code>: only support that stands on the bed.</p>

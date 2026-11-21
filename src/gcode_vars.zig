@@ -1141,7 +1141,7 @@ const Renderer = struct {
             .corner_speed => num(m.corner_speed),
             .retract_length => num(round3(r.retract_length)),
             .retract_speed => num(m.retract_speed),
-            .z_hop => num(p.z_hop),
+            .z_hop => num(m.z_hop),
             .fan_speed => num(@round(f.fan_speed * 100)),
             .fan_max_speed => num(@round(f.fan_max_speed * 100)),
             .material => .{ .text = f.material },

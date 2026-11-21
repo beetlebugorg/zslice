@@ -2891,7 +2891,7 @@ pub const App = struct {
         app.spare_paths = .{};
         store.clearRetainingCapacity();
         store.gpa = app.gpa;
-        store.z_hop = @floatCast(part.project.z_hop);
+        store.z_hop = @floatCast(part.machine.z_hop);
         const sink: zs.engine.Job.LayerSink = .{ .ctx = &store, .func = Toolpaths.addLayer };
         // The pictures for the screen of the printer, first. A Bambu Lab
         // printer has them in its .gcode.3mf, and its G-code starts with
@@ -4356,8 +4356,8 @@ const patch_bases = [_][]const [2][]const u8{
     &.{},
     &.{
         .{ "project.support", "everywhere" },       .{ "project.support_style", "tree" },
-        .{ "project.retract_wipe", "true" },        .{ "project.z_hop", "0.4" },
-        .{ "project.z_hop_only_crossing", "true" },
+        .{ "machine.retract_wipe", "true" },        .{ "machine.z_hop", "0.4" },
+        .{ "machine.z_hop_only_crossing", "true" },
     },
 };
 

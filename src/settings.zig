@@ -1,8 +1,8 @@
 //! Settings, in three parts that have different owners.
 //!
 //! - `Machine`: facts about the printer. They change only when the printer
-//!   changes. Examples: the bed size, the nozzle, the speed limits, and
-//!   the acceleration of each feature.
+//!   changes. Examples: the bed size, the nozzle, the speed limits, the
+//!   acceleration of each feature, and the retraction of the travels.
 //! - `Filament`: facts about the material. Examples: the diameter, the
 //!   temperatures, and the maximum flow that the hot end can melt.
 //! - `Project`: what the user wants for this part. Examples: the layer
@@ -236,6 +236,37 @@ pub const Machine = struct {
     retract_length: f64 = 0.8,
     /// The speed of the filament during a retraction.
     retract_speed: f64 = 40,
+
+    // Travel retraction
+    /// Travel moves shorter than this do not retract. Each printer has its
+    /// own value (Bambu Studio: 1 mm).
+    retract_min_travel: f64 = 1.5,
+    /// Lift the nozzle by this distance during a travel move with a
+    /// retraction, in mm. 0 turns it off. The nozzle then does not drag
+    /// over the printed lines (the tops of the support too).
+    z_hop: f64 = 0,
+    /// Lift the nozzle (`z_hop`) only for a travel that leaves the part or
+    /// crosses an edge of the layer (a hole), and for a travel to or from
+    /// the support. A travel in a straight line inside the part (it
+    /// retracts because it is longer than `combing_max_distance`) does not
+    /// lift. Off: each travel with a retraction lifts.
+    z_hop_only_crossing: bool = true,
+    /// A retraction before a travel that leaves the part moves the nozzle
+    /// on a small circle inside the part while the filament pulls back:
+    /// the plastic that oozes goes inside, and not onto the surface or
+    /// into a string. The circle stays clear of the outer wall by half a
+    /// line width. With no room for it (a thin part, the support), the
+    /// nozzle moves back along the line that it printed last. A travel
+    /// that stays inside the part has no wipe.
+    retract_wipe: bool = false,
+    /// The length of the wipe (`retract_wipe`), in mm: the length of the
+    /// circle, or of the move back along the last line. 0: 1.9 mm (a
+    /// circle of 0.4 mm radius).
+    retract_wipe_distance: f64 = 0,
+    /// Retract at each layer change. Off: the travel to the first path of
+    /// the layer retracts by the rules of the other travels (combing).
+    /// Off by default, as in Cura.
+    retract_layer_change: bool = false,
 
     // Filament change
     /// How the printer changes to another filament of the plate.
@@ -859,8 +890,6 @@ pub const Project = struct {
     slow_layers: u32 = 0,
 
     // Travel
-    /// Travel moves shorter than this do not retract.
-    retract_min_travel: f64 = 1.5,
     /// Combing: a travel move that stays inside the part (it crosses no
     /// outline of the layer) does not retract, because an ooze there is
     /// inside the part. Off: each travel longer than `retract_min_travel`
@@ -869,13 +898,6 @@ pub const Project = struct {
     /// A travel inside the part that is longer than this retracts all the
     /// same (a long move can ooze a string over a top surface). 0: no limit.
     combing_max_distance: f64 = 0,
-    /// Lift the nozzle by this distance during a travel move with a retraction. 0 turns it off.
-    z_hop: f64 = 0,
-    /// A retraction after a line of the part moves the nozzle on a small
-    /// arc inside the part while the filament pulls back, as a hand wipes a drip off: the
-    /// plastic that oozes goes inside, and not onto the surface. The arc
-    /// stays inside the layer, or the retraction stays plain.
-    retract_wipe: bool = false,
     /// After a closed outer wall, the nozzle moves on along the start of
     /// the wall for this distance (mm), with no plastic, before the
     /// retraction. The end of the wall then joins its start with no gap,
@@ -890,16 +912,6 @@ pub const Project = struct {
     /// The speed of the coasting moves, as a ratio of the speed of the
     /// path.
     coasting_speed: f64 = 0.9,
-    /// Lift the nozzle (`z_hop`) only for a travel that crosses an edge of
-    /// the layer: it leaves the part, or it goes over a hole. A travel in
-    /// a straight line inside the part (it retracts because it is longer
-    /// than `combing_max_distance`) does not lift. Off: each travel with
-    /// a retraction lifts.
-    z_hop_only_crossing: bool = true,
-    /// Retract at each layer change. Off: the travel to the first path of
-    /// the layer retracts by the rules of the other travels (combing).
-    /// Off by default, as in Cura.
-    retract_layer_change: bool = false,
 
     // Support
     /// Support under overhangs. `off`: no support. `everywhere`: support
@@ -1643,6 +1655,9 @@ pub const limits = [_]struct { []const u8, f64, f64 }{
     .{ "machine.clearance_radius", 0, 500 },
     .{ "machine.clearance_height", 0, 2000 },
     .{ "machine.retract_speed", 1, 200 },
+    .{ "machine.retract_min_travel", 0, 100 },
+    .{ "machine.z_hop", 0, 10 },
+    .{ "machine.retract_wipe_distance", 0, 10 },
     // filament
     .{ "filament.diameter", 1, 3.5 },
     .{ "filament.density", 0.5, 3 },
@@ -1725,9 +1740,7 @@ pub const limits = [_]struct { []const u8, f64, f64 }{
     .{ "project.support_interface_speed", 0, 1 },
     .{ "project.first_layer_speed", 0.01, 1 },
     .{ "project.slow_layers", 0, 50 },
-    .{ "project.retract_min_travel", 0, 100 },
     .{ "project.combing_max_distance", 0, 1000 },
-    .{ "project.z_hop", 0, 10 },
     .{ "project.support_tree_angle", 0, 75 },
     .{ "project.support_tree_spacing", 0.5, 50 },
     .{ "project.support_tree_tip", 0, 10 },
@@ -1925,10 +1938,10 @@ pub const plate_settings = [_][]const u8{
     "filament.fan_ramp_layers",
     "filament.fan_max_speed",         "filament.fan_boost_time",    "filament.min_layer_time",
     "filament.min_speed",             "filament.cooling_mode",      "filament.retract_ratio",
-    "project.first_layer_height",     "project.retract_min_travel", "project.combing",
-    "project.combing_max_distance",   "project.z_hop",              "project.z_hop_only_crossing",
-    "project.retract_wipe",
-    "project.retract_layer_change",   "machine.travel_accel",       "project.skirt_loops",
+    "project.first_layer_height",     "machine.retract_min_travel", "project.combing",
+    "project.combing_max_distance",   "machine.z_hop",              "machine.z_hop_only_crossing",
+    "machine.retract_wipe",           "machine.retract_wipe_distance",
+    "machine.retract_layer_change",   "machine.travel_accel",       "project.skirt_loops",
     "project.skirt_distance",         "project.skirt_layers",       "project.brim_width",
     "project.brim_location",          "project.placement",          "project.flush_multiplier",
     "project.print_sequence",
@@ -1955,7 +1968,8 @@ pub fn isPerPartSetting(name: []const u8) bool {
 }
 
 /// A setting that the part can change: the project and filament settings,
-/// and the accelerations of the printer (`part_machine_settings`). The
+/// and the accelerations and travel retraction of the printer
+/// (`part_machine_settings`). The
 /// other machine settings describe the printer, and the engine settings
 /// the slicer.
 pub fn isPartSetting(old_name: []const u8) bool {
@@ -1965,12 +1979,15 @@ pub fn isPartSetting(old_name: []const u8) bool {
 }
 
 /// The machine settings that a part or some layers can change: the
-/// accelerations of the features. Each printer has its own values, and an
-/// override of a part or of some layers replaces the value of the printer
-/// there. They were project settings before, with the same overrides.
+/// accelerations of the features, and the retraction of the travels (the
+/// z hop, the wipe). Each printer has its own values, and an override of a
+/// part or of some layers replaces the value of the printer there. They
+/// were project settings before, with the same overrides.
 pub const part_machine_settings = [_][]const u8{
     "machine.outer_wall_accel", "machine.inner_wall_accel", "machine.skin_accel",
     "machine.infill_accel",     "machine.travel_accel",     "machine.first_layer_accel",
+    "machine.retract_min_travel", "machine.z_hop",            "machine.z_hop_only_crossing",
+    "machine.retract_wipe",     "machine.retract_wipe_distance", "machine.retract_layer_change",
 };
 
 /// The settings that moved to another group: the old name and the new
@@ -1984,6 +2001,11 @@ pub const moved_settings = [_][2][]const u8{
     .{ "project.infill_accel", "machine.infill_accel" },
     .{ "project.travel_accel", "machine.travel_accel" },
     .{ "project.first_layer_accel", "machine.first_layer_accel" },
+    .{ "project.retract_min_travel", "machine.retract_min_travel" },
+    .{ "project.z_hop", "machine.z_hop" },
+    .{ "project.z_hop_only_crossing", "machine.z_hop_only_crossing" },
+    .{ "project.retract_wipe", "machine.retract_wipe" },
+    .{ "project.retract_layer_change", "machine.retract_layer_change" },
 };
 
 /// The name of a setting now: the new name of a setting that moved to
@@ -2072,11 +2094,12 @@ pub const layer_settings = [_][]const u8{
     "filament.min_layer_time",
     "filament.min_speed",
     "filament.cooling_mode",
-    "project.retract_min_travel",
+    "machine.retract_min_travel",
     "project.combing",
     "project.combing_max_distance",
-    "project.z_hop",
-    "project.retract_wipe",
+    "machine.z_hop",
+    "machine.retract_wipe",
+    "machine.retract_wipe_distance",
     "project.outer_wall_wipe",
     "project.coasting_volume",
     "project.coasting_speed",
@@ -2164,6 +2187,16 @@ test "a setting that moved loads by its old name" {
     // Each new name is a machine setting.
     for (moved_settings) |m| {
         var t: Settings = .{};
-        try t.set(m[1], "700");
+        const bool_value = std.mem.indexOf(u8, m[1], "wipe") != null or std.mem.indexOf(u8, m[1], "only") != null or std.mem.indexOf(u8, m[1], "layer_change") != null;
+        try t.set(m[1], if (bool_value) "true" else "7");
+        try std.testing.expect(std.mem.startsWith(u8, m[1], "machine."));
     }
+    // The travel retraction moved too, with its overrides.
+    var r: Settings = .{};
+    try r.set("project.z_hop", "0.4");
+    try r.set("project.retract_wipe", "true");
+    try std.testing.expectEqual(@as(f64, 0.4), r.machine.z_hop);
+    try std.testing.expect(r.machine.retract_wipe);
+    try std.testing.expect(isLayerSetting("project.z_hop"));
+    try std.testing.expect(isPartSetting("machine.retract_wipe_distance"));
 }
