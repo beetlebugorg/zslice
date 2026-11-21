@@ -520,21 +520,48 @@ test "printers: the facts of the Bambu Lab X2D and of a printer with one nozzle"
     try std.testing.expect(bambu("creality-ender-3") == null);
 }
 
-/// The filament change G-code of a model (see Machine.change_gcode), or
-/// null. The text of the Bambu Lab X2D comes from its machine preset in
-/// the BBL profiles of OrcaSlicer (see REFERENCES.md); gcode_vars.zig
-/// fills in its variables.
-/// The start or the end G-code of a Bambu Lab printer from Bambu Studio,
-/// when it is newer than the one of the presets of OrcaSlicer, or null.
-/// The X2D: Bambu Studio 02.09.01.70 (start 2026/10/20, end 2026/07/29),
-/// from the config block of a .gcode.3mf that it wrote.
-pub fn bambuTemplate(id: []const u8, which: enum { start, end, layer }) ?[]const u8 {
-    if (std.mem.eql(u8, id, "bambu-lab-x2d")) return switch (which) {
-        .start => @embedFile("printers/bambu/bambu-lab-x2d-start.gcode"),
-        .end => @embedFile("printers/bambu/bambu-lab-x2d-end.gcode"),
-        .layer => @embedFile("printers/bambu/bambu-lab-x2d-layer.gcode"),
+/// The Bambu Lab models of the printer library with the G-code templates
+/// of Bambu Studio: tools/bambu_facts.py writes them from the machine
+/// presets of each model (its 0.4 nozzle), into src/printers/bambu/ and
+/// src/printers/change/.
+const bambu_gcode_ids = [_][]const u8{
+    "bambu-lab-a1",       "bambu-lab-a1-mini",   "bambu-lab-a2l", "bambu-lab-h2c",
+    "bambu-lab-h2d",      "bambu-lab-h2d-pro",   "bambu-lab-h2s", "bambu-lab-p1p",
+    "bambu-lab-p1s",      "bambu-lab-p2s",       "bambu-lab-x1",  "bambu-lab-x1-carbon",
+    "bambu-lab-x1e",      "bambu-lab-x2d",
+};
+
+const BambuGcode = struct { start: []const u8, end: []const u8, layer: []const u8, change: []const u8 };
+
+const bambu_gcodes = blk: {
+    var out: [bambu_gcode_ids.len]BambuGcode = undefined;
+    for (bambu_gcode_ids, &out) |id, *g| g.* = .{
+        .start = @embedFile("printers/bambu/" ++ id ++ "-start.gcode"),
+        .end = @embedFile("printers/bambu/" ++ id ++ "-end.gcode"),
+        .layer = @embedFile("printers/bambu/" ++ id ++ "-layer.gcode"),
+        .change = @embedFile("printers/change/" ++ id ++ ".gcode"),
     };
+    break :blk out;
+};
+
+fn bambuGcode(id: []const u8) ?*const BambuGcode {
+    for (bambu_gcode_ids, &bambu_gcodes) |k, *g| if (std.mem.eql(u8, k, id)) return g;
     return null;
+}
+
+/// The start, the end, or the layer change G-code of a Bambu Lab printer
+/// from the machine presets of Bambu Studio, or null. They are newer than
+/// the ones of the presets of OrcaSlicer in the library, and the firmware
+/// wants the newest (an X2D cancelled a print with an older start
+/// G-code). The layer change G-code tells the printer each layer (M73 L,
+/// M991).
+pub fn bambuTemplate(id: []const u8, which: enum { start, end, layer }) ?[]const u8 {
+    const g = bambuGcode(id) orelse return null;
+    return switch (which) {
+        .start => g.start,
+        .end => g.end,
+        .layer => g.layer,
+    };
 }
 
 /// The project_settings.config of a Bambu Studio file of a model (the
@@ -554,9 +581,13 @@ pub fn bambuConfig(id: []const u8) ?[]const u8 {
     return null;
 }
 
+/// The filament change G-code of a model (see Machine.change_gcode), or
+/// null. The texts of the Bambu Lab printers come from the machine
+/// presets of Bambu Studio (see bambuTemplate); gcode_vars.zig fills in
+/// their variables.
 pub fn changeGcode(id: []const u8) ?[]const u8 {
-    if (std.mem.eql(u8, id, "bambu-lab-x2d")) return @embedFile("printers/change/bambu-lab-x2d.gcode");
-    return null;
+    const g = bambuGcode(id) orelse return null;
+    return g.change;
 }
 
 /// The cooling of a printer family, for the simulated print: the air

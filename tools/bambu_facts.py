@@ -1,13 +1,21 @@
 #!/usr/bin/env python3
 """Makes src/printers/bambu.txt: the facts of each Bambu Lab printer that
-its file and its nozzles need, from the machine presets of OrcaSlicer.
+its file and its nozzles need, from the machine presets of Bambu Studio
+(or of OrcaSlicer, which has a copy of them).
 
 Usage:
-  python3 -I tools/bambu_facts.py <OrcaSlicer>/resources/profiles/BBL/machine > src/printers/bambu.txt
+  python3 -I tools/bambu_facts.py <BambuStudio>/resources/profiles/BBL/machine \
+      --gcode src/printers > src/printers/bambu.txt
 
 A sparse clone is enough:
-  git clone --depth 1 --filter=blob:none --sparse https://github.com/OrcaSlicer/OrcaSlicer
-  git -C OrcaSlicer sparse-checkout set resources/profiles/BBL/machine
+  git clone --depth 1 --filter=blob:none --sparse https://github.com/bambulab/BambuStudio
+  git -C BambuStudio sparse-checkout set resources/profiles/BBL/machine
+
+With --gcode <folder>, the tool also writes the G-code templates of each
+model into the folder, as the presets of its 0.4 nozzle have them:
+bambu/<id>-start.gcode (machine_start_gcode), bambu/<id>-end.gcode
+(machine_end_gcode), bambu/<id>-layer.gcode (layer_change_gcode), and
+change/<id>.gcode (change_filament_gcode). printers.zig embeds them.
 
 Each row (tab separated): B, the model id of the printer library
 ("bambu-lab-x2d"), the model code of Bambu Studio (model_id, "N6"), the
@@ -20,14 +28,40 @@ lists ("|" between nozzles).
 SPDX-License-Identifier: AGPL-3.0-or-later
 """
 
+import argparse
 import json
 import os
 import subprocess
 import sys
 
+# The G-code templates of a preset, and the file of each in the --gcode
+# folder ("{id}": the model id of the printer library).
+TEMPLATES = [
+    ("machine_start_gcode", "bambu/{id}-start.gcode"),
+    ("machine_end_gcode", "bambu/{id}-end.gcode"),
+    ("layer_change_gcode", "bambu/{id}-layer.gcode"),
+    ("change_filament_gcode", "change/{id}.gcode"),
+]
+
+
+def source_of(d):
+    """The name and the URL of the slicer of the preset folder `d`, from
+    the remote of its git clone."""
+    try:
+        url = subprocess.run(["git", "-C", d, "remote", "get-url", "origin"], capture_output=True, text=True, check=True).stdout.strip()
+    except (OSError, subprocess.CalledProcessError):
+        url = ""
+    url = url[:-4] if url.endswith(".git") else url
+    name = "Bambu Studio" if "bambustudio" in url.lower() else "OrcaSlicer"
+    return name, url or "https://github.com/bambulab/BambuStudio"
+
 
 def main():
-    d = sys.argv[1]
+    ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
+    ap.add_argument("machine", help="the folder resources/profiles/BBL/machine")
+    ap.add_argument("--gcode", help="the folder src/printers: write the G-code templates of each model")
+    a = ap.parse_args()
+    d = a.machine
     by = {}
     for f in sorted(os.listdir(d)):
         if not f.endswith(".json"):
@@ -49,9 +83,10 @@ def main():
         commit = subprocess.run(["git", "-C", d, "rev-parse", "HEAD"], capture_output=True, text=True, check=True).stdout.strip()
     except (OSError, subprocess.CalledProcessError):
         pass
+    name, url = source_of(d)
     print("zslice-bambu 1")
     print("# The Bambu Lab printers: model codes and nozzles. Made by tools/bambu_facts.py; do not edit.")
-    print("# From the machine presets of OrcaSlicer (AGPL-3.0), https://github.com/OrcaSlicer/OrcaSlicer %s" % commit)
+    print("# From the machine presets of %s (AGPL-3.0), %s %s" % (name, url, commit))
     for name, j in sorted(by.items()):
         if j.get("type") != "machine_model" or not j.get("model_id"):
             continue
@@ -74,6 +109,18 @@ def main():
         variants = res(preset, "extruder_variant_list") or [t + " Standard" for t in types[:n]]
         row = ["B", lib_id, j["model_id"], name, str(n)] + reach + [";".join(types[:n]), ";".join(volumes[:n]), "|".join(variants[:n])]
         print("\t".join(row))
+        if a.gcode:
+            for key, path in TEMPLATES:
+                # The presets keep each template in a preset of its own:
+                # "<preset> template <key>".
+                t = by.get("%s template %s" % (preset, key)) or {}
+                text = t.get(key) or res(preset, key)
+                if not isinstance(text, str) or not text.strip():
+                    continue
+                out = os.path.join(a.gcode, path.format(id=lib_id))
+                os.makedirs(os.path.dirname(out), exist_ok=True)
+                with open(out, "w", encoding="utf-8", newline="") as fh:
+                    fh.write(text)
 
 
 main()
