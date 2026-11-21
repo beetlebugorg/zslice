@@ -1790,13 +1790,15 @@ static void on_mark_activated(ZgLayerRange *range, guint index, gpointer data);
 /* The glyph of a tool, in the color of the text: 0 an arrow (select), 1 a
  * cross of arrows (move), 2 a ruler (measure), 3 an arc (turn), 4 gaps,
  * 5 a check mark, 6 a shelf on posts (support), 7 a hand (grab), 8 a
- * palette (the colors of the lines). */
+ * palette (the colors of the lines), 9 a label. The paths are the SVG
+ * glyphs of the web app (web/app/index.html). */
 static void draw_tool(GtkDrawingArea *a, cairo_t *cr, int w, int h, gpointer data) {
     int kind = GPOINTER_TO_INT(data);
     GdkRGBA c;
     gtk_widget_get_color(GTK_WIDGET(a), &c);
     gdk_cairo_set_source_rgba(cr, &c);
-    double u = MIN(w, h) / 18.0;
+    /* The glyph is 18 px, as on the web, in the middle of the button. */
+    double u = MIN(MIN(w, h), 18) / 18.0;
     cairo_translate(cr, (w - 18 * u) / 2, (h - 18 * u) / 2);
     cairo_scale(cr, u, u);
     cairo_set_line_width(cr, 1.5);
@@ -1823,28 +1825,26 @@ static void draw_tool(GtkDrawingArea *a, cairo_t *cr, int w, int h, gpointer dat
         cairo_stroke(cr);
     } else if (kind == 3) {
         /* Turn: an arc with an arrow head. */
-        cairo_arc(cr, 9, 9, 6, -G_PI * 0.15, G_PI * 1.45);
+        cairo_arc(cr, 9, 9, 5.5, 0, G_PI * 1.75);
         cairo_stroke(cr);
-        double ex = 9 + 6 * cos(-G_PI * 0.15), ey = 9 + 6 * sin(-G_PI * 0.15);
-        cairo_move_to(cr, ex - 3.5, ey - 1.2);
-        cairo_line_to(cr, ex, ey);
-        cairo_line_to(cr, ex + 0.6, ey - 3.6);
+        cairo_move_to(cr, 13.6, 2.2);
+        cairo_line_to(cr, 13.6, 5.5);
+        cairo_line_to(cr, 10.3, 5.5);
         cairo_stroke(cr);
     } else if (kind == 4) {
-        /* Gaps: a square of lines with a hole. */
-        for (int k = 0; k < 4; k++) {
-            double y = 4 + k * 3.3;
-            cairo_move_to(cr, 3, y);
-            cairo_line_to(cr, k == 1 || k == 2 ? 7 : 15, y);
-            if (k == 1 || k == 2) {
-                cairo_move_to(cr, 11, y);
-                cairo_line_to(cr, 15, y);
-            }
-        }
+        /* Gaps: two squares, and the dashed corner of a third between
+         * them, as on the web. */
+        cairo_set_line_width(cr, 1.4);
+        cairo_rectangle(cr, 2.5, 2.5, 5.5, 5.5);
+        cairo_rectangle(cr, 10, 10, 5.5, 5.5);
         cairo_stroke(cr);
-        cairo_set_source_rgb(cr, 0.9, 0.15, 0.2);
-        cairo_rectangle(cr, 7.8, 6.4, 2.4, 5);
-        cairo_fill(cr);
+        const double dash[] = {1.6, 1.6};
+        cairo_set_dash(cr, dash, 2, 0);
+        cairo_set_line_cap(cr, CAIRO_LINE_CAP_BUTT);
+        cairo_move_to(cr, 10, 2.5);
+        cairo_line_to(cr, 15.5, 2.5);
+        cairo_line_to(cr, 15.5, 8);
+        cairo_stroke(cr);
     } else if (kind == 6) {
         /* Support: a shelf on three posts, on the bed. */
         cairo_move_to(cr, 2, 4.5);
@@ -1912,12 +1912,11 @@ static void draw_tool(GtkDrawingArea *a, cairo_t *cr, int w, int h, gpointer dat
         cairo_line_to(cr, 13.2, 11.5);
         cairo_stroke(cr);
     } else if (kind == 5) {
-        /* Check: a check mark in a circle. */
-        cairo_arc(cr, 9, 9, 7, 0, 2 * G_PI);
-        cairo_stroke(cr);
-        cairo_move_to(cr, 5.5, 9.2);
-        cairo_line_to(cr, 8, 11.8);
-        cairo_line_to(cr, 12.8, 6.4);
+        /* Check: a check mark, as on the web. */
+        cairo_set_line_width(cr, 1.6);
+        cairo_move_to(cr, 3.5, 9.5);
+        cairo_line_to(cr, 7, 13);
+        cairo_line_to(cr, 14.5, 4.5);
         cairo_stroke(cr);
     } else {
         /* A ruler at 45 degrees, with ticks. */
@@ -1925,9 +1924,9 @@ static void draw_tool(GtkDrawingArea *a, cairo_t *cr, int w, int h, gpointer dat
         cairo_translate(cr, 9, 9);
         cairo_rotate(cr, -G_PI / 4);
         cairo_rectangle(cr, -8, -3, 16, 6);
-        for (int k = -5; k <= 5; k += 2) {
-            cairo_move_to(cr, k, -3);
-            cairo_line_to(cr, k, k % 4 == 1 || k % 4 == -3 ? 0.5 : -0.8);
+        for (int k = 0; k < 5; k++) {
+            cairo_move_to(cr, -5 + 2.5 * k, -3);
+            cairo_line_to(cr, -5 + 2.5 * k, k % 2 ? -1.5 : -0.5);
         }
         cairo_restore(cr);
         cairo_stroke(cr);
@@ -2014,6 +2013,8 @@ static GtkWidget *strip_button(GtkWidget *b, int glyph_kind, const char *key, co
         gtk_widget_set_can_target(k, FALSE);
         gtk_overlay_add_overlay(GTK_OVERLAY(over), k);
     }
+    /* A menu button has no frame, as the other buttons of the strip. */
+    if (GTK_IS_MENU_BUTTON(b)) gtk_menu_button_set_has_frame(GTK_MENU_BUTTON(b), FALSE);
     if (GTK_IS_MENU_BUTTON(b)) gtk_menu_button_set_child(GTK_MENU_BUTTON(b), over);
     else gtk_button_set_child(GTK_BUTTON(b), over);
     gtk_widget_set_tooltip_text(b, tip);
