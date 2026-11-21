@@ -31,6 +31,7 @@ See [linux/README.md](../../linux/README.md) for the packages. Where it differs 
 - It shows the active plate only.
 - Preferences (Ctrl+,) has the printers, **Test the connection**, and **Get a key**. The API keys are in `~/.config/zslice/app.ini`.
 - It has layer profiles, **Compare with Cura…**, USB printers, **Send all plates**, and **Export all plates…**.
+- The part card of a painted part shows the filaments of its paint, with a button that opens the Paint tool.
 
 ## The macOS app
 

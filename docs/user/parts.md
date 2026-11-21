@@ -104,6 +104,10 @@ The Paint tool (**P**) paints filaments on the surface of a part. The view shows
    - **Brush**: drag over the surface. The size sets the radius of the brush. The edge of the brush splits the triangles under it, so the border is clean.
 4. Right drag turns the view, and a middle drag pans. Press **P** or **Esc** to close the tool.
 
+**Remove all paint** on the card gives the whole part its own filament again. Each click or stroke is one step of the history, so **Ctrl+Z** takes back the last one.
+
+The web app, the Linux app, and the Mac app all have the Paint tool. In the Linux app, the part card of a painted part shows a chip for each filament of its paint, and its **Paint** button opens the tool on the part.
+
 Each click or stroke slices again. Each region of a layer prints with its own walls and infill in its filament. A painted top face prints its color in its top layers.
 
 A 3MF file keeps the paint. Painted models from MakerWorld (Bambu Studio) and Printables (PrusaSlicer) open with their colors and filaments.

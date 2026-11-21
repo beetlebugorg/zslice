@@ -6,7 +6,7 @@ Each change is a step. Go back to any step, and see the print as it was then.
 
 ## Undo
 
-- Ctrl+Z undoes a change: a setting, a move, a turn, a scale, a removed part, an edit of a line, or a support area.
+- Ctrl+Z undoes a change: a setting, a move, a turn, a scale, a removed part, an edit of a line, a support area, or a click or a stroke of the Paint tool.
 - Ctrl+Shift+Z (or Ctrl+Y) redoes it.
 - A drag of a slider is one step. The list keeps 100 steps.
 
