@@ -1178,7 +1178,7 @@ final class Workspace {
                 _ = self.labelPress(at, [])
                 _ = self.labelRelease()
                 if let t = env["ZSLICE_LABEL_TEXT"] { _ = self.editLabelItem(0, commit: true) { $0.text = t } }
-                // ZSLICE_LABEL_STEPS="turn:15,scale:1.5,drag:dx:dy,delete,undo,...":
+                // ZSLICE_LABEL_STEPS="turn:15,scale:1.5,drag:dx:dy,handle:40:shift,delete,undo,...":
                 // each step 1 s apart, and the label after it.
                 for step in (env["ZSLICE_LABEL_STEPS"] ?? "").split(separator: ",") {
                     try? await Task.sleep(for: .seconds(1.2))
@@ -1192,6 +1192,17 @@ final class Workspace {
                             _ = self.labelPress(c, [])
                             for k in 1 ... 10 { self.labelDrag(CGPoint(x: c.x + (to.x - c.x) * Double(k) / 10, y: c.y + (to.y - c.y) * Double(k) / 10), []) }
                             _ = self.labelRelease()
+                        }
+                    // handle:deg[:shift]: the turn handle dragged deg degrees
+                    // around the center of the label on the screen.
+                    case "handle":
+                        if let l = self.labelState.label, let c = self.labelScreenCenter(), let t = self.labelState.turnAt {
+                            let a0 = atan2(t.y - c.y, t.x - c.x), r = hypot(t.x - c.x, t.y - c.y)
+                            let a1 = a0 + (Double(f[1]) ?? 0) * .pi / 180
+                            self.turnLabelHandle(from: l, center: c, a0: a0, sign: self.labelTurnSign(l),
+                                                 to: CGPoint(x: c.x + r * cos(a1), y: c.y + r * sin(a1)), snap: f.count > 2)
+                            self.flushLabel()
+                            NSLog("zslice label handle: sign %.0f, angle %.1f to %.1f", self.labelTurnSign(l), l.angle, self.labelState.label?.angle ?? 0)
                         }
                     case "delete": self.removeLabel()
                     case "blur": self.canvas.window?.makeFirstResponder(self.canvas)

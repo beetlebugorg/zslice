@@ -327,6 +327,40 @@ private struct ChoiceButton: View {
 }
 
 /// The corner handle of the selected label: a drag scales it.
+/// The round handle over the top of the selected label: a drag around
+/// the label turns it (Shift: steps of 15°).
+struct LabelTurnHandle: View {
+    let workspace: Workspace
+    @State private var start: (label: PartLabel, center: CGPoint, a0: Double, sign: Double)?
+
+    var body: some View {
+        if let at = workspace.labelState.turnAt {
+            Circle()
+                .fill(Color.yellow)
+                .overlay(Circle().strokeBorder(.black.opacity(0.4)))
+                .frame(width: 13, height: 13)
+                .position(at)
+                .help("Drag to turn the label. Shift: steps of 15°.")
+                .gesture(DragGesture(minimumDistance: 1)
+                    .onChanged { g in
+                        if start == nil, let l = workspace.labelState.label, let c = workspace.labelScreenCenter() {
+                            start = (l, c, atan2(g.startLocation.y - c.y, g.startLocation.x - c.x), workspace.labelTurnSign(l))
+                            workspace.labelState.scaling = true
+                        }
+                        guard let s = start else { return }
+                        workspace.turnLabelHandle(from: s.label, center: s.center, a0: s.a0, sign: s.sign, to: g.location,
+                                                  snap: NSEvent.modifierFlags.contains(.shift))
+                    }
+                    .onEnded { _ in
+                        start = nil
+                        workspace.labelState.scaling = false
+                        workspace.flushLabel()
+                    })
+                .accessibilityHidden(true)
+        }
+    }
+}
+
 struct LabelHandle: View {
     let workspace: Workspace
     @State private var start: (label: PartLabel, center: CGPoint, d0: CGFloat)?

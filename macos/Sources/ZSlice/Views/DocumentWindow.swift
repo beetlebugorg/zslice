@@ -205,6 +205,7 @@ struct DocumentWindow: View {
                     // its card.
                     if workspace.tool == .label, workspace.page == .threeD {
                         LabelHandle(workspace: workspace)
+                        LabelTurnHandle(workspace: workspace)
                         LabelCard(workspace: workspace, area: geo.size)
                     }
                     // The 2D view says so at the top; a click goes back to 3D.

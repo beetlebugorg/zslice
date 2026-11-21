@@ -253,7 +253,7 @@ A painted 3MF file of PrusaSlicer or Bambu Studio opens with its paint and its c
 The Label tool (L) puts text or a mark on the surface of a part, in another filament. It prints flush in the outer skin of the part. [Labels on a part](labels.md) tells all of it; on the Mac:
 
 - Click a face of a part: a label "LABEL" goes there, 5 mm tall, and its card opens with the text selected. Type the text.
-- Drag a label to move it on the surface (Shift: in its plane). The wheel over the label turns it 1° a step (Shift: 15°); on a trackpad, each 10 points of a scroll is a step. Drag the yellow handle at its corner to scale it.
+- Drag a label to move it on the surface (Shift: in its plane). The wheel over the label turns it 1° a step (Shift: 15°); on a trackpad, each 10 points of a scroll is a step. Drag the yellow handle at its corner to scale it. Drag the round handle over its top around the label to turn it (Shift: steps of 15°).
 - Delete removes the selected label. Esc closes the card, and Esc again the tool.
 - The card has the shapes (text, a line, a bar, a ring, the ticks of a dial, or a free line), the turn, the filament, the depth, and what the label costs: the thinnest stroke, the size of text that prints clean, and the filament changes, minutes, and grams that it adds.
 - Each change is one step of the history. The part card lists the labels of the part; click one to select it.

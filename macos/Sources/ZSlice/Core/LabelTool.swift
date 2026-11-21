@@ -65,6 +65,8 @@ final class LabelState {
     var drawing = -1
     /// The corner handle and the box of the selected label on the screen.
     var handleAt: CGPoint?
+    /// The round turn handle, 3 mm over the middle of the top of the label.
+    var turnAt: CGPoint?
     var box: CGRect?
 
     @ObservationIgnored var outlines: [UInt32: (key: String, outline: LabelOutline)] = [:]
@@ -240,6 +242,7 @@ extension Workspace {
             st.info = nil
             st.curve = 0
             st.handleAt = nil
+            st.turnAt = nil
             st.box = nil
             if tool == .label { redrawLabels() }
             return
@@ -479,17 +482,28 @@ extension Workspace {
         return canvas.viewPoint(x: q.x, y: q.y, z: q.z)
     }
 
-    /// After each frame: the handle at the upper right corner of the
-    /// selected label, and its box on the screen (for the card).
+    /// After each frame: the scale handle at the upper right corner of the
+    /// selected label, the turn handle over its top, and its box on the
+    /// screen (for the card).
     func placeLabelHandle() {
         let st = labelState
         guard tool == .label, page == .threeD, let l = st.label, let ol = labelOutline(l) else {
             if st.handleAt != nil { st.handleAt = nil }
+            if st.turnAt != nil { st.turnAt = nil }
             if st.box != nil { st.box = nil }
             return
         }
+        func moved(_ a: CGPoint?, _ b: CGPoint?) -> Bool {
+            switch (a, b) {
+            case let (a?, b?): hypot(a.x - b.x, a.y - b.y) > 0.5
+            case (nil, nil): false
+            default: true
+            }
+        }
         let h = labelScreen(l, ol.box.x1 + 0.5, ol.box.y1 + 0.5)
-        if h.map({ a in st.handleAt.map { hypot($0.x - a.x, $0.y - a.y) > 0.5 } ?? true }) ?? (st.handleAt != nil) { st.handleAt = h }
+        if moved(h, st.handleAt) { st.handleAt = h }
+        let t = labelScreen(l, (ol.box.x0 + ol.box.x1) / 2, ol.box.y1 + 3)
+        if moved(t, st.turnAt) { st.turnAt = t }
         var pts: [CGPoint] = []
         for x in [ol.box.x0 - 1, ol.box.x1 + 1] { for y in [ol.box.y0 - 1, ol.box.y1 + 1] { if let q = labelScreen(l, x, y) { pts.append(q) } } }
         guard let x0 = pts.map(\.x).min(), let x1 = pts.map(\.x).max(), let y0 = pts.map(\.y).min(), let y1 = pts.map(\.y).max() else { return }
@@ -508,6 +522,30 @@ extension Workspace {
     /// center over the distance at the start.
     func scaleLabel(from start: PartLabel, by k: Double) {
         changeLabel { _ in start.scaled(max(0.05, k)) }
+    }
+
+    /// The sense of a turn on the screen: 1 when the label shows from its
+    /// front (its right and up axes turn clockwise on the y-down screen),
+    /// else -1. So a drag of the turn handle follows the pointer from the
+    /// front or the back.
+    func labelTurnSign(_ l: PartLabel) -> Double {
+        guard let ol = labelOutline(l) else { return -1 }
+        let cx = (ol.box.x0 + ol.box.x1) / 2, cy = (ol.box.y0 + ol.box.y1) / 2
+        guard let p0 = labelScreen(l, cx, cy), let pr = labelScreen(l, cx + 1, cy), let pu = labelScreen(l, cx, cy + 1) else { return -1 }
+        let cross = (pr.x - p0.x) * (pu.y - p0.y) - (pr.y - p0.y) * (pu.x - p0.x)
+        return cross < 0 ? -1 : 1
+    }
+
+    /// A drag of the turn handle: the label turned by the angle of the
+    /// pointer around the center of the label on the screen, from `a0`
+    /// (radians). Shift: the total turn in steps of 15°.
+    func turnLabelHandle(from start: PartLabel, center c: CGPoint, a0: Double, sign: Double, to p: CGPoint, snap: Bool) {
+        var d = sign * (atan2(p.y - c.y, p.x - c.x) - a0) * 180 / .pi
+        if snap {
+            let base = start.angle
+            d = ((base + d) / 15).rounded() * 15 - base
+        }
+        changeLabel { _ in start.turned(d) }
     }
 }
 
