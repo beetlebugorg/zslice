@@ -253,6 +253,7 @@ The drawer of the other apps is a SwiftUI inspector at the right of the window. 
 
 - Its pages are those of `web/app/settings.js`: the sections of each group, the settings of a section (each with a switch, a menu, or a field with its unit), and the page of one setting (its slider, its formula, its source with Reset, its help (names and values in code marks show in a code font; tooltips and the search use the help without the marks), and the lines that it changes with their share of the print time). The search field finds settings by name or help text.
 - The view shows the lines that the page points at, and fades the others (`zs_view_focus`), on the 3D and the 2D page. A pointer over a row shows the lines of that row. A hidden drawer shows the whole print.
+- A speed ratio (a setting `*_speed` that `zs_app_ratio_speed` knows) shows the speed that it gives on this printer next to the percent: "≈ 45 mm/s".
 - A field sends a number after a pause of 450 ms in the typing, on Return, or with the up and down arrow keys; the plate then slices again.
 - The details show the main settings of the print as buttons. Each opens a popover with live editors and a slider. A slider sends its value at most each 90 ms during a drag, so the view follows the drag. The details keep the last numbers while a new slice runs.
 

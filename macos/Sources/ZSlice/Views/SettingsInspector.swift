@@ -426,6 +426,16 @@ struct ValueField: View {
     @State private var typing: Task<Void, Never>?
     @FocusState private var focused: Bool
 
+    /// The speed in mm/s of a speed ratio with its value now
+    /// (zs_app_ratio_speed), or nil for a setting that is not one.
+    private var ratioSpeed: Double? {
+        guard info.name.hasSuffix("_speed") else { return nil }
+        _ = model.settingsGeneration
+        var mmS = 0.0
+        guard zs_app_ratio_speed(model.core, info.name, entry.value, &mmS) == 0, mmS > 0 else { return nil }
+        return mmS
+    }
+
     var body: some View {
         HStack(spacing: 4) {
             // A prompt, so an empty text field shows where to type.
@@ -465,6 +475,12 @@ struct ValueField: View {
                 }
             if !info.unit.isEmpty {
                 Text(info.unit).foregroundStyle(.secondary).font(.callout)
+            }
+            // A speed ratio: the speed in mm/s that it gives on this printer.
+            if let mmS = ratioSpeed {
+                Text("≈ \(Int(mmS.rounded())) mm/s")
+                    .foregroundStyle(.secondary).font(.callout).monospacedDigit()
+                    .help("The speed of this ratio on this printer, for a line of the line width at the layer height (the flow limit can make it lower).")
             }
         }
         .onAppear { text = ValueText.display(info, entry.value) }
