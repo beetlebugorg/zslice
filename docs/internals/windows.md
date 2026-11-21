@@ -30,7 +30,7 @@ A build with `-p:ZsDevHooks=true` reads `ZSLICE_DO`: steps with `;` between them
 | `src/model/zs_signs` | Draws the text of the plate signs into one image with GDI+. |
 | `src/model/zs_part_meshes` | The meshes of the parts, each with a paint session. Paint and Label share them. It has no WinRT. |
 | `src/model/zs_label` | A label: its JSON, its frame, and its shapes. It uses `Windows.Data.Json`. |
-| `src/app/MainWindow.xaml.cpp` | The window: the view in a `SwapChainPanel`, the open flow, the layer slider, and the status bar. |
+| `src/app/MainWindow.xaml.cpp` | The window: the view in a `SwapChainPanel`, the open flow, and the events of the core. |
 | `src/app/MainWindow.Plates.cpp` | The plate bar, the signs, and the switch of the active plate. |
 | `src/app/MainWindow.Settings.cpp` | The settings pane from the descriptions of the core, the search, and the history. |
 | `src/app/MainWindow.Tools.cpp` | The tool strip, the pointer, the keys, the selection, Move, Turn, Grab, and Measure. |
@@ -45,6 +45,8 @@ A build with `-p:ZsDevHooks=true` reads `ZSLICE_DO`: steps with `;` between them
 | `src/app/MainWindow.ContextMenu.cpp` | The menu of the view, and copy, cut, paste, and duplicate of parts. |
 | `src/app/Layer2D.cpp` | The 2D view of one layer, with Direct2D on its own swapchain. |
 | `src/app/MainWindow.Layer2D.cpp` | The input and the state of the 2D view. |
+| `src/app/MainWindow.Chrome.cpp` | The layer rail, the timeline, the print in the bottom bar, and the search of the header. |
+| `src/app/App.xaml` | The color tokens of `web/app/style.css` for light and dark, and the flat button styles. |
 | `src/app/MainWindow.DevHooks.cpp` | The test hooks, in a build with `ZsDevHooks`. |
 | `src/app/App` | The start of the app, and `ZSLICE_LOG`. |
 | `src/app/winrt_glue.cpp` | Compiles the generated XAML files, which a command-line build does not register. |

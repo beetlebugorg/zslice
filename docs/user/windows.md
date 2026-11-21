@@ -4,7 +4,7 @@ The Windows app is a native app for Windows 10 and 11, on x64 and ARM64. It is i
 
 ## Open a model
 
-Press **Open** or Ctrl+O and pick an STL, 3MF, STEP, or OBJ file. You can also drop a file on the window, or give a file on the command line. The app slices the model at once, and the status bar shows the layers, the print time, and the filament.
+Press **Open** or Ctrl+O and pick an STL, 3MF, STEP, or OBJ file. You can also drop a file on the window, or give a file on the command line. The app slices the model at once, and the bottom bar shows the print time, the filament, and the layers.
 
 ## Look at the slice
 
@@ -20,7 +20,7 @@ The slider at the right shows the print up to a layer. The keys K and J go one l
 
 ## The tools
 
-The strip at the left has the tools. Press the key of a tool to pick it.
+The header has the file, the search, the printer, filament, and quality, and the main menu. One bar at the bottom has the plates, the history, the replay, the print, and Export. The strip at the left has the tools. Press the key of a tool to pick it.
 
 | Key | Tool | What it does |
 |---|---|---|
@@ -129,11 +129,9 @@ The app reads a Bambu Lab printer and sends it nothing. It shows the JPEG camera
 
 ## Send and export
 
-The **Send** menu has:
+The button at the right of the bottom bar is **Export G-code…**. With a printer that takes files, it is **Upload to** that printer, and its arrow has the other ways to send.
 
-- **Upload to** the printer, and **Send all plates**.
-- **Export G-code…** and **Export all plates…**.
-- **Save the plate as 3MF…** and **Save project…**.
+The main menu has **Save the plate as 3MF…**, **Save project…**, **Send all plates**, and **Export all plates…**.
 
 **The Windows app never starts a print.** It uploads the file, and you start the print on the printer.
 
