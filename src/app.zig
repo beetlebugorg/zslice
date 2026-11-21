@@ -64,6 +64,8 @@ pub const support_trees = @import("app/support_trees.zig");
 pub const plate_set = @import("app/plate_set.zig");
 /// The filaments of the plate (see app/filament_slots.zig).
 pub const filament_slots = @import("app/filament_slots.zig");
+/// The labels of the parts (see app/labels.zig).
+pub const labels = @import("app/labels.zig");
 pub const measure = @import("app/measure.zig");
 /// The printability check (see app/checks.zig).
 pub const checks_mod = @import("app/checks.zig");
@@ -1951,8 +1953,25 @@ pub const App = struct {
         var arena: std.heap.ArenaAllocator = .init(app.gpa);
         defer arena.deinit();
         const stands = try app.checkStands(arena.allocator());
-        app.checks_result = try checks_mod.run(app.gpa, j, t, app.settings, stands, app.stats);
+        app.checks_result = try checks_mod.runLabels(app.gpa, j, t, app.settings, stands, app.stats, try app.checkLabels(arena.allocator()));
         return &app.checks_result.?;
+    }
+
+    /// The labels of the last slice, for the check (see checks.labelIssues):
+    /// the copies of the slice plan, with the names of their parts.
+    fn checkLabels(app: *const App, a: Allocator) Allocator.Error![]checks_mod.LabelInput {
+        var n: usize = 0;
+        for (app.slice_parts) |sp| n += sp.labels.len;
+        const out = try a.alloc(checks_mod.LabelInput, n);
+        var k: usize = 0;
+        for (app.slice_parts) |sp| {
+            const name: []const u8 = if (sp.part < app.plate.parts.items.len) app.plate.parts.items[sp.part].name else "";
+            for (sp.labels) |*l| {
+                out[k] = .{ .part = name, .label = l };
+                k += 1;
+            }
+        }
+        return out;
     }
 
     /// The bond of each part on the bed with support off, for the check.
@@ -2392,6 +2411,12 @@ pub const App = struct {
         }
     }
 
+    /// Stops a slice that runs, before a change of the parts that the
+    /// slice reads (see app/labels.zig).
+    pub fn stopSlice(app: *App) void {
+        app.stopWorker();
+    }
+
     /// Waits for the worker, with no cancel. For tests.
     pub fn stopWorkerForTest(app: *App) void {
         app.waitSlice();
@@ -2747,7 +2772,9 @@ pub const App = struct {
         // shows, with the settings at the start of the slice. A change
         // stops it within a layer; the next slice checks again.
         if (stands_now) |stands| {
-            const r = checks_mod.runWith(app.gpa, &app.job.?, &app.toolpaths, app.slice_settings, stands, app.stats, &app.cancel_flag) catch null;
+            const label_inputs = app.checkLabels(app.gpa) catch &.{};
+            defer app.gpa.free(label_inputs);
+            const r = checks_mod.runWith(app.gpa, &app.job.?, &app.toolpaths, app.slice_settings, stands, app.stats, label_inputs, &app.cancel_flag) catch null;
             app.checks_result = r;
             app.checks_pending.store(false, .release);
             if (r != null) app.emit(.checked, 1, 0);

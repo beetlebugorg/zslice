@@ -27,6 +27,10 @@
 //!   changes make a long print; with a pause for each change, each one
 //!   waits for you.
 //! - tower: the prime tower is off the bed, or on a part.
+//! - label: a label (label.zig) with strokes thinner than the narrowest
+//!   line (they do not print), or with gaps narrower than it (they fill
+//!   with the color of the label), with the size of text that prints
+//!   clean.
 //!
 //! Each issue has its kind, its layer, a place, the line it is about (or
 //! none), a number for its size, and a text that says what and why. The
@@ -41,7 +45,7 @@ const Allocator = std.mem.Allocator;
 const Toolpaths = @import("toolpaths.zig").Toolpaths;
 const geom = zs.geom;
 
-pub const Kind = enum(u8) { flow, cooling, overhang, island, retractions, bridge, stand, color, changes, tower, reach };
+pub const Kind = enum(u8) { flow, cooling, overhang, island, retractions, bridge, stand, color, changes, tower, reach, label };
 
 pub const Issue = extern struct {
     kind: Kind,
@@ -104,7 +108,12 @@ const max_per_kind = 50;
 /// and the islands; `t` the lines and their times; `s` the settings of the
 /// print; `stands` the bond test of each part with support off.
 pub fn run(gpa: Allocator, job: *const zs.PlateJob, t: *const Toolpaths, s: zs.Settings, stands: []const Stand, stats: zs.Stats) Allocator.Error!Result {
-    return runWith(gpa, job, t, s, stands, stats, null) catch |e| switch (e) {
+    return runLabels(gpa, job, t, s, stands, stats, &.{});
+}
+
+/// `run`, with the labels of the slice.
+pub fn runLabels(gpa: Allocator, job: *const zs.PlateJob, t: *const Toolpaths, s: zs.Settings, stands: []const Stand, stats: zs.Stats, labels: []const LabelInput) Allocator.Error!Result {
+    return runWith(gpa, job, t, s, stands, stats, labels, null) catch |e| switch (e) {
         error.Canceled => unreachable,
         else => |x| return x,
     };
@@ -112,7 +121,7 @@ pub fn run(gpa: Allocator, job: *const zs.PlateJob, t: *const Toolpaths, s: zs.S
 
 /// `run`, with a flag that stops it (error.Canceled) within a layer of the
 /// overhang pass, or between two passes.
-pub fn runWith(gpa: Allocator, job: *const zs.PlateJob, t: *const Toolpaths, s: zs.Settings, stands: []const Stand, stats: zs.Stats, cancel: ?*const std.atomic.Value(bool)) (Allocator.Error || error{Canceled})!Result {
+pub fn runWith(gpa: Allocator, job: *const zs.PlateJob, t: *const Toolpaths, s: zs.Settings, stands: []const Stand, stats: zs.Stats, labels: []const LabelInput, cancel: ?*const std.atomic.Value(bool)) (Allocator.Error || error{Canceled})!Result {
     var b: Builder = .{ .gpa = gpa, .cancel = cancel };
     errdefer {
         b.issues.deinit(gpa);
@@ -129,6 +138,7 @@ pub fn runWith(gpa: Allocator, job: *const zs.PlateJob, t: *const Toolpaths, s: 
     try colorIssues(&b, job);
     try changeIssues(&b, job, s, stats);
     try reachIssues(&b, job, s);
+    try labelIssues(&b, job, s, labels);
     // The worst first: problems, then warnings, then by layer.
     std.mem.sort(Issue, b.issues.items, {}, struct {
         fn lt(_: void, x: Issue, y: Issue) bool {
@@ -137,6 +147,66 @@ pub fn runWith(gpa: Allocator, job: *const zs.PlateJob, t: *const Toolpaths, s: 
         }
     }.lt);
     return .{ .issues = try b.issues.toOwnedSlice(gpa), .text = try b.text.toOwnedSlice(gpa) };
+}
+
+/// A label of the slice (on the bed, see plate.Part.placeLabel), and
+/// the name of its part.
+pub const LabelInput = struct {
+    part: []const u8,
+    label: *const zs.label.Label,
+};
+
+/// The labels with strokes or gaps narrower than the narrowest line
+/// (see `Kind.label`). The share of the shape that an opening by half
+/// that width removes does not print; the area that a closing adds
+/// prints in the color of the label (see paint_split.Split.labelLayer).
+fn labelIssues(b: *Builder, job: *const zs.PlateJob, s: zs.Settings, labels: []const LabelInput) Allocator.Error!void {
+    if (labels.len == 0) return;
+    const p = s.project;
+    const w = job.resolved.line_width;
+    const min_wall = if (p.min_wall_line_width > 0) p.min_wall_line_width else 0.85 * s.machine.nozzle_diameter;
+    const min_bead = if (p.min_bead_width > 0) p.min_bead_width else min_wall;
+    const r = @divTrunc(geom.fromMm(min_bead), 2);
+    const font = zs.font.builtin();
+    const ratio = zs.font.stemRatio(&font);
+    for (labels) |li| {
+        if (b.canceled()) return;
+        const l = li.label;
+        var arena_state = std.heap.ArenaAllocator.init(b.gpa);
+        defer arena_state.deinit();
+        const a = arena_state.allocator();
+        const shape = zs.label.outline(a, l) catch |e| switch (e) {
+            error.OutOfMemory => return error.OutOfMemory,
+            error.BadFont => continue,
+        };
+        const area = shape.areaMm2();
+        if (!(area > 0)) continue;
+        const open = try zs.offset.opening(a, shape, r, .{});
+        const lost = 1 - open.areaMm2() / area;
+        const grown = try zs.offset.offset(a, shape, r, .{});
+        const closed = try zs.offset.offset(a, grown, -r, .{});
+        const filled = closed.areaMm2() - area;
+        // The first layer of the label.
+        var layer: u32 = 0;
+        for (job.levels, 0..) |lv, k| if (lv.z >= l.origin[2]) {
+            layer = @intCast(k);
+            break;
+        };
+        const text = l.firstText();
+        var name_buf: [96]u8 = undefined;
+        const name = if (text.len > 0) std.fmt.bufPrint(&name_buf, "\u{201c}{s}\u{201d}", .{text[0..@min(text.len, 64)]}) catch "" else l.kind();
+        var size_buf: [96]u8 = undefined;
+        const size_hint = if (text.len > 0) std.fmt.bufPrint(&size_buf, " Make the text {d:.1} mm tall for clean strokes.", .{2 * w / ratio}) catch "" else "";
+        const is: Issue = .{ .kind = .label, .severity = 1, .layer = layer, .path = Issue.no_path, .x = l.origin[0], .y = l.origin[1], .value = lost * 100, .text_start = 0, .text_len = 0 };
+        if (lost > 0.02) {
+            try b.add(is, "{s}: label {s}: {d:.0} % of its shape is thinner than {d:.2} mm, the narrowest line, and does not print.{s}", .{ li.part, name, lost * 100, min_bead, size_hint });
+        } else if (filled > 0.02 * area) {
+            var note = is;
+            note.severity = 0;
+            note.value = filled;
+            try b.add(note, "{s}: label {s}: gaps narrower than {d:.2} mm ({d:.1} mm\u{b2}) print in the color of the label.{s}", .{ li.part, name, min_bead, filled, size_hint });
+        }
+    }
 }
 
 /// The bond test of a part, from the app (see bond.zig).
