@@ -1173,6 +1173,12 @@ function pairPrinter(name, fresh = false) {
         // the deck (the key goes there), and a name must be a plain key.
         // All the printers of the deck, the one at its own address too
         // (url ""): each gets its own address and the name of the deck.
+        // The list did not come: say why (a key the deck refused for the
+        // list, or no answer), not only "Connected".
+        if (!dp.ok) {
+          text.textContent = `Connected to ${name}, but the list of its printers did not come: ${dp.message}`;
+          text.classList.add("error");
+        }
         const others = dp.ok ? dp.printers.filter((q) => q && plainName(q.name) && q.kind !== "resin" && (q.url === "" || q.url == null || deckAddress(base, q.url))) : [];
         if (others.length > 1 || (fresh && others.length)) {
           text.textContent = others.length > 1 ? `Connected to ${dp.name || name}. It drives ${others.length} printers: pick the ones to add.` : `Connected to ${dp.name || name}.`;
