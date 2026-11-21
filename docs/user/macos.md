@@ -242,6 +242,18 @@ Cut (Command-X) copies, then removes. For layers, the changes go, and the value 
 
 The context menu has Paste Here, Copy the Part, Cut the Part, and Duplicate the Part on a part. On the bed it has Copy the Plate, Duplicate the Plate, and Paste as a New Plate (Shift-Command-V). The parts stay on the clipboard of the app, so they paste on another plate, and in another window.
 
+### Calibration prints
+
+File > Calibrate puts a test on a new plate: a Temperature Tower, a Retraction Test, a Flow Test (a row of cubes), or a Pressure Advance Tower. A card says how to read the print, with a button for each step: Use 215 sets the value of that step on each plate. File > Calibrate > Use a Value of This Test… opens the card again.
+
+### Profiles of other slicers
+
+Import a Profile… in the printer menu and in the Quality menu reads a PrusaSlicer or OrcaSlicer .ini, an OrcaSlicer or Bambu Studio .json, a 3MF project of these slicers, or a Cura .curaprofile. Its values become changes of the settings, as one step of the history. A report shows what zslice set, what went into the limits of a setting, and what it did not import.
+
+### One part at a time
+
+With Part > Placement > Print sequence set to one part at a time, the card of a part says where it prints ("Prints 2 of 3"), with Print Earlier and Print Later. The Check says when the head can hit a printed part.
+
 ## Filaments and paint
 
 ### Filaments

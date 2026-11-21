@@ -385,6 +385,12 @@ struct DocumentWindow: View {
         .sheet(isPresented: Bindable(workspace).shortcutsOpen) { ShortcutSheet() }
         .sheet(isPresented: Bindable(workspace).pickerOpen) { PrinterPicker(workspace: workspace) }
         .sheet(isPresented: Bindable(workspace).connectDeckOpen) { ConnectDeckSheet(workspace: workspace) }
+        .sheet(item: Binding(get: { workspace.calibration }, set: { workspace.calibration = $0 })) { c in
+            CalibrationSheet(workspace: workspace, cal: c)
+        }
+        .sheet(item: Binding(get: { workspace.importReport }, set: { workspace.importReport = $0 })) { r in
+            ImportReportSheet(report: r)
+        }
         .sheet(isPresented: Binding(get: { workspace.pairing != nil && !workspace.pickerOpen && !workspace.connectDeckOpen }, set: { if !$0 { workspace.pairing = nil } })) {
             if let id = workspace.pairing { PairSheet(workspace: workspace, printerID: id) }
         }

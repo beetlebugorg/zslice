@@ -105,6 +105,10 @@ final class Workspace {
     var pickerOpen = false
     /// The printer of the sheet that gets its key (PairSheet), or nil.
     var pairing: UUID?
+    /// The card of a calibration test, and the report of an import
+    /// (Calibration.swift).
+    var calibration: CalibrationInfo?
+    var importReport: ImportReport?
     /// The printer of the sheet is only the address of a deck (Connect a
     /// Printdeck): it goes, and the printers that the user picks come.
     var pairingFresh = false
@@ -1285,6 +1289,28 @@ final class Workspace {
                     case "dupplate": self.duplicatePlate()
                     case "pasteplate": self.pasteAsPlate()
                     case "undo": self.model.history.undoManager.undo()
+                    // calib:k a calibration test; use:i its step i; import:path a
+                    // profile; seq one part at a time; later part 0 one later.
+                    case "calib":
+                        self.calibrate(Int32(f[1]) ?? 0)
+                        let c = self.calibrationOfPlate()
+                        NSLog("zslice clip calib: plates %ld, name %@, setting %@, %ld steps, first %@", self.model.plates.count, c?.name ?? "-", c?.setting ?? "-", c?.steps.count ?? 0, c?.steps.first.map { "\($0.text)=\($0.value)" } ?? "-")
+                    case "use":
+                        if let c = self.calibrationOfPlate(), let k = Int(f[1]), c.steps.indices.contains(k) {
+                            self.useCalibration(c.setting, c.steps[k].value)
+                            NSLog("zslice clip use: %@ = %@ on plate 0: %@", c.setting, c.steps[k].value, zs_set_app(self.model.set, 0).flatMap { app in coreString { zs_app_setting_get(app, c.setting, $0, $1, $2) } } ?? "-")
+                        }
+                    case "import":
+                        let url = URL(fileURLWithPath: f.dropFirst().joined(separator: ":"))
+                        if let data = try? Data(contentsOf: url) {
+                            let rc = data.withUnsafeBytes { zs_app_profile_import(self.model.core, url.lastPathComponent, $0.bindMemory(to: UInt8.self).baseAddress, $0.count) }
+                            let rows = (coreString { zs_app_profile_import_report(self.model.core, $0, $1, $2) } ?? "").split(separator: "\n")
+                            NSLog("zslice clip import: rc %d, %ld rows, %ld set, first %@", rc, rows.count, rows.filter { $0.hasPrefix("set\t") }.count, rows.first.map(String.init) ?? "-")
+                        }
+                    case "seq": self.model.set("project.print_sequence", "by_object")
+                    case "later":
+                        self.reorderPart(0, by: 1)
+                        NSLog("zslice clip later: order %@, selected %@", self.printOrder(self.selectedPart ?? 0).map { "\($0.index + 1) of \($0.count)" } ?? "none", self.selectedParts.map(String.init).joined(separator: " "))
                     case "fil": _ = self.model.addFilament()
                     // body:f paints the lit body of the range with filament f.
                     case "body":

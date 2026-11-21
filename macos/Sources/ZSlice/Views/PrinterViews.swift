@@ -366,6 +366,8 @@ struct PrinterMenu: View {
                 Divider()
             }
             Button("Add a Printer…") { workspace.pickerOpen = true }
+            Button("Import a Profile…") { workspace.importProfile() }
+                .help("Read the settings of a PrusaSlicer, OrcaSlicer, Bambu Studio, or Cura profile")
             Button("Connect a Printdeck…") { workspace.connectDeckOpen = true }
                 .help("The address of a printdeck: zslice asks it for a key, and adds the printers that it drives")
             SettingsLink { Text("Manage Printers…") }
@@ -563,6 +565,8 @@ struct QualityMenu: View {
                 }
             }
             Divider()
+            Button("Import a Profile…") { workspace.importProfile() }
+                .help("Read the settings of a PrusaSlicer, OrcaSlicer, Bambu Studio, or Cura profile")
             Button("Save as Profile…") {
                 if let name = askProfileName("Save the Quality as a Profile") { try? model.saveProfile(group: Profiles.quality, name: name) }
             }

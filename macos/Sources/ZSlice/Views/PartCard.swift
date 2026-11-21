@@ -87,6 +87,20 @@ struct PartCard: View {
                     .help("Remove the part (Delete)")
                 }
                 .controlSize(.small)
+                // One part at a time: the place of the part in the order.
+                if let o = workspace.printOrder(index) {
+                    HStack {
+                        Text("Prints \(o.index + 1) of \(o.count)").font(.callout)
+                        Spacer()
+                        Button("Print Earlier") { workspace.reorderPart(index, by: -1) }
+                            .disabled(o.index == 0)
+                            .help("Print this part before the part before it in the plate list")
+                        Button("Print Later") { workspace.reorderPart(index, by: 1) }
+                            .disabled(o.index >= o.count - 1)
+                            .help("Print this part after the part after it in the plate list")
+                    }
+                    .controlSize(.small)
+                }
                 HStack {
                     Button("Mirror X") { workspace.mirrorParts(axis: 0) }.help("Mirror the part from left to right")
                     Button("Mirror Y") { workspace.mirrorParts(axis: 1) }.help("Mirror the part from front to back")

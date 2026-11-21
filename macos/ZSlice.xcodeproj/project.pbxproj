@@ -32,6 +32,7 @@
 		11474D7DBDB43D4C723FDB9B /* SettingsInspector.swift in Sources */ = {isa = PBXBuildFile; fileRef = 21376CDB4341E7C0BDB42C44 /* SettingsInspector.swift */; };
 		136849B27AD1F307F0D96FA2 /* ToolStrip.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0DE6FA41D66841A0EFB59308 /* ToolStrip.swift */; };
 		1522BD16D5F68C44685C6181 /* Signing.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1925E382ACF90BB484A53E04 /* Signing.swift */; };
+		1EB517248B3564D924D092D1 /* Calibration.swift in Sources */ = {isa = PBXBuildFile; fileRef = 23C2372196143DFD904FE90D /* Calibration.swift */; };
 		226758C8076791E38648B82E /* Render.swift in Sources */ = {isa = PBXBuildFile; fileRef = C6B3D7F7FABAA30471ADBA1D /* Render.swift */; };
 		2394DCDD748E420A4F08C501 /* PreviewViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4EBCD1B70229FEB2EEA34991 /* PreviewViewController.swift */; };
 		276A7D05686F2DF573381F9C /* Licenses.swift in Sources */ = {isa = PBXBuildFile; fileRef = A48F3E5FE16B90372BF2A40C /* Licenses.swift */; };
@@ -181,6 +182,7 @@
 		1CB8A489FC7A3780934475FE /* SpatialCards.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpatialCards.swift; sourceTree = "<group>"; };
 		1EED13BDF9B1407DBC65CD27 /* CoreText.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoreText.swift; sourceTree = "<group>"; };
 		21376CDB4341E7C0BDB42C44 /* SettingsInspector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsInspector.swift; sourceTree = "<group>"; };
+		23C2372196143DFD904FE90D /* Calibration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Calibration.swift; sourceTree = "<group>"; };
 		257AB626E6F612DEA8D0E728 /* GcodeEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GcodeEditor.swift; sourceTree = "<group>"; };
 		2977A2A862AF9DF5A41EB352 /* SupportCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SupportCard.swift; sourceTree = "<group>"; };
 		30AE9155F3B5DCE93ADDDA59 /* PlateSigns.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlateSigns.swift; sourceTree = "<group>"; };
@@ -256,7 +258,7 @@
 		F817BC998AF3DF2ED3A00C81 /* Discovery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Discovery.swift; sourceTree = "<group>"; };
 		FA1563DC7A7E6004C5F6CF3E /* SupportTrees.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SupportTrees.swift; sourceTree = "<group>"; };
 		FEB19535AAD2F45E9ADECD3E /* Shaders.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Shaders.swift; sourceTree = "<group>"; };
-		"TEMP_0CBAD9AE-4674-4059-BBA0-DA72C8E07B32" /* Signing.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Signing.xcconfig; sourceTree = "<group>"; };
+		"TEMP_45BBB1FF-24D3-448D-9F5E-7FC1A0010D5A" /* Signing.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Signing.xcconfig; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -423,6 +425,7 @@
 			isa = PBXGroup;
 			children = (
 				092C568E2B07BBD8926C0CBF /* Bambu.swift */,
+				23C2372196143DFD904FE90D /* Calibration.swift */,
 				7499ED62DA0BF92BA63B5FC8 /* Camera.swift */,
 				DA217A10AC24BCB822D0EDB9 /* Checks.swift */,
 				1424D5DD2A03CD065885382D /* Clipboard.swift */,
@@ -463,10 +466,10 @@
 			path = Core;
 			sourceTree = "<group>";
 		};
-		"TEMP_437AAB73-4E58-4033-885C-499734032837" /* macos */ = {
+		"TEMP_52212441-2CC5-48FA-AF0F-4E7C34D8FF1C" /* macos */ = {
 			isa = PBXGroup;
 			children = (
-				"TEMP_0CBAD9AE-4674-4059-BBA0-DA72C8E07B32" /* Signing.xcconfig */,
+				"TEMP_45BBB1FF-24D3-448D-9F5E-7FC1A0010D5A" /* Signing.xcconfig */,
 			);
 			path = macos;
 			sourceTree = "<group>";
@@ -653,6 +656,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				A5894C80604E99627CF201F3 /* Bambu.swift in Sources */,
+				1EB517248B3564D924D092D1 /* Calibration.swift in Sources */,
 				C5F1F66433AF979A3F1B5831 /* Camera.swift in Sources */,
 				86A9BE1AD6C02F1F7FF0BF07 /* CameraView.swift in Sources */,
 				A083B1AACE606050A35CF324 /* CheckViews.swift in Sources */,
@@ -789,7 +793,7 @@
 		};
 		1BF4A7F21A34A94F2F8BE4A1 /* Release */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = "TEMP_0CBAD9AE-4674-4059-BBA0-DA72C8E07B32" /* Signing.xcconfig */;
+			baseConfigurationReference = "TEMP_45BBB1FF-24D3-448D-9F5E-7FC1A0010D5A" /* Signing.xcconfig */;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
 				CLANG_ANALYZER_NONNULL = YES;
@@ -926,7 +930,7 @@
 		};
 		BB3F32C66D957B876F949001 /* Debug */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = "TEMP_0CBAD9AE-4674-4059-BBA0-DA72C8E07B32" /* Signing.xcconfig */;
+			baseConfigurationReference = "TEMP_45BBB1FF-24D3-448D-9F5E-7FC1A0010D5A" /* Signing.xcconfig */;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
 				CLANG_ANALYZER_NONNULL = YES;

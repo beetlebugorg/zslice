@@ -238,6 +238,16 @@ struct PlateCommands: View {
             .disabled(workspace == nil)
         Button("Clear the Plate") { workspace?.plateAction(zs_app_plate_clear) }
             .disabled(workspace == nil)
+        Menu("Calibrate") {
+            ForEach(CalibrationInfo.kinds, id: \.kind) { c in
+                Button(c.name) { workspace?.calibrate(c.kind) }
+                    .help("\(c.tip), on a new plate")
+            }
+            Divider()
+            Button("Use a Value of This Test…") { workspace?.showCalibration() }
+                .help("How to read the test of this plate, and a button for each of its values")
+        }
+        .disabled(workspace == nil)
         Divider()
         Button("Add Printers from a Fleet File…") { FarmMonitor.shared.askFleet() }
         Divider()
