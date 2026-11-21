@@ -80,7 +80,7 @@ The goal is the features that people use in PrusaSlicer and Cura. zslice designs
 - [x] Top and bottom patterns: monotonic, concentric
 - [x] Infill only where needed, and denser infill under top surfaces
 - [x] Wall order (inner first or outer first, `project.wall_order`) and an extra wall on alternate layers (`project.alternate_extra_wall`)
-- [ ] Fuzzy skin
+- [x] Fuzzy skin (`project.fuzzy_skin`: the outer walls, or only the outside)
 - [ ] Spiral vase mode
 - [x] Variable layer height by hand: a layer height for some layers (an override by z range)
 - [ ] Variable layer height: adaptive (from the slope of the surface)

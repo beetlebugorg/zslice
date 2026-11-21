@@ -88,7 +88,8 @@
 //! alternate layers of Cura and OrcaSlicer (`wall_order`,
 //! `alternate_extra_wall`, see docs/references/cura.md), and the slower
 //! overhang walls of OrcaSlicer and Cura (`markOverhangWalls`, see
-//! docs/references/orcaslicer.md).
+//! docs/references/orcaslicer.md), and the fuzzy skin of Cura
+//! (`fuzzWalls`, see docs/references/cura.md).
 //!
 //! `cornerSeamIndex` and its helpers are a port to Zig of the seam corner
 //! choice of CuraEngine (`CornerScoringCriterion.cpp`,
@@ -1807,6 +1808,9 @@ pub fn plan(gpa: Allocator, ctx: Context, i: usize) Allocator.Error!LayerPlan {
         try addGroup(s, a, &lp, &pos, ironing_lines, false, .ironing, null, .{ .ids = ironing_ids, .id = id });
     }
 
+    // Fuzzy skin on the outer walls (see `fuzzWalls`), before the
+    // bridges and the overhangs split them.
+    if (p.fuzzy_skin != .off and !first) try fuzzWalls(s, a, &lp, p, i);
     // Walls over air print as bridges (see splitBridgeWalls).
     if (p.bridges and !first) try splitBridgeWalls(s, a, &lp, memo, ctx.outlines[i - 1], w, ctx.gen);
     // Walls that hang over air print slower, with more fan.
@@ -3312,6 +3316,73 @@ fn splitBridgeWalls(s: Allocator, a: Allocator, lp: *LayerPlan, memo: *Memo, bel
     }
 }
 
+/// Fuzzy skin: each closed outer wall (of one width, or Arachne) gets new
+/// points along it, a random distance apart (from 3/4 to 5/4 of
+/// `fuzzy_skin_point_distance`), each moved a random distance across the
+/// wall (up to half of `fuzzy_skin_thickness` to either side). The first
+/// point (the seam) stays. With `outside`, a hole (a loop that turns
+/// clockwise) stays smooth. The random numbers come from the layer and the
+/// path index, so a slice of the same part gives the same points. This
+/// is the method of Cura (the idea, not its code).
+fn fuzzWalls(s: Allocator, a: Allocator, lp: *LayerPlan, p: settings_mod.Project, layer_no: usize) Allocator.Error!void {
+    const t = geom.fromMm(p.fuzzy_skin_thickness);
+    const dist: f64 = @floatFromInt(geom.fromMm(p.fuzzy_skin_point_distance));
+    if (t <= 0 or dist <= 0) return;
+    var points: Paths = .empty;
+    var changed = false;
+    var out: std.ArrayList(Point) = .empty;
+    var out_w: std.ArrayList(f32) = .empty;
+    for (lp.paths.items, 0..) |*pth, k| {
+        const pts = lp.points.get(k);
+        const fuzz = pth.feature == .outer_wall and pth.closed and pth.z_start == Path.planar and pts.len >= 3 and
+            (p.fuzzy_skin == .outer_wall or geom.area2(pts) > 0);
+        if (!fuzz) {
+            try points.append(a, pts);
+            continue;
+        }
+        var prng: std.Random.DefaultPrng = .init(@as(u64, layer_no) *% 0x9E3779B97F4A7C15 +% k);
+        const rnd = prng.random();
+        // A copy of the widths: the appends below can move the list.
+        const widths: []const f32 = if (pth.w_start != Path.planar) try s.dupe(f32, lp.point_w.items[pth.w_start..][0..pts.len]) else &.{};
+        out.clearRetainingCapacity();
+        out_w.clearRetainingCapacity();
+        try out.append(s, pts[0]);
+        if (widths.len > 0) try out_w.append(s, widths[0]);
+        var next = dist * (0.75 + 0.5 * rnd.float(f64));
+        for (0..pts.len) |j| {
+            const p0 = pts[j];
+            const p1 = pts[(j + 1) % pts.len];
+            const dx: f64 = @floatFromInt(p1.x - p0.x);
+            const dy: f64 = @floatFromInt(p1.y - p0.y);
+            const len = @import("geom.zig").hypot(dx, dy);
+            if (len < 1) continue;
+            var at = next;
+            while (at < len) : (at += dist * (0.75 + 0.5 * rnd.float(f64))) {
+                // Not too near the end of the loop: the last move goes
+                // back to the seam.
+                if (j + 1 == pts.len and len - at < dist / 4) break;
+                const side = (rnd.float(f64) - 0.5) * @as(f64, @floatFromInt(t));
+                const x = @as(f64, @floatFromInt(p0.x)) + dx * at / len + dy / len * side;
+                const y = @as(f64, @floatFromInt(p0.y)) + dy * at / len - dx / len * side;
+                try out.append(s, .init(@intFromFloat(@round(x)), @intFromFloat(@round(y))));
+                if (widths.len > 0) try out_w.append(s, widths[j]);
+            }
+            next = at - len;
+        }
+        if (out.items.len < 3) {
+            try points.append(a, pts);
+            continue;
+        }
+        changed = true;
+        try points.append(a, out.items);
+        if (widths.len > 0) {
+            pth.w_start = @intCast(lp.point_w.items.len);
+            try lp.point_w.appendSlice(a, out_w.items);
+        }
+    }
+    if (changed) lp.points = points;
+}
+
 /// Overhang walls: the pieces of a wall (outer or inner, planar) that hang
 /// over air by `threshold` of a line width or more get `Path.overhang`.
 /// A segment hangs over air if its middle is outside the outline of the
@@ -4493,6 +4564,69 @@ test "overhang walls: the side over air prints as an overhang" {
         for (lp0.paths.items) |path| try testing.expect(!path.overhang);
         try testing.expect(lp.count() > lp0.count());
     }
+}
+
+test "fuzzy skin: random points along the outer wall, within the band" {
+    const gpa = testing.allocator;
+    var outline: Paths = .empty;
+    defer outline.deinit(gpa);
+    // A box of 20 by 15 mm with a square hole of 5 mm (clockwise).
+    try outline.append(gpa, &.{ .init(0, 0), .init(20_000, 0), .init(20_000, 15_000), .init(0, 15_000) });
+    try outline.append(gpa, &.{ .init(5_000, 5_000), .init(5_000, 10_000), .init(10_000, 10_000), .init(10_000, 5_000) });
+    var st: settings_mod.Settings = .{};
+    st.project.fuzzy_skin = .outer_wall;
+    const r = try st.resolve();
+    const half_w = geom.fromMm(r.line_width / 2);
+    // The band, and the round corners of the wall around the hole.
+    const band = geom.fromMm(st.project.fuzzy_skin_thickness / 2) + 100;
+    var lp = try planPrism(gpa, outline, st, 12);
+    defer lp.deinit();
+    var smooth = st;
+    smooth.project.fuzzy_skin = .off;
+    var lp0 = try planPrism(gpa, outline, smooth, 12);
+    defer lp0.deinit();
+    try testing.expectEqual(lp0.count(), lp.count());
+    var outer: usize = 0;
+    for (lp.paths.items, 0..) |path, k| {
+        const pts = lp.points.get(k);
+        if (path.feature != .outer_wall) {
+            try testing.expectEqualSlices(Point, lp0.points.get(k), pts);
+            continue;
+        }
+        outer += 1;
+        // Many more points than the 4 corners, and each near the wall.
+        try testing.expect(pts.len > 20);
+        try testing.expectEqual(lp0.points.get(k)[0], pts[0]);
+        const hole = pts[0].x > 4_000 and pts[0].x < 11_000 and pts[0].y > 4_000 and pts[0].y < 11_000;
+        for (pts) |q| {
+            const d = if (hole)
+                @min(@min(@abs(q.x - (5_000 - half_w)), @abs(q.x - (10_000 + half_w))), @min(@abs(q.y - (5_000 - half_w)), @abs(q.y - (10_000 + half_w))))
+            else
+                @min(@min(@abs(q.x - half_w), @abs(q.x - (20_000 - half_w))), @min(@abs(q.y - half_w), @abs(q.y - (15_000 - half_w))));
+            try testing.expect(d <= band);
+        }
+    }
+    try testing.expectEqual(@as(usize, 2), outer);
+    // The same points on a second slice.
+    var again = try planPrism(gpa, outline, st, 12);
+    defer again.deinit();
+    try testing.expectEqualSlices(Point, lp.points.points.items, again.points.points.items);
+    // Outside: the hole stays smooth.
+    st.project.fuzzy_skin = .outside;
+    var out = try planPrism(gpa, outline, st, 12);
+    defer out.deinit();
+    var smooth_loops: usize = 0;
+    for (out.paths.items, 0..) |path, k| {
+        if (path.feature == .outer_wall and std.mem.eql(u8, std.mem.sliceAsBytes(out.points.get(k)), std.mem.sliceAsBytes(lp0.points.get(k)))) smooth_loops += 1;
+    }
+    try testing.expectEqual(@as(usize, 1), smooth_loops);
+    // The first layer stays smooth.
+    st.project.fuzzy_skin = .outer_wall;
+    var first = try planPrism(gpa, outline, st, 0);
+    defer first.deinit();
+    var first0 = try planPrism(gpa, outline, smooth, 0);
+    defer first0.deinit();
+    try testing.expectEqualSlices(Point, first0.points.points.items, first.points.points.items);
 }
 
 test "a brim in the holes, outside, or both" {

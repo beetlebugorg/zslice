@@ -377,7 +377,10 @@ skirt_height | same | project.skirt_layers
 brim_width | same | project.brim_width
 brim_type | same | project.brim_location
 spiral_mode | missing | spiral vase mode
-fuzzy_skin | missing | fuzzy skin
+fuzzy_skin | derived | project.fuzzy_skin (external is outer_wall; no fuzzy skin on all walls)
+fuzzy_skin_thickness | same | project.fuzzy_skin_thickness
+fuzzy_skin_point_distance | same | project.fuzzy_skin_point_distance
+fuzzy_skin_first_layer | derived | project.fuzzy_skin (the first layer stays smooth)
 print_sequence | missing | one part at a time
 precise_z_height | derived | zslice cuts each layer at its middle and ends at the height of the part
 support_speed | same | project.support_speed

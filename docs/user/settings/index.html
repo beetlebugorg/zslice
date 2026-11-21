@@ -314,6 +314,12 @@ M84</code></pre>
 <p>The fan while a wall overhang prints, from 0 to 1. The fan does not go below the fan of the layer. 0: the fan of the layer.</p>
 <p><strong><code>project.overhang_wall_threshold</code></strong> (number; per layer). Default: <code>0.5</code></p>
 <p>How far a wall must hang over air to print as an overhang (see <code>overhang_wall_speed</code>): the part of its line width that is outside the layer below, from 0 to 1. With a 0.2 mm layer and a 0.44 mm line, 0.5 is a slope of about 48 degrees.</p>
+<p><strong><code>project.fuzzy_skin</code></strong> (one of: <code>off</code>, <code>outer_wall</code>, <code>outside</code>; per layer). Default: <code>off</code></p>
+<p>A rough surface: the nozzle moves to a random side along the outer wall, so the surface looks fuzzy and hides the layer lines and the seam. <code>off</code>: a smooth wall. <code>outer_wall</code>: each outer wall, the holes too. <code>outside</code>: only the outside of each part, and not its holes (a hole keeps its size). The first layer stays smooth.</p>
+<p><strong><code>project.fuzzy_skin_thickness</code></strong> (number; per layer). Default: <code>0.3</code></p>
+<p>Fuzzy skin: the width of the band of the random points, in mm. A point goes up to half of it to the outside or to the inside of the wall. Keep it below the line width.</p>
+<p><strong><code>project.fuzzy_skin_point_distance</code></strong> (number; per layer). Default: <code>0.8</code></p>
+<p>Fuzzy skin: the mean distance between the random points, in mm.</p>
 <p><strong><code>project.thin_walls</code></strong> (true or false; per layer). Default: <code>false</code></p>
 <p>Print parts of the outline that are thinner than one line width (a thin fin, a sheet, a label): a loop inside each thin part, with a narrower line, so that its two sides fill the thickness. Without it, these parts print nothing. Off by default.</p>
 <p><strong><code>project.seam</code></strong> (one of: <code>hidden</code>, <code>sharpest</code>, <code>rear</code>, <code>nearest</code>, <code>random</code>; per layer). Default: <code>hidden</code></p>

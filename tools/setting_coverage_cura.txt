@@ -712,11 +712,11 @@ cross_support_density_image | missing | an image of the support density
 support_conical_enabled | missing | conical support
 support_conical_angle | missing | conical support
 support_conical_min_width | missing | conical support
-magic_fuzzy_skin_enabled | missing | fuzzy skin
-magic_fuzzy_skin_outside_only | missing | fuzzy skin
-magic_fuzzy_skin_thickness | missing | fuzzy skin
-magic_fuzzy_skin_point_density | missing | fuzzy skin
-magic_fuzzy_skin_point_dist | missing | fuzzy skin
+magic_fuzzy_skin_enabled | derived | project.fuzzy_skin (outer_wall or outside)
+magic_fuzzy_skin_outside_only | derived | project.fuzzy_skin = outside
+magic_fuzzy_skin_thickness | same | project.fuzzy_skin_thickness
+magic_fuzzy_skin_point_density | derived | project.fuzzy_skin_point_distance
+magic_fuzzy_skin_point_dist | same | project.fuzzy_skin_point_distance
 flow_rate_max_extrusion_offset | missing | a flow offset for fast lines
 flow_rate_extrusion_offset_factor | missing | a flow offset for fast lines
 adaptive_layer_height_enabled | missing | adaptive layers (zslice has layer height overrides for ranges)

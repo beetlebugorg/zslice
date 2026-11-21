@@ -36,6 +36,8 @@ pub const InfillAnchor = enum { part, bed };
 pub const WallGenerator = enum { classic, arachne };
 /// The order of the walls of an island (see `Project.wall_order`).
 pub const WallOrder = enum { inner_first, outer_first };
+/// The walls with fuzzy skin (see `Project.fuzzy_skin`).
+pub const FuzzySkin = enum { off, outer_wall, outside };
 /// The shape of the root of a painted feature. See
 /// `Project.paint_anchor_shape`.
 pub const AnchorShape = enum { footprint, core };
@@ -466,6 +468,18 @@ pub const Project = struct {
     /// the layer below, from 0 to 1. With a 0.2 mm layer and a 0.44 mm
     /// line, 0.5 is a slope of about 48 degrees.
     overhang_wall_threshold: f64 = 0.5,
+    /// A rough surface: the nozzle moves to a random side along the outer
+    /// wall, so the surface looks fuzzy and hides the layer lines and the
+    /// seam. `off`: a smooth wall. `outer_wall`: each outer wall, the
+    /// holes too. `outside`: only the outside of each part, and not its
+    /// holes (a hole keeps its size). The first layer stays smooth.
+    fuzzy_skin: FuzzySkin = .off,
+    /// Fuzzy skin: the width of the band of the random points, in mm. A
+    /// point goes up to half of it to the outside or to the inside of the
+    /// wall. Keep it below the line width.
+    fuzzy_skin_thickness: f64 = 0.3,
+    /// Fuzzy skin: the mean distance between the random points, in mm.
+    fuzzy_skin_point_distance: f64 = 0.8,
     /// Print parts of the outline that are thinner than one line width
     /// (a thin fin, a sheet, a label): a loop inside each thin part, with a
     /// narrower line, so that its two sides fill the thickness. Without
@@ -1445,6 +1459,8 @@ pub const limits = [_]struct { []const u8, f64, f64 }{
     .{ "project.overhang_wall_speed", 0.05, 1 },
     .{ "project.overhang_wall_fan", 0, 1 },
     .{ "project.overhang_wall_threshold", 0.05, 1 },
+    .{ "project.fuzzy_skin_thickness", 0.01, 2 },
+    .{ "project.fuzzy_skin_point_distance", 0.1, 10 },
     .{ "project.infill_layers", 1, 10 },
     .{ "project.ironing_flow", 0, 1 },
     .{ "project.ironing_spacing", 0.01, 2 },
@@ -1764,6 +1780,9 @@ pub const layer_settings = [_][]const u8{
     "project.overhang_wall_speed",
     "project.overhang_wall_fan",
     "project.overhang_wall_threshold",
+    "project.fuzzy_skin",
+    "project.fuzzy_skin_thickness",
+    "project.fuzzy_skin_point_distance",
     "project.infill_overlap",
     "project.infill_layers",
     "project.ironing",

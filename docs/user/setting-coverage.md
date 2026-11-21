@@ -17,8 +17,8 @@ The lists come from Cura `resources/definitions/fdmprinter.def.json` and `fdmext
 
 | Slicer | Settings | Same | Covered | Missing | Not for zslice |
 |---|---|---|---|---|---|
-| Cura | 762 | 164 | 86 | 449 | 63 |
-| OrcaSlicer | 1013 | 156 | 118 | 507 | 232 |
+| Cura | 762 | 166 | 89 | 444 | 63 |
+| OrcaSlicer | 1013 | 158 | 120 | 503 | 232 |
 
 ## Cura
 
@@ -678,11 +678,11 @@ The lists come from Cura `resources/definitions/fdmprinter.def.json` and `fdmext
 | `support_conical_enabled` (Enable Conical Support) | Missing | conical support |
 | `support_conical_angle` (Conical Support Angle) | Missing | conical support |
 | `support_conical_min_width` (Conical Support Minimum Width) | Missing | conical support |
-| `magic_fuzzy_skin_enabled` (Fuzzy Skin) | Missing | fuzzy skin |
-| `magic_fuzzy_skin_outside_only` (Fuzzy Skin Outside Only) | Missing | fuzzy skin |
-| `magic_fuzzy_skin_thickness` (Fuzzy Skin Thickness) | Missing | fuzzy skin |
-| `magic_fuzzy_skin_point_density` (Fuzzy Skin Density) | Missing | fuzzy skin |
-| `magic_fuzzy_skin_point_dist` (Fuzzy Skin Point Distance) | Missing | fuzzy skin |
+| `magic_fuzzy_skin_enabled` (Fuzzy Skin) | Covered | `project.fuzzy_skin` (outer_wall or outside) |
+| `magic_fuzzy_skin_outside_only` (Fuzzy Skin Outside Only) | Covered | `project.fuzzy_skin = outside` |
+| `magic_fuzzy_skin_thickness` (Fuzzy Skin Thickness) | Same | `project.fuzzy_skin_thickness` |
+| `magic_fuzzy_skin_point_density` (Fuzzy Skin Density) | Covered | `project.fuzzy_skin_point_distance` |
+| `magic_fuzzy_skin_point_dist` (Fuzzy Skin Point Distance) | Same | `project.fuzzy_skin_point_distance` |
 | `flow_rate_max_extrusion_offset` (Flow Rate Compensation Max Extrusion Offset) | Missing | a flow offset for fast lines |
 | `flow_rate_extrusion_offset_factor` (Flow Rate Compensation Factor) | Missing | a flow offset for fast lines |
 | `adaptive_layer_height_enabled` (Use Adaptive Layers) | Missing | adaptive layers (zslice has layer height overrides for ranges) |
@@ -919,6 +919,8 @@ The print, printer, and filament settings first, by status. The settings of resi
 | `flush_into_objects` (Flush into this object) | `project.flush_into_hidden` |
 | `flush_multiplier` (Flush multiplier) | `project.flush_multiplier` |
 | `full_fan_speed_layer` (Full fan speed at layer) | `filament.fan_ramp_layers` (the importer converts it) |
+| `fuzzy_skin_point_distance` (Fuzzy skin point distance) | `project.fuzzy_skin_point_distance` |
+| `fuzzy_skin_thickness` (Fuzzy skin thickness) | `project.fuzzy_skin_thickness` |
 | `gcode_flavor` (G-code flavor) | `machine.gcode_flavor` |
 | `idle_temperature` (Idle temperature) | `filament.standby_temp` |
 | `infill_combination` (Infill combination) | `project.infill_layers` |
@@ -1060,6 +1062,8 @@ The print, printer, and filament settings first, by status. The settings of resi
 | `filter_out_gap_fill` (Filter out tiny gaps) | `project.gap_fill` |
 | `flush_volumes_matrix` (Purging volumes) | `machine.flush_volume` and the colors of the filaments |
 | `flush_volumes_vector` (Purging volumes - load/unload volumes) | `machine.flush_volume` |
+| `fuzzy_skin` (Fuzzy skin) | `project.fuzzy_skin` (external is outer_wall; no fuzzy skin on all walls) |
+| `fuzzy_skin_first_layer` (Apply fuzzy skin to first layer) | `project.fuzzy_skin` (the first layer stays smooth) |
 | `gap_fill_target` (Apply gap fill) | `project.gap_fill` |
 | `hot_plate_temp` (Other layers) | `filament.bed_temp` |
 | `hot_plate_temp_initial_layer` (First layer) | `filament.first_layer_bed_temp` |
@@ -1308,18 +1312,14 @@ The print, printer, and filament settings first, by status. The settings of resi
 | `flush_into_infill` (Flush into objects' infill) | Flush into objects' infill |
 | `flush_into_support` (Flush into objects' support) | Flush into objects' support |
 | `flush_multiplier_fast` (Flush multiplier (Fast mode)) | Flush multiplier (Fast mode) |
-| `fuzzy_skin` (Fuzzy skin) | fuzzy skin |
-| `fuzzy_skin_first_layer` (Apply fuzzy skin to first layer) | Apply fuzzy skin to first layer |
 | `fuzzy_skin_layers_between_ripple_offset` (Layers between ripple offset) | Layers between ripple offset |
 | `fuzzy_skin_mode` (Fuzzy skin generator mode) | Fuzzy skin generator mode |
 | `fuzzy_skin_noise_type` (Fuzzy skin noise type) | Fuzzy skin noise type |
 | `fuzzy_skin_octaves` (Fuzzy Skin Noise Octaves) | Fuzzy Skin Noise Octaves |
 | `fuzzy_skin_persistence` (Fuzzy skin noise persistence) | Fuzzy skin noise persistence |
-| `fuzzy_skin_point_distance` (Fuzzy skin point distance) | Fuzzy skin point distance |
 | `fuzzy_skin_ripple_offset` (Ripple offset) | Ripple offset |
 | `fuzzy_skin_ripples_per_layer` (Number of ripples per layer) | Number of ripples per layer |
 | `fuzzy_skin_scale` (Fuzzy skin feature size) | Fuzzy skin feature size |
-| `fuzzy_skin_thickness` (Fuzzy skin thickness) | Fuzzy skin thickness |
 | `gap_fill_flow_ratio` (Gap fill flow ratio) | Gap fill flow ratio |
 | `gap_infill_speed` (Gap infill) | Gap infill |
 | `gap_infill_volumetric_flow` (Gap infill) | Gap infill |
