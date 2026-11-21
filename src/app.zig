@@ -1033,6 +1033,13 @@ pub const App = struct {
         try app.plateChanged();
     }
 
+    /// Mirrors a part along the X (0) or Y (1) axis of the bed.
+    pub fn mirrorPart(app: *App, i: usize, axis: u1) Allocator.Error!void {
+        try app.plate.mirror(app.gpa, i, axis);
+        app.plate.keepOnBed(i, app.bedSize(), app.partGap());
+        try app.plateChanged();
+    }
+
     /// Turns a part by `deg` about the X (0) or Y (1) axis of the bed.
     pub fn turnPart(app: *App, i: usize, axis: u2, deg: f64) Allocator.Error!void {
         try app.plate.turn(app.gpa, i, axis, deg);

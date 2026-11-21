@@ -512,6 +512,10 @@ static void on_action(GSimpleAction *a, GVariant *v, gpointer data) {
         zg_model_part_place(c->model, i, ZS_PLACE_SMART, 0);
     } else if (strcmp(name, "less-support") == 0) {
         zg_model_part_place(c->model, i, ZS_PLACE_LESS_SUPPORT, 0);
+    } else if (strcmp(name, "mirror-x") == 0) {
+        zg_model_part_mirror(c->model, i, 0);
+    } else if (strcmp(name, "mirror-y") == 0) {
+        zg_model_part_mirror(c->model, i, 1);
     } else if (strcmp(name, "reset") == 0) {
         zg_model_part_reset(c->model, i);
     } else if (strcmp(name, "remove") == 0) {
@@ -627,6 +631,8 @@ GtkWidget *zg_part_card_new(ZgModel *model, GtkWidget *preview) {
         {.name = "new-plate", .activate = on_action},
         {.name = "smart", .activate = on_action},
         {.name = "less-support", .activate = on_action},
+        {.name = "mirror-x", .activate = on_action},
+        {.name = "mirror-y", .activate = on_action},
         {.name = "reset", .activate = on_action},
         {.name = "remove", .activate = on_action},
         {.name = "add-setting", .activate = on_action},
@@ -640,6 +646,8 @@ GtkWidget *zg_part_card_new(ZgModel *model, GtkWidget *preview) {
         {"Split to parts", "partcard.split", "Make each separate body of the part a part of its own, at its place"},
         {"Best orientation", "partcard.smart", "Turn the part to its best orientation: less support, more on the bed, low"},
         {"Less support", "partcard.less-support", "Turn the part to need the least support"},
+        {"Mirror X", "partcard.mirror-x", "Mirror the part from left to right"},
+        {"Mirror Y", "partcard.mirror-y", "Mirror the part from front to back"},
         {"Reset", "partcard.reset", "The orientation and the scale of the file again"},
         {"To a new plate", "partcard.new-plate", "Move the part to a new plate, with the settings of this plate"},
         {"Remove", "partcard.remove", "Remove the part from the plate (Delete). Ctrl+Z brings it back."},

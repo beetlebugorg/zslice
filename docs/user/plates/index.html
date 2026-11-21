@@ -102,7 +102,7 @@
 <p>All plates slice: the active plate first. With two plates or more, the print card gives the sums of all plates.</p>
 <p><strong>Make [10] in all</strong> on the card of a part makes copies until there are that many: on its plate while they fit, then on new plates.</p>
 <h2 id="save-and-open">Save and open</h2>
-<ul><li><strong>Save project…</strong> (Ctrl+S, in the main menu) writes all plates into one 3MF file: the parts, their places, their settings, the support areas, and the edits of the lines.</li><li><strong>Open…</strong> (Ctrl+O) opens an STL or a 3MF file. Another slicer opens a zslice 3MF as its first plate.</li><li>zslice opens the 3MF files of other slicers. Parts that touch in the file stay one part.</li></ul>
+<ul><li><strong>Save project…</strong> (Ctrl+S, in the main menu) writes all plates into one 3MF file: the parts, their places, their settings, the support areas, and the edits of the lines.</li><li><strong>Open…</strong> (Ctrl+O) opens an STL, 3MF, or OBJ file. An OBJ file has no unit: zslice reads it in mm. Another slicer opens a zslice 3MF as its first plate.</li><li>zslice opens the 3MF files of other slicers. Parts that touch in the file stay one part.</li></ul>
 <h2 id="cura-projects">Cura projects</h2>
 <p>zslice opens a 3MF project that Cura saved, with the settings of each object:</p>
 <ul><li>Each Cura setting becomes its zslice setting, for example <code>infill_sparse_density</code> becomes <code>project.infill_density</code>.</li><li>A Cura "infill mesh" changes the infill of the part that it overlaps. This is how a speaker grille works.</li><li>zslice does not support the cutting meshes, the anti overhang meshes, and the support meshes of Cura yet.</li></ul>

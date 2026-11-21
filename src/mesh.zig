@@ -1,4 +1,4 @@
-//! Triangle meshes and the STL file format.
+//! Triangle meshes, and the STL and OBJ file formats.
 //!
 //! An STL file is a list of triangles. Each triangle has its own three
 //! vertices, and the file does not say which triangles share a vertex. The
@@ -10,7 +10,14 @@
 //! The vertex order of a triangle gives the outside of the mesh. Seen from
 //! outside, the vertices are counterclockwise (the right-hand rule).
 //!
-//! STL format: see docs/references/.
+//! An OBJ file (Wavefront) lists the vertices ("v x y z") and the faces
+//! ("f 1 2 3 4", with indices from 1, or from the end with a minus). A
+//! face with more than three vertices becomes a fan of triangles from its
+//! first vertex. The loader welds the vertices as for STL, and skips the
+//! texture coordinates, the normals, the groups, and the materials. An
+//! OBJ file has no unit: zslice reads it in mm.
+//!
+//! STL and OBJ formats: see docs/references/formats-and-protocols.md.
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
@@ -151,6 +158,7 @@ pub const Mesh = struct {
     /// Loads a binary or ASCII STL file.
     pub fn fromStl(gpa: Allocator, bytes: []const u8) Error!Mesh {
         if (isBinaryStl(bytes)) return parseBinaryStl(gpa, bytes);
+        if (isObj(bytes)) return parseObj(gpa, bytes);
         return parseAsciiStl(gpa, bytes);
     }
 
@@ -317,6 +325,64 @@ fn parseBinaryStl(gpa: Allocator, bytes: []const u8) Error!Mesh {
     return b.finish();
 }
 
+/// True for an OBJ text: no zero byte at the start, not "solid", and a
+/// line "v ..." and a line "f ..." in the file.
+fn isObj(bytes: []const u8) bool {
+    const head = bytes[0..@min(bytes.len, 512)];
+    if (std.mem.indexOfScalar(u8, head, 0) != null) return false;
+    if (std.mem.startsWith(u8, std.mem.trimStart(u8, bytes, " \t\r\n"), "solid")) return false;
+    var v = false;
+    var f = false;
+    var lines = std.mem.splitScalar(u8, bytes, '\n');
+    while (lines.next()) |raw| {
+        const line = std.mem.trimStart(u8, raw, " \t");
+        if (std.mem.startsWith(u8, line, "v ") or std.mem.startsWith(u8, line, "v\t")) v = true;
+        if (std.mem.startsWith(u8, line, "f ") or std.mem.startsWith(u8, line, "f\t")) f = true;
+        if (v and f) return true;
+    }
+    return false;
+}
+
+/// Reads an OBJ text (see the file comment).
+fn parseObj(gpa: Allocator, bytes: []const u8) Error!Mesh {
+    var verts: std.ArrayList(Vec3) = .empty;
+    defer verts.deinit(gpa);
+    var b: Builder = .init(gpa);
+    errdefer b.deinit();
+    var face: std.ArrayList(u32) = .empty;
+    defer face.deinit(gpa);
+    var lines = std.mem.splitScalar(u8, bytes, '\n');
+    while (lines.next()) |raw| {
+        var it = std.mem.tokenizeAny(u8, raw, " \t\r");
+        const kind = it.next() orelse continue;
+        if (std.mem.eql(u8, kind, "v")) {
+            var c: [3]f32 = undefined;
+            for (&c) |*x| {
+                const s = it.next() orelse return error.InvalidStl;
+                x.* = std.fmt.parseFloat(f32, s) catch return error.InvalidStl;
+            }
+            try verts.append(gpa, .{ .x = c[0], .y = c[1], .z = c[2] });
+        } else if (std.mem.eql(u8, kind, "f")) {
+            face.clearRetainingCapacity();
+            while (it.next()) |tok| {
+                // "i", "i/t", "i//n", or "i/t/n": the vertex is the first.
+                const end = std.mem.indexOfScalar(u8, tok, '/') orelse tok.len;
+                const n = std.fmt.parseInt(i64, tok[0..end], 10) catch return error.InvalidStl;
+                const count: i64 = @intCast(verts.items.len);
+                const idx = if (n > 0) n - 1 else if (n < 0) count + n else return error.InvalidStl;
+                if (idx < 0 or idx >= count) return error.InvalidStl;
+                try face.append(gpa, @intCast(idx));
+            }
+            if (face.items.len < 3) continue;
+            const vs = verts.items;
+            for (1..face.items.len - 1) |k| {
+                try b.addTriangle(vs[face.items[0]], vs[face.items[k]], vs[face.items[k + 1]]);
+            }
+        }
+    }
+    return b.finish();
+}
+
 fn parseAsciiStl(gpa: Allocator, bytes: []const u8) Error!Mesh {
     if (!std.mem.startsWith(u8, std.mem.trimStart(u8, bytes, " \t\r\n"), "solid")) return error.InvalidStl;
     var b: Builder = .init(gpa);
@@ -478,6 +544,40 @@ test "ASCII STL" {
     var m = try Mesh.fromStl(gpa, src);
     defer m.deinit(gpa);
     try testing.expectEqual(@as(usize, 1), m.faces.items.len);
+}
+
+test "OBJ: vertices, faces from 1 and from the end, and a quad" {
+    const gpa = std.testing.allocator;
+    // A box of 10 mm: 8 vertices, 6 quads, with texture and normal
+    // indices on some faces, and negative indices on one.
+    const text =
+        \\# a box
+        \\o box
+        \\v 0 0 0
+        \\v 10 0 0
+        \\v 10 10 0
+        \\v 0 10 0
+        \\v 0 0 10
+        \\v 10 0 10
+        \\v 10 10 10
+        \\v 0 10 10
+        \\vn 0 0 1
+        \\f 1 4 3 2
+        \\f 5/1 6/1 7/1 8/1
+        \\f 1//1 2//1 6//1 5//1
+        \\f 2 3 7 6
+        \\f -5 -1 -2 -6
+        \\f 4 1 5 8
+        \\
+    ;
+    var m = try Mesh.fromStl(gpa, text);
+    defer m.deinit(gpa);
+    try std.testing.expectEqual(@as(usize, 8), m.vertices.items.len);
+    try std.testing.expectEqual(@as(usize, 12), m.faces.items.len);
+    const bb = m.bounds();
+    try std.testing.expectEqual(@as(f64, 10), bb.max[2]);
+    // A face with an index past the end is an error.
+    try std.testing.expectError(error.InvalidStl, Mesh.fromStl(gpa, "v 0 0 0\nv 1 0 0\nv 0 1 0\nf 1 2 4\n"));
 }
 
 test "garbage is not an STL file" {

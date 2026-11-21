@@ -839,7 +839,7 @@ export class Core {
   // The report of a line for "Copy for AI" (zs_app_line_report).
   lineReport(path) {
     const w = this.w;
-    const file = `${(this.modelName || "part").replace(/\.(stl|3mf)$/i, "")}.gcode (Export G-code saves it)`;
+    const file = `${(this.modelName || "part").replace(/.(stl|3mf|obj)$/i, "")}.gcode (Export G-code saves it)`;
     const rc = w.withString(file, (f) => w.x.zs_app_line_report(this.app, path, f, w.cell, w.cell + 4));
     if (rc !== 0) return null;
     return w.text(w.u32(w.cell), w.u32(w.cell + 4));
@@ -1104,6 +1104,8 @@ export class Core {
       case "smart": return -x.zs_app_part_place(this.app, i, 0, 0);
       case "less-support": return -x.zs_app_part_place(this.app, i, 1, 0);
       case "reset": return -x.zs_app_part_reset(this.app, i);
+      case "mirror-x": return -x.zs_app_part_mirror(this.app, i, 0);
+      case "mirror-y": return -x.zs_app_part_mirror(this.app, i, 1);
       case "remove": return -x.zs_app_part_remove(this.app, i);
       default: return -2;
     }

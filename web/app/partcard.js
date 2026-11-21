@@ -250,6 +250,8 @@ export class PartCard {
     this.scaleIn.onchange = applyScale;
     scaleRow.append("Scale ", this.scaleIn, " %");
     actions.append(scaleRow);
+    action("Mirror X", "", "Mirror the part from left to right", "mirror-x");
+    action("Mirror Y", "", "Mirror the part from front to back", "mirror-y");
     action("Reset", "", "The orientation and the scale of the file again", "reset");
     const moveB = el("button", "pc-action", "To a new plate");
     moveB.title = "Move the part to a new plate, with the settings of this plate";
