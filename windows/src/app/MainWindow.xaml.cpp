@@ -174,6 +174,7 @@ namespace winrt::ZSlice::implementation
             return;
         }
         ApplySize();
+        WirePrinters();
         // ZSLICE_PRINTER=id: starts on a printer of the library, for tests.
         wchar_t printer[128];
         if (::GetEnvironmentVariableW(L"ZSLICE_PRINTER", printer, ARRAYSIZE(printer)) > 0)
@@ -181,6 +182,7 @@ namespace winrt::ZSlice::implementation
             std::string message;
             if (!model->UsePrinter(zs::ToUtf8(printer), message))
                 ShowError(zs::ToWide(message));
+            PrintersNoteChange();
         }
         ShowPlate();
         ViewPanel().Focus(FocusState::Programmatic);
@@ -196,6 +198,7 @@ namespace winrt::ZSlice::implementation
         animation_timer.Stop();
         scene_timer.Stop();
         history_timer.Stop();
+        ClosePrinters();
         // The view reads the apps of the set, so it goes first.
         if (view != nullptr)
             zs_view_free(view);
@@ -294,13 +297,17 @@ namespace winrt::ZSlice::implementation
             break;
         case ZS_EVENT_SLICED:
             if (zs_app_state(model->Active()) == ZS_STATE_DONE)
+            {
                 ShowSlice();
+                PrintersOnSliced();
+            }
             break;
         case ZS_EVENT_FAILED:
             if (zs_app_state(model->Active()) == ZS_STATE_FAILED)
             {
                 SliceProgress().Visibility(Visibility::Collapsed);
                 ShowError(zs::ToWide(zs_status_message(event.status)));
+                PrintersOnFailed();
             }
             break;
         default:

@@ -1358,7 +1358,7 @@ namespace
         first.url = "http://127.0.0.1:1";
         first.api_key = test_key;
         std::string id_a, id_b, message;
-        CHECK(setup.AddPrinter(first, false, id_a, message));
+        CHECK(setup.AddNewPrinter(first, false, id_a, message));
         CHECK(model.GetSetting("machine.name") == "Shop Ender");
         CHECK(atof(model.GetSetting("machine.nozzle_diameter").c_str()) == 0.6);
         CHECK(atof(model.GetSetting("machine.bed_size_y").c_str()) == 210);
@@ -1369,7 +1369,7 @@ namespace
         second.bed_x = 300;
         second.bed_y = 300;
         second.height = 300;
-        CHECK(setup.AddPrinter(second, false, id_b, message));
+        CHECK(setup.AddNewPrinter(second, false, id_b, message));
         CHECK(atof(model.GetSetting("machine.bed_size_x").c_str()) == 300);
 
         // Each printer gets its own machine settings back.
