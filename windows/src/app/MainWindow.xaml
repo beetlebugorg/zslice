@@ -92,7 +92,7 @@
             <StackPanel x:Name="EmptyHint" HorizontalAlignment="Center" VerticalAlignment="Center"
                         Spacing="6" IsHitTestVisible="False">
                 <TextBlock Text="Open a model to slice it" FontSize="20" HorizontalAlignment="Center" />
-                <TextBlock Text="STL or 3MF. Drop a file here, or press Ctrl+O."
+                <TextBlock Text="STL, 3MF, STEP, or OBJ. Drop a file here, or press Ctrl+O."
                            Foreground="#5B6168" HorizontalAlignment="Center" />
             </StackPanel>
 
@@ -118,7 +118,26 @@
                             ToolTipService.ToolTip="Remove this plate">
                         <FontIcon Glyph="&#xE711;" FontSize="12" />
                     </Button>
+                    <Rectangle Width="1" Margin="6,6" Fill="#DDE0E4" />
+                    <!-- The replay of the print. -->
+                    <Button x:Name="PlayButton" AutomationProperties.Name="Replay the print" Background="Transparent"
+                            BorderThickness="0" ToolTipService.ToolTip="Replay the print">
+                        <FontIcon x:Name="PlayIcon" Glyph="&#xE768;" FontSize="12" />
+                    </Button>
+                    <ComboBox x:Name="SpeedBox" AutomationProperties.Name="The replay speed" MinWidth="76"
+                              VerticalAlignment="Center" ToolTipService.ToolTip="The replay speed" />
+                    <Slider x:Name="ScrubSlider" AutomationProperties.Name="The time in the layer" Width="130"
+                            Minimum="0" Maximum="1" StepFrequency="0.001" Value="1" Margin="8,0,4,0"
+                            VerticalAlignment="Center" IsThumbToolTipEnabled="False" />
+                    <TextBlock x:Name="ScrubText" VerticalAlignment="Center" FontSize="12" MinWidth="118" Foreground="#5B6168" />
                 </StackPanel>
+            </Border>
+
+            <!-- The range of the colors, or the gaps of the layer. -->
+            <Border x:Name="LegendCard" Visibility="Collapsed" HorizontalAlignment="Center" VerticalAlignment="Top"
+                    Margin="0,10,0,0" Padding="10,4" Background="#F2FFFFFF" BorderBrush="#DDE0E4"
+                    BorderThickness="1" CornerRadius="6">
+                <TextBlock x:Name="LegendText" FontSize="12" />
             </Border>
 
             <Border x:Name="LayerCard" Visibility="Collapsed" HorizontalAlignment="Right"
@@ -283,6 +302,25 @@
                             <Button x:Name="PartNewPlate" Grid.Row="1" Content="To a new plate" HorizontalAlignment="Stretch" />
                             <Button x:Name="PartRemove" Grid.Row="1" Grid.Column="1" Content="Remove" HorizontalAlignment="Stretch" />
                         </Grid>
+                    </StackPanel>
+                </Border>
+
+                <Border x:Name="GapCard" Width="320" Visibility="Collapsed" Padding="12"
+                        Background="#FAFFFFFF" BorderBrush="#DDE0E4" BorderThickness="1" CornerRadius="8">
+                    <StackPanel Spacing="6">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock x:Name="GapTitle" FontWeight="Bold" VerticalAlignment="Center" />
+                            <Button x:Name="GapClose" Grid.Column="1" Background="Transparent" BorderThickness="0"
+                                    Padding="6" AutomationProperties.Name="Close the gap card">
+                                <FontIcon Glyph="&#xE711;" FontSize="11" />
+                            </Button>
+                        </Grid>
+                        <TextBlock x:Name="GapFacts" FontSize="12" Foreground="#5B6168" TextWrapping="WrapWholeWords" />
+                        <StackPanel x:Name="GapAdvice" Spacing="6" />
                     </StackPanel>
                 </Border>
 
