@@ -10,8 +10,22 @@ out=macos/lib
 mkdir -p "$out"
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
+# The two builds run at the same time: most of a release build is the
+# code generation of LLVM for the one object, which uses about one core,
+# so the second build takes cores that are free.
 for arch in aarch64 x86_64; do
-    "$ZIG" build lib -Dtarget="$arch-macos" -Doptimize="$OPT" -Dcompiler-rt --prefix "zig-out/macos-$arch"
+    "$ZIG" build lib -Dtarget="$arch-macos" -Doptimize="$OPT" -Dcompiler-rt --prefix "zig-out/macos-$arch" >"$tmp/$arch.log" 2>&1 &
+    echo $! >"$tmp/$arch.pid"
+done
+failed=0
+for arch in aarch64 x86_64; do
+    if ! wait "$(cat "$tmp/$arch.pid")"; then
+        cat "$tmp/$arch.log" >&2
+        failed=1
+    fi
+done
+[ "$failed" = 0 ] || exit 1
+for arch in aarch64 x86_64; do
     # The archive of Zig 0.16 does not align its object to 8 bytes, and
     # the Apple tools (ld, lipo, libtool) then skip it. So the script takes
     # the object out and makes the archive again with libtool.
