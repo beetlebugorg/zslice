@@ -172,11 +172,13 @@ pub const builtins = [_]Builtin{
     .{ .group = .filament, .name = "generic-petg", .text = @embedFile("profiles/filament/generic-petg.toml") },
     .{ .group = .filament, .name = "generic-abs", .text = @embedFile("profiles/filament/generic-abs.toml") },
     .{ .group = .filament, .name = "generic-tpu", .text = @embedFile("profiles/filament/generic-tpu.toml") },
-    .{ .group = .project, .name = "standard", .text = @embedFile("profiles/project/standard.toml") },
-    .{ .group = .project, .name = "draft", .text = @embedFile("profiles/project/draft.toml") },
+    // The qualities from the finest to the coarsest, as the menus list
+    // them: Strong has the layers of Standard and more walls.
     .{ .group = .project, .name = "fine", .text = @embedFile("profiles/project/fine.toml") },
-    .{ .group = .project, .name = "coarse", .text = @embedFile("profiles/project/coarse.toml") },
+    .{ .group = .project, .name = "standard", .text = @embedFile("profiles/project/standard.toml") },
     .{ .group = .project, .name = "strong", .text = @embedFile("profiles/project/strong.toml") },
+    .{ .group = .project, .name = "draft", .text = @embedFile("profiles/project/draft.toml") },
+    .{ .group = .project, .name = "coarse", .text = @embedFile("profiles/project/coarse.toml") },
 };
 
 pub fn builtin(group: Group, name: []const u8) ?[]const u8 {
