@@ -58,6 +58,7 @@ const usage =
     \\  bench     Slice in the app core: once from the start, then again
     \\            after a change of each kind of setting. Print the times
     \\            and the peak memory. --only KIND times one kind: full,
+    \\            draft (the slice for the view during a drag),
     \\            late, walls, top, width, height, support, area, tree, xy,
     \\            speed, accel, flow, fan, temp, cool, cancel, paint (the
     \\            lower sixth of the part brushed with a second
@@ -569,6 +570,18 @@ fn bench(backing: std.mem.Allocator, io: Io, err: *Io.Writer, name: []const u8, 
         try printTimes(err, "paint split", times);
         if (app.result()) |st| try err.print("filament: {d:.3} g of the part, {d:.3} g of the paint, {d} changes\n", .{ st.slot_g[0], st.slot_g[1], st.changes });
         try err.print("peak memory: {d} MB resident (VmHWM), {d} MB allocated\n", .{ peakMb(io), counter.peak.load(.monotonic) >> 20 });
+        return;
+    }
+    if (only != null and std.mem.eql(u8, only.?, "draft")) {
+        // The draft slice of a drag (App.setDraft), each one from the
+        // start.
+        app.setDraft(true);
+        for (times) |*t| {
+            try app.loadStl(std.fs.path.basename(name), bytes);
+            try addCopies(app, name, bytes, copies);
+            t.* = try benchSlice(app, io);
+        }
+        try printTimes(err, "draft slice", times);
         return;
     }
     if (only == null or std.mem.eql(u8, only.?, "full")) {

@@ -161,6 +161,7 @@ zslice check part.stl              # what can make the print fail</code></pre>
 late (infill)  wall median    62.4 ms
 wall count     wall median   310.0 ms</code></pre>
 <p>These times are for a 3DBenchy on a desktop CPU from 2015 with 4 cores (8 threads).</p>
+<p><code>zslice bench part.stl --only draft</code> times the draft slice that an app can show during a drag: the outlines lose the points within 0.05 mm of a straight line, and the gaps get no fill. A draft of a 3DBenchy needs about a third of the CPU time of the full slice. The command line never writes the G-code of a draft.</p>
 <p><code>zslice bench part.stl --only sim --runs 1</code> slices the part once, then times the simulated print of the plastic (see <a href="../../internals/print-sim/">The print as it forms</a>). <code>--only sim-side</code> turns the part on its side first, and <code>--only sim-flip</code> turns it upside down, for steep overhangs with no support. For a 3DBenchy:</p>
 <pre><code>simulate       wall median  1460.5 ms
 simulate: 585778 masses, 21851 soft, peak 89 soft, 12272 moved in 481 paths, max move 7.77 mm, 11.69 g, 243723 steps, 7.0 MB more at the peak</code></pre>

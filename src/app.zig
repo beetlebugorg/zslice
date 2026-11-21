@@ -266,6 +266,10 @@ pub const App = struct {
     prev_job: ?zs.PlateJob = null,
     /// A part that slices coarse (see `setCoarsePart`), or null.
     coarse_part: ?usize = null,
+    /// The next slices are drafts (see `setDraft`).
+    draft: bool = false,
+    /// The slice that runs, or the last slice, is a draft.
+    slice_draft: bool = false,
     gcode_bytes: []u8 = &.{},
     /// The memory of `gcode_bytes`: it can be larger.
     gcode_buf: []u8 = &.{},
@@ -2427,6 +2431,13 @@ pub const App = struct {
             app.dropPrevJob();
         }
         app.slice_settings = app.settings;
+        app.slice_draft = app.draft;
+        if (app.draft) {
+            const s = &app.slice_settings;
+            s.engine.resolution = @max(s.engine.resolution, draft_resolution);
+            s.project.gap_fill = false;
+            s.project.wall_generator = .classic;
+        }
         app.gpa.free(app.slice_overrides);
         app.slice_overrides = app.gpa.dupe(zs.settings.Override, app.overrides.items) catch &.{};
         app.gpa.free(app.slice_filaments);
@@ -2580,6 +2591,37 @@ pub const App = struct {
         if (std.meta.eql(app.coarse_part, i)) return;
         app.stopWorker();
         app.coarse_part = i;
+    }
+
+    /// The outline tolerance of a draft slice (mm).
+    pub const draft_resolution = 0.05;
+
+    /// The next slices are drafts (true) or exact (false). A draft is a
+    /// slice for the view while the user drags or edits: the outlines
+    /// lose the points within 0.05 mm of a straight line, the gaps get
+    /// no fill, and the walls are classic walls. All other paths are as
+    /// in the exact slice, within the outline tolerance. A draft of a
+    /// 3DBenchy needs a third of the CPU time of the exact slice.
+    ///
+    /// The G-code of a draft is not for a printer: `exactGcode` gives
+    /// none (see `isDraft`). The shell turns the draft off at the end of
+    /// the drag and slices again. Only the shell uses it.
+    pub fn setDraft(app: *App, on: bool) void {
+        if (app.draft == on) return;
+        app.stopWorker();
+        app.draft = on;
+    }
+
+    /// True if the slice that runs, or the last slice, is a draft.
+    pub fn isDraft(app: *const App) bool {
+        return app.slice_draft;
+    }
+
+    /// The G-code of the last slice for a file or a printer: null for a
+    /// draft, and null with no result.
+    pub fn exactGcode(app: *const App) ?[]const u8 {
+        if (app.slice_draft) return null;
+        return app.gcode();
     }
 
     /// The changes of a part, then the changes of a coarse slice.
@@ -3965,6 +4007,41 @@ test "app: a coarse part slices with fewer layers, and the full slice comes back
     app.stopWorkerForTest();
     try testing.expectEqual(full, app.layerCount());
     try testing.expectEqualStrings(gcode, app.gcode().?);
+}
+
+test "app: a draft slice has no gap fill and no G-code for a printer, and the exact slice comes back" {
+    const gpa = testing.allocator;
+    var mesh = try zs.mesh.shapes.demo(gpa);
+    defer mesh.deinit(gpa);
+    var stl: std.Io.Writer.Allocating = .init(gpa);
+    defer stl.deinit();
+    try mesh.writeStl(&stl.writer);
+    const app = try App.create(gpa, null, null);
+    defer app.destroy();
+    try app.loadStl("demo.stl", stl.written());
+    try app.startSlice();
+    app.stopWorkerForTest();
+    const layers = app.layerCount();
+    const gcode = try gpa.dupe(u8, app.exactGcode().?);
+    defer gpa.free(gcode);
+    app.setDraft(true);
+    try app.startSlice();
+    app.stopWorkerForTest();
+    try testing.expectEqual(State.done, app.getState());
+    try testing.expect(app.isDraft());
+    // The view has the paths of the draft. A file and a printer get no
+    // G-code.
+    try testing.expectEqual(layers, app.layerCount());
+    try testing.expect(app.gcode() != null);
+    try testing.expect(app.exactGcode() == null);
+    try testing.expectEqual(@as(f64, 0.005), app.settings.engine.resolution);
+    try testing.expectEqual(@as(f64, 0.05), app.slice_settings.engine.resolution);
+    try testing.expect(!app.slice_settings.project.gap_fill);
+    app.setDraft(false);
+    try app.startSlice();
+    app.stopWorkerForTest();
+    try testing.expect(!app.isDraft());
+    try testing.expectEqualStrings(gcode, app.exactGcode().?);
 }
 
 test "app: a simulation on the worker gives the result of a simulation on the calling thread" {

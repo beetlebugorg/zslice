@@ -101,6 +101,18 @@ A rule with a least segment length and a largest deviation, as Cura has it, is w
 
 The default stays at 0.005 mm. A change of the default changes the G-code of each part, so it is a decision of the owner.
 
+## The draft slice
+
+`App.setDraft` (`zs_app_set_draft`) makes the next slices drafts for the view during a drag or an edit: an outline tolerance of 0.05 mm, no gap fill, and classic walls. The view gets the paths. `zs_app_gcode` and `zs_app_bambu_file` give no G-code for a draft, so a file or a printer gets only the exact slice. The shell turns the draft off at the end of the drag and slices again.
+
+| Part | Exact slice (CPU) | Draft slice (CPU) |
+|---|---|---|
+| 3DBenchy | 1471 ms | 480 ms |
+| 3DBenchy, 9 copies | 1961 ms | 730 ms |
+| Bunny | 1312 ms | 639 ms |
+
+The gap fill alone is 439 ms of the 3DBenchy (1482 to 1043 ms with `project.gap_fill` off). `zslice bench part.stl --only draft` measures a draft.
+
 ## Rules
 
 - Compare CPU times when other programs use the machine. The wall time of a full slice was 500 to 680 ms during these measurements, and its CPU time changed by less than 1 % between rounds.

@@ -171,6 +171,8 @@ wall count     wall median   310.0 ms
 
 These times are for a 3DBenchy on a desktop CPU from 2015 with 4 cores (8 threads).
 
+`zslice bench part.stl --only draft` times the draft slice that an app can show during a drag: the outlines lose the points within 0.05 mm of a straight line, and the gaps get no fill. A draft of a 3DBenchy needs about a third of the CPU time of the full slice. The command line never writes the G-code of a draft.
+
 `zslice bench part.stl --only sim --runs 1` slices the part once, then times the simulated print of the plastic (see [The print as it forms](../internals/print-sim.md)). `--only sim-side` turns the part on its side first, and `--only sim-flip` turns it upside down, for steep overhangs with no support. For a 3DBenchy:
 
 ```
