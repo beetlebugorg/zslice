@@ -105,6 +105,7 @@ zslice preview part.stl --layer 20 -o layer20.svg
 | Dark gray | Support interface |
 | Teal | Slope smoothing (beads in the steps of a sloped top) |
 | Lime | Slope ironing (ironing over the steps of a sloped top) |
+| Sky blue | Bridges |
 | Gray dashes | Travel moves |
 
 The light gray area is the outline of the layer. Each line has the width of the line, so you can see gaps and overlaps.
@@ -129,6 +130,18 @@ zslice gaps part.stl               # the gaps of each layer
 zslice gaps part.stl --layer 49    # the gaps of one layer
 zslice check part.stl              # what can make the print fail
 ```
+
+## Other commands
+
+| Command | What it does |
+|---|---|
+| `zslice printers` | Lists the printers of the printer library: the id, the firmware, the bed, and the name. `-m <id>` loads the machine profile of a printer. |
+| `zslice profile project -p fine` | Writes the settings of one group (`machine`, `filament`, or `project`) as a profile file, with the options applied. Start a new profile from it. |
+| `zslice import cura <folder> -o <profiles folder>` | Converts a Cura profile stack (a folder with `cura.json`) to zslice profiles. |
+| `zslice orient part.stl` | Lists the orientations that smart placement compares, with the cost of each, and the best one. |
+| `zslice gcode file.gcode` | Reads a G-code file of any slicer, as the print view does. It prints the size, the layers, the moves, the box, the print time, the time to read it, and the peak memory. |
+
+Run `zslice` with no command to see all commands and options.
 
 ## See which settings matter for a part
 

@@ -82,7 +82,9 @@ The package is `Package.swift`. `Sources/CZslice/module.modulemap` makes the C A
 
 | File | What it does |
 |---|---|
-| `Core/Tools.swift` | The tools of the view (Select, Move, Turn, Grab, Measure, Paint), the parts, and the part card. |
+| `Core/Tools.swift` | The tools of the view (Select, Move, Turn, Support, Grab, Measure, Paint, Label), the parts, and the part card. |
+| `Core/Label.swift` | The model of a label: its JSON and the math of its frame. |
+| `Core/LabelTool.swift` | The Label tool. |
 | `Core/Selection.swift` | The selected line: the pick, the highlight, the facts of the line card, the line after a new slice, and the keys of a line. |
 | `Core/LayerRange.swift` | A range of layers: a drag of the Select tool, and Shift-K and Shift-J. |
 | `Core/SupportPick.swift` | The support that the Select tool picked: a tree to drag, or the overhang of a grid support. |
@@ -124,6 +126,9 @@ The package is `Package.swift`. `Sources/CZslice/module.modulemap` makes the C A
 | `Views/RangeCard.swift` | The card of a range of layers. |
 | `Views/SupportCard.swift` | The card of the Support tool, and of a picked support. |
 | `Views/PaintCard.swift` | The card of the Paint tool. |
+| `Views/LabelCard.swift` | The card of a label, and its handles to scale and turn it. |
+| `Views/SpatialCards.swift` | The place and the size that each card keeps. |
+| `Views/ToolGlyph.swift` | The icons of the tool strip, from the SVG paths of the web app. |
 | `Views/FilamentViews.swift` | The filament chips, and the list of the filaments. |
 | `Views/PrintFacts.swift` | The main settings of the print in the details, each with a popover of editors. |
 | `Views/SettingsInspector.swift` | The settings drawer: the sections, the settings with their editors, the page of a setting, and its search. |

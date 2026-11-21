@@ -18,7 +18,7 @@ Each action of the app has a key, or a path from the keyboard. No action needs t
 
 - `?` opens the sheet of all keyboard shortcuts, grouped (view, tools, parts, layers, plates, settings, history, print). The sheet comes from the same table that the menus and the tooltips use, so it is always complete. Type in the sheet to filter it.
 - `/` opens the settings search. The arrow keys move in the results. Enter edits a value, and Left and Right change a slider or a list.
-- Each tool has one key (Select `S`, Move `M`, Turn `R`, Scale `Shift+S`, Lay flat `F`, Cut `C`, Duplicate `D`, Draw supports `P`, Measure `T`, Gaps `G`, Check `K`, Edit lines `E`).
+- Each tool has one key. The apps have Select `V`, Move `M`, Turn `R`, Support `S`, Grab `H`, Measure `T`, Paint `P`, Label `L`, Gaps `G`, and Duplicate `D` ([Keys and mouse](../user/keys.md)). Scale, Lay flat, Cut, Check, and Edit lines have no key yet.
 - `Tab` and `Shift+Tab` go through the parts of the active plate. The arrow keys move the selected part (with `Shift`: 10 times the step), and `R` with the arrow keys turns it.
 - `[` and `]` go to the plate before and the next plate, and `Home` frames all plates.
 - `Page Up` and `Page Down` (or `Up` and `Down` when the layer slider has the focus) go through the layers.
@@ -30,7 +30,7 @@ Each action of the app has a key, or a path from the keyboard. No action needs t
 
 Each plate is one `App` (`zs_app`), with its own settings, profiles, parts, slice result, and cancel flag. A project plate has the profiles of its Cura stack, so the plates cannot share one set of settings.
 
-- The C API of the settings and the parts stays per App. The plate set is in the core (`zs_set`, `src/app/plate_set.zig`; see architecture.md): the list of apps, the active one, the status of each, and the order of the slices. The `PlateSlot` swap in `App.selectPlate` stays for the C API, but no shell uses it now.
+- The C API of the settings and the parts stays per App. The plate set is in the core (`zs_set`, `src/app/plate_set.zig`; see architecture.md): the list of apps, the active one, the status of each, and the order of the slices. The `PlateSlot` swap in `App.selectPlate` is still in `App`. No C API function and no shell uses it.
   - After a change, the active plate slices first. The other plates that are not up to date slice after it, one at a time, in the background.
   - A plate that is not up to date shows its old slice, dimmed a little, until its new one is done.
   - A change of a setting applies to the active plate. A change in the settings drawer can also apply to all plates that use the same profile (a choice in the drawer).
@@ -39,7 +39,7 @@ Each plate is one `App` (`zs_app`), with its own settings, profiles, parts, slic
 ## The renderer
 
 - The active plate is the full `View` that exists now: the pick index, the layer range, the selection, the replay, and the focus.
-- Each other plate is a fixed bead buffer at an offset on x (`zs_view_set_plates`, to add): its beads, made from its App once after each slice. It has no pick index and no layer range. A click on it makes its plate the active one (the shell finds the plate from the bed point).
+- Each other plate is a fixed bead buffer at an offset on x (`zs_view_set_plates`): its beads, made from its App once after each slice. It has no pick index and no layer range. A click on it makes its plate the active one (the shell finds the plate from the bed point).
 - The beds: one bed model (or grid) for each plate, at its offset. The label of each plate (name, printer, status) is a floating card of the shell, placed at the projected point over the back edge of its bed (`zs_view_pixel_of`).
 - Speed:
   - Draw a plate far from the camera with fewer beads: only the outer walls and the top skin of each layer, or every second layer.
@@ -105,7 +105,7 @@ Differences from the web app:
 
 - A turn or a move of a part slices at each step. The GTK view shows only the slice (no mesh of the part), so a held slice gives no feedback during a drag.
 - The sheet of the keys is a window of its own.
-- The GTK app has the plate set of the core (`zs_set`) and the plate bar of the web app (‹ Plate n of N › + Plate ×), with the keys `[`, `]`, `F`, and `Home`. The Vulkan backend draws only the active plate, so the bar has no **All**, and `F` and `Home` reset the camera. The plates have no labels in the view; the tooltip of "Plate n of N" lists the plates and their status.
+- The GTK app has the plate set of the core (`zs_set`) and the plate bar of the web app (‹ Plate n of N › + Plate ×), with the keys `[`, `]`, `F`, and `Home`. The Vulkan backend draws the other plates too. The bar has **All**. `Home` shows all plates, and `F` shows the active plate. The plates have no labels in the view; the tooltip of "Plate n of N" lists the plates and their status.
 
 ## The steps
 
@@ -140,11 +140,11 @@ The plate set was first in `web/app/worker.js`. It is in the core now (`zs_set`)
 - The beds: the grid of each plate, in a lighter color for a plate that cannot slice, and the bed model of the view at each plate of the same printer.
 - A plate with an old slice fades to the background a little (`fade` in the bead shader of `gl.js`).
 - The C API (`include/zslice-app.h`): `zs_view_set_plates`, `zs_view_plate_scene_read`, `zs_view_plate_load`, `zs_view_plate_clear`, `zs_view_plate_flags`, `zs_view_plate_at`, `zs_view_plate_origin`, and `zs_view_frame_plate`. The web frame has a list of `zs_web_plate` items, their draws, and the grid lines of the plates.
-- Only the frame backend (web and macOS) draws the other plates and the light beads. The Vulkan backend draws the active plate as before (step 4).
+- The frame backend (web and macOS) and the Vulkan backend (Linux) both draw the other plates.
 
 ### Memory
 
-- The worker has one wasm memory for all apps: 2 GB at most for the module with threads. An app keeps its job, its toolpaths, and its G-code after a slice.
+- The worker has one wasm memory for all apps: 4 GB at most for the module with threads (`wasm_mt_max` in build.zig). An app keeps its job, its toolpaths, and its G-code after a slice.
 - `zs_app_trim` (`App.trim`) frees the memos of the job of an app, and the buffers of the results before. The result stays, and the next slice makes the slow steps again. The worker trims each plate after its background slice, and the plate that stops being active.
 - The view of a `Core` lives only while it writes a scene. The Core keeps a copy of the last scene bytes in JavaScript memory, out of the wasm memory, for a plate that becomes active while it slices again.
 - Each Benchy plate adds 63 MB of wasm memory with a view of its own and no trim, and 30 MB with both changes.
@@ -167,7 +167,7 @@ Chromium (headless, ANGLE on OpenGL) on an Intel HD 530, the view 840 x 850 pixe
 | 20 Benchies on one plate, start view | GPU 205 ms, orbit 217 ms | GPU 40.6 ms, orbit 50 ms |
 
 - The 6 plates of the printdeck project hold 60 frames a second in an orbit, in each camera position. A zoom close to a plate is slower (p95 50 to 67 ms): near the camera, the beads are full.
-- 20 Benchies on one plate (1.76 million beads) do not reach 60 frames a second on this GPU. A 7th plate of 20 Benchies next to the 6 plates of the project does not slice: the worker reaches the 2 GB of the wasm memory of the module with threads (`wasm_mt_max` in build.zig). The 6 plates take about 920 MB at the high point.
+- 20 Benchies on one plate (1.76 million beads) do not reach 60 frames a second on this GPU. A 7th plate of 20 Benchies next to the 6 plates of the project does not slice: the worker reached the 2 GB of the wasm memory of the module with threads. The limit is now 4 GB (`wasm_mt_max` in build.zig), and this test did not run again. The 6 plates take about 920 MB at the high point.
 - The G-code of a single plate is the same as on main (the Benchy, 2 758 371 bytes, the same hash).
 - Plate 1 of the project slices to 108 layers, 5 h 22 min, 67.4 g, in the set as alone.
 

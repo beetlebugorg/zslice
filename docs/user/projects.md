@@ -19,17 +19,17 @@ The dialog shows the parts and the plates of the project. The app reads only the
 - Each part has a check box and a count. Clear the box to leave the part out.
 - The parts with the same printer, profile, material, and plate settings share a plate.
 - A part with `alone: true` gets a plate of its own.
-- A part with variants (for example fine and fast) is one part for each variant.
+- A part with variants (for example fine and fast) is one part for each variant. Only the first variant is on at the start.
 
 ## Print a plate
 
-1. Click **Open** on a plate. zslice reads its Cura profile stack, sets its settings, puts the parts on the bed, and slices.
+1. Click **Open** on a plate. zslice loads all plates of the project, each with its own profiles, and slices them. The plate that you clicked becomes the active plate. Then **Show** goes to a plate.
 2. Export the G-code, or send it. If one of your printers has the name of the printer of the plate (for example `taz`), zslice picks it.
 3. Set the status of the plate: **To print**, **Printing**, **Printed**, or **Failed**. A send from the plate sets **Printing**.
 
 The machine settings of the plate come from the project. They do not change the profile of your printer. A plate with no Cura stack is a resin plate: zslice does not slice resin yet.
 
-The project and the status of its plates stay after a reload. The web app keeps them in your browser. Open a folder again after a reload. **Close** removes the project.
+The project and the status of its plates stay after a reload. The web app keeps them in your browser. Open a folder again after a reload. **Close** closes the project. Its plates stay in the view, and their print status goes.
 
 ## printdeck.yml
 

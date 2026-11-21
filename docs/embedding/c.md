@@ -8,7 +8,7 @@ The headers are `include/zslice.h` (the slicer) and `include/zslice-app.h` (the 
 zig build lib -Doptimize=ReleaseFast
 ```
 
-This makes `zig-out/lib/libzslice.a`, `zig-out/lib/libzslice.so`, `zig-out/include/zslice.h`, and `zig-out/include/zslice-app.h`. Link a program with the static library and `-lc -lpthread`, or with the shared library.
+This makes `zig-out/lib/libzslice.a`, `zig-out/lib/libzslice.so`, `zig-out/include/zslice.h`, and `zig-out/include/zslice-app.h`. Link a program with the static library and `-lc -lm -lpthread -ldl`, or with the shared library (`-lzslice`). Without `-lm`, the link fails with undefined `sincos` and `log2`.
 
 On macOS, the linker, `lipo`, and `libtool` skip an archive member that is not aligned to 8 bytes ("64-bit mach-o not 8-byte aligned"), and the archive of Zig 0.16 does not always align it. The link then fails with undefined symbols, depending on the size of the symbol table. Make the archive again before you link: take the object out with `ar x`, give it mode 644 (`chmod 644`), and make a new archive with `libtool -static`. `macos/build-core.sh` does this.
 
@@ -60,7 +60,7 @@ Link with `-lzslice`. The free functions accept NULL. `examples/c/slice.c` has t
 | Function | What it does |
 |---|---|
 | `zs_version()` | The version text, for example `"0.1.0"`. |
-| `zs_status_string(status)` | The name of a status code. |
+| `zs_status_string(status)` | A sentence for a status code, for a message to the user. |
 | `zs_setting_names()` | All setting names, one on each line. |
 | `zs_mesh_load_stl(data, len, &mesh)` | Loads a binary or ASCII STL file from memory. |
 | `zs_mesh_from_triangles(xyz, count, &mesh)` | Makes a mesh from 9 floats for each triangle. |

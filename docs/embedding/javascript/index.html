@@ -92,14 +92,14 @@
 <h1>JavaScript and WebAssembly</h1>
 
 <nav class="onpage"><b>On this page</b><ol><li><a href="#the-npm-package">The npm package</a></li><li><a href="#build">Build</a></li><li><a href="#use">Use</a></li><li><a href="#the-wrapper-api">The wrapper API</a></li><li><a href="#run-it-in-a-web-worker">Run it in a Web Worker</a></li><li><a href="#nodejs">Node.js</a></li><li><a href="#the-app-core-in-a-browser">The app core in a browser</a></li><li><a href="#memory">Memory</a></li></ol></nav><h2 id="the-npm-package">The npm package</h2>
-<p>The package <code>@beetlebugorg/zslice</code> is on GitHub Packages (not npmjs.com). It has the web app (<code>app/</code>), this API (<code>zslice.mjs</code>), and a Node command, <code>zslice slice</code>, that slices a model to G-code with profiles. Each version tag publishes it (<code>.github/workflows/npm.yml</code>). See <a href="https://github.com/beetlebugorg/zslice/blob/main/web/npm/README.md">its README</a> for the install: GitHub Packages needs a token, also to install.</p>
+<p>The package <code>@beetlebugorg/zslice</code> is on GitHub Packages (not npmjs.com). It has the web app (<code>app/</code>), this API (<code>zslice.mjs</code>), and a Node command, <code>zslice slice</code>, that slices a model to G-code with profiles. Each version tag publishes it (<code>.github/workflows/npm.yml</code>). It also has the G-code viewer (<code>view/</code>, see <a href="../../embedding/viewer/">The G-code viewer</a>). See <a href="https://github.com/beetlebugorg/zslice/blob/main/web/npm/README.md">its README</a> for the install: GitHub Packages needs a token, also to install.</p>
 <pre><code>npm install @beetlebugorg/zslice
 npx zslice slice part.stl -m printer.toml -p fine -o part.gcode</code></pre>
 <p>To serve the web app from your own server (for example a printer on the LAN), serve <code>node_modules/@beetlebugorg/zslice/app/</code>. It uses only relative URLs. Send <code>Cross-Origin-Opener-Policy: same-origin</code> and <code>Cross-Origin-Embedder-Policy: require-corp</code> for the threads.</p>
 <p>To build the package from the source: <code>zig build web &amp;&amp; python3 -I tools/npm_package.py</code>, then <code>zig-out/npm</code>.</p>
 <h2 id="build">Build</h2>
 <pre><code>zig build wasm</code></pre>
-<p>This makes <code>zig-out/web/zslice.wasm</code> (about 1.2 MB) and <code>zig-out/web/zslice.mjs</code> (the wrapper).</p>
+<p>This makes <code>zig-out/web/zslice.wasm</code> (about 5.8 MB, 1.7 MB with gzip) and <code>zig-out/web/zslice.mjs</code> (the wrapper).</p>
 <p>The module has two imports, <code>env.zs_web_event</code> and <code>env.zs_web_set_event</code>: the events of the app core (see <a href="#the-app-core-in-a-browser">The app core in a browser</a>). <code>zslice.mjs</code> gives an empty function for each. If you instantiate the module yourself, give them too:</p>
 <pre><code>const { instance } = await WebAssembly.instantiate(wasmBytes, { env: { zs_web_event() {}, zs_web_set_event() {} } });</code></pre>
 <h2 id="use">Use</h2>

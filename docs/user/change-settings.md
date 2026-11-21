@@ -33,15 +33,14 @@ The search field is always in the header. The results show under it.
 2. Click a section, then a setting. The › at the end of a row opens the page of the setting.
 3. Click **Pin** to put the panel beside the view. Drag the splitter to change its width.
 
-The sections come in the order of use. The part starts with the layers, the walls, the skin, the infill, the support, the skirt and brim, and the speed. The filament starts with the temperatures and the cooling. In each section, the settings that most people change come first, and the expert settings come last. The search (`/`) finds each setting.
+The sections come in the order of use. The part starts with the layers, the lines, the walls, the skin, and the infill. Then come the speed, the travel, the support, and the skirt and brim. The filament starts with the filament, the temperatures, the flow, and the cooling. In each section, the settings that most people change come first, and the expert settings come last. The search (`/`) finds each setting.
 
 The page of a setting gives its value, its default (with **Reset**), what it does, and the lines that it changes. While a setting is open, the view shows only its lines. The other lines become ghosts.
 
 To change a number:
 
 - type it, and press Enter;
-- press ↑ or ↓ (Shift: 10 steps, Ctrl: a tenth of a step);
-- drag the name of the setting to the left or the right;
+- press ↑ or ↓ to change it by one step;
 - drag its slider.
 
 A speed is a ratio of what the printer and the filament allow. So one quality works on each printer. Next to the ratio, the app shows the speed that it gives on this printer: "50 % ≈ 75 mm/s". The flow limit can make the speed lower. The search results show it too.
@@ -56,11 +55,11 @@ A higher level replaces the value of a lower one. A small tag under the name of 
 | Global | Your settings for all prints. |
 | Printer | The printer menu. |
 | Filament | The filament menu, or the roll in the printer. |
-| Quality | The quality menu: fine (0.1 mm), standard (0.2 mm), draft (0.3 mm), coarse (0.4 mm), or your own. |
+| Quality | The quality menu: Fine (0.1 mm), Standard (0.2 mm), Draft (0.3 mm), Coarse (0.4 mm), or Strong (0.2 mm). The Linux app also lists your own qualities. |
 | This print | Your changes for this plate. |
 | This part | The changes of one part. |
 
-The filament and the quality menus have **Save as profile…**. See [Profiles](profiles.md) for the files.
+In the Linux app, the filament and the quality menus have **Save as profile…**. See [Profiles](profiles.md) for the files.
 
 **Tip:** A part can have settings of its own: click **+ Add a setting for this part** on its card. A setting can also change for some layers, or follow a formula. See [Formulas and rules](expert.md).
 

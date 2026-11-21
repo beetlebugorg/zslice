@@ -19,11 +19,10 @@ The other slicers change with each release. If a line here is out of date, open 
 
 ## What zslice does not have yet
 
-- More than one material or color, tool changes, and a wipe tower.
-- Variable layer height (adaptive or painted).
-- Painted supports, seams, and colors on the model.
+- Adaptive layer height. zslice has a layer height for a range of layers.
+- Painted supports and seams. zslice paints filaments on the model.
 - Arc fitting (G2 and G3), and calibration prints (flow, pressure advance, temperature).
-- OBJ and STEP files, mirror, and cut.
+- OBJ and STEP files. A cut of a part is only in the macOS app.
 - Resin (SLA) printers.
 - Plugins, and a cloud service for the printers of a team.
 
@@ -52,8 +51,8 @@ See the [roadmap](../../ROADMAP.md) for the plan.
 | Printer library with bed models | Yes | Yes | Yes | Yes | Bambu printers |
 | Send to printer (OctoPrint, Moonraker, own) | Yes | Some | Yes | Yes | Bambu printers |
 | Measure tool | On the sliced lines | No | On the model | On the model | On the model |
-| Multi-material and color | No | Yes | Yes | Yes | Yes |
-| Variable layer height | No | Yes (adaptive) | Yes | Yes | Yes |
+| Multi-material and color | Yes (paint, labels, two nozzles) | Yes | Yes | Yes | Yes |
+| Variable layer height | Some (for a range of layers) | Yes (adaptive) | Yes | Yes | Yes |
 | Arc fitting | No | Some | Yes | Yes | Yes |
 | Calibration prints | No | Some | Some | Yes | Yes |
 | Resin printers | No | No | Yes | No | No |

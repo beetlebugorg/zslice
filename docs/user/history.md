@@ -22,7 +22,7 @@ Click **History** on the dock.
 
 - Each change has its time, its values, and its scope: the printer, the filament, this print, a part, or some layers.
 - Click a change to go back to it, or use ↑ and ↓.
-- Space goes back to the change before, so you can compare two changes.
+- ← and → on the timeline go to the step before or the next step.
 - The ↶ of one setting undoes only that setting, and keeps the later changes.
 
 ## Where to go next

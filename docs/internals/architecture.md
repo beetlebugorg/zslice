@@ -4,13 +4,17 @@ Read [How a slicer works](how-slicing-works.md) first. It explains the stages. T
 
 ## Modules
 
+This list has the main modules. `ls src src/app src/c_api src/render` lists all files.
+
 ```
 src/
   root.zig       The public Zig API. It exports the modules and the main types.
   main.zig       The command line tool.
   c_api.zig      The C API of the slicer (zslice.h), the status codes, and
-                 the wasm exports. c_api/app.zig and c_api/view.zig have the
-                 app API and the 3D view API (zslice-app.h).
+                 the wasm exports. The files of c_api/ have the API of
+                 zslice-app.h: app.zig (the app), set.zig (the plate set),
+                 view.zig (the 3D view), and paint, label, gcode, farm,
+                 printers, project, and sign.
 
   Stages, in pipeline order:
   mesh.zig       Mesh, Builder (vertex weld), STL load and write, test shapes.

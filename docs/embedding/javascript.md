@@ -2,7 +2,7 @@
 
 ## The npm package
 
-The package `@beetlebugorg/zslice` is on GitHub Packages (not npmjs.com). It has the web app (`app/`), this API (`zslice.mjs`), and a Node command, `zslice slice`, that slices a model to G-code with profiles. Each version tag publishes it (`.github/workflows/npm.yml`). See [its README](https://github.com/beetlebugorg/zslice/blob/main/web/npm/README.md) for the install: GitHub Packages needs a token, also to install.
+The package `@beetlebugorg/zslice` is on GitHub Packages (not npmjs.com). It has the web app (`app/`), this API (`zslice.mjs`), and a Node command, `zslice slice`, that slices a model to G-code with profiles. Each version tag publishes it (`.github/workflows/npm.yml`). It also has the G-code viewer (`view/`, see [The G-code viewer](viewer.md)). See [its README](https://github.com/beetlebugorg/zslice/blob/main/web/npm/README.md) for the install: GitHub Packages needs a token, also to install.
 
 ```sh
 npm install @beetlebugorg/zslice
@@ -19,7 +19,7 @@ To build the package from the source: `zig build web && python3 -I tools/npm_pac
 zig build wasm
 ```
 
-This makes `zig-out/web/zslice.wasm` (about 1.2 MB) and `zig-out/web/zslice.mjs` (the wrapper).
+This makes `zig-out/web/zslice.wasm` (about 5.8 MB, 1.7 MB with gzip) and `zig-out/web/zslice.mjs` (the wrapper).
 
 The module has two imports, `env.zs_web_event` and `env.zs_web_set_event`: the events of the app core (see [The app core in a browser](#the-app-core-in-a-browser)). `zslice.mjs` gives an empty function for each. If you instantiate the module yourself, give them too:
 

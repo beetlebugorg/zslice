@@ -59,6 +59,7 @@ Each paste is one step: Ctrl+Z undoes it. A label, a support area, layer changes
 | Drag a label (Label tool) | Move it on the surface (Shift: in its plane) |
 | Wheel over a label (Label tool) | Turn it 1° (Shift: 15°) |
 | Delete (Label tool) | Delete the selected label |
+| Esc (Label tool) | Close the card of the label, then the tool |
 | G | Gaps of the top layer |
 | Ctrl+click, Ctrl+drag, Ctrl+wheel | Select, move, and turn a part with any tool |
 | Shift+click (Select tool) | Select the run of the line: one extrusion, from a retraction to the next |
@@ -87,6 +88,24 @@ Each paste is one step: Ctrl+Z undoes it. A label, a support area, layer changes
 | Shift+←, Shift+→ | The line before, or the next line |
 | C | Show the layers up to the selected line |
 | Shift+C | Show all layers |
+
+## Search
+
+| Keys | What they do |
+|---|---|
+| ↑, ↓ | Go through the results |
+| ←, → | Change the value of the result: a step, or the next choice |
+| Space, Enter | Turn a switch, or run an action |
+| V | The eye of the result: show only the lines of its setting, or all lines again |
+| Tab | Go into the controls of the result |
+| Esc | Leave a control, then close the search |
+
+## History
+
+| Keys | What they do |
+|---|---|
+| ↑, ↓ (History list) | The next step, or the step before |
+| ←, → (timeline) | The step before, or the next step |
 
 ## Plates
 

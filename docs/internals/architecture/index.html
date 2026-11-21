@@ -92,12 +92,15 @@
 <h1>Architecture</h1>
 <p class="lede">Read <a href="../../internals/how-slicing-works/">How a slicer works</a> first. It explains the stages. This document explains how the code is organized.</p>
 <nav class="onpage"><b>On this page</b><ol><li><a href="#modules">Modules</a></li><li><a href="#data-flow">Data flow</a></li><li><a href="#conventions">Conventions</a></li><li><a href="#data-types">Data types</a></li><li><a href="#memory-model">Memory model</a></li><li><a href="#threads">Threads</a></li><li><a href="#speed-in-webassembly">Speed in WebAssembly</a></li><li><a href="#error-handling">Error handling</a></li><li><a href="#the-c-api-layer">The C API layer</a></li><li><a href="#the-undo-list">The undo list</a></li><li><a href="#the-plate-set">The plate set</a></li></ol></nav><h2 id="modules">Modules</h2>
+<p>This list has the main modules. <code>ls src src/app src/c_api src/render</code> lists all files.</p>
 <pre><code>src/
   root.zig       The public Zig API. It exports the modules and the main types.
   main.zig       The command line tool.
   c_api.zig      The C API of the slicer (zslice.h), the status codes, and
-                 the wasm exports. c_api/app.zig and c_api/view.zig have the
-                 app API and the 3D view API (zslice-app.h).
+                 the wasm exports. The files of c_api/ have the API of
+                 zslice-app.h: app.zig (the app), set.zig (the plate set),
+                 view.zig (the 3D view), and paint, label, gcode, farm,
+                 printers, project, and sign.
 
   Stages, in pipeline order:
   mesh.zig       Mesh, Builder (vertex weld), STL load and write, test shapes.

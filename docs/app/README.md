@@ -8,7 +8,7 @@ The zslice app has one core and one native shell for each platform:
 | Web | HTML, JavaScript, WebGL2 | `web/app/` | First version: see `web/app/README.md` |
 | macOS | SwiftUI, AppKit, Metal | `macos/` | First version: see [the macOS app](../internals/macos.md) |
 | iOS | SwiftUI | `ios/` | Planned |
-| Windows | Win32, C++ | `windows/` | Planned |
+| Windows | WinUI 3, C++/WinRT | `windows/` | Planned (the core builds) |
 | Android | Kotlin | `android/` | Planned |
 
 ## The rule: logic in the core, widgets in the shell
@@ -54,7 +54,7 @@ The core draws the 3D view of a slice (`src/render/`). The shell gives a native 
 
 The goal of the view is to look like the finished print. Each segment is a bead with the real cross section (a flat top and bottom, round sides), round ends, the width of the plastic that is really deposited, the cooled size (the shrinkage compensation removed), and the filament color (`filament.color`). `zs_view_set_mode` switches to one color for each feature.
 
-The backend is Vulkan on Linux (and later Windows and Android). In a browser and on macOS, the frame backend (`src/render/web.zig`) keeps the frame data in the memory of the core, and the shell draws it: the page with WebGL2 (see `web/app/README.md`), and the macOS app with Metal (see [the macOS app](../internals/macos.md)). The core loads the Vulkan loader at run time, so a shell does not link it. Without Vulkan, `zs_view_new` returns `ZS_NOT_SUPPORTED`, and the shell shows the 2D view only.
+The backend is Vulkan on Linux (and later Android). The plan for Windows is a Direct3D 12 backend ([the Windows app](../internals/windows.md)). In a browser and on macOS, the frame backend (`src/render/web.zig`) keeps the frame data in the memory of the core, and the shell draws it: the page with WebGL2 (see `web/app/README.md`), and the macOS app with Metal (see [the macOS app](../internals/macos.md)). The core loads the Vulkan loader at run time, so a shell does not link it. Without Vulkan, `zs_view_new` returns `ZS_NOT_SUPPORTED`, and the shell shows the 2D view only.
 
 On Linux, the GTK window is transparent, and the view widget draws nothing: the subsurface shows through it. Each other part of the window must paint its whole area (use padding, not margins).
 
@@ -113,7 +113,7 @@ The GTK shell is in `linux/src`. Each `.c` file has a header that explains its i
 
 ## Test hooks of the GTK shell
 
-These environment variables change the start of the GTK shell, for development, tests, and screenshots. They are the only hidden options of the shell. The last column names the file that reads each one.
+These environment variables change the start of the GTK shell, for development, tests, and screenshots. They are the main hidden options of the shell. The shell reads more `ZSLICE_*` variables for tests (`grep -r ZSLICE_ linux/src`). The last column names the file that reads each one.
 
 | Variable | Effect | Read in |
 |---|---|---|

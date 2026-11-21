@@ -1,8 +1,8 @@
 # The Windows app
 
-The Windows app is a native shell over the Zig core, in `windows/`. The shell uses WinUI 3 with C++/WinRT. The core draws with Direct3D 12. Only the core is shared with the other apps.
+The Windows app is planned: a native shell over the Zig core, in `windows/`. The plan is a WinUI 3 shell in C++/WinRT, and a Direct3D 12 backend in the core. Only the core is shared with the other apps.
 
-The port is in progress. This page describes the parts that exist.
+The port is in progress. Today `windows/` has the build scripts of the core and a link test. The shell and the Direct3D backend do not exist yet. This page describes the parts that exist.
 
 ## Build the core
 
