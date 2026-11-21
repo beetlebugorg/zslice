@@ -4109,13 +4109,18 @@ pub const View = struct {
         v.preview_hull.clearRetainingCapacity();
     }
 
+    /// How `setPartPreview` places the turned part. `on_bed`: the move
+    /// also puts the lowest bead on the bed. `centered`: the x and y of
+    /// the move are the center of the box of the turned part, as the core
+    /// places a turned part (Plate.turn keeps the center of its footprint).
+    pub const PreviewPlace = struct { on_bed: bool = false, centered: bool = false };
+
     /// Shows part `part` of the plate (Toolpaths.path_part) turned by the
     /// unit quaternion q (x, y, z, w) about `pivot`, then moved by `move`
-    /// (mm). With `on_bed`, the move also puts the lowest bead on the bed.
-    /// Only the view changes: a turn of a ring or the fall of a part
-    /// moves the beads at once, before the slice of the new place. A load
-    /// ends it. null: no preview.
-    pub fn setPartPreview(v: *View, part: ?u32, q: [4]f32, pivot: [3]f32, move: [3]f32, on_bed: bool) Error!void {
+    /// (mm), placed as `place` says. Only the view changes: a turn of a
+    /// ring or the fall of a part moves the beads at once, before the
+    /// slice of the new place. A load ends it. null: no preview.
+    pub fn setPartPreview(v: *View, part: ?u32, q: [4]f32, pivot: [3]f32, move: [3]f32, place: PreviewPlace) Error!void {
         const pi = part orelse {
             v.clearPreview();
             return;
@@ -4164,7 +4169,30 @@ pub const View = struct {
             2 * (x * z - y * w),     2 * (y * z + x * w),     1 - 2 * (x * x + y * y),
         };
         var mv = move;
-        if (on_bed) {
+        if (place.centered) {
+            // The box of the turned part in x and y: the bead ends of the
+            // hull, and the width as a margin, as for the height below.
+            var xlo = std.math.inf(f32);
+            var xhi = -std.math.inf(f32);
+            var ylo = std.math.inf(f32);
+            var yhi = -std.math.inf(f32);
+            const sx = @sqrt(rot[0] * rot[0] + rot[1] * rot[1]);
+            const sy = @sqrt(rot[3] * rot[3] + rot[4] * rot[4]);
+            for (v.preview_hull.items) |e| for ([_]f32{ e[2], e[3] }) |bz| {
+                const d = [3]f32{ e[0] - pivot[0], e[1] - pivot[1], bz - pivot[2] };
+                const xx = rot[0] * d[0] + rot[1] * d[1] + rot[2] * d[2];
+                const yy = rot[3] * d[0] + rot[4] * d[1] + rot[5] * d[2];
+                xlo = @min(xlo, xx - e[4] * sx);
+                xhi = @max(xhi, xx + e[4] * sx);
+                ylo = @min(ylo, yy - e[4] * sy);
+                yhi = @max(yhi, yy + e[4] * sy);
+            };
+            if (xlo <= xhi) {
+                mv[0] = move[0] - pivot[0] - (xlo + xhi) / 2;
+                mv[1] = move[1] - pivot[1] - (ylo + yhi) / 2;
+            }
+        }
+        if (place.on_bed) {
             // The lowest point of the turned part: the corners of the
             // beads (a bead is no wider than its box).
             var zmin = std.math.inf(f32);
@@ -5445,7 +5473,7 @@ test "a part preview draws the beads of the part apart, turned" {
     for (0..paths) |p| try v.path_part.append(View.gpa, if (p % 4 == 1 or p % 4 == 2) 1 else 0);
     // A quarter turn about z through (1, 2, 0).
     const s = @sqrt(0.5);
-    try v.setPartPreview(1, .{ 0, 0, s, s }, .{ 1, 2, 0 }, .{ 0, 0, 0 }, false);
+    try v.setPartPreview(1, .{ 0, 0, s, s }, .{ 1, 2, 0 }, .{ 0, 0, 0 }, .{});
     const pv = v.preview.?;
     try std.testing.expectEqual(@as(usize, 6), v.preview_ranges.items.len);
     // The matrix turns (2, 2, 0) to (1, 3, 0).
@@ -5471,8 +5499,14 @@ test "a part preview draws the beads of the part apart, turned" {
     };
     for (seen) |k| try std.testing.expectEqual(@as(u8, 1), k);
     // On the bed: the lowest bead goes to z 0 after a half turn about x.
-    try v.setPartPreview(1, .{ 1, 0, 0, 0 }, .{ 0, 0, 3 }, .{ 0, 0, 0 }, true);
+    try v.setPartPreview(1, .{ 1, 0, 0, 0 }, .{ 0, 0, 3 }, .{ 0, 0, 0 }, .{ .on_bed = true });
     try std.testing.expect(v.preview.?.move[2] != 0);
+    // Centered: the box of the part goes to x 10, y 20.
+    try v.setPartPreview(1, .{ 0, 0, 0, 1 }, .{ 0, 0, 0 }, .{ 10, 20, 0 }, .{ .centered = true });
+    const lo = v.preview_box[0];
+    const hi = v.preview_box[1];
+    try std.testing.expectApproxEqAbs(@as(f32, 10), (lo[0] + hi[0]) / 2 + v.preview.?.move[0], 1e-3);
+    try std.testing.expectApproxEqAbs(@as(f32, 20), (lo[1] + hi[1]) / 2 + v.preview.?.move[1], 1e-3);
     v.clearPreview();
     try std.testing.expect(v.preview == null);
 }
@@ -5831,7 +5865,7 @@ test "the lowest point of a turned preview from the hull is the lowest bead corn
         var q = [4]f32{ rnd.float(f32) - 0.5, rnd.float(f32) - 0.5, rnd.float(f32) - 0.5, rnd.float(f32) - 0.5 };
         const len = @sqrt(q[0] * q[0] + q[1] * q[1] + q[2] * q[2] + q[3] * q[3]);
         for (&q) |*c| c.* /= len;
-        try v.setPartPreview(0, q, pivot, .{ 0, 0, 0 }, true);
+        try v.setPartPreview(0, q, pivot, .{ 0, 0, 0 }, .{ .on_bed = true });
         const rot = v.preview.?.rot;
         // All corners of all beads.
         var zmin = std.math.inf(f32);
@@ -5855,7 +5889,7 @@ test "the lowest point of a turned preview from the hull is the lowest bead corn
     low.by = 0;
     low.z = -1;
     low.h = 0.2;
-    try v.setPartPreview(0, .{ 0, 0, 0, 1 }, pivot, .{ 0, 0, 0 }, true);
+    try v.setPartPreview(0, .{ 0, 0, 0, 1 }, pivot, .{ 0, 0, 0 }, .{ .on_bed = true });
     try std.testing.expectApproxEqAbs(@as(f32, 1.2), v.preview.?.move[2], 1e-3);
     // The hull keeps few of the 480 bead ends.
     try std.testing.expect(v.preview_hull.items.len < 300);
@@ -5939,7 +5973,7 @@ test "the hull of a box wall keeps few of its bead ends" {
         b.by = e[1];
     }
     for (0..v.path_start.items.len - 1) |_| try v.path_part.append(View.gpa, 0);
-    try v.setPartPreview(0, .{ 0, 0, 0, 1 }, .{ 0, 0, 0 }, .{ 0, 0, 0 }, true);
+    try v.setPartPreview(0, .{ 0, 0, 0, 1 }, .{ 0, 0, 0 }, .{ 0, 0, 0 }, .{ .on_bed = true });
     try std.testing.expect(v.hull_sorted < 40);
 }
 

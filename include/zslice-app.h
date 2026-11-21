@@ -1576,13 +1576,20 @@ void zs_view_set_ribbons(zs_view *view, int on);
 /* Shows part `part` of the plate (the part index of zs_app) turned and
  * moved in the view only: the turn is the unit quaternion (qx, qy, qz,
  * qw) about the point (px, py, pz), then the part moves by (mx, my, mz)
- * mm. Flag ZS_PREVIEW_ON_BED also puts its lowest bead on the bed. The
- * beads of the last slice turn at once, for the drag of a turn ring or
- * the fall of a part; the next zs_view_load (the slice of the new place)
- * ends it. part < 0 ends it now. Each call replaces the last one. */
-enum { ZS_PREVIEW_ON_BED = 1 };
+ * mm. Flag ZS_PREVIEW_ON_BED also puts its lowest bead on the bed. Flag
+ * ZS_PREVIEW_CENTERED puts the center of the box of the turned part at
+ * x mx, y my, as the core places a turned part (zs_app_part_turn keeps
+ * the center of the footprint). The beads of the last slice turn at once,
+ * for the drag of a turn ring or the fall of a part; the next
+ * zs_view_load (the slice of the new place) ends it. part < 0 ends it
+ * now. Each call replaces the last one. */
+enum { ZS_PREVIEW_ON_BED = 1, ZS_PREVIEW_CENTERED = 2 };
 int zs_view_part_preview(zs_view *view, int part, float qx, float qy, float qz, float qw,
                          float px, float py, float pz, float mx, float my, float mz, int flags);
+/* The move of the part preview after its turn, as the view placed it, to
+ * out (3 values): with the flags, it differs from the move given. 0 with
+ * no preview. */
+int zs_view_part_preview_move(const zs_view *view, float out[3]);
 void zs_view_set_mode(zs_view *view, int mode);
 /* Highlights the beads of one path (an index into zs_app_toolpaths), or
  * nothing if path is (size_t)-1. */

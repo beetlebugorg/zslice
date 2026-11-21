@@ -603,8 +603,20 @@ export fn zs_view_part_preview(view: ?*View, part: c_int, qx: f32, qy: f32, qz: 
     const q = [4]f32{ qx, qy, qz, qw };
     for (q) |k| if (!std.math.isFinite(k)) return @intFromEnum(Status.invalid_argument);
     if (part >= 0 and q[0] * q[0] + q[1] * q[1] + q[2] * q[2] + q[3] * q[3] < 1e-12) return @intFromEnum(Status.invalid_argument);
-    v.setPartPreview(if (part < 0) null else @intCast(part), q, .{ px, py, pz }, .{ mx, my, mz }, flags & 1 != 0) catch |e| return status(e);
+    v.setPartPreview(if (part < 0) null else @intCast(part), q, .{ px, py, pz }, .{ mx, my, mz }, .{ .on_bed = flags & 1 != 0, .centered = flags & 2 != 0 }) catch |e| return status(e);
     return ok;
+}
+
+/// The move of the part preview after its turn, as the view placed it
+/// (ZS_PREVIEW_ON_BED, ZS_PREVIEW_CENTERED), to out (3 values). 0 with no
+/// preview.
+export fn zs_view_part_preview_move(view: ?*const View, out: ?[*]f32) c_int {
+    if (!render_on) return 0;
+    const v = view orelse return 0;
+    const o = out orelse return 0;
+    const p = v.preview orelse return 0;
+    for (0..3) |k| o[k] = p.move[k];
+    return 1;
 }
 
 /// The shell draws mesh level 2 as a ribbon (on != 0). See View.ribbons.
