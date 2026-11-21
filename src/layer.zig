@@ -701,7 +701,9 @@ pub const Memo = struct {
     };
     const ThinEntry = struct { w: i64, thin: Paths, widths: []f32, gen: u32 };
     const PartEntry = struct { delta: i64, layer: u32, top: bool, paths: Paths, gen: u32 };
-    const SkinEntry = struct { key: [6]i64, skin: Paths, sparse: Paths, gen: u32 };
+    /// `key` has the settings that made the skin (see `regions`), and
+    /// `content` the inputs of the skin steps.
+    const SkinEntry = struct { key: [6]i64, content: [6]i64, skin: Paths, sparse: Paths, gen: u32 };
     const BandEntry = struct { band: u32, paths: Paths, gen: u32 };
     const FillEntry = struct { key: [6]i64, skin: bool, delta: i64, paths: Paths, gen: u32 };
     const SplitEntry = struct { key: [6]i64, delta: i64, band: u32, split: TopSplit, gen: u32 };
@@ -1207,14 +1209,17 @@ pub fn regions(gpa: Allocator, ctx: Context, i: usize, memo: *Memo, list_alloc: 
     const top_layers = layersFor(ctx.layers, i, p.top_thickness, .up);
     const bottom_layers = layersFor(ctx.layers, i, p.bottom_thickness, .down);
     const skin_key = [6]i64{ inner_delta, top_layers, bottom_layers, removal, expand, solid };
-    reg.key = skin_key;
     if (top_layers == 0 and bottom_layers == 0) {
+        // The key of an area with no skin steps. A content key (below)
+        // has 0 or 1 in its third field.
+        reg.key = .{ inner_delta, 0, 2, removal, expand, solid };
         reg.sparse = inner;
         return reg;
     }
     for (memo.skins.items) |*e| {
         if (std.mem.eql(i64, &e.key, &skin_key)) {
             e.gen = gen;
+            reg.key = e.content;
             reg.skin = e.skin;
             reg.sparse = e.sparse;
             return reg;
@@ -1244,6 +1249,25 @@ pub fn regions(gpa: Allocator, ctx: Context, i: usize, memo: *Memo, list_alloc: 
         try exposed.appendAll(s, piece);
     }
     if (ctx.canceled()) return reg;
+    // The steps below depend only on the exposed parts, on the union of
+    // them (if more than one part has area), on the inner area (by
+    // inner_delta), and on the widths. Another top or bottom thickness
+    // often gives the same parts: then the skin of the memo is the
+    // result, with no new booleans.
+    var h: std.hash.Wyhash = .init(@intFromBool(sets > 1));
+    h.update(std.mem.sliceAsBytes(exposed.points.items));
+    h.update(std.mem.sliceAsBytes(exposed.ends.items));
+    const content = [6]i64{ inner_delta, @bitCast(h.final()), @intFromBool(sets > 1), removal, expand, solid };
+    reg.key = content;
+    for (memo.skins.items) |*e| {
+        if (std.mem.eql(i64, &e.content, &content)) {
+            e.gen = gen;
+            e.key = skin_key;
+            reg.skin = e.skin;
+            reg.sparse = e.sparse;
+            return reg;
+        }
+    }
     const raw_skin = if (sets > 1) try clip.unionAll(s, exposed, .non_zero) else exposed;
     if (ctx.canceled()) return reg;
     // 1. Remove slivers narrower than the removal width.
@@ -1266,7 +1290,7 @@ pub fn regions(gpa: Allocator, ctx: Context, i: usize, memo: *Memo, list_alloc: 
     }
     reg.skin = try skin.clone(a);
     reg.sparse = try sparse.clone(a);
-    try memo.skins.append(a, .{ .key = skin_key, .skin = reg.skin, .sparse = reg.sparse, .gen = gen });
+    try memo.skins.append(a, .{ .key = skin_key, .content = content, .skin = reg.skin, .sparse = reg.sparse, .gen = gen });
     return reg;
 }
 
