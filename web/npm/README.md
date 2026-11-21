@@ -1,8 +1,9 @@
 # @beetlebugorg/zslice
 
-The zslice slicer in WebAssembly. The package has three parts:
+The zslice slicer in WebAssembly. The package has four parts:
 
 - `app/`: the web app (the page, the worker, and the wasm modules). Serve the folder with any static server. For threads, the server must send `Cross-Origin-Opener-Policy: same-origin` and `Cross-Origin-Embedder-Policy: require-corp`; with no headers, the app slices with one thread.
+- `view/`: the G-code viewer for a web page (`import { ZsliceView } from "@beetlebugorg/zslice/view"`). See [the viewer guide](https://zslice.beetlebug.org/embedding/viewer/).
 - `zslice.mjs`: a small JavaScript API, `load(wasmBytes)` and `sliceStl(stl, settings)`.
 - `zslice`: a Node command that slices a model to G-code, with profiles.
 
