@@ -51,7 +51,7 @@ pub const Toolpaths = struct {
     path_part: std.ArrayList(u32) = .empty,
     /// The key of each path for the edits of the user (edits.pathKey).
     path_key: std.ArrayList(u64) = .empty,
-    /// The nozzle lift of a retracted travel (project.z_hop), in mm.
+    /// The nozzle lift of a retracted travel (machine.z_hop), in mm.
     z_hop: f32 = 0,
     /// 1 if the layer prints slower than planned, to cool
     /// (filament.min_layer_time).

@@ -287,16 +287,16 @@ filament_max_volumetric_speed | same | filament.max_flow
 retraction_length | same | machine.retract_length
 retraction_speed | same | machine.retract_speed
 deretraction_speed | derived | machine.retract_speed
-retraction_minimum_travel | same | project.retract_min_travel
-retract_when_changing_layer | same | project.retract_layer_change
-wipe | same | project.retract_wipe
-wipe_distance | derived | project.retract_wipe
-z_hop | same | project.z_hop
-z_hop_types | derived | project.z_hop (a straight lift)
+retraction_minimum_travel | same | machine.retract_min_travel
+retract_when_changing_layer | same | machine.retract_layer_change
+wipe | same | machine.retract_wipe
+wipe_distance | derived | machine.retract_wipe_distance
+z_hop | same | machine.z_hop
+z_hop_types | derived | machine.z_hop (a straight lift); Auto Lift is machine.z_hop_only_crossing
 reduce_crossing_wall | same | project.combing
 max_travel_detour_distance | same | project.combing_max_distance
 reduce_infill_retraction | same | project.combing (no retraction inside the part)
-retract_lift_enforce | same | project.z_hop_only_crossing
+retract_lift_enforce | same | machine.z_hop_only_crossing
 retract_length_toolchange | derived | machine.change_gcode and the Bambu Lab presets
 
 # Cooling

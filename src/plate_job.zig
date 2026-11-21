@@ -2193,8 +2193,8 @@ test "plate job: parts with layer heights 0.1 and 0.2 merge by z" {
         const end = std.mem.indexOfScalar(u8, line[4..], ' ') orelse line.len - 4;
         const lz = try std.fmt.parseFloat(f64, line[4..][0..end]);
         // A z hop goes up and back down to the z of the layer.
-        try testing.expect(lz >= z - 1e-9 or lz >= z - s.project.z_hop - 1e-9);
-        z = @max(z, lz - s.project.z_hop);
+        try testing.expect(lz >= z - 1e-9 or lz >= z - s.machine.z_hop - 1e-9);
+        z = @max(z, lz - s.machine.z_hop);
     }
     try testing.expectEqual(pj.layerCount(), layers);
     // The thick part has beads of its own height.
@@ -3363,7 +3363,7 @@ fn towerPlate(gpa: Allocator, id: []const u8, late: bool, second_material: []con
 /// - each change goes to the tower before any line of the part: the
 ///   first feature after a change is the tower;
 /// - each tower line prints at the z of the layer (no move down into the
-///   tower);
+///   tower; a z hop up and back to the layer is fine);
 /// - each layer up to the last change has a layer of the tower.
 /// Returns the count of changes.
 fn checkTowerOrder(g: []const u8) !usize {
@@ -3374,6 +3374,8 @@ fn checkTowerOrder(g: []const u8) !usize {
     var layers_with_tower: usize = 0;
     var tower_this_layer = false;
     var last_change_layer: usize = 0;
+    // The z of the layer: the first Z move after the layer mark.
+    var layer_z: ?f64 = null;
     var it = std.mem.splitScalar(u8, g, '\n');
     while (it.next()) |line| {
         if (std.mem.startsWith(u8, line, ";LAYER:")) {
@@ -3381,6 +3383,7 @@ fn checkTowerOrder(g: []const u8) !usize {
             tower_this_layer = false;
             layer = try std.fmt.parseInt(usize, line[7..], 10);
             in_tower = false;
+            layer_z = null;
         } else if (std.mem.startsWith(u8, line, "; filament change")) {
             changes += 1;
             after_change = true;
@@ -3394,9 +3397,15 @@ fn checkTowerOrder(g: []const u8) !usize {
             }
             after_change = false;
             if (in_tower) tower_this_layer = true;
-        } else if (in_tower and std.mem.startsWith(u8, line, "G0 Z")) {
-            std.debug.print("layer {d}: the nozzle goes down into the tower\n", .{layer});
-            return error.TestUnexpectedResult;
+        } else if (std.mem.startsWith(u8, line, "G0 Z") or std.mem.startsWith(u8, line, "G1 Z")) {
+            const end = std.mem.indexOfScalarPos(u8, line, 4, ' ') orelse line.len;
+            const z = std.fmt.parseFloat(f64, line[4..end]) catch continue;
+            if (layer_z == null) {
+                layer_z = z;
+            } else if (in_tower and z < layer_z.? - 1e-6) {
+                std.debug.print("layer {d}: the nozzle goes down into the tower\n", .{layer});
+                return error.TestUnexpectedResult;
+            }
         }
     }
     if (tower_this_layer) layers_with_tower += 1;

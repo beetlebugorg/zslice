@@ -20,7 +20,7 @@
 //!     P  id name series sources bed_x bed_y height origin_x origin_y
 //!        shape nozzle nozzles filament heat max_speed max_accel max_z_speed
 //!        corner flavor firmware kinematics retract retract_speed start end
-//!        extruders bed
+//!        extruders bed z_hop hop wipe wipe_distance layer_change min_travel
 //!
 //! In a P line: `sources` has one letter for each source (l Cura LulzBot Edition, c Cura,
 //! p PrusaSlicer, o OrcaSlicer). `shape` is "r" for a round bed.
@@ -29,6 +29,12 @@
 //! firmware. `start` and `end` are the numbers of G lines (from 0), or "".
 //! An empty number field means that the source does not tell the value.
 //! `bed` is the number of a D line (from 0), or "": no bed model.
+//! The last six fields are the retraction of the travels (see `Travel`):
+//! the z hop (mm), "c" if it lifts only for a travel that crosses an edge
+//! or "a" for each retraction, "1" or "0" for the wipe, the wipe length
+//! (mm), "1" or "0" for a retraction at each layer change, and the
+//! shortest travel that retracts (mm). An empty field: the sources do not
+//! tell it, and the model keeps the default of zslice.
 //!
 //! A D line names the files of a bed model in the bed folder (`mesh` and
 //! `texture`, each can be ""), the offset of the mesh from the center of
@@ -135,7 +141,85 @@ pub const Model = struct {
     extruders: u32,
     /// The number of the bed model in `Library.beds`, or null.
     bed: ?u32 = null,
+    travel: Travel = .{},
 };
+
+/// The retraction of the travels of a model, as its source tells it
+/// (Machine.z_hop and the others). null: the source does not tell it, and
+/// the profile keeps the default of zslice.
+pub const Travel = struct {
+    z_hop: ?f64 = null,
+    /// Lift only for a travel that crosses an edge
+    /// (`z_hop_only_crossing`).
+    only_crossing: ?bool = null,
+    wipe: ?bool = null,
+    wipe_distance: ?f64 = null,
+    layer_change: ?bool = null,
+    min_travel: ?f64 = null,
+
+    /// The values of `a`, and of `b` where `a` has none.
+    pub fn over(a: Travel, b: Travel) Travel {
+        return .{
+            .z_hop = a.z_hop orelse b.z_hop,
+            .only_crossing = a.only_crossing orelse b.only_crossing,
+            .wipe = a.wipe orelse b.wipe,
+            .wipe_distance = a.wipe_distance orelse b.wipe_distance,
+            .layer_change = a.layer_change orelse b.layer_change,
+            .min_travel = a.min_travel orelse b.min_travel,
+        };
+    }
+
+    /// Puts the values that the source tells in the machine settings `m`.
+    pub fn apply(t: Travel, m: *@import("settings.zig").Machine) void {
+        if (t.z_hop) |v| m.z_hop = std.math.clamp(v, 0, 10);
+        if (t.only_crossing) |v| m.z_hop_only_crossing = v;
+        if (t.wipe) |v| m.retract_wipe = v;
+        if (t.wipe_distance) |v| m.retract_wipe_distance = std.math.clamp(v, 0, 10);
+        if (t.layer_change) |v| m.retract_layer_change = v;
+        if (t.min_travel) |v| m.retract_min_travel = std.math.clamp(v, 0, 100);
+    }
+
+    /// Reads the six fields of a line (see the format at the top).
+    fn read(f: anytype) Travel {
+        var t: Travel = .{};
+        t.z_hop = optNum(field(f));
+        const hop = field(f);
+        if (hop.len > 0) t.only_crossing = std.mem.eql(u8, hop, "c");
+        t.wipe = optBool(field(f));
+        t.wipe_distance = optNum(field(f));
+        t.layer_change = optBool(field(f));
+        t.min_travel = optNum(field(f));
+        return t;
+    }
+
+    /// The next field of `Fields` or of a split iterator, "" at the end.
+    fn field(f: anytype) []const u8 {
+        const v = f.next();
+        return if (@TypeOf(v) == ?[]const u8) v orelse "" else v;
+    }
+
+    /// Writes the values that the source tells, as lines of a machine
+    /// profile.
+    fn write(t: Travel, w: *Writer) Writer.Error!void {
+        if (t.z_hop) |v| try w.print("z_hop = {d}\n", .{std.math.clamp(v, 0, 10)});
+        if (t.only_crossing) |v| try w.print("z_hop_only_crossing = {}\n", .{v});
+        if (t.wipe) |v| try w.print("retract_wipe = {}\n", .{v});
+        if (t.wipe_distance) |v| if (v > 0) try w.print("retract_wipe_distance = {d}\n", .{std.math.clamp(v, 0, 10)});
+        if (t.layer_change) |v| try w.print("retract_layer_change = {}\n", .{v});
+        if (t.min_travel) |v| try w.print("retract_min_travel = {d}\n", .{std.math.clamp(v, 0, 100)});
+    }
+};
+
+fn optNum(t: []const u8) ?f64 {
+    if (t.len == 0) return null;
+    const v = std.fmt.parseFloat(f64, t) catch return null;
+    return if (std.math.isFinite(v) and v >= 0) v else null;
+}
+
+fn optBool(t: []const u8) ?bool {
+    if (t.len == 0) return null;
+    return std.mem.eql(u8, t, "1");
+}
 
 pub const Error = error{ InvalidLibrary, OutOfMemory };
 
@@ -414,6 +498,10 @@ pub const Library = struct {
         try w.print("extruder = \"{s}\"\n", .{if (bowden) "bowden" else "direct"});
         if (m.retract > 0) try w.print("retract_length = {d}\n", .{std.math.clamp(m.retract, 0, 15)});
         if (m.retract_speed > 0) try w.print("retract_speed = {d}\n", .{std.math.clamp(m.retract_speed, 5, 150)});
+        // The retraction of the travels: of Bambu Studio for a Bambu Lab
+        // printer, else of the library.
+        const travel = if (bambu(m.id)) |b| b.travel.over(m.travel) else m.travel;
+        try travel.write(w);
         if (coolingOf(m.id)) |c| {
             try w.print("# Cooling: {s}. The air speed is an estimate from the size of the fans.\n", .{c.what});
             try w.print("chamber_temp = {d}\npart_fan_air = {d}\n", .{ c.chamber_temp, c.part_fan_air });
@@ -489,6 +577,10 @@ pub const Bambu = struct {
     cooling_rate: [2]f64 = .{ 0, 0 },
     cut_retract: [2]f64 = .{ 0, 0 },
     long_cut: [2]bool = .{ false, false },
+    /// The retraction of the travels of the presets of the first nozzle
+    /// (z_hop, z_hop_types, wipe, wipe_distance,
+    /// retract_when_changing_layer, retraction_minimum_travel).
+    travel: Travel = .{},
 };
 
 const bambu_text = @embedFile("printers/bambu.txt");
@@ -525,6 +617,7 @@ pub fn bambu(id: []const u8) ?Bambu {
         var it = std.mem.splitScalar(u8, f.next() orelse "", ';');
         for (&b.long_cut) |*v| v.* = std.mem.eql(u8, it.next() orelse "", "1");
         if (b.nozzles < 2) b.long_cut[1] = b.long_cut[0];
+        b.travel = Travel.read(&f);
         return b;
     }
     return null;
@@ -928,6 +1021,7 @@ fn parseModel(text: []const u8, brand: u32, n_gcodes: usize, n_beds: usize) Erro
     const e = f.num();
     m.extruders = if (e >= 1 and e < 64) @intFromFloat(e) else 1;
     m.bed = f.index(n_beds);
+    m.travel = Travel.read(&f);
     if (m.id.len == 0 or m.name.len == 0 or !(m.bed_x > 0) or !(m.bed_y > 0) or !(m.height > 0)) return error.InvalidLibrary;
     if (!(m.nozzle > 0)) m.nozzle = 0.4;
     if (!(m.filament > 0)) m.filament = 1.75;

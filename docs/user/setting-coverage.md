@@ -328,13 +328,13 @@ The lists come from Cura `resources/definitions/fdmprinter.def.json` and `fdmext
 | Cura setting | Status | zslice |
 |---|---|---|
 | `retraction_enable` (Enable Retraction) | Covered | `machine.retract_length` 0 is no retraction |
-| `retract_at_layer_change` (Retract at Layer Change) | Same | `project.retract_layer_change` |
+| `retract_at_layer_change` (Retract at Layer Change) | Same | `machine.retract_layer_change` |
 | `retraction_amount` (Retraction Distance) | Same | `machine.retract_length` |
 | `retraction_speed` (Retraction Speed) | Same | `machine.retract_speed` |
 | `retraction_retract_speed` (Retraction Retract Speed) | Covered | `machine.retract_speed` |
 | `retraction_prime_speed` (Retraction Prime Speed) | Covered | `machine.retract_speed` |
 | `retraction_extra_prime_amount` (Retraction Extra Prime Amount) | Missing | more plastic after a retraction |
-| `retraction_min_travel` (Retraction Minimum Travel) | Same | `project.retract_min_travel` |
+| `retraction_min_travel` (Retraction Minimum Travel) | Same | `machine.retract_min_travel` |
 | `retraction_count_max` (Maximum Retraction Count) | Missing | a limit of retractions on one spot of filament |
 | `retraction_extrusion_window` (Minimum Extrusion Distance Window) | Missing | a limit of retractions on one spot of filament |
 | `retraction_combing` (Combing Mode) | Same | `project.combing` |
@@ -347,9 +347,9 @@ The lists come from Cura `resources/definitions/fdmprinter.def.json` and `fdmext
 | `layer_start_at_z_seam` (Layer Start at Z Seam) | Missing | start each layer at the seam |
 | `layer_start_x` (Layer Start X) | Missing | the start point of each layer |
 | `layer_start_y` (Layer Start Y) | Missing | the start point of each layer |
-| `retraction_hop_enabled` (Z Hop When Retracted) | Covered | `project.z_hop` 0 is no hop |
-| `retraction_hop_only_when_collides` (Z Hop Only Over Printed Parts) | Same | `project.z_hop_only_crossing` |
-| `retraction_hop` (Z Hop Height) | Same | `project.z_hop` |
+| `retraction_hop_enabled` (Z Hop When Retracted) | Covered | `machine.z_hop` 0 is no hop |
+| `retraction_hop_only_when_collides` (Z Hop Only Over Printed Parts) | Same | `machine.z_hop_only_crossing` |
+| `retraction_hop` (Z Hop Height) | Same | `machine.z_hop` |
 | `retraction_hop_after_extruder_switch` (Z Hop After Extruder Switch) | Missing | a z hop after a tool change |
 | `retraction_hop_after_extruder_switch_height` (Z Hop After Extruder Switch Height) | Missing | a z hop after a tool change |
 
@@ -736,8 +736,8 @@ The lists come from Cura `resources/definitions/fdmprinter.def.json` and `fdmext
 | `small_feature_speed_factor_0` (Small Feature Initial Layer Speed) | Missing | slower walls in small features |
 | `material_alternate_walls` (Alternate Wall Directions) | Missing | the walls of two filaments in turn |
 | `group_outer_walls` (Group Outer Walls) | Missing | print the outer walls of a layer together |
-| `retraction_during_travel_ratio` (Retraction During Travel Move) | Covered | `project.retract_wipe` |
-| `keep_retracting_during_travel` (Keep Retracting During Travel) | Covered | `project.retract_wipe` |
+| `retraction_during_travel_ratio` (Retraction During Travel Move) | Covered | `machine.retract_wipe` |
+| `keep_retracting_during_travel` (Keep Retracting During Travel) | Covered | `machine.retract_wipe` |
 | `prime_during_travel_ratio` (Prime During Travel Move) | Missing | a push back during the travel |
 | `scarf_joint_seam_length` (Scarf Seam Length) | Missing | a scarf seam |
 | `scarf_joint_seam_start_height_ratio` (Scarf Seam Start Height) | Missing | a scarf seam |
@@ -977,10 +977,10 @@ The print, printer, and filament settings first, by status. The settings of resi
 | `reduce_crossing_wall` (Avoid crossing walls) | `project.combing` |
 | `reduce_infill_retraction` (Reduce infill retraction) | `project.combing` (no retraction inside the part) |
 | `resolution` (Resolution) | `engine.resolution` |
-| `retract_lift_enforce` (On surfaces) | `project.z_hop_only_crossing` |
-| `retract_when_changing_layer` (Retract on layer change) | `project.retract_layer_change` |
+| `retract_lift_enforce` (On surfaces) | `machine.z_hop_only_crossing` |
+| `retract_when_changing_layer` (Retract on layer change) | `machine.retract_layer_change` |
 | `retraction_length` (Length) | `machine.retract_length` |
-| `retraction_minimum_travel` (Travel distance threshold) | `project.retract_min_travel` |
+| `retraction_minimum_travel` (Travel distance threshold) | `machine.retract_min_travel` |
 | `retraction_speed` (Retraction speed) | `machine.retract_speed` |
 | `seam_position` (Seam position) | `project.seam` |
 | `single_extruder_multi_material` (Single Extruder Multi Material) | `machine.filament_change = tool` (one nozzle, many filaments) |
@@ -1034,12 +1034,12 @@ The print, printer, and filament settings first, by status. The settings of resi
 | `wall_loops` (Wall loops) | `project.wall_count` |
 | `wall_transition_angle` (Wall transitioning threshold angle) | `project.wall_transition_angle` |
 | `wall_transition_length` (Wall transition length) | `project.wall_transition_length` |
-| `wipe` (Wipe while retracting) | `project.retract_wipe` |
+| `wipe` (Wipe while retracting) | `machine.retract_wipe` |
 | `wipe_tower_x` (Position X) | `project.prime_tower_x` |
 | `wipe_tower_y` (Position Y) | `project.prime_tower_y` |
 | `xy_contour_compensation` (X-Y contour compensation) | `filament.xy_offset` |
 | `xy_hole_compensation` (X-Y hole compensation) | `filament.hole_xy_offset` |
-| `z_hop` (Z-hop height) | `project.z_hop` |
+| `z_hop` (Z-hop height) | `machine.z_hop` |
 | `zaa_enabled` (Z contouring enabled) | `project.slope_smoothing` |
 
 ### Covered
@@ -1126,8 +1126,8 @@ The print, printer, and filament settings first, by status. The settings of resi
 | `use_relative_e_distances` (Use relative E distances) | zslice writes relative extrusion (M83) |
 | `wall_sequence` (Walls printing order) | `project.wall_order` (inner first or outer first; no inner-outer-inner order) |
 | `wall_transition_filter_deviation` (Wall transitioning filter margin) | zslice uses the default (a quarter of the nozzle) |
-| `wipe_distance` (Wipe distance) | `project.retract_wipe` |
-| `z_hop_types` (Z-hop type) | `project.z_hop` (a straight lift) |
+| `wipe_distance` (Wipe distance) | `machine.retract_wipe_distance` |
+| `z_hop_types` (Z-hop type) | `machine.z_hop` (a straight lift); Auto Lift is `machine.z_hop_only_crossing` |
 | `zaa_dont_alternate_fill_direction` (Don't alternate fill direction) | `project.slope_smoothing` |
 | `zaa_min_z` (Minimum Z height) | `project.slope_smoothing_min_width` |
 | `zaa_minimize_perimeter_height` (Minimize wall height angle) | `project.slope_smoothing` |

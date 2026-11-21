@@ -2388,7 +2388,7 @@ test "the retraction at a layer change has no z hop" {
     var mesh = try mesh_mod.shapes.demo(gpa);
     defer mesh.deinit(gpa);
     var s: Settings = .{};
-    try s.set("project.z_hop", "1");
+    try s.set("machine.z_hop", "1");
     var out: std.Io.Writer.Allocating = .init(gpa);
     defer out.deinit();
     _ = try slice(gpa, &mesh, s, &out.writer);
@@ -2521,11 +2521,11 @@ test "the z hop of a layer lifts only on travels that cross an edge" {
     var counts: [2]usize = undefined;
     for ([_]bool{ true, false }, 0..) |only_crossing, k| {
         var s: Settings = .{};
-        s.project.z_hop = 0;
-        s.project.z_hop_only_crossing = only_crossing;
+        s.machine.z_hop = 0;
+        s.machine.z_hop_only_crossing = only_crossing;
         s.project.combing_max_distance = 5;
         // All layers above the first.
-        const o = [_]settings_mod.Override{.{ .z_min = 0.4, .z_max = 100, .name = "project.z_hop", .value = "0.4" }};
+        const o = [_]settings_mod.Override{.{ .z_min = 0.4, .z_max = 100, .name = "machine.z_hop", .value = "0.4" }};
         const text = try demoGcodeWith(gpa, s, &o);
         defer gpa.free(text);
         const layers = try layerTexts(gpa, text);
@@ -2596,12 +2596,12 @@ test "a retraction and its push back have the same length at a change of the ret
     const gpa = testing.allocator;
     const o = [_]settings_mod.Override{
         .{ .z_min = 3, .z_max = 4, .name = "filament.retract_ratio", .value = "2" },
-        .{ .z_min = 3, .z_max = 4, .name = "project.z_hop", .value = "0.4" },
+        .{ .z_min = 3, .z_max = 4, .name = "machine.z_hop", .value = "0.4" },
         .{ .z_min = 3, .z_max = 4, .name = "project.combing", .value = "false" },
     };
     // Each retracted travel lifts the nozzle, also inside the part.
     var s: Settings = .{};
-    s.project.z_hop_only_crossing = false;
+    s.machine.z_hop_only_crossing = false;
     const text = try demoGcodeWith(gpa, s, &o);
     defer gpa.free(text);
     const layers = try layerTexts(gpa, text);
@@ -2864,7 +2864,7 @@ test "z hop only on travels that cross an edge, and no retraction at a layer cha
     var mesh = try mesh_mod.shapes.demo(gpa);
     defer mesh.deinit(gpa);
     var s: Settings = .{};
-    try s.set("project.z_hop", "1");
+    try s.set("machine.z_hop", "1");
     // Long travels inside the part retract.
     try s.set("project.combing_max_distance", "2");
     const Count = struct {
@@ -2874,11 +2874,11 @@ test "z hop only on travels that cross an edge, and no retraction at a layer cha
     };
     var all: std.Io.Writer.Allocating = .init(gpa);
     defer all.deinit();
-    try s.set("project.z_hop_only_crossing", "false");
+    try s.set("machine.z_hop_only_crossing", "false");
     _ = try slice(gpa, &mesh, s, &all.writer);
     var crossing: std.Io.Writer.Allocating = .init(gpa);
     defer crossing.deinit();
-    try s.set("project.z_hop_only_crossing", "true");
+    try s.set("machine.z_hop_only_crossing", "true");
     _ = try slice(gpa, &mesh, s, &crossing.writer);
     // The same retractions, and fewer lifts.
     try std.testing.expectEqual(Count.of(all.written(), "G1 E-"), Count.of(crossing.written(), "G1 E-"));
@@ -2889,9 +2889,9 @@ test "z hop only on travels that cross an edge, and no retraction at a layer cha
     try s.set("project.combing_max_distance", "0");
     var lc: std.Io.Writer.Allocating = .init(gpa);
     defer lc.deinit();
-    try s.set("project.retract_layer_change", "true");
+    try s.set("machine.retract_layer_change", "true");
     _ = try slice(gpa, &mesh, s, &lc.writer);
-    try s.set("project.retract_layer_change", "false");
+    try s.set("machine.retract_layer_change", "false");
     _ = try slice(gpa, &mesh, s, &no_lc.writer);
     try std.testing.expect(Count.of(no_lc.written(), "G1 E-") < Count.of(lc.written(), "G1 E-"));
 }
@@ -3792,7 +3792,63 @@ test "gcode: spiral vase mode rises with no layer change" {
     try testing.expect(rising > 100);
 }
 
-test "gcode: a wipe retraction stays inside the part" {
+/// The wipes of a G-code text (see gcode.Emitter.wipeRetract and
+/// wipeLine): each one with its moves, in the frame of the mesh.
+const Wipes = struct {
+    /// The wipes on a circle (9 or 10 moves) and on a line (fewer).
+    circles: usize = 0,
+    lines: usize = 0,
+    /// The least distance of a point of a circle from the edges of the
+    /// boxes that `inside` gives (mm), and the count of the points of a
+    /// line wipe outside them.
+    circle_clear: f64 = std.math.inf(f64),
+    line_out: usize = 0,
+    /// The plain retractions (G1 E-), and the lifts (G0 Z with no feed).
+    plain: usize = 0,
+    lifts: usize = 0,
+
+    fn of(text: []const u8, ox: f64, oy: f64, boxes: []const [4]f64) !Wipes {
+        var out: Wipes = .{};
+        var lines: std.ArrayList([]const u8) = .empty;
+        defer lines.deinit(testing.allocator);
+        var it = std.mem.splitScalar(u8, text, '\n');
+        while (it.next()) |l| try lines.append(testing.allocator, l);
+        const all = lines.items;
+        var i: usize = 0;
+        while (i < all.len) : (i += 1) {
+            const l = all[i];
+            if (std.mem.startsWith(u8, l, "G1 E-")) out.plain += 1;
+            if (std.mem.startsWith(u8, l, "G0 Z") and std.mem.indexOfScalar(u8, l, 'F') == null and i > 0 and std.mem.indexOf(u8, all[i - 1], " E-") != null) out.lifts += 1;
+            if (!std.mem.eql(u8, l, ";WIPE")) continue;
+            var pts: [16][2]f64 = undefined;
+            var n: usize = 0;
+            while (i + 1 < all.len and std.mem.startsWith(u8, all[i + 1], "G1 X") and std.mem.indexOf(u8, all[i + 1], " E-") != null) : (i += 1) {
+                var words = std.mem.tokenizeScalar(u8, all[i + 1], ' ');
+                var p: [2]f64 = .{ 0, 0 };
+                while (words.next()) |w| {
+                    if (w[0] == 'X') p[0] = try std.fmt.parseFloat(f64, w[1..]) - ox;
+                    if (w[0] == 'Y') p[1] = try std.fmt.parseFloat(f64, w[1..]) - oy;
+                }
+                if (n < pts.len) pts[n] = p;
+                n += 1;
+            }
+            try testing.expect(n > 0);
+            const circle = n >= 9;
+            if (circle) out.circles += 1 else out.lines += 1;
+            for (pts[0..@min(n, pts.len)], 0..) |p, k| {
+                var clear: f64 = -std.math.inf(f64);
+                for (boxes) |b| clear = @max(clear, @min(@min(p[0] - b[0], b[2] - p[0]), @min(p[1] - b[1], b[3] - p[1])));
+                // The move in to the circle starts at the nozzle: the
+                // points of the circle are from the second on.
+                if (circle and (k > 0 or n == 9)) out.circle_clear = @min(out.circle_clear, clear);
+                if (!circle and clear < -1e-3) out.line_out += 1;
+            }
+        }
+        return out;
+    }
+};
+
+test "gcode: a wipe circle stays inside the part, clear of the outer wall" {
     const gpa = testing.allocator;
     var b: mesh_mod.Builder = .init(gpa);
     try mesh_mod.shapes.addBox(&b, 0, 0, 0, 20, 20, 2);
@@ -3801,49 +3857,135 @@ test "gcode: a wipe retraction stays inside the part" {
     defer mesh.deinit(gpa);
     var s: Settings = .{};
     s.engine.threads = 1;
-    s.project.retract_wipe = true;
+    s.project.skirt_loops = 0;
+    s.machine.retract_wipe = true;
     var job = try Job.init(gpa, &mesh, s);
     defer job.deinit();
     var out: std.Io.Writer.Allocating = .init(gpa);
     defer out.deinit();
     _ = try job.writeGcode(&out.writer);
-    const text = out.written();
-    var it = std.mem.splitScalar(u8, text, '\n');
-    var left: usize = 0;
-    var moves: usize = 0;
-    const ox = s.machine.origin_x + job.dx;
-    const oy = s.machine.origin_y + job.dy;
-    while (it.next()) |line| {
-        if (std.mem.eql(u8, line, ";WIPE")) {
-            left = 9;
-            continue;
-        }
-        if (left == 0) continue;
-        left -= 1;
-        try testing.expect(std.mem.startsWith(u8, line, "G1 X"));
-        try testing.expect(std.mem.indexOf(u8, line, " E-") != null);
-        // X and Y of the move, in the frame of the mesh.
-        var words = std.mem.tokenizeScalar(u8, line, ' ');
-        var x: f64 = 0;
-        var y: f64 = 0;
-        while (words.next()) |w| {
-            if (w[0] == 'X') x = try std.fmt.parseFloat(f64, w[1..]) - ox;
-            if (w[0] == 'Y') y = try std.fmt.parseFloat(f64, w[1..]) - oy;
-        }
-        const in_a = x > 0 and x < 20 and y > 0 and y < 20;
-        const in_b = x > 40 and x < 60 and y > 0 and y < 20;
-        try testing.expect(in_a or in_b);
-        moves += 1;
-    }
-    try testing.expect(moves >= 9);
-    // With no wipe: no arc.
-    s.project.retract_wipe = false;
+    const boxes = [_][4]f64{ .{ 0, 0, 20, 20 }, .{ 40, 0, 60, 20 } };
+    const w = try Wipes.of(out.written(), s.machine.origin_x + job.dx, s.machine.origin_y + job.dy, &boxes);
+    // The travels from one box to the other wipe on a circle. Each point
+    // of a circle is clear of the outer wall (one line width from the
+    // edge) by about half a line width (0.44 mm lines).
+    try testing.expect(w.circles >= 2);
+    try testing.expect(w.circle_clear >= 0.6);
+    // With no wipe: no wipe moves.
+    s.machine.retract_wipe = false;
     var plain = try Job.init(gpa, &mesh, s);
     defer plain.deinit();
     var out2: std.Io.Writer.Allocating = .init(gpa);
     defer out2.deinit();
     _ = try plain.writeGcode(&out2.writer);
     try testing.expect(std.mem.indexOf(u8, out2.written(), ";WIPE") == null);
+}
+
+test "gcode: a wipe in a thin part goes back along the last line" {
+    const gpa = testing.allocator;
+    var b: mesh_mod.Builder = .init(gpa);
+    // Two thin walls: no room for a circle in them.
+    try mesh_mod.shapes.addBox(&b, 0, 0, 0, 20, 1.2, 2);
+    try mesh_mod.shapes.addBox(&b, 0, 10, 0, 20, 11.2, 2);
+    var mesh = try b.finish();
+    defer mesh.deinit(gpa);
+    var s: Settings = .{};
+    s.engine.threads = 1;
+    s.project.skirt_loops = 0;
+    s.machine.retract_wipe = true;
+    var job = try Job.init(gpa, &mesh, s);
+    defer job.deinit();
+    var out: std.Io.Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    _ = try job.writeGcode(&out.writer);
+    const boxes = [_][4]f64{ .{ 0, 0, 20, 1.2 }, .{ 0, 10, 20, 11.2 } };
+    const w = try Wipes.of(out.written(), s.machine.origin_x + job.dx, s.machine.origin_y + job.dy, &boxes);
+    try testing.expectEqual(@as(usize, 0), w.circles);
+    try testing.expect(w.lines >= 2);
+    // Each point of a line wipe is on the part.
+    try testing.expectEqual(@as(usize, 0), w.line_out);
+}
+
+test "gcode: a travel that stays inside the part has no wipe" {
+    const gpa = testing.allocator;
+    var b: mesh_mod.Builder = .init(gpa);
+    try mesh_mod.shapes.addBox(&b, 0, 0, 0, 30, 30, 2);
+    var mesh = try b.finish();
+    defer mesh.deinit(gpa);
+    var s: Settings = .{};
+    s.engine.threads = 1;
+    s.project.skirt_loops = 0;
+    s.machine.retract_wipe = true;
+    // Long travels inside the part retract all the same.
+    s.project.combing_max_distance = 2;
+    var job = try Job.init(gpa, &mesh, s);
+    defer job.deinit();
+    var out: std.Io.Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    _ = try job.writeGcode(&out.writer);
+    const w = try Wipes.of(out.written(), s.machine.origin_x + job.dx, s.machine.origin_y + job.dy, &.{.{ 0, 0, 30, 30 }});
+    // One part with no holes: no travel leaves it, so its retractions
+    // are plain (the last one, at the end, too).
+    try testing.expect(w.plain > 10);
+    try testing.expectEqual(@as(usize, 0), w.circles + w.lines);
+}
+
+test "gcode: the travels between support islands lift and wipe with the Bambu Studio values" {
+    const gpa = testing.allocator;
+    var b: mesh_mod.Builder = .init(gpa);
+    // A slab on a column: support on both sides of the column.
+    try mesh_mod.shapes.addBox(&b, 12, 0, 0, 18, 30, 8);
+    try mesh_mod.shapes.addBox(&b, 0, 0, 8, 30, 30, 10);
+    var mesh = try b.finish();
+    defer mesh.deinit(gpa);
+    var s: Settings = .{};
+    s.engine.threads = 1;
+    s.project.support = .everywhere;
+    var before: std.Io.Writer.Allocating = .init(gpa);
+    defer before.deinit();
+    _ = try slice(gpa, &mesh, s, &before.writer);
+    // The values of Bambu Studio for the X2D (printers.bambu).
+    @import("printers.zig").bambu("bambu-lab-x2d").?.travel.apply(&s.machine);
+    try testing.expectEqual(@as(f64, 0.4), s.machine.z_hop);
+    var after: std.Io.Writer.Allocating = .init(gpa);
+    defer after.deinit();
+    _ = try slice(gpa, &mesh, s, &after.writer);
+    const a = supportTravels(before.written());
+    const c = supportTravels(after.written());
+    // Before: no lift and no wipe. After: each retraction after a
+    // support line lifts the nozzle, and wipes back along the line.
+    try testing.expect(a.retractions > 20);
+    try testing.expectEqual(@as(usize, 0), a.lifts);
+    try testing.expectEqual(@as(usize, 0), a.wipes);
+    try testing.expect(c.retractions >= a.retractions);
+    try testing.expectEqual(c.retractions, c.lifts);
+    try testing.expectEqual(c.retractions, c.wipes);
+}
+
+/// The retractions after a support line, with their lifts and wipes.
+fn supportTravels(text: []const u8) struct { retractions: usize, lifts: usize, wipes: usize } {
+    var r: usize = 0;
+    var lifts: usize = 0;
+    var wipes: usize = 0;
+    var support = false;
+    var after = false;
+    var it = std.mem.splitScalar(u8, text, '\n');
+    while (it.next()) |l| {
+        if (std.mem.startsWith(u8, l, ";TYPE:")) support = std.mem.startsWith(u8, l, ";TYPE:SUPPORT");
+        if (!support) continue;
+        if (std.mem.eql(u8, l, ";WIPE")) {
+            r += 1;
+            wipes += 1;
+            after = true;
+        } else if (std.mem.startsWith(u8, l, "G1 E-")) {
+            r += 1;
+            after = true;
+        } else if (after and std.mem.startsWith(u8, l, "G0 Z")) {
+            if (std.mem.indexOfScalar(u8, l, 'F') == null) lifts += 1;
+            after = false;
+        } else if (after and !std.mem.startsWith(u8, l, "G1 X")) after = false;
+    }
+    return .{ .retractions = r, .lifts = lifts, .wipes = wipes };
 }
 
 

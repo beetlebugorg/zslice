@@ -178,10 +178,10 @@ const project_map = [_]Map{
     .{ .cura = "skirt_line_count", .group = "project", .key = "skirt_loops" },
     .{ .cura = "skirt_gap", .group = "project", .key = "skirt_distance" },
     .{ .cura = "brim_width", .group = "project", .key = "brim_width" },
-    .{ .cura = "retraction_min_travel", .group = "project", .key = "retract_min_travel" },
+    .{ .cura = "retraction_min_travel", .group = "machine", .key = "retract_min_travel" },
     .{ .cura = "retraction_combing_max_distance", .group = "project", .key = "combing_max_distance" },
-    .{ .cura = "retraction_hop", .group = "project", .key = "z_hop" },
-    .{ .cura = "retract_at_layer_change", .group = "project", .key = "retract_layer_change", .conv = .boolean },
+    .{ .cura = "retraction_hop", .group = "machine", .key = "z_hop" },
+    .{ .cura = "retract_at_layer_change", .group = "machine", .key = "retract_layer_change", .conv = .boolean },
     .{ .cura = "wall_0_wipe_dist", .group = "project", .key = "outer_wall_wipe" },
     .{ .cura = "speed_wall_0", .group = "project", .key = "outer_wall_speed", .conv = .speed },
     .{ .cura = "speed_wall_x", .group = "project", .key = "inner_wall_speed", .conv = .speed },
@@ -1586,7 +1586,7 @@ test "import the settings of the Printdeck BLTouch mount profile" {
     try testing.expectEqual(@as(f64, 0.4), s.filament.fan_speed);
     try testing.expectEqual(@as(u32, 1), s.filament.fan_off_layers);
     try testing.expectEqual(@as(u32, 3), s.filament.fan_ramp_layers);
-    try testing.expect(s.project.retract_layer_change);
+    try testing.expect(s.machine.retract_layer_change);
     try testing.expectEqual(settings_mod_t.SkinPattern.monotonic, s.project.skin_pattern);
     try testing.expectEqual(settings_mod_t.SeamMode.sharpest, s.project.seam);
     try testing.expectEqual(settings_mod_t.SeamCorner.inner, s.project.seam_corner);

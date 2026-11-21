@@ -1,18 +1,18 @@
 zslice-bambu 1
 # The Bambu Lab printers: model codes and nozzles. Made by tools/bambu_facts.py; do not edit.
 # From the machine presets of Bambu Studio (AGPL-3.0), https://github.com/bambulab/BambuStudio 8e524a39d4c4cd0541801c1c46d2f77debb0bf1d
-B	bambu-lab-a1	N2S	Bambu Lab A1	1				Direct Drive	Standard	Direct Drive Standard	2	2	2	18	0
-B	bambu-lab-a1-mini	N1	Bambu Lab A1 mini	1				Direct Drive	Standard	Direct Drive Standard	2	2	2	18	0
-B	bambu-lab-a2l	N9	Bambu Lab A2L	1				Direct Drive	Standard	Direct Drive Standard	2	2	2	18	0
-B	bambu-lab-h2c	O1C2	Bambu Lab H2C	2	0	325	320	25	330	325	Direct Drive;Direct Drive	Standard;Standard	Direct Drive Standard,Direct Drive High Flow,Direct Drive E3D High Flow|Direct Drive Standard,Direct Drive High Flow	2;2	3.5;13.3	1.6;3.4	14;14	1;1
-B	bambu-lab-h2d	O1D	Bambu Lab H2D	2	0	325	320	25	350	325	Direct Drive;Direct Drive	Standard;Standard	Direct Drive Standard,Direct Drive High Flow,Direct Drive E3D High Flow|Direct Drive Standard,Direct Drive High Flow,Direct Drive TPU High Flow,Direct Drive E3D High Flow	2;2	3.6;3.6	2;2	10;10	0;0
-B	bambu-lab-h2d-pro	O1E	Bambu Lab H2D Pro	2	0	325	320	25	350	325	Direct Drive;Direct Drive	Standard;Standard	Direct Drive Standard,Direct Drive High Flow|Direct Drive Standard,Direct Drive High Flow,Direct Drive TPU High Flow	2;2	3.6;3.6	2;2	10;10	0;0
-B	bambu-lab-h2s	O1S	Bambu Lab H2S	1				Direct Drive	Standard	Direct Drive Standard,Direct Drive High Flow,Direct Drive E3D High Flow	2	2	2	18	0
-B	bambu-lab-h3c	N10	Bambu Lab H3C	1				Direct Drive	Standard	Direct Drive Standard,Direct Drive High Flow,Direct Drive TPU285	2	7.5	2	18	0
-B	bambu-lab-p1p	C11	Bambu Lab P1P	1				Direct Drive	Standard	Direct Drive Standard,Direct Drive High Flow	2	2	2	18	0
-B	bambu-lab-p1s	C12	Bambu Lab P1S	1				Direct Drive	Standard	Direct Drive Standard,Direct Drive High Flow	2	2	2	18	0
-B	bambu-lab-p2s	N7	Bambu Lab P2S	1				Direct Drive	Standard	Direct Drive Standard,Direct Drive High Flow,Direct Drive E3D High Flow	2	2	2	18	0
-B	bambu-lab-x1	BL-P002	Bambu Lab X1	1				Direct Drive	Standard	Direct Drive Standard,Direct Drive High Flow	2	2	2	18	0
-B	bambu-lab-x1-carbon	BL-P001	Bambu Lab X1 Carbon	1				Direct Drive	Standard	Direct Drive Standard,Direct Drive High Flow	2	2	2	18	0
-B	bambu-lab-x1e	C13	Bambu Lab X1E	1				Direct Drive	Standard	Direct Drive Standard,Direct Drive High Flow	2	2	2	18	0
-B	bambu-lab-x2d	N6	Bambu Lab X2D	2	0	256	261	20.5	256	256	Direct Drive;Bowden	Standard;Standard	Direct Drive Standard,Direct Drive High Flow,Direct Drive E3D High Flow|Bowden Standard,Bowden High Flow,Bowden E3D High Flow	2;2	1.5;1.5	2;2	18;18	0;0
+B	bambu-lab-a1	N2S	Bambu Lab A1	1				Direct Drive	Standard	Direct Drive Standard	2	2	2	18	0	0.4	c	1	2	1	1
+B	bambu-lab-a1-mini	N1	Bambu Lab A1 mini	1				Direct Drive	Standard	Direct Drive Standard	2	2	2	18	0	0.4	c	1	2	1	1
+B	bambu-lab-a2l	N9	Bambu Lab A2L	1				Direct Drive	Standard	Direct Drive Standard	2	2	2	18	0	0.4	c	1	2	1	1
+B	bambu-lab-h2c	O1C2	Bambu Lab H2C	2	0	325	320	25	330	325	Direct Drive;Direct Drive	Standard;Standard	Direct Drive Standard,Direct Drive High Flow,Direct Drive E3D High Flow|Direct Drive Standard,Direct Drive High Flow	2;2	3.5;13.3	1.6;3.4	14;14	1;1	0.4	c	1	2	1	1
+B	bambu-lab-h2d	O1D	Bambu Lab H2D	2	0	325	320	25	350	325	Direct Drive;Direct Drive	Standard;Standard	Direct Drive Standard,Direct Drive High Flow,Direct Drive E3D High Flow|Direct Drive Standard,Direct Drive High Flow,Direct Drive TPU High Flow,Direct Drive E3D High Flow	2;2	3.6;3.6	2;2	10;10	0;0	0.4	c	1	2	1	1
+B	bambu-lab-h2d-pro	O1E	Bambu Lab H2D Pro	2	0	325	320	25	350	325	Direct Drive;Direct Drive	Standard;Standard	Direct Drive Standard,Direct Drive High Flow|Direct Drive Standard,Direct Drive High Flow,Direct Drive TPU High Flow	2;2	3.6;3.6	2;2	10;10	0;0	0.4	c	1	2	1	1
+B	bambu-lab-h2s	O1S	Bambu Lab H2S	1				Direct Drive	Standard	Direct Drive Standard,Direct Drive High Flow,Direct Drive E3D High Flow	2	2	2	18	0	0.4	c	1	2	1	1
+B	bambu-lab-h3c	N10	Bambu Lab H3C	1				Direct Drive	Standard	Direct Drive Standard,Direct Drive High Flow,Direct Drive TPU285	2	7.5	2	18	0	0.4	c	1	2	1	1
+B	bambu-lab-p1p	C11	Bambu Lab P1P	1				Direct Drive	Standard	Direct Drive Standard,Direct Drive High Flow	2	2	2	18	0	0.4	c	1	2	1	1
+B	bambu-lab-p1s	C12	Bambu Lab P1S	1				Direct Drive	Standard	Direct Drive Standard,Direct Drive High Flow	2	2	2	18	0	0.4	c	1	2	1	1
+B	bambu-lab-p2s	N7	Bambu Lab P2S	1				Direct Drive	Standard	Direct Drive Standard,Direct Drive High Flow,Direct Drive E3D High Flow	2	2	2	18	0	0.4	c	1	2	1	1
+B	bambu-lab-x1	BL-P002	Bambu Lab X1	1				Direct Drive	Standard	Direct Drive Standard,Direct Drive High Flow	2	2	2	18	0	0.4	c	1	2	1	1
+B	bambu-lab-x1-carbon	BL-P001	Bambu Lab X1 Carbon	1				Direct Drive	Standard	Direct Drive Standard,Direct Drive High Flow	2	2	2	18	0	0.4	c	1	2	1	1
+B	bambu-lab-x1e	C13	Bambu Lab X1E	1				Direct Drive	Standard	Direct Drive Standard,Direct Drive High Flow	2	2	2	18	0	0.4	c	1	2	1	1
+B	bambu-lab-x2d	N6	Bambu Lab X2D	2	0	256	261	20.5	256	256	Direct Drive;Bowden	Standard;Standard	Direct Drive Standard,Direct Drive High Flow,Direct Drive E3D High Flow|Bowden Standard,Bowden High Flow,Bowden E3D High Flow	2;2	1.5;1.5	2;2	18;18	0;0	0.4	c	1	2	1	1
