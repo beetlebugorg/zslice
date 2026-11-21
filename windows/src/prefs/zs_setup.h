@@ -84,7 +84,9 @@ namespace zs
     private:
         std::string GroupText(int group) const;
         bool ApplyText(int group, std::string const &text, std::string &message);
-        void LoadGroup(int group);
+        // True if the text loaded and has settings that moved to another
+        // group (zs_profile_moved).
+        bool LoadGroup(int group);
         std::wstring StatePath(int group);
         void Touch(int group);
 

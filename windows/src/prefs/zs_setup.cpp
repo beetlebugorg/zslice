@@ -90,28 +90,32 @@ namespace zs
         return state::PathOf(group_files[group]);
     }
 
-    void PrinterSetup::LoadGroup(int group)
+    bool PrinterSetup::LoadGroup(int group)
     {
         std::wstring path = StatePath(group);
         std::string text;
         if (!state::ReadBytes(path, text))
-            return;
+            return false;
+        bool moved = zs_profile_moved(group, text.data(), text.size()) > 0;
         char message[256] = "";
         int rc = zs_app_profile_apply(model_.Active(), group, text.data(), text.size(), message, sizeof message);
         if (rc != ZS_OK)
         {
             // The file stays beside it: the next save writes over it.
             state::WriteBytes(path + L".bad", text);
-            fprintf(stderr, "shell: a settings file was not loaded (%s). A copy has the suffix .bad.\n", message);
+            Log("shell: a settings file was not loaded (%s). A copy has the suffix .bad.\n", message);
+            return false;
         }
+        return moved;
     }
 
     void PrinterSetup::Start()
     {
         PrinterStore &store = Printers();
         store.Load();
+        bool moved = false;
         for (int g = 0; g < 3; g++)
-            LoadGroup(g);
+            moved |= LoadGroup(g);
         // The quality of the last session, under the changes of this print.
         std::string quality = store.Pref("profile_project");
         if (!quality.empty() && quality != "custom")
@@ -121,7 +125,7 @@ namespace zs
                 text = "extends = \"" + quality + "\"\n";
             char message[256] = "";
             if (zs_app_quality_set(model_.Active(), quality.c_str(), text.data(), text.size(), true, message, sizeof message) != ZS_OK)
-                fprintf(stderr, "shell: the quality profile %s was not loaded (%s)\n", quality.c_str(), message);
+                Log("shell: the quality profile %s was not loaded (%s)\n", quality.c_str(), message);
         }
         for (int g = 0; g < 3; g++)
         {
@@ -129,6 +133,16 @@ namespace zs
             profile_[g] = store.Pref(std::string("profile_") + group_dirs[g]);
             if (!profile_[g].empty())
                 loaded_[g] = written_[g];
+        }
+        // An older text has settings that moved to another group. The core
+        // put each value in its new group. Save both groups once, so the
+        // values stay there and the current printer keeps its own.
+        if (moved)
+        {
+            Log("shell: saved settings moved to the printer group\n");
+            written_[ZS_GROUP_MACHINE].clear();
+            written_[ZS_GROUP_PROJECT].clear();
+            SaveState();
         }
     }
 
@@ -147,7 +161,7 @@ namespace zs
             if (ok)
                 written_[g] = std::move(text);
             else
-                fprintf(stderr, "shell: the settings were not saved\n");
+                Log("shell: the settings were not saved\n");
         }
     }
 
@@ -199,7 +213,7 @@ namespace zs
         {
             std::string why;
             if (!ApplyText(ZS_GROUP_FILAMENT, filament, why))
-                fprintf(stderr, "shell: the filament of the printer was not loaded (%s)\n", why.c_str());
+                Log("shell: the filament of the printer was not loaded (%s)\n", why.c_str());
         }
         model_.RequestSlice();
         SaveState();
