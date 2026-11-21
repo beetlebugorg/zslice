@@ -67,6 +67,7 @@
 <a href="../../internals/contributing/">Contributing</a>
 <a href="../../internals/code-quality/">Code quality</a>
 <a href="../../internals/macos/" aria-current="page">The macOS app</a>
+<a href="../../internals/release/">CI and releases</a>
 <div class="group">Project</div>
 <a href="../../app/">App</a>
 <a href="../../roadmap/">Roadmap</a>
@@ -236,7 +237,7 @@ xcodebuild -project ZSlice.xcodeproj -scheme ZSlice -configuration Release \
 <h3 id="test-tools">Test tools</h3>
 <p><code>macos/tools/</code> has servers and tools for the tests of the network:</p>
 <ul><li><code>fake_bambu.py</code>: a Bambu Lab printer: FTPS, MQTT, and the JPEG camera of port 6000, over TLS with a self-signed certificate.</li><li><code>enc.swift</code>: encodes two pictures to H.264 with VideoToolbox, for <code>tools/fake_rtsps.py</code> (an RTSPS camera) on a Mac with no ffmpeg.</li><li><code>key_redirect.py</code>: two local servers for the test that the API key never follows a redirect to another origin.</li></ul>
-<p><code>tools/farm_sim/</code> runs a farm of printers: printdeck, OctoPrint, and Moonraker, with App Keys, decks of many printers, and cameras.</p><nav class="pager"><a class="prev" href="../../internals/code-quality/"><span>Previous</span><b>Code quality</b></a><a class="next" href="../../app/"><span>Next</span><b>App</b></a></nav>
+<p><code>tools/farm_sim/</code> runs a farm of printers: printdeck, OctoPrint, and Moonraker, with App Keys, decks of many printers, and cameras.</p><nav class="pager"><a class="prev" href="../../internals/code-quality/"><span>Previous</span><b>Code quality</b></a><a class="next" href="../../internals/release/"><span>Next</span><b>CI and releases</b></a></nav>
 </main>
 </div>
 <footer>zslice is free software (AGPL-3.0-or-later). <a href="../../privacy/">Privacy</a>: no analytics, no cookies, nothing from other sites. <a href="https://github.com/beetlebugorg/zslice/blob/main/docs/build.py">docs/build.py</a> writes this site from <a href="https://github.com/beetlebugorg/zslice/blob/main/docs/internals/macos.md">docs/internals/macos.md</a>.</footer>

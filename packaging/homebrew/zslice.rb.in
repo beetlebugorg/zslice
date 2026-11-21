@@ -1,0 +1,39 @@
+# The zslice command line tool. packaging/homebrew/tap.sh in the zslice
+# repository writes this file for each release.
+class Zslice < Formula
+  desc "Slicer for FDM 3D printers (command-line tool)"
+  homepage "https://zslice.beetlebug.org/"
+  license "AGPL-3.0-or-later"
+
+  on_macos do
+    on_arm do
+      url "@RELEASES@/zslice-@VERSION@-aarch64-macos.tar.gz"
+      sha256 "@SHA_AARCH64_MACOS@"
+    end
+    on_intel do
+      url "@RELEASES@/zslice-@VERSION@-x86_64-macos.tar.gz"
+      sha256 "@SHA_X86_64_MACOS@"
+    end
+  end
+
+  on_linux do
+    on_arm do
+      url "@RELEASES@/zslice-@VERSION@-aarch64-linux-musl.tar.gz"
+      sha256 "@SHA_AARCH64_LINUX@"
+    end
+    on_intel do
+      url "@RELEASES@/zslice-@VERSION@-x86_64-linux-musl.tar.gz"
+      sha256 "@SHA_X86_64_LINUX@"
+    end
+  end
+
+  def install
+    bin.install "zslice"
+  end
+
+  test do
+    system bin/"zslice", "demo", testpath/"demo.stl"
+    system bin/"zslice", "slice", testpath/"demo.stl", "-o", testpath/"demo.gcode"
+    assert_match ";LAYER:", (testpath/"demo.gcode").read
+  end
+end

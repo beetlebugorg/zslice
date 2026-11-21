@@ -82,6 +82,7 @@ SOURCES = [
     ("docs/internals/contributing.md", "internals/contributing/", "Internals", "Contributing"),
     ("docs/internals/code-quality.md", "internals/code-quality/", "Internals", "Code quality"),
     ("docs/internals/macos.md", "internals/macos/", "Internals", "The macOS app"),
+    ("docs/internals/release.md", "internals/release/", "Internals", "CI and releases"),
     ("docs/app/README.md", "app/", "Project", "App"),
     ("ROADMAP.md", "roadmap/", "Project", "Roadmap"),
     ("PRIVACY.md", "privacy/", "Project", "Privacy"),

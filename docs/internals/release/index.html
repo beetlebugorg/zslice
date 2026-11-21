@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CI and releases · zslice</title>
+<meta name="description" content="Two workflows in .github/workflows/ build zslice: ci.yml for each push and pull request, and release.yml for each version tag. This page tells how to cut a release, and lists the secrets that the release needs.">
+<link rel="canonical" href="https://zslice.beetlebug.org/internals/release/">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%23171717'/%3E%3Crect x='11' y='8' width='10' height='4' rx='1' fill='%23f4f0e6'/%3E%3Crect x='8' y='14' width='16' height='4' rx='1' fill='%23f4f0e6'/%3E%3Crect x='5' y='20' width='22' height='4' rx='1' fill='%23ff5a1f'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="../../site.css">
+</head>
+<body>
+<input type="checkbox" id="menu">
+<header class="top">
+  <a class="brand" href="../../docs.html"><span class="mark">ZSLICE</span><span class="docs">DOCS</span></a>
+  <label class="menu-btn" for="menu">Contents</label>
+  <nav class="top-links"><a href="../../index.html">Open the app</a><a href="../../user/getting-started/">Get started</a><a href="../../roadmap/">Roadmap</a><a href="../../privacy/">Privacy</a><a href="https://github.com/beetlebugorg/zslice">GitHub</a></nav>
+</header>
+<div class="layout">
+<aside class="side"><nav><a href="../../docs.html">Home</a>
+<a href="../../contents/">All documents</a>
+<div class="group">Start</div>
+<a href="../../user/getting-started/"><span class="n">1</span>Your first print</a>
+<div class="group">Everyday tasks</div>
+<a href="../../user/look/"><span class="n">2</span>Look at the print</a>
+<a href="../../user/lines/"><span class="n">3</span>Click a line</a>
+<a href="../../user/change-settings/"><span class="n">4</span>Change a setting</a>
+<a href="../../user/parts/"><span class="n">5</span>Place the parts</a>
+<a href="../../user/support/"><span class="n">6</span>Add support</a>
+<a href="../../user/filaments/"><span class="n">7</span>Print in colors</a>
+<a href="../../user/labels/"><span class="n">8</span>Labels on a part</a>
+<a href="../../user/check/"><span class="n">9</span>Check the print</a>
+<a href="../../user/plates/"><span class="n">10</span>Plates and files</a>
+<a href="../../user/printers/"><span class="n">11</span>Send to a printer</a>
+<a href="../../user/history/"><span class="n">12</span>Undo and history</a>
+<div class="group">Features</div>
+<a href="../../user/features/"><span class="n">13</span>The best features</a>
+<a href="../../user/print-as-it-forms/"><span class="n">14</span>The print as it forms</a>
+<a href="../../user/projects/"><span class="n">15</span>printdeck projects</a>
+<a href="../../user/farm/"><span class="n">16</span>A print farm</a>
+<div class="group">Reference</div>
+<a href="../../user/keys/">Keys and mouse</a>
+<a href="../../user/settings/">Settings</a>
+<a href="../../user/expert/">Formulas and rules</a>
+<a href="../../user/profiles/">Profiles</a>
+<a href="../../user/setting-coverage/">Cura and OrcaSlicer settings</a>
+<a href="../../user/command-line/">The command line</a>
+<a href="../../user/apps/">Web, Linux, and Mac</a>
+<a href="../../user/macos/">The macOS app</a>
+<a href="../../user/troubleshooting/">Problems and errors</a>
+<div class="group">Embedding</div>
+<a href="../../embedding/">Overview</a>
+<a href="../../embedding/c/">C</a>
+<a href="../../embedding/zig/">Zig</a>
+<a href="../../embedding/javascript/">JavaScript</a>
+<a href="../../embedding/print-view/">The print view</a>
+<a href="../../embedding/viewer/">The G-code viewer</a>
+<a href="../../embedding/labels/">Labels</a>
+<div class="group">Internals</div>
+<a href="../../internals/architecture/">Architecture</a>
+<a href="../../internals/one-view/">Plan: one view</a>
+<a href="../../internals/how-slicing-works/">How slicing works</a>
+<a href="../../internals/layer-settings/">Settings for some layers</a>
+<a href="../../internals/arachne/">Arachne walls</a>
+<a href="../../internals/print-sim/">The print simulation</a>
+<a href="../../internals/cura-compare/">Compared with other slicers</a>
+<a href="../../internals/contributing/">Contributing</a>
+<a href="../../internals/code-quality/">Code quality</a>
+<a href="../../internals/macos/">The macOS app</a>
+<a href="../../internals/release/" aria-current="page">CI and releases</a>
+<div class="group">Project</div>
+<a href="../../app/">App</a>
+<a href="../../roadmap/">Roadmap</a>
+<a href="../../privacy/">Privacy</a>
+<div class="group">References</div>
+<a href="../../references/">References</a>
+<a href="../../references/explore/">Explorer</a>
+<a href="../../references/libraries/">Libraries and tools</a>
+<a href="../../references/cura/">Cura</a>
+<a href="../../references/orcaslicer/">OrcaSlicer</a>
+<a href="../../references/prusaslicer/">PrusaSlicer</a>
+<a href="../../references/bambu-studio/">Bambu Studio</a>
+<a href="../../references/slicer-techniques/">Slicer techniques</a>
+<a href="../../references/printer-data/">Printer data</a>
+<a href="../../references/klipper-marlin-firmware/">Firmware and G-code</a>
+<a href="../../references/fonts/">Fonts</a>
+<a href="../../references/papers-and-algorithms/">Papers and algorithms</a>
+<a href="../../references/physics-and-materials/">Physics and materials</a>
+<a href="../../references/formats-and-protocols/">Formats and protocols</a></nav></aside>
+<main>
+<p class="eyebrow">Internals</p>
+<h1>CI and releases</h1>
+<p class="lede">Two workflows in <code>.github/workflows/</code> build zslice: <code>ci.yml</code> for each push and pull request, and <code>release.yml</code> for each version tag. This page tells how to cut a release, and lists the secrets that the release needs.</p>
+<nav class="onpage"><b>On this page</b><ol><li><a href="#ci">CI</a></li><li><a href="#cut-a-release">Cut a release</a></li><li><a href="#secrets">Secrets</a></li><li><a href="#make-a-release-on-a-mac-by-hand">Make a release on a Mac by hand</a></li></ol></nav><h2 id="ci">CI</h2>
+<p><code>ci.yml</code> runs on a push to <code>main</code>, on each pull request, and by hand. A change of the docs or of Markdown files only does not start it. The first job compares the change with its base, and starts only the jobs that the change needs. A change of the core (<code>src/</code>, <code>include/</code>, <code>vendor/</code>, <code>tools/</code>, <code>build.zig</code>, or <code>ci.yml</code>) starts all jobs.</p>
+<div class="table-wrap"><table><thead><tr><th>Job</th><th>Runner</th><th>What it does</th></tr></thead><tbody><tr><td>Core tests</td><td>Ubuntu</td><td><code>zig build test</code>, then the command line tool slices a 20 mm cube.</td></tr><tr><td>Web app</td><td>Ubuntu</td><td><code>zig build web</code>, then <code>test-node.mjs</code>, <code>test-link.mjs</code>, and <code>test-signing.mjs</code> in Node.js.</td></tr><tr><td>Linux app</td><td>Ubuntu 24.04</td><td>The GTK 4 app with meson and ninja. A warning stops the build (<code>-Dwerror=true</code>). Then <code>meson test</code>.</td></tr><tr><td>Mac app</td><td>macOS</td><td>Checks that the Xcode project lists each Swift file, and builds the Xcode project (the core, the app, and the Quick Look extensions). Then the app opens a box, slices it, and writes a picture of its window. That last step does not fail the job yet.</td></tr><tr><td>Windows app</td><td>Windows</td><td>Only when <code>windows/</code> exists. The core and the link test for x64 and ARM64 (ARM64: build and link only), and the app with msbuild when <code>windows/</code> has a <code>.sln</code> or a <code>.vcxproj</code>. The ARM64 job adds the ARM64 tools of MSVC when the runner does not have them.</td></tr></tbody></table></div>
+<p><code>mlugg/setup-zig</code> keeps the Zig cache between runs. <code>tools/cube_stl.py</code> writes the test parts.</p>
+<h2 id="cut-a-release">Cut a release</h2>
+<ol><li>Check that CI passes on <code>main</code>.</li><li>Tag the commit, and push the tag:
+<pre><code>git tag v0.6.0-beta
+git push origin v0.6.0-beta</code></pre></li><li>Watch the <code>release</code> workflow in the Actions tab. The time of a run is not measured yet. Notarization alone can need some minutes.</li><li>Read the release page. The notes come from the commit subjects since the tag before.</li></ol>
+<p>To make the release of a tag again (for example after a failed job), run the <code>release</code> workflow by hand with the tag. The run replaces the files and the notes of the release.</p>
+<h3 id="tags-and-prereleases">Tags and prereleases</h3>
+<p>The tag is <code>v</code> and the version: <code>v0.6.0-beta</code>. A tag has no counter such as <code>beta.2</code>.</p>
+<div class="table-wrap"><table><thead><tr><th>Tag</th><th>GitHub</th><th>Homebrew tap</th></tr></thead><tbody><tr><td><code>v0.6.0</code></td><td>A release, the latest</td><td>Updated</td></tr><tr><td><code>v0.6.0-beta</code></td><td>A prerelease</td><td>Updated</td></tr><tr><td><code>v0.6.0-rc1</code>, <code>v0.6.0-test</code>, any other suffix</td><td>A prerelease</td><td>Not changed</td></tr></tbody></table></div>
+<p>While zslice is in beta, <code>-beta</code> is the usual release. Use another suffix to try the release workflow with no change to the tap.</p>
+<h3 id="the-files-of-a-release">The files of a release</h3>
+<p>VERSION is the tag with no <code>v</code>.</p>
+<div class="table-wrap"><table><thead><tr><th>File</th><th>What it is</th></tr></thead><tbody><tr><td><code>zslice-VERSION-x86_64-linux-musl.tar.gz</code>, <code>zslice-VERSION-aarch64-linux-musl.tar.gz</code></td><td>The command line tool for Linux (static).</td></tr><tr><td><code>zslice-VERSION-aarch64-macos.tar.gz</code>, <code>zslice-VERSION-x86_64-macos.tar.gz</code></td><td>The command line tool for macOS.</td></tr><tr><td><code>zslice-VERSION-lib-aarch64-linux-gnu.tar.gz</code>, <code>zslice-VERSION-lib-x86_64-linux-gnu.tar.gz</code></td><td>The C library (<code>libzslice.a</code> and the headers) for printer hosts.</td></tr><tr><td><code>zslice-VERSION-macos-universal.dmg</code></td><td>The Mac app for Apple silicon and Intel, signed with the Developer ID, notarized, and stapled.</td></tr><tr><td><code>zslice-gtk-VERSION-linux-x86_64.tar.gz</code>, <code>zslice-gtk-VERSION-linux-aarch64.tar.gz</code></td><td>The Linux app: <code>bin/zslice-gtk</code> and <code>share/</code>. It needs GTK 4.14 or later.</td></tr><tr><td><code>zslice-VERSION-web.zip</code></td><td>The web app: static files for a web server.</td></tr><tr><td><code>zslice-VERSION-windows-x64.zip</code>, <code>zslice-VERSION-windows-arm64.zip</code></td><td>The Windows app, when <code>windows/</code> exists. It is not signed.</td></tr><tr><td><code>SHA256SUMS</code></td><td>The SHA-256 of each file. Check a file with <code>sha256sum -c SHA256SUMS --ignore-missing</code>.</td></tr></tbody></table></div>
+<p>The printdeck Action downloads the Linux tools by their names. Keep the names of the tool and library tarballs.</p>
+<p>With no Apple secrets, the Mac app is signed ad hoc and is not notarized. Its file is then <code>zslice-VERSION-macos-universal-unsigned.dmg</code>, and the cask does not change.</p>
+<p>The Windows app has no signature: there is no Windows certificate yet. SmartScreen shows a warning at the first start.</p>
+<p>The Linux app is a tarball only. An AppImage needs a bundle of GTK 4, and the release does not make one yet.</p>
+<h3 id="homebrew">Homebrew</h3>
+<p>The <code>homebrew</code> job writes three files to <a href="https://github.com/beetlebugorg/homebrew-tap">beetlebugorg/homebrew-tap</a> with <code>packaging/homebrew/tap.sh</code>:</p>
+<ul><li><code>Formula/zslice.rb</code>: the command line tool, from the tarballs of the release (macOS and Linux).</li><li><code>Formula/zslice-gtk.rb</code>: the Linux app, built from the source tarball of the tag with the <code>gtk4</code> of Homebrew and <code>zig@0.16</code>.</li><li><code>Casks/zslice.rb</code>: the Mac app, from the signed dmg.</li></ul>
+<p>The templates are <code>packaging/homebrew/*.rb.in</code>. <code>packaging/homebrew/tap/</code> has the formulas of v0.5.0-beta, for a first pull request to the tap.</p>
+<h2 id="secrets">Secrets</h2>
+<p>Set each secret in the repository: Settings &gt; Secrets and variables &gt; Actions &gt; New repository secret. Or use <code>gh secret set NAME -R beetlebugorg/zslice</code>, which reads the value from the terminal or from a file on standard input. The names are the same as in lookout-marine. GitHub does not show a secret again, so set each value again from its file.</p>
+<div class="table-wrap"><table><thead><tr><th>Secret</th><th>What it is</th></tr></thead><tbody><tr><td><code>MACOS_CERT_P12</code></td><td>The Developer ID Application certificate and its private key: a <code>.p12</code> file, as base64.</td></tr><tr><td><code>MACOS_CERT_PASSWORD</code></td><td>The password of the <code>.p12</code> file.</td></tr><tr><td><code>APPLE_TEAM_ID</code></td><td>The team id of the Apple Developer account: ten characters.</td></tr><tr><td><code>NOTARY_KEY_P8</code></td><td>An App Store Connect API key: the full text of the <code>AuthKey_&lt;id&gt;.p8</code> file.</td></tr><tr><td><code>NOTARY_KEY_ID</code></td><td>The key id of that API key.</td></tr><tr><td><code>NOTARY_ISSUER_ID</code></td><td>The issuer id of the App Store Connect API keys.</td></tr><tr><td><code>HOMEBREW_TAP_TOKEN</code></td><td>A fine-grained GitHub token with write access to the contents of beetlebugorg/homebrew-tap only.</td></tr></tbody></table></div>
+<p>With no Apple secrets, the release has an unsigned dmg. With no tap token, the tap does not change. The release is made in both cases.</p>
+<h3 id="the-developer-id-certificate">The Developer ID certificate</h3>
+<p>Only the Account Holder of the Apple Developer account can make a Developer ID certificate.</p>
+<ol><li>On a Mac, open Keychain Access. Select Keychain Access &gt; Certificate Assistant &gt; Request a Certificate From a Certificate Authority. Enter your email, select "Saved to disk", and save the <code>.certSigningRequest</code> file.</li><li>At <a href="https://developer.apple.com/account/resources/certificates/list">developer.apple.com/account/resources/certificates</a>, click +. Select <strong>Developer ID Application</strong> and the G2 Sub-CA. Upload the request, and download the <code>.cer</code> file.</li><li>Double-click the <code>.cer</code> file. Keychain Access adds it to the login keychain, with its private key.</li><li>In Keychain Access &gt; My Certificates, right-click "Developer ID Application: NAME (TEAMID)", and select Export. Save as a <code>.p12</code> file, and give it a strong password.</li><li>Set the two secrets:
+<pre><code>base64 -i DeveloperID.p12 | gh secret set MACOS_CERT_P12 -R beetlebugorg/zslice
+gh secret set MACOS_CERT_PASSWORD -R beetlebugorg/zslice</code></pre></li><li>Delete the <code>.p12</code> file, or keep it in a safe place.</li></ol>
+<h3 id="the-team-id">The team id</h3>
+<p>The team id is on <a href="https://developer.apple.com/account">developer.apple.com/account</a> &gt; Membership details. It is also in the name of the certificate, in the parentheses.</p>
+<pre><code>gh secret set APPLE_TEAM_ID -R beetlebugorg/zslice</code></pre>
+<h3 id="the-app-store-connect-api-key">The App Store Connect API key</h3>
+<p>notarytool sends the app to Apple with this key. It needs no Apple ID and no app password.</p>
+<ol><li>At <a href="https://appstoreconnect.apple.com/access/integrations/api">App Store Connect</a>, open Users and Access &gt; Integrations &gt; App Store Connect API &gt; Team Keys. (The Account Holder must first request access to the API there.)</li><li>Click +. Give the key a name (for example "zslice notary"), and the role <strong>Developer</strong>. That role can notarize.</li><li>Download the <code>AuthKey_&lt;id&gt;.p8</code> file. Apple lets you download it one time only.</li><li>The key id is in the list of keys. The issuer id is above the list.</li><li>Set the three secrets:
+<pre><code>gh secret set NOTARY_KEY_P8 -R beetlebugorg/zslice &lt; AuthKey_ABC123DEFG.p8
+gh secret set NOTARY_KEY_ID -R beetlebugorg/zslice
+gh secret set NOTARY_ISSUER_ID -R beetlebugorg/zslice</code></pre></li></ol>
+<h3 id="the-tap-token">The tap token</h3>
+<ol><li>At <a href="https://github.com/settings/personal-access-tokens/new">github.com/settings/personal-access-tokens</a>, make a new fine-grained token.</li><li>Resource owner: beetlebugorg. Expiration: one year, or less.</li><li>Repository access: <strong>Only select repositories</strong>, and select beetlebugorg/homebrew-tap.</li><li>Permissions &gt; Repository permissions &gt; Contents: <strong>Read and write</strong>. GitHub adds Metadata (read) itself. Give no other permission.</li><li>Generate the token, and set it:
+<pre><code>gh secret set HOMEBREW_TAP_TOKEN -R beetlebugorg/zslice</code></pre></li></ol>
+<p>Make a new token before the old one expires. The release log shows a warning when the token is not set.</p>
+<h2 id="make-a-release-on-a-mac-by-hand">Make a release on a Mac by hand</h2>
+<p><code>macos/release.sh</code> is the script of the Mac job. It needs a Developer ID identity in the keychain and the notary key:</p>
+<pre><code>export APPLE_TEAM_ID=ABCDE12345 NOTARY_KEY_FILE=~/keys/AuthKey_ABC123DEFG.p8
+export NOTARY_KEY_ID=ABC123DEFG NOTARY_ISSUER_ID=...
+macos/release.sh 0.6.0-beta 1    # macos/build/zslice-0.6.0-beta-macos-universal.dmg</code></pre>
+<p>With no <code>APPLE_TEAM_ID</code>, it makes an unsigned dmg. The bundle gets the version with no suffix (0.6.0), and the build number.</p><nav class="pager"><a class="prev" href="../../internals/macos/"><span>Previous</span><b>The macOS app</b></a><a class="next" href="../../app/"><span>Next</span><b>App</b></a></nav>
+</main>
+</div>
+<footer>zslice is free software (AGPL-3.0-or-later). <a href="../../privacy/">Privacy</a>: no analytics, no cookies, nothing from other sites. <a href="https://github.com/beetlebugorg/zslice/blob/main/docs/build.py">docs/build.py</a> writes this site from <a href="https://github.com/beetlebugorg/zslice/blob/main/docs/internals/release.md">docs/internals/release.md</a>.</footer>
+</body>
+</html>
