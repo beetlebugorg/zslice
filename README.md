@@ -56,15 +56,15 @@ Click an overhang to put support under it. Drag the dots of tree support to move
 
 <img align="right" width="360" src="docs/img/colors.webp" alt="A 3DBenchy in grey with its support in red: the support prints with a filament of its own">
 
-Give a part, some layers, or a painted face a filament of its own. Print the support in its own filament, so it breaks away. Take the filaments that a printer has loaded with one click. On a printer with two nozzles, such as the Bambu Lab X2D, each filament has its nozzle. See [Print in colors](docs/user/filaments.md).
+Give a part, some layers, or a painted face a filament of its own. Print the support in its own filament, so it breaks away. Take the filaments that a printer has loaded with one click. On a printer with two nozzles, such as the Bambu Lab X2D, each filament has its nozzle. See [Print in colors](https://zslice.beetlebug.org/user/filaments/).
 
 <br clear="right">
 
-All features: [The best features](docs/user/features.md).
+All features: [The best features](https://zslice.beetlebug.org/user/features/).
 
 ## Start
 
-- **In your browser:** open [zslice.beetlebug.org](https://zslice.beetlebug.org/), and read [Your first print](docs/user/getting-started.md).
+- **In your browser:** open [zslice.beetlebug.org](https://zslice.beetlebug.org/), and read [Your first print](https://zslice.beetlebug.org/user/getting-started/).
 - **From the source:** zslice needs Zig 0.16.
 
 ```sh
@@ -74,17 +74,17 @@ zig build web                           # the web app: zig-out/web/app
 zslice slice part.stl -o part.gcode     # slice a part
 ```
 
-The Linux app (GTK 4) and the macOS app (SwiftUI and Metal) are in `linux/` and `macos/`. See [Web, Linux, and Mac](docs/user/apps.md).
+The Linux app (GTK 4) and the macOS app (SwiftUI and Metal) are in `linux/` and `macos/`. See [Web, Linux, and Mac](https://zslice.beetlebug.org/user/apps/).
 
 ## Links
 
 - [The documentation](https://zslice.beetlebug.org/docs.html): the guide, the settings, and the internals.
-- [Embedding](docs/embedding/overview.md): the library from Zig, C, and JavaScript.
-- [How a slicer works](docs/internals/how-slicing-works.md), [Architecture](docs/internals/architecture.md), and [Contributing](docs/internals/contributing.md).
-- [The roadmap](ROADMAP.md), and [Privacy](PRIVACY.md): no analytics, no cookies.
+- [Embedding](https://zslice.beetlebug.org/embedding/): the library from Zig, C, and JavaScript.
+- [How a slicer works](https://zslice.beetlebug.org/internals/how-slicing-works/), [Architecture](https://zslice.beetlebug.org/internals/architecture/), and [Contributing](https://zslice.beetlebug.org/internals/contributing/).
+- [The roadmap](https://zslice.beetlebug.org/roadmap/), and [Privacy](https://zslice.beetlebug.org/privacy/): no analytics, no cookies.
 
 ## License
 
-AGPL-3.0-or-later. See `LICENSE`. The sources that zslice uses, and the licenses of the code in its binaries, are in [docs/references](docs/references/README.md).
+AGPL-3.0-or-later. See `LICENSE`. The sources that zslice uses, and the licenses of the code in its binaries, are in [the references](https://zslice.beetlebug.org/references/).
 
 The pictures show a slice of [3DBenchy](https://www.3dbenchy.com/) by Creative Tools, licensed under CC BY-ND 4.0. The model is not in this repository.
