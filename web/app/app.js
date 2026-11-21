@@ -50,6 +50,8 @@
 //
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+// theme.js first: it sets the colors before the rest of the page loads.
+import { isDark, onThemeChange, themeChoice, setTheme } from "./theme.js";
 import { Wasm } from "./wasm.js";
 import { savePlate, loadPlate, clearPlate, loadSession } from "./keep.js";
 import { Client } from "./client.js";
@@ -202,19 +204,17 @@ const canvas = $("gl");
 const gl = new GlRenderer(canvas);
 const view = new View3D(wasm, 16, 16);
 
-// The view follows the dark mode of the system: the background, the grid,
-// and the bed of the 3D view (zs_view_set_dark) and of the 2D view.
+// The view follows the theme (theme.js): the background, the grid, and
+// the bed of the 3D view (zs_view_set_dark) and of the 2D view.
 {
-  const dark = window.matchMedia?.("(prefers-color-scheme: dark)");
-  const apply = () => {
-    const on = !!dark?.matches;
+  const apply = (on) => {
     view.x.zs_view_set_dark(view.v, on ? 1 : 0);
     gl.dark = on;
   };
-  apply();
+  apply(isDark());
   // A change later draws a frame (the first frame comes after the start).
-  dark?.addEventListener?.("change", () => {
-    apply();
+  onThemeChange((on) => {
+    apply(on);
     requestFrame();
   });
 }
@@ -1701,15 +1701,27 @@ $("main-menu").onclick = () => openMenu($("main-menu"), [
   { label: "Remove this plate", action: () => removePlate(app.activePlate) },
   { sep: true },
   { label: "2D view", checked: app.page === "2d", accel: "2", tip: "One layer from the top. A drag pans, the wheel zooms, a double click fits the part.", action: toggle2d },
+  { label: "Theme", submenu: themeItems() },
   { sep: true },
   { label: "Keyboard shortcuts", accel: "?", action: () => shortcuts.show() },
   { label: "Licenses", action: showLicenses },
   { label: "About zslice", action: () => toast(`zslice ${wasm.cstr(wasm.x.zs_version())}: a slicer in Zig, in WebAssembly. AGPL-3.0-or-later.`) },
 ]);
 
+// The theme: the system, light, or dark (theme.js keeps the choice in
+// this browser).
+function themeItems() {
+  const now = themeChoice();
+  return [
+    { label: "Follow the system", checked: now === "system", action: () => setTheme("system") },
+    { label: "Light", checked: now === "light", action: () => setTheme("light") },
+    { label: "Dark", checked: now === "dark", action: () => setTheme("dark") },
+  ];
+}
+
 function showLicenses() {
   const d = document.createElement("dialog");
-  d.style.cssText = "background:#303030;color:inherit;border:none;border-radius:12px;padding:12px;max-width:720px";
+  d.style.cssText = "background:var(--dialog);color:var(--fg);border:none;border-radius:12px;padding:12px;max-width:720px";
   const close = document.createElement("button");
   close.textContent = "Close";
   close.onclick = () => d.close();
@@ -3485,7 +3497,7 @@ var signTotals = [];
 var signTotalsBusy = false;
 function updatePlateSigns() {
   if (!view?.loaded && !app.plates?.length) return;
-  const dark = matchMedia("(prefers-color-scheme: dark)").matches;
+  const dark = isDark();
   const accent = getComputedStyle(document.documentElement).getPropertyValue("--accent-bg").trim() || "#3584e4";
   const signs = (app.plates ?? []).map((p, i) => ({
     ...signLines(p, i, signTotals[i], project?.printStatus(i)),
@@ -3518,7 +3530,7 @@ function updatePlateSigns() {
       });
   }
 }
-matchMedia("(prefers-color-scheme: dark)").addEventListener?.("change", () => updatePlateSigns());
+onThemeChange(() => updatePlateSigns());
 
 // The Open button of an empty plate: small, on the middle of the active
 // plate in the view, so it moves with the plate. It hides when another

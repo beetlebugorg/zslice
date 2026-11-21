@@ -197,8 +197,10 @@ function drawVolume(canvas, v) {
   const cr = canvas.getContext("2d");
   cr.setTransform(dpr, 0, 0, dpr, 0, 0);
   cr.clearRect(0, 0, w, h);
-  const fg = "rgba(255,255,255,";
-  const accent = "rgba(53,132,228,";
+  // The colors of the theme (style.css): the text and the accent.
+  const css = getComputedStyle(canvas);
+  const fg = `rgba(${css.getPropertyValue("--fg-rgb").trim() || "255, 255, 255"},`;
+  const accent = `rgba(${css.getPropertyValue("--accent-rgb").trim() || "53, 132, 228"},`;
   if (!v) {
     cr.fillStyle = fg + "0.45)";
     cr.font = "14px sans-serif";
