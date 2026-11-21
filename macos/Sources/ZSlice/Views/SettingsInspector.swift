@@ -86,9 +86,12 @@ struct SettingsInspector: View {
         .onDisappear { workspace.focus(0, firstLayer: false) }
         .onAppear {
             // For development and screenshots: ZSLICE_SETTING=name opens the
-            // page of that setting.
-            if let name = ProcessInfo.processInfo.environment["ZSLICE_SETTING"], let info = SettingInfo.byName[name], path.isEmpty {
-                workspace.settingsPath = [.section(group: info.group, section: info.section), .setting(name)]
+            // page of that setting, and =@name only its section.
+            if let spec = ProcessInfo.processInfo.environment["ZSLICE_SETTING"], path.isEmpty {
+                let name = spec.hasPrefix("@") ? String(spec.dropFirst()) : spec
+                if let info = SettingInfo.byName[name] {
+                    workspace.settingsPath = [.section(group: info.group, section: info.section)] + (spec.hasPrefix("@") ? [] : [.setting(name)])
+                }
             }
         }
     }
@@ -309,15 +312,53 @@ struct SettingsList: View {
     let settings: [SettingInfo]
 
     var body: some View {
+        // A list of one printer or filament section: one banner that says
+        // whose settings they are. A mixed list (a search): a badge on each.
+        let groups = Set(settings.map(\.group))
+        let one = !withSection && groups.count == 1 ? groups.first : nil
         List {
             if settings.isEmpty {
                 Text("No setting matches.").foregroundStyle(.secondary)
             }
+            if let one, OwnerBadge.owns(one) {
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    OwnerBadge(model: workspace.model, group: one)
+                    Text(one == "machine" ? "Each printer keeps its own values here. They change when you change the printer."
+                                          : "Each filament keeps its own values here. They change when you change the filament.")
+                        .font(.callout).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
             ForEach(settings) { info in
-                SettingRow(workspace: workspace, info: info, withSection: withSection)
+                SettingRow(workspace: workspace, info: info, withSection: withSection || one == nil)
             }
         }
         .navigationTitle(title)
+    }
+}
+
+/// Whose setting it is (web/app/settings.js ownerBadge): "Printer · Bambu
+/// Lab X2D" for a printer setting, "Filament · PLA" for a filament
+/// setting. A printer setting changes when the printer changes, a filament
+/// setting with the filament. A print setting has no badge: it stays.
+struct OwnerBadge: View {
+    let model: SliceModel
+    let group: String
+
+    static func owns(_ group: String) -> Bool { group == "machine" || group == "filament" }
+
+    var body: some View {
+        let printer = group == "machine"
+        let who = model.setting(printer ? "machine.name" : "filament.name")
+        Text((printer ? "Printer" : "Filament") + (who.isEmpty ? "" : " · \(who)"))
+            .font(.caption.weight(.medium))
+            .lineLimit(1)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 1)
+            .foregroundStyle(printer ? Color.indigo : Color.teal)
+            .background((printer ? Color.indigo : Color.teal).opacity(0.12), in: Capsule())
+            .help(printer ? "A printer setting: each printer has its own value, and it changes when you change the printer."
+                          : "A filament setting: each filament has its own value, and it changes when you change the filament.")
     }
 }
 
@@ -331,7 +372,14 @@ struct SettingRow: View {
         // The label opens the page of the setting; the editor stays live.
         HStack(alignment: .firstTextBaseline) {
             VStack(alignment: .leading, spacing: 2) {
-                Text(info.label)
+                if withSection, OwnerBadge.owns(info.group) {
+                    HStack(spacing: 6) {
+                        Text(info.label)
+                        OwnerBadge(model: workspace.model, group: info.group)
+                    }
+                } else {
+                    Text(info.label)
+                }
                 let tag = tagText(entry)
                 if !tag.isEmpty {
                     Text(tag)
@@ -587,6 +635,16 @@ struct SettingDetail: View {
                     Spacer()
                     if entry.isMine {
                         Button("Reset") { model.reset(info.name) }
+                    }
+                }
+                // A setting of the printer or the filament: say so, with the name.
+                if OwnerBadge.owns(info.group) {
+                    HStack(alignment: .firstTextBaseline, spacing: 6) {
+                        OwnerBadge(model: model, group: info.group)
+                        Text(info.group == "machine" ? "Each printer has its own value. It changes when you change the printer."
+                                                     : "Each filament has its own value. It changes when you change the filament.")
+                            .font(.callout).foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
                 }
             } header: {

@@ -265,6 +265,8 @@ A printdeck or an OctoPrint printer that you add with no API key gets one in one
 
 The printer menu in the plate bar gives the plate a printer. The plate slices for that printer (its bed, nozzle, and limits), the toolbar shows the printer of the plate in view, and the Printers page sends the plate there.
 
+The settings say whose they are. A section of printer settings starts with a banner, "Printer · *name*: each printer keeps its own values here", and a filament section the same with the filament. In a search, and on the page of a setting, a badge names the printer or the filament. Print settings have no badge: they stay when you change the printer.
+
 Each printer keeps its filament. When you change the printer, zslice keeps the filament settings for the printer you leave, and loads the filament that the new printer was last used with. A printer that has none yet keeps the filament you have now.
 
 With a connection and its API key, the details show the state of the printer: its job and progress, or the roll in it and the grams left. A printdeck also gives its own estimate of the print time after each slice ("Workhorse: 1h 41m (3 min start)"). For the estimate, zslice sends the G-code to the printdeck, compressed; the printer does not keep it or print it.

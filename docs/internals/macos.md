@@ -253,6 +253,7 @@ The drawer of the other apps is a SwiftUI inspector at the right of the window. 
 
 - Its pages are those of `web/app/settings.js`: the sections of each group, the settings of a section (each with a switch, a menu, or a field with its unit), and the page of one setting (its slider, its formula, its source with Reset, its help (names and values in code marks show in a code font; tooltips and the search use the help without the marks), and the lines that it changes with their share of the print time). The search field finds settings by name or help text.
 - The view shows the lines that the page points at, and fades the others (`zs_view_focus`), on the 3D and the 2D page. A pointer over a row shows the lines of that row. A hidden drawer shows the whole print.
+- `OwnerBadge` (as web/app/settings.js): a list of one printer or filament section starts with a banner, "Printer · *name*" or "Filament · *name*" (`machine.name`, `filament.name`); a mixed list (a search, the search overlay) has the badge on each printer and filament row, and the page of a setting has it with a note. A print setting has none.
 - A speed ratio (a setting `*_speed` that `zs_app_ratio_speed` knows) shows the speed that it gives on this printer next to the percent: "≈ 45 mm/s".
 - A field sends a number after a pause of 450 ms in the typing, on Return, or with the up and down arrow keys; the plate then slices again.
 - The details show the main settings of the print as buttons. Each opens a popover with live editors and a slider. A slider sends its value at most each 90 ms during a drag, so the view follows the drag. The details keep the last numbers while a new slice runs.
@@ -423,7 +424,7 @@ Like the GTK shell, the app reads environment variables for tests and screenshot
 
 - `ZSLICE_SNAPSHOT=path.png` writes the window to that PNG file 1.5 s after the first load of a slice, so the camera and the other hooks are done. The 3D view comes from Metal and the controls from AppKit (`cacheDisplay`), so it needs no permission to record the screen. `ZSLICE_SNAPSHOT_DELAY=s` waits s more seconds, for pages that wait on the network.
 - `ZSLICE_VIEW=2d` (or `3d`) opens the window on that page. `ZSLICE_PAGE=history`, `project`, or `printers` opens that page. `ZSLICE_PAGE_CLOSE=s` closes the Printers page after s seconds, to check that its cameras stop.
-- `ZSLICE_PANEL=1` shows the settings drawer, and `ZSLICE_SETTING=name` opens the page of that setting. `ZSLICE_DETAILS=1` opens the details.
+- `ZSLICE_PANEL=1` shows the settings drawer, and `ZSLICE_SETTING=name` opens the page of that setting (`@name`: only its section). `ZSLICE_DETAILS=1` opens the details.
 - `ZSLICE_SEARCH=text` opens the search. `ZSLICE_SEARCH_ENTER=name=value` then presses Return on the first result, types the value in its field, and presses Return again; it logs where the focus is after each step, and the value of the setting.
 - `ZSLICE_GAPS=1` and `ZSLICE_CHECK=1` turn on Gaps and Check. `ZSLICE_MENU="x,y;Title"` (or `center;Title`) runs an item of the context menu. `ZSLICE_DARK=1` sets the dark look.
 - `ZSLICE_PRINTER_LABEL=text` sets the label of the printer menu, and `ZSLICE_WIDTH=points` the width of the window (0: its narrowest), for tests of the toolbar.

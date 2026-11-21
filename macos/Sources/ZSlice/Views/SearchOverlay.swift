@@ -232,9 +232,13 @@ private struct SearchRow: View {
                 .focusable(false)
                 .help("Show only the lines that this setting changes")
                 VStack(alignment: .leading, spacing: 1) {
-                    Text(info.label)
+                    HStack(spacing: 6) {
+                        Text(info.label)
+                        if OwnerBadge.owns(info.group) { OwnerBadge(model: model, group: info.group) }
+                    }
                     let src = entry.sourceText
-                    Text("\(SettingInfo.groupTitle(info.group)) · \(info.section)" + (src.isEmpty ? "" : " · \(src)"))
+                    // The badge names the group of a printer or filament setting.
+                    Text((OwnerBadge.owns(info.group) ? info.section : "\(SettingInfo.groupTitle(info.group)) · \(info.section)") + (src.isEmpty ? "" : " · \(src)"))
                         .font(.caption)
                         .foregroundStyle(entry.isMine ? Color.accentColor : .secondary)
                 }
