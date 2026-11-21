@@ -156,6 +156,76 @@ static void test_fields(void) {
     }
 }
 
+/* The mode and the relief go out and come back; an ink label writes no
+ * mode. An SVG shape takes the place of the new text "LABEL". */
+static void test_mode_and_svg(void) {
+    GPtrArray *list = zg_labels_parse("{\"origin\":[0,0,0],\"normal\":[0,0,1],\"right\":[1,0,0],\"mode\":\"cut\",\"relief\":0.8,"
+                                      "\"items\":[{\"kind\":\"text\",\"text\":\"LABEL\",\"size\":5}]}",
+                                      -1);
+    ZgLabel *l = g_ptr_array_index(list, 0);
+    g_assert_cmpint(l->mode, ==, ZG_LABEL_CUT);
+    NEAR(l->relief, 0.8);
+    char *json = zg_label_json(l, FALSE);
+    g_assert_nonnull(strstr(json, "\"mode\":\"cut\""));
+    g_free(json);
+    l->mode = ZG_LABEL_INK;
+    json = zg_label_json(l, FALSE);
+    g_assert_null(strstr(json, "mode"));
+    g_free(json);
+    zg_label_add_svg(l, "<svg><rect width='1' height='1'/></svg>", NULL);
+    g_assert_cmpuint(zg_label_item_count(l), ==, 1);
+    g_assert_cmpstr(zg_label_item_kind(zg_label_item(l, 0)), ==, "svg");
+    NEAR(zg_label_item_size(zg_label_item(l, 0)), ZG_LABEL_SVG_SIZE);
+    char *title = zg_label_title(l);
+    g_assert_cmpstr(title, ==, "SVG");
+    g_free(title);
+    /* A second picture goes under the first. */
+    const double box[4] = {-5, -7.5, 5, 7.5};
+    zg_label_add_svg(l, "<svg><circle r='1'/></svg>", box);
+    g_assert_cmpuint(zg_label_item_count(l), ==, 2);
+    g_ptr_array_unref(list);
+}
+
+/* The handles: the hit of a corner and of the turn handle, a resize that
+ * keeps the opposite corner, and a turn about the center of the box. */
+static void test_handles(void) {
+    ZgLabelHandles g;
+    const double box[4] = {0, 0, 10, 5};
+    zg_label_handles(box, 0.1, &g);
+    int corner[2] = {0, 0};
+    g_assert_cmpint(zg_label_handle_hit(&g, 10.4, 5.4, corner), ==, 1);
+    g_assert_cmpint(corner[0], ==, 1);
+    g_assert_cmpint(corner[1], ==, 1);
+    g_assert_cmpint(zg_label_handle_hit(&g, g.turn[0], g.turn[1], corner), ==, 2);
+    g_assert_cmpint(zg_label_handle_hit(&g, 5, 2.5, corner), ==, 0);
+    double out[4], anchor[2], k[2];
+    const int ur[2] = {1, 1};
+    zg_label_resize_box(box, ur, (double[2]){20, 10}, FALSE, out, anchor, k);
+    NEAR(k[0], 2);
+    NEAR(out[2], 20);
+    NEAR(out[3], 10);
+    const int ul[2] = {-1, 1};
+    zg_label_resize_box(box, ul, (double[2]){-5, 5}, TRUE, out, anchor, k);
+    NEAR(out[0], -5);
+    NEAR(k[0], 1.5);
+    NEAR(k[1], 1);
+    ZgLabel *l = zg_label_new();
+    double before[3], after[3];
+    zg_label_to_bed(l, 10, 0, 0, before);
+    zg_label_resize(l, anchor, k, TRUE);
+    zg_label_to_bed(l, 15, 0, 0, after);
+    for (int a = 0; a < 3; a++) NEAR(before[a], after[a]);
+    NEAR(l->stretch[0], 1.5);
+    const double c[2] = {3, 1};
+    zg_label_to_bed(l, 3, 1, 0, before);
+    zg_label_turn_about(l, 90, c);
+    zg_label_to_bed(l, 3, 1, 0, after);
+    for (int a = 0; a < 3; a++) NEAR(before[a], after[a]);
+    g_assert_true(zg_label_same_plane((double[3]){5, 5, 0}, (double[3]){0, 0, 1}, l));
+    g_assert_false(zg_label_same_plane((double[3]){5, 5, 1}, (double[3]){0, 0, 1}, l));
+    zg_label_free(l);
+}
+
 int main(int argc, char **argv) {
     g_test_init(&argc, &argv, NULL);
     g_test_add_func("/label/parse-and-write", test_parse_and_write);
@@ -164,5 +234,7 @@ int main(int argc, char **argv) {
     g_test_add_func("/label/frame", test_frame);
     g_test_add_func("/label/filament", test_filament);
     g_test_add_func("/label/fields", test_fields);
+    g_test_add_func("/label/mode-and-svg", test_mode_and_svg);
+    g_test_add_func("/label/handles", test_handles);
     return g_test_run();
 }

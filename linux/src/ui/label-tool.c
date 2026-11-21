@@ -21,10 +21,10 @@
 #include <string.h>
 
 #include "filaments.h"
-#include "float.h"
 #include "label-card.h"
 #include "part-mesh.h"
 #include "preview.h"
+#include "window.h"
 
 /* The lift of the decal out of the surface, mm (as the core view). */
 #define LIFT 0.05
@@ -33,9 +33,8 @@
 #define COMMIT_MS 400
 /* The margin around the box of a label that still hits it, mm. */
 #define HIT_MARGIN 1.0
-/* The room for the handle around the box of a label on the screen,
- * points. */
-#define HANDLE_ROOM 12.0
+/* The room around the handles of a label on the screen, points. */
+#define HANDLE_ROOM 8.0
 
 typedef struct {
     char *key; /* the JSON of the shapes */
@@ -68,25 +67,40 @@ struct ZgLabelTool {
     guint32 drag_id;
     double drag_dx, drag_dy, press_x, press_y;
     ZgLabel *drag_start;
-    /* A drag of the handle: the label at the press, the center of the
-     * label and the pointer of the press on the screen. */
-    gboolean scaling;
-    ZgLabel *scale_start;
-    double scale_c[2], scale_p[2], scale_d0;
+    /* What the drag does (DRAG_MOVE, DRAG_RESIZE, DRAG_TURN); a resize:
+     * the corner and the box at the press; a turn: the center of the
+     * label on the screen and in its plane, the angle of the press, the
+     * way the label turns on the screen, and its angle. */
+    int drag_mode;
+    int corner[2];
+    double box0[4], turn_c[2], turn_center[2], turn_a0, turn_sign, turn_base;
+    /* The guide lines of the snap (s0, t0, s1, t1 each), the features of
+     * the face (zs_label_face) and the plane they are of, and the mm in
+     * one point of the handles that show. */
+    GArray *guides;
+    char *face_json;
+    gint64 face_index, face_time;
+    double face_origin[3], face_normal[3];
+    double handle_mpp;
     /* A free line that draws: its item and its points. */
     int drawing;
     GArray *drawn; /* double x, y */
     guint timer;
     gint64 pending;
-    GtkWidget *card, *handle;
+    GtkWidget *card;
     gboolean test_started;
 };
+
+enum { DRAG_MOVE, DRAG_RESIZE, DRAG_TURN };
 
 static void redraw(ZgLabelTool *t);
 static void card_show(ZgLabelTool *t, const ZgLabel *l);
 static void load_info(ZgLabelTool *t);
 static void flush(ZgLabelTool *t);
 static void test_start(ZgLabelTool *t);
+static void draw_handles(ZgLabelTool *t, const ZgLabel *l);
+static int handle_at(ZgLabelTool *t, double x, double y, int corner[2]);
+static gboolean snap_box(ZgLabelTool *t, const ZgLabel *l, const double box[4], const char *op, const int corner[2], gboolean aspect, double out_box[4], double d[2]);
 
 static void outline_free(gpointer data) {
     Outline *o = data;
@@ -198,6 +212,8 @@ static void redraw(ZgLabelTool *t) {
         memcpy(frame + 6, l->right, sizeof l->right);
         zs_view_label_add(t->view, frame, o->pts, o->ends, o->n, zg_filament_rgb24(t->model, l->filament), l->id == (guint32)t->sel);
     }
+    const ZgLabel *sl = t->on && t->shown ? zg_label_tool_label(t) : NULL;
+    if (sl) draw_handles(t, sl);
     t->host.frame(t->host.data);
 }
 
@@ -268,18 +284,19 @@ static gboolean screen_of(ZgLabelTool *t, const ZgLabel *l, double x, double y, 
     return TRUE;
 }
 
-/* The box of the selected label on the screen, with the room of its
- * handle. FALSE if it does not show. */
+/* The box of the selected label on the screen, with its handles. FALSE
+ * if it does not show. */
+static gboolean handles_of(ZgLabelTool *t, const ZgLabel *l, ZgLabelHandles *g);
 static gboolean screen_box(ZgLabelTool *t, double box[4]) {
     const ZgLabel *l = zg_label_tool_label(t);
-    Outline *o = l ? outline(t, l) : NULL;
-    if (!o) return FALSE;
+    ZgLabelHandles g;
+    if (!l || !handles_of(t, l, &g)) return FALSE;
     box[0] = box[1] = INFINITY;
     box[2] = box[3] = -INFINITY;
-    for (int k = 0; k < 4; k++) {
+    const double pts[5][2] = {{g.box[0], g.box[1]}, {g.box[2], g.box[1]}, {g.box[2], g.box[3]}, {g.box[0], g.box[3]}, {g.turn[0], g.turn[1] + g.r}};
+    for (int k = 0; k < 5; k++) {
         double q[2];
-        if (!screen_of(t, l, k & 1 ? o->box[2] + HIT_MARGIN : o->box[0] - HIT_MARGIN, k & 2 ? o->box[3] + HIT_MARGIN : o->box[1] - HIT_MARGIN, q))
-            continue;
+        if (!screen_of(t, l, pts[k][0], pts[k][1], q)) continue;
         box[0] = MIN(box[0], q[0]);
         box[1] = MIN(box[1], q[1]);
         box[2] = MAX(box[2], q[0]);
@@ -357,7 +374,7 @@ static void load(ZgLabelTool *t, gint64 index, gint64 id) {
 /* After a slice, an undo, or another plate: the labels again, and a
  * check of the mesh for the pick (the part can be at another place). */
 static void reload(ZgLabelTool *t) {
-    if (!t->on || t->dragging || t->scaling) return;
+    if (!t->on || t->dragging) return;
     free_sessions(t);
     if (t->core != zg_model_core(t->model)) {
         /* Another plate: its labels are on other parts. */
@@ -403,10 +420,6 @@ static void card_show(ZgLabelTool *t, const ZgLabel *l) {
     zg_label_card_show(t->card, t->on && t->shown ? l : NULL);
 }
 
-static void show_handle(ZgLabelTool *t) {
-    gtk_widget_set_visible(t->handle, t->shown && zg_label_tool_label(t) != NULL);
-}
-
 void zg_label_tool_select(ZgLabelTool *t, gint64 id) {
     if (id != t->sel) {
         flush(t);
@@ -420,12 +433,11 @@ void zg_label_tool_select(ZgLabelTool *t, gint64 id) {
         t->info = NULL;
         t->curve = 0;
         card_show(t, NULL);
-        show_handle(t);
+        g_array_set_size(t->guides, 0);
         redraw(t);
         return;
     }
     card_show(t, t->shown ? l : NULL);
-    show_handle(t);
     redraw(t);
     load_info(t);
     zg_label_tool_place(t);
@@ -473,7 +485,7 @@ static gboolean change(ZgLabelTool *t, ZgLabel *next, gboolean commit) {
     t->pending = next->id;
     /* A drag sends the label at its end (one step of the history). */
     if (commit) flush(t);
-    else if (!t->dragging && !t->scaling) t->timer = g_timeout_add(COMMIT_MS, on_commit_timer, t);
+    else if (!t->dragging) t->timer = g_timeout_add(COMMIT_MS, on_commit_timer, t);
     return TRUE;
 }
 
@@ -647,6 +659,134 @@ void zg_label_tool_set_depth(ZgLabelTool *t, double mm) {
     if (!c) return;
     c->depth = CLAMP(mm, 0, 10);
     change(t, c, TRUE);
+}
+
+void zg_label_tool_set_mode(ZgLabelTool *t, int mode) {
+    ZgLabel *c = edit_copy(t);
+    if (!c) return;
+    c->mode = CLAMP(mode, 0, ZG_LABEL_MODES - 1);
+    if (c->mode != ZG_LABEL_INK && !(c->relief > 0)) c->relief = ZG_LABEL_DEFAULT_RELIEF;
+    change(t, c, TRUE);
+}
+
+void zg_label_tool_set_relief(ZgLabelTool *t, double mm) {
+    ZgLabel *c = edit_copy(t);
+    if (!c) return;
+    c->relief = CLAMP(mm, 0, 10);
+    change(t, c, TRUE);
+}
+
+/* The name of a label of an SVG file: the file name with no ".svg". */
+static char *svg_name(const char *path) {
+    char *base = path ? g_path_get_basename(path) : g_strdup("");
+    if (g_str_has_suffix(base, ".svg") || g_str_has_suffix(base, ".SVG")) base[strlen(base) - 4] = 0;
+    if (strlen(base) > 120) base[120] = 0;
+    return base;
+}
+
+/* An SVG source has a shape that the core reads. */
+static gboolean svg_ok(const char *svg) {
+    JsonObject *it = json_object_new();
+    json_object_set_string_member(it, "kind", "svg");
+    json_object_set_string_member(it, "svg", svg);
+    json_object_set_double_member(it, "size", ZG_LABEL_SVG_SIZE);
+    ZgLabel *l = zg_label_new();
+    json_array_add_object_element(l->items, it);
+    char *key = zg_label_json(l, TRUE);
+    Outline *o = outline_of_json(key);
+    gboolean ok = o && o->n > 0;
+    if (o) outline_free(o);
+    g_free(key);
+    zg_label_free(l);
+    return ok;
+}
+
+gboolean zg_label_tool_place_svg(ZgLabelTool *t, const char *svg, const char *path) {
+    if (!svg_ok(svg)) {
+        toast(t, "The SVG has no filled shape to place.");
+        return FALSE;
+    }
+    const ZgLabel *l = zg_label_tool_label(t);
+    Outline *o = l ? outline(t, l) : NULL;
+    ZgLabel *c = edit_copy(t);
+    if (!c) return FALSE;
+    gboolean fresh = !(c->name && c->name[0]);
+    zg_label_add_svg(c, svg, o ? o->box : NULL);
+    if (fresh && zg_label_item_count(c) == 1) {
+        g_free(c->name);
+        c->name = svg_name(path);
+    }
+    gboolean ok = change(t, c, TRUE);
+    const ZgLabel *now = zg_label_tool_label(t);
+    if (now) card_show(t, now);
+    return ok;
+}
+
+/* An SVG file dropped on a part: a new label of it there. Other files go
+ * to the window (it opens them). */
+static gboolean on_drop(GtkDropTarget *target, const GValue *value, double x, double y, gpointer data) {
+    ZgLabelTool *t = data;
+    if (!G_VALUE_HOLDS(value, GDK_TYPE_FILE_LIST)) return FALSE;
+    GSList *files = gdk_file_list_get_files(g_value_get_boxed(value));
+    GFile *svg = NULL;
+    for (GSList *f = files; f; f = f->next) {
+        char *name = g_file_get_basename(f->data);
+        if (name && (g_str_has_suffix(name, ".svg") || g_str_has_suffix(name, ".SVG"))) svg = f->data;
+        g_free(name);
+    }
+    if (!svg) {
+        GtkRoot *root = gtk_widget_get_root(t->area);
+        for (GSList *f = files; f && GTK_IS_WINDOW(root); f = f->next) zg_window_open_file(GTK_WINDOW(root), f->data);
+        return TRUE;
+    }
+    char *text = NULL;
+    char *path = g_file_get_path(svg);
+    if (!g_file_load_contents(svg, NULL, &text, NULL, NULL, NULL)) {
+        g_free(path);
+        return FALSE;
+    }
+    zg_label_tool_drop_svg(t, text, path, x, y);
+    g_free(text);
+    g_free(path);
+    return TRUE;
+}
+
+void zg_label_tool_drop_svg(ZgLabelTool *t, const char *svg, const char *path, double x, double y) {
+    if (!svg_ok(svg)) {
+        toast(t, "The SVG has no filled shape to place.");
+        return;
+    }
+    if (zg_model_tool(t->model) != ZG_TOOL_LABEL) zg_model_set_tool(t->model, ZG_TOOL_LABEL);
+    gint64 part = t->host.part_at(t->host.data, x, y);
+    if (part < 0) {
+        toast(t, "Drop the SVG on a part.");
+        return;
+    }
+    if (part != t->index) load(t, part, -1);
+    double at[10];
+    if (!place_at(t, part, x, y, at)) {
+        toast(t, "Drop the SVG on a face of the part.");
+        return;
+    }
+    ZgLabel *l = zg_label_new();
+    memcpy(l->origin, at, sizeof l->origin);
+    memcpy(l->normal, at + 3, sizeof l->normal);
+    memcpy(l->right, at + 6, sizeof l->right);
+    l->filament = zg_label_next_filament(t->base, (int)zs_app_filament_count(zg_model_core(t->model)));
+    g_free(l->name);
+    l->name = svg_name(path);
+    zg_label_add_svg(l, svg, NULL);
+    char *json = zg_label_json(l, FALSE);
+    zg_label_free(l);
+    flush(t);
+    gint64 id = zg_model_label_add(t->model, (size_t)part, json);
+    g_free(json);
+    if (id < 0) {
+        toast(t, "The SVG does not fit here.");
+        return;
+    }
+    t->curve = at[9];
+    load(t, part, id);
 }
 
 void zg_label_tool_remove(ZgLabelTool *t) {
@@ -835,10 +975,55 @@ static void add_at(ZgLabelTool *t, double x, double y) {
 
 /* ---- the pointer ---- */
 
+/* A press on a handle of the selected label: a resize or a turn. */
+static gboolean press_handle(ZgLabelTool *t, double x, double y) {
+    int corner[2];
+    int h = handle_at(t, x, y, corner);
+    const ZgLabel *l = zg_label_tool_label(t);
+    Outline *o = l ? outline(t, l) : NULL;
+    if (!h || !o) return FALSE;
+    flush(t);
+    t->dragging = TRUE;
+    t->moved = FALSE;
+    t->drag_id = l->id;
+    t->press_x = x;
+    t->press_y = y;
+    zg_label_free(t->drag_start);
+    t->drag_start = zg_label_copy(l);
+    zg_label_own_items(t->drag_start);
+    memcpy(t->box0, o->box, sizeof t->box0);
+    session(t, t->index);
+    if (h == 1) {
+        t->drag_mode = DRAG_RESIZE;
+        t->corner[0] = corner[0];
+        t->corner[1] = corner[1];
+        return TRUE;
+    }
+    t->drag_mode = DRAG_TURN;
+    double cx = (o->box[0] + o->box[2]) / 2, cy = (o->box[1] + o->box[3]) / 2, p0[2], pr[2], pu[2];
+    if (!screen_of(t, l, cx, cy, p0)) {
+        t->dragging = FALSE;
+        return FALSE;
+    }
+    /* The way the label turns on the screen: its right and up axes as
+     * the screen shows them (the label can face the camera or not). */
+    double cr = screen_of(t, l, cx + 1, cy, pr) && screen_of(t, l, cx, cy + 1, pu) ? (pr[0] - p0[0]) * (pu[1] - p0[1]) - (pr[1] - p0[1]) * (pu[0] - p0[0]) : -1;
+    t->turn_c[0] = p0[0];
+    t->turn_c[1] = p0[1];
+    t->turn_center[0] = cx;
+    t->turn_center[1] = cy;
+    t->turn_a0 = atan2(y - p0[1], x - p0[0]);
+    t->turn_sign = cr < 0 ? -1 : 1;
+    t->turn_base = zg_label_angle(l);
+    return TRUE;
+}
+
 gboolean zg_label_press(ZgLabelTool *t, double x, double y) {
     if (!live(t) || t->drawing >= 0) return FALSE;
     /* The keys go back to the view (Delete removes the label). */
     t->host.focus(t->host.data);
+    if (press_handle(t, x, y)) return TRUE;
+    t->drag_mode = DRAG_MOVE;
     double lx, ly;
     ZgLabel *l = label_at(t, x, y, &lx, &ly);
     if (!l) return FALSE;
@@ -861,9 +1046,20 @@ gboolean zg_label_press(ZgLabelTool *t, double x, double y) {
     return TRUE;
 }
 
+/* The snap of the label c that moves (Alt: free): its origin moves to
+ * the guides. */
+static void snap_move(ZgLabelTool *t, ZgLabel *c, gboolean free) {
+    g_array_set_size(t->guides, 0);
+    Outline *o = outline(t, c);
+    double box[4], d[2], up[3];
+    if (free || !o || !snap_box(t, c, o->box, "move", NULL, TRUE, box, d)) return;
+    zg_label_up(c, up);
+    for (int k = 0; k < 3; k++) c->origin[k] += d[0] * c->right[k] + d[1] * up[k];
+}
+
 /* The selected label under the pointer while it drags: on the surface,
- * or in its plane with Shift. */
-static void move_to(ZgLabelTool *t, double x, double y, gboolean keep_plane) {
+ * or in its plane with Shift. It snaps to the guides (Alt: free). */
+static void move_to(ZgLabelTool *t, double x, double y, gboolean keep_plane, gboolean free) {
     const ZgLabel *s = t->drag_start;
     if (!s) return;
     if (keep_plane) {
@@ -876,6 +1072,7 @@ static void move_to(ZgLabelTool *t, double x, double y, gboolean keep_plane) {
         for (int k = 0; k < 3; k++) c->origin[k] = p[k] - t->drag_dx * s->right[k] - t->drag_dy * up[k];
         memcpy(c->normal, s->normal, sizeof c->normal);
         memcpy(c->right, s->right, sizeof c->right);
+        snap_move(t, c, free);
         change(t, c, FALSE);
         return;
     }
@@ -887,6 +1084,7 @@ static void move_to(ZgLabelTool *t, double x, double y, gboolean keep_plane) {
     double up[3];
     zg_label_up(c, up);
     for (int k = 0; k < 3; k++) c->origin[k] -= t->drag_dx * c->right[k] + t->drag_dy * up[k];
+    snap_move(t, c, free);
     change(t, c, FALSE);
     if (fabs(at[9] - t->curve) > 1e-6) {
         t->curve = at[9];
@@ -894,17 +1092,54 @@ static void move_to(ZgLabelTool *t, double x, double y, gboolean keep_plane) {
     }
 }
 
-void zg_label_drag(ZgLabelTool *t, double x, double y, gboolean shift) {
+/* A corner handle under the pointer: the opposite corner stays. Shift:
+ * each axis on its own. It snaps to the guides (Alt: free). */
+static void resize_to(ZgLabelTool *t, double x, double y, gboolean free_aspect, gboolean free) {
+    const ZgLabel *s = t->drag_start;
+    float r[6];
+    double o[3], d[3], p[3], hp[2];
+    if (!s || !ray(t, x, y, r, o, d) || !zg_label_plane_hit(s, o, d, p, &hp[0], &hp[1])) return;
+    double box[4], anchor[2], k[2], snapped[4], dd[2];
+    zg_label_resize_box(t->box0, t->corner, hp, free_aspect, box, anchor, k);
+    g_array_set_size(t->guides, 0);
+    if (!free && snap_box(t, s, box, "resize", t->corner, !free_aspect, snapped, dd)) {
+        k[0] = (snapped[2] - snapped[0]) / MAX(1e-12, t->box0[2] - t->box0[0]);
+        k[1] = free_aspect ? (snapped[3] - snapped[1]) / MAX(1e-12, t->box0[3] - t->box0[1]) : k[0];
+    }
+    ZgLabel *c = zg_label_copy(s);
+    zg_label_own_items(c);
+    zg_label_resize(c, anchor, k, free_aspect);
+    change(t, c, FALSE);
+}
+
+/* The turn handle under the pointer: the label turns about the center of
+ * its box. Shift: steps of 15°. */
+static void turn_to(ZgLabelTool *t, double x, double y, gboolean steps) {
+    const ZgLabel *s = t->drag_start;
+    if (!s) return;
+    double deg = t->turn_sign * (atan2(y - t->turn_c[1], x - t->turn_c[0]) - t->turn_a0) * 180 / G_PI;
+    if (steps) deg = round((t->turn_base + deg) / 15) * 15 - t->turn_base;
+    ZgLabel *c = zg_label_copy(s);
+    zg_label_own_items(c);
+    zg_label_turn_about(c, deg, t->turn_center);
+    change(t, c, FALSE);
+}
+
+void zg_label_drag(ZgLabelTool *t, double x, double y, gboolean shift, gboolean alt) {
     if (!t->dragging) return;
     if (!t->moved && hypot(x - t->press_x, y - t->press_y) < 3) return;
     t->moved = TRUE;
-    move_to(t, x, y, shift);
+    if (t->drag_mode == DRAG_RESIZE) resize_to(t, x, y, shift, alt);
+    else if (t->drag_mode == DRAG_TURN) turn_to(t, x, y, shift);
+    else move_to(t, x, y, shift, alt);
 }
 
 void zg_label_release(ZgLabelTool *t) {
     if (!t->dragging) return;
     t->dragging = FALSE;
     g_clear_pointer(&t->drag_start, zg_label_free);
+    g_array_set_size(t->guides, 0);
+    redraw(t);
     if (t->moved) flush(t);
     t->moved = FALSE;
 }
@@ -955,78 +1190,239 @@ gboolean zg_label_key(ZgLabelTool *t, guint key) {
 }
 
 const char *zg_label_cursor(ZgLabelTool *t, double x, double y) {
-    if (t->drawing < 0 && label_at(t, x, y, NULL, NULL)) return "grab";
+    int corner[2];
+    int h = t->drawing < 0 ? handle_at(t, x, y, corner) : 0;
+    if (h == 1) return corner[0] == corner[1] ? "nesw-resize" : "nwse-resize";
+    if (h == 2 || (t->drawing < 0 && label_at(t, x, y, NULL, NULL))) return "grab";
     return "crosshair";
 }
 
-/* ---- the handle at the corner: a drag scales the label ---- */
+/* ---- the handles and the smart guides ----
+ *
+ * The selected label has a frame on the surface, a square at each
+ * corner (a drag resizes it: the aspect stays, Shift frees it), and a
+ * round handle over it (a drag turns it: Shift, 15° steps). They are
+ * decals in the plane of the label, with sizes in points of the screen.
+ * A move or a resize snaps to the smart guides of the core
+ * (zs_label_face, zs_label_snap): the other labels of the face, its
+ * holes, and the centers of the face and of the part. Alt moves free.
+ * The guides show as thin lines. */
 
-static void draw_handle(GtkDrawingArea *area, cairo_t *cr, int w, int h, gpointer data) {
-    cairo_rectangle(cr, 1.5, 1.5, w - 3, h - 3);
-    cairo_set_source_rgb(cr, 0xf5 / 255.0, 0xc2 / 255.0, 0x11 / 255.0);
-    cairo_fill_preserve(cr);
-    cairo_set_source_rgb(cr, 0x1b / 255.0, 0x1b / 255.0, 0x1d / 255.0);
-    cairo_set_line_width(cr, 1.5);
-    cairo_stroke(cr);
+/* The mm of the plane of label l in one point of the view, at its
+ * center. */
+static double mm_per_pt(ZgLabelTool *t, const ZgLabel *l) {
+    Outline *o = outline(t, l);
+    if (!o) return 0.1;
+    double cx = (o->box[0] + o->box[2]) / 2, cy = (o->box[1] + o->box[3]) / 2, p0[2], pr[2], pu[2];
+    if (!screen_of(t, l, cx, cy, p0) || !screen_of(t, l, cx + 1, cy, pr) || !screen_of(t, l, cx, cy + 1, pu)) return 0.1;
+    double d = MAX(hypot(pr[0] - p0[0], pr[1] - p0[1]), hypot(pu[0] - p0[0], pu[1] - p0[1]));
+    return d > 1e-6 ? 1 / d : 0.1;
 }
 
-static void on_handle_begin(GtkGestureDrag *g, double x, double y, gpointer data) {
-    ZgLabelTool *t = data;
+static gboolean handles_of(ZgLabelTool *t, const ZgLabel *l, ZgLabelHandles *g) {
+    Outline *o = l ? outline(t, l) : NULL;
+    if (!o) return FALSE;
+    zg_label_handles(o->box, mm_per_pt(t, l), g);
+    return TRUE;
+}
+
+/* The handle of the selected label at x, y: as zg_label_handle_hit. */
+static int handle_at(ZgLabelTool *t, double x, double y, int corner[2]) {
     const ZgLabel *l = zg_label_tool_label(t);
-    double c[2];
-    graphene_point_t p;
-    if (!l || !screen_center(t, c) || !gtk_widget_compute_point(t->handle, t->area, &GRAPHENE_POINT_INIT((float)x, (float)y), &p)) {
-        gtk_gesture_set_state(GTK_GESTURE(g), GTK_EVENT_SEQUENCE_DENIED);
-        return;
+    ZgLabelHandles g;
+    float r[6];
+    double o[3], d[3], p[3], px, py;
+    if (!l || !live(t) || !handles_of(t, l, &g) || !ray(t, x, y, r, o, d) || !zg_label_plane_hit(l, o, d, p, &px, &py)) return 0;
+    return zg_label_handle_hit(&g, px, py, corner);
+}
+
+/* A decal of polygons (pts: x, y pairs; ends) in the plane of l. */
+static void add_decal(ZgLabelTool *t, const ZgLabel *l, const float *pts, const uint32_t *ends, size_t n, uint32_t rgb, int edge) {
+    double frame[9];
+    memcpy(frame, l->origin, sizeof l->origin);
+    memcpy(frame + 3, l->normal, sizeof l->normal);
+    memcpy(frame + 6, l->right, sizeof l->right);
+    zs_view_label_add(t->view, frame, pts, ends, n, rgb, edge);
+}
+
+static void add_rect(ZgLabelTool *t, const ZgLabel *l, double x0, double y0, double x1, double y1, uint32_t rgb, int edge) {
+    const float pts[8] = {(float)x0, (float)y0, (float)x1, (float)y0, (float)x1, (float)y1, (float)x0, (float)y1};
+    const uint32_t ends[1] = {4};
+    add_decal(t, l, pts, ends, 1, rgb, edge);
+}
+
+#define ACCENT 0x2980ffu
+#define GUIDE 0xf2339au
+
+/* The decals of the handles and the guides of the selected label. */
+static void draw_handles(ZgLabelTool *t, const ZgLabel *l) {
+    double mpp = mm_per_pt(t, l);
+    t->handle_mpp = mpp;
+    Outline *o = outline(t, l);
+    if (!o) return;
+    ZgLabelHandles g;
+    zg_label_handles(o->box, mpp, &g);
+    const double lw = 1.5 * mpp;
+    const double *b = g.box;
+    /* The frame: a ring of the width of a line (the inner path turns the
+     * other way: a hole). */
+    const float ring[16] = {
+        (float)(b[0] - lw / 2), (float)(b[1] - lw / 2), (float)(b[2] + lw / 2), (float)(b[1] - lw / 2),
+        (float)(b[2] + lw / 2), (float)(b[3] + lw / 2), (float)(b[0] - lw / 2), (float)(b[3] + lw / 2),
+        (float)(b[0] + lw / 2), (float)(b[1] + lw / 2), (float)(b[0] + lw / 2), (float)(b[3] - lw / 2),
+        (float)(b[2] - lw / 2), (float)(b[3] - lw / 2), (float)(b[2] - lw / 2), (float)(b[1] + lw / 2),
+    };
+    const uint32_t ring_ends[2] = {4, 8};
+    add_decal(t, l, ring, ring_ends, 2, ACCENT, 0);
+    /* The stem and the turn handle. */
+    double mx = (b[0] + b[2]) / 2;
+    add_rect(t, l, mx - lw / 2, b[3], mx + lw / 2, g.turn[1] - g.r, ACCENT, 0);
+    float circle[48];
+    for (int k = 0; k < 24; k++) {
+        circle[2 * k] = (float)(g.turn[0] + g.r * cos(2 * G_PI * k / 24));
+        circle[2 * k + 1] = (float)(g.turn[1] + g.r * sin(2 * G_PI * k / 24));
     }
-    flush(t);
-    t->scaling = TRUE;
-    zg_label_free(t->scale_start);
-    t->scale_start = zg_label_copy(l);
-    t->scale_c[0] = c[0];
-    t->scale_c[1] = c[1];
-    t->scale_p[0] = p.x;
-    t->scale_p[1] = p.y;
-    t->scale_d0 = MAX(4, hypot(p.x - c[0], p.y - c[1]));
+    const uint32_t circle_end[1] = {24};
+    add_decal(t, l, circle, circle_end, 1, 0xffffffu, 1);
+    /* The corners. */
+    for (int k = 0; k < 4; k++) {
+        double x = (k == 1 || k == 2) ? b[2] : b[0], y = k >= 2 ? b[3] : b[1];
+        add_rect(t, l, x - g.hs, y - g.hs, x + g.hs, y + g.hs, 0xffffffu, 1);
+    }
+    /* The guides: thin rectangles along each line. */
+    const double gw = 1.2 * mpp;
+    for (guint i = 0; t->guides && i + 3 < t->guides->len; i += 4) {
+        const double *s = &g_array_index(t->guides, double, i);
+        double dx = s[2] - s[0], dy = s[3] - s[1], len = hypot(dx, dy);
+        if (!(len > 1e-9)) continue;
+        double nx = -dy / len * gw / 2, ny = dx / len * gw / 2;
+        const float pts[8] = {(float)(s[0] - nx), (float)(s[1] - ny), (float)(s[2] - nx), (float)(s[3] - ny),
+                              (float)(s[2] + nx), (float)(s[3] + ny), (float)(s[0] + nx), (float)(s[1] + ny)};
+        const uint32_t ends[1] = {4};
+        add_decal(t, l, pts, ends, 1, GUIDE, 0);
+    }
 }
 
-static void scale_to(ZgLabelTool *t, double x, double y) {
-    if (!t->scaling || !t->scale_start) return;
-    double k = MAX(0.05, hypot(x - t->scale_c[0], y - t->scale_c[1]) / t->scale_d0);
-    ZgLabel *c = zg_label_copy(t->scale_start);
-    zg_label_scale(c, k);
-    change(t, c, FALSE);
+/* The features of the face under label l (zs_label_face, JSON), kept
+ * while the label stays in its plane. NULL with no face or no mesh. The
+ * tool owns the text. */
+static const char *face_at(ZgLabelTool *t, const ZgLabel *l) {
+    zs_paint *s = session(t, t->index);
+    if (!s) return NULL;
+    if (t->face_index == t->index && zg_label_same_plane(t->face_origin, t->face_normal, l)) return t->face_json;
+    /* A curved face changes the plane at each step: a new face at most
+     * each 150 ms there. */
+    gint64 now = g_get_monotonic_time();
+    if (t->face_index == t->index && now - t->face_time < 150000) return NULL;
+    double frame[9];
+    memcpy(frame, l->origin, sizeof l->origin);
+    memcpy(frame + 3, l->normal, sizeof l->normal);
+    memcpy(frame + 6, l->right, sizeof l->right);
+    g_clear_pointer(&t->face_json, g_free);
+    size_t len = 0;
+    if (zs_label_face(s, frame, NULL, 0, &len) == ZS_OK) {
+        char *buf = g_malloc(len + 1);
+        if (zs_label_face(s, frame, buf, len + 1, NULL) == ZS_OK && strcmp(buf, "null") != 0) t->face_json = buf;
+        else g_free(buf);
+    }
+    t->face_index = t->index;
+    t->face_time = now;
+    memcpy(t->face_origin, l->origin, sizeof t->face_origin);
+    memcpy(t->face_normal, l->normal, sizeof t->face_normal);
+    return t->face_json;
 }
 
-static void on_handle_update(GtkGestureDrag *g, double dx, double dy, gpointer data) {
-    ZgLabelTool *t = data;
-    scale_to(t, t->scale_p[0] + dx, t->scale_p[1] + dy);
+static void json_vec(GString *s, const double *v, int n) {
+    g_string_append_c(s, '[');
+    for (int k = 0; k < n; k++) {
+        char num[G_ASCII_DTOSTR_BUF_SIZE];
+        if (k) g_string_append_c(s, ',');
+        g_string_append(s, g_ascii_dtostr(num, sizeof num, v[k]));
+    }
+    g_string_append_c(s, ']');
 }
 
-static void scale_end(ZgLabelTool *t) {
-    if (!t->scaling) return;
-    t->scaling = FALSE;
-    g_clear_pointer(&t->scale_start, zg_label_free);
-    flush(t);
+static void json_frame(GString *s, const ZgLabel *l) {
+    g_string_append(s, "\"origin\":");
+    json_vec(s, l->origin, 3);
+    g_string_append(s, ",\"normal\":");
+    json_vec(s, l->normal, 3);
+    g_string_append(s, ",\"right\":");
+    json_vec(s, l->right, 3);
 }
 
-static void on_handle_end(GtkGestureDrag *g, double dx, double dy, gpointer data) {
-    scale_end(data);
+/* The snap of a box of label l (zs_label_snap): out_box gets the box, d
+ * the move, and t->guides the guide lines. FALSE: no snap. */
+static gboolean snap_box(ZgLabelTool *t, const ZgLabel *l, const double box[4], const char *op, const int corner[2], gboolean aspect, double out_box[4], double d[2]) {
+    GString *s = g_string_new("{\"op\":\"");
+    g_string_append(s, op);
+    g_string_append(s, "\",\"frame\":{");
+    json_frame(s, l);
+    g_string_append(s, "},\"box\":");
+    json_vec(s, box, 4);
+    double tol = ZG_LABEL_SNAP_PX * mm_per_pt(t, l);
+    char num[G_ASCII_DTOSTR_BUF_SIZE];
+    g_string_append_printf(s, ",\"tol\":%s", g_ascii_dtostr(num, sizeof num, tol));
+    g_string_append(s, ",\"others\":[");
+    gboolean first = TRUE;
+    for (guint i = 0; i < t->labels->len; i++) {
+        const ZgLabel *x = g_ptr_array_index(t->labels, i);
+        if (x->id == l->id) continue;
+        Outline *o = outline(t, x);
+        if (!o || o->n == 0) continue;
+        if (!first) g_string_append_c(s, ',');
+        first = FALSE;
+        g_string_append_c(s, '{');
+        json_frame(s, x);
+        g_string_append(s, ",\"box\":");
+        json_vec(s, o->box, 4);
+        g_string_append_c(s, '}');
+    }
+    g_string_append(s, "],\"face\":");
+    const char *face = face_at(t, l);
+    g_string_append(s, face ? face : "null");
+    if (corner) {
+        double c[2] = {corner[0], corner[1]};
+        g_string_append(s, ",\"corner\":");
+        json_vec(s, c, 2);
+        g_string_append_printf(s, ",\"aspect\":%s", aspect ? "true" : "false");
+    }
+    g_string_append_c(s, '}');
+    size_t len = 0;
+    gboolean ok = FALSE;
+    g_array_set_size(t->guides, 0);
+    if (zs_label_snap(s->str, s->len, NULL, 0, &len) == ZS_OK) {
+        char *buf = g_malloc(len + 1);
+        JsonParser *p = json_parser_new();
+        if (zs_label_snap(s->str, s->len, buf, len + 1, NULL) == ZS_OK && json_parser_load_from_data(p, buf, -1, NULL)) {
+            JsonObject *o = json_node_get_object(json_parser_get_root(p));
+            JsonArray *b = json_object_get_array_member(o, "box");
+            JsonArray *dd = json_object_get_array_member(o, "d");
+            JsonArray *gs = json_object_get_array_member(o, "guides");
+            for (int k = 0; k < 4; k++) out_box[k] = json_array_get_double_element(b, k);
+            for (int k = 0; k < 2; k++) d[k] = json_array_get_double_element(dd, k);
+            for (guint i = 0; i < json_array_get_length(gs); i++) {
+                JsonArray *g = json_array_get_array_element(gs, i);
+                for (int k = 0; k < 4; k++) {
+                    double v = json_array_get_double_element(g, k);
+                    g_array_append_val(t->guides, v);
+                }
+            }
+            ok = TRUE;
+        }
+        g_object_unref(p);
+        g_free(buf);
+    }
+    g_string_free(s, TRUE);
+    return ok;
 }
 
-/* After each frame: the handle at the upper right corner of the label,
- * and the card beside the label. */
+/* After each frame: the handles keep their size on the screen (a zoom
+ * draws them again), and the card goes beside the label. */
 void zg_label_tool_place(ZgLabelTool *t) {
     if (!t->on || t->sel < 0 || !t->shown) return;
     const ZgLabel *l = zg_label_tool_label(t);
-    Outline *o = l ? outline(t, l) : NULL;
-    double q[2];
-    gboolean at = o && screen_of(t, l, o->box[2] + 0.5, o->box[3] + 0.5, q);
-    gtk_widget_set_visible(t->handle, at);
-    if (at) {
-        double ox, oy;
-        if (!zg_float_get(t->handle, &ox, &oy) || fabs(ox - (q[0] - 7)) > 0.25 || fabs(oy - (q[1] - 7)) > 0.25) zg_float_place(t->handle, q[0] - 7, q[1] - 7);
-    }
+    if (l && t->handle_mpp > 0 && fabs(mm_per_pt(t, l) - t->handle_mpp) > 0.08 * t->handle_mpp) redraw(t);
     GtkWidget *host = gtk_widget_get_parent(t->card);
     double box[4];
     if (host) zg_label_card_place(t->card, host, screen_box(t, box) ? box : NULL);
@@ -1037,7 +1433,6 @@ void zg_label_tool_place(ZgLabelTool *t) {
 static void close_tool(ZgLabelTool *t) {
     flush(t);
     zg_label_release(t);
-    scale_end(t);
     free_sessions(t);
     g_ptr_array_set_size(t->labels, 0);
     g_hash_table_remove_all(t->outlines);
@@ -1109,21 +1504,11 @@ ZgLabelTool *zg_label_tool_new(ZgModel *model, GtkWidget *area, ZgLabelHost host
     t->meshes = meshes;
     t->drawn = g_array_new(FALSE, FALSE, sizeof(double));
     t->card = g_object_ref_sink(zg_label_card_new(model, t));
-    t->handle = g_object_ref_sink(gtk_drawing_area_new());
-    gtk_drawing_area_set_content_width(GTK_DRAWING_AREA(t->handle), 14);
-    gtk_drawing_area_set_content_height(GTK_DRAWING_AREA(t->handle), 14);
-    gtk_drawing_area_set_draw_func(GTK_DRAWING_AREA(t->handle), draw_handle, NULL, NULL);
-    gtk_widget_set_cursor_from_name(t->handle, "nesw-resize");
-    gtk_widget_set_tooltip_text(t->handle, "Drag to make the label larger or smaller");
-    gtk_widget_set_halign(t->handle, GTK_ALIGN_START);
-    gtk_widget_set_valign(t->handle, GTK_ALIGN_START);
-    GtkGesture *drag = gtk_gesture_drag_new();
-    gtk_gesture_single_set_button(GTK_GESTURE_SINGLE(drag), GDK_BUTTON_PRIMARY);
-    g_signal_connect(drag, "drag-begin", G_CALLBACK(on_handle_begin), t);
-    g_signal_connect(drag, "drag-update", G_CALLBACK(on_handle_update), t);
-    g_signal_connect(drag, "drag-end", G_CALLBACK(on_handle_end), t);
-    gtk_widget_add_controller(t->handle, GTK_EVENT_CONTROLLER(drag));
-    gtk_widget_set_visible(t->handle, FALSE);
+    t->guides = g_array_new(FALSE, FALSE, sizeof(double));
+    t->face_index = -1;
+    GtkDropTarget *drop = gtk_drop_target_new(GDK_TYPE_FILE_LIST, GDK_ACTION_COPY);
+    g_signal_connect(drop, "drop", G_CALLBACK(on_drop), t);
+    gtk_widget_add_controller(area, GTK_EVENT_CONTROLLER(drop));
     g_signal_connect(model, "tool-changed", G_CALLBACK(on_tool_changed), t);
     g_signal_connect(model, "undo-changed", G_CALLBACK(on_maybe_changed), t);
     g_signal_connect(model, "plates-changed", G_CALLBACK(on_maybe_changed), t);
@@ -1140,10 +1525,10 @@ void zg_label_tool_free(ZgLabelTool *t) {
     g_ptr_array_unref(t->labels);
     g_array_free(t->drawn, TRUE);
     zg_label_free(t->drag_start);
-    zg_label_free(t->scale_start);
+    g_array_free(t->guides, TRUE);
+    g_free(t->face_json);
     if (t->info) json_object_unref(t->info);
     g_object_unref(t->card);
-    g_object_unref(t->handle);
     g_free(t);
 }
 
@@ -1157,16 +1542,13 @@ void zg_label_tool_set_shown(ZgLabelTool *t, gboolean shown) {
     t->shown = shown;
     const ZgLabel *l = zg_label_tool_label(t);
     card_show(t, shown && t->on ? l : NULL);
-    show_handle(t);
+    if (t->on) redraw(t);
 }
 
 GtkWidget *zg_label_tool_card(ZgLabelTool *t) {
     return t->card;
 }
 
-GtkWidget *zg_label_tool_handle(ZgLabelTool *t) {
-    return t->handle;
-}
 
 /* ---- the test hook ----
  *
@@ -1177,8 +1559,13 @@ GtkWidget *zg_label_tool_handle(ZgLabelTool *t) {
  * view), "clickw x y z" (a click at the pixel of a point of the bed frame,
  * mm), "drag dx dy" (drag the selected label from its center by dx, dy
  * points; "sdrag": with Shift), "wheel n" (n steps of the wheel over the
- * selected label; "swheel": with Shift), "scale k" (drag the handle to k
- * times its distance from the center), "text T" (the text of item 0;
+ * selected label; "swheel": with Shift), "hold dx dy" (a drag of the
+ * selected label from its center by dx, dy points that stays pressed,
+ * so the guides show; "release" ends it), "scale k" (drag the upper right
+ * corner handle to k times its distance from the center), "turnh deg"
+ * (drag the turn handle by deg degrees), "svg path" (place the SVG file
+ * at path in the selected label), "mode name mm" (ink, raised, or cut,
+ * and the relief), "text T" (the text of item 0;
  * '_' is a space), "set i field value" (a field of item i), "shape i kind",
  * "add kind", "filament n", "depth mm", "turn deg", "key Name", "undo",
  * "redo", "wait" (no step), "look nx ny nz d" (the camera looks at the
@@ -1287,7 +1674,7 @@ static gboolean test_step(gpointer data) {
             /* The time of a move: the pick, the label, and the decal. */
             gint64 t0 = g_get_monotonic_time();
             for (int k = 1; k <= 10; k++) {
-                zg_label_drag(t, c[0] + a * k / 10, c[1] + b * k / 10, f[0][0] == 's');
+                zg_label_drag(t, c[0] + a * k / 10, c[1] + b * k / 10, f[0][0] == 's', FALSE);
                 if (t->view) zs_view_draw(t->view);
             }
             g_message("label test: a move and its frame, %.2f ms", (g_get_monotonic_time() - t0) / 10000.0);
@@ -1298,25 +1685,54 @@ static gboolean test_step(gpointer data) {
     } else if (n == 2 && (strcmp(f[0], "wheel") == 0 || strcmp(f[0], "swheel") == 0)) {
         if (!screen_center(t, c)) g_message("label test: no label for the wheel");
         for (int k = 0; k < (int)fabs(a); k++) zg_label_wheel(t, c[0], c[1], a > 0 ? -1 : 1, f[0][0] == 's');
+    } else if (n == 3 && strcmp(f[0], "hold") == 0) {
+        if (screen_center(t, c) && zg_label_press(t, c[0], c[1])) {
+            for (int k = 1; k <= 10; k++) zg_label_drag(t, c[0] + a * k / 10, c[1] + b * k / 10, FALSE, FALSE);
+            g_message("label test: %u guide lines", t->guides->len / 4);
+        } else {
+            g_message("label test: no label to hold");
+        }
+    } else if (n == 1 && strcmp(f[0], "release") == 0) {
+        zg_label_release(t);
     } else if (n == 2 && strcmp(f[0], "scale") == 0) {
+        /* A drag of the upper right corner to k times its distance from
+         * the center. */
         const ZgLabel *l = zg_label_tool_label(t);
-        Outline *o = l ? outline(t, l) : NULL;
+        ZgLabelHandles g;
         double q[2];
-        if (o && screen_center(t, c) && screen_of(t, l, o->box[2] + 0.5, o->box[3] + 0.5, q)) {
-            flush(t);
-            t->scaling = TRUE;
-            t->scale_start = zg_label_copy(l);
-            t->scale_c[0] = c[0];
-            t->scale_c[1] = c[1];
-            t->scale_d0 = MAX(4, hypot(q[0] - c[0], q[1] - c[1]));
+        if (l && handles_of(t, l, &g) && screen_center(t, c) && screen_of(t, l, g.box[2], g.box[3], q) && zg_label_press(t, q[0], q[1])) {
             for (int k = 1; k <= 10; k++) {
                 double kk = 1 + (a - 1) * k / 10;
-                scale_to(t, c[0] + (q[0] - c[0]) * kk, c[1] + (q[1] - c[1]) * kk);
+                zg_label_drag(t, c[0] + (q[0] - c[0]) * kk, c[1] + (q[1] - c[1]) * kk, FALSE, FALSE);
             }
-            scale_end(t);
+            zg_label_release(t);
         } else {
             g_message("label test: no handle");
         }
+    } else if (n == 2 && strcmp(f[0], "turnh") == 0) {
+        /* A drag of the turn handle by deg degrees around the center. */
+        const ZgLabel *l = zg_label_tool_label(t);
+        ZgLabelHandles g;
+        double q[2];
+        if (l && handles_of(t, l, &g) && screen_center(t, c) && screen_of(t, l, g.turn[0], g.turn[1], q) && zg_label_press(t, q[0], q[1])) {
+            double r0 = hypot(q[0] - c[0], q[1] - c[1]), a0 = atan2(q[1] - c[1], q[0] - c[0]);
+            for (int k = 1; k <= 10; k++) {
+                double ang = a0 - a * G_PI / 180 * k / 10;
+                zg_label_drag(t, c[0] + r0 * cos(ang), c[1] + r0 * sin(ang), FALSE, FALSE);
+            }
+            zg_label_release(t);
+        } else {
+            g_message("label test: no turn handle");
+        }
+    } else if (n == 2 && strcmp(f[0], "svg") == 0) {
+        char *text = NULL;
+        if (g_file_get_contents(f[1], &text, NULL, NULL)) zg_label_tool_place_svg(t, text, f[1]);
+        else g_message("label test: no file %s", f[1]);
+        g_free(text);
+    } else if (n == 3 && strcmp(f[0], "mode") == 0) {
+        for (int k = 0; k < ZG_LABEL_MODES; k++)
+            if (strcmp(f[1], zg_label_modes[k]) == 0) zg_label_tool_set_mode(t, k);
+        zg_label_tool_set_relief(t, b);
     } else if (n >= 2 && strcmp(f[0], "text") == 0) {
         char *text = g_strjoinv(" ", f + 1);
         g_strdelimit(text, "_", ' ');

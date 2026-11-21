@@ -120,7 +120,6 @@ gboolean zg_view3d_label_key(GtkWidget *view, guint key);
 gboolean zg_view3d_paint_key(GtkWidget *view, guint key);
 GtkWidget *zg_view3d_paint_card(GtkWidget *view);
 GtkWidget *zg_view3d_label_card(GtkWidget *view);
-GtkWidget *zg_view3d_label_handle(GtkWidget *view);
 void zg_view3d_label_open(GtkWidget *view, gint64 part, guint32 id);
 
 /* Ctrl+C, Ctrl+X, Ctrl+V, Ctrl+Shift+V, and Ctrl+D (clipboard.h): copy,

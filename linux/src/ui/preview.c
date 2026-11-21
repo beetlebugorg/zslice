@@ -2401,10 +2401,8 @@ GtkWidget *zg_preview_new(ZgModel *model) {
     gtk_overlay_add_overlay(GTK_OVERLAY(box), p->empty);
     /* The card of the Support tool, at the top left of the 3D view. */
     gtk_overlay_add_overlay(GTK_OVERLAY(box), zg_view3d_support_card(p->view3d));
-    /* The card of the Label tool, beside its label, and the handle at the
-     * corner of the label. */
+    /* The card of the Label tool, beside its label. */
     gtk_overlay_add_overlay(GTK_OVERLAY(box), zg_view3d_label_card(p->view3d));
-    gtk_overlay_add_overlay(GTK_OVERLAY(box), zg_view3d_label_handle(p->view3d));
     /* The card of the Paint tool, at the top left of the 3D view, next to
      * the tools. */
     gtk_overlay_add_overlay(GTK_OVERLAY(box), zg_view3d_paint_card(p->view3d));

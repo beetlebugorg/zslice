@@ -1824,7 +1824,7 @@ static void on_drag_update(GtkGestureDrag *g, double dx, double dy, gpointer dat
         double sx, sy;
         gtk_gesture_drag_get_start_point(g, &sx, &sy);
         GdkModifierType mods = gtk_event_controller_get_current_event_state(GTK_EVENT_CONTROLLER(g));
-        zg_label_drag(v->label, sx + dx, sy + dy, (mods & GDK_SHIFT_MASK) != 0);
+        zg_label_drag(v->label, sx + dx, sy + dy, (mods & GDK_SHIFT_MASK) != 0, (mods & GDK_ALT_MASK) != 0);
         v->drag_x = dx;
         v->drag_y = dy;
         return;
@@ -3054,11 +3054,6 @@ GtkWidget *zg_view3d_paint_card(GtkWidget *view) {
 GtkWidget *zg_view3d_label_card(GtkWidget *view) {
     View3d *v = g_object_get_data(G_OBJECT(view), "zg-view3d");
     return zg_label_tool_card(v->label);
-}
-
-GtkWidget *zg_view3d_label_handle(GtkWidget *view) {
-    View3d *v = g_object_get_data(G_OBJECT(view), "zg-view3d");
-    return zg_label_tool_handle(v->label);
 }
 
 void zg_view3d_label_open(GtkWidget *view, gint64 part, guint32 id) {

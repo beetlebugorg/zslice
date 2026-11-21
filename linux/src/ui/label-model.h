@@ -6,7 +6,8 @@
  * "the labels of a part"). Its frame is an origin, a normal (out of the
  * part), and a right (the +x axis of the shape); up = normal x right is
  * its +y axis. Its items are the shapes, as JSON objects with a "kind"
- * (text, line, bar, ring, ticks, polyline) and the fields of that kind.
+ * (text, line, bar, ring, ticks, polyline, svg) and the fields of that
+ * kind. A label prints as ink, raised, or cut (its mode).
  *
  * SPDX-License-Identifier: AGPL-3.0-or-later
  */
@@ -27,8 +28,19 @@ typedef struct {
     double depth; /* mm; 0: one line width */
     gboolean has_stretch;
     double stretch[2];
+    int mode;      /* ZG_LABEL_INK, ZG_LABEL_RAISED, or ZG_LABEL_CUT */
+    double relief; /* mm; 0: ZG_LABEL_DEFAULT_RELIEF */
     JsonArray *items; /* the shapes (a reference) */
 } ZgLabel;
+
+/* The modes of a label, their names in the JSON and on the card. */
+enum { ZG_LABEL_INK, ZG_LABEL_RAISED, ZG_LABEL_CUT, ZG_LABEL_MODES };
+extern const char *const zg_label_modes[ZG_LABEL_MODES];
+extern const char *const zg_label_mode_names[ZG_LABEL_MODES];
+/* The relief of a raised or cut label with a relief of 0 (the core). */
+#define ZG_LABEL_DEFAULT_RELIEF 0.6
+/* The height of a new SVG shape, mm. */
+#define ZG_LABEL_SVG_SIZE 15.0
 
 /* The kinds of the shapes, in the order of the chips of the card, and
  * their names there. */
@@ -102,6 +114,39 @@ gboolean zg_label_plane_hit(const ZgLabel *l, const double o[3], const double d[
 /* A point (x, y) of the plane in the frame of the bed, lift mm out of the
  * surface. */
 void zg_label_to_bed(const ZgLabel *l, double x, double y, double lift, double out[3]);
+
+/* ---- the handles and the smart guides ----
+ *
+ * The selected label has a frame on the surface, a square at each
+ * corner (a drag resizes the label), and a round handle over it (a drag
+ * turns it). The sizes are pixels of the screen; `mpp` is the mm of the
+ * plane in one pixel. */
+#define ZG_LABEL_SNAP_PX 6.0
+typedef struct {
+    double box[4]; /* the frame: s0, t0, s1, t1 (mm) */
+    double hs;     /* the half side of a corner square */
+    double turn[2], r; /* the turn handle */
+} ZgLabelHandles;
+void zg_label_handles(const double box[4], double mpp, ZgLabelHandles *g);
+/* The handle at (x, y) of the plane: 1 a corner (corner gets [sx, sy],
+ * +1 the high side), 2 the turn handle, 0 none. */
+int zg_label_handle_hit(const ZgLabelHandles *g, double x, double y, int corner[2]);
+/* A resize from corner `corner` of box b0 to the point p of the plane:
+ * the opposite corner (anchor) stays. free: each axis on its own; else
+ * one scale. box gets the new box, k the scales. */
+void zg_label_resize_box(const double b0[4], const int corner[2], const double p[2], gboolean free, double box[4], double anchor[2], double k[2]);
+/* Resizes a label by k about the point anchor of its plane: one scale
+ * changes the sizes of the shapes, two scales change the stretch. */
+void zg_label_resize(ZgLabel *l, const double anchor[2], const double k[2], gboolean free);
+/* Turns the label by deg about the point c of its plane: c stays. */
+void zg_label_turn_about(ZgLabel *l, double deg, const double c[2]);
+/* The SVG source `svg` as a shape of the label: in place of the new text
+ * "LABEL", else under the shapes (box: the outline box of the label, or
+ * NULL). */
+void zg_label_add_svg(ZgLabel *l, const char *svg, const double box[4]);
+/* The label l in the plane of the frame (origin, normal): the normals
+ * within 2.5° and the origin within 0.2 mm of the plane. */
+gboolean zg_label_same_plane(const double origin[3], const double normal[3], const ZgLabel *l);
 
 /* The filament of a new label on a part in filament base (from 1), with
  * count filaments on the plate: the filament after it, else the first

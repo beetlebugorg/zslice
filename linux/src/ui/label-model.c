@@ -14,6 +14,8 @@
 
 const char *const zg_label_kinds[ZG_LABEL_KINDS] = {"text", "line", "bar", "ring", "ticks", "polyline"};
 const char *const zg_label_kind_names[ZG_LABEL_KINDS] = {"Text", "Line", "Bar", "Ring", "Ticks", "Free"};
+const char *const zg_label_modes[ZG_LABEL_MODES] = {"ink", "raised", "cut"};
+const char *const zg_label_mode_names[ZG_LABEL_MODES] = {"Ink", "Raised", "Cut in"};
 
 static const ZgLabelField TEXT_FIELDS[] = {
     {"size", "Size", "mm", 0.5, 200, 0.1, "The height of the capitals"},
@@ -44,6 +46,9 @@ static const ZgLabelField TICKS_FIELDS[] = {
 static const ZgLabelField POLY_FIELDS[] = {
     {"width", "Width", "mm", 0, 100, 0.1, "The width of the line (0 with Filled)"},
 };
+static const ZgLabelField SVG_FIELDS[] = {
+    {"size", "Height", "mm", 0.1, 500, 0.1, "The height of the picture"},
+};
 
 const ZgLabelField *zg_label_fields(const char *kind, size_t *n) {
     static const struct {
@@ -54,6 +59,7 @@ const ZgLabelField *zg_label_fields(const char *kind, size_t *n) {
         {"text", TEXT_FIELDS, G_N_ELEMENTS(TEXT_FIELDS)},   {"line", LINE_FIELDS, G_N_ELEMENTS(LINE_FIELDS)},
         {"bar", BAR_FIELDS, G_N_ELEMENTS(BAR_FIELDS)},      {"ring", RING_FIELDS, G_N_ELEMENTS(RING_FIELDS)},
         {"ticks", TICKS_FIELDS, G_N_ELEMENTS(TICKS_FIELDS)}, {"polyline", POLY_FIELDS, G_N_ELEMENTS(POLY_FIELDS)},
+        {"svg", SVG_FIELDS, G_N_ELEMENTS(SVG_FIELDS)},
     };
     for (size_t i = 0; i < G_N_ELEMENTS(all); i++)
         if (g_strcmp0(kind, all[i].kind) == 0) {
@@ -72,12 +78,14 @@ static const char *const *length_fields(const char *kind) {
     static const char *const ring[] = {"outer", "inner", NULL};
     static const char *const ticks[] = {"radius", "length", "length_end", "width", NULL};
     static const char *const poly[] = {"width", NULL};
+    static const char *const svg[] = {"size", NULL};
     static const char *const none[] = {NULL};
     if (g_strcmp0(kind, "text") == 0) return text;
     if (g_strcmp0(kind, "line") == 0) return line;
     if (g_strcmp0(kind, "bar") == 0) return bar;
     if (g_strcmp0(kind, "ring") == 0) return ring;
     if (g_strcmp0(kind, "ticks") == 0) return ticks;
+    if (g_strcmp0(kind, "svg") == 0) return svg;
     if (g_strcmp0(kind, "polyline") == 0) return poly;
     return none;
 }
@@ -161,6 +169,12 @@ static ZgLabel *label_of(JsonObject *o) {
         if (!l->name) l->name = g_strdup("");
     }
     l->has_stretch = vec_of(o, "stretch", l->stretch, 2);
+    l->relief = num_of(o, "relief", 0);
+    if (json_object_has_member(o, "mode") && JSON_NODE_HOLDS_VALUE(json_object_get_member(o, "mode"))) {
+        const char *m = json_object_get_string_member(o, "mode");
+        for (int k = 0; m && k < ZG_LABEL_MODES; k++)
+            if (strcmp(m, zg_label_modes[k]) == 0) l->mode = k;
+    }
     if (!vec_of(o, "origin", l->origin, 3) || !vec_of(o, "normal", l->normal, 3) || !vec_of(o, "right", l->right, 3) || !unit3(l->normal) ||
         !unit3(l->right)) {
         zg_label_free(l);
@@ -215,6 +229,10 @@ char *zg_label_json(const ZgLabel *l, gboolean shapes_only) {
         json_object_set_array_member(o, "right", vec_array(l->right, 3));
         json_object_set_int_member(o, "filament", l->filament);
         json_object_set_double_member(o, "depth", l->depth);
+        if (l->mode > ZG_LABEL_INK && l->mode < ZG_LABEL_MODES) {
+            json_object_set_string_member(o, "mode", zg_label_modes[l->mode]);
+            json_object_set_double_member(o, "relief", l->relief);
+        }
     }
     if (l->has_stretch) json_object_set_array_member(o, "stretch", vec_array(l->stretch, 2));
     json_object_set_array_member(o, "items", json_array_ref(l->items));
@@ -303,6 +321,7 @@ double zg_label_item_size(JsonObject *it) {
     if (strcmp(k, "bar") == 0) return num_of(it, "width", 0);
     if (strcmp(k, "ring") == 0) return 2 * num_of(it, "outer", 0);
     if (strcmp(k, "ticks") == 0) return 2 * (num_of(it, "radius", 0) + MAX(num_of(it, "length", 0), num_of(it, "length_end", 0)));
+    if (strcmp(k, "svg") == 0) return num_of(it, "size", 0);
     if (strcmp(k, "polyline") == 0 && json_object_has_member(it, "points")) {
         JsonArray *a = json_object_get_array_member(it, "points");
         double lo = INFINITY, hi = -INFINITY;
@@ -394,6 +413,7 @@ char *zg_label_title(const ZgLabel *l) {
     gboolean seen[ZG_LABEL_KINDS] = {FALSE};
     for (guint i = 0; i < zg_label_item_count(l); i++) {
         const char *k = zg_label_item_kind(zg_label_item(l, i));
+        if (strcmp(k, "svg") == 0 && !strstr(out->str, "SVG")) g_string_append(out, out->len ? " and SVG" : "SVG");
         for (int j = 0; j < ZG_LABEL_KINDS; j++) {
             if (strcmp(k, zg_label_kinds[j]) != 0 || seen[j]) continue;
             seen[j] = TRUE;
@@ -493,4 +513,101 @@ int zg_label_next_filament(int base, int count) {
     if (count <= 1) return 1;
     if (base + 1 <= count) return base + 1;
     return base == 1 ? 2 : 1;
+}
+
+/* ---- the handles and the smart guides ---- */
+
+void zg_label_handles(const double box[4], double mpp, ZgLabelHandles *g) {
+    const double gap = 4 * mpp;
+    g->box[0] = box[0] - gap;
+    g->box[1] = box[1] - gap;
+    g->box[2] = box[2] + gap;
+    g->box[3] = box[3] + gap;
+    g->hs = 4.5 * mpp;
+    g->turn[0] = (g->box[0] + g->box[2]) / 2;
+    g->turn[1] = g->box[3] + 22 * mpp;
+    g->r = 5 * mpp;
+}
+
+int zg_label_handle_hit(const ZgLabelHandles *g, double x, double y, int corner[2]) {
+    /* A handle has a hit area a little larger than its decal. */
+    const double m = 1.6;
+    if (hypot(x - g->turn[0], y - g->turn[1]) <= g->r * m) return 2;
+    for (int sx = -1; sx <= 1; sx += 2)
+        for (int sy = -1; sy <= 1; sy += 2) {
+            double cx = sx > 0 ? g->box[2] : g->box[0];
+            double cy = sy > 0 ? g->box[3] : g->box[1];
+            if (fabs(x - cx) <= g->hs * m && fabs(y - cy) <= g->hs * m) {
+                corner[0] = sx;
+                corner[1] = sy;
+                return 1;
+            }
+        }
+    return 0;
+}
+
+void zg_label_resize_box(const double b0[4], const int corner[2], const double p[2], gboolean free, double box[4], double anchor[2], double k[2]) {
+    anchor[0] = corner[0] > 0 ? b0[0] : b0[2];
+    anchor[1] = corner[1] > 0 ? b0[1] : b0[3];
+    double c0[2] = {corner[0] > 0 ? b0[2] : b0[0], corner[1] > 0 ? b0[3] : b0[1]};
+    double v[2] = {c0[0] - anchor[0], c0[1] - anchor[1]};
+    if (free) {
+        k[0] = fabs(v[0]) > 1e-9 ? (p[0] - anchor[0]) / v[0] : 1;
+        k[1] = fabs(v[1]) > 1e-9 ? (p[1] - anchor[1]) / v[1] : 1;
+    } else {
+        k[0] = k[1] = ((p[0] - anchor[0]) * v[0] + (p[1] - anchor[1]) * v[1]) / MAX(1e-12, v[0] * v[0] + v[1] * v[1]);
+    }
+    for (int a = 0; a < 2; a++) {
+        k[a] = MAX(0.05, k[a]);
+        double c = anchor[a] + k[a] * v[a];
+        box[a] = MIN(anchor[a], c);
+        box[a + 2] = MAX(anchor[a], c);
+    }
+}
+
+void zg_label_resize(ZgLabel *l, const double anchor[2], const double k[2], gboolean free) {
+    if (free) {
+        if (!l->has_stretch) l->stretch[0] = l->stretch[1] = 1;
+        l->has_stretch = TRUE;
+        l->stretch[0] *= k[0];
+        l->stretch[1] *= k[1];
+    } else {
+        zg_label_scale(l, k[0]);
+    }
+    double up[3];
+    zg_label_up(l, up);
+    for (int a = 0; a < 3; a++) l->origin[a] += (1 - k[0]) * anchor[0] * l->right[a] + (1 - k[1]) * anchor[1] * up[a];
+}
+
+void zg_label_turn_about(ZgLabel *l, double deg, const double c[2]) {
+    double r0[3], u0[3], u1[3];
+    memcpy(r0, l->right, sizeof r0);
+    zg_label_up(l, u0);
+    zg_label_turn(l, deg);
+    zg_label_up(l, u1);
+    for (int a = 0; a < 3; a++) l->origin[a] += c[0] * (r0[a] - l->right[a]) + c[1] * (u0[a] - u1[a]);
+}
+
+void zg_label_add_svg(ZgLabel *l, const char *svg, const double box[4]) {
+    JsonObject *it = json_object_new();
+    json_object_set_string_member(it, "kind", "svg");
+    json_object_set_string_member(it, "svg", svg);
+    json_object_set_double_member(it, "size", ZG_LABEL_SVG_SIZE);
+    JsonObject *first = zg_label_item(l, 0);
+    gboolean fresh = zg_label_item_count(l) == 1 && strcmp(zg_label_item_kind(first), "text") == 0 && json_object_has_member(first, "text") &&
+                     g_strcmp0(json_object_get_string_member(first, "text"), "LABEL") == 0;
+    zg_label_own_items(l);
+    if (fresh) {
+        json_array_unref(l->items);
+        l->items = json_array_new();
+    } else {
+        set_point(it, "at", 0, (box ? box[1] : 0) - ZG_LABEL_SVG_SIZE / 2 - 1);
+    }
+    json_array_add_object_element(l->items, it);
+}
+
+gboolean zg_label_same_plane(const double origin[3], const double normal[3], const ZgLabel *l) {
+    if (dot3(normal, l->normal) < cos(2.5 * G_PI / 180)) return FALSE;
+    double v[3] = {l->origin[0] - origin[0], l->origin[1] - origin[1], l->origin[2] - origin[2]};
+    return fabs(dot3(v, normal)) < 0.2;
 }
