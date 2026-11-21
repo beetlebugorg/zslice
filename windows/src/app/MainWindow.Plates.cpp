@@ -100,6 +100,8 @@ namespace winrt::ZSlice::implementation
         // The view keeps no beads of the plate before. A plate with no
         // result has none to read.
         zs_view_load(view, app);
+        SupportLoaded();
+        SupportReload();
         model->UpdateBed(view);
         zs_set_view_sync(model->Set(), view);
         LayerCard().Visibility(Visibility::Collapsed);
