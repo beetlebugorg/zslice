@@ -12,6 +12,17 @@
 //   key NAME        V M R G T H L K J Up Down Left Right Delete Escape
 //   layer n         the layer slider
 //   log             writes the state
+//   shot NAME, wait a line in the log for a script, and no step
+//   undo, redo      the history
+//   look nx ny nz d the camera looks at the middle of part 0 from n
+//   orbit dx dy, zoom f
+// The Paint tool: pclick [shift] and pstroke dx dy (at the point of the mesh
+// nearest to the middle of the part), pmode smart|brush, psize mm,
+// pfilament n, paddfilament, pclear, phover x y, plog. The Label tool: lface dx dz (a click on the
+// front face of part 0), ltext T ('_' is a space), lset i field value,
+// lshape i kind, ladd kind, lremove i, lfilament n, laddfilament, ldepth mm,
+// lturn deg, lwheel n, lswheel n, ldrag dx dy, lsdrag dx dy, lscale k,
+// ldraw i, linfo, lflush, llog.
 // Each step writes the state to the log (ZSLICE_LOG).
 //
 // SPDX-License-Identifier: AGPL-3.0-or-later
@@ -116,7 +127,9 @@ namespace winrt::ZSlice::implementation
         else if (verb == L"click")
         {
             double x = number(0), y = number(1);
+            press_shift = has(L"shift");
             bool took = ToolPress(x, y, has(L"ctrl"));
+            press_shift = false;
             if (took)
                 ToolRelease();
             if (hand_click)
@@ -256,6 +269,44 @@ namespace winrt::ZSlice::implementation
         else if (verb == L"layer")
         {
             LayerSlider().Value(number(0));
+        }
+        else if (verb == L"shot" || verb == L"wait")
+        {
+            // A script outside waits for this line, and takes the picture.
+        }
+        else if (verb == L"undo")
+        {
+            AfterRestore(model->Undo());
+        }
+        else if (verb == L"redo")
+        {
+            AfterRestore(model->Redo());
+        }
+        else if (verb == L"orbit")
+        {
+            zs_view_orbit(view, (float)number(0), (float)number(1));
+            RequestDraw();
+        }
+        else if (verb == L"zoom")
+        {
+            zs_view_zoom(view, (float)number(0));
+            RequestDraw();
+        }
+        else if (verb == L"look" && words.size() >= 4)
+        {
+            zs_part p{};
+            if (zs_app_part_get(model->Active(), 0, &p) == ZS_OK)
+            {
+                zs_view_look_at(view, (float)p.x, (float)p.y, (float)(p.size_z / 2), (float)number(0), (float)number(1), (float)number(2), (float)number(3));
+                for (int k = 0; k < 200 && zs_view_animate(view, 0.05); k++)
+                {
+                }
+                RequestDraw();
+            }
+        }
+        else if (!RunPaintStep(verb, words) && !RunLabelStep(verb, words) && verb != L"log")
+        {
+            zs::Log("dev: a bad step: %s\n", zs::ToUtf8(step).c_str());
         }
         LogDevState(step);
     }
