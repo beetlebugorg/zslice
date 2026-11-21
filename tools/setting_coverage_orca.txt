@@ -376,7 +376,7 @@ skirt_distance | same | project.skirt_distance
 skirt_height | same | project.skirt_layers
 brim_width | same | project.brim_width
 brim_type | same | project.brim_location
-spiral_mode | missing | spiral vase mode
+spiral_mode | same | project.spiral_vase
 fuzzy_skin | derived | project.fuzzy_skin (external is outer_wall; no fuzzy skin on all walls)
 fuzzy_skin_thickness | same | project.fuzzy_skin_thickness
 fuzzy_skin_point_distance | same | project.fuzzy_skin_point_distance

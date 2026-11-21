@@ -409,3 +409,18 @@ summary: `project.fuzzy_skin`, `project.fuzzy_skin_thickness`, and `project.fuzz
 ```
 
 Cura and OrcaSlicer replace the points of the outer wall with random points a random distance apart, each moved a random distance across the wall. zslice does the same in `fuzzWalls`, with the random numbers from the layer and the path, so a slice gives the same points each time. The seam point stays. The idea and the settings only; no code is copied.
+
+### Spiral vase mode
+
+```ref
+kind: idea
+source: Cura, OrcaSlicer
+license: AGPL-3.0
+link: https://github.com/Ultimaker/Cura
+version: Cura commit 1a221ec29a86960d16a412940becc1f63534c41f; OrcaSlicer commit 5a1ffc6a631ead5886f1c22920deb341fc1a0106
+files: src/layer.zig, src/gcode.zig, src/settings.zig
+area: walls
+summary: `project.spiral_vase` has the meaning of `magic_spiralize` (Cura) and `spiral_mode` (OrcaSlicer): after the bottom layers, one outer wall that rises along its length.
+```
+
+Cura and OrcaSlicer print a vase as one spiral: after the bottom layers, the outer wall of each layer rises from the layer below to its own height along its length, so there is no layer change and no seam. zslice does the same in `layer.spiralize`, with the z of each point as a path that is not planar, and the bead of the first spiral layer grows from zero. The idea and the setting only; no code is copied.
