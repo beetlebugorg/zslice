@@ -43,7 +43,7 @@ A build with `-p:ZsDevHooks=true` reads `ZSLICE_DO`: steps with `;` between them
 - The core events come on the slice threads. The model posts each one to the UI thread through the `DispatcherQueue`.
 - The view draws only after a change. `ZS_BUSY` means that the compositor holds the frame before, and a timer draws again 8 ms later.
 - The swapchain is in device pixels. The shell sets the inverse of the composition scale on it with `SetMatrixTransform`.
-- The session is `session.zslice` in `%APPDATA%zslice`, or in `ZSLICE_STATE_DIR`. The app writes no session until the restore at launch is done. A session that does not read moves to `session.zslice.bad`.
+- The session is `session.zslice` in `%APPDATA%\zslice`, or in `ZSLICE_STATE_DIR`. The app writes no session until the restore at launch is done. A session that does not read moves to `session.zslice.bad`.
 - A left drag orbits. A right drag orbits with a mouse and pans with a two-finger click on a touchpad. The middle button and Shift pan. The wheel and a pinch zoom.
 
 ## Build the core
