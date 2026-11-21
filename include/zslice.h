@@ -134,6 +134,86 @@ int zs_sign_gcode(const char *secret, const uint8_t *gcode, size_t len, uint8_t 
  * NULL) gets the key id of the signature line, or "". */
 int zs_verify_gcode(const uint8_t *gcode, size_t len, const char *trusted, int *result, char *key_id);
 
+/* ---- links that open a model (src/open_link.zig) ----
+ *
+ * The "Open in slicer" link of a model site:
+ *   zslice://open?file=<percent-encoded https URL>
+ * The web app takes web+zslice:// in place of zslice://. The rules are
+ * the same in each app (docs/internals/open-links.md):
+ *  1. zs_link_check reads the link. It takes only https URLs of public
+ *     host names: no IP address, no local name, no user name, no port
+ *     other than 443.
+ *  2. The app shows link.name (or "a model file") and link.host, and asks
+ *     the user. It downloads only after a yes.
+ *  3. The app resolves link.host and refuses the download if
+ *     zs_link_address_public is 0 for an address, where the platform
+ *     lets it. It checks the address of the connection too. It sends no
+ *     cookie, no key, and no credentials, and it uses no proxy.
+ *  4. It follows no redirect by itself: zs_link_redirect checks each
+ *     Location, at most ZS_LINK_MAX_REDIRECTS times.
+ *  5. zs_link_check_reply checks the head of the answer, and the app stops
+ *     a download at ZS_LINK_MAX_BYTES.
+ *  6. zs_link_file_name gives the name of the file. The app refuses a
+ *     zslice project (zs_project_file_is), and opens the file on a new
+ *     plate if the active plate has parts. A link never starts a print.
+ * Each call returns an enum zs_link_result. zs_link_message gives its
+ * text for the user. */
+#define ZS_LINK_MAX_BYTES ((uint64_t)512 << 20)
+#define ZS_LINK_MAX_REDIRECTS 5
+#define ZS_LINK_URL_MAX 12304
+#define ZS_LINK_HOST_MAX 256
+#define ZS_LINK_NAME_MAX 512
+
+enum zs_link_result {
+    ZS_LINK_OK = 0,
+    ZS_LINK_NOT_A_LINK = 1,         /* not a zslice://open?file= link */
+    ZS_LINK_NOT_PUBLIC = 2,         /* not an https URL of a public host name */
+    ZS_LINK_LOCAL_ADDRESS = 3,      /* the name resolves to a local address */
+    ZS_LINK_NOT_A_MODEL = 4,        /* no STL, 3MF, STEP, STP, or OBJ name */
+    ZS_LINK_PROJECT = 5,            /* a zslice project */
+    ZS_LINK_TOO_LARGE = 6,          /* over ZS_LINK_MAX_BYTES */
+    ZS_LINK_WEB_PAGE = 7,           /* the answer is an HTML page */
+    ZS_LINK_TOO_MANY_REDIRECTS = 8,
+    ZS_LINK_BAD_REDIRECT = 9        /* a redirect to a URL that fails the check */
+};
+
+/* A checked link. Each field is UTF-8 with a NUL byte. url: the clean
+ * https URL. host: its host name in lowercase. name: the file name, or ""
+ * if the URL has no model file name. */
+typedef struct zs_link {
+    char url[ZS_LINK_URL_MAX];
+    char host[ZS_LINK_HOST_MAX];
+    char name[ZS_LINK_NAME_MAX];
+} zs_link;
+
+/* Reads a zslice:// or web+zslice:// link into out. */
+int zs_link_check(const char *text, zs_link *out);
+/* Checks a plain https URL of a model file into out. */
+int zs_link_check_url(const char *url, zs_link *out);
+/* A redirect: link->url and link->host become the checked URL of the
+ * Location header (absolute, or a path on the same host). */
+int zs_link_redirect(const char *location, zs_link *link);
+/* Checks the head of the answer: the Content-Type and the
+ * Content-Length (-1 if none). */
+int zs_link_check_reply(const char *content_type, int64_t length);
+/* Sets link->name from the Content-Disposition header (or NULL), else from
+ * link->url, else the old link->name. ZS_LINK_NOT_A_MODEL if none of them
+ * is a model name. */
+int zs_link_file_name(const char *disposition, zs_link *link);
+/* 1 for a public address: 4 bytes (IPv4) or 16 bytes (IPv6), in network
+ * order. 0 for loopback, private, link-local, multicast, and the other
+ * local ranges. */
+int zs_link_address_public(const uint8_t *address, size_t len);
+/* 1 for text that starts with zslice: or web+zslice:. */
+int zs_link_is_link(const char *text);
+/* 1 for a name that ends in .stl, .3mf, .step, .stp, or .obj. */
+int zs_link_is_model_name(const char *name);
+/* The text for the user of an enum zs_link_result. */
+const char *zs_link_message(int result);
+/* The limits, for a shell with no C header: ZS_LINK_MAX_BYTES,
+ * ZS_LINK_MAX_REDIRECTS, and sizeof(zs_link). Each pointer can be NULL. */
+void zs_link_limits(uint64_t *max_bytes, int *max_redirects, size_t *link_size);
+
 #ifdef __cplusplus
 }
 #endif

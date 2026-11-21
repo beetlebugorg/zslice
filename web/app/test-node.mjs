@@ -10,6 +10,7 @@ import { Wasm } from "./wasm.js";
 import { Core, STATE } from "./core.js";
 import { View3D } from "./view.js";
 import { clipText, parseClipText } from "./clipboard.js";
+import { LinkRules, downloadModel, LINK, webAppLink } from "./openlink.js";
 import { outlineOf, placeAt, newItem, scaleLabel, withAngle, angleOf, turned, nextFilament, changeShape, labelName, svgItem, resizeBox, resized, turnedAbout, toBed, handleGeom, hitHandle } from "./label.js";
 
 const [wasmPath, stlPath] = process.argv.slice(2);
@@ -468,7 +469,6 @@ const imp = cal.importProfile("a.ini", new TextEncoder().encode("layer_height = 
 check(imp.error === "" && imp.rows[0][0] === "format" && cal.get("project.layer_height") === "0.16", "a PrusaSlicer profile imports");
 check(cal.importProfile("b.stl", new TextEncoder().encode("solid x\n")).error !== "", "a file that is not a profile");
 console.log(`calibration: ${plan.name}, ${plan.steps.length} steps; profile import: ${imp.rows.length - 1} rows`);
-x3.zs_set_free(set);
 console.log(`plate set: slices ${sliced.join(", ")}, sync ${(sn / 1e6).toFixed(2)} MB; the clipboard`);
 // The text of a copy on the system clipboard (clipboard.js).
 const lc = parseClipText(clipText({ kind: "label", id: "a1", data: { label: { filament: 2 } } }));
@@ -476,4 +476,56 @@ check(lc.kind === "label" && lc.id === "a1" && lc.data.label.filament === 2, "a 
 check(parseClipText(clipText({ kind: "parts", id: "p", count: 3 })).count === 3, "a mark of parts");
 check(parseClipText("grid").kind === "text" && parseClipText("{oops").kind === "text", "plain text");
 check(clipText({ kind: "setting", id: "s", data: { value: "0.2" } }) === "0.2", "a value is plain text");
+// A link that opens a model (openlink.js): the checks of the core, and a
+// download from a stub fetch (no network).
+{
+  const rules = new LinkRules(wasm);
+  check(rules.maxBytes === 512 * 1024 * 1024 && rules.maxRedirects === 5, "the limits of a link");
+  let l = rules.check("web+zslice://open?file=https%3A%2F%2Ffiles.example.com%2Fm%2Fa%20b.stl");
+  check(l.ok && l.host === "files.example.com" && l.name === "a b.stl" && l.url === "https://files.example.com/m/a%20b.stl", "a web+zslice link");
+  check(rules.check("zslice://open?file=https://example.com/x.3mf").ok, "a zslice link");
+  check(rules.check("https://example.com/x.obj").name === "x.obj", "a plain https URL");
+  check(new URLSearchParams(new URL(webAppLink("https://example.com/x.stl")).search).get("open") === "https://example.com/x.stl", "the web app link form");
+  for (const bad of ["https://192.168.1.4/a.stl", "http://example.com/a.stl", "https://printer.local/a.stl", "zslice://open?file=https://localhost/a.stl", "javascript:alert(1)", ""]) {
+    check(!rules.check(bad).ok, `refused: ${bad}`);
+  }
+  check(rules.check("https://10.0.0.1/a.stl").why === "The link does not lead to a public https address.", "the reason of a refusal");
+  const stl = new Uint8Array(await readFile(stlPath));
+  const reply = (body, headers = {}, url = "", status = 200) => async () => {
+    const r = new Response(body, { status, headers });
+    Object.defineProperty(r, "url", { value: url });
+    return r;
+  };
+  l = rules.check("https://example.com/dl/7");
+  let fractions = 0;
+  const got = await downloadModel(rules, l, {
+    fetchFn: reply(stl, { "content-length": String(stl.length), "content-disposition": 'attachment; filename="part.stl"' }, l.url),
+    onProgress: () => fractions++,
+  });
+  check(got.name === "part.stl" && got.bytes.length === stl.length && fractions > 0, "a download with a name in its head");
+  const fails = async (fetchFn, what, link = l) => {
+    try {
+      await downloadModel(rules, link, { fetchFn });
+    } catch (e) {
+      return e.message;
+    }
+    throw new Error(`failed: ${what} downloaded`);
+  };
+  check((await fails(reply(stl, {}, "https://192.168.0.2/a.stl"), "a redirect to a LAN")) === rules.message(LINK.badRedirect), "a redirect to a local address");
+  check((await fails(reply("<html>", { "content-type": "text/html" }, l.url), "a web page")) === rules.message(LINK.webPage), "a web page");
+  check((await fails(reply(stl, {}, l.url), "no name")) === rules.message(LINK.notAModel), "no model name");
+  check((await fails(reply(stl, { "content-length": String(600 << 20) }, l.url), "too large")) === rules.message(LINK.tooLarge), "a file over the limit");
+  const cors = await fails(async () => { throw new TypeError("Failed to fetch"); }, "CORS");
+  check(cors.includes("CORS"), "a site with no CORS headers");
+  const prc = wasm3.withString("p", (n) => x3.zs_set_project_save(set, n, wasm3.cell, wasm3.cell + 4));
+  check(prc === 0, "a project file to download");
+  const pptr = wasm3.u32(wasm3.cell);
+  const plen = wasm3.u32(wasm3.cell + 4);
+  const projBytes = wasm3.u8.slice(pptr, pptr + plen);
+  x3.zs_buffer_free(pptr, plen);
+  const pl = rules.check("https://example.com/p.3mf");
+  check((await fails(reply(projBytes, {}, pl.url), "a project", pl)) === rules.message(LINK.project), "a zslice project");
+  console.log("open links: the checks and the download");
+}
+x3.zs_set_free(set);
 console.log("ok");

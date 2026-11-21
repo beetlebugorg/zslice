@@ -213,9 +213,9 @@ source: PrusaSlicer
 license: AGPL-3.0
 link: https://help.prusa3d.com/article/opening-models-in-prusaslicer-from-supported-websites_399198
 version: PrusaSlicer 2.6.0 (the downloader)
-files: windows/src/net/zs_open_link.cpp, windows/src/prefs/zs_app_shell.cpp, windows/src/app/MainWindow.Open.cpp
+files: src/open_link.zig, src/c_api/link.zig, linux/src/ui/open-link.c, linux/src/net/model-download.c, web/app/openlink.js, windows/src/net/zs_open_link.cpp, windows/src/prefs/zs_app_shell.cpp, windows/src/app/MainWindow.Open.cpp
 area: files
 summary: `zslice://open?file=<URL>` has the shape of the `prusaslicer://open?file=<URL>` links that model sites use.
 ```
 
-Model sites such as Printables open a model in a slicer with a link of the form `prusaslicer://open?file=<URL>`. zslice takes only that shape, with its own scheme. Its rules for a link are its own: it asks first, takes https from public hosts, checks each redirect, limits the size, refuses a zslice project, and never starts a print. No code is copied.
+Model sites such as Printables open a model in a slicer with a link of the form `prusaslicer://open?file=<URL>`. zslice takes only that shape, with its own scheme (`web+zslice://` in the web app, because a web page can register only a `web+` scheme). The rules are in the core (`src/open_link.zig`), and [Links that open a model](../internals/open-links.md) has the contract. Its rules for a link are its own: it asks first, takes https from public hosts, checks each redirect, limits the size, refuses a zslice project, and never starts a print. No code is copied.

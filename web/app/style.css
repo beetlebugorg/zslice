@@ -759,7 +759,8 @@ button.destructive { background: var(--destructive); color: #fff; }
 .pair-dialog { width: min(460px, calc(100vw - 32px)); }
 .pair-text { margin: 0 0 6px; font-size: 1.05em; overflow-wrap: anywhere; }
 .pair-text.error { color: var(--error); }
-.pair-count { margin: 0 0 10px; }
+.pair-count { margin: 0 0 10px; overflow-wrap: anywhere; }
+.pair-count.error { color: var(--error); }
 .pair-list { display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px; }
 .pair-row { display: flex; align-items: center; gap: 8px; overflow-wrap: anywhere; }
 .pair-actions { display: flex; justify-content: flex-end; gap: 8px; }

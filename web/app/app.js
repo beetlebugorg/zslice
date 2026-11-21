@@ -53,6 +53,7 @@
 // theme.js first: it sets the colors before the rest of the page loads.
 import { isDark, onThemeChange, themeChoice, setTheme } from "./theme.js";
 import { Wasm } from "./wasm.js";
+import { LinkRules, downloadModel, registerLinks } from "./openlink.js";
 import { savePlate, loadPlate, clearPlate, loadSession } from "./keep.js";
 import { Client } from "./client.js";
 import { View3D, MODES } from "./view.js";
@@ -4182,6 +4183,7 @@ $("open").onclick = () => openMenu($("open"), [
   { label: "Open a model…", action: () => $("file").click() },
   { label: "Add models to this plate…", disabled: app.state === "empty", action: () => addModels() },
   { label: "Save project…", disabled: app.state === "empty", action: () => saveProject() },
+  { label: "Open links from model sites here", detail: "web+zslice:// links", action: () => toast(registerLinks(), 9000) },
   ...projectItems(),
 ]);
 // + adds models to the active plate; Open replaces the active plate.
@@ -4448,6 +4450,99 @@ if (modelUrl) {
   const more = [];
   for (let i = 1; i < copies; i++) more.push(new File([data], name));
   if (more.length) await addFiles(more);
+}
+
+// ---- a link that opens a model (openlink.js) ----
+//
+// ?open=<web+zslice:// link or https URL>: the dialog asks first. The
+// file opens on a new plate if the plate has parts. It never prints.
+
+async function openLinkFile(bytes, name) {
+  const file = new File([bytes], name);
+  if (app.state === "empty") {
+    await openFile(file);
+    return;
+  }
+  await addPlate();
+  await addFiles([file]);
+}
+
+function askOpenLink(text) {
+  const rules = new LinkRules(wasm);
+  const link = rules.check(text);
+  const d = document.createElement("dialog");
+  d.className = "printers-dialog pair-dialog";
+  const title = Object.assign(document.createElement("h3"), { textContent: link.ok ? "Open this model?" : "This link did not open" });
+  const name = Object.assign(document.createElement("p"), { className: "pair-text", textContent: link.ok ? link.name || "A model file" : link.why });
+  const from = Object.assign(document.createElement("p"), { className: "pair-count", textContent: link.ok ? `From ${link.host}` : "" });
+  const note = Object.assign(document.createElement("p"), {
+    className: "dim pair-count",
+    textContent: link.ok ? "zslice downloads the file and opens it on a new plate. It does not start a print." : "",
+  });
+  const bar = Object.assign(document.createElement("div"), { className: "pair-actions" });
+  const cancel = Object.assign(document.createElement("button"), { textContent: link.ok ? "Cancel" : "Close" });
+  const go = Object.assign(document.createElement("button"), { className: "suggested", textContent: "Download and open" });
+  const byHand = Object.assign(document.createElement("button"), { textContent: "Download the file" });
+  byHand.hidden = true;
+  go.hidden = !link.ok;
+  bar.append(cancel, byHand, go);
+  d.append(title, name, from, note, bar);
+  document.body.append(d);
+  let abort = null;
+  const close = () => {
+    abort?.abort();
+    d.close();
+    d.remove();
+  };
+  cancel.onclick = close;
+  d.oncancel = (e) => {
+    e.preventDefault();
+    close();
+  };
+  // The browser downloads the file to the Downloads folder. The user
+  // then drops it on the window or opens it with Open.
+  byHand.onclick = () => {
+    window.open(link.url, "_blank", "noopener,noreferrer");
+    note.textContent = "Then drop the file on this window, or open it with Open.";
+    byHand.hidden = true;
+  };
+  go.onclick = async () => {
+    go.disabled = true;
+    note.classList.remove("error");
+    note.textContent = "Downloading…";
+    abort = new AbortController();
+    try {
+      const got = await downloadModel(rules, link, {
+        signal: abort.signal,
+        onProgress: (f) => {
+          note.textContent = `Downloading… ${Math.round(f * 100)}%`;
+        },
+      });
+      abort = null;
+      close();
+      await openLinkFile(got.bytes, got.name);
+    } catch (e) {
+      abort = null;
+      if (e?.name === "AbortError") return;
+      go.disabled = false;
+      go.hidden = !!e.cors;
+      byHand.hidden = !e.cors;
+      note.textContent = e.message;
+      note.classList.add("error");
+    }
+  };
+  d.showModal();
+  // Enter must not start a download that the user did not read.
+  cancel.focus();
+}
+
+const openParam = new URLSearchParams(location.search).get("open");
+if (openParam) {
+  // A reload must not ask again.
+  const u = new URL(location.href);
+  u.searchParams.delete("open");
+  window.history.replaceState(null, "", u.pathname + u.search + u.hash);
+  askOpenLink(openParam);
 }
 
 // For tests: frame times. Each of n frames gets the input of a drag

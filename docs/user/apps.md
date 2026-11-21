@@ -1,6 +1,6 @@
 # Web, Linux, and Mac
 
-The three apps have the same window and the same tools. The pictures of this guide show the web app.
+The apps have the same window and the same tools. The pictures of this guide show the web app.
 
 ![The web app on a phone: the header, the Benchy, and the print card](../img/phone.webp "The web app on a phone: one finger orbits, two fingers zoom.")
 
@@ -10,7 +10,7 @@ The three apps have the same window and the same tools. The pictures of this gui
 
 - **Your files stay in your browser.** The model slices on your computer. No file goes to a server. The page has no analytics and no cookies. See [Privacy](../../PRIVACY.md).
 - **Your work stays after a reload.** The browser keeps the plates, your settings, and your printers.
-- **Open a model from a link.** Add `?model=` and the address of an STL file to the page address.
+- **Open a model from a link.** See [Open a model from a link](#open-a-model-from-a-link).
 - **Printers.** The web app cannot search the network. Enter the address of the printer. The printer must allow requests from the page, for example a printdeck at its secure address.
 - **On a phone**, the window fits the screen. One finger orbits, and two fingers pinch to zoom and pan.
 
@@ -36,6 +36,23 @@ See [linux/README.md](../../linux/README.md) for the packages. Where it differs 
 ## The macOS app
 
 A SwiftUI app with a Metal view. See [The macOS app](macos.md): its keys, its settings pane, Bambu printers, the Keychain, and the farm queue.
+
+## Open a model from a link
+
+A model site can open a model in zslice with a link of the form `zslice://open?file=` and the address of the file. This is the form of the "Open in slicer" links of model sites, for example `prusaslicer://open?file=` on Printables.
+
+Each app does the same steps:
+
+1. It shows the file name and the site, and asks **Open this model?**. Press **Download and open** to go on. Enter does not download.
+2. It downloads the file. It takes only https addresses of public sites, up to 512 MB.
+3. It opens the file on a new plate if the current plate has parts.
+
+A link opens only STL, 3MF, STEP, and OBJ files. It never opens a zslice project, and it never starts a print. A link to a device on your network (an IP address, a `.local` name, or a name that leads to a local address) does not open.
+
+- **Linux.** The app registers the `zslice://` links and the model file types when it is installed (the `.desktop` file). A link goes to the open window.
+- **Windows.** The app registers the links and the model file types for your user. See [The Windows app](windows.md).
+- **macOS.** The app registers the `zslice://` links.
+- **The web app.** A web page cannot take a `zslice://` link. In the web app, open the **Open** menu and press **Open links from model sites here**. Your browser then sends `web+zslice://` links to the page. A site can also link to the web app with `https://zslice.beetlebug.org/?open=` and the address of the file. The site must allow other pages to read its files (CORS). If it does not, the dialog says so and offers **Download the file**. Then drop the file on the window.
 
 ## The command line
 
