@@ -71,6 +71,7 @@ const mark_settings = [_]struct { []const u8, u32 }{
 /// they change. A test checks that each setting has an effect or a note,
 /// so a new setting gets one of them.
 const preview_notes = [_]struct { []const u8, [:0]const u8 }{
+    .{ "project.fast_offsets", "An experiment for a faster slice: the lines stay where they are, within about a micrometer, except a thin piece of skin or fill that can come or go." },
     .{ "machine.name", "The name of the printer, for the profiles and the start G-code." },
     .{ "project.support_min_ledge", "The small ledges with no support under them, such as embossed letters: the support lines there come or go." },
     .{ "machine.model", "The printer model: the 3D view shows its bed. The lines do not move." },

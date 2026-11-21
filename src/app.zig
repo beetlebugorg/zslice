@@ -2397,6 +2397,9 @@ pub const App = struct {
         app.cancel_flag.store(false, .release);
         app.sim_coming.store(app.auto_simulate, .release);
         app.state.store(.slicing, .release);
+        // The experiment of a faster offset (project.fast_offsets): a
+        // switch of the process, read by each offset of this slice.
+        zs.offset.fast_offsets.store(app.settings.project.fast_offsets, .monotonic);
         if (comptime !has_threads) {
             // No threads: slice now, on the calling thread.
             work(app);

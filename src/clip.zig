@@ -787,6 +787,27 @@ fn intersectPair(comptime narrow: bool, arena: Allocator, splits: *std.ArrayList
     }
 }
 
+/// The crossing point of the edges p1 p2 and q1 q2, as the split of the
+/// edges makes it (rounded along p1 p2), or null if the edges do not
+/// cross: an end point on the other edge is no crossing. For a caller
+/// that knows a crossing of its input before the boolean, and leaves it
+/// out (see offset.zig).
+pub fn crossing(p1: Point, p2: Point, q1: Point, q2: Point) ?Point {
+    const d1 = cross3(q1, q2, p1);
+    const d2 = cross3(q1, q2, p2);
+    const d3 = cross3(p1, p2, q1);
+    const d4 = cross3(p1, p2, q2);
+    const crosses_e = (d1 > 0 and d2 < 0) or (d1 < 0 and d2 > 0);
+    const crosses_f = (d3 > 0 and d4 < 0) or (d3 < 0 and d4 > 0);
+    if (!crosses_e or !crosses_f) return null;
+    const ip: Point = .{
+        .x = p1.x + mulDivRound(false, p2.x - p1.x, d1, d2),
+        .y = p1.y + mulDivRound(false, p2.y - p1.y, d1, d2),
+    };
+    if (ip.eql(p1) or ip.eql(p2) or ip.eql(q1) or ip.eql(q2)) return null;
+    return ip;
+}
+
 /// d * d1 / (d1 - d2), rounded to the nearest integer (see `roundDiv`).
 /// d1 and d2 have opposite signs.
 ///

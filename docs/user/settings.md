@@ -810,6 +810,12 @@ Moves the outline of the first layer by this distance. A negative value compensa
 
 Where the part goes on the bed. auto: at the X and Y of the file if the part is fully on the bed there, else at the center of the bed; a model added to a plate with parts gets smart placement (its best orientation, then a free spot), and the parts on the plate stay. file: always at the X and Y of the file. center: always at the center of the bed. The bottom of the part always goes to z = 0.
 
+### Experimental
+
+**`project.fast_offsets`** (true or false). Default: `false`
+
+An experiment: a faster offset of the outlines. A closing corner of an offset gets the crossing point of its two edges in place of a small loop that a union then removes. A slice uses about 11 % less CPU. The outer walls stay within about 1.4 micrometers; some skin and fill lines move more than that where a thin piece is at a threshold, so a thin piece of skin can come or go. Off: the offsets of before, and the same G-code. The switch is for the whole app: the last slice that starts sets it.
+
 ### Filaments
 
 **`project.filament`** (integer; per layer). Default: `1`
