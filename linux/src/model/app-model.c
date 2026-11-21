@@ -2358,6 +2358,22 @@ char *zg_model_filament_get(ZgModel *self, size_t i, const char *name) {
     return buf;
 }
 
+gboolean zg_model_filaments_from_printer(ZgModel *self, const char *printer, const char *json, gsize len, int flags,
+                                         char **message) {
+    char text[1024] = "";
+    int changed = 0;
+    int rc = zs_app_filaments_from_printer(self->core, printer, json, len, flags, &changed, text, sizeof text);
+    if (message) *message = rc == ZS_OK || text[0] ? g_strdup(text) : NULL;
+    if (rc != ZS_OK || !changed) return FALSE;
+    /* Filament 0 is the filament of the settings: its profile saves. */
+    zg_model_announce(self, "filament.");
+    zg_model_announce(self, "project.");
+    zg_model_save_soon(self, ZS_GROUP_FILAMENT);
+    g_signal_emit(self, signals[SIGNAL_FILAMENTS_CHANGED], 0);
+    plate_changed(self);
+    return TRUE;
+}
+
 gboolean zg_model_part_setting_set(ZgModel *self, size_t i, const char *name, const char *value) {
     if (zs_app_part_setting_set(self->core, i, name, value) != ZS_OK) return FALSE;
     plate_changed(self);
