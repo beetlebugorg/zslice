@@ -1,0 +1,5 @@
+// Empty, as in the WinUI 3 C++ template: App is not a projected runtime
+// class. The markup compiler writes its base class, and wWinMain makes it.
+namespace ZSlice
+{
+}

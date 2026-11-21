@@ -1,0 +1,8 @@
+ARM64/
+x64/
+ZSlice/
+obj/
+Generated Files/
+*.user
+XamlMetaDataProvider.*
+xamlbuild.txt
