@@ -92,7 +92,9 @@
 //! (`fuzzWalls`), the spiral vase mode of Cura (`spiralize`, see
 //! docs/references/cura.md), and the top surface of Bambu Studio with no
 //! plastic on its links (`thinLinks` prints them with half the plastic,
-//! see docs/references/bambu-studio.md).
+//! see docs/references/bambu-studio.md), and the fills of PrusaSlicer
+//! that stop half a spacing from the edge of their surface (the skin next
+//! to a bridge, `beadBand`, see docs/references/prusaslicer.md).
 //!
 //! `cornerSeamIndex` and its helpers are a port to Zig of the seam corner
 //! choice of CuraEngine (`CornerScoringCriterion.cpp`,
@@ -1498,7 +1500,9 @@ pub fn plan(gpa: Allocator, ctx: Context, i: usize) Allocator.Error!LayerPlan {
         if (!br.area.isEmpty()) {
             bridge_lines = br.lines;
             bridge_area = br.area;
-            skin_region = try clip.difference(s, skin_region, br.area);
+            // The skin lines stop half a line width from the beads of the
+            // bridge (see `beadBand`), so the two meet with no overlap.
+            skin_region = try clip.difference(s, try clip.difference(s, skin_region, br.area), try beadBand(s, br.lines, w));
         }
     }
     // Lines have no direction, so the angle is modulo 180 degrees.
@@ -1717,7 +1721,10 @@ pub fn plan(gpa: Allocator, ctx: Context, i: usize) Allocator.Error!LayerPlan {
         // The bridges have their own lines (see bridgeLines): they are not
         // gaps.
         var skin_area = if (mods.taken_skin.isEmpty()) reg.skin else try clip.difference(s, reg.skin, mods.taken_skin);
-        if (!bridge_area.isEmpty()) skin_area = try clip.difference(s, skin_area, bridge_area);
+        if (!bridge_area.isEmpty()) {
+            skin_area = try clip.difference(s, skin_area, bridge_area);
+            skin_area = try clip.difference(s, skin_area, try beadBand(s, bridge_lines, @divTrunc(w, 2)));
+        }
         if (p.skin_pattern != .concentric and !skin_area.isEmpty()) {
             try gap_area.appendAll(s, try memo.skinGaps(skin_area, skin_lines, skin_line_w, skin_angle, w, ctx.gen));
         }
@@ -3663,6 +3670,41 @@ fn markOverhangWalls(s: Allocator, a: Allocator, lp: *LayerPlan, below: Paths, w
         lp.paths = paths;
         lp.points = points;
     }
+}
+
+/// The band of `half` on each side of each move of `paths`, with square
+/// ends `half` / 2 long, as polygons. With `half` the line width, it is the
+/// area of the beads of the paths grown by half a line width: a line with
+/// its center outside the band lies next to the beads, with no overlap.
+/// With half of the line width, it is the area of the beads.
+fn beadBand(s: Allocator, paths: Paths, half: i64) Allocator.Error!Paths {
+    var rects: Paths = .empty;
+    const hw: f64 = @floatFromInt(half);
+    for (0..paths.count()) |k| {
+        const path = paths.get(k);
+        for (path[0 .. path.len -| 1], path[1..]) |p0, p1| {
+            const len = p0.dist(p1);
+            if (len == 0) continue;
+            const ux = @as(f64, @floatFromInt(p1.x - p0.x)) / len;
+            const uy = @as(f64, @floatFromInt(p1.y - p0.y)) / len;
+            const ex = ux * hw / 2;
+            const ey = uy * hw / 2;
+            const nx = -uy * hw;
+            const ny = ux * hw;
+            const ax = @as(f64, @floatFromInt(p0.x)) - ex;
+            const ay = @as(f64, @floatFromInt(p0.y)) - ey;
+            const bx = @as(f64, @floatFromInt(p1.x)) + ex;
+            const by = @as(f64, @floatFromInt(p1.y)) + ey;
+            const pt = struct {
+                fn f(x: f64, y: f64) Point {
+                    return .{ .x = @intFromFloat(@round(x)), .y = @intFromFloat(@round(y)) };
+                }
+            }.f;
+            try rects.append(s, &.{ pt(ax + nx, ay + ny), pt(ax - nx, ay - ny), pt(bx - nx, by - ny), pt(bx + nx, by + ny) });
+        }
+    }
+    if (rects.isEmpty()) return rects;
+    return clip.unionAll(s, rects, .non_zero);
 }
 
 /// The bridges of a skin area: their area (the bridge with its anchors),

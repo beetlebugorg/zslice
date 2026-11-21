@@ -148,7 +148,7 @@ The wipe tower of PrusaSlicer (`src/libslic3r/GCode/WipeTower.cpp`, tag `version
 **How zslice uses it:** The rows inside the loop, a layer of the tower on each layer up to its last change, and the size of the tower from the most purge of one layer. zslice lowers the nozzle to the top of the tower only as a fallback, for a tower that missed a layer.
 
 version: PrusaSlicer 2.9.6
-files: src/infill.zig
+files: src/infill.zig, src/layer.zig
 area: infill
 summary: Neighbor solid surfaces with the same settings fill as one area, and each fill stops half a line spacing from the edge of its surface, so two fills meet with no line on top of a line.
 ```
@@ -157,9 +157,9 @@ PrusaSlicer `group_fills` in `src/libslic3r/Fill/Fill.cpp` (the surfaces of a la
 
 **License:** AGPL-3.0 (the method, no code)
 
-**Used in:** `src/infill.zig` (`fittedLines`)
+**Used in:** `src/infill.zig` (`fittedLines`), `src/layer.zig` (`beadBand`)
 
-**How zslice uses it:** zslice fits the skin lines to each piece of a skin island (the spacing of each piece fits its extent), so a hole or a step in the outline cuts the skin into pieces. Each piece put a line on its edges, and two pieces put two lines on their shared border: a raised ridge across the top skin (a Bambu Lab print of a plate with two openings, 21 November 2026). Now one line covers a shared border: of two lines of different pieces on the same scan line, the shorter gives way where they overlap. The next line of that piece is one spacing away, as in the middle of a piece. PrusaSlicer has no such border, because it fills the joined surfaces with one grid. A plate sliced with PrusaSlicer 2.9.6 has no double line in its top skin.
+**How zslice uses it:** zslice fits the skin lines to each piece of a skin island (the spacing of each piece fits its extent), so a hole or a step in the outline cuts the skin into pieces. Each piece put a line on its edges, and two pieces put two lines on their shared border: a raised ridge across the top skin (a Bambu Lab print of a plate with two openings, 21 November 2026). Now one line covers a shared border: of two lines of different pieces on the same scan line, the shorter gives way where they overlap. The next line of that piece is one spacing away, as in the middle of a piece. PrusaSlicer has no such border, because it fills the joined surfaces with one grid. A plate sliced with PrusaSlicer 2.9.6 has no double line in its top skin. A bridge has its own direction, so it stays a fill of its own: the skin lines next to it stop half a line width from the beads of the bridge, as each fill of PrusaSlicer stops half a spacing from the edge of its surface.
 
 ## G-code and settings
 
