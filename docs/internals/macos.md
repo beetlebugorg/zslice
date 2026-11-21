@@ -15,7 +15,7 @@ ZIG=/path/to/zig-0.16/zig ./build-core.sh   # lib/libzslice.a, for arm64 and x86
 open build/zslice.app
 ```
 
-- **`build-core.sh`** runs `zig build lib` for `aarch64-macos` and `x86_64-macos`, and merges the two static libraries with `lipo`.
+- **`build-core.sh`** runs `zig build lib` for `aarch64-macos` and `x86_64-macos` at the same time, and merges the two static libraries with `lipo`. Most of a release build is the code generation of LLVM for the one object, on about one core, so the two builds in parallel halve the time of a clean build (about 165 s on an 8-core Mac, from about 320 s).
   - The archive of Zig 0.16 does not align its object to 8 bytes, and the Apple tools (`ld`, `lipo`, `libtool`) then skip the object with no error. So the script takes the object out of each archive and makes the archive again with `libtool` before `lipo`.
   - It sets `-Dcompiler-rt`, which puts the compiler-rt of Zig in the library: the Apple linker has no libgcc for the f128 helpers that `std.json` and `std.fmt.parseFloat` call.
   - A link error after a pull of the core means that `lib/libzslice.a` is old: run the script again.
