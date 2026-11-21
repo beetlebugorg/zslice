@@ -57,14 +57,66 @@ fn status(e: anyerror) c_int {
     return if (e == error.FileTooLarge) @intFromEnum(Status.out_of_range) else c.status(e);
 }
 
+/// A file open for reading, through libc.
+const InFile = if (builtin.os.tag == .windows) WinFile else PosixFile;
+
+const PosixFile = struct {
+    fd: c_int,
+
+    fn open(path: [*:0]const u8) ?PosixFile {
+        const fd = std.c.open(path, .{ .ACCMODE = .RDONLY, .CLOEXEC = true });
+        return if (fd < 0) null else .{ .fd = fd };
+    }
+
+    fn close(f: PosixFile) void {
+        _ = std.c.close(f.fd);
+    }
+
+    /// The bytes read, 0 at the end of the file, or null on an error.
+    fn read(f: PosixFile, buf: []u8) ?usize {
+        while (true) {
+            const n = std.c.read(f.fd, buf.ptr, buf.len);
+            if (n >= 0) return @intCast(n);
+            if (std.c.errno(n) != .INTR) return null;
+        }
+    }
+};
+
+/// The C API takes UTF-8 paths. The Windows C runtime reads a narrow path
+/// in the code page of the process, so this opens the wide form.
+const WinFile = struct {
+    stream: *anyopaque,
+
+    extern "c" fn _wfopen(path: [*:0]const u16, mode: [*:0]const u16) ?*anyopaque;
+    extern "c" fn fread(buf: [*]u8, size: usize, count: usize, stream: *anyopaque) usize;
+    extern "c" fn ferror(stream: *anyopaque) c_int;
+    extern "c" fn fclose(stream: *anyopaque) c_int;
+
+    fn open(path: [*:0]const u8) ?WinFile {
+        const wide = std.unicode.utf8ToUtf16LeAllocZ(c.gpa, std.mem.span(path)) catch return null;
+        defer c.gpa.free(wide);
+        const mode = std.unicode.utf8ToUtf16LeStringLiteral("rb");
+        return .{ .stream = _wfopen(wide.ptr, mode) orelse return null };
+    }
+
+    fn close(f: WinFile) void {
+        _ = fclose(f.stream);
+    }
+
+    /// The bytes read, 0 at the end of the file, or null on an error.
+    fn read(f: WinFile, buf: []u8) ?usize {
+        const n = fread(buf.ptr, 1, buf.len, f.stream);
+        return if (n == 0 and ferror(f.stream) != 0) null else n;
+    }
+};
+
 /// Reads a file in pieces of 1 MB (native builds with libc only).
 export fn zs_gcode_open(path: ?[*:0]const u8, out: ?*?*GCode) c_int {
     if (!builtin.link_libc or c.is_wasm) return @intFromEnum(Status.not_supported);
     const p = path orelse return bad();
     const o = out orelse return bad();
-    const fd = std.c.open(p, .{ .ACCMODE = .RDONLY, .CLOEXEC = true });
-    if (fd < 0) return @intFromEnum(Status.no_result);
-    defer _ = std.c.close(fd);
+    const file = InFile.open(p) orelse return @intFromEnum(Status.no_result);
+    defer file.close();
     var g: ?*GCode = null;
     if (zs_gcode_new(&g) != ok) return @intFromEnum(Status.out_of_memory);
     const piece = c.gpa.alloc(u8, 1 << 20) catch {
@@ -73,14 +125,12 @@ export fn zs_gcode_open(path: ?[*:0]const u8, out: ?*?*GCode) c_int {
     };
     defer c.gpa.free(piece);
     while (true) {
-        const n = std.c.read(fd, piece.ptr, piece.len);
-        if (n < 0) {
-            if (std.c.errno(n) == .INTR) continue;
+        const n = file.read(piece) orelse {
             zs_gcode_free(g);
             return @intFromEnum(Status.no_result);
-        }
+        };
         if (n == 0) break;
-        const s = zs_gcode_feed(g, piece.ptr, @intCast(n));
+        const s = zs_gcode_feed(g, piece.ptr, n);
         if (s != ok) {
             zs_gcode_free(g);
             return s;
