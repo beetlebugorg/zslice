@@ -232,6 +232,7 @@ The slice is the UI, so the chrome is small. The controls of the window are over
 
 - **The toolbar**: the file button (`FileButton`: the name of the document, a dot for unsaved changes, and a menu of the file), then the search field (`SearchToolbarItem`) at the left with it. At the right: the printer menu, the Filament button, and the Quality menu as one group, then Printers, Settings, and `MoreMenu`.
   - The window title is hidden from the toolbar on macOS 15 and later.
+  - `QualityMenu` names a built-in quality, and "custom", with a capital (`Profiles.qualityTitle`). Under each built-in quality is its line of main points from `zs_quality_summary` (`Profiles.qualitySummary`): a second `Text` in the label of a menu item is its subtitle on macOS 14 and later.
   - No item is in the center: AppKit keeps a center item in the center, and a long printer name drew over it.
   - The labels of the menus keep their full size: at a narrow width, AppKit moves whole items to the » menu, and no label is cut with "…".
 - **The tool strip** at the left has the tools in the order of the web app (V M R S H T P L), a divider, the colors of the lines (`ColorsButton`), Gaps, and Check (`CheckButtons`), in one box. `ToolGlyph` draws each icon from the SVG paths of the tool buttons of `web/app/index.html`, with the path reader of `HistoryGlyph`; `StripIcon` is the face of each button.

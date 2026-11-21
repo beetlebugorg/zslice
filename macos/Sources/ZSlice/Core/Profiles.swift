@@ -30,6 +30,23 @@ enum Profiles {
     }
 
     /// The names of the profiles of the user (the file names).
+    /// The name of a quality for the screen: a built-in one, or "custom",
+    /// with a capital ("Standard"); a name of the user as written.
+    static func qualityTitle(_ n: String) -> String {
+        guard n == "custom" || builtin(quality).contains(n) else { return n }
+        return n.prefix(1).uppercased() + n.dropFirst()
+    }
+
+    /// The main points of a built-in quality in one line ("0.1 mm layers ·
+    /// 3 walls · ironed tops"), from the core; empty for another name.
+    static func qualitySummary(_ n: String) -> String {
+        var len = 0
+        guard zs_quality_summary(n, nil, 0, &len) == 0, len > 0 else { return "" }
+        var buf = [CChar](repeating: 0, count: len + 1)
+        _ = zs_quality_summary(n, &buf, buf.count, nil)
+        return String(cString: buf)
+    }
+
     static func mine(_ group: Int32) -> [String] {
         let files = (try? FileManager.default.contentsOfDirectory(atPath: folder(group).path)) ?? []
         return files.filter { $0.hasSuffix(".toml") }.map { String($0.dropLast(5)) }.sorted()
