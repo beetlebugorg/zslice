@@ -94,8 +94,11 @@ export class Wasm {
     return count;
   }
 
+  // An address of the wasm memory comes back from an export as a signed
+  // i32: past 2 GB it is negative, and a view at it throws a RangeError.
+  // ">>> 0" makes each address unsigned again.
   alloc(n) {
-    const p = this.x.zs_alloc(Math.max(n, 1));
+    const p = this.x.zs_alloc(Math.max(n, 1)) >>> 0;
     if (p === 0) throw new Error("zslice: out of memory");
     return p;
   }
@@ -123,6 +126,7 @@ export class Wasm {
 
   cstr(ptr) {
     if (!ptr) return "";
+    ptr >>>= 0;
     const mem = this.u8;
     let end = ptr;
     while (mem[end] !== 0) end++;
@@ -131,13 +135,14 @@ export class Wasm {
 
   text(ptr, len) {
     if (!ptr) return "";
+    ptr >>>= 0;
     // A text decoder takes no view of a shared memory.
     return dec.decode(this.shared ? this.u8.slice(ptr, ptr + len) : this.u8.subarray(ptr, ptr + len));
   }
 
-  u32(p) { return this.dv.getUint32(p, true); }
-  i32(p) { return this.dv.getInt32(p, true); }
-  f64(p) { return this.dv.getFloat64(p, true); }
+  u32(p) { return this.dv.getUint32(p >>> 0, true); }
+  i32(p) { return this.dv.getInt32(p >>> 0, true); }
+  f64(p) { return this.dv.getFloat64(p >>> 0, true); }
 
   // A call with the buffer convention of the C API (a text, its length):
   // fn(buf, cap, out_len) is called once for the length, then again with
