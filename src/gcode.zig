@@ -1206,7 +1206,8 @@ pub const Emitter = struct {
         if (got.bed) |t| if (!got.macro_bed) {
             self.bed_temp = t;
         };
-        try self.w.writeAll("\nM83 ; relative extrusion\nM107\n");
+        try self.w.writeAll("\nM83 ; relative extrusion\n");
+        try self.w.writeAll(self.fanOff());
         self.fan = 0;
         // The corner speed, once, with acceleration control.
         if (m.accel_control) switch (m.gcode_flavor) {
@@ -2416,11 +2417,17 @@ pub const Emitter = struct {
         try self.setFan(fan);
     }
 
+    /// The command that turns the part fan off. Bambu Studio writes
+    /// "M106 S0" for a Bambu Lab printer, and never M107.
+    fn fanOff(self: *const Emitter) []const u8 {
+        return if (self.bambu_blocks) "M106 S0\n" else "M107\n";
+    }
+
     fn setFan(self: *Emitter, value: i32) Writer.Error!void {
         if (value == self.fan) return;
         self.fan = value;
         if (value == 0) {
-            try self.w.writeAll("M107\n");
+            try self.w.writeAll(self.fanOff());
         } else {
             try self.w.print("M106 S{d}\n", .{value});
         }
