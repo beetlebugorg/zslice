@@ -3884,6 +3884,92 @@ test "app: a change for the top layer gives the same G-code with the cache and w
     }
 }
 
+/// The edits of `checkEdits`, in order. A setting changes, then goes back
+/// to a value of before, so a slice can use the results of the slices
+/// before it (see layer.Memo).
+const edit_steps = [_][2][]const u8{
+    .{ "project.infill_density", "0.3" },
+    .{ "project.wall_count", "3" },
+    .{ "project.top_thickness", "1.2" },
+    .{ "project.bottom_thickness", "1.0" },
+    .{ "project.top_thickness", "0.8" },
+    .{ "project.bottom_thickness", "0.6" },
+    .{ "project.wall_count", "2" },
+    .{ "project.infill_density", "0.2" },
+    .{ "project.skin_angle", "30" },
+    .{ "project.line_width", "0.45" },
+    .{ "project.layer_height", "0.25" },
+    .{ "filament.xy_offset", "0.02" },
+    .{ "project.support", "everywhere" },
+    .{ "project.support_tree_angle", "44" },
+    .{ "project.outer_wall_speed", "0.42" },
+    .{ "filament.nozzle_temp", "212" },
+    .{ "project.line_width", "0" },
+    .{ "project.layer_height", "0.2" },
+};
+
+/// Slices a plate with one part for each file of `stls`, then makes each
+/// edit of `edit_steps` and slices again. After each edit, the G-code is
+/// the G-code of a new app with the same settings.
+fn checkEdits(gpa: Allocator, stls: []const []const u8) !void {
+    const app = try App.create(gpa, null, null);
+    defer app.destroy();
+    try loadParts(app, stls);
+    try app.startSlice();
+    app.stopWorkerForTest();
+    try testing.expectEqual(State.done, app.getState());
+    for (edit_steps, 0..) |e, k| {
+        try app.setSetting(e[0], e[1]);
+        try app.requestSlice();
+        app.stopWorkerForTest();
+        try testing.expectEqual(State.done, app.getState());
+        const fresh = try App.create(gpa, null, null);
+        defer fresh.destroy();
+        try loadParts(fresh, stls);
+        for (edit_steps[0 .. k + 1]) |v| try fresh.setSetting(v[0], v[1]);
+        try fresh.startSlice();
+        fresh.stopWorkerForTest();
+        if (!std.mem.eql(u8, fresh.gcode().?, app.gcode().?)) {
+            std.debug.print("the G-code differs after {s} = {s} ({d} parts)\n", .{ e[0], e[1], stls.len });
+            return error.TestExpectedEqual;
+        }
+    }
+}
+
+fn loadParts(app: *App, stls: []const []const u8) !void {
+    try app.loadStl("part.stl", stls[0]);
+    for (stls[1..]) |stl| _ = try app.addStl("part.stl", stl);
+    if (stls.len > 1) _ = try app.arrangePlate();
+}
+
+fn stlOf(gpa: Allocator, mesh: *zs.mesh.Mesh) ![]u8 {
+    defer mesh.deinit(gpa);
+    var bytes: std.Io.Writer.Allocating = .init(gpa);
+    errdefer bytes.deinit();
+    try mesh.writeStl(&bytes.writer);
+    return bytes.toOwnedSlice();
+}
+
+test "app: each kind of edit gives the G-code of a new slice" {
+    const gpa = testing.allocator;
+    const shapes = zs.mesh.shapes;
+    var demo = try shapes.demo(gpa);
+    const a = try stlOf(gpa, &demo);
+    defer gpa.free(a);
+    // Two cones: one gets smaller to the top (a top surface on each
+    // layer), one gets larger (a bottom surface on each layer).
+    var up = try shapes.frustum(gpa, 0, 0, 9, 3, 8, 40);
+    const b = try stlOf(gpa, &up);
+    defer gpa.free(b);
+    var down = try shapes.frustum(gpa, 0, 0, 4, 9, 8, 40);
+    const c = try stlOf(gpa, &down);
+    defer gpa.free(c);
+    try checkEdits(gpa, &.{a});
+    // Copies of one part, and parts of their own.
+    try checkEdits(gpa, &.{ a, a });
+    try checkEdits(gpa, &.{ b, c });
+}
+
 /// A new value for each patch setting (see settings.patch_settings), for
 /// the tests and the bench.
 pub const patch_values = [_][2][]const u8{

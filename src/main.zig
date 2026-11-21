@@ -62,7 +62,9 @@ const usage =
     \\            simulation from a checkpoint; -o FILE writes the
     \\            masses that moved as CSV). --only
     \\            patch changes each setting that needs no new plan, and
-    \\            compares the G-code with a new slice. --runs N sets
+    \\            compares the G-code with a new slice. --only verify
+    \\            makes each change in turn, and compares the G-code of
+    \\            each slice with a new slice. --runs N sets
     \\            the slices of each kind (default 6).
     \\  sweep     For each project and filament setting, slice with values
     \\            across its range (the others at their base values), and
@@ -615,6 +617,7 @@ fn bench(backing: std.mem.Allocator, io: Io, err: *Io.Writer, name: []const u8, 
         try printTimes(err, c.kind, times);
     }
     if (only != null and std.mem.eql(u8, only.?, "patch")) try benchPatch(gpa, app, io, err, name, bytes, settings);
+    if (only != null and std.mem.eql(u8, only.?, "verify")) try benchVerify(gpa, app, io, err, name, bytes, settings, copies);
     if (only == null or std.mem.eql(u8, only.?, "cancel")) try benchCancel(app, io, err, settings);
     try err.print("peak memory: {d} MB resident (VmHWM), {d} MB allocated\n", .{ peakMb(io), counter.peak.load(.monotonic) >> 20 });
 }
@@ -710,6 +713,33 @@ fn benchPatch(gpa: std.mem.Allocator, app: *zslice.app.App, io: Io, err: *Io.Wri
         try err.flush();
     }
     try err.print("patch settings with other G-code: {d}\n", .{differ});
+}
+
+/// Each change of `bench_changes` with a setting, one after the other in
+/// the same app (a slice after each), and the G-code of each slice
+/// against the G-code of a new app with the same settings.
+fn benchVerify(gpa: std.mem.Allocator, app: *zslice.app.App, io: Io, err: *Io.Writer, name: []const u8, bytes: []const u8, settings: zslice.Settings, copies: usize) !void {
+    var differ: usize = 0;
+    app.settings = settings;
+    _ = try benchSlice(app, io);
+    for (bench_changes) |c| {
+        if (c.name.len == 0) continue;
+        for ([_][]const u8{ c.values[1], c.values[0] }) |v| {
+            try app.setSetting(c.name, v);
+            _ = try benchSlice(app, io);
+            const fresh = try zslice.app.App.create(gpa, null, null);
+            defer fresh.destroy();
+            fresh.settings = app.settings;
+            try fresh.loadStl(std.fs.path.basename(name), bytes);
+            try addCopies(fresh, name, bytes, copies);
+            _ = try benchSlice(fresh, io);
+            const same = std.mem.eql(u8, app.gcode().?, fresh.gcode().?);
+            if (!same) differ += 1;
+            try err.print("{s:<30} {s:<6} {s}\n", .{ c.name, v, if (same) "same G-code" else "OTHER G-CODE" });
+            try err.flush();
+        }
+    }
+    try err.print("changes with other G-code: {d}\n", .{differ});
 }
 
 /// The time from a cancel to the end of the slice. A slice of new
