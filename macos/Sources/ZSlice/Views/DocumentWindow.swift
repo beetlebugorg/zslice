@@ -148,10 +148,7 @@ struct DocumentWindow: View {
             .background { SliceView(canvas: workspace.canvas).ignoresSafeArea() }
             .overlay(alignment: .topLeading) {
                 HStack(alignment: .top, spacing: 10) {
-                    VStack(spacing: 8) {
-                        ToolStrip(workspace: workspace)
-                        CheckButtons(workspace: workspace)
-                    }
+                    ToolStrip(workspace: workspace)
                     // The legend is in the Colors popover of the tool strip.
                     if workspace.checkOpen {
                         CheckPanel(workspace: workspace)
@@ -184,15 +181,9 @@ struct DocumentWindow: View {
                                 .fixedSize()
                                 .panel()
                                 .overlay(alignment: .topTrailing) {
-                                    // On the corner, clear of the text of the card.
-                                    Button { workspace.detailsOpen = false } label: {
-                                        Image(systemName: "xmark.circle.fill")
-                                            .font(.title3)
-                                            .symbolRenderingMode(.palette)
-                                            .foregroundStyle(.secondary, .bar)
-                                    }
+                                    Button { workspace.detailsOpen = false } label: { CloseMark() }
                                     .buttonStyle(.borderless)
-                                    .offset(x: 8, y: -8)
+                                    .padding(6)
                                     .help("Close the details")
                                 }
                         }
@@ -241,7 +232,9 @@ struct DocumentWindow: View {
                     }
                     if let gap = workspace.gapCard {
                         GapCard(workspace: workspace, gap: gap)
-                            .position(cardPlace(near: workspace.cardAt, size: CGSize(width: 320, height: 220), in: geo.size))
+                            .position(cardPlace(avoiding: workspace.gapScreenBox() ?? CGRect(x: workspace.cardAt.x - 12, y: workspace.cardAt.y - 12, width: 24, height: 24),
+                                                near: workspace.cardAt, size: CGSize(width: 320, height: 220), in: geo.size,
+                                                bottom: workspace.dockHeight + 12, panels: workspace.panels))
                     }
                     if workspace.tool == .support, workspace.supportPaneOpen, workspace.page == .threeD {
                         // Beside the tool strip, clear of the details at the right.
@@ -329,7 +322,8 @@ struct DocumentWindow: View {
                     .allowsHitTesting(false)
             }
         }
-        .overlay(alignment: .top) {
+        // The note is a toast over the dock, as in the web app.
+        .overlay(alignment: .bottom) {
             if let note = workspace.note {
                 Label {
                     Text(note)
@@ -340,7 +334,8 @@ struct DocumentWindow: View {
                     .padding(.horizontal, 12)
                     .padding(.vertical, 6)
                     .background(.regularMaterial, in: Capsule())
-                    .padding(.top, 46)
+                    .padding(.horizontal, 90)
+                    .padding(.bottom, workspace.dockHeight + 14)
                     .transition(.opacity)
                     .allowsHitTesting(false)
                     .accessibilityAddTraits(.updatesFrequently)
@@ -806,7 +801,7 @@ struct BottomBar: View {
                             Text(detail(s))
                                 .font(.caption.monospacedDigit())
                                 .foregroundStyle(.secondary)
-                                .lineLimit(1)
+                                .fixedSize(horizontal: false, vertical: true)
                         }
                         .opacity(model.state == .slicing ? 0.5 : 1)
                     } else {
@@ -872,10 +867,7 @@ struct ColorsButton: View {
 
     var body: some View {
         Button { open.toggle() } label: {
-            Image(systemName: "paintpalette")
-                .font(.system(size: 15))
-                .frame(width: 34, height: 34)
-                .contentShape(Rectangle())
+            StripIcon(glyph: "colors", on: open)
         }
         .buttonStyle(.plain)
         .accessibilityLabel("Colors: \(Workspace.colorModes[workspace.colorMode])")
@@ -983,7 +975,7 @@ struct FileButton: View {
                 .disabled(workspace.model.state != .done)
         } label: {
             HStack(spacing: 5) {
-                Text(name).fontWeight(.semibold).lineLimit(1)
+                Text(name).fontWeight(.semibold).fixedSize()
                 if doc?.isDocumentEdited == true {
                     Circle().fill(.secondary).frame(width: 6, height: 6).help("Unsaved changes")
                 }

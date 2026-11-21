@@ -24,6 +24,10 @@ struct GapInfo {
     var area: Double
     var width: Double
     var steps: [(name: String, value: String, why: String)]
+    /// Its box on the bed (mm) and the top of its layer, so the card can
+    /// keep clear of it.
+    var bed = CGRect.null
+    var z = 0.0
 }
 
 /// One issue of the check.
@@ -111,10 +115,29 @@ extension Workspace {
             guard let p else { return "" }
             return String(decoding: UnsafeRawBufferPointer(start: p, count: len), as: UTF8.self)
         }
+        var bed = CGRect.null
+        if let runs {
+            for r in Int(g.run_start)..<min(nr, Int(g.run_start + g.run_len)) {
+                bed = bed.union(CGRect(x: Double(runs[r].x0), y: Double(runs[r].y), width: Double(runs[r].x1 - runs[r].x0), height: 0))
+            }
+        }
         gapCard = GapInfo(layer: hi, index: Int(i), area: g.area, width: g.width,
-                          steps: out.prefix(count).map { (text($0.name, $0.name_len), text($0.value, $0.value_len), text($0.why, $0.why_len)) })
+                          steps: out.prefix(count).map { (text($0.name, $0.name_len), text($0.value, $0.value_len), text($0.why, $0.why_len)) },
+                          bed: bed, z: layerTopBottom(hi)?.top ?? 0)
         cardAt = p
         return true
+    }
+
+    /// The box of the open gap on the screen, with a margin of 12 points,
+    /// or nil.
+    func gapScreenBox() -> CGRect? {
+        guard let g = gapCard, !g.bed.isNull else { return nil }
+        let b = g.bed
+        let pts = [(b.minX, b.minY), (b.maxX, b.minY), (b.minX, b.maxY), (b.maxX, b.maxY)]
+            .compactMap { canvas.viewPoint(x: $0.0, y: $0.1, z: g.z) }
+        guard let x0 = pts.map(\.x).min(), let x1 = pts.map(\.x).max(),
+              let y0 = pts.map(\.y).min(), let y1 = pts.map(\.y).max() else { return nil }
+        return CGRect(x: x0 - 12, y: y0 - 12, width: x1 - x0 + 24, height: y1 - y0 + 24)
     }
 
     /// A setting from the card of a gap: for the print, or only for the

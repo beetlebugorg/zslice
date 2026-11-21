@@ -163,7 +163,7 @@ struct SearchToolbarItem: View {
                     search.docked = false
                     search.show()
                 } label: {
-                    Image(systemName: "macwindow").foregroundStyle(.secondary)
+                    Image(systemName: "arrow.up.right.square").foregroundStyle(.secondary)
                 }
                 .buttonStyle(.borderless)
                 .help("Undock the search: a card over the view that you can move and size")
@@ -319,7 +319,7 @@ struct SearchOverlay: View {
             Button {
                 workspace.closeSearch()
             } label: {
-                Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
+                CloseMark()
             }
             .buttonStyle(.borderless)
             .help("Close (Esc)")

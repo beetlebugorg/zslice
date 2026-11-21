@@ -104,7 +104,7 @@ struct LineCard: View {
     }
 
     private var head: some View {
-        HStack {
+        HStack(alignment: .firstTextBaseline) {
             VStack(alignment: .leading, spacing: 1) {
                 Text(info.title).font(.headline)
                 Text(String(format: "Layer %d · z %.2f mm", info.layer + 1, info.z))
@@ -114,7 +114,7 @@ struct LineCard: View {
             Button {
                 workspace.closeCard()
             } label: {
-                Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
+                CloseMark()
             }
             .buttonStyle(.borderless)
             .help("Close (Esc)")

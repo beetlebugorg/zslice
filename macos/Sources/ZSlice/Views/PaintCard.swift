@@ -15,11 +15,11 @@ struct PaintCard: View {
     var body: some View {
         let model = workspace.model
         VStack(alignment: .leading, spacing: 10) {
-            HStack {
+            HStack(alignment: .firstTextBaseline) {
                 Text("Paint").font(.headline)
                 Spacer()
                 Button { workspace.setTool(.select) } label: {
-                    Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
+                    CloseMark()
                 }
                 .buttonStyle(.borderless)
                 .help("Close the Paint tool (P or Esc)")

@@ -140,3 +140,17 @@ struct SpatialGrip: View {
             .accessibilityLabel("Resize")
     }
 }
+
+/// The close button of a card, as in the web and Linux apps: a flat ×
+/// at the size of the title, in a hit area of 24 points. Put it in the
+/// head of the card, in an HStack aligned on the first text baseline, so
+/// it stays on the first line of a title that wraps.
+struct CloseMark: View {
+    var body: some View {
+        Image(systemName: "xmark")
+            .font(.headline)
+            .foregroundStyle(.secondary)
+            .frame(width: 24, height: 24)
+            .contentShape(Rectangle())
+    }
+}

@@ -102,11 +102,11 @@ struct LabelCard: View {
     }
 
     private func head(_ l: PartLabel) -> some View {
-        HStack {
-            Text("Label \(l.title)").font(.headline).lineLimit(1)
+        HStack(alignment: .firstTextBaseline) {
+            Text("Label \(l.title)").font(.headline).fixedSize(horizontal: false, vertical: true)
             Spacer()
             Button { workspace.selectLabel(nil) } label: {
-                Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
+                CloseMark()
             }
             .buttonStyle(.borderless)
             .help("Close the card (Esc). The label stays.")
@@ -257,7 +257,10 @@ struct LabelCard: View {
                 }
             }
         } else {
-            Text("…").foregroundStyle(.secondary)
+            HStack(spacing: 6) {
+                ProgressView().controlSize(.small)
+                Text("Counting").foregroundStyle(.secondary)
+            }
         }
     }
 }

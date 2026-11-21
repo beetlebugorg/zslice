@@ -40,6 +40,7 @@
 		2AC23501F949B1A6C78C1F66 /* Project.swift in Sources */ = {isa = PBXBuildFile; fileRef = 38E36170394119623DEAE467 /* Project.swift */; };
 		2CBE872D00B399B7D21FA6A1 /* SupportTrees.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA1563DC7A7E6004C5F6CF3E /* SupportTrees.swift */; };
 		2E61517FD695932A423EAD9B /* LayerRange.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6D838E156394C6F8A401B5E /* LayerRange.swift */; };
+		2F22754FF17BEC9ED1171E54 /* ToolGlyph.swift in Sources */ = {isa = PBXBuildFile; fileRef = E4B7355FA4FD1905E69CECFB /* ToolGlyph.swift */; };
 		368FE9C6906CFD2C956586CB /* RangeCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = C95D84552F7DB583D8D47BCA /* RangeCard.swift */; };
 		38E549BCBDDF1C4FD86D458D /* LayerRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3C1CD092508B18D3F709B0F2 /* LayerRenderer.swift */; };
 		39F4E9AB78BD07DB04AB3913 /* Metal.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 49588518E29C3C87C78FF133 /* Metal.framework */; };
@@ -248,11 +249,12 @@
 		DCB26F920F80C3DD47D375E9 /* SavedSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SavedSettings.swift; sourceTree = "<group>"; };
 		E12F5AA52BD7698083B6F05A /* HistoryPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HistoryPage.swift; sourceTree = "<group>"; };
 		E453DA2EA6B4345B778EA033 /* Preview.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Preview.entitlements; sourceTree = "<group>"; };
+		E4B7355FA4FD1905E69CECFB /* ToolGlyph.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ToolGlyph.swift; sourceTree = "<group>"; };
 		EA10293385EE3CF16A69AAA6 /* CheckViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CheckViews.swift; sourceTree = "<group>"; };
 		F817BC998AF3DF2ED3A00C81 /* Discovery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Discovery.swift; sourceTree = "<group>"; };
 		FA1563DC7A7E6004C5F6CF3E /* SupportTrees.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SupportTrees.swift; sourceTree = "<group>"; };
 		FEB19535AAD2F45E9ADECD3E /* Shaders.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Shaders.swift; sourceTree = "<group>"; };
-		"TEMP_B23D2E1E-D11B-447C-8325-48969C9784F4" /* Signing.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Signing.xcconfig; sourceTree = "<group>"; };
+		"TEMP_A13FF5FA-52CD-440B-96EA-C7EAC94CED26" /* Signing.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Signing.xcconfig; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -399,6 +401,7 @@
 				1CB8A489FC7A3780934475FE /* SpatialCards.swift */,
 				2977A2A862AF9DF5A41EB352 /* SupportCard.swift */,
 				102293E2868F8E5F219FD538 /* Timeline.swift */,
+				E4B7355FA4FD1905E69CECFB /* ToolGlyph.swift */,
 				0DE6FA41D66841A0EFB59308 /* ToolStrip.swift */,
 			);
 			path = Views;
@@ -457,10 +460,10 @@
 			path = Core;
 			sourceTree = "<group>";
 		};
-		"TEMP_0D4FD09E-CA73-4F2A-A7F8-FE6CA9A0D438" /* macos */ = {
+		"TEMP_55B16971-8FD9-4F61-B277-61FC5019F211" /* macos */ = {
 			isa = PBXGroup;
 			children = (
-				"TEMP_B23D2E1E-D11B-447C-8325-48969C9784F4" /* Signing.xcconfig */,
+				"TEMP_A13FF5FA-52CD-440B-96EA-C7EAC94CED26" /* Signing.xcconfig */,
 			);
 			path = macos;
 			sourceTree = "<group>";
@@ -714,6 +717,7 @@
 				2CBE872D00B399B7D21FA6A1 /* SupportTrees.swift in Sources */,
 				3CC87DC7D988A97882EE10D0 /* Throttle.swift in Sources */,
 				813737F1E81D123DDB5AB486 /* Timeline.swift in Sources */,
+				2F22754FF17BEC9ED1171E54 /* ToolGlyph.swift in Sources */,
 				136849B27AD1F307F0D96FA2 /* ToolStrip.swift in Sources */,
 				4364B741E247D96B133E6FA6 /* Tools.swift in Sources */,
 				E65449D7495562F0928DFFCB /* Workspace.swift in Sources */,
@@ -781,7 +785,7 @@
 		};
 		1BF4A7F21A34A94F2F8BE4A1 /* Release */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = "TEMP_B23D2E1E-D11B-447C-8325-48969C9784F4" /* Signing.xcconfig */;
+			baseConfigurationReference = "TEMP_A13FF5FA-52CD-440B-96EA-C7EAC94CED26" /* Signing.xcconfig */;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
 				CLANG_ANALYZER_NONNULL = YES;
@@ -918,7 +922,7 @@
 		};
 		BB3F32C66D957B876F949001 /* Debug */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = "TEMP_B23D2E1E-D11B-447C-8325-48969C9784F4" /* Signing.xcconfig */;
+			baseConfigurationReference = "TEMP_A13FF5FA-52CD-440B-96EA-C7EAC94CED26" /* Signing.xcconfig */;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
 				CLANG_ANALYZER_NONNULL = YES;

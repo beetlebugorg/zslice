@@ -233,7 +233,9 @@ The slice is the UI, so the chrome is small. The controls of the window are over
   - The window title is hidden from the toolbar on macOS 15 and later.
   - No item is in the center: AppKit keeps a center item in the center, and a long printer name drew over it.
   - The labels of the menus keep their full size: at a narrow width, AppKit moves whole items to the » menu, and no label is cut with "…".
-- **The tool strip** at the left has the tools, the colors of the lines (`ColorsButton`), Gaps, and Check.
+- **The tool strip** at the left has the tools in the order of the web app (V M R S H T P L), a divider, the colors of the lines (`ColorsButton`), Gaps, and Check (`CheckButtons`), in one box. `ToolGlyph` draws each icon from the SVG paths of the tool buttons of `web/app/index.html`, with the path reader of `HistoryGlyph`; `StripIcon` is the face of each button.
+- Each card closes with `CloseMark`: a flat × at the size of the title, in a hit area of 24 points, on the first line of the title. A card title wraps; it never ends in "…".
+- The note of the app (`workspace.note`) is a toast at the bottom of the view, over the bar, as in the web app.
 - **`BottomBar`** is one bar, the width of the window and 70 points high: the plates and the history in the first row, the replay in the second. At the right end are the time (with the plastic, the cost, and the layers under it), a badge, and `PrintAction` (Export, or Print with Upload Only and Export in its menu).
   - A click on the time opens `PrintCard` above the bar as the details: the notes, the totals, the usual refinements, the main settings, and the filaments.
   - The badge says Check when there are notes (`noteCount`, red for a part off the bed or a failed slice, else orange), or else counts the refinements (blue).
@@ -265,7 +267,8 @@ The drawer of the other apps is a SwiftUI inspector at the right of the window. 
 ### The search, the keys, Gaps, Check, and the context menu
 
 - The search of the settings and the actions (`SearchOverlay.swift`): its field is always in the toolbar, and `/` (or Command-F) gives it the focus. The results show under it, with a live control for each setting, a slider for a number, and an eye that shows only the lines of a setting. Return on a number or a text focuses its field (the `focusRequest` of `ValueField`); Return or Esc there gives the focus back to the search. The undock button makes the search a card with its own field (the spatial kind "search"); the app keeps the choice (`search.docked`). `SearchState` keeps the text, the selected row, and the place, for both fields.
-- `?` (or Help > Keyboard Shortcuts) opens the sheet of all the keys of the Mac app. The Mac app owns its table.
+- `?` (or Help > Keyboard Shortcuts) opens the sheet of all the keys of the Mac app. The Mac app owns its table. It has the groups of the web and Linux sheets, in two columns.
+- The card of a gap keeps clear of the gap: `gapScreenBox` gives the screen box of its cells for `cardPlace(avoiding:)`.
 - Gaps (G) shows the gaps of the top layer, and a click on a gap opens the settings that can close it. Check lists the issues of the print, and a click goes to an issue.
 - A right click with no drag, or Control and a click, opens the context menu. It fits what is under the pointer, as `web/app/context-menu.js` does: the support items on a support line, the part items on a line of a part, the plate items on the bed, and the view items each time. Remove This Support runs `zs_app_support_pick` up from the line in steps of 0.5 mm, puts a Block area on that overhang, runs `zs_app_mark_remove_near`, and ends the pick of the Select tool.
 

@@ -9,25 +9,15 @@ import SwiftUI
 struct ToolStrip: View {
     let workspace: Workspace
 
+    /// The tools, then after a divider the colors of the lines, Gaps, and
+    /// Check, in the order of the web app.
     var body: some View {
         VStack(spacing: 2) {
             ForEach(Tool.allCases, id: \.self) { t in
                 Button {
                     workspace.setTool(t)
                 } label: {
-                    Image(systemName: t.symbol)
-                        .font(.system(size: 15))
-                        .frame(width: 34, height: 34)
-                        .overlay(alignment: .bottomTrailing) {
-                            Text(t.key.uppercased())
-                                .font(.system(size: 8, weight: .semibold))
-                                .foregroundStyle(.secondary)
-                                .padding(2)
-                        }
-                        .background(workspace.tool == t ? Color.accentColor.opacity(0.18) : .clear,
-                                    in: RoundedRectangle(cornerRadius: 7))
-                        .foregroundStyle(workspace.tool == t ? Color.accentColor : .primary)
-                        .contentShape(Rectangle())
+                    StripIcon(glyph: t.rawValue, key: t.key.uppercased(), on: workspace.tool == t)
                 }
                 .buttonStyle(.plain)
                 .help(t.help)
@@ -37,9 +27,33 @@ struct ToolStrip: View {
             Divider().frame(width: 26)
             // The colors of the lines and the legend.
             ColorsButton(workspace: workspace)
+            CheckButtons(workspace: workspace)
         }
         .padding(4)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
+    }
+}
+
+/// A button face of the tool strip: the glyph, its key in a corner, and
+/// the accent when it is on.
+struct StripIcon: View {
+    let glyph: String
+    var key = ""
+    var on = false
+
+    var body: some View {
+        ToolGlyph(name: glyph)
+            .frame(width: 34, height: 34)
+            .overlay(alignment: .bottomTrailing) {
+                Text(key)
+                    .font(.system(size: 8, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                    .padding(2)
+            }
+            .background(on ? Color.accentColor.opacity(0.18) : .clear,
+                        in: RoundedRectangle(cornerRadius: 7))
+            .foregroundStyle(on ? Color.accentColor : .primary)
+            .contentShape(Rectangle())
     }
 }
 

@@ -41,11 +41,11 @@ struct RangeCard: View {
         let a = workspace.layerTopBottom(lo), b = workspace.layerTopBottom(hi)
         let n = hi - lo + 1
         VStack(alignment: .leading, spacing: 8) {
-            HStack {
+            HStack(alignment: .firstTextBaseline) {
                 Text(lo == hi ? "Layer \(lo + 1)" : "Layers \(lo + 1)–\(hi + 1)").font(.headline)
                 Spacer()
                 Button { workspace.closeRangeCard() } label: {
-                    Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
+                    CloseMark()
                 }
                 .buttonStyle(.borderless)
                 .help("Close (Esc)")

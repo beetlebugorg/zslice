@@ -105,11 +105,11 @@ struct PickedSupportCard: View {
     var body: some View {
         let tree = workspace.supportPick?.tree == true
         VStack(alignment: .leading, spacing: 10) {
-            HStack {
+            HStack(alignment: .firstTextBaseline) {
                 Text(tree ? "Support Tree" : "Support").font(.headline)
                 Spacer()
                 Button { workspace.clearSupportPick() } label: {
-                    Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
+                    CloseMark()
                 }
                 .buttonStyle(.borderless)
                 .help("Close (Esc)")

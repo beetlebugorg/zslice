@@ -33,13 +33,13 @@ struct PartCard: View {
         } else if let p = workspace.part(index) {
             let own = workspace.partSettings(index)
             VStack(alignment: .leading, spacing: 10) {
-                HStack {
+                HStack(alignment: .firstTextBaseline) {
                     Text(coreText(p.name).isEmpty ? "Part \(index + 1)" : coreText(p.name))
                         .font(.headline)
-                        .lineLimit(1)
+                        .fixedSize(horizontal: false, vertical: true)
                     Spacer()
                     Button { workspace.selectPart(nil) } label: {
-                        Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
+                        CloseMark()
                     }
                     .buttonStyle(.borderless)
                     .help("Close (Esc)")
@@ -102,7 +102,7 @@ struct PartCard: View {
                     Text("Labels").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
                     ForEach(labels) { l in
                         Button { workspace.openLabel(part: index, id: l.id) } label: {
-                            Label(l.title, systemImage: "character.textbox").lineLimit(1)
+                            Label(l.title, systemImage: "character.textbox").fixedSize(horizontal: false, vertical: true)
                         }
                         .buttonStyle(.borderless)
                         .help("Select this label in the Label tool (L)")
@@ -162,11 +162,11 @@ struct PartCard: View {
         let x0 = parts.map { $0.x - $0.size_x / 2 }.min() ?? 0, x1 = parts.map { $0.x + $0.size_x / 2 }.max() ?? 0
         let y0 = parts.map { $0.y - $0.size_y / 2 }.min() ?? 0, y1 = parts.map { $0.y + $0.size_y / 2 }.max() ?? 0
         return VStack(alignment: .leading, spacing: 10) {
-            HStack {
+            HStack(alignment: .firstTextBaseline) {
                 Text("\(list.count) parts").font(.headline)
                 Spacer()
                 Button { workspace.selectPart(nil) } label: {
-                    Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
+                    CloseMark()
                 }
                 .buttonStyle(.borderless)
                 .help("Close (Esc)")

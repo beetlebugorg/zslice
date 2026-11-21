@@ -33,7 +33,7 @@ import AppKit
 import CZslice
 
 enum Tool: String, CaseIterable {
-    case select, move, turn, grab, measure, support, paint, label
+    case select, move, turn, support, grab, measure, paint, label
 
     var key: String {
         switch self {
@@ -63,19 +63,6 @@ enum Tool: String, CaseIterable {
         case .support: "Support"
         case .paint: "Paint"
         case .label: "Label"
-        }
-    }
-
-    var symbol: String {
-        switch self {
-        case .select: "cursorarrow"
-        case .move: "arrow.up.and.down.and.arrow.left.and.right"
-        case .turn: "arrow.trianglehead.2.clockwise.rotate.90"
-        case .grab: "hand.raised"
-        case .measure: "ruler"
-        case .support: "pencil.and.outline"
-        case .paint: "paintbrush.pointed"
-        case .label: "character.textbox"
         }
     }
 

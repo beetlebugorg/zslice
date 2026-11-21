@@ -3,8 +3,8 @@
 //! round caps and joins, and no fill (the start has a small filled dot).
 //! Move, Turn, and Support are the icons of the tool strip of the web app.
 //!
-//! The paths are SVG path data (move, line, horizontal, vertical, arc, and
-//! close, each absolute or relative), read once into a SwiftUI Path. An arc
+//! The paths are SVG path data (move, line, horizontal, vertical, cubic,
+//! arc, and close, each absolute or relative), read into a SwiftUI Path. An arc
 //! goes from its end points to its center as in the SVG specification
 //! (appendix F.6.5); each arc of the glyphs is round.
 //!
@@ -145,6 +145,11 @@ struct HistoryGlyph: View {
             case "V":
                 cur = CGPoint(x: cur.x, y: (rel ? cur.y : 0) + num())
                 path.addLine(to: cur)
+            case "C":
+                let c1 = CGPoint(x: base.x + num(), y: base.y + num())
+                let c2 = CGPoint(x: base.x + num(), y: base.y + num())
+                cur = CGPoint(x: base.x + num(), y: base.y + num())
+                path.addCurve(to: cur, control1: c1, control2: c2)
             case "A":
                 let r = num()
                 _ = num() // ry: the arcs of the glyphs are round

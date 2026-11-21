@@ -561,7 +561,7 @@ struct QualityMenu: View {
                 if let name = askProfileName("Save the Quality as a Profile") { try? model.saveProfile(group: Profiles.quality, name: name) }
             }
         } label: {
-            Label((q.isEmpty ? "Quality" : q) + (changed ? " •" : ""), systemImage: "dial.medium")
+            Label((q.isEmpty ? "custom" : q) + (changed ? " •" : ""), systemImage: "dial.medium")
                 .labelStyle(.titleAndIcon)
                 .fixedSize()
         }

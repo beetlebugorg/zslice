@@ -63,7 +63,7 @@ struct SettingsInspector: View {
                     .buttonStyle(.borderless)
                     .keyboardShortcut("[", modifiers: .command)
                     .help("Back (⌘[)")
-                    Text(title(of: last)).font(.headline).lineLimit(1)
+                    Text(title(of: last)).font(.headline).fixedSize(horizontal: false, vertical: true)
                     Spacer()
                 }
                 .padding(.horizontal, 8)
@@ -352,7 +352,7 @@ struct OwnerBadge: View {
         let who = model.setting(printer ? "machine.name" : "filament.name")
         Text((printer ? "Printer" : "Filament") + (who.isEmpty ? "" : " · \(who)"))
             .font(.caption.weight(.medium))
-            .lineLimit(1)
+            .fixedSize(horizontal: false, vertical: true)
             .padding(.horizontal, 6)
             .padding(.vertical, 1)
             .foregroundStyle(printer ? Color.indigo : Color.teal)

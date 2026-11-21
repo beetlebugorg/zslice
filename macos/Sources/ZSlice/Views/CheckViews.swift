@@ -6,49 +6,33 @@
 
 import SwiftUI
 
-/// The two toggles under the tools: Gaps (G) and Check.
+/// The two toggles at the end of the tool strip: Gaps (G) and Check.
 struct CheckButtons: View {
     let workspace: Workspace
 
     var body: some View {
-        VStack(spacing: 2) {
-            toggle("square.dashed", "G", on: workspace.gapsOn,
-                   help: "Gaps (G): the areas of the top layer that should be solid and that no line covers, in red. Click a gap for the settings that can close it.") {
-                workspace.toggleGaps()
-            }
-            toggle(workspace.issues.isEmpty ? "checkmark.seal" : "exclamationmark.triangle", "", on: workspace.checkOpen,
-                   help: "Check the print (⇧⌘K): what can make it fail, the worst first: overhangs with no support, bridges, shapes in the air, lines over the flow of the hot end, layers that cool too little, and parts that can tip over.") {
-                workspace.checkOpen.toggle()
-            }
-            .overlay(alignment: .topTrailing) {
-                if !workspace.issues.isEmpty {
-                    Text("\(workspace.issues.count)")
-                        .font(.system(size: 9, weight: .bold))
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 4)
-                        .background(Color.orange, in: Capsule())
-                        .offset(x: 2, y: -2)
-                }
-            }
-        }
-        .padding(4)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
-    }
-
-    private func toggle(_ symbol: String, _ key: String, on: Bool, help: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Image(systemName: symbol)
-                .font(.system(size: 15))
-                .frame(width: 34, height: 34)
-                .overlay(alignment: .bottomTrailing) {
-                    Text(key).font(.system(size: 8, weight: .semibold)).foregroundStyle(.secondary).padding(2)
-                }
-                .background(on ? Color.accentColor.opacity(0.18) : .clear, in: RoundedRectangle(cornerRadius: 7))
-                .foregroundStyle(on ? Color.accentColor : .primary)
-                .contentShape(Rectangle())
+        Button { workspace.toggleGaps() } label: {
+            StripIcon(glyph: "gaps", key: "G", on: workspace.gapsOn)
         }
         .buttonStyle(.plain)
-        .help(help)
+        .help("Gaps (G): the areas of the top layer that should be solid and that no line covers, in red. Click a gap for the settings that can close it.")
+        .accessibilityLabel("Gaps")
+        Button { workspace.checkOpen.toggle() } label: {
+            StripIcon(glyph: "check", on: workspace.checkOpen)
+                .overlay(alignment: .topTrailing) {
+                    if !workspace.issues.isEmpty {
+                        Text("\(workspace.issues.count)")
+                            .font(.system(size: 9, weight: .bold))
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 4)
+                            .background(Color.orange, in: Capsule())
+                            .offset(x: 2, y: -2)
+                    }
+                }
+        }
+        .buttonStyle(.plain)
+        .help("Check the print (⇧⌘K): what can make it fail, the worst first: overhangs with no support, bridges, shapes in the air, lines over the flow of the hot end, layers that cool too little, and parts that can tip over.")
+        .accessibilityLabel("Check the print")
     }
 }
 
@@ -78,11 +62,11 @@ struct GapCard: View {
     var body: some View {
         let model = workspace.model
         VStack(alignment: .leading, spacing: 8) {
-            HStack {
+            HStack(alignment: .firstTextBaseline) {
                 Text("Gap · layer \(gap.layer + 1)").font(.headline)
                 Spacer()
                 Button { workspace.gapCard = nil } label: {
-                    Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
+                    CloseMark()
                 }
                 .buttonStyle(.borderless)
             }
@@ -120,11 +104,11 @@ struct CheckPanel: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            HStack {
+            HStack(alignment: .firstTextBaseline) {
                 Text("Check the Print").font(.headline)
                 Spacer()
                 Button { workspace.checkOpen = false } label: {
-                    Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
+                    CloseMark()
                 }
                 .buttonStyle(.borderless)
             }

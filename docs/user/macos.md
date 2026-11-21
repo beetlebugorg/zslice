@@ -46,13 +46,15 @@ The tools are at the left of the view. Each has a key:
 | Select | V | Select a line, parts, a support, or a range of layers. |
 | Move | M | Drag a part on the bed. |
 | Turn | R | Turn a part with its rings, or with keys. |
+| Support | S (or U) | Draw or remove support. |
 | Grab | H | Pick a part up and carry it. |
 | Measure | T | Measure between two points. |
-| Support | S (or U) | Draw or remove support. |
 | Paint | P | Paint filaments on a part. |
 | Label | L | Put text or a mark on a part, in another filament. |
 
-Under the tools are the palette (the colors of the lines and the legend), Gaps (G), and Check.
+Under the tools, after a line, are the palette (the colors of the lines and the legend), Gaps (G), and Check. The icons are the icons of the web and Linux apps.
+
+The × at the top right of a card closes it. Notes of the app show at the bottom of the view, over the bar.
 
 ### The bottom bar
 

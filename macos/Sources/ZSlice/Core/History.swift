@@ -263,19 +263,23 @@ final class History {
                     changes: lines(text(s.changes, s.changes_len)), words: lines(text(s.text, s.text_len)))
     }
 
-    /// The name of step i for the Edit menu ("Undo Infill").
+    /// The name of step i for the Edit menu ("Undo Top and Bottom"): the
+    /// label of its kind in title case, as macOS menus are.
     private func label(of i: Int) -> String {
         guard i > 0, let s = step(i) else { return "" }
-        return Self.look(s.kind).label
+        return Self.look(s.kind).label.split(separator: " ")
+            .map { $0 == "and" ? String($0) : $0.prefix(1).uppercased() + $0.dropFirst() }
+            .joined(separator: " ")
     }
 
-    /// The look of each kind of step (linux/src/ui/history.c).
+    /// The look of each kind of step (linux/src/ui/history.c): its color, and
+    /// its label in sentence case, as the web and Linux apps show it.
     static func look(_ kind: String) -> (color: Color, label: String) {
         let looks: [String: (UInt32, String)] = [
-            "walls": (0xd9480f, "Walls"), "infill": (0x2b8a3e, "Infill"), "surface": (0x1c7ed6, "Top and Bottom"),
-            "speed": (0x7c3aed, "Speed"), "heat": (0xdc2626, "Temperature and Cooling"), "support": (0x6b7280, "Support"),
+            "walls": (0xd9480f, "Walls"), "infill": (0x2b8a3e, "Infill"), "surface": (0x1c7ed6, "Top and bottom"),
+            "speed": (0x7c3aed, "Speed"), "heat": (0xdc2626, "Temperature and cooling"), "support": (0x6b7280, "Support"),
             "layers": (0xd99000, "Layers"), "move": (0x0c949e, "Move"), "rotate": (0x0c949e, "Turn"),
-            "scale": (0x0c949e, "Scale"), "add": (0x0c949e, "Part Added"), "remove": (0x0c949e, "Part Removed"),
+            "scale": (0x0c949e, "Scale"), "add": (0x0c949e, "Part added"), "remove": (0x0c949e, "Part removed"),
             "quality": (0xdb2777, "Quality"), "printer": (0x334155, "Printer"), "filament": (0x4f46e5, "Filaments"), "label": (0xa21caf, "Labels"), "start": (0x808080, "Start"),
         ]
         let (rgb, label) = looks[kind] ?? (0x808080, "Other")

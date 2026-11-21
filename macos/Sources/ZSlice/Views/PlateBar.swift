@@ -36,7 +36,7 @@ struct PlateBar: View {
                     Button("Remove This Plate") { workspace.removePlate(i) }.disabled(n < 2)
                 }
             } label: {
-                Text(bare ? "Plate \(i + 1)/\(max(n, 1))" : "Plate \(i + 1) of \(max(n, 1))").monospacedDigit()
+                Text("Plate \(i + 1) of \(max(n, 1))").monospacedDigit()
             }
             .menuStyle(.borderlessButton)
             .fixedSize()
