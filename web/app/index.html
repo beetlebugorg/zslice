@@ -149,10 +149,10 @@
           <button id="export" class="suggested" disabled>Export G-code…</button>
         </div>
       </div>
+      <!-- An empty plate: a small Open button on the plate (app.js
+           placeOpenButton moves it with the plate). -->
       <div id="empty" class="empty">
-        <div class="empty-title">Open a model</div>
-        <div class="empty-text">Drop an STL or 3MF file here, or click Open.</div>
-        <button id="empty-open" class="pill">Open…</button>
+        <button id="empty-open" class="plate-open" title="Open a model on this plate. You can also drop an STL or 3MF file on the view.">Open a model</button>
       </div>
       <div id="busy" class="busy" hidden>Slicing…</div>
       <div id="toast" class="toast" hidden></div>

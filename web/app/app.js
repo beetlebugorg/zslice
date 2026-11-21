@@ -259,6 +259,7 @@ function drawFrame(now) {
   partCard?.place();
   supportTool?.place();
   if (rangeCard?.open) rangeCard.place();
+  placeOpenButton();
   frameTimes[frameCount++ % frameTimes.length] = performance.now() - t0;
   if (more || staging) requestFrame();
   else lastFrameTime = 0;
@@ -3405,6 +3406,39 @@ function updatePlateSigns() {
   }
 }
 matchMedia("(prefers-color-scheme: dark)").addEventListener?.("change", () => updatePlateSigns());
+
+// The Open button of an empty plate: small, on the middle of the active
+// plate in the view, so it moves with the plate. It hides when another
+// plate is in front of it or the plate is out of the view.
+function placeOpenButton() {
+  const box = $("empty");
+  const btn = $("empty-open");
+  if (box.hidden || app.page !== "3d") return;
+  const k = dpr();
+  const p = app.plates?.[app.activePlate];
+  const bed = p?.bed?.[0] > 0 ? p.bed : (view.bedSize?.() ?? [220, 220]);
+  const q = view.pixelOf(bed[0] / 2, bed[1] / 2, 0);
+  const w = btn.offsetWidth;
+  const h = btn.offsetHeight;
+  let ok = !!q;
+  if (ok) {
+    const x = q[0] / k;
+    const y = q[1] / k;
+    ok = x - w / 2 > 4 && x + w / 2 < box.clientWidth - 4 && y - h / 2 > 4 && y + h / 2 < box.clientHeight - 4;
+    // Another plate (or its parts) at the button: it hides.
+    if (ok && app.plates?.length > 1) {
+      for (const [dx, dy] of [[0, 0], [-w / 2, 0], [w / 2, 0], [0, -h / 2], [0, h / 2]]) {
+        const i = view.plateAt((x + dx) * k, (y + dy) * k);
+        if (i >= 0 && i !== app.activePlate) ok = false;
+      }
+    }
+    if (ok) {
+      btn.style.left = `${x}px`;
+      btn.style.top = `${y}px`;
+    }
+  }
+  btn.style.visibility = ok ? "" : "hidden";
+}
 
 $("plate-prev").onclick = () => activatePlate(app.activePlate - 1, true);
 $("plate-next").onclick = () => activatePlate(app.activePlate + 1, true);
