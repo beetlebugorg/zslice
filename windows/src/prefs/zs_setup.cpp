@@ -1,0 +1,450 @@
+// See zs_setup.h.
+//
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
+#include "zs_setup.h"
+
+#include "zs_state.h"
+
+#include <algorithm>
+#include <cctype>
+#include <cstdio>
+#include <cstdlib>
+
+namespace zs
+{
+    namespace
+    {
+        char const *const group_dirs[] = { "machine", "filament", "project" };
+        wchar_t const *const group_files[] = { L"machine", L"filament.toml", L"project.toml" };
+
+        std::string Number(double v)
+        {
+            char text[32];
+            snprintf(text, sizeof text, "%.6g", v);
+            return text;
+        }
+
+        std::wstring ProfileDir(int group)
+        {
+            return state::PathOf(L"profiles\\" + ToWide(group_dirs[group]));
+        }
+
+        std::string Lower(std::string text)
+        {
+            std::transform(text.begin(), text.end(), text.begin(), [](unsigned char c) { return (char)std::tolower(c); });
+            return text;
+        }
+
+        bool IsBuiltinQuality(std::string const &name)
+        {
+            if (name == "custom")
+                return true;
+            for (size_t i = 0; i < zs_builtin_profile_count(ZS_GROUP_PROJECT); i++)
+                if (name == zs_builtin_profile_name(ZS_GROUP_PROJECT, i))
+                    return true;
+            return false;
+        }
+
+        bool HasSettings(std::string const &text)
+        {
+            size_t at = 0;
+            while (at < text.size())
+            {
+                size_t end = text.find('\n', at);
+                if (end == std::string::npos)
+                    end = text.size();
+                if (end > at && text[at] != '#' && text[at] != '[' && text[at] != '\r')
+                    return true;
+                at = end + 1;
+            }
+            return false;
+        }
+    }
+
+    std::string PrinterSetup::ProfileFileName(std::string const &raw)
+    {
+        std::string name;
+        for (unsigned char c : raw)
+            name += std::isalnum(c) || c == '-' || c == '_' ? (char)c : c == ' ' ? '-' : '_';
+        return name;
+    }
+
+    std::string PrinterSetup::GroupText(int group) const
+    {
+        size_t len = 0;
+        zs_app *app = model_.Active();
+        if (zs_app_state_write(app, group, nullptr, 0, &len) != ZS_OK)
+            return {};
+        std::string text(len + 1, '\0');
+        if (zs_app_state_write(app, group, text.data(), text.size(), &len) != ZS_OK)
+            return {};
+        text.resize(len);
+        return text;
+    }
+
+    std::wstring PrinterSetup::StatePath(int group)
+    {
+        if (group == ZS_GROUP_MACHINE)
+            return PrinterStore::ProfilePath(Printers().Current());
+        return state::PathOf(group_files[group]);
+    }
+
+    void PrinterSetup::LoadGroup(int group)
+    {
+        std::wstring path = StatePath(group);
+        std::string text;
+        if (!state::ReadBytes(path, text))
+            return;
+        char message[256] = "";
+        int rc = zs_app_profile_apply(model_.Active(), group, text.data(), text.size(), message, sizeof message);
+        if (rc != ZS_OK)
+        {
+            // The file stays beside it: the next save writes over it.
+            state::WriteBytes(path + L".bad", text);
+            fprintf(stderr, "shell: a settings file was not loaded (%s). A copy has the suffix .bad.\n", message);
+        }
+    }
+
+    void PrinterSetup::Start()
+    {
+        PrinterStore &store = Printers();
+        store.Load();
+        for (int g = 0; g < 3; g++)
+            LoadGroup(g);
+        // The quality of the last session, under the changes of this print.
+        std::string quality = store.Pref("profile_project");
+        if (!quality.empty() && quality != "custom")
+        {
+            std::string text;
+            if (!state::ReadBytes(ProfileDir(ZS_GROUP_PROJECT) + L"\\" + ToWide(ProfileFileName(quality)) + L".toml", text))
+                text = "extends = \"" + quality + "\"\n";
+            char message[256] = "";
+            if (zs_app_quality_set(model_.Active(), quality.c_str(), text.data(), text.size(), true, message, sizeof message) != ZS_OK)
+                fprintf(stderr, "shell: the quality profile %s was not loaded (%s)\n", quality.c_str(), message);
+        }
+        for (int g = 0; g < 3; g++)
+        {
+            written_[g] = GroupText(g);
+            profile_[g] = store.Pref(std::string("profile_") + group_dirs[g]);
+            if (!profile_[g].empty())
+                loaded_[g] = written_[g];
+        }
+    }
+
+    void PrinterSetup::SaveState()
+    {
+        for (int g = 0; g < 3; g++)
+        {
+            std::string text = GroupText(g);
+            if (text == written_[g])
+                continue;
+            bool ok = state::WriteBytes(StatePath(g), text);
+            // The filament also goes with the printer: it gets it back after
+            // a switch to it.
+            if (g == ZS_GROUP_FILAMENT)
+                ok = state::WriteBytes(PrinterStore::FilamentPath(Printers().Current()), text) && ok;
+            if (ok)
+                written_[g] = std::move(text);
+            else
+                fprintf(stderr, "shell: the settings were not saved\n");
+        }
+    }
+
+    void PrinterSetup::Touch(int group)
+    {
+        loaded_[group] = GroupText(group);
+    }
+
+    bool PrinterSetup::ApplyText(int group, std::string const &text, std::string &message)
+    {
+        zs_app *app = model_.Active();
+        // An error leaves the settings as they are.
+        std::string before = GroupText(group);
+        zs_app_group_reset(app, group);
+        char error[256] = "";
+        int rc = zs_app_profile_apply(app, group, text.data(), text.size(), error, sizeof error);
+        if (rc != ZS_OK)
+        {
+            zs_app_profile_apply(app, group, before.data(), before.size(), nullptr, 0);
+            message = error[0] != 0 ? error : zs_status_message(rc);
+            return false;
+        }
+        return true;
+    }
+
+    bool PrinterSetup::UsePrinter(std::string const &id, std::string &message)
+    {
+        PrinterStore &store = Printers();
+        if (store.Find(id) == nullptr)
+        {
+            message = "That printer is gone.";
+            return false;
+        }
+        if (store.Current().id == id)
+            return true;
+        // The machine and the filament of the printer before.
+        SaveState();
+        std::string machine = GroupText(ZS_GROUP_MACHINE);
+        state::WriteBytes(PrinterStore::ProfilePath(store.Current()), machine);
+        state::WriteBytes(PrinterStore::FilamentPath(store.Current()), GroupText(ZS_GROUP_FILAMENT));
+        store.SetCurrent(id);
+        zs_app *app = model_.Active();
+        zs_app_group_reset(app, ZS_GROUP_MACHINE);
+        LoadGroup(ZS_GROUP_MACHINE);
+        written_[ZS_GROUP_MACHINE] = GroupText(ZS_GROUP_MACHINE);
+        // A printer with no saved filament keeps the filament now.
+        std::string filament;
+        if (state::ReadBytes(PrinterStore::FilamentPath(store.Current()), filament))
+        {
+            std::string why;
+            if (!ApplyText(ZS_GROUP_FILAMENT, filament, why))
+                fprintf(stderr, "shell: the filament of the printer was not loaded (%s)\n", why.c_str());
+        }
+        model_.RequestSlice();
+        SaveState();
+        return true;
+    }
+
+    bool PrinterSetup::AddPrinter(NewPrinter const &in, bool welcome, std::string &id, std::string &message)
+    {
+        PrinterStore &store = Printers();
+        std::string name = in.name.empty() ? "My printer" : in.name;
+        std::string profile = "extends = \"generic\"\n";
+        zs_printers *lib = model_.Printers();
+        if (in.model >= 0 && lib != nullptr)
+        {
+            size_t n = 0;
+            if (zs_printers_profile(lib, (size_t)in.model, in.nozzle, nullptr, 0, &n) == ZS_OK)
+            {
+                std::string text(n + 1, '\0');
+                if (zs_printers_profile(lib, (size_t)in.model, in.nozzle, text.data(), text.size(), &n) == ZS_OK)
+                {
+                    text.resize(n);
+                    profile = std::move(text);
+                }
+            }
+        }
+        SaveState();
+        SavedPrinter *printer;
+        if (welcome)
+        {
+            printer = &store.Current();
+            printer->name = name;
+        }
+        else
+        {
+            state::WriteBytes(PrinterStore::ProfilePath(store.Current()), GroupText(ZS_GROUP_MACHINE));
+            printer = &store.Add(name);
+        }
+        printer->kind = in.kind;
+        printer->url = in.url;
+        printer->api_key = in.api_key;
+        printer->serial = in.serial;
+        printer->tls_pin = in.tls_pin;
+        printer->deck_name = in.deck_name;
+        id = printer->id;
+        store.SetCurrent(id);
+        store.Save();
+        if (!ApplyText(ZS_GROUP_MACHINE, profile, message))
+            return false;
+        zs_app *app = model_.Active();
+        zs_app_setting_set(app, "machine.name", name.c_str());
+        if (in.nozzle > 0)
+            zs_app_setting_set(app, "machine.nozzle_diameter", Number(in.nozzle).c_str());
+        if (in.bed_x > 0)
+            zs_app_setting_set(app, "machine.bed_size_x", Number(in.bed_x).c_str());
+        if (in.bed_y > 0)
+            zs_app_setting_set(app, "machine.bed_size_y", Number(in.bed_y).c_str());
+        if (in.height > 0)
+            zs_app_setting_set(app, "machine.max_height", Number(in.height).c_str());
+        zs_app_setting_set(app, "filament.diameter", Number(in.filament).c_str());
+        store.SetFirstStart(false);
+        model_.RequestSlice();
+        written_[ZS_GROUP_MACHINE].clear();
+        SaveState();
+        return true;
+    }
+
+    bool PrinterSetup::SetQuality(std::string const &name, bool keep_edits, std::string &message)
+    {
+        std::string text;
+        if (!state::ReadBytes(ProfileDir(ZS_GROUP_PROJECT) + L"\\" + ToWide(ProfileFileName(name)) + L".toml", text))
+            text = "extends = \"" + name + "\"\n";
+        char error[256] = "";
+        int rc = zs_app_quality_set(model_.Active(), name.c_str(), text.data(), text.size(), keep_edits, error, sizeof error);
+        if (rc != ZS_OK)
+        {
+            message = error[0] != 0 ? error : zs_status_message(rc);
+            return false;
+        }
+        profile_[ZS_GROUP_PROJECT] = name;
+        Touch(ZS_GROUP_PROJECT);
+        Printers().SetPref("profile_project", name);
+        model_.RequestSlice();
+        SaveState();
+        return true;
+    }
+
+    std::string PrinterSetup::QualityTitle(std::string const &name)
+    {
+        if (name.empty() || !IsBuiltinQuality(name))
+            return name;
+        std::string out = name;
+        out[0] = (char)std::toupper((unsigned char)out[0]);
+        return out;
+    }
+
+    std::string PrinterSetup::QualityLabel() const
+    {
+        char const *q = zs_app_quality_name(model_.Active());
+        std::string name = q != nullptr && q[0] != 0 ? q : "custom";
+        std::string label = "Quality: " + QualityTitle(name);
+        if (HasSettings(GroupText(ZS_GROUP_PROJECT)))
+            label += " \xE2\x80\xA2";
+        return label;
+    }
+
+    std::string PrinterSetup::QualitySummary(std::string const &name)
+    {
+        size_t len = 0;
+        if (zs_quality_summary(name.c_str(), nullptr, 0, &len) != ZS_OK || len == 0)
+            return {};
+        std::string text(len + 1, '\0');
+        if (zs_quality_summary(name.c_str(), text.data(), text.size(), &len) != ZS_OK)
+            return {};
+        text.resize(len);
+        return text;
+    }
+
+    bool PrinterSetup::UseMaterial(std::string const &material, std::string &message)
+    {
+        std::string base = "generic-" + Lower(material);
+        // The diameter is a property of the printer. The built-in profiles
+        // are for 1.75 mm.
+        std::string diameter = model_.GetSetting("filament.diameter");
+        std::string text = "extends = \"" + base + "\"\ndiameter = " + (diameter.empty() ? std::string("1.75") : diameter) + "\n";
+        return LoadProfile(ZS_GROUP_FILAMENT, base, text, message);
+    }
+
+    bool PrinterSetup::LoadProfile(int group, std::string const &name, std::string const &text, std::string &message)
+    {
+        if (!ApplyText(group, text, message))
+            return false;
+        profile_[group] = name;
+        Touch(group);
+        Printers().SetPref(std::string("profile_") + group_dirs[group], name);
+        model_.RequestSlice();
+        SaveState();
+        return true;
+    }
+
+    bool PrinterSetup::SaveProfile(int group, std::string const &raw, std::string &message)
+    {
+        std::string name = ProfileFileName(raw);
+        if (name.empty())
+        {
+            message = "Type a name for the profile.";
+            return false;
+        }
+        std::string text;
+        if (group == ZS_GROUP_PROJECT)
+        {
+            // The full profile: the values of the quality and the changes of
+            // this print together.
+            size_t len = 0;
+            zs_app *app = model_.Active();
+            if (zs_app_profile_write(app, group, nullptr, 0, &len) == ZS_OK)
+            {
+                text.resize(len + 1);
+                if (zs_app_profile_write(app, group, text.data(), text.size(), &len) == ZS_OK)
+                    text.resize(len);
+                else
+                    text.clear();
+            }
+        }
+        else
+            text = GroupText(group);
+        if (!state::WriteBytes(ProfileDir(group) + L"\\" + ToWide(name) + L".toml", text))
+        {
+            message = "The profile was not saved.";
+            return false;
+        }
+        profile_[group] = name;
+        Printers().SetPref(std::string("profile_") + group_dirs[group], name);
+        // The new profile is the quality now, with no changes on top.
+        if (group == ZS_GROUP_PROJECT)
+            return SetQuality(name, false, message);
+        Touch(group);
+        return true;
+    }
+
+    bool PrinterSetup::LoadUserProfile(int group, std::string const &name, std::string &message)
+    {
+        std::string text;
+        if (!state::ReadBytes(ProfileDir(group) + L"\\" + ToWide(ProfileFileName(name)) + L".toml", text))
+        {
+            message = "The profile does not read.";
+            return false;
+        }
+        return LoadProfile(group, name, text, message);
+    }
+
+    std::vector<std::string> PrinterSetup::UserProfiles(int group) const
+    {
+        std::vector<std::string> out;
+        for (auto const &name : state::ListNames(ProfileDir(group), L".toml"))
+            out.push_back(ToUtf8(name));
+        return out;
+    }
+
+    bool PrinterSetup::GroupChanged(int group) const
+    {
+        std::string now = GroupText(group);
+        return loaded_[group].empty() ? HasSettings(now) : now != loaded_[group];
+    }
+
+    std::string PrinterSetup::GroupProfile(int group) const
+    {
+        return profile_[group];
+    }
+
+    void PrinterSetup::ApplySpools(DeckFilaments const &d, bool two_nozzles)
+    {
+        zs_app *app = model_.Active();
+        size_t want = d.use.size();
+        size_t have = zs_app_filament_count(app);
+        while (have < want)
+        {
+            size_t index = 0;
+            if (zs_app_filament_add(app, &index) != ZS_OK)
+                break;
+            have++;
+        }
+        while (have > want && zs_app_filament_remove(app, have - 1) == ZS_OK)
+            have--;
+        // A value that the core refuses (a material that it does not know)
+        // leaves the old value.
+        for (size_t k = 0; k < std::min(have, want); k++)
+        {
+            Spool const &s = d.use[k];
+            zs_app_filament_set(app, k, "filament.material", s.material.c_str());
+            if (!s.color.empty())
+                zs_app_filament_set(app, k, "filament.color", s.color.c_str());
+            if (two_nozzles)
+                zs_app_filament_set(app, k, "filament.nozzle", s.aux ? "1" : "0");
+        }
+        if (!d.nozzle_type.empty())
+        {
+            zs_app_setting_set(app, "machine.nozzle_type", d.nozzle_type.c_str());
+            zs_app_setting_set(app, "machine.nozzle_flow", d.nozzle_flow.c_str());
+        }
+        model_.RequestSlice();
+        SaveState();
+    }
+
+    bool PrinterSetup::TwoNozzles() const
+    {
+        return atof(model_.GetSetting("machine.nozzles").c_str()) >= 2;
+    }
+}
