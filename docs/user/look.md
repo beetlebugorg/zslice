@@ -25,6 +25,10 @@ Turn the view, go down through the layers, and replay the print as the printer p
 
 Press 2 to show the 2D view. Press 2 again, or 3, to go back to 3D. The main menu has the same switch: **2D view**. In the 2D view, a sign at the top of the view says **2D view**. Click the sign to go back to 3D.
 
+## Light or dark
+
+zslice follows the light or dark mode of your system. In the web app, open the main menu and pick **Theme** to set **Light** or **Dark**. The browser keeps your choice. Pick **Follow the system** to go back.
+
 ## The colors
 
 The colors button in the tool strip colors the lines by **Filament**, **Feature**, **Speed**, **Flow**, **Layer time**, or **Line width**. With a number, a legend gives the range.
