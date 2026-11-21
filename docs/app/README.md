@@ -93,7 +93,7 @@ The GTK shell is in `linux/src`. Each `.c` file has a header that explains its i
 | | `bed-model` | The bed model of the current printer in the 3D view: finds the bed folder and reads the files |
 | | `native-surface` | The Wayland subsurface for the 3D view |
 | | `float` | The cards over the view: their places in the overlay of the preview, and the drag of their head |
-| | `search` | The settings search (`/`): settings with live controls, and actions |
+| | `search` | The settings search (`/`): a field in the header bar or a card over the view, settings with live controls, and actions |
 | | `line-card` | The card of a selected line: its numbers, and the settings that matter for it |
 | | `part-card` | The card of a selected part: its actions and its own settings |
 | | `shortcuts` | The sheet of the keyboard shortcuts (`?`): one table of the keys |

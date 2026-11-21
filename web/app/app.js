@@ -3828,7 +3828,6 @@ const search = new SearchOverlay({
   ],
 });
 const shortcuts = new ShortcutSheet();
-$("search-open").onclick = () => search.show();
 
 
 

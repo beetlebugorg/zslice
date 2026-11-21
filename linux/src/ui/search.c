@@ -1,5 +1,8 @@
 /* search.c: see search.h.
  *
+ * The entry and the scope label move between the field of the header
+ * (docked) and the head of the card (undocked, while the card shows).
+ *
  * The settings come from the search of the core (zs_setting_search): each
  * word of the query must match a setting, by itself or by a word of the
  * same meaning (also the names of other slicers). The actions are the
@@ -10,6 +13,7 @@
 #include "search.h"
 
 #include <math.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "../prefs/printers.h"
@@ -21,6 +25,9 @@ enum { MAX_SETTINGS = 14, MAX_ACTIONS = 4, DRAG_MS = 90 };
 /* The first place of the box: at the top of the view, in the middle,
  * under the Search button of the top bar. */
 static const double PLACE_Y = 12;
+/* The least width of the docked results, and of the card. The least
+ * height of the list of the card. */
+enum { DOCKED_WIDTH = 560, CARD_WIDTH = 500, MIN_WIDTH = 360, MIN_LIST = 120, LIST_HEIGHT = 520 };
 
 
 /* The actions in the results: the label, the keys, a hint, and the
@@ -66,6 +73,14 @@ typedef struct {
 typedef struct {
     ZgModel *model;
     GtkWidget *card, *head, *scope_label, *entry, *list, *scroll;
+    /* The header: the field (the icon, the entry, ×, and the undock
+     * button), and the Search button of the undocked search. */
+    GtkWidget *header, *field, *field_icon, *field_close, *open_button;
+    /* The head of the card: the grip, and the resize grip at the lower
+     * right corner. */
+    GtkWidget *grip, *resize;
+    gboolean undocked;
+    int drag_w, drag_h; /* the size at the start of a resize */
     GPtrArray *rows; /* Row * */
     guint index;
     gint64 part; /* the part of the search, or -1 */
@@ -413,9 +428,14 @@ static void fill(Search *s) {
     select_row(s, 0, FALSE);
 }
 
+static void show_search(Search *s, const char *text, gint64 part, gboolean focus);
+
+/* Text in the docked field shows the results. */
 static void on_changed(GtkEditable *e, gpointer data) {
     Search *s = data;
-    if (!s->filling) fill(s);
+    if (s->filling) return;
+    if (gtk_widget_get_visible(s->card)) fill(s);
+    else show_search(s, NULL, -1, FALSE);
 }
 
 /* ---- the keys ---- */
@@ -436,6 +456,7 @@ static gboolean in_entry(Search *s, GtkWidget *focus) {
 static gboolean on_key(GtkEventControllerKey *c, guint key, guint code, GdkModifierType mods, gpointer data) {
     Search *s = data;
     if (mods & (GDK_CONTROL_MASK | GDK_ALT_MASK)) return FALSE;
+    if (!gtk_widget_get_visible(s->card)) return FALSE;
     GtkWidget *focus = gtk_root_get_focus(gtk_widget_get_root(s->card));
     gboolean control = in_control(s, focus), entry = in_entry(s, focus);
     Row *r = s->rows->len ? g_ptr_array_index(s->rows, s->index) : NULL;
@@ -526,6 +547,138 @@ static void place_saved(Search *s) {
     zg_float_place(s->card, x, y);
 }
 
+/* The height of the list of the card: at most `h`, and exactly `h` with
+ * fixed TRUE (after a resize). */
+static void set_list_height(Search *s, int h, gboolean fixed) {
+    GtkScrolledWindow *sw = GTK_SCROLLED_WINDOW(s->scroll);
+    gtk_scrolled_window_set_min_content_height(sw, -1);
+    gtk_scrolled_window_set_max_content_height(sw, h);
+    if (fixed) gtk_scrolled_window_set_min_content_height(sw, h);
+}
+
+/* The size of the card: the size of the last resize, or the first size. */
+static void size_saved(Search *s) {
+    char *saved = zg_pref_get("search_size", "");
+    char **wh = g_strsplit(saved, ",", 2);
+    int w = CARD_WIDTH, h = 0;
+    if (wh[0] && wh[1]) {
+        w = MAX(MIN_WIDTH, atoi(wh[0]));
+        h = MAX(MIN_LIST, atoi(wh[1]));
+    }
+    g_strfreev(wh);
+    g_free(saved);
+    /* The card stays inside the view. */
+    GtkWidget *host = gtk_widget_get_parent(s->card);
+    int W = host ? gtk_widget_get_width(host) : 0;
+    if (W > 0) w = MIN(w, MAX(MIN_WIDTH, W - 16));
+    gtk_widget_set_size_request(s->card, w, -1);
+    set_list_height(s, h > 0 ? h : LIST_HEIGHT, h > 0);
+}
+
+/* The docked results: under the field of the header, at least
+ * DOCKED_WIDTH wide, in the middle of the field. */
+static void place_docked(Search *s) {
+    GtkWidget *host = gtk_widget_get_parent(s->card);
+    graphene_point_t p;
+    int fw = gtk_widget_get_width(s->field), fh = gtk_widget_get_height(s->field);
+    int W = host ? gtk_widget_get_width(host) : 0;
+    int w = MAX(fw, DOCKED_WIDTH);
+    if (W > 0) w = MIN(w, W - 16);
+    gtk_widget_set_size_request(s->card, w, -1);
+    set_list_height(s, LIST_HEIGHT, FALSE);
+    if (!host || !gtk_widget_compute_point(s->field, host, &GRAPHENE_POINT_INIT(fw / 2.0f, (float)fh), &p)) {
+        zg_float_place(s->card, first_x(s), PLACE_Y);
+        return;
+    }
+    /* The header is over the view: the top of the view is the place
+     * under the field. */
+    zg_float_place(s->card, MAX(8, p.x - w / 2.0), MAX(6, p.y + 6));
+}
+
+/* A drag of the grip at the lower right corner changes the size of the
+ * card. The size stays for the next search. */
+static void on_resize_begin(GtkGestureDrag *g, double x, double y, gpointer data) {
+    Search *s = data;
+    s->drag_w = gtk_widget_get_width(s->card);
+    s->drag_h = gtk_widget_get_height(s->scroll);
+}
+
+static void on_resize_update(GtkGestureDrag *g, double dx, double dy, gpointer data) {
+    Search *s = data;
+    gtk_widget_set_size_request(s->card, MAX(MIN_WIDTH, s->drag_w + (int)dx), -1);
+    set_list_height(s, MAX(MIN_LIST, s->drag_h + (int)dy), TRUE);
+}
+
+static void on_resize_end(GtkGestureDrag *g, double dx, double dy, gpointer data) {
+    Search *s = data;
+    char buf[64];
+    g_snprintf(buf, sizeof buf, "%d,%d", MAX(MIN_WIDTH, s->drag_w + (int)dx), MAX(MIN_LIST, s->drag_h + (int)dy));
+    zg_pref_set("search_size", buf);
+}
+
+/* ---- docked and undocked ---- */
+
+/* Moves `w` from its box to the box `to`, after `after` (NULL: first). */
+static void move_child(GtkWidget *w, GtkWidget *to, GtkWidget *after) {
+    GtkWidget *from = gtk_widget_get_parent(w);
+    if (from == to && gtk_widget_get_prev_sibling(w) == after) return;
+    g_object_ref(w);
+    if (from) gtk_box_remove(GTK_BOX(from), w);
+    gtk_box_insert_child_after(GTK_BOX(to), w, after);
+    g_object_unref(w);
+}
+
+/* The entry and the scope label go into the head of the card (TRUE), or
+ * back into the field of the header (FALSE). */
+static void move_entry(Search *s, gboolean to_card) {
+    if (to_card) {
+        move_child(s->scope_label, s->head, s->grip);
+        move_child(s->entry, s->head, s->scope_label);
+    } else {
+        move_child(s->scope_label, s->field, s->field_icon);
+        move_child(s->entry, s->field, s->scope_label);
+    }
+}
+
+/* The header shows the field (docked), or the Search button (undocked).
+ * The card has its head and its resize grip only while undocked. */
+static void apply_dock(Search *s) {
+    gtk_widget_set_visible(s->field, !s->undocked);
+    gtk_widget_set_visible(s->open_button, s->undocked);
+    gtk_widget_set_visible(s->head, s->undocked);
+    gtk_widget_set_visible(s->resize, s->undocked);
+    if (s->undocked) gtk_widget_remove_css_class(s->card, "zg-search-docked");
+    else gtk_widget_add_css_class(s->card, "zg-search-docked");
+}
+
+/* Docks the search in the header, or undocks it into a card. The search
+ * opens again in its new place, with its text. */
+static void set_docked(Search *s, gboolean docked) {
+    zg_search_close(s->card);
+    s->undocked = !docked;
+    zg_pref_set("search_docked", docked ? "1" : "0");
+    apply_dock(s);
+    show_search(s, NULL, -1, TRUE);
+}
+
+static void on_undock(GtkButton *b, gpointer data) {
+    set_docked(data, FALSE);
+}
+
+static void on_dock(GtkButton *b, gpointer data) {
+    set_docked(data, TRUE);
+}
+
+static void on_open_clicked(GtkButton *b, gpointer data) {
+    show_search(data, NULL, -1, TRUE);
+}
+
+/* A click in the docked field shows the results. */
+static void on_field_press(GtkGestureClick *g, int n, double x, double y, gpointer data) {
+    Search *s = data;
+    if (!s->undocked && !gtk_widget_get_visible(s->card)) show_search(s, NULL, -1, FALSE);
+}
+
 static void on_close_clicked(GtkButton *b, gpointer data) {
     zg_search_close(((Search *)data)->card);
 }
@@ -535,8 +688,61 @@ static void search_free(gpointer data) {
     g_signal_handlers_disconnect_by_data(s->model, s);
     g_ptr_array_free(s->rows, TRUE);
     g_free(s->eye_on);
+    g_clear_object(&s->header);
     g_object_unref(s->model);
     g_free(s);
+}
+
+static GtkWidget *flat_icon_button(const char *icon, const char *tip) {
+    GtkWidget *b = gtk_button_new_from_icon_name(icon);
+    gtk_widget_add_css_class(b, "flat");
+    gtk_widget_add_css_class(b, "circular");
+    gtk_widget_set_tooltip_text(b, tip);
+    gtk_widget_set_focus_on_click(b, FALSE);
+    return b;
+}
+
+/* The header part: the field, and the Search button of the undocked
+ * search. */
+static void header_new(Search *s) {
+    s->header = g_object_ref_sink(gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0));
+    s->field = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
+    gtk_widget_add_css_class(s->field, "zg-search-field");
+    gtk_widget_set_tooltip_text(s->field, "Search settings and actions (/). Change a setting right in the results, and watch the slice.");
+    s->field_icon = gtk_image_new_from_icon_name("system-search-symbolic");
+    gtk_box_append(GTK_BOX(s->field), s->field_icon);
+    gtk_box_append(GTK_BOX(s->field), s->scope_label);
+    gtk_box_append(GTK_BOX(s->field), s->entry);
+    s->field_close = flat_icon_button("window-close-symbolic", "Close the search (Esc)");
+    gtk_widget_set_visible(s->field_close, FALSE);
+    g_signal_connect(s->field_close, "clicked", G_CALLBACK(on_close_clicked), s);
+    gtk_box_append(GTK_BOX(s->field), s->field_close);
+    GtkWidget *undock = flat_icon_button("window-new-symbolic", "Undock the search: a card over the view that you can move and resize");
+    g_signal_connect(undock, "clicked", G_CALLBACK(on_undock), s);
+    gtk_box_append(GTK_BOX(s->field), undock);
+    GtkGesture *press = gtk_gesture_click_new();
+    gtk_event_controller_set_propagation_phase(GTK_EVENT_CONTROLLER(press), GTK_PHASE_CAPTURE);
+    g_signal_connect(press, "pressed", G_CALLBACK(on_field_press), s);
+    gtk_widget_add_controller(s->field, GTK_EVENT_CONTROLLER(press));
+    /* The keys of the entry in the field: the same keys as in the card. */
+    GtkEventController *keys = gtk_event_controller_key_new();
+    gtk_event_controller_set_propagation_phase(keys, GTK_PHASE_CAPTURE);
+    g_signal_connect(keys, "key-pressed", G_CALLBACK(on_key), s);
+    gtk_widget_add_controller(s->field, keys);
+    gtk_box_append(GTK_BOX(s->header), s->field);
+    /* The Search button of the undocked search. */
+    s->open_button = gtk_button_new();
+    GtkWidget *box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
+    gtk_box_append(GTK_BOX(box), gtk_image_new_from_icon_name("system-search-symbolic"));
+    gtk_box_append(GTK_BOX(box), gtk_label_new("Search"));
+    GtkWidget *key = gtk_label_new("/");
+    gtk_widget_add_css_class(key, "zg-keycap");
+    gtk_box_append(GTK_BOX(box), key);
+    gtk_button_set_child(GTK_BUTTON(s->open_button), box);
+    gtk_widget_set_tooltip_text(s->open_button, "Search settings and actions (/). Change a setting right in the results, and watch the slice.");
+    gtk_widget_set_focus_on_click(s->open_button, FALSE);
+    g_signal_connect(s->open_button, "clicked", G_CALLBACK(on_open_clicked), s);
+    gtk_box_append(GTK_BOX(s->header), s->open_button);
 }
 
 GtkWidget *zg_search_new(ZgModel *model) {
@@ -546,26 +752,31 @@ GtkWidget *zg_search_new(ZgModel *model) {
     s->part = -1;
     s->card = zg_card_new();
     gtk_widget_add_css_class(s->card, "zg-search");
-    gtk_widget_set_size_request(s->card, 500, -1);
-    /* The head: a grip, the scope (a part), the entry, and ×. */
-    GtkWidget *head = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
-    gtk_widget_add_css_class(head, "zg-card-head");
-    GtkWidget *grip = gtk_image_new_from_icon_name("system-search-symbolic");
-    gtk_widget_set_tooltip_text(grip, "Drag to move the search. Double-click: back to its first place.");
-    gtk_box_append(GTK_BOX(head), grip);
+    /* The scope (a part) and the entry: in the field of the header, or in
+     * the head of the card. */
     s->scope_label = gtk_label_new("");
     gtk_widget_add_css_class(s->scope_label, "zg-sr-scope");
+    gtk_label_set_wrap(GTK_LABEL(s->scope_label), TRUE);
+    gtk_label_set_wrap_mode(GTK_LABEL(s->scope_label), PANGO_WRAP_WORD_CHAR);
     gtk_widget_set_visible(s->scope_label, FALSE);
-    gtk_box_append(GTK_BOX(head), s->scope_label);
     s->entry = gtk_entry_new();
     gtk_entry_set_placeholder_text(GTK_ENTRY(s->entry), "Search settings and actions");
     gtk_widget_set_hexpand(s->entry, TRUE);
+    /* A narrow window: the entry gets narrower before the menus of the
+     * header lose room. */
+    gtk_editable_set_width_chars(GTK_EDITABLE(s->entry), 6);
     g_signal_connect(s->entry, "changed", G_CALLBACK(on_changed), s);
-    gtk_box_append(GTK_BOX(head), s->entry);
-    GtkWidget *close = gtk_button_new_from_icon_name("window-close-symbolic");
-    gtk_widget_add_css_class(close, "flat");
-    gtk_widget_add_css_class(close, "circular");
-    gtk_widget_set_tooltip_text(close, "Close the search (Esc)");
+    /* The head of the undocked card: a grip, the scope, the entry, the
+     * dock button, and ×. */
+    GtkWidget *head = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
+    gtk_widget_add_css_class(head, "zg-card-head");
+    s->grip = gtk_image_new_from_icon_name("system-search-symbolic");
+    gtk_widget_set_tooltip_text(s->grip, "Drag to move the search. Double-click: back to its first place.");
+    gtk_box_append(GTK_BOX(head), s->grip);
+    GtkWidget *dock = flat_icon_button("go-top-symbolic", "Dock the search: put it back in the header");
+    g_signal_connect(dock, "clicked", G_CALLBACK(on_dock), s);
+    gtk_box_append(GTK_BOX(head), dock);
+    GtkWidget *close = flat_icon_button("window-close-symbolic", "Close the search (Esc)");
     g_signal_connect(close, "clicked", G_CALLBACK(on_close_clicked), s);
     gtk_box_append(GTK_BOX(head), close);
     gtk_box_append(GTK_BOX(s->card), head);
@@ -579,24 +790,50 @@ GtkWidget *zg_search_new(ZgModel *model) {
     s->scroll = gtk_scrolled_window_new();
     gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(s->scroll), GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC);
     gtk_scrolled_window_set_propagate_natural_height(GTK_SCROLLED_WINDOW(s->scroll), TRUE);
-    gtk_scrolled_window_set_max_content_height(GTK_SCROLLED_WINDOW(s->scroll), 520);
+    gtk_scrolled_window_set_max_content_height(GTK_SCROLLED_WINDOW(s->scroll), LIST_HEIGHT);
     gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(s->scroll), s->list);
     gtk_box_append(GTK_BOX(s->card), s->scroll);
+    /* The resize grip, at the lower right corner of the card. */
+    s->resize = gtk_image_new_from_icon_name("list-drag-handle-symbolic");
+    gtk_widget_add_css_class(s->resize, "zg-resize-grip");
+    gtk_widget_set_halign(s->resize, GTK_ALIGN_END);
+    gtk_widget_set_cursor_from_name(s->resize, "se-resize");
+    gtk_widget_set_tooltip_text(s->resize, "Drag to change the size of the search");
+    GtkGesture *drag = gtk_gesture_drag_new();
+    g_signal_connect(drag, "drag-begin", G_CALLBACK(on_resize_begin), s);
+    g_signal_connect(drag, "drag-update", G_CALLBACK(on_resize_update), s);
+    g_signal_connect(drag, "drag-end", G_CALLBACK(on_resize_end), s);
+    gtk_widget_add_controller(s->resize, GTK_EVENT_CONTROLLER(drag));
+    gtk_box_append(GTK_BOX(s->card), s->resize);
     GtkEventController *keys = gtk_event_controller_key_new();
     gtk_event_controller_set_propagation_phase(keys, GTK_PHASE_CAPTURE);
     g_signal_connect(keys, "key-pressed", G_CALLBACK(on_key), s);
     gtk_widget_add_controller(s->card, keys);
     gtk_widget_set_visible(s->card, FALSE);
+    header_new(s);
+    char *docked = zg_pref_get("search_docked", "1");
+    s->undocked = strcmp(docked, "0") == 0;
+    g_free(docked);
+    apply_dock(s);
     g_object_set_data_full(G_OBJECT(s->card), "zg-search", s, search_free);
     g_signal_connect(model, "setting-changed", G_CALLBACK(on_setting_changed), s);
     return s->card;
 }
 
-void zg_search_show(GtkWidget *search, const char *text, gint64 part) {
+GtkWidget *zg_search_header(GtkWidget *search) {
     Search *s = get(search);
-    if (!s) return;
-    gboolean open = gtk_widget_get_visible(s->card);
-    gboolean was_open = open;
+    return s ? s->header : NULL;
+}
+
+/* text NULL keeps the text of the entry. focus FALSE: the user types in
+ * the field, and the focus stays there. */
+static void show_search(Search *s, const char *text, gint64 part, gboolean focus) {
+    gboolean was_open = gtk_widget_get_visible(s->card);
+    /* Another scope: the search starts again. */
+    if (was_open && part != s->part) {
+        zg_search_close(s->card);
+        was_open = FALSE;
+    }
     s->part = part;
     if (part >= 0) {
         zs_part info;
@@ -610,29 +847,53 @@ void zg_search_show(GtkWidget *search, const char *text, gint64 part) {
         gtk_entry_set_placeholder_text(GTK_ENTRY(s->entry), "Search settings and actions");
     }
     gtk_widget_set_visible(s->scope_label, part >= 0);
-    s->filling = TRUE;
-    gtk_editable_set_text(GTK_EDITABLE(s->entry), text ? text : "");
-    s->filling = FALSE;
+    if (text) {
+        s->filling = TRUE;
+        gtk_editable_set_text(GTK_EDITABLE(s->entry), text);
+        s->filling = FALSE;
+    }
+    if (s->undocked) {
+        move_entry(s, TRUE);
+        if (!was_open) size_saved(s);
+    } else {
+        gtk_widget_set_visible(s->field_close, TRUE);
+        gtk_widget_add_css_class(s->field, "zg-open");
+    }
     fill(s);
     gtk_widget_set_visible(s->card, TRUE);
     /* After the show: the card has its width for the middle. */
-    if (!was_open) place_saved(s);
-    gtk_widget_grab_focus(s->entry);
-    gtk_editable_select_region(GTK_EDITABLE(s->entry), 0, -1);
+    if (!was_open) {
+        if (s->undocked) place_saved(s);
+        else place_docked(s);
+    }
+    if (focus || s->undocked) {
+        gtk_widget_grab_focus(s->entry);
+        if (focus) gtk_editable_select_region(GTK_EDITABLE(s->entry), 0, -1);
+    }
+}
+
+void zg_search_show(GtkWidget *search, const char *text, gint64 part) {
+    Search *s = get(search);
+    if (s) show_search(s, text, part, TRUE);
 }
 
 void zg_search_close(GtkWidget *search) {
     Search *s = get(search);
     if (!s || !gtk_widget_get_visible(s->card)) return;
-    gboolean eye = s->eye_on != NULL;
     g_clear_pointer(&s->eye_on, g_free);
     gtk_widget_set_visible(s->card, FALSE);
     /* The editors go with the rows. */
     GtkWidget *child;
     while ((child = gtk_widget_get_first_child(s->list))) gtk_box_remove(GTK_BOX(s->list), child);
     g_ptr_array_set_size(s->rows, 0);
+    /* The entry goes back to the field of the header. */
+    move_entry(s, FALSE);
+    s->part = -1;
+    gtk_widget_set_visible(s->scope_label, FALSE);
+    gtk_entry_set_placeholder_text(GTK_ENTRY(s->entry), "Search settings and actions");
+    gtk_widget_set_visible(s->field_close, FALSE);
+    gtk_widget_remove_css_class(s->field, "zg-open");
     /* The view shows the whole print again (or the focus of the panel). */
-    (void)eye;
     zg_model_set_focus(s->model, 0, FALSE);
     gtk_widget_activate_action(s->card, "win.refocus", NULL);
     /* The keys go to the view. */

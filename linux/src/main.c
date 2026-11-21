@@ -131,6 +131,13 @@ static const char *ZG_CSS =
     "flowboxchild { padding: 0; }"
     /* The search (search.c). */
     ".zg-search { padding: 8px 8px 6px; }"
+    ".zg-search.zg-search-docked { padding-top: 6px; }"
+    ".zg-search-field { min-width: 180px; min-height: 32px; padding: 0 2px 0 8px; border-radius: 8px;"
+    " background-color: alpha(@theme_fg_color, 0.06); border: 1px solid alpha(@theme_fg_color, 0.12); }"
+    ".zg-search-field.zg-open, .zg-search-field:focus-within { border-color: @theme_selected_bg_color; }"
+    ".zg-search-field entry { background: none; border: none; box-shadow: none; outline: none; min-height: 28px; padding: 0; }"
+    ".zg-search-field button { min-height: 24px; min-width: 24px; padding: 0; }"
+    ".zg-resize-grip { opacity: 0.5; margin: -4px -4px 0 0; }"
     ".zg-sr { padding: 4px 8px; border-radius: 8px; }"
     ".zg-sr.zg-sr-on { background-color: alpha(@theme_selected_bg_color, 0.30); }"
     ".zg-sr:focus-visible { outline: 2px solid alpha(@theme_selected_bg_color, 0.8); outline-offset: -2px; }"

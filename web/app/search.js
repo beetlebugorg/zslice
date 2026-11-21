@@ -1,6 +1,10 @@
 // search.js: the search of settings and actions (docs/internals/one-view.md).
 //
-// `/` opens it over the view. The results are live controls: a number has
+// The search field is always in the header. Text in it (or `/`) shows
+// the results under it. The undock button of the field makes the search a
+// card over the view: the user can move it and change its size, and
+// spatial.js keeps its place, its size, and the choice. The dock button of
+// the card puts the search back in the header. The results are live controls: a number has
 // a slider and an entry, a choice its list, a switch its switch. A change
 // goes to the core at once (a drag sends a value at most each 90 ms), the
 // core slices again, and the view behind the search shows the new slice.
@@ -13,15 +17,15 @@
 // goes into the controls; Esc closes.
 //
 // The search does not block the view: a drag in the view turns it, the
-// wheel zooms, and a click picks a line, while the search stays open. Esc,
-// /, or × closes it.
+// wheel zooms, and a click picks a line, while the results stay open.
+// Esc, /, or × closes them.
 //
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { el } from "./settings.js";
 import { searchSettings } from "./format.js";
 import { ALL_FEATURES, GROUP_TITLES, isNumber, isRatio, displayValue, toCore, formatNumber, sourceText } from "./format.js";
-import { spatial } from "./spatial.js";
+import { spatial, saved, remember } from "./spatial.js";
 
 const MAX_SETTINGS = 14;
 
@@ -121,61 +125,143 @@ export class SearchOverlay {
     this.root = null;
     this.rows = [];
     this.index = 0;
+    this.scope = null;
+    // The field in the header (index.html). The entry and the scope go
+    // into the head of the card while the search is undocked and open.
+    const $ = (id) => document.getElementById(id);
+    this.field = $("search-field");
+    this.input = $("search-input");
+    this.scopeTag = $("search-scope");
+    this.fieldClose = $("search-close");
+    this.openButton = $("search-open");
+    this.undocked = saved("search").undocked === true;
+    this.input.addEventListener("input", () => {
+      if (this.root) this.fill();
+      else this.show(null, null, false);
+    });
+    // A click in the docked field shows the results.
+    this.input.addEventListener("focus", () => {
+      if (!this.root && !this.undocked) this.show(null, null, false);
+    });
+    this.input.addEventListener("keydown", (e) => {
+      if (this.root) this.key(e);
+    });
+    this.fieldClose.onclick = () => this.close();
+    $("search-undock").onclick = () => this.setDocked(false);
+    this.openButton.onclick = () => this.show();
+    this.placeField();
+    this.onResize = () => this.placeDocked();
   }
 
   get open() {
     return !!this.root;
   }
 
+  // The header shows the field (docked), or a Search button that opens
+  // the card (undocked).
+  placeField() {
+    this.field.hidden = this.undocked;
+    this.openButton.hidden = !this.undocked;
+  }
+
+  // Docks the search in the header, or undocks it into a card. The search
+  // opens again in its new place, with its text.
+  setDocked(docked) {
+    this.close();
+    this.undocked = !docked;
+    remember("search", { undocked: this.undocked });
+    this.placeField();
+    this.show();
+  }
+
   // scope: null for the settings of the print, or the settings of one
   // part: { label, set(name, value) -> Promise<error>, value(name) ->
   // Promise<text or null> }. A part shows only the settings that a part
   // can have of its own. A scope with only(info) shows only the settings
-  // that pass it (the layers of rangecard.js).
-  show(text = "", scope = null) {
+  // that pass it (the layers of rangecard.js). text: the new text of the
+  // entry, or null to keep its text. focus: false when the user types in
+  // the field.
+  show(text = null, scope = null, focus = true) {
     if (this.root && scope !== this.scope) this.close();
     this.scope = scope;
+    if (text !== null) this.input.value = text;
     if (this.root) {
+      if (text !== null) this.fill();
       this.input.focus();
       this.input.select();
       return;
     }
+    this.scopeTag.hidden = !scope;
+    this.scopeTag.textContent = scope ? scope.label : "";
+    this.input.placeholder = scope ? "Search the settings of this part" : "Search settings and actions";
     // No shade over the view: the view takes the mouse while the search
     // is open, so the user can turn the view to see a change.
     const box = el("div", "search-box");
     box.setAttribute("role", "dialog");
     box.setAttribute("aria-label", "Search settings and actions");
-    const head = el("label", "search-head");
-    const input = document.createElement("input");
-    input.className = "search-input";
-    input.placeholder = "Search settings and actions";
-    input.spellcheck = false;
-    input.value = text;
-    input.setAttribute("aria-label", "Search settings and actions");
-    const grip = el("span", "search-grip");
-    grip.title = "Drag to move the search. Double-click: back to its first place.";
-    grip.setAttribute("aria-hidden", "true");
-    head.append(grip);
-    if (scope) head.append(el("span", "search-scope", scope.label));
-    const closeBtn = el("button", "flat icon search-close", "×");
-    closeBtn.title = "Close the search (Esc)";
-    closeBtn.setAttribute("aria-label", "Close the search");
-    closeBtn.onclick = () => this.close();
-    head.append(input, closeBtn);
-    this.movable(box, head);
-    // Its size stays for the next search (spatial.js).
-    spatial(box, "search");
     const list = el("div", "search-list");
-    box.append(head, list);
-    box.addEventListener("keydown", (e) => this.key(e));
-    input.addEventListener("input", () => this.fill());
     this.root = el("div", "search-layer");
     this.root.append(box);
+    this.box = box;
+    if (this.undocked) {
+      const head = el("label", "search-head");
+      const grip = el("span", "search-grip");
+      grip.title = "Drag to move the search. Double-click: back to its first place.";
+      grip.setAttribute("aria-hidden", "true");
+      const dock = el("button", "flat icon search-dock");
+      dock.innerHTML = '<svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 2.5h11M8 13.5V6M5 9l3-3 3 3"/></svg>';
+      dock.title = "Dock the search: put it back in the header";
+      dock.setAttribute("aria-label", "Dock the search");
+      dock.onclick = () => this.setDocked(true);
+      const closeBtn = el("button", "flat icon search-close", "×");
+      closeBtn.title = "Close the search (Esc)";
+      closeBtn.setAttribute("aria-label", "Close the search");
+      closeBtn.onclick = () => this.close();
+      head.append(grip, this.scopeTag, this.input, dock, closeBtn);
+      this.movable(box, head);
+      // Its size stays for the next search (spatial.js).
+      spatial(box, "search");
+      box.append(head, list);
+    } else {
+      // Under the field of the header, with no head: the field is its
+      // head.
+      box.classList.add("docked");
+      // The scope of a part goes over the results: the field stays wide
+      // enough for the text.
+      if (scope) {
+        const row = el("div", "search-scope-row");
+        row.append(this.scopeTag);
+        box.append(row);
+      }
+      box.append(list);
+      this.field.classList.add("open");
+      this.fieldClose.hidden = false;
+      window.addEventListener("resize", this.onResize);
+    }
+    // The keys of the entry come from its own listener.
+    box.addEventListener("keydown", (e) => {
+      if (e.target !== this.input) this.key(e);
+    });
     document.body.append(this.root);
-    this.input = input;
     this.list = list;
+    this.placeDocked();
     this.fill();
-    input.focus();
+    if (focus) {
+      this.input.focus();
+      this.input.select();
+    }
+  }
+
+  // The results of the docked search: under the field, at least 560
+  // pixels wide, inside the window.
+  placeDocked() {
+    if (!this.root || this.undocked) return;
+    const r = this.field.getBoundingClientRect();
+    const w = Math.min(Math.max(r.width, 560), window.innerWidth - 16);
+    const x = Math.max(8, Math.min(window.innerWidth - w - 8, r.left + r.width / 2 - w / 2));
+    this.box.style.width = `${w}px`;
+    this.box.style.left = `${x}px`;
+    this.box.style.top = `${r.bottom + 6}px`;
   }
 
   // The box moves with a drag of its head (not of the entry). It stays in
@@ -258,8 +344,20 @@ export class SearchOverlay {
     this.eyeOn = null;
     // The editors of the search leave the live list of the browser.
     for (const [name, list] of this.ctx.browser.editors) this.ctx.browser.editors.set(name, list.filter((e) => e.where !== "search"));
+    // The entry and the scope go back to the field of the header.
+    const had = document.activeElement === this.input;
+    this.scopeTag.hidden = true;
+    this.input.placeholder = "Search settings and actions";
+    this.fieldClose.before(this.scopeTag);
+    this.scopeTag.after(this.input);
+    this.field.classList.remove("open");
+    this.fieldClose.hidden = true;
+    window.removeEventListener("resize", this.onResize);
+    if (had) this.input.blur();
+    this.scope = null;
     this.root.remove();
     this.root = null;
+    this.box = null;
     this.rows = [];
     this.ctx.unfocus();
     // A removed element sends no focusout: the edit of the history ends

@@ -1958,7 +1958,7 @@ static gboolean on_window_key(GtkEventControllerKey *c, guint key, guint code, G
     case GDK_KEY_slash:
         /* / again closes the search (it stays open while the view moves). */
         if (zg_search_is_open(w->search)) zg_search_close(w->search);
-        else zg_search_show(w->search, "", -1);
+        else zg_search_show(w->search, NULL, -1);
         return TRUE;
     case GDK_KEY_2:
     case GDK_KEY_KP_2: {
@@ -2358,18 +2358,10 @@ GtkWindow *zg_window_new(GtkApplication *app, ZgModel *model) {
     /* The middle of the header bar: Search, and the legend of the colors
      * of the preview. */
     GtkWidget *view_bar = zg_preview_view_bar(w->preview);
-    GtkWidget *search = gtk_button_new();
-    GtkWidget *search_box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
-    gtk_box_append(GTK_BOX(search_box), gtk_image_new_from_icon_name("system-search-symbolic"));
-    gtk_box_append(GTK_BOX(search_box), gtk_label_new("Search"));
-    GtkWidget *search_key = gtk_label_new("/");
-    gtk_widget_add_css_class(search_key, "zg-keycap");
-    gtk_box_append(GTK_BOX(search_box), search_key);
-    gtk_button_set_child(GTK_BUTTON(search), search_box);
-    gtk_widget_set_tooltip_text(search, "Search settings and actions (/). Change a setting right in the results, and watch the slice.");
-    gtk_actionable_set_detailed_action_name(GTK_ACTIONABLE(search), "win.search('')");
-    gtk_widget_set_focus_on_click(search, FALSE);
-    gtk_box_prepend(GTK_BOX(view_bar), search);
+    /* The search: its field (or its Search button, while it is undocked)
+     * in the header, and its results over the view (added below). */
+    w->search = zg_search_new(model);
+    gtk_box_prepend(GTK_BOX(view_bar), zg_search_header(w->search));
     gtk_header_bar_set_title_widget(GTK_HEADER_BAR(header), view_bar);
     /* In a narrow window, the menus at the end keep their names, and the
      * view bar moves off the middle first. */
@@ -2539,9 +2531,8 @@ GtkWindow *zg_window_new(GtkApplication *app, ZgModel *model) {
     /* The card of a selected part, next to it. */
     gtk_overlay_add_overlay(GTK_OVERLAY(w->preview), zg_part_card_new(model, w->preview));
     gtk_overlay_add_overlay(GTK_OVERLAY(w->preview), zg_range_card_new(model, w->preview));
-    /* The search, over the view and the cards: hidden until / or a fact
-     * opens it. */
-    w->search = zg_search_new(model);
+    /* The results of the search, over the view and the cards: hidden
+     * until the field, /, or a fact opens them. */
     gtk_overlay_add_overlay(GTK_OVERLAY(w->preview), w->search);
     /* The Printers page, over the view and its cards. */
     w->farm_view = farm_view_new(w);

@@ -6,7 +6,7 @@ Press `/`, type a few letters, and drag the slider. The print slices again while
 
 ## Search with /
 
-1. Press `/`, or click **Search** in the header.
+1. Press `/`, or click the search field in the header.
 2. Type a few letters, for example `infill`, `brim`, or `export`. Other names also work: `perimeters` finds the walls, and `temp` the temperatures.
 3. Change the value in the result. The part slices again at once.
 
@@ -14,6 +14,16 @@ Press `/`, type a few letters, and drag the slider. The print slices again while
 - An action (Export G-code, Arrange the plate, Undo, and others) runs with a click or Enter.
 - The search does not block the view. Turn the view and click lines while it is open.
 - Keys: ↑ and ↓ go through the results. ← and → change the value. Esc closes the search.
+
+### Undock the search
+
+The search field is always in the header. The results show under it.
+
+- Click the undock button at the right end of the field. The search becomes a card over the view.
+- Drag the head of the card to move it. Drag its lower right corner to change its size.
+- The card opens at the same place and size next time. A double-click on its head moves it back to its first place.
+- While the search is undocked, the header has a **Search** button. Click it, or press `/`, to open the card.
+- Click the dock button in the head of the card to put the search back in the header.
 
 ## The settings panel
 
