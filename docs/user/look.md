@@ -42,7 +42,7 @@ The colors button in the tool strip colors the lines by **Filament**, **Feature*
 | Sky blue | Bridges |
 | Gray | Support |
 
-The last item of the colors menu is **The print as it forms**. See [The print as it forms](print-as-it-forms.md).
+The last item of the colors menu is **Show the plan**, or **Show the print as it forms**. See [The print as it forms](print-as-it-forms.md).
 
 ## The layers
 
