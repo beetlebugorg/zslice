@@ -3,8 +3,9 @@
 //! - A travel move (G0) goes to the start of each path. A travel longer
 //!   than `retract_min_travel` first pulls the filament back (retraction),
 //!   so that the nozzle does not ooze on the way. A travel from one tree
-//!   support path to the next has no retraction if it crosses no edge of
-//!   the part: the support comes off, and a tree has many small islands.
+//!   support path to the next has no retraction if it stays inside one
+//!   support island (one branch) and crosses no edge of the part, as in
+//!   Bambu Studio (see docs/references/bambu-studio.md).
 //! - The retraction of the travels is a printer setting (`Machine.z_hop`
 //!   and the others). A travel that leaves the part, crosses an edge, or
 //!   goes to or from the support can string. With `retract_wipe`, its
@@ -762,6 +763,9 @@ pub const Emitter = struct {
     /// The outline of the layer that `layer` writes, its line width, and
     /// the boxes of its polygons (for combing).
     outline: ?*const geom.Paths = null,
+    /// The plan of the layer that `layer` writes, for its support loops
+    /// (see `sameSupportIsland`).
+    plan: ?*const LayerPlan = null,
     width: f64 = 0.4,
     boxes: [256][4]i64 = undefined,
     n_boxes: usize = 0,
@@ -2378,6 +2382,7 @@ pub const Emitter = struct {
         self.layer_start = true;
         self.setOutline(lp);
         defer self.outline = null;
+        defer self.plan = null;
         self.comb_index = if (self.prep) |pr| (if (pr.index) |*ix| ix else null) else null;
         defer self.comb_index = null;
         if (spiralStart(lp)) {
@@ -2793,6 +2798,7 @@ pub const Emitter = struct {
     /// of more polygons than the buffer holds).
     fn setOutline(self: *Emitter, lp: *const LayerPlan) void {
         self.outline = &lp.outline;
+        self.plan = lp;
         self.width = lp.width;
         self.travel_accel = (lp.resolved orelse self.r).accel(null, lp.index == 0);
         self.n_boxes = 0;
@@ -3190,23 +3196,64 @@ pub const Emitter = struct {
     }
 
     /// True if a travel to x, y goes from one tree support path to the
-    /// next with no retraction: the straight line crosses no edge of the
-    /// part. The support comes off, so a string there does no harm, and
-    /// a tree layer has many small islands.
+    /// next with no retraction: it stays inside one support island (see
+    /// `sameSupportIsland`), and the straight line crosses no edge of the
+    /// part. A travel to another branch retracts, as in Bambu Studio: a
+    /// string between two branches hangs in the air.
     fn supportHop(self: *Emitter, x: f64, y: f64, next: Feature) bool {
         if (self.lr.settings.project.support_style != .tree) return false;
         if (!isSupport(self.feature) or !isSupport(next)) return false;
-        const outline = self.outline orelse return true;
         if (self.known()) |t| if (t.support_hop != .unknown) return t.support_hop == .yes;
         if (self.needsOutline()) return false;
         const a: geom.Point = .{ .x = geom.fromMm(self.x), .y = geom.fromMm(self.y) };
         const b: geom.Point = .{ .x = geom.fromMm(x), .y = geom.fromMm(y) };
-        var hit: usize = 0;
-        // No crossing leaves `hit` at its largest value.
-        _ = self.clearOf(outline.*, self.boxes[0..self.n_boxes], a, b, &hit);
-        const free = hit == std.math.maxInt(usize);
+        var free = self.sameSupportIsland(a, b);
+        if (free) if (self.outline) |outline| {
+            var hit: usize = 0;
+            // No crossing leaves `hit` at its largest value.
+            _ = self.clearOf(outline.*, self.boxes[0..self.n_boxes], a, b, &hit);
+            free = hit == std.math.maxInt(usize);
+        };
         if (self.answers()) |t| t.support_hop = if (free) .yes else .no;
         return free;
+    }
+
+    /// True if a and b are in one support island of the layer: inside the
+    /// box of one closed support loop (a branch of a tree, with a line
+    /// width more on each side), with the middle of a to b inside that
+    /// loop. Bambu Studio tests if a support island contains the travel.
+    fn sameSupportIsland(self: *const Emitter, a: geom.Point, b: geom.Point) bool {
+        const lp = self.plan orelse return false;
+        const pad = geom.fromMm(self.width);
+        const mid: geom.Point = .{ .x = @divTrunc(a.x + b.x, 2), .y = @divTrunc(a.y + b.y, 2) };
+        for (lp.paths.items, 0..) |path, k| {
+            if (path.feature != .support or !path.closed) continue;
+            const poly = lp.points.get(k);
+            if (poly.len < 3) continue;
+            var box = [4]i64{ std.math.maxInt(i64), std.math.maxInt(i64), std.math.minInt(i64), std.math.minInt(i64) };
+            for (poly) |q| box = .{ @min(box[0], q.x), @min(box[1], q.y), @max(box[2], q.x), @max(box[3], q.y) };
+            const in_box = struct {
+                fn f(bx: [4]i64, p: geom.Point, d: i64) bool {
+                    return p.x >= bx[0] - d and p.x <= bx[2] + d and p.y >= bx[1] - d and p.y <= bx[3] + d;
+                }
+            }.f;
+            if (!in_box(box, a, pad) or !in_box(box, b, pad)) continue;
+            if (windingOf(poly, mid) != 0) return true;
+        }
+        return false;
+    }
+
+    /// The winding number of a polygon around p (0: p is outside).
+    fn windingOf(poly: []const geom.Point, p: geom.Point) i32 {
+        var winding: i32 = 0;
+        for (poly, 0..) |a, i| {
+            const b = poly[(i + 1) % poly.len];
+            const c = @as(i128, b.x - a.x) * (p.y - a.y) - @as(i128, b.y - a.y) * (p.x - a.x);
+            if (a.y <= p.y) {
+                if (b.y > p.y and c > 0) winding += 1;
+            } else if (b.y <= p.y and c < 0) winding -= 1;
+        }
+        return winding;
     }
 
     fn isSupport(f: ?Feature) bool {
@@ -4095,13 +4142,17 @@ test "a path with a width for each point extrudes the bead of each segment" {
     try std.testing.expectApproxEqRel(want, em.stats.filament_mm, 1e-6);
 }
 
-test "a travel between tree support paths retracts only if it crosses the part" {
+test "a tree support travel retracts unless it stays in one island and crosses no part" {
     const gpa = std.testing.allocator;
-    const Case = struct { style: settings_mod.SupportStyle, wall: bool, retractions: u32 };
+    const Case = struct { style: settings_mod.SupportStyle, wall: bool, one_island: bool, retractions: u32 };
     const cases = [_]Case{
-        .{ .style = .tree, .wall = false, .retractions = 0 },
-        .{ .style = .grid, .wall = false, .retractions = 1 },
-        .{ .style = .tree, .wall = true, .retractions = 1 },
+        // Two branches 20 mm apart: two islands.
+        .{ .style = .tree, .wall = false, .one_island = false, .retractions = 1 },
+        // A loop and a line inside it: one island.
+        .{ .style = .tree, .wall = false, .one_island = true, .retractions = 0 },
+        .{ .style = .grid, .wall = false, .one_island = true, .retractions = 1 },
+        // A wall of the part across the island.
+        .{ .style = .tree, .wall = true, .one_island = true, .retractions = 1 },
     };
     for (cases) |c| {
         var st: settings_mod.Settings = .{};
@@ -4110,11 +4161,15 @@ test "a travel between tree support paths retracts only if it crosses the part" 
         var lp: LayerPlan = .{ .arena = .init(gpa), .index = 3, .z = 0.9, .height = 0.2, .width = 0.5, .resolved = &r };
         defer lp.deinit();
         const a = lp.arena.allocator();
-        // A wall of the part between the two support loops, or a part
-        // far away.
-        const x0: i64 = if (c.wall) 9000 else 50000;
-        try lp.outline.append(a, &.{ .{ .x = x0, .y = -50000 }, .{ .x = x0 + 2000, .y = -50000 }, .{ .x = x0 + 2000, .y = 50000 }, .{ .x = x0, .y = 50000 } });
-        for ([_]i64{ 0, 20000 }) |x| {
+        // A wall of the part across the support, or a part far away.
+        const x0: i64 = if (c.wall) 5000 else 50000;
+        try lp.outline.append(a, &.{ .{ .x = x0, .y = -50000 }, .{ .x = x0 + 1000, .y = -50000 }, .{ .x = x0 + 1000, .y = 50000 }, .{ .x = x0, .y = 50000 } });
+        if (c.one_island) {
+            try lp.points.append(a, &.{ .{ .x = 0, .y = 0 }, .{ .x = 10000, .y = 0 }, .{ .x = 10000, .y = 10000 }, .{ .x = 0, .y = 10000 } });
+            try lp.paths.append(a, .{ .feature = .support, .closed = true });
+            try lp.points.append(a, &.{ .{ .x = 8000, .y = 8000 }, .{ .x = 2000, .y = 8000 } });
+            try lp.paths.append(a, .{ .feature = .support, .closed = false });
+        } else for ([_]i64{ 0, 20000 }) |x| {
             try lp.points.append(a, &.{ .{ .x = x, .y = 0 }, .{ .x = x + 1000, .y = 0 }, .{ .x = x + 1000, .y = 1000 }, .{ .x = x, .y = 1000 } });
             try lp.paths.append(a, .{ .feature = .support, .closed = true });
         }

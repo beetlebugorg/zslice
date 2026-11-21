@@ -181,12 +181,12 @@ license: AGPL-3.0
 link: https://github.com/bambulab/BambuStudio
 files: src/gcode.zig
 area: gcode
-summary: The straight wipe of zslice goes along the start of a closed path and back along an open path, as the wipe of Bambu Studio.
+summary: The straight wipe of zslice goes along the start of a closed path and back along an open path, as the wipe of Bambu Studio. A tree support travel to another island retracts, as in Bambu Studio.
 ```
 
-The form of the retraction before a travel in the G-code of Bambu Studio 02.09.01.70 for the X2D (the user's file, 19 November 2026): a wipe of `wipe_distance` along the start of a closed path (over its seam) or back along an open path, with most of the retraction on it; then the travel with a lift of `z_hop` (a slope, or a spiral `G3 Z` over an overhang, for "Auto Lift"). In that file 2890 of 2973 retractions lift; the others are at the layer changes. zslice took the path of its straight wipe (`Emitter.wipeLine`) from it. Its lift stays a straight `G0 Z` up and down, and it adds its own wipe on a small circle inside the part.
+The form of the retraction before a travel in the G-code of Bambu Studio 02.09.01.70 for the X2D (the user's file, 19 November 2026): a wipe of `wipe_distance` along the start of a closed path (over its seam) or back along an open path, with most of the retraction on it; then the travel with a lift of `z_hop` (a slope, or a spiral `G3 Z` over an overhang, for "Auto Lift"). In that file 2890 of 2973 retractions lift; the others are at the layer changes. zslice took the path of its straight wipe (`Emitter.wipeLine`) from it. It also took the rule of the support travels: a travel inside one support island has no retraction, and a travel to another island retracts (`GCode::needs_retraction` in `src/libslic3r/GCode.cpp`, commit `8e524a39d4c4cd0541801c1c46d2f77debb0bf1d`, tests if a support island contains the whole travel; zslice tests the box and the loop of each tree branch, `Emitter.sameSupportIsland`). Its lift stays a straight `G0 Z` up and down, and it adds its own wipe on a small circle inside the part.
 
-**License:** AGPL-3.0 (the license of Bambu Studio). zslice copied no code: only the path of the wipe, from the G-code.
+**License:** AGPL-3.0 (the license of Bambu Studio). zslice copied no code: only the path of the wipe, from the G-code, and the rule of the support travels.
 
 **Text:** `LICENSE`
 
