@@ -21,7 +21,7 @@ The letters in the picture name the parts of the window.
 
 | | Part | What it does |
 |---|---|---|
-| A | The header | Open, 2D or 3D, **Search** (`/`), the printer, the filament, the quality, Printers, the settings panel (N), and the main menu. |
+| A | The header | Open, **Search** (`/`), the printer, the filament, the quality, Printers, the settings panel (N), and the main menu. |
 | B | The tools | Select (V), Move (M), Turn (R), Support (S), Grab (H), Measure (T), then the colors, Gaps (G), and Check. |
 | C | The layer slider | The top knob is the top layer that shows. The bottom knob cuts away the layers below it. |
 | D | The dock | The plates, the history, and the replay of the print. |

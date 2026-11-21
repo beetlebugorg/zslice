@@ -55,6 +55,8 @@ typedef struct {
     /* The keys that move or turn a part hold the slice until a pause. */
     guint keys_timer;
     GtkWidget *measure_label;
+    /* The sign of the 2D view, at the top of the view. */
+    GtkWidget *view_sign;
     /* The gaps view: the toggle, and the number of gaps of the layer. */
     GtkWidget *gaps, *gap_count;
     GtkWidget *check, *check_list; /* the printability check */
@@ -1088,18 +1090,16 @@ static void preview_free(gpointer data) {
     g_free(p);
 }
 
-static void on_view_toggle(GtkToggleButton *b, gpointer data) {
-    if (gtk_toggle_button_get_active(b)) gtk_stack_set_visible_child_name(GTK_STACK(data), g_object_get_data(G_OBJECT(b), "zg-page"));
+/* The sign of the 2D view shows with the 2D view. The replay also turns
+ * to 3D: the sign follows the stack. */
+static void on_stack_page(GObject *stack, GParamSpec *pspec, gpointer data) {
+    Preview *p = data;
+    if (p->view_sign) gtk_widget_set_visible(p->view_sign, strcmp(gtk_stack_get_visible_child_name(GTK_STACK(stack)), "2d") == 0);
 }
 
-/* The replay also turns to 3D: the buttons follow the stack. */
-static void on_stack_page(GObject *stack, GParamSpec *pspec, gpointer data) {
-    GtkToggleButton *b3d = data;
-    gboolean is3d = strcmp(gtk_stack_get_visible_child_name(GTK_STACK(stack)), "3d") == 0;
-    if (gtk_toggle_button_get_active(b3d) != is3d) {
-        GtkToggleButton *other = is3d ? b3d : GTK_TOGGLE_BUTTON(gtk_widget_get_prev_sibling(GTK_WIDGET(b3d)));
-        gtk_toggle_button_set_active(other, TRUE);
-    }
+static void on_view_sign(GtkButton *b, gpointer data) {
+    Preview *p = data;
+    gtk_stack_set_visible_child_name(GTK_STACK(p->stack), "3d");
 }
 
 /* ---- keyboard navigation ----
@@ -2043,24 +2043,10 @@ GtkWidget *zg_preview_new(ZgModel *model) {
     char *view = env ? g_strdup(env) : zg_pref_get("view", "3d");
     if (strcmp(view, "3d") == 0) gtk_stack_set_visible_child_name(GTK_STACK(stack), "3d");
     g_free(view);
-    /* 2D and 3D: two small linked buttons. */
-    GtkWidget *b2d = gtk_toggle_button_new_with_label("2D");
-    GtkWidget *b3d = gtk_toggle_button_new_with_label("3D");
-    gtk_toggle_button_set_group(GTK_TOGGLE_BUTTON(b3d), GTK_TOGGLE_BUTTON(b2d));
-    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(strcmp(gtk_stack_get_visible_child_name(GTK_STACK(stack)), "3d") == 0 ? b3d : b2d), TRUE);
-    g_object_set_data(G_OBJECT(b2d), "zg-page", "2d");
-    g_object_set_data(G_OBJECT(b3d), "zg-page", "3d");
-    g_signal_connect(b2d, "toggled", G_CALLBACK(on_view_toggle), stack);
-    g_signal_connect(b3d, "toggled", G_CALLBACK(on_view_toggle), stack);
-    g_signal_connect(stack, "notify::visible-child", G_CALLBACK(on_stack_page), b3d);
-    GtkWidget *switcher = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
-    gtk_widget_add_css_class(switcher, "linked");
-    gtk_box_append(GTK_BOX(switcher), b2d);
-    gtk_box_append(GTK_BOX(switcher), b3d);
-    gtk_widget_set_tooltip_text(switcher, "2D: one layer. 3D: the layers up to the slider. In 3D: a right or a left drag orbits, a middle drag or Shift and a drag pans (on a touchpad: click down with two fingers and slide to pan), scroll or pinch to zoom, double-click to reset.");
+    /* The key 2 and the item "2D view" of the main menu switch between
+     * 2D and 3D (the window has them). */
+    g_signal_connect(stack, "notify::visible-child", G_CALLBACK(on_stack_page), p);
 
-    /* The view buttons go in the middle of the header bar
-     * (zg_preview_view_bar), so the view has more room. */
     const char *modes[] = {"Filament", "Feature", "Speed", "Flow", "Layer time", "Line width", NULL};
     GtkWidget *colors = gtk_drop_down_new_from_strings(modes);
     p->colors = colors;
@@ -2088,14 +2074,10 @@ GtkWidget *zg_preview_new(ZgModel *model) {
     p->speed = gtk_drop_down_new_from_strings(speeds);
     gtk_drop_down_set_selected(GTK_DROP_DOWN(p->speed), 3);
     gtk_widget_set_tooltip_text(p->speed, "The replay speed: 1x is the real print speed.");
-    /* The view bar: 2D and 3D, and the colors. The window adds Search and
-     * + to it. A click on a button of the bar leaves the focus where it
-     * was, so the keys of the view go on. */
+    /* The view bar: the legend of the colors. The window adds the search
+     * to it. */
     GtkWidget *bar = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 4);
     gtk_widget_add_css_class(bar, "zg-view-bar");
-    gtk_widget_set_focus_on_click(b2d, FALSE);
-    gtk_widget_set_focus_on_click(b3d, FALSE);
-    gtk_box_append(GTK_BOX(bar), switcher);
     gtk_box_append(GTK_BOX(bar), p->legend);
     /* The colors are a button of the tool strip; the drop-down keeps the
      * mode. */
@@ -2210,6 +2192,20 @@ GtkWidget *zg_preview_new(ZgModel *model) {
     gtk_widget_set_can_target(p->measure_label, FALSE);
     gtk_widget_set_visible(p->measure_label, FALSE);
     gtk_overlay_add_overlay(GTK_OVERLAY(box), p->measure_label);
+    /* The sign of the 2D view, at the top of the view in the middle. A
+     * click on it shows the 3D view. */
+    p->view_sign = gtk_button_new_with_label("2D view");
+    gtk_widget_add_css_class(p->view_sign, "osd");
+    gtk_widget_add_css_class(p->view_sign, "pill");
+    gtk_widget_add_css_class(p->view_sign, "zg-view-sign");
+    gtk_widget_set_tooltip_text(p->view_sign, "The 2D layer view: one layer from the top. Click here, or press 2, for the 3D view.");
+    gtk_widget_set_focus_on_click(p->view_sign, FALSE);
+    gtk_widget_set_halign(p->view_sign, GTK_ALIGN_CENTER);
+    gtk_widget_set_valign(p->view_sign, GTK_ALIGN_START);
+    gtk_widget_set_margin_top(p->view_sign, 10);
+    g_signal_connect(p->view_sign, "clicked", G_CALLBACK(on_view_sign), p);
+    gtk_overlay_add_overlay(GTK_OVERLAY(box), p->view_sign);
+    on_stack_page(G_OBJECT(stack), NULL, p);
     /* A short note at the top of the view (the simulation). */
     p->note = gtk_label_new("");
     gtk_widget_add_css_class(p->note, "osd");
@@ -2503,6 +2499,11 @@ void zg_preview_set_card(GtkWidget *preview, GtkWidget *card) {
 GtkWidget *zg_preview_view_bar(GtkWidget *preview) {
     Preview *p = g_object_get_data(G_OBJECT(preview), "zg-preview");
     return p ? p->view_bar : NULL;
+}
+
+GtkWidget *zg_preview_stack(GtkWidget *preview) {
+    Preview *p = g_object_get_data(G_OBJECT(preview), "zg-preview");
+    return p ? p->stack : NULL;
 }
 
 GtkWidget *zg_preview_view3d(GtkWidget *preview) {

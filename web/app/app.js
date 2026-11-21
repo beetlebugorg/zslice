@@ -1633,6 +1633,8 @@ $("main-menu").onclick = () => openMenu($("main-menu"), [
   { sep: true },
   { label: "Remove this plate", action: () => removePlate(app.activePlate) },
   { sep: true },
+  { label: "2D view", checked: app.page === "2d", accel: "2", tip: "One layer from the top. A drag pans, the wheel zooms, a double click fits the part.", action: toggle2d },
+  { sep: true },
   { label: "Licenses", action: showLicenses },
   { label: "About zslice", action: () => toast(`zslice ${wasm.cstr(wasm.x.zs_version())}: a slicer in Zig, in WebAssembly. AGPL-3.0-or-later.`) },
 ]);
@@ -1740,23 +1742,22 @@ $("project-close").onclick = () => $("project-dialog").close();
 
 // ---- the 2D and the 3D view ----
 
-// Shows the 2D layer view or the 3D view (the toggle of preview.c).
+// Shows the 2D layer view or the 3D view (the toggle of preview.c). The
+// key 2 and the item "2D view" of the main menu switch between them. In
+// the 2D view, a sign at the top of the view says so.
 function showPage(page) {
   if (app.page === page) return;
   app.page = page;
   store.view = page;
   saveStore();
-  $("view-2d").classList.toggle("checked", page === "2d");
-  $("view-3d").classList.toggle("checked", page === "3d");
+  $("view-sign").hidden = page !== "2d";
   requestFrame();
 }
-$("view-2d").disabled = false;
-$("view-2d").title = "2D: one layer from the top. A drag pans, the wheel zooms, a double click fits the part.";
-$("view-3d").title = "3D: the layers up to the slider. A left drag orbits, a right drag orbits too, a middle drag pans (on a touchpad: click down with two fingers and slide to pan), scroll or pinch to zoom, double-click to reset.";
-$("view-2d").onclick = () => showPage("2d");
-$("view-3d").onclick = () => showPage("3d");
-$("view-2d").classList.toggle("checked", app.page === "2d");
-$("view-3d").classList.toggle("checked", app.page === "3d");
+function toggle2d() {
+  showPage(app.page === "2d" ? "3d" : "2d");
+}
+$("view-sign").onclick = () => showPage("3d");
+$("view-sign").hidden = app.page !== "2d";
 
 // ---- the selection ----
 
@@ -2234,7 +2235,8 @@ document.addEventListener("keydown", (e) => {
 
 // Delete removes the part of the card, or takes the selected line out of
 // the print. N shows the panel, D copies the part of the card, ? shows
-// the keys, and / opens the search.
+// the keys, / opens the search, 2 shows the 2D view or the 3D view
+// again, and 3 shows the 3D view.
 document.addEventListener("keydown", (e) => {
   if (e.key === "Delete" && partCard.open && !e.target.closest?.("input, textarea, select, [contenteditable]")) {
     e.preventDefault();
@@ -2247,11 +2249,15 @@ document.addEventListener("keydown", (e) => {
     if (lineCard.info) lineCard.ctx.edit(lineCard.info, 0, 1);
     return;
   }
-  if (!["/", "?", "n", "N", "d", "D"].includes(e.key) || e.ctrlKey || e.metaKey || e.altKey) return;
+  if (!["/", "?", "n", "N", "d", "D", "2", "3"].includes(e.key) || e.ctrlKey || e.metaKey || e.altKey) return;
   if ((e.key === "d" || e.key === "D") && !partCard.open) return;
   if (e.target.closest?.("input, textarea, select, [contenteditable]")) return;
   e.preventDefault();
-  if (e.key === "n" || e.key === "N") {
+  if (e.key === "2") {
+    toggle2d();
+  } else if (e.key === "3") {
+    showPage("3d");
+  } else if (e.key === "n" || e.key === "N") {
     togglePanel();
   } else if ((e.key === "d" || e.key === "D") && partCard.open) {
     partCard.act("duplicate");
@@ -3810,8 +3816,8 @@ const search = new SearchOverlay({
     { label: "The print as it forms", hint: "simulated plastic: it sags and droops where nothing holds it", run: () => toggleSimulation() },
     { label: "Undo", keys: "Ctrl+Z", run: () => undoRedo("undo") },
     { label: "Redo", keys: "Ctrl+Shift+Z", run: () => undoRedo("redo") },
-    { label: "2D layer view", run: () => showPage("2d") },
-    { label: "3D view", run: () => showPage("3d") },
+    { label: "2D layer view", keys: "2", run: () => showPage("2d") },
+    { label: "3D view", keys: "3", run: () => showPage("3d") },
     { label: "Manage printers…", run: () => managePrinters() },
     { label: project.openName() ? "The project" : "Open a project", hint: project.openName() ?? "printdeck.yml from GitHub or a folder", run: () => showTab("project") },
     ...(project.openName() ? [{ label: "Close the project", hint: `${project.openName()}: its plates stay`, run: () => closeProject() }] : []),

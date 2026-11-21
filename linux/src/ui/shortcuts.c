@@ -22,6 +22,8 @@ static const Group SHORTCUTS[] = {
         {"?", "Show this sheet of the keyboard shortcuts"},
         {"/", "Search the settings and the actions, and change a setting in the results"},
         {"N", "Show or hide the panel: all settings, the selected line, the history, and the project"},
+        {"2", "The 2D layer view, or the 3D view again (also in the main menu: 2D view)"},
+        {"3", "The 3D view"},
         {"Ctrl+O", "Add models to the plate"},
         {"Ctrl+E", "Export the G-code"},
         {"Ctrl+S", "Save the project: all plates in one 3MF file"},

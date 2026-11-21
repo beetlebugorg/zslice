@@ -11,6 +11,8 @@ Press `?` in the app to see all keys. Type in the sheet to filter it. On the Mac
 | `?` | The sheet of the keys |
 | `/` | Search the settings and the actions |
 | N | Show or hide the settings panel |
+| 2 | The 2D layer view. Press 2 again for the 3D view. The main menu has the same switch: **2D view**. |
+| 3 | The 3D view |
 | Ctrl+O | Open a model or a project |
 | Ctrl+S | Save the project: all plates in one 3MF file |
 | Ctrl+E | Export the G-code |

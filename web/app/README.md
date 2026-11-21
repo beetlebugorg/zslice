@@ -127,7 +127,7 @@ The core cannot draw in a browser. Its web backend (`src/render/web.zig`) keeps 
 
 ### The 2D layer view
 
-The 2D view shows one layer from the top, as `linux/src/ui/layer-draw.c` draws it: the bed with its 10 mm grid, the outline of the layer in gray, and each bead in its feature color. The 2D and 3D buttons switch the views; the layer slider drives both. In 2D a drag pans, the wheel zooms at the pointer, and a double click fits the part. A replay, a step of h and l, and a change of the colors go to the 3D view, as in the GTK shell.
+The 2D view shows one layer from the top, as `linux/src/ui/layer-draw.c` draws it: the bed with its 10 mm grid, the outline of the layer in gray, and each bead in its feature color. The key 2 and the item "2D view" of the main menu switch the views; the layer slider drives both. In 2D, a sign at the top of the view says so. In 2D a drag pans, the wheel zooms at the pointer, and a double click fits the part. A replay, a step of h and l, and a change of the colors go to the 3D view, as in the GTK shell.
 
 The data is in the view of the main thread, so a new layer needs no call to the worker. The beads of the 2D view are the instances of the 3D view on the GPU: `zs_view_layer_beads` gives the range of a layer, and one instanced draw draws it, as strokes with round ends. The outlines of all layers (`zs_view_outlines`) go to the GPU once for each slice, as fans of triangles; the stencil buffer fills them by the nonzero rule. The marks of a focus (seams, travel moves, retractions) come from `zs_view_layer_marks`.
 

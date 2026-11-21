@@ -17,12 +17,9 @@
       </button>
       <div id="title" class="hb-title">zslice</div>
     </div>
-    <!-- The view: 2D or 3D, and the search. -->
+    <!-- The search. The 2D view has a key (2) and an item of the main
+         menu. -->
     <div class="hb-center toolbar">
-      <div class="linked">
-        <button id="view-2d" class="tool">2D</button>
-        <button id="view-3d" class="tool checked">3D</button>
-      </div>
       <button id="search-open" class="tool search-button" title="Search settings and actions (/). Change a setting right in the results, and watch the slice." aria-label="Search settings and actions">
         <svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><circle cx="7" cy="7" r="4.8"/><path d="M10.6 10.6l3.4 3.4"/></svg>
         <span class="search-word">Search</span><kbd>/</kbd>
@@ -86,6 +83,9 @@
         </button>
       </div>
       <div id="measure-readout" class="float measure-readout" hidden></div>
+      <!-- In the 2D view: a sign at the top of the view. A click on it
+           shows the 3D view. -->
+      <button id="view-sign" class="float view-sign" hidden title="The 2D layer view: one layer from the top. Click here, or press 2, for the 3D view.">2D view</button>
       <div id="legend" class="float legend" hidden></div>
       <div id="layers" class="layers" hidden>
         <div class="trough"><div class="highlight"></div></div>

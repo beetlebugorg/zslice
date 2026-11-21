@@ -23,6 +23,8 @@ Turn the view, go down through the layers, and replay the print as the printer p
 - **3D** shows the print as beads. Skin lines are pressed flat. Connected lines look connected.
 - **2D** shows the top layer from above.
 
+Press 2 to show the 2D view. Press 2 again, or 3, to go back to 3D. The main menu has the same switch: **2D view**. In the 2D view, a sign at the top of the view says **2D view**. Click the sign to go back to 3D.
+
 ## The colors
 
 The colors button in the tool strip colors the lines by **Filament**, **Feature**, **Speed**, **Flow**, **Layer time**, or **Line width**. With a number, a legend gives the range.

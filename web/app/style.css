@@ -618,6 +618,13 @@ button.destructive { background: #c01c28; color: #fff; }
 .tl-line.later { background: rgba(255, 255, 255, 0.12); }
 
 /* The readout of the measure tape, under the toolbar. */
+/* The sign of the 2D view: at the top of the view, in the middle. */
+.view-sign {
+  top: 10px; left: 50%; transform: translateX(-50%); z-index: 4;
+  padding: 3px 12px; border-radius: 999px; font-size: 0.85em; font-weight: 600;
+  white-space: nowrap; cursor: pointer;
+}
+.view-sign[hidden] { display: none; }
 .measure-readout {
   top: calc(18px + var(--toolbar-h, 40px)); left: 62px; padding: 6px 12px; border-radius: 8px; white-space: pre-line;
   font-size: 0.9em; font-variant-numeric: tabular-nums; pointer-events: none; max-width: calc(100% - 20px);

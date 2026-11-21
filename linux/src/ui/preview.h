@@ -19,9 +19,12 @@ void zg_preview_set_timeline(GtkWidget *preview, GtkWidget *timeline);
 /* Puts the print card at the bottom right of the preview. The dock ends
  * where the card starts. A hidden card leaves the whole width to the dock. */
 void zg_preview_set_card(GtkWidget *preview, GtkWidget *card);
-/* The view buttons (2D and 3D, the colors) for the middle of the header
- * bar. The window adds its own buttons to the box. */
+/* The view bar (the legend of the colors) for the middle of the header
+ * bar. The window adds the search to the box. */
 GtkWidget *zg_preview_view_bar(GtkWidget *preview);
+/* The stack of the 2D view ("2d") and the 3D view ("3d"). Its
+ * visible-child-name is the view that shows. */
+GtkWidget *zg_preview_stack(GtkWidget *preview);
 
 /* Reads the result from the core again. Call it when the state changes. */
 void zg_preview_refresh(GtkWidget *preview);

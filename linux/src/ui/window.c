@@ -1873,6 +1873,21 @@ static void on_search_part_action(GSimpleAction *a, GVariant *v, gpointer data) 
     zg_search_show(w->search, "", g_variant_get_int64(v));
 }
 
+/* "win.view-2d": the 2D layer view (TRUE) or the 3D view (FALSE). The
+ * main menu shows it as the check "2D view", and the key 2 turns it. */
+static void on_view_2d_change(GSimpleAction *a, GVariant *v, gpointer data) {
+    Window *w = get(data);
+    gtk_stack_set_visible_child_name(GTK_STACK(zg_preview_stack(w->preview)), g_variant_get_boolean(v) ? "2d" : "3d");
+}
+
+/* The state of "win.view-2d" follows the stack: the replay also turns to
+ * 3D. */
+static void on_view_page(GObject *stack, GParamSpec *pspec, gpointer data) {
+    GAction *a = g_action_map_lookup_action(G_ACTION_MAP(data), "view-2d");
+    gboolean two = strcmp(gtk_stack_get_visible_child_name(GTK_STACK(stack)), "2d") == 0;
+    if (a) g_simple_action_set_state(G_SIMPLE_ACTION(a), g_variant_new_boolean(two));
+}
+
 static void on_shortcuts_action(GSimpleAction *a, GVariant *v, gpointer data) {
     Window *w = get(data);
     zg_search_close(w->search);
@@ -1944,6 +1959,17 @@ static gboolean on_window_key(GtkEventControllerKey *c, guint key, guint code, G
         /* / again closes the search (it stays open while the view moves). */
         if (zg_search_is_open(w->search)) zg_search_close(w->search);
         else zg_search_show(w->search, "", -1);
+        return TRUE;
+    case GDK_KEY_2:
+    case GDK_KEY_KP_2: {
+        /* 2: the 2D view, or the 3D view again. */
+        GtkStack *stack = GTK_STACK(zg_preview_stack(w->preview));
+        gtk_stack_set_visible_child_name(stack, strcmp(gtk_stack_get_visible_child_name(stack), "2d") == 0 ? "3d" : "2d");
+        return TRUE;
+    }
+    case GDK_KEY_3:
+    case GDK_KEY_KP_3:
+        gtk_stack_set_visible_child_name(GTK_STACK(zg_preview_stack(w->preview)), "3d");
         return TRUE;
     case GDK_KEY_Escape:
         /* Esc closes the search also when the view has the focus, once the
@@ -2247,6 +2273,7 @@ GtkWindow *zg_window_new(GtkApplication *app, ZgModel *model) {
         {.name = "scale-tiny", .activate = on_scale_tiny_action, .parameter_type = "d"},
         {.name = "support-on", .activate = on_support_on_action},
         {.name = "print-details", .activate = on_print_details_action},
+        {.name = "view-2d", .state = "false", .change_state = on_view_2d_change},
     };
     g_action_map_add_action_entries(G_ACTION_MAP(w->window), win_actions, G_N_ELEMENTS(win_actions), w->window);
     g_signal_connect(model, "undo-changed", G_CALLBACK(on_undo_changed), w);
@@ -2277,6 +2304,13 @@ GtkWindow *zg_window_new(GtkApplication *app, ZgModel *model) {
     g_menu_append(places, "History", "win.show-page::history");
     g_menu_append_section(menu, NULL, G_MENU_MODEL(places));
     g_object_unref(places);
+    GMenu *view = g_menu_new();
+    GMenuItem *view_2d = g_menu_item_new("2D view", "win.view-2d");
+    g_menu_item_set_attribute(view_2d, "accel", "s", "2");
+    g_menu_append_item(view, view_2d);
+    g_object_unref(view_2d);
+    g_menu_append_section(menu, NULL, G_MENU_MODEL(view));
+    g_object_unref(view);
     GMenu *more = g_menu_new();
     g_menu_append_section(menu, NULL, G_MENU_MODEL(more));
     g_menu_append(more, "Keyboard shortcuts", "win.shortcuts");
@@ -2318,8 +2352,11 @@ GtkWindow *zg_window_new(GtkApplication *app, ZgModel *model) {
 
     /* Body: settings | preview. */
     w->preview = zg_preview_new(model);
-    /* The middle of the header bar: the view buttons of the preview (2D
-     * and 3D, the legend of the colors), and Search. */
+    /* The check "2D view" of the main menu follows the view. */
+    g_signal_connect(zg_preview_stack(w->preview), "notify::visible-child", G_CALLBACK(on_view_page), w->window);
+    on_view_page(G_OBJECT(zg_preview_stack(w->preview)), NULL, w->window);
+    /* The middle of the header bar: Search, and the legend of the colors
+     * of the preview. */
     GtkWidget *view_bar = zg_preview_view_bar(w->preview);
     GtkWidget *search = gtk_button_new();
     GtkWidget *search_box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
@@ -2332,7 +2369,7 @@ GtkWindow *zg_window_new(GtkApplication *app, ZgModel *model) {
     gtk_widget_set_tooltip_text(search, "Search settings and actions (/). Change a setting right in the results, and watch the slice.");
     gtk_actionable_set_detailed_action_name(GTK_ACTIONABLE(search), "win.search('')");
     gtk_widget_set_focus_on_click(search, FALSE);
-    gtk_box_insert_child_after(GTK_BOX(view_bar), search, gtk_widget_get_first_child(view_bar));
+    gtk_box_prepend(GTK_BOX(view_bar), search);
     gtk_header_bar_set_title_widget(GTK_HEADER_BAR(header), view_bar);
     /* In a narrow window, the menus at the end keep their names, and the
      * view bar moves off the middle first. */

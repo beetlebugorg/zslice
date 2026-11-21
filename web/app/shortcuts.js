@@ -16,6 +16,8 @@ export const SHORTCUTS = [
       ["?", "Show this sheet of the keyboard shortcuts"],
       ["/", "Search the settings and the actions, and change a setting in the results"],
       ["N", "Show or hide the panel of the settings (and the selected line, from All settings on its card)"],
+      ["2", "The 2D layer view, or the 3D view again (also in the main menu: 2D view)"],
+      ["3", "The 3D view"],
       ["Ctrl+O", "Open a model or a project"],
       ["Ctrl+S", "Save the project: all plates in one 3MF file"],
       ["Ctrl+E", "Export the G-code"],

@@ -85,7 +85,7 @@ The GTK shell is in `linux/src`. Each `.c` file has a header that explains its i
 | | `discovery` | The search of the network for printers (mDNS), with the packets of the core |
 | | `project-source` | The files of a printdeck.yml project: a folder, or a public GitHub repository |
 | `ui/` | `window` | The main window: the header bar, the file dialogs, the send to a printer, and the status bar |
-| | `preview` | The 2D and 3D preview with the tool strip, the layer slider, the dock at the bottom (the plates, the replay, and the history), the place of the print card, the view buttons of the header bar, the measure readout, and the keyboard navigation |
+| | `preview` | The 2D and 3D preview with the tool strip, the layer slider, the dock at the bottom (the plates, the replay, and the history), the place of the print card, the sign of the 2D view, the measure readout, and the keyboard navigation |
 | | `layer-draw` | The cairo drawing of one layer in the 2D view |
 | | `toolpath-nav` | The next segment and the nearest line, for the keyboard navigation |
 | | `layer-range` | The slider with two knobs for the layers that show |
