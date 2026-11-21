@@ -1473,7 +1473,17 @@ fn isInside(w: [2]i32, op: Op, rule: FillRule) bool {
 // ---------------------------------------------------------------------------
 // Step 6
 
-const DirEdge = struct { a: Point, b: Point, used: bool = false };
+pub const DirEdge = struct { a: Point, b: Point, used: bool = false };
+
+/// The closed loops of a set of directed edges, with the inside on the
+/// left of each edge (see `chainLoops`). At each point, as many edges
+/// must come in as go out. The function sorts `edges`. The caller owns
+/// the result.
+pub fn loopsFromEdges(gpa: Allocator, edges: []DirEdge) Allocator.Error!Paths {
+    var arena_state = scratch.get(gpa);
+    defer arena_state.release();
+    return chainLoops(gpa, arena_state.allocator(), edges);
+}
 
 /// Joins directed edges into closed loops. At each vertex, the number of
 /// edges in is equal to the number of edges out, so a walk along unused
