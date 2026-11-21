@@ -683,7 +683,9 @@ pub const Reader = struct {
         } else true;
         if (all_elapsed) {
             for (r.layers.items) |*l| l.time = l.elapsed;
-            r.total_time = @max(@as(f32, @floatCast(r.time)), r.layers.items[r.layers.items.len - 1].time);
+            // The estimate of the reader can differ from the times of the
+            // slicer: the total is the time of the last layer.
+            r.total_time = r.layers.items[r.layers.items.len - 1].time;
             return;
         }
         var scale: f64 = 1;
@@ -1082,6 +1084,21 @@ test "gcode_read: Cura G-code with absolute E" {
     try testing.expectApproxEqAbs(@as(f32, 25), @as(f32, r.at(last).speed), 1e-3);
     const skin_off = std.mem.indexOf(u8, cura_sample, "G1 F1500").? + 10;
     try testing.expectEqual(@as(u8, @intFromEnum(Feature.skin)), r.at(r.segmentAt(skin_off + 20).?).feature);
+}
+
+test "gcode_read: the total time of a file with a time for each layer" {
+    // The estimate of the reader for this slow move is 100 s. The slicer
+    // gives 5 s.
+    const text =
+        \\;LAYER:0
+        \\G1 Z0.2 F60
+        \\G1 X100 Y0 E1
+        \\;TIME_ELAPSED:5
+        \\
+    ;
+    var r = try Reader.parse(testing.allocator, text);
+    defer r.deinit();
+    try testing.expectApproxEqAbs(@as(f32, 5), r.total_time, 1e-3);
 }
 
 test "gcode_read: the notes of the slicer" {
