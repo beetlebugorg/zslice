@@ -1089,6 +1089,10 @@ button.destructive { background: #c01c28; color: #fff; }
 .label-text { width: 100%; box-sizing: border-box; font-size: 1.05em; }
 .label-fields { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 4px 10px; }
 .label-card .pc-cut-n { width: 4.6em; min-width: 0; }
+/* A field row fits its cell: the input gives way, the unit stays inside. */
+.label-fields .pc-cut-row { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.label-fields .pc-cut-row .pc-cut-n { flex: 1 1 auto; width: auto; min-width: 3em; }
+.label-fields .pc-cut-row > span { flex: none; }
 .label-fields > .pc-cut-row:last-child { grid-column: 1 / -1; }
 .label-fields .pc-action { grid-column: 1 / -1; justify-self: start; }
 .label-fields .caption { grid-column: 1 / -1; }
