@@ -61,6 +61,37 @@ namespace winrt::ZSlice::implementation
         void SelectPlate(size_t index);
         void FramePlate(size_t index);
 
+        // Settings and history (MainWindow.Settings.cpp).
+        struct SettingEditor
+        {
+            std::string name;
+            std::function<void()> refresh;
+        };
+        enum class SettingsPage
+        {
+            Sections,
+            Section,
+            Search,
+            Detail,
+        };
+        void WireSettings();
+        void ShowSettingsPane(bool show);
+        void ShowSections();
+        void ShowSection(char const *group, char const *section);
+        void ShowSearch(std::wstring const &query);
+        void ShowDetail(char const *name);
+        void SettingsGoBack();
+        void ClearSettingsList();
+        Microsoft::UI::Xaml::FrameworkElement MakeSettingRow(zs_setting_info const &info);
+        Microsoft::UI::Xaml::FrameworkElement MakeEditor(zs_setting_info const &info);
+        void CommitSetting(std::string const &name, std::string const &value);
+        void CommitSettingText(zs_setting_info const &info, std::wstring const &text);
+        void RefreshSettingValues();
+        void NoteChange();
+        void RefreshHistoryButtons();
+        void FillHistoryMenu();
+        void AfterRestore(int bits);
+
         HWND hwnd = nullptr;
         Microsoft::UI::Dispatching::DispatcherQueue queue{ nullptr };
         Microsoft::UI::Dispatching::DispatcherQueueTimer retry_timer{ nullptr };
@@ -83,6 +114,16 @@ namespace winrt::ZSlice::implementation
 
         size_t layer_count = 0;
         bool setting_layer = false;
+
+        Microsoft::UI::Dispatching::DispatcherQueueTimer history_timer{ nullptr };
+        std::vector<SettingEditor> setting_editors;
+        SettingsPage settings_page = SettingsPage::Sections;
+        SettingsPage detail_from = SettingsPage::Sections;
+        char const *settings_group = nullptr;
+        char const *settings_section = nullptr;
+        std::wstring settings_query;
+        // True while the code fills an editor: its change event is no edit.
+        bool filling_editor = false;
     };
 }
 

@@ -16,7 +16,9 @@
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
             <TextBlock Grid.Column="0" Text="zslice" VerticalAlignment="Center"
                        FontSize="15" FontWeight="SemiBold" Margin="0,0,16,0" />
@@ -26,12 +28,65 @@
                     <KeyboardAccelerator Modifiers="Control" Key="O" />
                 </Button.KeyboardAccelerators>
             </Button>
-            <TextBlock x:Name="FileName" Grid.Column="2" VerticalAlignment="Center" Margin="16,0,0,0"
+            <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="2" Margin="12,0,0,0" VerticalAlignment="Center">
+                <Button x:Name="UndoButton" AutomationProperties.Name="Undo" Background="Transparent" BorderThickness="0" IsEnabled="False"
+                        ToolTipService.ToolTip="Undo (Ctrl+Z)">
+                    <FontIcon Glyph="&#xE7A7;" FontSize="14" />
+                    <Button.KeyboardAccelerators>
+                        <KeyboardAccelerator Modifiers="Control" Key="Z" />
+                    </Button.KeyboardAccelerators>
+                </Button>
+                <Button x:Name="RedoButton" AutomationProperties.Name="Redo" Background="Transparent" BorderThickness="0" IsEnabled="False"
+                        ToolTipService.ToolTip="Redo (Ctrl+Y)">
+                    <FontIcon Glyph="&#xE7A6;" FontSize="14" />
+                    <Button.KeyboardAccelerators>
+                        <KeyboardAccelerator Modifiers="Control" Key="Y" />
+                    </Button.KeyboardAccelerators>
+                </Button>
+                <DropDownButton x:Name="HistoryButton" AutomationProperties.Name="History" Background="Transparent" BorderThickness="0"
+                                ToolTipService.ToolTip="The history of this plate">
+                    <FontIcon Glyph="&#xE81C;" FontSize="14" />
+                    <DropDownButton.Flyout>
+                        <MenuFlyout x:Name="HistoryMenu" Placement="BottomEdgeAlignedLeft" />
+                    </DropDownButton.Flyout>
+                </DropDownButton>
+            </StackPanel>
+            <TextBlock x:Name="FileName" Grid.Column="3" VerticalAlignment="Center" Margin="16,0,0,0"
                        Foreground="#5B6168" TextTrimming="CharacterEllipsis" />
+            <ToggleButton x:Name="SettingsToggle" Grid.Column="4" Content="Settings" VerticalAlignment="Center"
+                          ToolTipService.ToolTip="Show the settings (/ searches them)" />
         </Grid>
 
         <!-- The core draws into this panel. The XAML chrome floats over it. -->
         <Grid Grid.Row="1">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+
+            <!-- The settings: built from the descriptions of the core. -->
+            <Border x:Name="SettingsPane" Grid.Column="1" Width="420" Visibility="Collapsed"
+                    Background="#FFFFFF" BorderBrush="#DDE0E4" BorderThickness="1,0,0,0">
+                <Grid Padding="12" RowSpacing="8">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
+                    </Grid.RowDefinitions>
+                    <TextBox x:Name="SettingsSearch" AutomationProperties.Name="Search the settings" Grid.Row="0" PlaceholderText="Search the settings" />
+                    <StackPanel Grid.Row="1" Orientation="Horizontal" Spacing="6">
+                        <Button x:Name="SettingsBack" AutomationProperties.Name="Back" Background="Transparent" BorderThickness="0"
+                                Visibility="Collapsed" ToolTipService.ToolTip="Back">
+                            <FontIcon Glyph="&#xE72B;" FontSize="12" />
+                        </Button>
+                        <TextBlock x:Name="SettingsCrumb" VerticalAlignment="Center" FontWeight="SemiBold" />
+                    </StackPanel>
+                    <ScrollViewer x:Name="SettingsScroll" Grid.Row="2" HorizontalScrollBarVisibility="Disabled">
+                        <StackPanel x:Name="SettingsList" Spacing="2" Padding="0,0,14,0" />
+                    </ScrollViewer>
+                </Grid>
+            </Border>
+
             <SwapChainPanel x:Name="ViewPanel" IsTabStop="True" />
 
             <StackPanel x:Name="EmptyHint" HorizontalAlignment="Center" VerticalAlignment="Center"
@@ -46,12 +101,12 @@
                     Margin="0,0,0,14" Padding="6,4" Background="#F2FFFFFF"
                     BorderBrush="#DDE0E4" BorderThickness="1" CornerRadius="8">
                 <StackPanel Orientation="Horizontal" Spacing="2">
-                    <Button x:Name="PlatePrev" Background="Transparent" BorderThickness="0"
+                    <Button x:Name="PlatePrev" AutomationProperties.Name="The plate before" Background="Transparent" BorderThickness="0"
                             ToolTipService.ToolTip="The plate before ([)">
                         <FontIcon Glyph="&#xE76B;" FontSize="12" />
                     </Button>
                     <TextBlock x:Name="PlateName" VerticalAlignment="Center" Margin="8,0" FontSize="13" />
-                    <Button x:Name="PlateNext" Background="Transparent" BorderThickness="0"
+                    <Button x:Name="PlateNext" AutomationProperties.Name="The next plate" Background="Transparent" BorderThickness="0"
                             ToolTipService.ToolTip="The next plate (])">
                         <FontIcon Glyph="&#xE76C;" FontSize="12" />
                     </Button>
@@ -59,7 +114,7 @@
                             Visibility="Collapsed" ToolTipService.ToolTip="Show all plates (Home). F shows the active plate." />
                     <Button x:Name="PlateAdd" Content="+ Plate" Background="Transparent" BorderThickness="0"
                             ToolTipService.ToolTip="A new plate with the settings of this plate" />
-                    <Button x:Name="PlateRemove" Background="Transparent" BorderThickness="0"
+                    <Button x:Name="PlateRemove" AutomationProperties.Name="Remove this plate" Background="Transparent" BorderThickness="0"
                             ToolTipService.ToolTip="Remove this plate">
                         <FontIcon Glyph="&#xE711;" FontSize="12" />
                     </Button>
