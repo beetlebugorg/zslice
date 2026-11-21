@@ -1131,7 +1131,6 @@ fn computeWinding(comptime narrow: bool, arena: Allocator, edges: []Merged) !voi
 
     // Steps 1 and 2.
     const order = try arena.alloc(u32, h_count);
-    for (order, 0..) |*o, i| o.* = @intCast(i);
     const Ctx = struct {
         edges: []const Merged,
         inline fn origin(c: @This(), h: u32) Point {
@@ -1150,12 +1149,13 @@ fn computeWinding(comptime narrow: bool, arena: Allocator, edges: []Merged) !voi
         }
     };
     const ctx: Ctx = .{ .edges = edges };
-    if (!try sortHalfEdges(narrow, arena, edges, order)) sortHalfEdgesSlow(Ctx, ctx, order);
     // next[h]: the half-edge after h around the face on its left. It is at
     // the end of h: the outgoing half-edge just clockwise from the twin of
     // h. One table makes each step of a face walk one load.
     const next = try arena.alloc(u32, h_count);
-    {
+    if (!try sortHalfEdges(narrow, arena, edges, order, next)) {
+        for (order, 0..) |*o, i| o.* = @intCast(i);
+        sortHalfEdgesSlow(Ctx, ctx, order);
         var k: usize = 0;
         while (k < h_count) {
             var j = k + 1;
@@ -1353,9 +1353,10 @@ fn radixPasses(comptime T: type, comptime K: type, comptime digit: u7, arena: Al
 /// numbers) are already in origin order. Only the half-edges that start
 /// at hi need a sort, by a 64-bit key. A merge joins the two lists, and an
 /// insertion sort puts each vertex group (most have 2 to 4 half-edges) in
-/// angle order. Returns false if the coordinates are too large for the
-/// keys; then the caller sorts.
-noinline fn sortHalfEdges(comptime narrow: bool, arena: Allocator, edges: []const Merged, order: []u32) Allocator.Error!bool {
+/// angle order. Then it fills `next` (see `computeWinding`) from each
+/// group. Returns false if the coordinates are too large for the keys;
+/// then the caller sorts.
+noinline fn sortHalfEdges(comptime narrow: bool, arena: Allocator, edges: []const Merged, order: []u32, next: []u32) Allocator.Error!bool {
     const ks = KeySpace.of(edges) orelse return false;
     const odd = try arena.alloc(KeyIdx, edges.len);
     for (odd, 0..) |*o, i| o.* = .{ .k = ks.key(edges[i].hi), .i = @intCast(2 * i + 1) };
@@ -1377,13 +1378,21 @@ noinline fn sortHalfEdges(comptime narrow: bool, arena: Allocator, edges: []cons
             order[n] = odd[y].i;
             n += 1;
         }
-        // Insertion sort by angle.
+        // Insertion sort by angle. The table `next` needs only the cyclic
+        // order of the group, and two half-edges have one cyclic order.
         const group = order[start..n];
-        for (1..group.len) |i| {
+        if (group.len > 2) for (1..group.len) |i| {
             const h = group[i];
             var j = i;
             while (j > 0 and Arith(narrow).angleLt(halfDir(edges, h), halfDir(edges, group[j - 1]))) : (j -= 1) group[j] = group[j - 1];
             group[j] = h;
+        };
+        // The twin of each half-edge of the group ends at the vertex (see
+        // `computeWinding`).
+        var prev = group[group.len - 1];
+        for (group) |h| {
+            next[h ^ 1] = prev;
+            prev = h;
         }
     }
     return true;
