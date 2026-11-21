@@ -84,11 +84,12 @@ pub const Meta = struct {
         m.slicer_len = n;
     }
 
-    /// A comment "key = value" or "key: value". A value of only '=' is
-    /// the end of a line of a thumbnail (base64): the module skips it.
+    /// A comment "key = value" or "key: value". The module skips a note
+    /// with no value (a title, as ";zslice settings ...:"), and a value
+    /// of only '=' (the end of a line of a thumbnail in base64).
     pub fn note(m: *Meta, gpa: Allocator, k_text: []const u8, v_text: []const u8) Allocator.Error!void {
         if (k_text.len == 0) return;
-        if (std.mem.trim(u8, v_text, "=").len == 0 and v_text.len > 0) return;
+        if (std.mem.trim(u8, v_text, "=").len == 0) return;
         if (m.notes.items.len >= max_notes or m.text.items.len + k_text.len + v_text.len + 2 > max_text) return;
         const k: u32 = @intCast(m.text.items.len);
         try m.text.ensureUnusedCapacity(gpa, k_text.len + v_text.len + 2);
@@ -203,6 +204,7 @@ test "gcode_meta: notes of the start and the end only" {
     m.bead();
     try m.note(testing.allocator, "Filament weight", "12.5g");
     try m.note(testing.allocator, "AAAA", "==");
+    try m.note(testing.allocator, "zslice settings", "");
     try testing.expectEqual(@as(usize, 3), m.count());
     try testing.expectEqualStrings("Layer height", m.key(1));
     try testing.expectEqualStrings("0.3", m.value(1));
