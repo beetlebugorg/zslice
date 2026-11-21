@@ -1141,7 +1141,10 @@ const ops = {
     const p = core.part(index);
     if (!p) return { labels: [], filament: 1 };
     const own = core.partSettings(index).find(([n]) => n === "project.filament");
-    return { labels: core.partLabels(index), filament: Number(own ? own[1] : core.get("project.filament")) || 1 };
+    // The place, turn, size, and scale of the part: the pick mesh of the
+    // Label tool stays while they stay (label.js load).
+    const pose = [p.x, p.y, p.rotation, p.sizeX, p.sizeY, p.sizeZ, ...p.scale].map((v) => v.toFixed(4)).join(",");
+    return { labels: core.partLabels(index), filament: Number(own ? own[1] : core.get("project.filament")) || 1, pose };
   },
 
   // A new label on part `index`: its id (-1: the core did not take it).

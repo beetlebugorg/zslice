@@ -322,6 +322,7 @@ export class LabelTool {
   freeSessions() {
     for (const s of this.sessions.values()) this.w.x.zs_paint_free(s);
     this.sessions.clear();
+    this.poses?.clear();
   }
 
   // The labels of part `index` from the worker. id: the label to select
@@ -329,6 +330,15 @@ export class LabelTool {
   async load(index, id = -1) {
     const r = await this.ctx.client.call("labelsGet", { index });
     if (!this.on) return;
+    // A part at another place or size needs a new pick mesh; else the
+    // mesh stays (it took the most time of a new label).
+    this.poses ??= new Map();
+    if (this.poses.get(index) !== r.pose) {
+      const s = this.sessions.get(index);
+      if (s) this.w.x.zs_paint_free(s);
+      this.sessions.delete(index);
+      this.poses.set(index, r.pose);
+    }
     if (index !== this.index) this.select(-1);
     // A change that waits for its pause keeps its values.
     const keep = index === this.index && this.pending >= 0 ? this.labels.find((l) => l.id === this.pending) : null;
@@ -339,13 +349,15 @@ export class LabelTool {
     else if (!this.label) this.select(-1);
     else this.refreshCard();
     this.redraw();
+    // The pick mesh now, so the first click on the part is quick.
+    this.session(index);
   }
 
   // After an undo, a slice, or another plate: the labels again, and a
   // new mesh for the pick (the part can be at another place).
   async reload() {
     if (!this.on || this.drag) return;
-    this.freeSessions();
+    // load() makes a new pick mesh only if the part moved or changed size.
     if (this.index >= 0) await this.load(this.index);
     this.loadInfo();
   }
@@ -590,10 +602,25 @@ export class LabelTool {
     this.select(-1);
   }
 
-  // A new label at a pixel of the view: on the face of the part there.
-  async addAt(px, py) {
+  // A click on no label of the loaded part: first the labels of the part
+  // under the pointer (it can be another part, or the labels came after
+  // the tool opened), then a label there is selected; else a new one.
+  async missAt(px, py) {
     const dpr = window.devicePixelRatio || 1;
     const part = await this.ctx.partAt(px * dpr, py * dpr);
+    if (part && this.on && part.index !== this.index) await this.load(part.index);
+    const hit = this.labelAt(px, py);
+    if (hit) {
+      this.select(hit.label.id);
+      return;
+    }
+    await this.addAt(px, py, part);
+  }
+
+  // A new label at a pixel of the view: on the face of the part there.
+  async addAt(px, py, known = undefined) {
+    const dpr = window.devicePixelRatio || 1;
+    const part = known !== undefined ? known : await this.ctx.partAt(px * dpr, py * dpr);
     if (!part || !this.on) {
       this.select(-1);
       return;
@@ -667,7 +694,7 @@ export class LabelTool {
       }
       const hit = this.labelAt(px, py);
       if (!hit) {
-        this.addAt(px, py);
+        this.missAt(px, py);
         return;
       }
       if (hit.label.id !== this.sel) this.select(hit.label.id);
