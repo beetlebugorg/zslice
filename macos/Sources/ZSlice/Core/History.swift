@@ -131,11 +131,21 @@ final class History {
 
     // MARK: - the UndoManager
 
+    /// One step of the history is one top-level undo group. The UndoManager
+    /// of the document groups by event: a begin at level 0 opened the group
+    /// of the event as well, and when that group stayed open, the steps
+    /// after it went into it, so one undo took back all of them. With no
+    /// grouping by event while it registers, the step has a group of its
+    /// own.
     private func register() {
+        let byEvent = undoManager.groupsByEvent
+        undoManager.groupsByEvent = false
         undoManager.beginUndoGrouping()
         undoManager.registerUndo(withTarget: self) { $0.undoStep() }
         undoManager.setActionName(label(of: current))
         undoManager.endUndoGrouping()
+        undoManager.groupsByEvent = byEvent
+        if ProcessInfo.processInfo.environment["ZSLICE_UNDO_LOG"] != nil { NSLog("zslice undo: step %ld registered, level %ld", current, undoManager.groupingLevel) }
         undoActions += 1
     }
 
