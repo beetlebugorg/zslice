@@ -9,6 +9,7 @@ import { readFile } from "node:fs/promises";
 import { Wasm } from "./wasm.js";
 import { Core, STATE } from "./core.js";
 import { View3D } from "./view.js";
+import { outlineOf, placeAt, newItem, scaleLabel, withAngle, angleOf, turned, nextFilament, changeShape, labelName } from "./label.js";
 
 const [wasmPath, stlPath] = process.argv.slice(2);
 if (!wasmPath || !stlPath) {
@@ -107,6 +108,62 @@ console.log(`second slice (infill density): ${(performance.now() - t0).toFixed(0
   check(core.setPartPaint(0, ""), "clear the paint");
   check(core.filamentRemove(1), "remove the second filament");
   check(core.filaments().length === 1, "one filament again");
+  core.slice();
+}
+
+// A label (label.js, labelcard.js): the JSON of the card, the pick on the
+// mesh, the outline, the facts, a slice in two filaments, and the removal.
+{
+  check(nextFilament(1, 1) === 1 && nextFilament(1, 3) === 2 && nextFilament(3, 3) === 1 && nextFilament(2, 2) === 1, "the filament of a new label");
+  check(core.filamentAdd() === 1, "a second filament for the label");
+  const m = core.partMesh(0);
+  let x0 = Infinity, x1 = -Infinity, y0 = Infinity;
+  for (let i = 0; i < m.verts.length; i += 3) {
+    x0 = Math.min(x0, m.verts[i]);
+    x1 = Math.max(x1, m.verts[i]);
+    y0 = Math.min(y0, m.verts[i + 1]);
+  }
+  const vp = wasm.alloc(m.verts.byteLength);
+  const fp = wasm.alloc(m.faces.byteLength);
+  new Float32Array(wasm.x.memory.buffer, vp, m.verts.length).set(m.verts);
+  new Uint32Array(wasm.x.memory.buffer, fp, m.faces.length).set(m.faces);
+  check(wasm.x.zs_paint_new(vp, m.verts.length / 3, fp, m.faces.length / 3, wasm.cell) === 0, "a paint session for the pick");
+  wasm.free(vp, m.verts.byteLength);
+  wasm.free(fp, m.faces.byteLength);
+  const s = wasm.u32(wasm.cell);
+  // A ray at the side of the hull, along +y.
+  const at = placeAt(wasm, s, [(x0 + x1) / 2, y0 - 50, 8, 0, 1, 0]);
+  wasm.x.zs_paint_free(s);
+  check(at && at.normal[1] < -0.5, `the pick of the hull (${JSON.stringify(at)})`);
+  let label = { origin: at.origin, normal: at.normal, right: at.right, filament: 2, depth: 0, items: [newItem("text")] };
+  check(Math.abs(angleOf(label)) < 1, `a new label is level (${angleOf(label)})`);
+  label = withAngle(label, 30);
+  check(Math.abs(angleOf(label) - 30) < 1e-6 && Math.abs(angleOf(turned(label, -30))) < 1e-6, "the turn of a label");
+  const o = outlineOf(wasm, label);
+  check(o && o.ends.length >= 5 && Math.abs(o.box[3] - o.box[1] - 5) < 0.3, `the outline of LABEL (${o && o.box})`);
+  const big = outlineOf(wasm, scaleLabel(label, 2));
+  check(Math.abs((big.box[3] - big.box[1]) - 2 * (o.box[3] - o.box[1])) < 0.05, "a scale of the label");
+  check(outlineOf(wasm, { items: [{ kind: "bar", width: 4 }] }) === null, "a bad shape has no outline");
+  for (const k of ["line", "bar", "ring", "ticks", "polyline"]) check(outlineOf(wasm, { items: [newItem(k)] }), `the outline of a new ${k}`);
+  check(changeShape(newItem("text"), "ticks").kind === "ticks", "a change of shape");
+  label = withAngle(label, 0);
+  const id = core.labelAdd(0, label);
+  check(id >= 1, "the core accepts the label");
+  const back = core.partLabels(0);
+  check(back.length === 1 && back[0].id === id && back[0].items[0].text === "LABEL" && labelName(back[0]) === "“LABEL”", `the label reads back (${JSON.stringify(back)})`);
+  const info = core.labelInfo(0, id);
+  check(info && info.kind === "side" && info.estimate_changes > 0 && info.clean_size > 3 && typeof info.advice === "string", `the facts of the label (${JSON.stringify(info)})`);
+  back[0].items.push({ ...newItem("ticks"), at: [0, -12] });
+  check(core.labelUpdate(0, id, back[0]), "an update of the label");
+  check(core.partLabels(0)[0].items.length === 2, "the ticks are in the label");
+  t0 = performance.now();
+  check(core.slice().state === STATE.done, "the slice of a label");
+  const ls = core.filamentStats();
+  const after = core.labelInfo(0, id);
+  check(ls.grams[1] > 0 && after.sliced && after.changes > 0, `the label prints (${JSON.stringify(ls)}, ${JSON.stringify(after)})`);
+  console.log(`label: ${(performance.now() - t0).toFixed(0)} ms, ${ls.grams[1].toFixed(2)} g of filament 2, ${after.changes} changes, ${after.minutes.toFixed(0)} min`);
+  check(core.labelRemove(0, id) && core.partLabels(0).length === 0, "remove the label");
+  check(core.filamentRemove(1), "remove the filament of the label");
   core.slice();
 }
 
