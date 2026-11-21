@@ -116,6 +116,7 @@ namespace winrt::ZSlice::implementation
         Root().KeyDown([this](auto &&, Input::KeyRoutedEventArgs const &e) { OnKeyDown(e); });
         WirePlates();
         WireSettings();
+        WireTools();
         Closed([this](auto &&, auto &&) { CloseView(); });
     }
 
@@ -196,6 +197,7 @@ namespace winrt::ZSlice::implementation
         animation_timer.Stop();
         scene_timer.Stop();
         history_timer.Stop();
+        fall_timer.Stop();
         // The view reads the apps of the set, so it goes first.
         if (view != nullptr)
             zs_view_free(view);
@@ -254,7 +256,7 @@ namespace winrt::ZSlice::implementation
         if (rc == ZS_BUSY && !retry_timer.IsRunning())
             retry_timer.Start();
         else if (rc != ZS_OK && rc != ZS_BUSY)
-            fprintf(stderr, "shell: the view did not draw: %s\n", zs_status_string(rc));
+            zs::Log("shell: the view did not draw: %s\n", zs_status_string(rc));
     }
 
     void MainWindow::StartAnimation()
@@ -338,6 +340,9 @@ namespace winrt::ZSlice::implementation
         model->UpdateBed(view);
         zs_set_view_sync(model->Set(), view);
         RefreshPlates();
+        FindLineAnchor();
+        ApplySelection();
+        FillPartCard();
         size_t count = zs_app_layer_count(model->Active());
         bool at_top = layer_count == 0 || LayerSlider().Value() >= (double)layer_count;
         layer_count = count;
@@ -356,13 +361,16 @@ namespace winrt::ZSlice::implementation
             frame_next = false;
             zs_view_reset(view);
         }
+#ifdef ZS_DEV_HOOKS
+        StartDevHooks();
+#endif
         StatusText().Text(model->Summary());
         RequestDraw();
     }
 
     void MainWindow::ShowError(std::wstring const &text)
     {
-        fprintf(stderr, "shell: %s\n", zs::ToUtf8(text).c_str());
+        zs::Log("shell: %s\n", zs::ToUtf8(text).c_str());
         StatusText().Text(text);
     }
 
@@ -445,93 +453,6 @@ namespace winrt::ZSlice::implementation
     }
 
     // ---- input ----
-
-    void MainWindow::OnPointerPressed(Input::PointerRoutedEventArgs const &e)
-    {
-        if (view == nullptr)
-            return;
-        auto point = e.GetCurrentPoint(ViewPanel());
-        auto props = point.Properties();
-        bool touchpad = e.Pointer().PointerDeviceType() == PointerDeviceType::Touchpad;
-        bool shift = (e.KeyModifiers() & Windows::System::VirtualKeyModifiers::Shift) != Windows::System::VirtualKeyModifiers::None;
-        // A left drag orbits. A right drag orbits with a mouse, and pans
-        // with a two-finger click on a touchpad. The middle button and
-        // Shift pan.
-        if (props.IsMiddleButtonPressed() || (props.IsRightButtonPressed() && touchpad) || shift)
-            drag = Drag::Pan;
-        else if (props.IsLeftButtonPressed() || props.IsRightButtonPressed())
-            drag = Drag::Orbit;
-        else
-            return;
-        last_x = press_x = point.Position().X;
-        last_y = press_y = point.Position().Y;
-        ViewPanel().CapturePointer(e.Pointer());
-        ViewPanel().Focus(FocusState::Pointer);
-        e.Handled(true);
-    }
-
-    void MainWindow::OnPointerMoved(Input::PointerRoutedEventArgs const &e)
-    {
-        if (drag == Drag::None || view == nullptr)
-            return;
-        auto position = e.GetCurrentPoint(ViewPanel()).Position();
-        double dx = position.X - last_x;
-        double dy = position.Y - last_y;
-        last_x = position.X;
-        last_y = position.Y;
-        // An orbit is in points. A pan follows the pointer, in pixels.
-        if (drag == Drag::Pan)
-            zs_view_pan(view, (float)(dx * Scale()), (float)(dy * Scale()));
-        else
-            zs_view_orbit(view, (float)dx, (float)dy);
-        RequestDraw();
-        e.Handled(true);
-    }
-
-    void MainWindow::OnPointerEnded(Input::PointerRoutedEventArgs const &e)
-    {
-        if (drag == Drag::None)
-            return;
-        drag = Drag::None;
-        ViewPanel().ReleasePointerCapture(e.Pointer());
-        e.Handled(true);
-        // A click on the sign of a plate makes that plate active.
-        if (view != nullptr && std::abs(last_x - press_x) <= 4 && std::abs(last_y - press_y) <= 4)
-        {
-            int64_t sign = zs_view_sign_at(view, (float)(last_x * Scale()), (float)(last_y * Scale()));
-            if (sign >= 0)
-                SelectPlate((size_t)sign);
-        }
-    }
-
-    void MainWindow::OnKeyDown(Input::KeyRoutedEventArgs const &e)
-    {
-        if (model == nullptr || view == nullptr)
-            return;
-        // The keys of the shortcuts sheet of the other apps.
-        constexpr auto bracket_left = static_cast<Windows::System::VirtualKey>(219);
-        constexpr auto bracket_right = static_cast<Windows::System::VirtualKey>(221);
-        constexpr auto slash = static_cast<Windows::System::VirtualKey>(191);
-        // A key in a text field is text.
-        auto focused = Input::FocusManager::GetFocusedElement(Content().XamlRoot());
-        if (focused.try_as<TextBox>() != nullptr)
-            return;
-        auto key = e.Key();
-        if (key == slash)
-        {
-            ShowSettingsPane(true);
-            SettingsSearch().Focus(FocusState::Keyboard);
-        }
-        else if (key == bracket_left || key == bracket_right)
-            StepPlate(key == bracket_left ? -1 : 1);
-        else if (key == Windows::System::VirtualKey::Home && model->PlateCount() > 1)
-            FramePlate((size_t)-1);
-        else if (key == Windows::System::VirtualKey::F)
-            FramePlate(model->ActivePlate());
-        else
-            return;
-        e.Handled(true);
-    }
 
     void MainWindow::OnPointerWheel(Input::PointerRoutedEventArgs const &e)
     {

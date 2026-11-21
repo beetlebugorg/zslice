@@ -9,10 +9,25 @@
 #include <windows.h>
 
 #include <cmath>
+#include <algorithm>
+#include <cstdarg>
 #include <cstdio>
 
 namespace zs
 {
+    void Log(char const *format, ...)
+    {
+        char text[1024];
+        va_list args;
+        va_start(args, format);
+        int n = vsnprintf(text, sizeof text, format, args);
+        va_end(args);
+        if (n <= 0)
+            return;
+        DWORD written = 0;
+        ::WriteFile(::GetStdHandle(STD_ERROR_HANDLE), text, (DWORD)std::min<size_t>((size_t)n, sizeof text - 1), &written, nullptr);
+    }
+
     std::string ToUtf8(std::wstring const &text)
     {
         if (text.empty())
@@ -198,7 +213,7 @@ namespace zs
                                  has_texture ? reinterpret_cast<uint8_t const *>(texture.data()) : nullptr, has_texture ? texture.size() : 0);
         if (rc != ZS_OK)
         {
-            fprintf(stderr, "shell: the bed model %s did not load: %s\n", bed.mesh, zs_status_string(rc));
+            Log("shell: the bed model %s did not load: %s\n", bed.mesh, zs_status_string(rc));
             zs_view_clear_bed(view);
         }
     }
@@ -348,6 +363,11 @@ namespace zs
 
     void Model::RequestSlice()
     {
+        if (held_)
+        {
+            zs_set_changed_held(set_, zs_set_active(set_));
+            return;
+        }
         zs_app *app = Active();
         int state = zs_app_state(app);
         // The running slice ends and shows, then the newest settings slice.
@@ -356,6 +376,15 @@ namespace zs
             slice_pending_ = true;
         else if (state != ZS_STATE_EMPTY)
             zs_set_changed(set_, zs_set_active(set_));
+    }
+
+    void Model::Hold(bool on)
+    {
+        if (held_ == on)
+            return;
+        held_ = on;
+        if (!on)
+            zs_set_release(set_);
     }
 
     bool Model::TakeSlicePending()

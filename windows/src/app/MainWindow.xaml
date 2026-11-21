@@ -135,6 +135,162 @@
                             HorizontalAlignment="Center" IsThumbToolTipEnabled="False" />
                 </Grid>
             </Border>
+
+            <!-- The tools: V M R S G T P E, built in MainWindow.Tools.cpp. -->
+            <StackPanel x:Name="ToolStrip" HorizontalAlignment="Left" VerticalAlignment="Center"
+                        Margin="10,0,0,0" Padding="4" Spacing="2" Background="#F2FFFFFF"
+                        BorderBrush="#DDE0E4" BorderThickness="1" CornerRadius="8" />
+
+            <!-- The cards float over the view, beside what they describe. -->
+            <Canvas x:Name="CardLayer">
+                <Border x:Name="LineCard" Width="340" Visibility="Collapsed" Padding="12"
+                        Background="#FAFFFFFF" BorderBrush="#DDE0E4" BorderThickness="1" CornerRadius="8">
+                    <StackPanel Spacing="6">
+                        <Grid x:Name="LineCardHead">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock x:Name="LineTitle" FontWeight="Bold" VerticalAlignment="Center"
+                                       TextTrimming="CharacterEllipsis" />
+                            <Button x:Name="LineClose" Grid.Column="1" Background="Transparent" BorderThickness="0"
+                                    Padding="6" AutomationProperties.Name="Close the line card">
+                                <FontIcon Glyph="&#xE711;" FontSize="11" />
+                            </Button>
+                        </Grid>
+                        <Grid ColumnSpacing="6">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel>
+                                <TextBlock x:Name="LinePlanned" FontWeight="SemiBold" HorizontalAlignment="Center" />
+                                <TextBlock Text="planned" FontSize="11" Foreground="#5B6168" HorizontalAlignment="Center" />
+                            </StackPanel>
+                            <StackPanel Grid.Column="1">
+                                <TextBlock x:Name="LineReal" FontWeight="SemiBold" HorizontalAlignment="Center" />
+                                <TextBlock Text="real" FontSize="11" Foreground="#5B6168" HorizontalAlignment="Center" />
+                            </StackPanel>
+                            <StackPanel Grid.Column="2">
+                                <TextBlock x:Name="LineFlow" FontWeight="SemiBold" HorizontalAlignment="Center" />
+                                <TextBlock Text="flow" FontSize="11" Foreground="#5B6168" HorizontalAlignment="Center" />
+                            </StackPanel>
+                        </Grid>
+                        <TextBlock x:Name="LineNote" TextWrapping="WrapWholeWords" FontSize="12" Foreground="#B45309" />
+                        <TextBlock x:Name="LineSize" TextWrapping="WrapWholeWords" FontSize="12" Foreground="#5B6168" />
+                        <StackPanel x:Name="LineSettings" Spacing="4" />
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <ToggleButton x:Name="LineFade" Content="Fade the others"
+                                          ToolTipService.ToolTip="Show this line solid, and the other lines as faint ghosts" />
+                            <Button x:Name="LineAll" Content="All settings…" Background="Transparent" BorderThickness="0"
+                                    ToolTipService.ToolTip="All the settings of this line" />
+                        </StackPanel>
+                        <StackPanel Orientation="Horizontal" Spacing="2">
+                            <Button x:Name="LineSkip" Content="Don't print this line" Background="Transparent" BorderThickness="0"
+                                    FontSize="12" Padding="6,4"
+                                    ToolTipService.ToolTip="Take this line out of the print (Delete). The edit stays, and applies again to a new slice that makes the same line." />
+                            <Button x:Name="LineLess" Content="−10 % plastic" Background="Transparent" BorderThickness="0"
+                                    FontSize="12" Padding="6,4" ToolTipService.ToolTip="This line with 10 % less plastic" />
+                            <Button x:Name="LineMore" Content="+10 % plastic" Background="Transparent" BorderThickness="0"
+                                    FontSize="12" Padding="6,4" ToolTipService.ToolTip="This line with 10 % more plastic, for a gap" />
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
+
+                <Border x:Name="PartCard" Width="320" Visibility="Collapsed" Padding="12"
+                        Background="#FAFFFFFF" BorderBrush="#DDE0E4" BorderThickness="1" CornerRadius="8">
+                    <StackPanel Spacing="6">
+                        <Grid x:Name="PartCardHead">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock x:Name="PartTitle" FontWeight="Bold" VerticalAlignment="Center"
+                                       TextTrimming="CharacterEllipsis" />
+                            <Button x:Name="PartClose" Grid.Column="1" Background="Transparent" BorderThickness="0"
+                                    Padding="6" AutomationProperties.Name="Close the part card">
+                                <FontIcon Glyph="&#xE711;" FontSize="11" />
+                            </Button>
+                        </Grid>
+                        <TextBlock x:Name="PartFacts" FontSize="12" Foreground="#5B6168" TextWrapping="WrapWholeWords" />
+                        <StackPanel x:Name="PartSingle" Spacing="6">
+                            <Grid ColumnSpacing="6">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="90" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Text="Scale" VerticalAlignment="Center" />
+                                <TextBox x:Name="PartScale" Grid.Column="1" AutomationProperties.Name="Scale in percent" />
+                                <TextBlock Grid.Column="2" Text="%" VerticalAlignment="Center" Foreground="#5B6168" />
+                            </Grid>
+                            <Grid ColumnSpacing="4" RowSpacing="4">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
+                                </Grid.RowDefinitions>
+                                <Button x:Name="PartDuplicate" Content="Duplicate" HorizontalAlignment="Stretch" />
+                                <Button x:Name="PartSplit" Grid.Column="1" Content="Split" HorizontalAlignment="Stretch" />
+                                <DropDownButton x:Name="PartCut" Grid.Row="1" Content="Cut…" HorizontalAlignment="Stretch">
+                                    <DropDownButton.Flyout>
+                                        <Flyout x:Name="PartCutFlyout">
+                                            <StackPanel Spacing="8" Width="240">
+                                                <Slider x:Name="CutHeight" Header="Height (mm)" StepFrequency="0.1" />
+                                                <CheckBox x:Name="CutFlip" Content="Flip the top part onto the bed" IsChecked="True" />
+                                                <NumberBox x:Name="CutPegs" Header="Pegs" Minimum="0" Maximum="8" Value="0"
+                                                           SpinButtonPlacementMode="Inline" />
+                                                <NumberBox x:Name="CutPegSize" Header="Peg diameter (mm)" Minimum="1" Maximum="20"
+                                                           Value="5" SpinButtonPlacementMode="Inline" />
+                                                <Button x:Name="CutGo" Content="Cut" HorizontalAlignment="Right" />
+                                            </StackPanel>
+                                        </Flyout>
+                                    </DropDownButton.Flyout>
+                                </DropDownButton>
+                                <Button x:Name="PartBest" Grid.Row="1" Grid.Column="1" Content="Best orientation"
+                                        HorizontalAlignment="Stretch" />
+                                <Button x:Name="PartLess" Grid.Row="2" Content="Less support" HorizontalAlignment="Stretch" />
+                                <Button x:Name="PartReset" Grid.Row="2" Grid.Column="1" Content="Reset" HorizontalAlignment="Stretch" />
+                            </Grid>
+                            <Grid ColumnSpacing="6">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Text="Make" VerticalAlignment="Center" />
+                                <NumberBox x:Name="PartMakeCount" Grid.Column="1" Minimum="1" Maximum="999" Value="2"
+                                           SpinButtonPlacementMode="Compact" AutomationProperties.Name="How many in all" />
+                                <Button x:Name="PartMake" Grid.Column="2" Content="in all" />
+                            </Grid>
+                        </StackPanel>
+                        <Grid ColumnSpacing="4" RowSpacing="4">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                            </Grid.RowDefinitions>
+                            <Button x:Name="PartsDuplicate" Content="Duplicate" Visibility="Collapsed" HorizontalAlignment="Stretch" />
+                            <Button x:Name="PartsArrange" Grid.Column="1" Content="Arrange" Visibility="Collapsed" HorizontalAlignment="Stretch" />
+                            <Button x:Name="PartNewPlate" Grid.Row="1" Content="To a new plate" HorizontalAlignment="Stretch" />
+                            <Button x:Name="PartRemove" Grid.Row="1" Grid.Column="1" Content="Remove" HorizontalAlignment="Stretch" />
+                        </Grid>
+                    </StackPanel>
+                </Border>
+
+                <Border x:Name="MeasureCard" Visibility="Collapsed" Padding="10,6"
+                        Background="#FAFFFFFF" BorderBrush="#DDE0E4" BorderThickness="1" CornerRadius="8">
+                    <TextBlock x:Name="MeasureText" FontSize="12" />
+                </Border>
+            </Canvas>
         </Grid>
 
         <!-- The status bar. -->
