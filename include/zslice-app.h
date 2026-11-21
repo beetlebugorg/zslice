@@ -1596,6 +1596,18 @@ void zs_view_set_cut(zs_view *view, double x0, double y0, double x1, double y1, 
  * each point, and no lines). */
 void zs_view_support_clear(zs_view *view);
 int zs_view_support_add(zs_view *view, const double *pts, size_t n, int kind, int flags);
+/* The labels of the Label tool (see "the labels of a part"), drawn as
+ * decals on the surface of their part. Clear them, then add each label:
+ * its frame (origin, normal, right: 9 values, as in its JSON, in the
+ * frame of the bed), its outline (pts, ends, n from zs_label_outline), its
+ * color (0xRRGGBB, the color of its filament), and selected != 0 for an
+ * outline around its paths. The view fills the paths by the nonzero rule,
+ * 0.05 mm out of the surface, with the depth test of the beads, so a part
+ * hides a label behind it. A label with the same outline as before the
+ * clear keeps its fill, so a drag that changes only the frame costs
+ * little. Returns 1 if the view has the label. */
+void zs_view_labels_clear(zs_view *view);
+int zs_view_label_add(zs_view *view, const double frame[9], const float *pts, const uint32_t *ends, size_t n, uint32_t rgb, int selected);
 /* on != 0: zs_view_surface_point and the picks skip the support lines, so
  * a click finds the part under them (the Support tool). */
 void zs_view_pick_skip_support(zs_view *view, int on);

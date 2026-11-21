@@ -80,6 +80,7 @@ const PlateFrame = @import("frame.zig").PlateFrame;
 const Push = @import("frame.zig").Push;
 const plates_mod = @import("plates.zig");
 const bed_mod = @import("../bed.zig");
+const decal = @import("decal.zig");
 const gcode_read = @import("../gcode_read.zig");
 const PlateJob = @import("../plate_job.zig").PlateJob;
 
@@ -122,6 +123,32 @@ pub const Surface = vk.Surface;
 pub const Error = vk.Error;
 
 pub const Mode = enum(c_int) { print = 0, features = 1, speed = 2, flow = 3, layer_time = 4, width = 5 };
+
+/// A label of the Label tool that the view draws (see View.addLabel): its
+/// frame in the world (mm), its color, and its ranges in the lists of the
+/// view. The hash is of its outline.
+pub const LabelDecal = struct {
+    hash: u64,
+    tri_first: u32,
+    tri_count: u32,
+    pt_first: u32,
+    end_first: u32,
+    end_count: u32,
+    origin: [3]f32,
+    right: [3]f32,
+    up: [3]f32,
+    normal: [3]f32,
+    rgb: [3]f32,
+    selected: bool,
+
+    /// The point (x, y) of the plane of the label in the world, `lift` mm
+    /// out of the surface.
+    fn at(l: LabelDecal, x: f32, y: f32, lift: f32) [3]f32 {
+        var p: [3]f32 = undefined;
+        for (&p, 0..) |*q, k| q.* = l.origin[k] + x * l.right[k] + y * l.up[k] + lift * l.normal[k];
+        return p;
+    }
+};
 
 /// A support area that the view draws (see View.sup_areas).
 pub const SupportArea = struct {
@@ -400,6 +427,22 @@ pub const View = struct {
     sign_scale: f32 = 1,
     /// The vertices of the signs of the last frame.
     sign_verts: std.ArrayList(bed_mod.Vertex) = .empty,
+    /// The labels of the Label tool, drawn as decals (see `addLabel`):
+    /// each label, the 2D fill of all labels (three points a triangle),
+    /// their outlines (the points and the end of each path), and the fill
+    /// in the world. `label_gen` changes with them. The labels of the
+    /// call before the last `clearLabels` keep their fill for a label
+    /// with the same outline (`old_labels`, `old_tris`).
+    labels: std.ArrayList(LabelDecal) = .empty,
+    label_tris: std.ArrayList([2]f32) = .empty,
+    label_pts: std.ArrayList([2]f32) = .empty,
+    label_ends: std.ArrayList(u32) = .empty,
+    label_verts: std.ArrayList(bed_mod.Vertex) = .empty,
+    label_gen: u32 = 0,
+    old_labels: std.ArrayList(LabelDecal) = .empty,
+    old_tris: std.ArrayList([2]f32) = .empty,
+    /// The outline of the selected labels in the last frame.
+    label_edges: std.ArrayList(bed_mod.Vertex) = .empty,
     plate_draws: std.ArrayList(Draw) = .empty,
     /// The part of the plate of each path (Toolpaths.path_part), for a
     /// part preview.
@@ -478,6 +521,7 @@ pub const View = struct {
         v.gap_beads.deinit(gpa);
         v.sign_rects.deinit(gpa);
         v.sign_verts.deinit(gpa);
+        inline for (.{ &v.labels, &v.label_tris, &v.label_pts, &v.label_ends, &v.label_verts, &v.old_labels, &v.old_tris, &v.label_edges }) |l| l.deinit(gpa);
         v.tower_beads.deinit(gpa);
         v.tower_layer.deinit(gpa);
         if (v.extras_buf) |b| gpa.free(b);
@@ -2429,6 +2473,127 @@ pub const View = struct {
     /// as a frame with lines across it. A box with no area: no plane.
     pub fn setCut(v: *View, box: [4]f32, z: f32) void {
         v.cut_plane = if (box[2] > box[0] and box[3] > box[1]) .{ box[0], box[1], box[2], box[3], z } else null;
+    }
+
+    // ---- the labels of the Label tool ----
+    //
+    // A label is a 2D shape on the surface of a part (src/label.zig). The
+    // shell gives its outline (zs_label_outline) and its frame, and the
+    // view draws it as a decal: the fill of the outline (decal.zig) in the
+    // plane of the label, `label_lift` out of the surface, in the color of
+    // its filament. The decal has the depth test of the beads, so a part
+    // hides a label behind it, and the decal stays sharp at any zoom: its
+    // edges are the edges of the outline. The fill moves to the world once
+    // for each change of a label; only the outline of a selected label
+    // (its width follows the zoom) changes with each frame.
+
+    /// The decal floats this far out of the surface (mm), as on the web.
+    const label_lift: f32 = 0.05;
+
+    /// No labels to draw.
+    pub fn clearLabels(v: *View) void {
+        std.mem.swap(std.ArrayList(LabelDecal), &v.labels, &v.old_labels);
+        std.mem.swap(std.ArrayList([2]f32), &v.label_tris, &v.old_tris);
+        inline for (.{ &v.labels, &v.label_tris, &v.label_pts, &v.label_ends, &v.label_verts }) |l| l.clearRetainingCapacity();
+        v.label_gen +%= 1;
+    }
+
+    /// One more label to draw. frame: origin, normal, right (mm, unit
+    /// vectors, in the world of the view); pts and ends: its outline in its
+    /// plane (mm along right and up; the end of each path in points); rgb:
+    /// 0xRRGGBB; selected: an outline around its paths too.
+    pub fn addLabel(v: *View, frame: [9]f64, pts: []const [2]f32, ends: []const u32, rgb: u32, selected: bool) Error!void {
+        var f: [9]f32 = undefined;
+        for (&f, frame) |*a, b| {
+            if (!std.math.isFinite(b)) return;
+            a.* = @floatCast(b);
+        }
+        const normal = normalize(.{ f[3], f[4], f[5] });
+        const right = normalize(.{ f[6], f[7], f[8] });
+        const up = cross(normal, right);
+        var h = std.hash.Wyhash.init(0);
+        h.update(std.mem.sliceAsBytes(pts));
+        h.update(std.mem.sliceAsBytes(ends));
+        const hash = h.final();
+        const tri_first: u32 = @intCast(v.label_tris.items.len);
+        // The fill of the same outline before the last clear, else a new
+        // fill.
+        var reused = false;
+        for (v.old_labels.items) |o| {
+            if (o.hash != hash or o.end_count != ends.len) continue;
+            v.label_tris.appendSlice(gpa, v.old_tris.items[o.tri_first..][0..o.tri_count]) catch return error.OutOfMemory;
+            reused = true;
+            break;
+        }
+        if (!reused) decal.fill(gpa, pts, ends, &v.label_tris) catch return error.OutOfMemory;
+        const d: LabelDecal = .{
+            .hash = hash,
+            .tri_first = tri_first,
+            .tri_count = @intCast(v.label_tris.items.len - tri_first),
+            .pt_first = @intCast(v.label_pts.items.len),
+            .end_first = @intCast(v.label_ends.items.len),
+            .end_count = @intCast(ends.len),
+            .origin = .{ f[0], f[1], f[2] },
+            .right = right,
+            .up = up,
+            .normal = normal,
+            .rgb = .{ @as(f32, @floatFromInt((rgb >> 16) & 0xff)) / 255, @as(f32, @floatFromInt((rgb >> 8) & 0xff)) / 255, @as(f32, @floatFromInt(rgb & 0xff)) / 255 },
+            .selected = selected,
+        };
+        v.label_pts.appendSlice(gpa, pts) catch return error.OutOfMemory;
+        v.label_ends.appendSlice(gpa, ends) catch return error.OutOfMemory;
+        v.labels.append(gpa, d) catch return error.OutOfMemory;
+        // The fill in the world.
+        v.label_verts.ensureUnusedCapacity(gpa, d.tri_count) catch return error.OutOfMemory;
+        for (v.label_tris.items[tri_first..]) |p| v.label_verts.appendAssumeCapacity(.{ .pos = d.at(p[0], p[1], label_lift), .normal = d.rgb, .uv = .{ 1, 0 } });
+        v.label_gen +%= 1;
+    }
+
+    /// The outline of each selected label for a camera at `eye`: a strip
+    /// about 2 pixels wide along each edge of its paths, a little over the
+    /// fill, dark on a light fill and yellow on a dark one (as on the web).
+    fn buildLabelEdges(v: *View, eye: [3]f32) Error![]const bed_mod.Vertex {
+        v.label_edges.clearRetainingCapacity();
+        const px_per_rad = @as(f32, @floatFromInt(v.height)) / (2 * @tan(@as(f32, fov) / 2));
+        for (v.labels.items) |l| {
+            if (!l.selected) continue;
+            const to = [3]f32{ l.origin[0] - eye[0], l.origin[1] - eye[1], l.origin[2] - eye[2] };
+            const w = 2.2 * @max(@sqrt(dot(to, to)), 1e-3) / px_per_rad;
+            const light = 0.3 * l.rgb[0] + 0.59 * l.rgb[1] + 0.11 * l.rgb[2];
+            const color: [3]f32 = if (light > 0.5) .{ 0.1, 0.1, 0.12 } else .{ 1, 0.85, 0.2 };
+            const pts = v.label_pts.items[l.pt_first..];
+            var start: usize = 0;
+            for (v.label_ends.items[l.end_first..][0..l.end_count]) |end_u| {
+                const end = @min(@as(usize, end_u), pts.len);
+                if (end < start + 2) {
+                    start = @max(start, end);
+                    continue;
+                }
+                for (start..end) |i| {
+                    const a = pts[i];
+                    const b = pts[if (i + 1 == end) start else i + 1];
+                    const dx = b[0] - a[0];
+                    const dy = b[1] - a[1];
+                    const len = @sqrt(dx * dx + dy * dy);
+                    if (!(len > 1e-6)) continue;
+                    // Along the edge (ux, uy), and across it, half a width
+                    // each way; the ends go on by half a width, so the
+                    // corners close.
+                    const ux = dx / len * w / 2;
+                    const uy = dy / len * w / 2;
+                    const lift = 2 * label_lift;
+                    const c = [4][3]f32{
+                        l.at(a[0] - ux + uy, a[1] - uy - ux, lift),
+                        l.at(b[0] + ux + uy, b[1] + uy - ux, lift),
+                        l.at(b[0] + ux - uy, b[1] + uy + ux, lift),
+                        l.at(a[0] - ux - uy, a[1] - uy + ux, lift),
+                    };
+                    for ([_]usize{ 0, 1, 2, 0, 2, 3 }) |k| v.label_edges.append(gpa, .{ .pos = c[k], .normal = color, .uv = .{ 1, 0 } }) catch return error.OutOfMemory;
+                }
+                start = end;
+            }
+        }
+        return v.label_edges.items;
     }
 
     /// No support areas to draw.
@@ -4873,9 +5038,13 @@ pub const View = struct {
             };
         };
         const signs = try v.buildSigns(eye, cam.u);
+        const label_edges = try v.buildLabelEdges(eye);
         try v.renderer.draw(.{
             .sign = .{ .mvp = mvp, .vec = .{ 0, 0, 0, 0 } },
             .signs = signs,
+            .decals = v.label_verts.items,
+            .decal_gen = v.label_gen,
+            .decal_edges = label_edges,
             .head = v.head_buf[0..n_head],
             .part = part_push,
             .part_draws = part_draws,
@@ -5937,6 +6106,45 @@ test "the plates of a row: offsets, the active plate, the pick, and the frame" {
         try std.testing.expect(q[0] >= 0 and q[0] <= 800 and q[1] >= 0 and q[1] <= 600);
     }
     try std.testing.expectEqual(@as(?usize, 2), v.plateAt(400, 300));
+}
+
+test {
+    _ = decal;
+}
+
+test "a label draws as a decal on its face, and keeps its fill for the same outline" {
+    const gpa = View.gpa;
+    var v: View = .{ .renderer = undefined, .width = 100, .height = 100 };
+    defer inline for (.{ &v.labels, &v.label_tris, &v.label_pts, &v.label_ends, &v.label_verts, &v.old_labels, &v.old_tris, &v.label_edges }) |l| l.deinit(gpa);
+    v.dist = 100;
+    // A bar 10 x 2 mm on the face y = 0 of a part (normal -Y, right +X).
+    const pts = [_][2]f32{ .{ -5, -1 }, .{ 5, -1 }, .{ 5, 1 }, .{ -5, 1 } };
+    const ends = [_]u32{4};
+    const frame = [9]f64{ 20, 0, 10, 0, -1, 0, 1, 0, 0 };
+    try v.addLabel(frame, &pts, &ends, 0xff0000, true);
+    try std.testing.expectEqual(@as(usize, 6), v.label_verts.items.len);
+    for (v.label_verts.items) |p| {
+        // In the plane, 0.05 mm out of the face, in red.
+        try std.testing.expectApproxEqAbs(@as(f32, -View.label_lift), p.pos[1], 1e-6);
+        try std.testing.expect(p.pos[0] >= 15 - 1e-4 and p.pos[0] <= 25 + 1e-4);
+        try std.testing.expect(p.pos[2] >= 9 - 1e-4 and p.pos[2] <= 11 + 1e-4);
+        try std.testing.expectEqual(@as(f32, 1), p.normal[0]);
+    }
+    // The selected label has an outline: 4 edges of 2 triangles.
+    const edges = try v.buildLabelEdges(.{ 20, -100, 10 });
+    try std.testing.expectEqual(@as(usize, 4 * 6), edges.len);
+    // A new frame with the same outline: the fill comes from the label of
+    // the call before (the same triangles, moved).
+    const gen = v.label_gen;
+    v.clearLabels();
+    try v.addLabel(.{ 20, 0, 30, 0, -1, 0, 1, 0, 0 }, &pts, &ends, 0xff0000, false);
+    try std.testing.expect(v.label_gen != gen);
+    try std.testing.expectEqual(@as(usize, 6), v.label_verts.items.len);
+    try std.testing.expectApproxEqAbs(@as(f32, 30), (v.label_verts.items[0].pos[2] + v.label_verts.items[2].pos[2]) / 2, 1.01);
+    try std.testing.expectEqual(@as(usize, 0), (try v.buildLabelEdges(.{ 20, -100, 10 })).len);
+    // A frame that is not finite: no label.
+    try v.addLabel(.{ std.math.nan(f64), 0, 0, 0, -1, 0, 1, 0, 0 }, &pts, &ends, 0, false);
+    try std.testing.expectEqual(@as(usize, 1), v.labels.items.len);
 }
 
 test "a support area draws its outline, its points, and lines across it" {

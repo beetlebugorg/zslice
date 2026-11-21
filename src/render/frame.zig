@@ -105,6 +105,15 @@ pub const Frame = struct {
     /// the bed with the image of the signs, blended, with no depth write.
     sign: Push = .{ .mvp = @splat(0), .vec = .{ 0, 0, 0, 0 } },
     signs: []const BedVertex = &.{},
+    /// The decals of the labels (see View.addLabel): their fill, in the
+    /// world of the view (the push data of `sign`). The normal of a vertex
+    /// has its color, and uv.x its alpha. The fill changes with
+    /// `decal_gen`; the outlines of the selected labels (`decal_edges`)
+    /// change with each frame. Drawn after the beads and the bed, blended,
+    /// with the depth test and no depth write.
+    decals: []const BedVertex = &.{},
+    decal_gen: u32 = 0,
+    decal_edges: []const BedVertex = &.{},
     /// The beads box_first .. box_count in ranges, with the boxes out of
     /// the view left out and a coarse mesh far from the camera. The frame
     /// backend uses it: an empty list there is no bead in the view. The

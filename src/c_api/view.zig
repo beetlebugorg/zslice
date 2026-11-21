@@ -426,6 +426,30 @@ export fn zs_view_support_add(view: ?*View, pts: ?[*]const f64, n: usize, kind: 
     return 1;
 }
 
+/// The labels of the Label tool that the view draws as decals: none.
+export fn zs_view_labels_clear(view: ?*View) void {
+    if (!render_on) return;
+    const v = view orelse return;
+    v.clearLabels();
+}
+
+/// One more label to draw as a decal: its frame (origin, normal, right:
+/// 9 values, as in the JSON of a label), its outline (pts, ends, n as
+/// zs_label_outline gives them), its color 0xRRGGBB, and selected != 0
+/// for an outline around it. 1 if the view has it.
+export fn zs_view_label_add(view: ?*View, frame: ?*const [9]f64, pts: ?[*]const f32, ends: ?[*]const u32, n: usize, rgb: u32, selected: c_int) c_int {
+    if (!render_on) return 0;
+    const v = view orelse return 0;
+    const f = frame orelse return 0;
+    if (n == 0) return 0;
+    const e = (ends orelse return 0)[0..n];
+    var count: usize = 0;
+    for (e) |x| count = @max(count, x);
+    const p: []const [2]f32 = if (count > 0) @as([*]const [2]f32, @ptrCast(pts orelse return 0))[0..count] else &.{};
+    v.addLabel(f.*, p, e, rgb, selected != 0) catch return 0;
+    return 1;
+}
+
 /// on != 0: a pick of a point of the print (zs_view_surface_point,
 /// zs_view_pick) skips the support lines, so a click finds the part under
 /// them (the Support tool).

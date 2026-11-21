@@ -234,6 +234,7 @@ const grid_frag = spvWords(@embedFile("shaders/grid.frag.spv"));
 const bed_vert = spvWords(@embedFile("shaders/bed.vert.spv"));
 const bed_frag = spvWords(@embedFile("shaders/bed.frag.spv"));
 const sign_frag = spvWords(@embedFile("shaders/sign.frag.spv"));
+const decal_frag = spvWords(@embedFile("shaders/decal.frag.spv"));
 
 const BedVertex = @import("../bed.zig").Vertex;
 const BedImage = @import("../bed.zig").Image;
@@ -320,6 +321,14 @@ pub const Renderer = struct {
     sign_set: c.VkDescriptorSet = null,
     sign_tex: Texture = .{},
     sign_buf: Buffer = .{},
+    /// The decals of the labels (Frame.decals): blended, with no depth
+    /// write, and a depth bias toward the camera. The buffer has the fill
+    /// of generation `decal_gen` (decal_fill vertices), then the outlines
+    /// of the frame.
+    decal_pipeline: c.VkPipeline = null,
+    decal_buf: Buffer = .{},
+    decal_gen: u32 = 0,
+    decal_fill: usize = 0,
     pool: c.VkCommandPool,
     cmd: c.VkCommandBuffer,
     acquired: c.VkSemaphore,
@@ -590,7 +599,9 @@ pub const Renderer = struct {
         r.freeTexture(&r.tex);
         r.freeTexture(&r.sign_tex);
         r.freeBuffer(&r.sign_buf);
+        r.freeBuffer(&r.decal_buf);
         if (r.sign_pipeline != null) d.vkDestroyPipeline.?(r.device, r.sign_pipeline, null);
+        if (r.decal_pipeline != null) d.vkDestroyPipeline.?(r.device, r.decal_pipeline, null);
         if (r.sampler != null) d.vkDestroySampler.?(r.device, r.sampler, null);
         if (r.desc_pool != null) d.vkDestroyDescriptorPool.?(r.device, r.desc_pool, null);
         if (r.bed_pipeline != null) d.vkDestroyPipeline.?(r.device, r.bed_pipeline, null);
@@ -865,6 +876,12 @@ pub const Renderer = struct {
         const sf = try r.shader(sign_frag);
         defer d.vkDestroyShaderModule.?(r.device, sf, null);
         r.sign_pipeline = try r.pipeline(vs, sf, &bindings, &attrs, c.VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST, true, false, r.bed_layout);
+        // The decals: the vertex shader of the bed, a flat color, blended
+        // with no depth write, and a depth bias toward the camera, so a
+        // decal on a face stays in front of the beads of that face.
+        const df = try r.shader(decal_frag);
+        defer d.vkDestroyShaderModule.?(r.device, df, null);
+        r.decal_pipeline = try r.pipelineBias(vs, df, &bindings, &attrs, c.VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST, true, false, r.bed_layout, -2, -4);
     }
 
     fn pipeline(
@@ -879,6 +896,24 @@ pub const Renderer = struct {
         /// The bed: blend with alpha, depth write, and a depth bias.
         bed: bool,
         layout: c.VkPipelineLayout,
+    ) Error!c.VkPipeline {
+        return r.pipelineBias(vs, fs, bindings, attrs, topology, ghost, bed, layout, if (bed) 4 else 0, if (bed) 2 else 0);
+    }
+
+    /// `pipeline` with a depth bias of its own (constant and slope; 0 and
+    /// 0: none).
+    fn pipelineBias(
+        r: *Renderer,
+        vs: c.VkShaderModule,
+        fs: c.VkShaderModule,
+        bindings: []const c.VkVertexInputBindingDescription,
+        attrs: []const c.VkVertexInputAttributeDescription,
+        topology: c.VkPrimitiveTopology,
+        ghost: bool,
+        bed: bool,
+        layout: c.VkPipelineLayout,
+        bias: f32,
+        bias_slope: f32,
     ) Error!c.VkPipeline {
         const stages = [_]c.VkPipelineShaderStageCreateInfo{
             .{ .sType = c.VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, .stage = c.VK_SHADER_STAGE_VERTEX_BIT, .module = vs, .pName = "main" },
@@ -909,9 +944,9 @@ pub const Renderer = struct {
             // show their back faces through their front.
             .cullMode = if (!ghost and !bed and topology == c.VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST) c.VK_CULL_MODE_BACK_BIT else c.VK_CULL_MODE_NONE,
             .frontFace = c.VK_FRONT_FACE_COUNTER_CLOCKWISE,
-            .depthBiasEnable = if (bed) c.VK_TRUE else c.VK_FALSE,
-            .depthBiasConstantFactor = if (bed) 4 else 0,
-            .depthBiasSlopeFactor = if (bed) 2 else 0,
+            .depthBiasEnable = if (bias != 0 or bias_slope != 0) c.VK_TRUE else c.VK_FALSE,
+            .depthBiasConstantFactor = bias,
+            .depthBiasSlopeFactor = bias_slope,
             .lineWidth = 1,
         };
         const multisample: c.VkPipelineMultisampleStateCreateInfo = .{
@@ -1890,6 +1925,28 @@ pub const Renderer = struct {
             d.vkCmdPushConstants.?(cmd, r.bed_layout, stages, 0, @sizeOf(Push), &frame.sign);
             d.vkCmdBindVertexBuffers.?(cmd, 0, 1, &r.sign_buf.buf, &zero);
             d.vkCmdDraw.?(cmd, @intCast(frame.signs.len), 1, 0, 0);
+        }
+        // The decals of the labels: the parts hide them, and they cover
+        // the beads of their face.
+        if (frame.decals.len + frame.decal_edges.len > 0 and r.decal_pipeline != null) decal: {
+            const fill = std.mem.sliceAsBytes(frame.decals);
+            const edges = std.mem.sliceAsBytes(frame.decal_edges);
+            const need = fill.len + edges.len;
+            if (need > r.decal_buf.size) {
+                r.makeBuffer(&r.decal_buf, need * 2, c.VK_BUFFER_USAGE_VERTEX_BUFFER_BIT) catch break :decal;
+                r.decal_fill = std.math.maxInt(usize);
+            }
+            // The fill goes into the buffer only when it changes.
+            if (frame.decal_gen != r.decal_gen or r.decal_fill != frame.decals.len) {
+                @memcpy(r.decal_buf.map.?[0..fill.len], fill);
+                r.decal_gen = frame.decal_gen;
+                r.decal_fill = frame.decals.len;
+            }
+            @memcpy(r.decal_buf.map.?[fill.len..need], edges);
+            d.vkCmdBindPipeline.?(cmd, c.VK_PIPELINE_BIND_POINT_GRAPHICS, r.decal_pipeline);
+            d.vkCmdPushConstants.?(cmd, r.bed_layout, stages, 0, @sizeOf(Push), &frame.sign);
+            d.vkCmdBindVertexBuffers.?(cmd, 0, 1, &r.decal_buf.buf, &zero);
+            d.vkCmdDraw.?(cmd, @intCast(frame.decals.len + frame.decal_edges.len), 1, 0, 0);
         }
         if (frame.head.len > 0 and r.instances.buf != null and r.box_index_count > 0) {
             const used = @min(frame.extras.len, max_extras);
