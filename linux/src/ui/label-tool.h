@@ -1,16 +1,20 @@
 /* label-tool.h: the Label tool (L) of the 3D view, as web/app/label.js. It
  * puts labels on the surface of a part: text, a line, a bar, a ring, the
- * ticks of a dial, or a free line, each in a filament of its own. The
- * slice prints a label flush in the outer skin of the part
- * (docs/embedding/labels.md).
+ * ticks of a dial, a free line, or an SVG picture, each in a filament of
+ * its own. The slice prints a label flush in the outer skin of the part
+ * (ink), out of the surface (raised), or cut into it (docs/user/labels.md).
  *
  * - A click on a face of a part adds a label there ("LABEL", 5 mm), in
  *   the filament after the filament of the part. A click on a label
  *   selects it, and its card opens (label-card.h).
  * - A drag of a label moves it on the surface; Shift keeps its plane. The
  *   wheel over the selected label turns it 1° a step (Shift: 15°). The
- *   handle at its corner scales it. Delete removes it; Esc closes the
+ *   handles on the surface around it: a corner resizes it (Shift: each
+ *   axis on its own), the round handle over it turns it (Shift: 15°
+ *   steps). A move or a resize snaps to the smart guides (zs_label_face,
+ *   zs_label_snap); Alt moves free. Delete removes it; Esc closes the
  *   card, then the tool.
+ * - An SVG file dropped on a part makes a label of it there.
  * - The view keeps the beads. The core view draws each label of the part
  *   as a decal on its surface (zs_view_label_add), from its outline
  *   (zs_label_outline) with no slice, so a drag, a turn, or a key in the
@@ -60,7 +64,6 @@ void zg_label_tool_set_shown(ZgLabelTool *t, gboolean shown);
 /* The card and the corner handle. Add both to the overlay of the
  * preview. */
 GtkWidget *zg_label_tool_card(ZgLabelTool *t);
-GtkWidget *zg_label_tool_handle(ZgLabelTool *t);
 /* After each frame of the view: the handle and the card follow the
  * label. */
 void zg_label_tool_place(ZgLabelTool *t);
@@ -72,7 +75,9 @@ void zg_label_tool_open(ZgLabelTool *t, gint64 part, guint32 id);
 /* A press at x, y with the tool on: TRUE if it is on a label (it selects
  * it, and a drag moves it). */
 gboolean zg_label_press(ZgLabelTool *t, double x, double y);
-void zg_label_drag(ZgLabelTool *t, double x, double y, gboolean shift);
+/* shift: keep the plane (a move), each axis on its own (a resize), or
+ * steps of 15° (a turn); alt: no snap. */
+void zg_label_drag(ZgLabelTool *t, double x, double y, gboolean shift, gboolean alt);
 /* The end of a drag (also of a drag that did not start here). */
 void zg_label_release(ZgLabelTool *t);
 gboolean zg_label_dragging(ZgLabelTool *t);
@@ -113,6 +118,14 @@ void zg_label_tool_set_angle(ZgLabelTool *t, double deg);
 void zg_label_tool_set_filament(ZgLabelTool *t, int filament);
 void zg_label_tool_add_filament(ZgLabelTool *t);
 void zg_label_tool_set_depth(ZgLabelTool *t, double mm);
+/* ZG_LABEL_INK, ZG_LABEL_RAISED, or ZG_LABEL_CUT. */
+void zg_label_tool_set_mode(ZgLabelTool *t, int mode);
+void zg_label_tool_set_relief(ZgLabelTool *t, double mm);
+/* An SVG source into the selected label (zg_label_add_svg); path names
+ * the label. FALSE for a picture with no shape. */
+gboolean zg_label_tool_place_svg(ZgLabelTool *t, const char *svg, const char *path);
+/* A new label of an SVG source at x, y on a part. */
+void zg_label_tool_drop_svg(ZgLabelTool *t, const char *svg, const char *path, double x, double y);
 void zg_label_tool_remove(ZgLabelTool *t);
 /* Free lines: clicks on the face add points to item i (-1: stop). */
 void zg_label_tool_draw_points(ZgLabelTool *t, int item);

@@ -18,7 +18,7 @@
 #include "float.h"
 
 /* A field that follows the label: an item and a field of it ("at:0" and
- * "at:1" for the offset, "turn", "depth"). */
+ * "at:1" for the offset, "turn", "depth", "relief"). */
 typedef struct {
     GtkWidget *widget;
     int item;
@@ -29,7 +29,8 @@ typedef struct {
     ZgModel *model;
     ZgLabelTool *tool;
     GtkWidget *card, *title, *scroll, *notice, *notice_text, *notice_add, *curve_note;
-    GtkWidget *items, *add, *turn, *chips, *depth1, *depth2, *depth_mm, *check, *cost;
+    GtkWidget *items, *add, *svg, *turn, *chips, *depth1, *depth2, *depth_mm, *check, *cost;
+    GtkWidget *mode[ZG_LABEL_MODES], *relief_row;
     /* The label that the card shows (a copy), and the key of its fields. */
     ZgLabel *label;
     char *key;
@@ -115,6 +116,7 @@ static double item_at(JsonObject *it, int k) {
 static double input_value(const ZgLabel *l, const Input *in) {
     if (strcmp(in->field, "turn") == 0) return round(zg_label_angle(l) * 10) / 10;
     if (strcmp(in->field, "depth") == 0) return l->depth;
+    if (strcmp(in->field, "relief") == 0) return l->relief > 0 ? l->relief : ZG_LABEL_DEFAULT_RELIEF;
     JsonObject *it = zg_label_item(l, (guint)MAX(in->item, 0));
     if (strcmp(in->field, "at:0") == 0) return item_at(it, 0);
     if (strcmp(in->field, "at:1") == 0) return item_at(it, 1);
@@ -134,6 +136,7 @@ static void on_number(GtkEditable *e, gpointer data) {
     if (ok) {
         if (strcmp(in->field, "turn") == 0) zg_label_tool_set_angle(c->tool, v);
         else if (strcmp(in->field, "depth") == 0) zg_label_tool_set_depth(c->tool, v);
+        else if (strcmp(in->field, "relief") == 0) zg_label_tool_set_relief(c->tool, v);
         else if (strncmp(in->field, "at:", 3) == 0) {
             const ZgLabel *l = zg_label_tool_label(c->tool);
             JsonObject *it = l ? zg_label_item(l, (guint)in->item) : NULL;
@@ -201,6 +204,43 @@ static void on_depth_lines(GtkToggleButton *b, gpointer data) {
     zg_label_tool_set_depth(c->tool, b == GTK_TOGGLE_BUTTON(c->depth1) ? 0 : 2 * lw);
 }
 
+static void on_mode(GtkToggleButton *b, gpointer data) {
+    LabelCard *c = data;
+    if (c->updating || !gtk_toggle_button_get_active(b)) return;
+    zg_label_tool_set_mode(c->tool, GPOINTER_TO_INT(g_object_get_data(G_OBJECT(b), "zg-mode")));
+}
+
+static void on_svg_chosen(GObject *source, GAsyncResult *res, gpointer data) {
+    LabelCard *c = data;
+    GFile *f = gtk_file_dialog_open_finish(GTK_FILE_DIALOG(source), res, NULL);
+    if (!f) return;
+    char *text = NULL;
+    char *path = g_file_get_path(f);
+    if (g_file_load_contents(f, NULL, &text, NULL, NULL, NULL)) zg_label_tool_place_svg(c->tool, text, path);
+    g_free(text);
+    g_free(path);
+    g_object_unref(f);
+}
+
+/* "Place an SVG…": a file dialog for an SVG file. */
+static void on_svg(GtkButton *b, gpointer data) {
+    LabelCard *c = data;
+    GtkFileDialog *d = gtk_file_dialog_new();
+    gtk_file_dialog_set_title(d, "Place an SVG");
+    GtkFileFilter *f = gtk_file_filter_new();
+    gtk_file_filter_set_name(f, "SVG pictures");
+    gtk_file_filter_add_suffix(f, "svg");
+    gtk_file_filter_add_mime_type(f, "image/svg+xml");
+    GListStore *filters = g_list_store_new(GTK_TYPE_FILE_FILTER);
+    g_list_store_append(filters, f);
+    gtk_file_dialog_set_filters(d, G_LIST_MODEL(filters));
+    GtkRoot *root = gtk_widget_get_root(c->card);
+    gtk_file_dialog_open(d, GTK_IS_WINDOW(root) ? GTK_WINDOW(root) : NULL, NULL, on_svg_chosen, c);
+    g_object_unref(filters);
+    g_object_unref(f);
+    g_object_unref(d);
+}
+
 static void on_chip(GtkButton *b, gpointer data) {
     LabelCard *c = data;
     zg_label_tool_set_filament(c->tool, GPOINTER_TO_INT(g_object_get_data(G_OBJECT(b), "zg-filament")));
@@ -247,6 +287,16 @@ static GtkWidget *item_box(LabelCard *c, const ZgLabel *l, guint i) {
     gtk_widget_add_css_class(row, "linked");
     gtk_widget_set_hexpand(row, TRUE);
     GtkWidget *first = NULL;
+    if (strcmp(kind, "svg") == 0) {
+        /* An SVG picture: its chip, and the chips to make it another
+         * shape. */
+        first = gtk_toggle_button_new_with_label("SVG");
+        gtk_widget_add_css_class(first, "zg-label-chip");
+        gtk_widget_set_hexpand(first, TRUE);
+        gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(first), TRUE);
+        gtk_widget_set_tooltip_text(first, "An SVG picture");
+        gtk_box_append(GTK_BOX(row), first);
+    }
     for (int k = 0; k < ZG_LABEL_KINDS; k++) {
         GtkWidget *b = gtk_toggle_button_new_with_label(zg_label_kind_names[k]);
         gtk_widget_add_css_class(b, "zg-label-chip");
@@ -359,8 +409,9 @@ static char *key_of(LabelCard *c, const ZgLabel *l) {
 }
 
 static void build_items(LabelCard *c, const ZgLabel *l) {
-    /* The inputs of the items go; turn and depth stay (the first two). */
-    while (c->inputs->len > 2) g_ptr_array_remove_index(c->inputs, c->inputs->len - 1);
+    /* The inputs of the items go; turn, relief, and depth stay (the first
+     * three). */
+    while (c->inputs->len > 3) g_ptr_array_remove_index(c->inputs, c->inputs->len - 1);
     GtkWidget *child;
     while ((child = gtk_widget_get_first_child(c->items))) gtk_box_remove(GTK_BOX(c->items), child);
     for (guint i = 0; i < zg_label_item_count(l); i++) {
@@ -395,8 +446,8 @@ static void draw_chips(LabelCard *c, const ZgLabel *l) {
     gtk_widget_set_tooltip_text(plus, "Add a filament to the plate, for this label");
     g_signal_connect(plus, "clicked", G_CALLBACK(on_add_filament), c);
     gtk_flow_box_append(GTK_FLOW_BOX(c->chips), plus);
-    /* A label in the filament of the part does not show. */
-    gboolean same = l->filament == base;
+    /* An ink label in the filament of the part does not show. */
+    gboolean same = l->filament == base && l->mode == ZG_LABEL_INK;
     gtk_widget_set_visible(c->notice, same);
     gtk_widget_set_visible(c->notice_add, same && n <= 1);
     gtk_label_set_text(GTK_LABEL(c->notice_text), n <= 1 ? "The plate has one filament, so this label does not show."
@@ -435,6 +486,8 @@ static void update(LabelCard *c, const ZgLabel *l) {
     double lw = info ? json_object_get_double_member_with_default(info, "line_width", 0.42) : 0.42;
     gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(c->depth1), !(l->depth > 0));
     gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(c->depth2), fabs(l->depth - 2 * lw) < 1e-6);
+    for (int k = 0; k < ZG_LABEL_MODES; k++) gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(c->mode[k]), l->mode == k);
+    gtk_widget_set_visible(c->relief_row, l->mode != ZG_LABEL_INK);
     c->updating = FALSE;
     draw_chips(c, l);
 }
@@ -663,7 +716,15 @@ GtkWidget *zg_label_card_new(ZgModel *model, ZgLabelTool *tool) {
     gtk_widget_set_tooltip_text(c->add, "Add a shape to this label: it shares the place, the turn, and the filament. Ticks go around the center, under the text.");
     gtk_widget_set_halign(c->add, GTK_ALIGN_START);
     g_signal_connect(c->add, "notify::selected", G_CALLBACK(on_add), c);
-    gtk_box_append(GTK_BOX(body), c->add);
+    c->svg = gtk_button_new_with_label("Place an SVG…");
+    gtk_widget_set_tooltip_text(c->svg, "Put the filled shapes of an SVG file on the label. You can also drop an SVG file on a part.");
+    gtk_widget_add_css_class(c->svg, "zg-card-action");
+    gtk_widget_set_halign(c->svg, GTK_ALIGN_START);
+    g_signal_connect(c->svg, "clicked", G_CALLBACK(on_svg), c);
+    GtkWidget *add_row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
+    gtk_box_append(GTK_BOX(add_row), c->add);
+    gtk_box_append(GTK_BOX(add_row), c->svg);
+    gtk_box_append(GTK_BOX(body), add_row);
     /* The turn. */
     GtkWidget *turn_row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
     GtkWidget *turn_name = dim_label("Turn", NULL);
@@ -679,6 +740,39 @@ GtkWidget *zg_label_card_new(ZgModel *model, ZgLabelTool *tool) {
     gtk_box_append(GTK_BOX(turn_row), c->turn);
     gtk_box_append(GTK_BOX(turn_row), deg);
     gtk_box_append(GTK_BOX(body), turn_row);
+    /* The mode: ink, raised, or cut in, and the relief. */
+    GtkWidget *mode_row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
+    GtkWidget *mode_name = dim_label("Print", NULL);
+    gtk_widget_set_hexpand(mode_name, TRUE);
+    gtk_box_append(GTK_BOX(mode_row), mode_name);
+    GtkWidget *modes = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
+    gtk_widget_add_css_class(modes, "linked");
+    static const char *const mode_tips[ZG_LABEL_MODES] = {"Flush with the surface, in the filament of the label", "Out of the surface by the relief",
+                                                          "Cut into the surface by the relief"};
+    for (int k = 0; k < ZG_LABEL_MODES; k++) {
+        c->mode[k] = gtk_toggle_button_new_with_label(zg_label_mode_names[k]);
+        if (k > 0) gtk_toggle_button_set_group(GTK_TOGGLE_BUTTON(c->mode[k]), GTK_TOGGLE_BUTTON(c->mode[0]));
+        gtk_widget_set_tooltip_text(c->mode[k], mode_tips[k]);
+        g_object_set_data(G_OBJECT(c->mode[k]), "zg-mode", GINT_TO_POINTER(k));
+        g_signal_connect(c->mode[k], "toggled", G_CALLBACK(on_mode), c);
+        gtk_box_append(GTK_BOX(modes), c->mode[k]);
+    }
+    gtk_box_append(GTK_BOX(mode_row), modes);
+    gtk_box_append(GTK_BOX(body), mode_row);
+    c->relief_row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
+    GtkWidget *relief_name = dim_label("Relief", NULL);
+    gtk_widget_set_hexpand(relief_name, TRUE);
+    GtkWidget *relief = spin(ZG_LABEL_DEFAULT_RELIEF, 0.1, 10, 0.1);
+    gtk_widget_set_tooltip_text(relief, "The height of a raised label, or the depth of a cut, mm");
+    g_object_set_data(G_OBJECT(relief), "zg-input", add_input(c, relief, -1, "relief"));
+    g_signal_connect(relief, "changed", G_CALLBACK(on_number), c);
+    GtkWidget *rmm = gtk_label_new("mm");
+    gtk_widget_add_css_class(rmm, "dim-label");
+    gtk_box_append(GTK_BOX(c->relief_row), relief_name);
+    gtk_box_append(GTK_BOX(c->relief_row), relief);
+    gtk_box_append(GTK_BOX(c->relief_row), rmm);
+    gtk_widget_set_visible(c->relief_row, FALSE);
+    gtk_box_append(GTK_BOX(body), c->relief_row);
     /* The filament. */
     gtk_box_append(GTK_BOX(body), heading("Filament"));
     c->chips = gtk_flow_box_new();
