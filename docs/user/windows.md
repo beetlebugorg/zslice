@@ -4,7 +4,7 @@ The Windows app is a native app for Windows 10 and 11, on x64 and ARM64. It is i
 
 ## Open a model
 
-Press **Open** or Ctrl+O and pick an STL or 3MF file. You can also drop a file on the window, or give a file on the command line. The app slices the model at once, and the status bar shows the layers, the print time, and the filament.
+Press **Open** or Ctrl+O and pick an STL, 3MF, STEP, or OBJ file. You can also drop a file on the window, or give a file on the command line. The app slices the model at once, and the status bar shows the layers, the print time, and the filament.
 
 ## Look at the slice
 
@@ -31,6 +31,16 @@ The strip at the left has the tools. Press the key of a tool to pick it.
 | T | Measure | Click two points. The ends of the lines snap, and a click on a circle measures from its center. Hold Shift for no snap. |
 
 Support (S), Paint (P), and Label (E) are in the strip, and do not work yet.
+
+## See the print
+
+Under the tools are the line colors, Gaps, and Check.
+
+- **The line colors**: the filament, one color for each feature, or a ramp of the speed, the flow, the layer time, or the line width. The range of a ramp shows at the top of the view. **Show the print as it forms** shows the simulated plastic, which sags where nothing holds it.
+- **Gaps**: the areas of the top layer that should be solid and that no line covers, in red. Click a gap for the settings that can close it, and **Try** one.
+- **Check**: the things that can make the print fail. Click one to go to its layer and its line.
+
+The bar under the view replays the print at a speed of 1× to 100×. Its slider moves the nozzle through the top layer. B hides the bed.
 
 ## Parts
 
