@@ -864,7 +864,9 @@ pub const Project = struct {
 
     // Placement
     /// Where the part goes on the bed. auto: at the X and Y of the file if
-    /// the part is fully on the bed there, else at the center of the bed.
+    /// the part is fully on the bed there, else at the center of the bed;
+    /// a model added to a plate with parts gets smart placement (its best
+    /// orientation, then a free spot), and the parts on the plate stay.
     /// file: always at the X and Y of the file. center: always at the
     /// center of the bed. The bottom of the part always goes to z = 0.
     placement: Placement = .auto,

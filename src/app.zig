@@ -475,6 +475,15 @@ pub const App = struct {
         }
         const m = try zs.Mesh.fromStl(app.gpa, bytes);
         const i = try app.addMesh(name, m);
+        // A model added to a plate with parts: smart placement of the new
+        // part only (its best orientation, then a free spot); the parts
+        // on the plate stay where they are. Only with placement "auto": a
+        // placement of "file" or "center" is the user's.
+        if (i > 0 and app.settings.project.placement == .auto) {
+            try app.plate.place(app.gpa, i, .smart, 0, app.settings.project.support_angle);
+            app.plate.respot(i, app.bedSize(), app.partGap());
+            try app.plateChanged();
+        }
         try app.settleFrom(i);
         return i;
     }
@@ -4381,6 +4390,38 @@ test "app: a 3MF file keeps the parts, the places, and the changes" {
     back.stopWorkerForTest();
     const t = back.allToolpaths().?;
     try std.testing.expectApproxEqAbs(@as(f32, 0.1), t.layer_height.items[t.layer_height.items.len - 1], 1e-6);
+}
+
+test "an added model gets a smart place; the parts on the plate stay" {
+    const gpa = testing.allocator;
+    var mesh = try zs.mesh.shapes.demo(gpa);
+    var bytes: std.Io.Writer.Allocating = .init(gpa);
+    defer bytes.deinit();
+    try mesh.writeStl(&bytes.writer);
+    mesh.deinit(gpa);
+    const app = try App.create(gpa, null, null);
+    defer app.destroy();
+    try app.loadStl("a.stl", bytes.written());
+    // The user moved the first part off the middle.
+    app.plate.parts.items[0].x = 60;
+    app.plate.parts.items[0].y = 70;
+    const before = app.plate.parts.items[0];
+    _ = try app.addStl("b.stl", bytes.written());
+    _ = try app.addStl("c.stl", bytes.written());
+    const a0 = app.plate.parts.items[0];
+    try testing.expectEqual(before.x, a0.x);
+    try testing.expectEqual(before.y, a0.y);
+    try testing.expectEqual(before.pose, a0.pose);
+    // No two parts touch, and each is on the bed.
+    const bed = app.bedSize();
+    for (0..3) |i| {
+        const f = app.plate.parts.items[i].footprint();
+        try testing.expect(f[0] >= 0 and f[1] >= 0 and f[2] <= bed[0] and f[3] <= bed[1]);
+        for (i + 1..3) |j| {
+            const g = app.plate.parts.items[j].footprint();
+            try testing.expect(f[2] <= g[0] or g[2] <= f[0] or f[3] <= g[1] or g[3] <= f[1]);
+        }
+    }
 }
 
 test "a plate of two parts slices as one print" {

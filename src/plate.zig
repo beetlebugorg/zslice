@@ -841,6 +841,16 @@ pub const Plate = struct {
         try self.putDown(gpa, i, best.dir);
     }
 
+    /// Moves part i to the free spot nearest the middle of the bed, where
+    /// it touches no other part (with `gap` around it). The other parts
+    /// stay.
+    pub fn respot(self: *Plate, i: usize, bed: [2]f64, gap: f64) void {
+        if (i >= self.parts.items.len) return;
+        const spot = self.freeSpotSkip(&self.parts.items[i], bed, gap, i);
+        self.parts.items[i].x = spot[0];
+        self.parts.items[i].y = spot[1];
+    }
+
     /// The part whose footprint holds the point, or null. A smaller part
     /// wins, so a part next to a large one can be picked.
     pub fn partAt(self: *const Plate, x: f64, y: f64) ?usize {
