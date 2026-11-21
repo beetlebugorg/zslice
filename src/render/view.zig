@@ -3795,9 +3795,10 @@ pub const View = struct {
             p.deinit(gpa);
         }
         while (v.plates.items.len < beds.len) v.plates.append(gpa, .{}) catch return error.OutOfMemory;
-        // The gap: 15 % of the widest bed, and at least 30 mm.
-        var gap: f32 = 30;
-        for (beds) |b| gap = @max(gap, 0.15 * b[0]);
+        // The gap: 35 % of the widest bed, and at least 60 mm. A new
+        // plate then stands clear of the plate before it.
+        var gap: f32 = 60;
+        for (beds) |b| gap = @max(gap, 0.35 * b[0]);
         var x: f32 = 0;
         for (v.plates.items, beds) |*p, b| {
             p.bed = b;
@@ -5715,26 +5716,26 @@ test "the plates of a row: offsets, the active plate, the pick, and the frame" {
     var v: View = .{ .renderer = undefined, .width = 800, .height = 600, .headless = true };
     defer v.deinitData();
     try v.setPlates(&.{ .{ 200, 200 }, .{ 300, 250 }, .{ 200, 200 } }, 0);
-    // The gap is 15 % of the widest bed: 45 mm.
-    try std.testing.expectEqual([2]f32{ 245, 0 }, v.plateOffset(1));
-    try std.testing.expectEqual([2]f32{ 590, 0 }, v.plateOffset(2));
+    // The gap is 35 % of the widest bed: 105 mm.
+    try std.testing.expectEqual([2]f32{ 305, 0 }, v.plateOffset(1));
+    try std.testing.expectEqual([2]f32{ 710, 0 }, v.plateOffset(2));
     // The camera looks at the middle of plate 1 from above.
-    v.target = .{ 245 + 150, 125, 0 };
+    v.target = .{ 305 + 150, 125, 0 };
     v.setAngles(-std.math.pi / 2.0, 1.4);
     v.dist = 400;
     try std.testing.expectEqual(@as(?usize, 1), v.plateAt(400, 300));
     // Plate 1 active: the world moves, and the camera with it.
     try v.setPlates(&.{ .{ 200, 200 }, .{ 300, 250 }, .{ 200, 200 } }, 1);
     try std.testing.expectApproxEqAbs(@as(f32, 150), v.target[0], 1e-4);
-    try std.testing.expectEqual([2]f32{ -245, 0 }, v.plateOffset(0));
+    try std.testing.expectEqual([2]f32{ -305, 0 }, v.plateOffset(0));
     try std.testing.expectEqual(@as(?usize, 1), v.plateAt(400, 300));
     // The frame of plate 2: the goal looks at its middle, and all its
     // corners are in the view.
     v.framePlate(2);
     const g = v.goal.?;
-    try std.testing.expectApproxEqAbs(@as(f32, 345 + 100), g.target[0], 1e-3);
+    try std.testing.expectApproxEqAbs(@as(f32, 405 + 100), g.target[0], 1e-3);
     v.setPose(g);
-    for ([_][2]f32{ .{ 345, 0 }, .{ 545, 0 }, .{ 345, 200 }, .{ 545, 200 } }) |c| {
+    for ([_][2]f32{ .{ 405, 0 }, .{ 605, 0 }, .{ 405, 200 }, .{ 605, 200 } }) |c| {
         const q = v.pixelOf(.{ c[0], c[1], 0 }).?;
         try std.testing.expect(q[0] >= 0 and q[0] <= 800 and q[1] >= 0 and q[1] <= 600);
     }
