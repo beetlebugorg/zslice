@@ -76,6 +76,8 @@ pub const wasm_heap = @import("wasm_heap.zig");
 pub const engine = @import("engine.zig");
 pub const plate_job = @import("plate_job.zig");
 pub const svg = @import("svg.zig");
+/// The filled shapes of an SVG picture, for a label (see svg_path.zig).
+pub const svg_path = @import("svg_path.zig");
 pub const support = @import("support.zig");
 /// Tree support, and its skeleton of nodes (see tree_support.zig).
 pub const tree_support = @import("tree_support.zig");

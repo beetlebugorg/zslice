@@ -46,6 +46,19 @@
 //! the top or bottom layers under its shape. The region of a label wins
 //! over the paint and the roots (see `Split.labelLayer`).
 //!
+//! A raised or cut label (label.Mode) also changes the outline. A cut
+//! label takes its shape out of the layers within its relief of the
+//! surface: the same prism, in a band of the relief. The floor of a cut
+//! in a top or bottom face gets skin (see `Split.removed`). A raised
+//! label on a side face adds the prism out of the surface, within the
+//! relief of the outline (the outline grown by the relief, less the
+//! outline). A raised label on a top face is a plateau: walls of its
+//! shape go into the mesh of the part (see `Split.plateauMesh`), so the
+//! layers over the face exist and get top skin. A raised or cut label in
+//! the filament of the part changes only the shape. In another filament,
+//! a raised label prints in it, and a cut label colors the floor of the
+//! cut to the depth of the label.
+//!
 //! References (see docs/references/): the multi-material segmentation of
 //! PrusaSlicer (MultiMaterialSegmentation.cpp: the colored edges of a
 //! layer, the projection of painted top and bottom surfaces); the
@@ -119,11 +132,17 @@ pub const Split = struct {
     /// For each state: the index of its label in the labels of `init`,
     /// or null for the part and the paint. Empty with no labels.
     label_of: []?u32 = &.{},
+    /// For each layer: the area that cut labels took out of it (empty
+    /// with no cut label). A layer under a cut gets top skin there, and
+    /// a layer over a cut gets bottom skin (see engine.Job.clipToPaint).
+    removed: []Paths = &.{},
 
     pub fn deinit(s: *Split) void {
         for (s.labels) |*c| c.shape.deinit(s.gpa);
         s.gpa.free(s.labels);
         s.gpa.free(s.label_of);
+        for (s.removed) |*r| r.deinit(s.gpa);
+        s.gpa.free(s.removed);
         for (s.regions) |*r| r.deinit(s.gpa);
         s.gpa.free(s.regions);
         s.gpa.free(s.root_only);
@@ -141,7 +160,9 @@ pub const Split = struct {
     /// `init`, with the labels of the part (see label.zig) in the frame
     /// of `mesh`. Each label gets a state of its own after the states of
     /// the paint, also when its filament is a filament of the paint. A
-    /// label in the filament of the part, or with no shape, gets none.
+    /// label in the filament of the part gets none: an ink label then
+    /// does nothing, and a raised or cut label changes the outlines of
+    /// the state of the part. A label with no shape does nothing.
     pub fn initLabels(gpa: Allocator, mesh: *const Mesh, paint: *const paint_mod.Paint, base: u8, labels: []const label_mod.Label) Allocator.Error!Split {
         var s = try initPaint(gpa, mesh, paint, base);
         errdefer s.deinit();
@@ -153,12 +174,15 @@ pub const Split = struct {
         }
         var grid: ?paint_mod.Grid = null;
         defer if (grid) |*g| g.deinit(gpa);
+        var own: usize = 0;
         for (labels, 0..) |*l, li| {
-            if (l.filament == base or l.filament > 255 or l.items.len == 0) continue;
+            const mine = l.filament != base;
+            if ((!mine and l.mode == .ink) or l.filament > 255 or l.items.len == 0) continue;
             if (grid == null) grid = try paint_mod.Grid.init(gpa, mesh);
             var c = (try LabelCut.init(gpa, l, mesh, &grid.?)) orelse continue;
             c.index = @intCast(li);
-            c.state = s.states.len + cuts.items.len;
+            c.state = if (mine) s.states.len + own else 0;
+            if (mine) own += 1;
             cuts.append(gpa, c) catch |e| {
                 c.shape.deinit(gpa);
                 return e;
@@ -169,14 +193,18 @@ pub const Split = struct {
             return s;
         }
         const n = s.states.len;
-        const states = try gpa.alloc(u8, n + cuts.items.len);
+        const states = try gpa.alloc(u8, n + own);
         @memcpy(states[0..n], s.states);
-        for (cuts.items, states[n..]) |c, *st| st.* = @intCast(labels[c.index].filament);
+        for (cuts.items) |c| if (c.state != 0) {
+            states[c.state] = @intCast(labels[c.index].filament);
+        };
         gpa.free(s.states);
         s.states = states;
         s.label_of = try gpa.alloc(?u32, states.len);
         @memset(s.label_of, null);
-        for (cuts.items) |c| s.label_of[c.state] = c.index;
+        for (cuts.items) |c| if (c.state != 0) {
+            s.label_of[c.state] = c.index;
+        };
         s.labels = try cuts.toOwnedSlice(gpa);
         return s;
     }
@@ -266,6 +294,14 @@ pub const Split = struct {
         s.layers = n;
         s.regions = try gpa.alloc(Paths, n * s.states.len);
         @memset(s.regions, .empty);
+        for (s.removed) |*r| r.deinit(gpa);
+        gpa.free(s.removed);
+        s.removed = &.{};
+        for (s.labels) |lc| if (lc.mode == .cut) {
+            s.removed = try gpa.alloc(Paths, n);
+            @memset(s.removed, .empty);
+            break;
+        };
         const Pass = struct {
             s: *Split,
             outlines: []const Paths,
@@ -338,62 +374,124 @@ pub const Split = struct {
         const lh = if (i > 0) cut_z[i] - cut_z[i - 1] else if (cut_z.len > 1) cut_z[1] - cut_z[0] else width / 2;
         const r_bead = @divTrunc(geom.fromMm(min_bead), 2);
         // The skin bands of the layer, for each depth.
-        var bands: std.ArrayList(struct { d: f64, band: Paths }) = .empty;
+        var bands: std.ArrayList(Band) = .empty;
         for (s.labels) |*lc| {
             const d = if (lc.depth > 0) lc.depth else width;
-            var l: Paths = .empty;
-            switch (lc.kind) {
-                .side => {
-                    const p = try lc.side(a, z, lc.h_min - width, lc.h_max + d + width, frame);
-                    if (p.isEmpty()) continue;
-                    var band: ?Paths = null;
-                    for (bands.items) |b| if (b.d == d) {
-                        band = b.band;
-                    };
-                    if (band == null) {
-                        const inner = try offset_mod.offset(a, outline, -geom.fromMm(d), .{});
-                        band = try clip.difference(a, outline, inner);
-                        try bands.append(a, .{ .d = d, .band = band.? });
-                    }
-                    l = try clip.intersect(a, p, band.?);
-                    if (l.isEmpty()) continue;
-                    l = try clean(a, l, band.?, r_bead);
-                },
-                .top, .bottom => {
-                    // Only near the surface under the label.
-                    const layers: usize = @max(2, @as(usize, @intFromFloat(@ceil(d / @max(lh, 1e-3) - 1e-6))));
-                    const reach = (@as(f64, @floatFromInt(layers)) + 1) * lh / frame.z_scale + width;
-                    if (lc.kind == .top and (z < lc.z_min - reach or z > lc.z_max + width)) continue;
-                    if (lc.kind == .bottom and (z > lc.z_max + reach or z < lc.z_min - width)) continue;
-                    const p = try lc.flat(a, z, frame);
-                    if (p.isEmpty()) continue;
-                    // The area within `layers` layers of a top (or of a
-                    // bottom): the outline less the area that all those
-                    // layers have.
-                    var keep: ?Paths = null;
-                    var j: usize = 1;
-                    while (j <= layers) : (j += 1) {
-                        const o: Paths = if (lc.kind == .top) (if (i + j < outlines.len) outlines[i + j] else .empty) else (if (i >= j) outlines[i - j] else .empty);
-                        keep = if (keep) |kp| try clip.intersect(a, kp, o) else o;
-                        if (keep.?.isEmpty()) break;
-                    }
-                    const skin = try clip.difference(a, outline, keep orelse .empty);
-                    l = try clip.intersect(a, p, skin);
-                    if (l.isEmpty()) continue;
-                    l = try clean(a, l, skin, r_bead);
-                },
+            const rel = lc.relief;
+            // A raised side label: the prism out of the surface, in the
+            // shell of the relief around the outline. It goes to the state
+            // of the label (the part, or its own filament).
+            if (lc.mode == .raised and lc.kind == .side) {
+                const p = try lc.side(a, z, lc.h_min - rel - width, lc.h_max + width, frame);
+                if (p.isEmpty()) continue;
+                const grown = try offset_mod.offset(a, outline, geom.fromMm(rel), .{});
+                const shell = try clip.difference(a, grown, outline);
+                var r = try clip.intersect(a, p, shell);
+                if (r.isEmpty()) continue;
+                r = try clean(a, r, shell, r_bead);
+                if (r.isEmpty()) continue;
+                const u = try clip.unite(gpa, out[lc.state], r);
+                out[lc.state].deinit(gpa);
+                out[lc.state] = u;
+                continue;
             }
+            // A raised top label: the plateau is in the mesh. Its own
+            // filament colors the plateau, and the depth of the label
+            // under it.
+            if (lc.mode == .raised and lc.kind == .top) {
+                if (lc.state == 0) continue;
+                if (z < lc.z_min - d - width or z > lc.plateau_z + width) continue;
+                const p = try lc.flat(a, lc.plateau_z, frame);
+                var l = try clip.intersect(a, p, outline);
+                if (l.isEmpty()) continue;
+                l = try clean(a, l, outline, r_bead);
+                try s.give(out, lc.state, l);
+                continue;
+            }
+            // A cut label: its shape out of the band of the relief. In its
+            // own filament, the band of the depth under the cut is the
+            // region of the label.
+            if (lc.mode == .cut) {
+                const c = try lc.region(a, i, outlines, z, lh, rel, width, frame, &bands);
+                if (c.isEmpty()) continue;
+                const room = if (lc.kind == .side) try bandOf(a, outline, rel, &bands) else outline;
+                const cut = try clean(a, c, room, r_bead);
+                if (cut.isEmpty()) continue;
+                for (out) |*r| {
+                    if (r.isEmpty()) continue;
+                    const rest = try clip.difference(gpa, r.*, cut);
+                    r.deinit(gpa);
+                    r.* = rest;
+                }
+                const rm = try clip.unite(gpa, s.removed[i], cut);
+                s.removed[i].deinit(gpa);
+                s.removed[i] = rm;
+                if (lc.state == 0) continue;
+                const deep = try lc.region(a, i, outlines, z, lh, rel + d, width, frame, &bands);
+                var l = try clip.difference(a, deep, cut);
+                if (l.isEmpty()) continue;
+                l = try clean(a, l, deep, r_bead);
+                try s.give(out, lc.state, l);
+                continue;
+            }
+            // Ink (and a raised bottom label: it prints as ink).
+            if (lc.state == 0) continue;
+            var l = try lc.region(a, i, outlines, z, lh, d, width, frame, &bands);
             if (l.isEmpty()) continue;
-            for (out, 0..) |*r, st| {
-                if (st == lc.state or r.isEmpty()) continue;
-                const rest = try clip.difference(gpa, r.*, l);
-                r.deinit(gpa);
-                r.* = rest;
-            }
-            const mine = try l.clone(gpa);
-            out[lc.state].deinit(gpa);
-            out[lc.state] = mine;
+            const room = if (lc.kind == .side) try bandOf(a, outline, d, &bands) else try lc.skin(a, i, outlines, lh, d);
+            l = try clean(a, l, room, r_bead);
+            try s.give(out, lc.state, l);
         }
+    }
+
+    /// Region `l` of a layer goes to state `state`: each other region of
+    /// the layer loses it.
+    fn give(s: *Split, out: []Paths, state: usize, l: Paths) Allocator.Error!void {
+        const gpa = s.gpa;
+        if (l.isEmpty()) return;
+        for (out, 0..) |*r, st| {
+            if (st == state or r.isEmpty()) continue;
+            const rest = try clip.difference(gpa, r.*, l);
+            r.deinit(gpa);
+            r.* = rest;
+        }
+        const mine = try l.clone(gpa);
+        out[state].deinit(gpa);
+        out[state] = mine;
+    }
+
+    /// The mesh of the part with the walls of the plateau of each raised
+    /// top label (see the header), or null if no label is one. The walls
+    /// stand along Z from 1 mm under the surface under the shape to the
+    /// relief over its highest point, on the shape projected along the
+    /// normal of the label. The caller owns the result.
+    pub fn plateauMesh(s: *const Split, gpa: Allocator, mesh: *const Mesh) Allocator.Error!?Mesh {
+        var out: ?Mesh = null;
+        errdefer if (out) |*m| m.deinit(gpa);
+        for (s.labels) |*lc| {
+            if (lc.mode != .raised or lc.kind != .top) continue;
+            if (out == null) out = try mesh.clone(gpa);
+            const m = &out.?;
+            const z0: f32 = @floatCast(lc.z_min - 1);
+            const z1: f32 = @floatCast(lc.plateau_z);
+            var shape = try lc.flat(gpa, lc.plateau_z, .{});
+            defer shape.deinit(gpa);
+            for (0..shape.count()) |k| {
+                const poly = shape.get(k);
+                for (poly, 0..) |p, j| {
+                    const q = poly[(j + 1) % poly.len];
+                    const px: f32 = @floatCast(geom.toMm(p.x));
+                    const py: f32 = @floatCast(geom.toMm(p.y));
+                    const qx: f32 = @floatCast(geom.toMm(q.x));
+                    const qy: f32 = @floatCast(geom.toMm(q.y));
+                    const b: u32 = @intCast(m.vertices.items.len);
+                    try m.vertices.appendSlice(gpa, &.{ .{ .x = px, .y = py, .z = z0 }, .{ .x = qx, .y = qy, .z = z0 }, .{ .x = qx, .y = qy, .z = z1 }, .{ .x = px, .y = py, .z = z1 } });
+                    // Outward for a counterclockwise outline.
+                    try m.faces.appendSlice(gpa, &.{ .{ b, b + 1, b + 2 }, .{ b, b + 2, b + 3 } });
+                }
+            }
+        }
+        return out;
     }
 
     /// The anchors of the painted features: where a region of a painted
@@ -909,6 +1007,22 @@ pub const Anchor = struct {
 /// The clean-up of a label region `l` in the area `room` (see
 /// `Split.labelLayer`): no piece thinner than 2 r, and no gap narrower
 /// than 2 r.
+/// The skin band of an outline at a depth (mm), from the cache `bands`.
+const Band = struct { d: f64, band: Paths };
+
+fn bandOf(a: Allocator, outline: Paths, d: f64, bands: *std.ArrayList(Band)) Allocator.Error!Paths {
+    for (bands.items) |b| if (b.d == d) return b.band;
+    const inner = try offset_mod.offset(a, outline, -geom.fromMm(d), .{});
+    const band = try clip.difference(a, outline, inner);
+    try bands.append(a, .{ .d = d, .band = band });
+    return band;
+}
+
+/// The count of layers of a depth of a top or bottom label (at least 2).
+fn layersOf(depth: f64, lh: f64) usize {
+    return @max(2, @as(usize, @intFromFloat(@ceil(depth / @max(lh, 1e-3) - 1e-6))));
+}
+
 fn clean(a: Allocator, l: Paths, room: Paths, r: i64) Allocator.Error!Paths {
     if (r <= 0) return l;
     const open = try clip.intersect(a, try offset_mod.opening(a, l, r, .{}), l);
@@ -945,8 +1059,53 @@ pub const LabelCut = struct {
     h_max: f64,
     z_min: f64,
     z_max: f64,
+    /// Ink, raised, or cut, and the relief (mm).
+    mode: label_mod.Mode = .ink,
+    relief: f64 = 0,
+    /// A raised top label: the z of the top of its plateau (mesh frame):
+    /// the relief over the highest point of the surface under it.
+    plateau_z: f64 = 0,
 
     pub const Kind = enum { side, top, bottom };
+
+    /// The area of layer i under the shape within `depth` of the surface:
+    /// for a side label, the prism over the surface range and the depth,
+    /// in the band of the depth; for a top or bottom label, the shape in
+    /// the area within the layers of the depth of a top or a bottom (see
+    /// `skin`). Empty out of the range of the label.
+    fn region(c: *const LabelCut, a: Allocator, i: usize, outlines: []const Paths, z: f64, lh: f64, depth: f64, width: f64, frame: Frame, bands: *std.ArrayList(Band)) Allocator.Error!Paths {
+        const outline = outlines[i];
+        switch (c.kind) {
+            .side => {
+                const p = try c.side(a, z, c.h_min - width, c.h_max + depth + width, frame);
+                if (p.isEmpty()) return p;
+                return clip.intersect(a, p, try bandOf(a, outline, depth, bands));
+            },
+            .top, .bottom => {
+                const layers = layersOf(depth, lh);
+                const reach = (@as(f64, @floatFromInt(layers)) + 1) * lh / frame.z_scale + width;
+                if (c.kind == .top and (z < c.z_min - reach or z > c.z_max + width)) return .empty;
+                if (c.kind == .bottom and (z > c.z_max + reach or z < c.z_min - width)) return .empty;
+                const p = try c.flat(a, z, frame);
+                if (p.isEmpty()) return p;
+                return clip.intersect(a, p, try c.skin(a, i, outlines, lh, depth));
+            },
+        }
+    }
+
+    /// The area of layer i within the layers of `depth` of a top (or of
+    /// a bottom): the outline less the area that all those layers have.
+    fn skin(c: *const LabelCut, a: Allocator, i: usize, outlines: []const Paths, lh: f64, depth: f64) Allocator.Error!Paths {
+        const layers = layersOf(depth, lh);
+        var keep: ?Paths = null;
+        var j: usize = 1;
+        while (j <= layers) : (j += 1) {
+            const o: Paths = if (c.kind == .top) (if (i + j < outlines.len) outlines[i + j] else .empty) else (if (i >= j) outlines[i - j] else .empty);
+            keep = if (keep) |kp| try clip.intersect(a, kp, o) else o;
+            if (keep.?.isEmpty()) break;
+        }
+        return clip.difference(a, outlines[i], keep orelse .empty);
+    }
 
     /// The cut of a label, or null if the shape is empty or no ray from
     /// it meets the mesh.
@@ -969,6 +1128,8 @@ pub const LabelCut = struct {
             .right = l.right,
             .up = l.up(),
             .depth = l.depth,
+            .mode = l.mode,
+            .relief = l.reliefMm(),
             .h_min = std.math.inf(f64),
             .h_max = -std.math.inf(f64),
             .z_min = std.math.inf(f64),
@@ -1012,6 +1173,7 @@ pub const LabelCut = struct {
             shape.deinit(gpa);
             return null;
         }
+        c.plateau_z = c.z_max + c.relief;
         if (c.kind == .side) {
             // The shape in the axes (a, b): a turn in the plane.
             c.a = label_mod.normalize(label_mod.cross(c.normal, .{ 0, 0, 1 })) orelse .{ 1, 0, 0 };

@@ -23,7 +23,15 @@
 //! - ticks: `count` bars along the radius of a circle, at the angles from
 //!   `start` over `sweep`, with a length from `length` to `length_end`
 //!   (the marks around the knob of a dial);
-//! - polyline: an open line, a closed loop, or a filled area.
+//! - polyline: an open line, a closed loop, or a filled area;
+//! - svg: the filled shapes of an SVG picture (svg_path.zig), the size as
+//!   its height.
+//!
+//! A label prints in one of three modes. Ink (the default) colors the
+//! skin of the part under the shape and keeps the surface flush. Raised
+//! adds material out of the surface by the relief. Cut cuts the shape
+//! into the surface by the relief. Raised and cut change the outlines of
+//! the layers, so they work with one filament too (see paint_split.zig).
 //!
 //! The JSON form (`parse`, `write`) is the form of the C API and of the
 //! 3MF file (Metadata/zslice_labels.json). The reader checks each value,
@@ -43,6 +51,7 @@ const offset_mod = @import("offset.zig");
 const font_mod = @import("font.zig");
 const mesh_mod = @import("mesh.zig");
 const paint_mod = @import("paint.zig");
+const svg_path = @import("svg_path.zig");
 const Paths = geom.Paths;
 const Point = geom.Point;
 
@@ -52,6 +61,10 @@ pub const max_text = 256;
 pub const max_points = 1024;
 pub const max_ticks = 360;
 pub const max_name = 128;
+/// The largest SVG source of one item (bytes).
+pub const max_svg = 512 * 1024;
+/// The relief of a raised or cut label with a relief of 0 (mm).
+pub const default_relief: f64 = 0.6;
 /// The largest size of a shape (mm).
 pub const max_size = 1000;
 /// The largest distance (mm) between a curve and its lines.
@@ -96,6 +109,12 @@ pub const Polyline = struct {
     filled: bool = false,
 };
 
+/// An SVG picture: its source, and its height (mm).
+pub const Svg = struct {
+    source: []const u8,
+    size: f64,
+};
+
 pub const Shape = union(enum) {
     text: Text,
     line: Line,
@@ -103,7 +122,21 @@ pub const Shape = union(enum) {
     ring: Ring,
     ticks: Ticks,
     polyline: Polyline,
+    svg: Svg,
 };
+
+/// How a label prints (see the header).
+pub const Mode = enum { ink, raised, cut };
+
+/// Frees the memory of a shape (from `gpa`).
+fn freeShape(gpa: Allocator, shape: Shape) void {
+    switch (shape) {
+        .text => |t| gpa.free(t.text),
+        .polyline => |p| gpa.free(p.points),
+        .svg => |v| gpa.free(v.source),
+        else => {},
+    }
+}
 
 pub const Item = struct {
     /// The offset in the plane (mm).
@@ -124,6 +157,11 @@ pub const Label = struct {
     filament: u32 = 2,
     /// The depth from the surface (mm); 0: one line width.
     depth: f64 = 0,
+    /// Ink, raised, or cut.
+    mode: Mode = .ink,
+    /// The height of a raised label or the depth of a cut label (mm); 0:
+    /// `default_relief`.
+    relief: f64 = 0,
     items: []Item = &.{},
     /// The scale of the shape along `right` and `up`: a size of a shape
     /// times its stretch is its size in the frame of the label. A scale
@@ -132,11 +170,7 @@ pub const Label = struct {
 
     /// Frees the strings and the items (all from `gpa`).
     pub fn deinit(l: *Label, gpa: Allocator) void {
-        for (l.items) |it| switch (it.shape) {
-            .text => |t| gpa.free(t.text),
-            .polyline => |p| gpa.free(p.points),
-            else => {},
-        };
+        for (l.items) |it| freeShape(gpa, it.shape);
         gpa.free(l.items);
         gpa.free(l.name);
         l.* = undefined;
@@ -150,22 +184,24 @@ pub const Label = struct {
         out.items = try gpa.dupe(Item, l.items);
         var done: usize = 0;
         errdefer {
-            for (out.items[0..done]) |it| switch (it.shape) {
-                .text => |t| gpa.free(t.text),
-                .polyline => |p| gpa.free(p.points),
-                else => {},
-            };
+            for (out.items[0..done]) |it| freeShape(gpa, it.shape);
             gpa.free(out.items);
         }
         for (out.items) |*it| {
             switch (it.shape) {
                 .text => |*t| t.text = try gpa.dupe(u8, t.text),
                 .polyline => |*p| p.points = try gpa.dupe([2]f64, p.points),
+                .svg => |*v| v.source = try gpa.dupe(u8, v.source),
                 else => {},
             }
             done += 1;
         }
         return out;
+    }
+
+    /// The relief of a raised or cut label (mm).
+    pub fn reliefMm(l: *const Label) f64 {
+        return if (l.relief > 0) l.relief else default_relief;
     }
 
     /// The +t axis of the plane: normal × right.
@@ -424,6 +460,17 @@ fn itemPaths(gpa: Allocator, it: Item, font: *const font_mod.Font, out: *Paths) 
                 try o.segment(.{ c * t.radius, s * t.radius }, .{ c * (t.radius + len), s * (t.radius + len) }, t.width);
             }
         },
+        .svg => |v| {
+            var p = svg_path.outline(gpa, v.source, .{ .height = v.size, .tolerance = tolerance }) catch |e| switch (e) {
+                error.OutOfMemory => return error.OutOfMemory,
+                error.BadSvg => return,
+            };
+            defer p.deinit(gpa);
+            for (0..p.count()) |k| {
+                for (p.get(k)) |q| try o.point(geom.toMm(q.x), geom.toMm(q.y));
+                try o.end();
+            }
+        },
         .polyline => |p| {
             const pts = p.points;
             if (p.filled and pts.len >= 3) {
@@ -502,6 +549,10 @@ pub fn hash(l: *const Label, h: *std.hash.Wyhash) void {
     h.update(std.mem.sliceAsBytes(&l.stretch));
     h.update(std.mem.asBytes(&l.filament));
     h.update(std.mem.asBytes(&l.depth));
+    if (l.mode != .ink) {
+        h.update(@tagName(l.mode));
+        h.update(std.mem.asBytes(&l.relief));
+    }
     for (l.items) |it| {
         h.update(@tagName(it.shape));
         h.update(std.mem.sliceAsBytes(&it.at));
@@ -527,6 +578,10 @@ pub fn hash(l: *const Label, h: *std.hash.Wyhash) void {
             .ticks => |x| {
                 h.update(std.mem.asBytes(&x.count));
                 h.update(std.mem.sliceAsBytes(&[_]f64{ x.radius, x.length, x.length_end, x.width, x.start, x.sweep }));
+            },
+            .svg => |x| {
+                h.update(x.source);
+                h.update(std.mem.asBytes(&x.size));
             },
         }
     }
@@ -568,6 +623,8 @@ pub fn fromValue(gpa: Allocator, v: std.json.Value, opts: ParseOptions) ParseErr
         if (l.filament < 1 or l.filament > 64) return error.BadLabel;
     }
     if (obj.get("depth")) |x| l.depth = try num(x, 0, 10);
+    if (obj.get("mode")) |x| l.mode = try enumFrom(Mode, x);
+    if (obj.get("relief")) |x| l.relief = try num(x, 0, 10);
     if (obj.get("stretch")) |x| {
         l.stretch = try vec2(x, 1e3);
         for (l.stretch) |k| if (@abs(k) < 1e-3) return error.BadLabel;
@@ -599,21 +656,13 @@ pub fn fromValue(gpa: Allocator, v: std.json.Value, opts: ParseOptions) ParseErr
     errdefer gpa.free(l.name);
     var list: std.ArrayList(Item) = .empty;
     errdefer {
-        for (list.items) |it| switch (it.shape) {
-            .text => |t| gpa.free(t.text),
-            .polyline => |p| gpa.free(p.points),
-            else => {},
-        };
+        for (list.items) |it| freeShape(gpa, it.shape);
         list.deinit(gpa);
     }
     for (items_v) |iv| {
         const it = try itemFrom(gpa, iv);
         list.append(gpa, it) catch |e| {
-            switch (it.shape) {
-                .text => |t| gpa.free(t.text),
-                .polyline => |p| gpa.free(p.points),
-                else => {},
-            }
+            freeShape(gpa, it.shape);
             return e;
         };
     }
@@ -699,6 +748,21 @@ fn itemFrom(gpa: Allocator, v: std.json.Value) ParseError!Item {
             if (!p.filled and !(p.width > 0)) return error.BadLabel;
             it.shape = .{ .polyline = p };
         },
+        .svg => {
+            const src = switch (o.get("svg") orelse return error.BadLabel) {
+                .string => |x| x,
+                else => return error.BadLabel,
+            };
+            if (src.len > max_svg) return error.BadLabel;
+            const h = try num(o.get("size") orelse return error.BadLabel, 0.1, size);
+            // The picture must have an area.
+            var p = svg_path.outline(gpa, src, .{ .height = h, .tolerance = 0.05 }) catch |e| return switch (e) {
+                error.OutOfMemory => error.OutOfMemory,
+                error.BadSvg => error.BadLabel,
+            };
+            p.deinit(gpa);
+            it.shape = .{ .svg = .{ .source = try gpa.dupe(u8, src), .size = h } };
+        },
     }
     return it;
 }
@@ -761,6 +825,7 @@ pub fn write(l: *const Label, w: *std.Io.Writer) std.Io.Writer.Error!void {
         l.origin[0], l.origin[1], l.origin[2], l.normal[0], l.normal[1], l.normal[2], l.right[0], l.right[1], l.right[2], l.filament, l.depth,
     });
     if (l.stretch[0] != 1 or l.stretch[1] != 1) try w.print("\"stretch\":[{d},{d}],", .{ l.stretch[0], l.stretch[1] });
+    if (l.mode != .ink) try w.print("\"mode\":\"{s}\",\"relief\":{d},", .{ @tagName(l.mode), l.relief });
     try w.writeAll("\"items\":[");
     for (l.items, 0..) |it, k| {
         if (k > 0) try w.writeByte(',');
@@ -775,6 +840,11 @@ pub fn write(l: *const Label, w: *std.Io.Writer) std.Io.Writer.Error!void {
             .bar => |x| try w.print(",\"width\":{d},\"height\":{d},\"radius\":{d}", .{ x.width, x.height, x.radius }),
             .ring => |x| try w.print(",\"outer\":{d},\"inner\":{d}", .{ x.outer, x.inner }),
             .ticks => |x| try w.print(",\"count\":{d},\"radius\":{d},\"length\":{d},\"length_end\":{d},\"width\":{d},\"start\":{d},\"sweep\":{d}", .{ x.count, x.radius, x.length, x.length_end, x.width, x.start, x.sweep }),
+            .svg => |x| {
+                try w.writeAll(",\"svg\":");
+                try std.json.Stringify.encodeJsonString(x.source, .{}, w);
+                try w.print(",\"size\":{d}", .{x.size});
+            },
             .polyline => |x| {
                 try w.writeAll(",\"points\":[");
                 for (x.points, 0..) |p, j| try w.print("{s}[{d},{d}]", .{ if (j == 0) "" else ",", p[0], p[1] });
@@ -799,6 +869,7 @@ pub fn summary(l: *const Label, w: *std.Io.Writer) std.Io.Writer.Error!void {
     }
     try w.print(", filament {d}", .{l.filament});
     if (l.depth > 0) try w.print(", depth {d:.2}", .{l.depth});
+    if (l.mode != .ink) try w.print(", {s} {d:.2}", .{ @tagName(l.mode), l.reliefMm() });
     // The sizes: a hash of the items, rounded (the move of an item or a
     // change of a size is a change).
     var h = std.hash.Wyhash.init(0x1abe1);
@@ -837,6 +908,10 @@ pub fn summary(l: *const Label, w: *std.Io.Writer) std.Io.Writer.Error!void {
                 hashR(&h, x.width);
                 hashR(&h, x.start / 10);
                 hashR(&h, x.sweep / 10);
+            },
+            .svg => |x| {
+                h.update(x.source);
+                hashR(&h, x.size);
             },
             .polyline => |x| {
                 for (x.points) |p| {
@@ -1025,6 +1100,40 @@ test "label: bad JSON fails cleanly" {
     // The shapes alone, with no frame.
     var s = try parse(gpa, "{\"items\":[{\"kind\":\"ring\",\"outer\":1}]}", .{ .frame = false });
     s.deinit(gpa);
+}
+
+test "label: an SVG item, and the mode, in JSON" {
+    const gpa = testing.allocator;
+    const json =
+        \\{"origin":[0,0,0],"normal":[1,0,0],"right":[0,1,0],"mode":"raised","relief":0.8,
+        \\ "items":[{"kind":"svg","svg":"<svg><rect width='20' height='10'/></svg>","size":5}]}
+    ;
+    var l = try parse(gpa, json, .{});
+    defer l.deinit(gpa);
+    try testing.expectEqual(Mode.raised, l.mode);
+    try testing.expectEqual(@as(f64, 0.8), l.reliefMm());
+    // The picture is 5 mm tall and 10 mm wide.
+    const b = try boxOf(l);
+    try testing.expectApproxEqAbs(@as(f64, 10), b[2] - b[0], 1e-3);
+    try testing.expectApproxEqAbs(@as(f64, 5), b[3] - b[1], 1e-3);
+    var aw: std.Io.Writer.Allocating = .init(gpa);
+    defer aw.deinit();
+    try write(&l, &aw.writer);
+    var back = try parse(gpa, aw.written(), .{});
+    defer back.deinit(gpa);
+    try testing.expectEqual(Mode.raised, back.mode);
+    try testing.expectEqualStrings(l.items[0].shape.svg.source, back.items[0].shape.svg.source);
+    var c = try l.clone(gpa);
+    c.deinit(gpa);
+    // An ink label writes no mode: its JSON stays as before.
+    var ink = l;
+    ink.mode = .ink;
+    aw.clearRetainingCapacity();
+    try write(&ink, &aw.writer);
+    try testing.expect(std.mem.indexOf(u8, aw.written(), "mode") == null);
+    // A picture with no area fails, and so does a bad mode.
+    try testing.expectError(error.BadLabel, parse(gpa, "{\"items\":[{\"kind\":\"svg\",\"svg\":\"<svg></svg>\",\"size\":5}]}", .{ .frame = false }));
+    try testing.expectError(error.BadLabel, parse(gpa, "{\"mode\":\"deep\",\"items\":[]}", .{ .frame = false }));
 }
 
 test "label: the default right" {

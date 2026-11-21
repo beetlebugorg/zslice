@@ -65,6 +65,7 @@ const LayerPlan = layer_mod.LayerPlan;
 const Job = engine.Job;
 const Error = engine.Error;
 const Paths = geom.Paths;
+const clip = @import("clip.zig");
 
 /// Two layer tops closer than this (mm) are one level.
 pub const z_eps = 1e-4;
@@ -714,8 +715,13 @@ pub const PlateJob = struct {
         };
         const no_paint: paint_mod.Paint = .{};
         for (parts) |p| {
-            const paint = p.paint orelse &no_paint;
-            if ((paint.isEmpty() and p.labels.len == 0) or self.slots.len < 2) {
+            // A raised or cut label changes the shape: also with one
+            // filament.
+            var shape_labels = false;
+            for (p.labels) |l| shape_labels = shape_labels or l.mode != .ink;
+            const one = self.slots.len < 2;
+            const paint = if (one) &no_paint else p.paint orelse &no_paint;
+            if ((paint.isEmpty() and p.labels.len == 0) or (one and !shape_labels)) {
                 try out.append(gpa, p);
                 continue;
             }
@@ -724,22 +730,38 @@ pub const PlateJob = struct {
             for (p.changes) |c| if (std.mem.eql(u8, c.name, "project.filament")) {
                 base = std.fmt.parseInt(u32, std.mem.trim(u8, c.value, " "), 10) catch base;
             };
+            if (self.arena == null) self.arena = .init(gpa);
+            const a = self.arena.?.allocator();
+            // With one filament, each label is of the filament of the part.
+            var labels = p.labels;
+            if (one) {
+                const copy = try a.dupe(label_mod.Label, p.labels);
+                for (copy) |*l| l.filament = @min(base, 255);
+                labels = copy;
+            }
             const split = try gpa.create(paint_split.Split);
-            split.* = paint_split.Split.initLabels(gpa, p.mesh, paint, @intCast(@min(base, 255)), p.labels) catch |e| {
+            split.* = paint_split.Split.initLabels(gpa, p.mesh, paint, @intCast(@min(base, 255)), labels) catch |e| {
                 gpa.destroy(split);
                 return e;
             };
-            if (split.states.len < 2) {
+            if (split.states.len < 2 and split.labels.len == 0) {
                 split.deinit();
                 gpa.destroy(split);
                 try out.append(gpa, p);
                 continue;
             }
             try splits.append(gpa, split);
-            if (self.arena == null) self.arena = .init(gpa);
-            const a = self.arena.?.allocator();
+            // The plateaus of raised top labels go into the mesh of each
+            // job of the part.
+            var mesh = p.mesh;
+            if (try split.plateauMesh(a, p.mesh)) |m| {
+                const mp = try a.create(Mesh);
+                mp.* = m;
+                mesh = mp;
+            }
             for (split.states, 0..) |st, k| {
                 var q = p;
+                q.mesh = mesh;
                 q.paint_split = split;
                 q.paint_index = k;
                 if (k > 0) {
@@ -752,7 +774,9 @@ pub const PlateJob = struct {
                     ch[p.changes.len] = .{ .name = "project.filament", .value = try std.fmt.allocPrint(a, "{d}", .{st}) };
                     if (lab) |li| {
                         const w = self.resolved.line_width;
-                        const d = p.labels[li].depth;
+                        // A raised label: the walls fill its relief.
+                        const lb = &p.labels[li];
+                        const d = if (lb.mode == .raised) lb.reliefMm() else lb.depth;
                         const walls: u32 = if (d > 0) @max(1, @as(u32, @intFromFloat(@ceil(d / w - 1e-6)))) else 1;
                         ch[p.changes.len + 1] = .{ .name = "project.wall_generator", .value = "arachne" };
                         ch[p.changes.len + 2] = .{ .name = "project.wall_count", .value = try std.fmt.allocPrint(a, "{d}", .{walls}) };
@@ -1531,6 +1555,121 @@ test "plate job: a label prints in its own filament on its layers" {
         }
     }
     try testing.expect(t1 > 0);
+}
+
+/// The plate job of the label box with one change of its label: the mode,
+/// the relief, the filament, and the place.
+fn modeJob(gpa: Allocator, lb: anytype, mode: label_mod.Mode, filament: u32, top: bool, slots: usize) !PlateJob {
+    lb.label.mode = mode;
+    lb.label.relief = 0.8;
+    lb.label.filament = filament;
+    if (top) {
+        lb.label.origin = .{ 100, 100, 10 };
+        lb.label.normal = .{ 0, 0, 1 };
+        lb.label.right = .{ 1, 0, 0 };
+    }
+    var s: Settings = .{};
+    s.engine.threads = 2;
+    s.machine.filament_change = .tool;
+    var red = s.filament;
+    red.color = "#ff0000";
+    const parts = [_]PartInput{.{ .mesh = &lb.mesh, .part = 0, .labels = &.{lb.label} }};
+    return PlateJob.init(gpa, s, &parts, .{ .filaments = if (slots > 1) &.{red} else &.{} });
+}
+
+/// The area (mm²) of the union of the outlines of all jobs on layer i.
+fn layerArea(gpa: Allocator, pj: *const PlateJob, i: usize) !f64 {
+    var all: Paths = .empty;
+    defer all.deinit(gpa);
+    for (pj.groups) |*g| if (i < g.job.outlines.len) try all.appendAll(gpa, g.job.outlines[i]);
+    var u = try clip.unionAll(gpa, all, .non_zero);
+    defer u.deinit(gpa);
+    return u.areaMm2();
+}
+
+test "plate job: raised, cut, and ink labels" {
+    const gpa = testing.allocator;
+    var lb = try labelBox(gpa);
+    defer lb.mesh.deinit(gpa);
+    defer lb.label.deinit(gpa);
+    // Layer 25 (z 5) is in the middle of the label; layer 5 is under it.
+    const mid = 25;
+    const low = 5;
+    var plain = try modeJob(gpa, &lb, .ink, 1, false, 1);
+    const a_mid = try layerArea(gpa, &plain, mid);
+    const x_max = plain.groups[0].job.outlines[mid].bounds().max.x;
+    const n_layers = plain.groups[0].job.outlines.len;
+    plain.deinit();
+    try testing.expectApproxEqAbs(@as(f64, 400), a_mid, 1);
+
+    // Raised, one filament: lines out of the +x wall by the relief, on
+    // the layers of the label only.
+    {
+        var pj = try modeJob(gpa, &lb, .raised, 1, false, 1);
+        defer pj.deinit();
+        try testing.expectEqual(@as(usize, 1), pj.groups.len);
+        const o = pj.groups[0].job.outlines;
+        try testing.expect(o[mid].bounds().max.x > x_max + geom.fromMm(0.7));
+        try testing.expect(try layerArea(gpa, &pj, mid) > a_mid + 1);
+        try testing.expectEqual(x_max, o[low].bounds().max.x);
+    }
+    // Cut, one filament: the shape out of the wall, the same box.
+    {
+        var pj = try modeJob(gpa, &lb, .cut, 1, false, 1);
+        defer pj.deinit();
+        try testing.expectEqual(@as(usize, 1), pj.groups.len);
+        const am = try layerArea(gpa, &pj, mid);
+        try testing.expect(am < a_mid - 1);
+        try testing.expectApproxEqAbs(@as(f64, 400), try layerArea(gpa, &pj, low), 1);
+    }
+    // Ink, two filaments: the same area; the label job has a part of it.
+    {
+        var pj = try modeJob(gpa, &lb, .ink, 2, false, 2);
+        defer pj.deinit();
+        try testing.expectEqual(@as(usize, 2), pj.groups.len);
+        try testing.expectApproxEqAbs(a_mid, try layerArea(gpa, &pj, mid), 0.5);
+        try testing.expect(!pj.groups[1].job.outlines[mid].isEmpty());
+    }
+    // Raised in filament 2: the label job is out of the wall.
+    {
+        var pj = try modeJob(gpa, &lb, .raised, 2, false, 2);
+        defer pj.deinit();
+        try testing.expectEqual(@as(usize, 2), pj.groups.len);
+        const lo = pj.groups[1].job.outlines[mid];
+        try testing.expect(!lo.isEmpty());
+        try testing.expect(lo.bounds().min.x >= x_max - geom.fromMm(0.01));
+        try testing.expectEqual(x_max, pj.groups[0].job.outlines[mid].bounds().max.x);
+    }
+    // Cut in filament 2: less area, and the floor of the cut in the label.
+    {
+        var pj = try modeJob(gpa, &lb, .cut, 2, false, 2);
+        defer pj.deinit();
+        try testing.expect(try layerArea(gpa, &pj, mid) < a_mid - 1);
+        const lo = pj.groups[1].job.outlines[mid];
+        try testing.expect(!lo.isEmpty());
+        try testing.expect(lo.bounds().max.x < x_max - geom.fromMm(0.7));
+    }
+    // Raised on the top face: a plateau over the part (more layers).
+    {
+        var pj = try modeJob(gpa, &lb, .raised, 1, true, 1);
+        defer pj.deinit();
+        const o = pj.groups[0].job.outlines;
+        try testing.expect(o.len >= n_layers + 3);
+        try testing.expect(!o[o.len - 1].isEmpty());
+        try testing.expect(o[o.len - 1].areaMm2() < 100);
+    }
+    // Cut into the top face: the top layers lose the shape, and the floor
+    // of the cut is a top.
+    {
+        var pj = try modeJob(gpa, &lb, .cut, 1, true, 1);
+        defer pj.deinit();
+        const job = &pj.groups[0].job;
+        try testing.expectEqual(n_layers, job.outlines.len);
+        try testing.expect(job.outlines[n_layers - 1].areaMm2() < 400 - 1);
+        var floor = false;
+        for (job.tops[0 .. n_layers - 1]) |t| floor = floor or !t.isEmpty();
+        try testing.expect(floor);
+    }
 }
 
 test "plate job: a part with no label slices as before" {

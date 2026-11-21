@@ -502,6 +502,26 @@ pub const Job = struct {
                 self.bottoms[i] = b;
             }
         }
+        // The floor of a cut label is a top, and its roof a bottom (see
+        // paint_split.Split.removed).
+        const removed = pc.split.removed;
+        if (removed.len == n and self.tops.len == n and self.bottoms.len == n) for (0..n) |i| {
+            const region = pc.split.region(i, pc.index);
+            if (i + 1 < n and !removed[i + 1].isEmpty()) {
+                var extra = try clip.intersect(gpa, region.*, removed[i + 1]);
+                defer extra.deinit(gpa);
+                const t = try clip.unite(gpa, self.tops[i], extra);
+                self.tops[i].deinit(gpa);
+                self.tops[i] = t;
+            }
+            if (i > 0 and !removed[i - 1].isEmpty()) {
+                var extra = try clip.intersect(gpa, region.*, removed[i - 1]);
+                defer extra.deinit(gpa);
+                const b = try clip.unite(gpa, self.bottoms[i], extra);
+                self.bottoms[i].deinit(gpa);
+                self.bottoms[i] = b;
+            }
+        };
         if (pc.index != 0) {
             // The support and the islands are of the whole part: the job
             // of its own filament prints them.
