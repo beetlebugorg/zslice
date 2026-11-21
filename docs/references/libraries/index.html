@@ -47,6 +47,7 @@
 <a href="../../user/command-line/">The command line</a>
 <a href="../../user/apps/">Web, Linux, and Mac</a>
 <a href="../../user/macos/">The macOS app</a>
+<a href="../../user/windows/">The Windows app</a>
 <a href="../../user/troubleshooting/">Problems and errors</a>
 <div class="group">Embedding</div>
 <a href="../../embedding/">Overview</a>
@@ -137,6 +138,12 @@
 <p><strong>License:</strong> Boost Software License 1.0</p>
 <p><strong>Text:</strong> <code>licenses/boost-BSL-1.0.txt</code></p>
 <p><strong>Notes:</strong> <code>src/voronoi.zig</code>, <code>src/voronoi_predicates.zig</code>, and <code>src/voronoi_ctypes.zig</code> are a port to Zig of <code>include/boost/polygon/voronoi_builder.hpp</code>, <code>voronoi_diagram.hpp</code>, <code>voronoi_geometry_type.hpp</code>, <code>detail/voronoi_structures.hpp</code>, <code>detail/voronoi_predicates.hpp</code>, <code>detail/voronoi_robust_fpt.hpp</code>, and <code>detail/voronoi_ctypes.hpp</code>: the sweep line Voronoi diagram of points and segments, with robust predicates. The Arachne walls use it. Each file keeps the copyright line and names its sources.</p>
+<h3 id="charttable-direct3d-12-declarations">charttable Direct3D 12 declarations</h3>
+<div class="ref"><span class="kind k-code">code</span><span class="area">ui</span><dl><dt>Source</dt><dd>charttable</dd><dt>What zslice uses</dt><dd>The COM declarations of Direct3D 12 and DXGI, and the structure of the Windows backend.</dd><dt>License</dt><dd>MIT</dd><dt>Used in</dt><dd><a href="https://github.com/beetlebugorg/zslice/blob/main/src/render/c_d3d12.zig"><code>src/render/c_d3d12.zig</code></a>, <a href="https://github.com/beetlebugorg/zslice/blob/main/src/render/d3d12.zig"><code>src/render/d3d12.zig</code></a></dd><dt>License texts</dt><dd><a href="https://github.com/beetlebugorg/zslice/blob/main/licenses/charttable-MIT.txt"><code>licenses/charttable-MIT.txt</code></a></dd></dl></div>
+<p>charttable, <code>src/gpu/c_d3d12.zig</code> and <code>src/gpu/gpu_d3d12.zig</code> at commit 2a4b6d3 (same author, MIT license)</p>
+<p><strong>License:</strong> MIT</p>
+<p><strong>Text:</strong> <code>licenses/charttable-MIT.txt</code></p>
+<p><strong>Notes:</strong> <code>src/render/c_d3d12.zig</code> is a copy of the declarations, with the calls that the zslice backend adds and the IID that <code>EnumWarpAdapter</code> needs. <code>src/render/d3d12.zig</code> follows the structure of the charttable backend: run-time loading of the DLLs, upload-heap buffers, a composition swapchain, and a WARP fallback. Its draw code is a port of <code>src/render/vk.zig</code>.</p>
 <h2 id="libraries-that-the-app-shells-link">Libraries that the app shells link</h2>
 <p>The shells link these libraries as shared libraries from the system. Their code is not in a zslice binary. The Licenses window of each shell lists them.</p>
 <h3 id="gtk-4">GTK 4</h3>
@@ -188,11 +195,11 @@
 <p><strong>Used in:</strong> <code>src/render/vk.zig</code></p>
 <p><strong>How zslice uses it:</strong> The structure of the Vulkan backend: run-time loading of the loader, a surface from the shell, a swapchain sized by the host, a UNORM swapchain format, and SPIR-V words copied at comptime. The code is new.</p>
 <h3 id="lookout-marine-windows-build">Lookout Marine Windows build</h3>
-<div class="ref"><span class="kind k-idea">idea</span><span class="area">build</span><dl><dt>Source</dt><dd>Lookout Marine</dd><dt>What zslice uses</dt><dd>The layout of the Windows core build.</dd><dt>License</dt><dd>MIT</dd><dt>Used in</dt><dd><a href="https://github.com/beetlebugorg/zslice/blob/main/windows/build-core.ps1"><code>windows/build-core.ps1</code></a></dd></dl></div>
-<p>Lookout Marine, <code>windows/build-core.ps1</code> at commit 221df217 (same author, MIT license)</p>
+<div class="ref"><span class="kind k-idea">idea</span><span class="area">build</span><dl><dt>Source</dt><dd>Lookout Marine</dd><dt>What zslice uses</dt><dd>The layout of the Windows core build and of the WinUI project.</dd><dt>License</dt><dd>MIT</dd><dt>Used in</dt><dd><a href="https://github.com/beetlebugorg/zslice/blob/main/windows/build-core.ps1"><code>windows/build-core.ps1</code></a>, <a href="https://github.com/beetlebugorg/zslice/blob/main/windows/ZSlice.vcxproj"><code>windows/ZSlice.vcxproj</code></a>, <a href="https://github.com/beetlebugorg/zslice/blob/main/windows/src/app/MainWindow.xaml.cpp"><code>windows/src/app/MainWindow.xaml.cpp</code></a>, <a href="https://github.com/beetlebugorg/zslice/blob/main/windows/src/app/winrt_glue.cpp"><code>windows/src/app/winrt_glue.cpp</code></a></dd></dl></div>
+<p>Lookout Marine, <code>windows/build-core.ps1</code> at commit 221df217, and <code>windows/LookoutMarine.vcxproj</code>, <code>windows/src/app/ui/winrt_glue.cpp</code>, and the panel code of <code>windows/src/chart/ui/Open.cpp</code> at commit 232224f3 (same author, MIT license)</p>
 <p><strong>License:</strong> MIT</p>
-<p><strong>Used in:</strong> <code>windows/build-core.ps1</code></p>
-<p><strong>How zslice uses it:</strong> The form of the script: one PowerShell step that runs <code>zig build lib</code> for the MSVC target of the platform. The code is new.</p>
+<p><strong>Used in:</strong> <code>windows/build-core.ps1</code>, <code>windows/ZSlice.vcxproj</code>, <code>windows/src/app/MainWindow.xaml.cpp</code>, <code>windows/src/app/winrt_glue.cpp</code></p>
+<p><strong>How zslice uses it:</strong> The form of the script: one PowerShell step that runs <code>zig build lib</code> for the MSVC target of the platform. The layout of an unpackaged, self-contained WinUI 3 project that builds with msbuild, the unit that compiles the generated XAML files, and a swapchain in a SwapChainPanel with the inverse of the composition scale. The app code is new.</p>
 <h3 id="core-and-native-shells">Core and native shells</h3>
 <div class="ref"><span class="kind k-idea">idea</span><span class="area">ui</span><dl><dt>Source</dt><dd>Lookout Marine</dd><dt>What zslice uses</dt><dd>The structure of the app: the core has the logic, and each shell draws widgets, does file I/O, and moves events to its UI thread.</dd><dt>License</dt><dd>Same author</dd><dt>Used in</dt><dd><a href="https://github.com/beetlebugorg/zslice/blob/main/src/app.zig"><code>src/app.zig</code></a>, <a href="https://github.com/beetlebugorg/zslice/tree/main/linux/"><code>linux/</code></a></dd></dl></div>
 <p>Lookout Marine (same author): a Zig core with a C API and one native shell for each platform</p>
