@@ -22,7 +22,7 @@ The letters in the picture name the parts of the window.
 | | Part | What it does |
 |---|---|---|
 | A | The header | Open, **Search** (`/`), the printer, the filament, the quality, Printers, the settings panel (N), and the main menu. |
-| B | The tools | Select (V), Move (M), Turn (R), Support (S), Grab (H), Measure (T), Paint (P), and Label (L). Then the colors, Gaps (G), and Check. |
+| B | The tools | Select (V), Move (M), Turn (R), Support (S), Grab (G), Measure (T), Paint (P), and Label (E). Then the colors, Gaps, and Check. |
 | C | The layer slider | The top knob is the top layer that shows. The bottom knob cuts away the layers below it. |
 | D | The dock | The plates, the history, and the replay of the print. |
 | E | The print card | The time, the plastic, and the cost. Click the time for the details. Then **Export G-code…** or **Print**. |

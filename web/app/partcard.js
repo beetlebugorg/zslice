@@ -95,7 +95,7 @@ export class PartCard {
     box.append(el("div", "pc-heading", "Labels"));
     for (const l of list) {
       const b = el("button", "flat", `${labelName(l)} · filament ${l.filament}`);
-      b.title = "Select this label in the Label tool (L)";
+      b.title = "Select this label in the Label tool (E)";
       b.onclick = () => this.ctx.openLabel?.(part.index, l.id);
       box.append(b);
     }

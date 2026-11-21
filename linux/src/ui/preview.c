@@ -1597,23 +1597,22 @@ static gboolean on_preview_key(GtkEventControllerKey *c, guint key, guint code, 
         zg_range_card_close(zg_range_card_of(p->view3d));
         return TRUE;
     }
-    /* The tools: V select, M move, H grab, T measure (a tape), S support
-     * (U is its old key), P paint and L label (the key again closes the
-     * tool). Esc clears a measure. */
+    /* The tools: V select, M move, G grab, T measure (a tape), S support
+     * (U is its old key), P paint and E label (the key again closes the
+     * tool). h and l step along the line (below). Esc clears a measure. */
     if (part_key(p, key, mods)) return TRUE;
     switch (key) {
     case GDK_KEY_v: case GDK_KEY_V: zg_model_set_tool(p->model, ZG_TOOL_SELECT); return TRUE;
     case GDK_KEY_m: case GDK_KEY_M: zg_model_set_tool(p->model, ZG_TOOL_MOVE); return TRUE;
-    case GDK_KEY_h: case GDK_KEY_H: zg_model_set_tool(p->model, ZG_TOOL_GRAB); return TRUE;
+    case GDK_KEY_g: case GDK_KEY_G: zg_model_set_tool(p->model, ZG_TOOL_GRAB); return TRUE;
     case GDK_KEY_t: case GDK_KEY_T: zg_model_set_tool(p->model, ZG_TOOL_MEASURE); return TRUE;
     case GDK_KEY_s: case GDK_KEY_S: case GDK_KEY_u: case GDK_KEY_U: zg_model_set_tool(p->model, ZG_TOOL_SUPPORT); return TRUE;
-    case GDK_KEY_l:
+    case GDK_KEY_e: case GDK_KEY_E:
         zg_model_set_tool(p->model, zg_model_tool(p->model) == ZG_TOOL_LABEL ? ZG_TOOL_SELECT : ZG_TOOL_LABEL);
         return TRUE;
     case GDK_KEY_p: case GDK_KEY_P:
         zg_model_set_tool(p->model, zg_model_tool(p->model) == ZG_TOOL_PAINT ? ZG_TOOL_SELECT : ZG_TOOL_PAINT);
         return TRUE;
-    case GDK_KEY_g: case GDK_KEY_G: zg_model_set_gaps(p->model, !zg_model_gaps(p->model)); return TRUE;
     case GDK_KEY_Escape:
         if (zg_view3d_hand_release(p->view3d)) return TRUE;
         if (zg_model_selected_part(p->model) >= 0) {
@@ -1669,9 +1668,10 @@ static gboolean on_preview_key(GtkEventControllerKey *c, guint key, guint code, 
         return TRUE;
     }
     switch (key) {
-    /* The arrows step along the line (H is the Grab tool). */
-    case GDK_KEY_Left: dir = -1; break;
-    case GDK_KEY_Right: dir = 1; break;
+    /* The arrows, and h and l (vim), step along the line; with Shift, a
+     * whole line. */
+    case GDK_KEY_Left: case GDK_KEY_h: case GDK_KEY_H: dir = -1; break;
+    case GDK_KEY_Right: case GDK_KEY_l: case GDK_KEY_L: dir = 1; break;
     case GDK_KEY_Up: case GDK_KEY_k: case GDK_KEY_K: layer_dir = 1; break;
     case GDK_KEY_Down: case GDK_KEY_j: case GDK_KEY_J: layer_dir = -1; break;
     case GDK_KEY_Page_Up: layer_dir = 1; jump = 10; break;
@@ -1795,7 +1795,7 @@ static void on_mark_activated(ZgLayerRange *range, guint index, gpointer data);
 /* The glyph of a tool, in the color of the text: 0 an arrow (select), 1 a
  * cross of arrows (move), 2 a ruler (measure), 3 an arc (turn), 4 gaps,
  * 5 a check mark, 6 a shelf on posts (support), 7 a hand (grab), 8 a
- * palette (the colors of the lines), 9 a label. The paths are the SVG
+ * legend (the colors of the lines), 9 a label, 10 a palette (paint). The paths are the SVG
  * glyphs of the web app (web/app/index.html). */
 static void draw_tool(GtkDrawingArea *a, cairo_t *cr, int w, int h, gpointer data) {
     int kind = GPOINTER_TO_INT(data);
@@ -1883,21 +1883,16 @@ static void draw_tool(GtkDrawingArea *a, cairo_t *cr, int w, int h, gpointer dat
         cairo_line_to(cr, 6, 10.4);
         cairo_stroke(cr);
     } else if (kind == 8) {
-        /* Colors: a palette with three dots of paint. */
+        /* Colors: a legend, three dots with a line each, as on the web. */
         cairo_set_line_width(cr, 1.4);
-        cairo_arc_negative(cr, 9, 9, 6.5, -G_PI / 2, G_PI / 2);
-        cairo_curve_to(cr, 10, 15.5, 10.5, 14.9, 10.5, 14.2);
-        cairo_curve_to(cr, 10.5, 13.2, 9.6, 13, 9.6, 12.2);
-        cairo_curve_to(cr, 9.6, 11.4, 10.2, 11, 11, 11);
-        cairo_line_to(cr, 12.6, 11);
-        cairo_arc_negative(cr, 12.6, 8.1, 2.9, G_PI / 2, 0);
-        cairo_curve_to(cr, 15.5, 5, 12.6, 2.5, 9, 2.5);
-        cairo_close_path(cr);
-        cairo_stroke(cr);
-        const double dots[][2] = {{5.6, 8.4}, {7.6, 5.4}, {11, 5.4}};
+        cairo_set_line_cap(cr, CAIRO_LINE_CAP_ROUND);
         for (int k = 0; k < 3; k++) {
-            cairo_arc(cr, dots[k][0], dots[k][1], 1, 0, 2 * G_PI);
+            double y = 4.5 + 4.5 * k;
+            cairo_arc(cr, 3.5, y, 1.3, 0, 2 * G_PI);
             cairo_fill(cr);
+            cairo_move_to(cr, 7, y);
+            cairo_line_to(cr, 15, y);
+            cairo_stroke(cr);
         }
     } else if (kind == 9) {
         /* Label: a tag with a T on it and a short mark, as on the web. */
@@ -1917,18 +1912,22 @@ static void draw_tool(GtkDrawingArea *a, cairo_t *cr, int w, int h, gpointer dat
         cairo_line_to(cr, 13.2, 11.5);
         cairo_stroke(cr);
     } else if (kind == 10) {
-        /* Paint: a brush, as on the web. */
+        /* Paint: a palette with three dots of paint, as on the web. */
         cairo_set_line_width(cr, 1.4);
-        cairo_move_to(cr, 15.5, 2.5);
-        cairo_line_to(cr, 8.6, 9.4);
-        cairo_stroke(cr);
-        cairo_move_to(cr, 8.6, 9.4);
-        cairo_curve_to(cr, 7.3, 8.8, 5.7, 9.3, 5.1, 10.7);
-        cairo_curve_to(cr, 4.5, 12.0, 4.9, 13.1, 3.5, 14.5);
-        cairo_curve_to(cr, 6.1, 15.2, 8.4, 14.7, 9.2, 13.1);
-        cairo_curve_to(cr, 9.8, 11.8, 9.6, 10.4, 8.6, 9.4);
+        cairo_arc_negative(cr, 9, 9, 6.5, -G_PI / 2, G_PI / 2);
+        cairo_curve_to(cr, 10, 15.5, 10.5, 14.9, 10.5, 14.2);
+        cairo_curve_to(cr, 10.5, 13.2, 9.6, 13, 9.6, 12.2);
+        cairo_curve_to(cr, 9.6, 11.4, 10.2, 11, 11, 11);
+        cairo_line_to(cr, 12.6, 11);
+        cairo_arc_negative(cr, 12.6, 8.1, 2.9, G_PI / 2, 0);
+        cairo_curve_to(cr, 15.5, 5, 12.6, 2.5, 9, 2.5);
         cairo_close_path(cr);
         cairo_stroke(cr);
+        const double dots[][2] = {{5.6, 8.4}, {7.6, 5.4}, {11, 5.4}};
+        for (int k = 0; k < 3; k++) {
+            cairo_arc(cr, dots[k][0], dots[k][1], 1, 0, 2 * G_PI);
+            cairo_fill(cr);
+        }
     } else if (kind == 5) {
         /* Check: a check mark, as on the web. */
         cairo_set_line_width(cr, 1.6);
@@ -2099,10 +2098,10 @@ static GtkWidget *tool_strip(Preview *p) {
         {ZG_TOOL_MOVE, 1, "M", "Move (M): drag a part to move it, and scroll over it to turn it. The same as Ctrl in the other tools. Tab: the next part."},
         {ZG_TOOL_TURN, 3, "R", "Turn (R): click a part, then drag a ring to turn it about X, Y, or Z, in 15° steps (Shift: 5°). Keys: Left and Right (Z), Up and Down (X), Page Up and Page Down (Y)."},
         {ZG_TOOL_SUPPORT, 6, "S", "Support (S): point at an overhang, and click to put support under it. Alt and a click draw an area point by point; click the first point (or press Enter) to close it. Support grows under the area, or Block keeps support out. Click an outline to select it, and drag its points. Shift: no snap."},
-        {ZG_TOOL_GRAB, 7, "H", "Grab (H): click a part to pick it up; move the pointer to carry it. The wheel lifts it; Alt and a move turn it (Shift: steps of 15°). Click again, or press Esc, to let go: with support off it falls and rests flat; with support on it keeps its turn, and support holds it."},
+        {ZG_TOOL_GRAB, 7, "G", "Grab (G): click a part to pick it up; move the pointer to carry it. The wheel lifts it; Alt and a move turn it (Shift: steps of 15°). Click again, or press Esc, to let go: with support off it falls and rests flat; with support on it keeps its turn, and support holds it."},
         {ZG_TOOL_MEASURE, 2, "T", "Measure (T): click two points of the print. The ends of the lines snap; Shift turns the snap off. Esc clears."},
         {ZG_TOOL_PAINT, 10, "P", "Paint (P): paint filaments on the surface of a part. Smart select: click a raised letter, a logo, or a face; Shift adds more. Brush: drag over the surface."},
-        {ZG_TOOL_LABEL, 9, "L", "Label (L): click a face of a part to put text or marks on it, in another filament. Drag a label to move it (Shift: keep its plane), turn the wheel over it to turn it (Shift: 15°), and drag its corner to scale it."},
+        {ZG_TOOL_LABEL, 9, "E", "Label (E): click a face of a part to put text or marks on it, in another filament. Drag a label to move it (Shift: keep its plane), turn the wheel over it to turn it (Shift: 15°), and drag its corner to scale it."},
     };
     GtkWidget *box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 2);
     gtk_widget_add_css_class(box, "zg-float");
@@ -2122,8 +2121,8 @@ static GtkWidget *tool_strip(Preview *p) {
     gtk_box_append(GTK_BOX(box), colors_button(p));
     /* The gaps of the top layer: areas that should be solid that no bead
      * covers (see zs_app_layer_gaps). */
-    p->gaps = strip_button(gtk_toggle_button_new(), 4, "G",
-                           "Gaps (G): show the gaps of the top layer in red: areas that should be solid that no line covers. Click a gap for the settings that can close it.");
+    p->gaps = strip_button(gtk_toggle_button_new(), 4, NULL,
+                           "Gaps: show the gaps of the top layer in red: areas that should be solid that no line covers. Click a gap for the settings that can close it.");
     g_signal_connect(p->gaps, "toggled", G_CALLBACK(on_gaps_toggled), p);
     gtk_box_append(GTK_BOX(box), p->gaps);
     /* The printability check: things that can make the print fail. */

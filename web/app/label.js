@@ -1,4 +1,4 @@
-// label.js: the Label tool (L). It puts labels on the surface of a part:
+// label.js: the Label tool (E). It puts labels on the surface of a part:
 // text, a line, a bar, a ring, the ticks of a dial, or a free line, each
 // in a filament of its own. The slice prints a label flush in the outer
 // skin of the part (docs/embedding/labels.md).

@@ -6,7 +6,7 @@ A label can be text, a line, a bar, a ring, the ticks of a dial, or a free line.
 
 ## Add a label
 
-1. Press **L**, or click the Label tool in the tool strip.
+1. Press **E**, or click the Label tool in the tool strip.
 2. Click a face of a part. A label "LABEL" goes there, 5 mm tall, and its card opens.
 3. Type the text. The view shows each key at once.
 4. Pick the filament of the label on the card.
@@ -28,7 +28,7 @@ Esc closes the card. Esc again closes the tool. The labels of a part are also on
 
 ## Add "VOLUME" and the ticks of a dial
 
-1. Press **L**, and click the face above the knob.
+1. Press **E**, and click the face above the knob.
 2. Type `VOLUME`.
 3. In **+ Add a shape…**, pick **Ticks**. Ticks go under the text.
 4. Set the **Offset** of the ticks so that their center is on the center of the knob. The second number moves them up or down, in mm.

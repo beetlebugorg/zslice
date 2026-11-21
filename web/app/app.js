@@ -897,7 +897,7 @@ $("tool-paint").onclick = () => {
   paintTool.toggle();
 };
 
-// The Label tool (L): text and marks on the surface of a part, in a
+// The Label tool (E): text and marks on the surface of a part, in a
 // filament of their own (label.js, labelcard.js).
 var labelTool = new LabelTool({
   client,
@@ -2169,7 +2169,7 @@ function onPreviewKey(e) {
   if (page) {
     // The layer move below.
   } else switch (e.key) {
-    // The arrows step along the line (H is the Grab tool).
+    // The arrows (and h and l) step along the line.
     case "ArrowLeft": dir = -1; break;
     case "ArrowRight": dir = 1; break;
     case "ArrowUp": case "k": case "K": layerDir = 1; break;
@@ -2197,14 +2197,13 @@ function onPreviewKey(e) {
       return;
     case "m": case "M": tools.set("move"); e.preventDefault(); return;
     case "p": case "P": labelTool.close(); paintTool.toggle(); e.preventDefault(); return;
-    case "l": labelTool.toggle(); e.preventDefault(); return;
-    // Shift+H and Shift+L: the line before or after (as Shift with the
-    // arrows). H alone is the Grab tool.
-    case "H": if (e.shiftKey) { dir = -1; break; } tools.set("grab"); e.preventDefault(); return;
-    case "L": if (e.shiftKey) { dir = 1; break; } return;
-    case "h": tools.set("grab"); e.preventDefault(); return;
+    // h and l step as Left and Right (vim): a segment of the selected
+    // line, or the nozzle. Shift+H and Shift+L: a whole line.
+    case "h": case "H": dir = -1; break;
+    case "l": case "L": dir = 1; break;
+    case "e": case "E": labelTool.toggle(); e.preventDefault(); return;
+    case "g": case "G": tools.set("grab"); e.preventDefault(); return;
     case "t": case "T": tools.set("measure"); e.preventDefault(); return;
-    case "g": case "G": if (!$("gaps").disabled) $("gaps").click(); e.preventDefault(); return;
     case "c": case "C":
       if (e.key === "C" || e.shiftKey) showAllLayers();
       else if (app.sel >= 0) cutToSelection();
@@ -4056,7 +4055,7 @@ const search = new SearchOverlay({
     { label: "Remove this plate", hint: "the plate and its parts", run: () => removePlate(app.activePlate) },
     { label: "Check the print", hint: "problems and advice", run: () => openCheck() },
     { label: "The print as it forms", hint: "simulated plastic: it sags and droops where nothing holds it", run: () => toggleSimulation() },
-    { label: "Label tool", keys: "L", hint: "text and marks on the surface of a part, in another filament", run: () => labelTool.open() },
+    { label: "Label tool", keys: "E", hint: "text and marks on the surface of a part, in another filament", run: () => labelTool.open() },
     { label: "Undo", keys: "Ctrl+Z", run: () => undoRedo("undo") },
     { label: "Redo", keys: "Ctrl+Shift+Z", run: () => undoRedo("redo") },
     { label: "2D layer view", keys: "2", run: () => showPage("2d") },

@@ -52,10 +52,10 @@ export const SHORTCUTS = [
     keys: [
       ["V", "Select: a click selects a line or a support; a drag from a line selects layers"],
       ["M", "Move: a drag moves a part, the wheel turns it 15°"],
-      ["H", "Grab: take a part and move it as a real object; the wheel lifts it, Alt and a drag turn it (Shift: 15° steps); let go, and it rests on the plate"],
+      ["G", "Grab: take a part and move it as a real object; the wheel lifts it, Alt and a drag turn it (Shift: 15° steps); let go, and it rests on the plate"],
       ["T", "Measure: two clicks measure between two points"],
       ["P", "Paint: paint filaments on a part (Smart select or Brush)"],
-      ["L", "Label: click a face of a part to put text or marks on it, in another filament"],
+      ["E", "Label: click a face of a part to put text or marks on it, in another filament"],
       ["Drag (Label tool)", "Move the label on the surface (with Shift: in its plane)"],
       ["Wheel over a label (Label tool)", "Turn the label 1° (with Shift: 15°)"],
       ["Delete (Label tool)", "Delete the selected label"],
@@ -65,7 +65,7 @@ export const SHORTCUTS = [
       ["Backspace (Support tool)", "Remove the last point of the area that you draw"],
       ["Delete (Support tool)", "Delete the selected support area"],
       ["Esc (Support tool)", "Stop the area that you draw, then clear the selected area"],
-      ["G", "Gaps: show the gaps of the top layer"],
+      ["Gaps button", "Show the gaps of the top layer (no key)"],
       ["Ctrl+click, Ctrl+drag, Ctrl+wheel", "Select, move, and turn a part with any tool"],
       ["Tab, Shift+Tab", "Select the next part, or the part before"],
       ["Left, Right, Up, Down (a part)", "Move the selected parts 1 mm (with Shift: 10 mm)"],
@@ -90,7 +90,6 @@ export const SHORTCUTS = [
       ["Page Up, Page Down", "10 layers up or down"],
       ["Ctrl+F, Ctrl+B", "A page of layers up or down (5 % of the print)"],
       ["Shift+K, Shift+J", "Select layers: the range grows up or down, and its card opens"],
-      ["Shift+H, Shift+L", "The line before or after"],
       ["Shift+Up, Shift+Down", "Move the bottom of the layer range"],
       ["C", "Show the layers up to the selected line"],
       ["Shift+C", "Show all layers"],
@@ -99,9 +98,9 @@ export const SHORTCUTS = [
   {
     group: "Lines and the nozzle",
     keys: [
-      ["Left", "The segment before the selected one (no selection: the nozzle back 2 % of the layer)"],
-      ["Right", "The next segment (no selection: the nozzle on 2 % of the layer)"],
-      ["Shift+Left, Shift+Right", "The line before, or the next line"],
+      ["Left, H", "The segment before the selected one (no selection: the nozzle back 2 % of the layer)"],
+      ["Right, L", "The next segment (no selection: the nozzle on 2 % of the layer)"],
+      ["Shift+Left, Shift+Right, Shift+H, Shift+L", "The line before, or the next line"],
     ],
   },
   {

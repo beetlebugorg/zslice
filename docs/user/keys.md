@@ -52,15 +52,14 @@ Each paste is one step: Ctrl+Z undoes it. A label, a support area, layer changes
 | M | Move: a drag moves a part, the wheel turns it 15° |
 | R | Turn: drag a ring of the selected part |
 | S | Support: click an overhang, or draw an area. S again opens or closes the card of the tool. |
-| H | Grab: pick up a part, carry it, and let go |
+| G | Grab: pick up a part, carry it, and let go |
 | T | Measure: two clicks |
 | P | Paint: paint filaments on a part (Smart select or Brush) |
-| L | Label: click a face of a part to put text or marks on it ([Labels on a part](labels.md)) |
+| E | Label: click a face of a part to put text or marks on it ([Labels on a part](labels.md)) |
 | Drag a label (Label tool) | Move it on the surface (Shift: in its plane) |
 | Wheel over a label (Label tool) | Turn it 1° (Shift: 15°) |
 | Delete (Label tool) | Delete the selected label |
 | Esc (Label tool) | Close the card of the label, then the tool |
-| G | Gaps of the top layer |
 | Ctrl+click, Ctrl+drag, Ctrl+wheel | Select, move, and turn a part with any tool |
 | Shift+click (Select tool) | Select the run of the line: one extrusion, from a retraction to the next |
 | Ctrl+Shift+click (Select tool), Shift+click (other tools) | Add a part to the selection, or take it out |
@@ -82,10 +81,9 @@ Each paste is one step: Ctrl+Z undoes it. A label, a support area, layer changes
 | Page Up, Page Down | 10 layers up or down |
 | Ctrl+F, Ctrl+B | A page of layers up or down (5 % of the print) |
 | Shift+K, Shift+J | Select layers: the range grows up or down, and its card opens |
-| Shift+H, Shift+L | The line before or after |
 | Shift+↑, Shift+↓ | Move the bottom of the layer range |
-| ←, → | The segment before or after the selected one. No selection: the nozzle back or on 2 % of the layer. |
-| Shift+←, Shift+→ | The line before, or the next line |
+| ←, → or H, L | The segment before or after the selected one. No selection: the nozzle back or on 2 % of the layer. |
+| Shift+←, Shift+→ or Shift+H, Shift+L | The line before, or the next line |
 | C | Show the layers up to the selected line |
 | Shift+C | Show all layers |
 

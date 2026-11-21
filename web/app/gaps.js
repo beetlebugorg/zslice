@@ -36,7 +36,7 @@ export class Gaps {
     // new slice.
     this.shown = null;
     ctx.button.disabled = false;
-    ctx.button.title = "Gaps (G): show the gaps of the top layer in red: areas that should be solid that no line covers. Click a gap for the settings that can close it.";
+    ctx.button.title = "Gaps: show the gaps of the top layer in red: areas that should be solid that no line covers. Click a gap for the settings that can close it.";
     ctx.button.onclick = () => this.setOn(!this.on);
   }
 

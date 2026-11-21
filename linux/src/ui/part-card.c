@@ -233,7 +233,7 @@ static void fill_labels(PartCard *c) {
         gtk_label_set_xalign(GTK_LABEL(bl), 0);
         gtk_button_set_child(GTK_BUTTON(b), bl);
         gtk_widget_add_css_class(b, "flat");
-        gtk_widget_set_tooltip_text(b, "Select this label in the Label tool (L)");
+        gtk_widget_set_tooltip_text(b, "Select this label in the Label tool (E)");
         g_object_set_data(G_OBJECT(b), "zg-label", GUINT_TO_POINTER(l->id));
         g_signal_connect(b, "clicked", G_CALLBACK(on_label), c);
         gtk_box_append(GTK_BOX(c->labels), b);
