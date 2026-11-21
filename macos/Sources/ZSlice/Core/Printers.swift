@@ -89,20 +89,39 @@ final class PrinterLibrary {
     }
 
     /// The model of a product name ("Bambu Lab X2D", web/app/printers.js
-    /// findModel): the first of the 8 best of the search whose brand, name,
-    /// and title have all the words of the product name. nil if none.
+    /// findModel). A name of one word ("TAZ") names a family, so it matches
+    /// no model. Of the 40 best of the search whose brand, name, and title
+    /// have all the words of the product name: first the one whose title
+    /// ends in a nozzle nearest 0.5 mm (the stock size of a family: a "TAZ
+    /// Workhorse" is a 0.5 mm model), then the one with the fewest other
+    /// words in its title; a tie keeps the order of the search. nil if none.
     func findModel(product: String) -> Int? {
         func words(_ s: String) -> [String] {
             s.lowercased().split(whereSeparator: { !(("a" ... "z").contains($0) || ("0" ... "9").contains($0)) }).map(String.init)
         }
         let want = words(product)
-        guard !want.isEmpty else { return nil }
-        for i in search(product, brand: -1, max: 8) {
+        guard want.count >= 2 else { return nil }
+        // The distance of the nozzle at the end of a title ("... 0.5 mm")
+        // from 0.5 mm, or 1 with no nozzle there.
+        func size(_ title: String) -> Double {
+            guard let r = title.range(of: #"(\d+(\.\d+)?) mm$"#, options: .regularExpression),
+                  let d = Double(title[r].dropLast(3)) else { return 1 }
+            return abs(d - 0.5)
+        }
+        var best: Int?
+        var bestScore = Double.infinity
+        for i in search(product, brand: -1, max: 40) {
             guard let m = model(i) else { continue }
             let have = Set(words("\(coreText(m.brand)) \(coreText(m.name)) \(coreText(m.title))"))
-            if want.allSatisfy(have.contains) { return i }
+            guard want.allSatisfy(have.contains) else { continue }
+            let title = coreText(m.title)
+            let score = size(title) * 100 + Double(words(title).filter { !want.contains($0) }.count)
+            if score < bestScore {
+                best = i
+                bestScore = score
+            }
         }
-        return nil
+        return best
     }
 
     func find(id: String) -> Int? {

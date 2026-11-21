@@ -575,6 +575,15 @@ final class Workspace {
                 }
             }
         }
+        // ZSLICE_FIND_MODEL="TAZ Workhorse;TAZ": the library model of each
+        // product name (PrinterLibrary.findModel), as a deck add finds it.
+        if let spec = env["ZSLICE_FIND_MODEL"] {
+            let lib = PrinterLibrary.shared
+            for hint in spec.split(separator: ";").map(String.init) {
+                let t = lib.findModel(product: hint).flatMap { lib.model($0) }.map { coreText($0.title) } ?? "none"
+                NSLog("zslice find model: %@ → %@", hint, t)
+            }
+        }
         // ZSLICE_KEY_REMOVE=1: a printer with a key, then its removal; it
         // logs the key before and after (the key must go with the printer).
         if env["ZSLICE_KEY_REMOVE"] != nil {

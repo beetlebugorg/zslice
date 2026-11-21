@@ -134,8 +134,11 @@ struct PairSheet: View {
         var first: Printer?
         for item in deck where picked.contains(item.id) {
             var p = Printer(name: item.title, model: d.model, machine: d.machine, kind: .printdeck, url: base + item.path)
-            let product = [item.model, item.label, item.name].first { !$0.isEmpty } ?? ""
-            if let i = lib.findModel(product: product), let m = lib.model(i), let profile = lib.profile(i) {
+            // The model, then the full name, then the short label: the label
+            // ("TAZ") alone matched the first TAZ, a TAZ 6, for a TAZ
+            // Workhorse. A label of one word matches no model.
+            let found = [item.model, item.name, item.label].lazy.filter { !$0.isEmpty }.compactMap { lib.findModel(product: $0) }.first
+            if let i = found, let m = lib.model(i), let profile = lib.profile(i) {
                 p.model = coreText(m.id)
                 p.machine = profile
             }
