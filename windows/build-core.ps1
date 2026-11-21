@@ -22,7 +22,11 @@ param(
 $ErrorActionPreference = 'Stop'
 
 $repo = (Resolve-Path "$PSScriptRoot\..").Path
-$opt = if ($Configuration -eq 'Debug') { 'Debug' } else { 'ReleaseFast' }
+# An ARM64 core is ReleaseFast in both configurations. In the safe modes the
+# panic handler reaches the stack trace code of std.debug, which does not
+# compile for ARM64 Windows in Zig 0.16 (a pointer cast with the wrong
+# alignment in SelfInfo/Windows.zig).
+$opt = if ($Configuration -eq 'Debug' -and $Platform -eq 'x64') { 'Debug' } else { 'ReleaseFast' }
 $zigTarget = if ($Platform -eq 'x64') { 'x86_64-windows-msvc' } else { 'aarch64-windows-msvc' }
 $hostDir = if ($env:PROCESSOR_ARCHITECTURE -eq 'ARM64') { 'arm64' } else { 'x64' }
 $targetDir = $Platform.ToLowerInvariant()
