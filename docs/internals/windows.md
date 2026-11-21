@@ -42,6 +42,7 @@ A build with `-p:ZsDevHooks=true` reads `ZSLICE_DO`: steps with `;` between them
 | `src/app/MainWindow.Support.cpp` | The Support tool: the areas, the trees, its card, and the pick of a support line by the Select tool. |
 | `src/app/MainWindow.Session.cpp` | The session: written after a slice and at the close, and put back at the start. |
 | `src/app/MainWindow.Menu.cpp` | The main menu, the sheet of the keys, Licenses, About, and the theme. |
+| `src/app/MainWindow.ContextMenu.cpp` | The menu of the view, and copy, cut, paste, and duplicate of parts. |
 | `src/app/MainWindow.DevHooks.cpp` | The test hooks, in a build with `ZsDevHooks`. |
 | `src/app/App` | The start of the app, and `ZSLICE_LOG`. |
 | `src/app/winrt_glue.cpp` | Compiles the generated XAML files, which a command-line build does not register. |
