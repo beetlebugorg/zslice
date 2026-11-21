@@ -38,7 +38,9 @@
 #include "zslice.h"
 #include "zslice-app.h"
 
+#include "zs_app_shell.h"
 #include "zs_bambu.h"
+#include "zs_open_link.h"
 #include "zs_camera.h"
 #include "zs_deck_filaments.h"
 #include "zs_discovery_net.h"
@@ -1425,6 +1427,132 @@ namespace
         CHECK(!Has(machine, test_key));
     }
 
+    // The rules of a link from a web page. Nothing here goes to the network.
+    void TestOpenLink()
+    {
+        using namespace zs::openlink;
+        ModelLink link;
+        std::string why;
+        CHECK(Parse(L"zslice://open?file=https%3A%2F%2Ffiles.printables.com%2Fmedia%2Fa%20b.stl", link, why));
+        CHECK(link.host == "files.printables.com");
+        CHECK(link.url == "https://files.printables.com/media/a%20b.stl" || link.url == "https://files.printables.com/media/a b.stl");
+        CHECK(link.name == L"a b.stl");
+        CHECK(Parse(L"ZSLICE://open/?x=1&file=https://example.com:443/m.3mf?v=2#top", link, why));
+        CHECK(link.url == "https://example.com/m.3mf?v=2");
+        CHECK(link.name == L"m.3mf");
+        CHECK(Parse(L"zslice://open?file=https://example.com/download/42", link, why) && link.name.empty());
+        wchar_t const *const refused[] = {
+            L"zslice://open?file=http://example.com/a.stl",
+            L"zslice://open?file=file:///C:/secret.stl",
+            L"zslice://open?file=https://127.0.0.1/a.stl",
+            L"zslice://open?file=https://2130706433/a.stl",
+            L"zslice://open?file=https://0x7f.0.0.1/a.stl",
+            L"zslice://open?file=https://[::1]/a.stl",
+            L"zslice://open?file=https://localhost/a.stl",
+            L"zslice://open?file=https://printer.local/a.stl",
+            L"zslice://open?file=https://user:pw@example.com/a.stl",
+            L"zslice://open?file=https://example.com:8080/a.stl",
+            L"zslice://open?file=https://example.com%5C@evil.test/a.stl",
+            L"zslice://open?file=https://a.test/a.stl&file=https://b.test/b.stl",
+            L"zslice://open?file=https%3A%2F%2Fexample.com%2",
+            L"zslice://print?file=https://example.com/a.stl",
+            L"zslice://open",
+            L"https://example.com/a.stl",
+        };
+        for (auto const *text : refused)
+            CHECK(!Parse(text, link, why));
+        // A mark that reverses the text cannot hide the real extension.
+        CHECK(Parse(L"zslice://open?file=https://example.com/a%E2%80%AEexe.stl", link, why));
+        CHECK(link.name == L"aexe.stl");
+
+        CHECK(IsModelName(L"C:\\x\\Part.STL") && IsModelName(L"a.step") && IsModelName(L"a.stp") && IsModelName(L"a.obj") && IsModelName(L"a.3mf"));
+        CHECK(!IsModelName(L"a.exe") && !IsModelName(L"stl") && !IsModelName(L".stl"));
+
+        auto v4 = [](char const *text) {
+            sockaddr_in a{};
+            a.sin_family = AF_INET;
+            ::inet_pton(AF_INET, text, &a.sin_addr);
+            return IsPublicAddress(reinterpret_cast<sockaddr const *>(&a));
+        };
+        auto v6 = [](char const *text) {
+            sockaddr_in6 a{};
+            a.sin6_family = AF_INET6;
+            ::inet_pton(AF_INET6, text, &a.sin6_addr);
+            return IsPublicAddress(reinterpret_cast<sockaddr const *>(&a));
+        };
+        CHECK(v4("93.184.216.34"));
+        for (char const *text : { "127.0.0.1", "10.1.2.3", "172.16.0.1", "172.31.9.9", "192.168.1.5", "169.254.1.1", "100.64.0.1", "0.0.0.0", "224.0.0.1" })
+            CHECK(!v4(text));
+        CHECK(v6("2606:4700::1111"));
+        for (char const *text : { "::1", "::", "fe80::1", "fc00::1", "fd12::1", "ff02::1", "::ffff:192.168.1.5" })
+            CHECK(!v6(text));
+    }
+
+    // The keys go to a scratch root. The real file types do not change.
+    void TestRegisterApp()
+    {
+        std::wstring root = L"Software\\zslice-net-link-test";
+        ::RegDeleteTreeW(HKEY_CURRENT_USER, root.c_str());
+        std::wstring exe = L"C:\\Test Folder\\ZSlice.exe";
+        CHECK(zs::appshell::RegisterApp(exe, root));
+        CHECK(!zs::appshell::RegisterApp(exe, root));
+        auto text = [&](std::wstring const &key, wchar_t const *name) {
+            wchar_t value[512] = L"";
+            DWORD size = sizeof value;
+            ::RegGetValueW(HKEY_CURRENT_USER, (root + L"\\" + key).c_str(), name, RRF_RT_REG_SZ, nullptr, value, &size);
+            return std::wstring(value);
+        };
+        std::wstring command = L"\"C:\\Test Folder\\ZSlice.exe\" \"%1\"";
+        CHECK(text(L"Classes\\ZSlice.Model\\shell\\open\\command", nullptr) == command);
+        CHECK(text(L"Classes\\zslice\\shell\\open\\command", nullptr) == command);
+        CHECK(text(L"zslice\\Capabilities\\FileAssociations", L".step") == L"ZSlice.Model");
+        CHECK(text(L"zslice\\Capabilities\\UrlAssociations", L"zslice") == L"zslice");
+        CHECK(text(L"RegisteredApplications", L"zslice") == root + L"\\zslice\\Capabilities");
+        DWORD type = 0;
+        CHECK(::RegGetValueW(HKEY_CURRENT_USER, (root + L"\\Classes\\.stl\\OpenWithProgids").c_str(), L"ZSlice.Model", RRF_RT_ANY, &type, nullptr, nullptr) == ERROR_SUCCESS);
+        // The default of the type stays with the user.
+        CHECK(text(L"Classes\\.stl", nullptr).empty());
+        CHECK(zs::appshell::RegisterApp(L"C:\\Moved\\ZSlice.exe", root));
+        CHECK(text(L"Classes\\zslice\\shell\\open\\command", nullptr) == L"\"C:\\Moved\\ZSlice.exe\" \"%1\"");
+        ::RegDeleteTreeW(HKEY_CURRENT_USER, root.c_str());
+    }
+
+    // A later start gives its argument to the first one.
+    void TestHandOff()
+    {
+        std::wstring key = zs::appshell::InstanceKey(L"C:\\zslice-net-link-test\\" + std::to_wstring(::GetCurrentProcessId()));
+        CHECK(key == zs::appshell::InstanceKey(L"c:/ZSLICE-net-link-test/" + std::to_wstring(::GetCurrentProcessId()) + L"/"));
+        CHECK(zs::appshell::Claim(key));
+        CHECK(!zs::appshell::Claim(key));
+        std::mutex lock;
+        std::vector<std::wstring> got;
+        {
+            zs::appshell::OpenServer server(key, [&](std::wstring text) {
+                std::lock_guard guard(lock);
+                got.push_back(std::move(text));
+            });
+            CHECK(zs::appshell::HandOff(key, L"C:\\a b\\part.stl"));
+            CHECK(zs::appshell::HandOff(key, L""));
+            CHECK(zs::appshell::HandOff(key, L"zslice://open?file=https://example.com/a.stl"));
+            for (int i = 0; i < 100; i++)
+            {
+                {
+                    std::lock_guard guard(lock);
+                    if (got.size() >= 3)
+                        break;
+                }
+                ::Sleep(10);
+            }
+        }
+        CHECK(got.size() == 3);
+        if (got.size() == 3)
+        {
+            CHECK(got[0] == L"C:\\a b\\part.stl");
+            CHECK(got[1].empty());
+            CHECK(got[2] == L"zslice://open?file=https://example.com/a.stl");
+        }
+    }
+
     void TestJson()
     {
         json::Value v;
@@ -1490,6 +1618,7 @@ int main()
         { "status", TestStatus }, { "key flow", TestKeyFlow }, { "deck", TestDeck }, { "upload", TestUpload },
         { "detect", TestDetect }, { "filaments", TestFilaments }, { "mjpeg", TestMjpeg }, { "camera", TestCamera },
         { "discovery", TestDiscovery }, { "bambu", TestBambu }, { "setup", TestSetup },
+        { "open link", TestOpenLink }, { "file types", TestRegisterApp }, { "hand off", TestHandOff },
     };
     for (auto const &step : steps)
     {

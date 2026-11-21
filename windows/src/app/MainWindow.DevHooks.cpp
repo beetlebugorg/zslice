@@ -47,6 +47,7 @@
 //   chrome path     writes the XAML chrome to a BMP file
 //   search words, searchplace header|card|left|right, searchclose
 //   searchkey down|up|left|right|v|enter|esc, searchlog
+//   open file-or-link, linkok, plates
 // Each step writes the state to the log (ZSLICE_LOG).
 //
 // SPDX-License-Identifier: AGPL-3.0-or-later
@@ -435,6 +436,21 @@ namespace winrt::ZSlice::implementation
         {
             std::wstring at = words.empty() ? L"header" : words[0];
             SetSearchPlace(at == L"card" ? SearchPlace::Card : at == L"left" ? SearchPlace::Left : at == L"right" ? SearchPlace::Right : SearchPlace::Header);
+        }
+        else if (verb == L"open")
+        {
+            // open <file or zslice link>: as if Windows started the app.
+            if (!words.empty())
+                OpenExternal(words[0]);
+        }
+        else if (verb == L"linkok")
+        {
+            zs::Log("dev: link answer %d\n", PressNamed(L"Download and open") ? 1 : 0);
+        }
+        else if (verb == L"plates")
+        {
+            zs::Log("dev: plates %zu active %zu parts %zu state %d\n", model->PlateCount(), model->ActivePlate(),
+                    zs_app_part_count(model->Active()), (int)zs_app_state(model->Active()));
         }
         else if (verb == L"searchclose")
         {

@@ -32,6 +32,14 @@ namespace winrt::ZSlice::implementation
             if (h != INVALID_HANDLE_VALUE)
                 ::SetStdHandle(STD_ERROR_HANDLE, h);
         }
+        // One window has each state folder. A later start gives its file or
+        // link to that window. If the window does not answer, this one runs.
+        std::wstring key = zs::appshell::InstanceKey(zs::StateDir());
+        if (!zs::appshell::Claim(key) && zs::appshell::HandOff(key, zs::appshell::FirstArgument()))
+        {
+            Exit();
+            return;
+        }
         window = make<MainWindow>();
         window.Activate();
     }

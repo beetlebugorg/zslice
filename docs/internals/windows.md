@@ -47,6 +47,9 @@ A build with `-p:ZsDevHooks=true` reads `ZSLICE_DO`: steps with `;` between them
 | `src/app/MainWindow.Layer2D.cpp` | The input and the state of the 2D view. |
 | `src/app/MainWindow.Chrome.cpp` | The layer rail, the timeline, and the print in the bottom bar. |
 | `src/app/MainWindow.Search.cpp` | The search of settings and actions: docked, on a card, or on a rail. It has no action that starts a print. |
+| `src/app/MainWindow.Open.cpp` | A file or a `zslice://` link from outside the app. A link asks before it downloads. |
+| `src/net/zs_open_link` | The rules of a link, and its download: https, public hosts and addresses, each redirect checked, 512 MB at most. |
+| `src/prefs/zs_app_shell` | The file types and the link scheme in HKCU, and the hand-off to the first window through a named pipe. |
 | `src/app/App.xaml` | The color tokens of `web/app/style.css` for light and dark, and the flat button styles. |
 | `src/app/MainWindow.DevHooks.cpp` | The test hooks, in a build with `ZsDevHooks`. |
 | `src/app/App` | The start of the app, and `ZSLICE_LOG`. |
@@ -67,6 +70,8 @@ A build with `-p:ZsDevHooks=true` reads `ZSLICE_DO`: steps with `;` between them
 - The Label tool keeps a copy of the labels of one part. An edit shows at once, and goes to the core 400 ms after the last change or at the end of a drag, so it is one step of the history.
 - The state of Paint, Label, and the filaments is in structs inside their `.cpp` files. `MainWindow.xaml.h` has only a pointer to each and the calls that other files need. Their cards are built in code, so `MainWindow.xaml` has only the filament button.
 - The Support tool keeps a copy of the areas and the trees. It reads them again after a load of the view, an undo, and a switch of the plate. During a drag the copy leads, and the slices wait for the release. A drag of a tree sends its edit at most each 60 ms, and slices at most each 150 ms.
+- One window has each state folder, so that two windows do not overwrite one session. A later start gives its argument to the first window and exits. The first window restores its session before it opens a file.
+- A shipped build writes the file type keys when they differ from its path. A build with test hooks, or a run with `ZSLICE_STATE_DIR`, writes none.
 
 ## Printers
 

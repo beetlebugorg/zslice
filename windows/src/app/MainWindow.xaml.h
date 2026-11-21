@@ -4,7 +4,9 @@
 #include <chrono>
 #include <memory>
 
+#include "zs_app_shell.h"
 #include "zs_model.h"
+#include "zs_open_link.h"
 #include "zs_part_meshes.h"
 
 namespace zs
@@ -45,8 +47,17 @@ namespace winrt::ZSlice::implementation
 
         // Files.
         winrt::fire_and_forget PickFile();
-        void LoadPath(std::wstring path);
-        void FinishLoad(std::wstring const &path, std::string const &bytes, bool read);
+        // new_plate: the file goes on a new plate if this plate has parts.
+        void LoadPath(std::wstring path, bool new_plate = false);
+        void FinishLoad(std::wstring const &path, std::string const &bytes, bool read, bool new_plate = false);
+
+        // A file or a link from outside the app (MainWindow.Open.cpp).
+        void StartOpenLinks();
+        void StopOpenLinks();
+        void OpenExternal(std::wstring const &argument);
+        winrt::fire_and_forget AskOpenLink(std::wstring text);
+        void DownloadLink(zs::openlink::ModelLink const &link);
+        void FinishDownload(zs::openlink::Download const &result);
 
         // Input.
         void OnPointerPressed(Microsoft::UI::Xaml::Input::PointerRoutedEventArgs const &e);
@@ -192,7 +203,7 @@ namespace winrt::ZSlice::implementation
         void WireSession();
         void SessionSoon();
         void SaveSession(bool wait);
-        bool RestoreSession(bool has_file);
+        bool RestoreSession();
         void ShowPlateChrome();
 
         // The main menu and its dialogs (MainWindow.Menu.cpp).
@@ -421,6 +432,10 @@ namespace winrt::ZSlice::implementation
         std::wstring settings_query;
         // True while the code fills an editor: its change event is no edit.
         bool filling_editor = false;
+
+        std::unique_ptr<zs::appshell::OpenServer> open_server;
+        zs::http::CancelPtr download_cancel;
+        bool link_asking = false;
 
         SearchPlace search_place = SearchPlace::Header;
         bool search_open = false;

@@ -6,6 +6,10 @@ The Windows app is a native app for Windows 10 and 11, on x64 and ARM64. It is i
 
 Press **Open** or Ctrl+O and pick an STL, 3MF, STEP, or OBJ file. You can also drop a file on the window, or give a file on the command line. The app slices the model at once, and the bottom bar shows the print time, the filament, and the layers.
 
+The app adds itself to **Open with** for these file types. To make it the default, pick it in the Windows Default Apps settings. A file that you open from Explorer goes to the open window. It opens on a new plate if the current plate has parts.
+
+A model site can link to the app with `zslice://open?file=` and the address of the file. The app shows the file name and the site, and asks before it downloads. It takes https addresses of public sites, up to 512 MB. A link never opens a zslice project, and it never starts a print.
+
 ## Look at the slice
 
 | Do this | To |
