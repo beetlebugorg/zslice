@@ -91,9 +91,9 @@ kind: idea
 source: PrusaSlicer
 license: AGPL-3.0
 version: tag version_2.9.7
-files: src/paint_split.zig, src/plate_job.zig, src/engine.zig
+files: src/paint_split.zig, src/field.zig, src/plate_job.zig, src/engine.zig
 area: slicing
-summary: zslice grows the colored edges into the layer one line width a step (PrusaSlicer uses a Voronoi diagram), and slices each filament of a painted part as its own job.
+summary: zslice gives each point of a layer the color of the nearest colored edge with a distance field on a grid (PrusaSlicer uses a Voronoi diagram), and slices each filament of a painted part as its own job.
 ```
 
 The multi-material segmentation of PrusaSlicer (`src/libslic3r/MultiMaterialSegmentation.cpp`, tag `version_2.9.7`): each layer splits by the colors of the painted triangles that cross it, a painted top or bottom colors the layers within the shell thickness, and each color region slices with its own walls and infill
@@ -102,7 +102,7 @@ The multi-material segmentation of PrusaSlicer (`src/libslic3r/MultiMaterialSegm
 
 **Used in:** `src/paint_split.zig`, `src/plate_job.zig`, `src/engine.zig`
 
-**How zslice uses it:** zslice grows the colored edges into the layer one line width a step (PrusaSlicer uses a Voronoi diagram), and slices each filament of a painted part as its own job.
+**How zslice uses it:** zslice gives each point of a layer the color of the nearest colored edge with a distance field on a grid (PrusaSlicer uses a Voronoi diagram), and slices each filament of a painted part as its own job.
 
 ### Text and SVG emboss
 
