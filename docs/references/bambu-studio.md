@@ -85,6 +85,26 @@ The LAN mode of Bambu Lab printers: the SSDP packets on UDP port 2021 (`DevModel
 
 **How zslice uses it:** zslice finds Bambu printers on the network, writes the file they print, and makes the messages that start a print and read its status. The temperatures (`nozzle_temper`, `bed_temper`, `chamber_temper`, the targets, and the packed `device.extruder.info[].temp` of the printers with two nozzles, as ha-bambulab reads it). The camera: RTSP over TLS on port 322 at `/streaming/live/1` (X1, H2, P2S, X2D, with "LAN Only Liveview" on), or JPEG frames over TLS on port 6000 after an 80-byte login (P1, A1), as ha-bambulab (MIT) and open-bambu-networking (https://github.com/ClusterM/open-bambu-networking) describe them. Status and RTSPS camera read from a real X2D in November 2026; the upload and the start are not yet tested with a real printer.
 
+### Bambu Lab AMS trays and the AMS mapping
+
+```ref
+kind: format
+source: Bambu Lab
+license: Public documents and tools; the formats and messages, no code
+link: https://github.com/ClusterM/open-bambu-networking
+files: src/app/printer_status.zig, src/app/printer_filaments.zig, src/bambu.zig, src/gcode.zig, src/gcode_vars.zig
+area: network
+summary: The spools of the AMS in a report, the tray of each filament in the start message, and the first filament that the start G-code loads.
+```
+
+The trays of a Bambu Lab report: `print.ams.ams[]` (each AMS unit, `id`) with its `tray[]` (`id`, `tray_type`, `tray_color` as RRGGBBAA, `tray_info_idx`), the external spool `vt_tray` (id 254), and `vir_slot` on the printers with two nozzles (255 the main nozzle, 254 the second), as ha-bambulab (MIT) reads them. The tray of each filament in the `project_file` message: `ams_mapping` (the AMS unit times 4 and the tray; -1 for a filament with no tray and for an external spool) and `ams_mapping2` (`ams_id` and `slot_id` of each filament; 255 and 255 for none), as the network plugin of Bambu Studio sends them (open-bambu-networking, print_job.cpp) and as the printdeck deck sends them (deck/internal/bambu/bambu.go, with the note of bambuddy on the external spool). The start G-code of Bambu Studio loads `initial_no_support_filament_id`, the first filament of the print.
+
+**License:** Public documents and tools; the formats and messages, no code
+
+**Used in:** `src/app/printer_status.zig`, `src/app/printer_filaments.zig`, `src/bambu.zig`, `src/gcode.zig`, `src/gcode_vars.zig`
+
+**How zslice uses it:** zslice reads the trays of a report (and the same list from a printdeck), makes the filaments of the plate the same, and writes the tray of each filament in the start message of the macOS app (`zs_bambu_start_packet_trays`). The start G-code loads the first filament of the print. An X2D stopped a zslice file in PREPARE with "Failed to get AMS mapping table" (21 November 2026): the file loaded filament 1, and the deck mapped only filament 4. zslice has not yet read the trays from a real printer; the printdeck deck reads them from the X2D.
+
 ## G-code names and settings
 
 ### Bambu Studio feature names and plate files
