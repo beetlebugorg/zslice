@@ -64,7 +64,8 @@
 //!    An island is an outer boundary of the outline with its holes. The
 //!    next island is the one with the boundary vertex nearest to the
 //!    nozzle. In each island, the plan prints the inner walls, then the
-//!    outer wall, then the skin, then the infill, then the ironing. A move
+//!    outer wall (or the outer wall first, with `wall_order =
+//!    outer_first`), then the skin, then the infill, then the ironing. A move
 //!    from one island to another leaves the part, so it retracts. With
 //!    this order, there is one such move for each island. Inside each group, the next path is the
 //!    nearest one to the current nozzle position (a greedy nearest
@@ -82,8 +83,10 @@
 //! References (see docs/references/): the greedy nearest-neighbor order with
 //! a uniform grid search, the order by island, the opening, memoization
 //! (see `Memo`), combined infill (the idea of PrusaSlicer and Cura), the
-//! infill meshes of CuraEngine (see `Modifier`), and the trihexagon
-//! pattern of CuraEngine.
+//! infill meshes of CuraEngine (see `Modifier`), the trihexagon
+//! pattern of CuraEngine, and the wall order and the extra wall on
+//! alternate layers of Cura and OrcaSlicer (`wall_order`,
+//! `alternate_extra_wall`, see docs/references/cura.md).
 //!
 //! `cornerSeamIndex` and its helpers are a port to Zig of the seam corner
 //! choice of CuraEngine (`CornerScoringCriterion.cpp`,
@@ -1074,7 +1077,7 @@ const ArachneKey = [12]i64;
 /// The Arachne settings of a layer with line width `w` (micrometers), and
 /// their memo key. The defaults (a setting of 0) follow Cura for the
 /// nozzle and the line width.
-fn arachneParams(r: *const Resolved, w: i64) struct { ArachneKey, arachne.walls.Params } {
+fn arachneParams(r: *const Resolved, w: i64, wall_count: u32) struct { ArachneKey, arachne.walls.Params } {
     const p = r.settings.project;
     const nozzle = r.settings.machine.nozzle_diameter;
     const wf = geom.toMm(w);
@@ -1088,12 +1091,12 @@ fn arachneParams(r: *const Resolved, w: i64) struct { ArachneKey, arachne.walls.
     // nozzle does not reach past the outline.
     const wall_0_inset: i64 = if (wf < nozzle) geom.fromMm((nozzle - wf) / 2) else 0;
     const angle_milli: i64 = @intFromFloat(@round(p.wall_transition_angle * 1000));
-    const key: ArachneKey = .{ w, p.wall_count, min_wall, min_feature, min_bead, transition_length, angle_milli, filter_distance, filter_deviation, wall_0_inset, p.wall_distribution_count, 0 };
+    const key: ArachneKey = .{ w, wall_count, min_wall, min_feature, min_bead, transition_length, angle_milli, filter_distance, filter_deviation, wall_0_inset, p.wall_distribution_count, 0 };
     return .{ key, .{
         .walls = .{
             .bead_width_0 = w,
             .bead_width_x = w,
-            .inset_count = p.wall_count,
+            .inset_count = wall_count,
             .wall_0_inset = wall_0_inset,
             .min_feature_size = min_feature,
             .min_bead_width = min_bead,
@@ -1138,13 +1141,14 @@ pub fn regions(gpa: Allocator, ctx: Context, i: usize, memo: *Memo, list_alloc: 
     const outline = ctx.outlines[i];
     if (outline.isEmpty()) return reg;
     const gen = ctx.gen;
+    const wall_count = p.wallCountAt(i);
 
     // Step 1, with Arachne: the walls and the inner area come from the
     // center lines of the outline (see arachne.zig).
     var arachne_inner: ?Paths = null;
     var arachne_delta: i64 = 0;
-    if (p.wall_generator == .arachne and p.wall_count > 0) {
-        const kp = arachneParams(r, w);
+    if (p.wall_generator == .arachne and wall_count > 0) {
+        const kp = arachneParams(r, w, wall_count);
         const e = try memo.arachneWalls(gpa, outline, kp[0], kp[1], gen);
         reg.var_walls = e.walls;
         arachne_inner = e.inner;
@@ -1152,7 +1156,7 @@ pub fn regions(gpa: Allocator, ctx: Context, i: usize, memo: *Memo, list_alloc: 
     }
 
     // Step 1.
-    const walls = try list_alloc.alloc(Paths, if (arachne_inner != null) 0 else p.wall_count);
+    const walls = try list_alloc.alloc(Paths, if (arachne_inner != null) 0 else wall_count);
     var wall_n: usize = 0;
     for (walls, 0..) |*wall, k| {
         wall.* = try memo.offset(outline, -(@divTrunc(w, 2) + @as(i64, @intCast(k)) * w), gen);
@@ -1166,7 +1170,7 @@ pub fn regions(gpa: Allocator, ctx: Context, i: usize, memo: *Memo, list_alloc: 
     // width removes. Each gets a loop t/4 inside it, with a line of width
     // t/2, where t (2 area / perimeter) is its thickness: the two sides of
     // the loop fill the part.
-    if (p.thin_walls and p.wall_count > 0 and arachne_inner == null) thin: {
+    if (p.thin_walls and wall_count > 0 and arachne_inner == null) thin: {
         for (memo.thins.items) |*e| if (e.w == w) {
             e.gen = gen;
             reg.thin = e.thin;
@@ -1207,7 +1211,7 @@ pub fn regions(gpa: Allocator, ctx: Context, i: usize, memo: *Memo, list_alloc: 
 
     // Step 2. With no walls, the offset of 0 is the outline. With Arachne,
     // the inner area has its own key.
-    const inner_delta = if (arachne_inner != null) arachne_delta else -@as(i64, @intCast(p.wall_count)) * w;
+    const inner_delta = if (arachne_inner != null) arachne_delta else -@as(i64, @intCast(wall_count)) * w;
     const inner = arachne_inner orelse try memo.offset(outline, inner_delta, gen);
 
     // Steps 3 and 4.
@@ -1663,12 +1667,12 @@ pub fn plan(gpa: Allocator, ctx: Context, i: usize) Allocator.Error!LayerPlan {
     // Gap fill (see gapfill.zig): the areas that no wall and no skin line
     // covers get a line along their middle.
     var gap_fill: gapfill.Fill = .{};
-    if (p.gap_fill and p.wall_count > 0) {
+    if (p.gap_fill and p.wallCountAt(i) > 0) {
         var gap_area: Paths = .empty;
         // Between the classic walls. The parts of the outline thinner than
         // a line (the gaps at the outer wall) are for thin walls.
         var k: usize = 1;
-        const classic_n: usize = if (p.wall_generator == .arachne) 0 else @min(wall_n + 1, p.wall_count);
+        const classic_n: usize = if (p.wall_generator == .arachne) 0 else @min(wall_n + 1, p.wallCountAt(i));
         while (k < classic_n) : (k += 1) {
             try gap_area.appendAll(s, try memo.wallGap(outline, walls, k, w, ctx.gen));
         }
@@ -1755,18 +1759,18 @@ pub fn plan(gpa: Allocator, ctx: Context, i: usize) Allocator.Error!LayerPlan {
         // edge, by rounding) go last.
         const id = isl.nearest(pos, done);
         done[id] = true;
-        var k = wall_n;
-        while (k > 1) {
-            k -= 1;
-            try addGroup(s, a, &lp, &pos, walls[k], true, .inner_wall, wall_seams[k], .{ .ids = wall_ids[k], .id = id });
+        // The walls: from the inside out (`inner_first`), or from the
+        // outside in (`outer_first`).
+        const outer_first = p.wall_order == .outer_first;
+        for (0..wall_n) |q| {
+            const k = if (outer_first) q else wall_n - 1 - q;
+            const feature: Feature = if (k == 0) .outer_wall else .inner_wall;
+            try addGroup(s, a, &lp, &pos, walls[k], true, feature, wall_seams[k], .{ .ids = wall_ids[k], .id = id });
         }
-        if (wall_n > 0) try addGroup(s, a, &lp, &pos, walls[0], true, .outer_wall, wall_seams[0], .{ .ids = wall_ids[0], .id = id });
-        // The Arachne walls in the same order: the inner walls from the
-        // inside out, then the outer wall. The open lines of a wall come
-        // after its loops.
-        k = vw.len;
-        while (k > 0) {
-            k -= 1;
+        // The Arachne walls in the same order. The open lines of a wall
+        // come after its loops.
+        for (0..vw.len) |q| {
+            const k = if (outer_first) q else vw.len - 1 - q;
             const wall = vw[k];
             const feature: Feature = if (wall.inset == 0) .outer_wall else .inner_wall;
             try addGroupWidths(s, a, &lp, &pos, wall.loops, wall.loop_widths, true, feature, vw_seams[k], .{ .ids = vw_loop_ids[k], .id = id });
@@ -4239,6 +4243,81 @@ test "gap fill: a box gets none" {
         defer lp.deinit();
         try testing.expect(lp.count() > 0);
         try testing.expectEqual(@as(usize, 0), gapFillCount(lp));
+    }
+}
+
+/// The features and the left x of the wall loops of a plan, in print
+/// order.
+fn wallOrder(lp: LayerPlan, out: *[8]struct { Feature, i64 }) usize {
+    var n: usize = 0;
+    for (lp.paths.items, 0..) |path, k| {
+        if (path.feature != .outer_wall and path.feature != .inner_wall) continue;
+        if (n == out.len) break;
+        var box = geom.Box.empty;
+        for (lp.points.get(k)) |q| box.extend(q);
+        out[n] = .{ path.feature, box.min.x };
+        n += 1;
+    }
+    return n;
+}
+
+test "wall order: inner walls first, or the outer wall first" {
+    const gpa = testing.allocator;
+    var outline: Paths = .empty;
+    defer outline.deinit(gpa);
+    try outline.append(gpa, &.{ .init(0, 0), .init(20_000, 0), .init(20_000, 15_000), .init(0, 15_000) });
+    for ([_]settings_mod.WallGenerator{ .classic, .arachne }) |gen| {
+        var st: settings_mod.Settings = .{};
+        st.project.wall_count = 3;
+        st.project.wall_generator = gen;
+        var buf: [8]struct { Feature, i64 } = undefined;
+        // Inner first: from the inside out, the outer wall last.
+        var inner = try planPrism(gpa, outline, st, 12);
+        defer inner.deinit();
+        var n = wallOrder(inner, &buf);
+        try testing.expectEqual(@as(usize, 3), n);
+        try testing.expectEqual(Feature.outer_wall, buf[2][0]);
+        try testing.expect(buf[0][1] > buf[1][1] and buf[1][1] > buf[2][1]);
+        // Outer first: from the outside in.
+        st.project.wall_order = .outer_first;
+        var outer = try planPrism(gpa, outline, st, 12);
+        defer outer.deinit();
+        n = wallOrder(outer, &buf);
+        try testing.expectEqual(@as(usize, 3), n);
+        try testing.expectEqual(Feature.outer_wall, buf[0][0]);
+        try testing.expectEqual(Feature.inner_wall, buf[1][0]);
+        try testing.expect(buf[0][1] < buf[1][1] and buf[1][1] < buf[2][1]);
+        // The other paths stay the same.
+        try testing.expectEqual(inner.count(), outer.count());
+    }
+}
+
+test "alternate extra wall: one more wall on each odd layer" {
+    const gpa = testing.allocator;
+    var outline: Paths = .empty;
+    defer outline.deinit(gpa);
+    try outline.append(gpa, &.{ .init(0, 0), .init(20_000, 0), .init(20_000, 15_000), .init(0, 15_000) });
+    for ([_]settings_mod.WallGenerator{ .classic, .arachne }) |gen| {
+        var st: settings_mod.Settings = .{};
+        st.project.wall_count = 2;
+        st.project.wall_generator = gen;
+        st.project.alternate_extra_wall = true;
+        var buf: [8]struct { Feature, i64 } = undefined;
+        for ([_]usize{ 11, 12, 13 }) |i| {
+            var lp = try planPrism(gpa, outline, st, i);
+            defer lp.deinit();
+            try testing.expectEqual(@as(usize, if (i % 2 == 1) 3 else 2), wallOrder(lp, &buf));
+            // The sparse area is inside the walls of the layer.
+            var box = geom.Box.empty;
+            for (lp.sparse_area.points.items) |q| box.extend(q);
+            const walls: i64 = if (i % 2 == 1) 3 else 2;
+            try testing.expect(box.min.x >= walls * geom.fromMm(0.44) - 5);
+        }
+        // Off: two walls on each layer.
+        st.project.alternate_extra_wall = false;
+        var lp = try planPrism(gpa, outline, st, 11);
+        defer lp.deinit();
+        try testing.expectEqual(@as(usize, 2), wallOrder(lp, &buf));
     }
 }
 

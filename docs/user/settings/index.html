@@ -306,6 +306,10 @@ M84</code></pre>
 <p>The number of walls (loops) around the outline of each layer.</p>
 <p><strong><code>project.wall_thickness</code></strong> (number; per layer). Default: <code>0</code></p>
 <p>The thickness of the walls, in mm, as in Cura: the wall count is this thickness divided by the line width, rounded (at least 1). 0: use <code>wall_count</code>.</p>
+<p><strong><code>project.wall_order</code></strong> (one of: <code>inner_first</code>, <code>outer_first</code>; per layer). Default: <code>inner_first</code></p>
+<p>The order of the walls of each island. <code>inner_first</code>: the inner walls from the inside out, then the outer wall. The outer wall then lies against plastic, and an overhang prints better. <code>outer_first</code>: the outer wall first, then the inner walls from the outside in. The outer surface is then more exact (a better fit of holes and of parts that join), but an overhang can curl.</p>
+<p><strong><code>project.alternate_extra_wall</code></strong> (true or false; per layer). Default: <code>false</code></p>
+<p>One more wall on each odd layer (layers 1, 3, 5, and so on). The walls of two layers then interlock with the infill, and the part is stronger across its layers. Off by default.</p>
 <p><strong><code>project.thin_walls</code></strong> (true or false; per layer). Default: <code>false</code></p>
 <p>Print parts of the outline that are thinner than one line width (a thin fin, a sheet, a label): a loop inside each thin part, with a narrower line, so that its two sides fill the thickness. Without it, these parts print nothing. Off by default.</p>
 <p><strong><code>project.seam</code></strong> (one of: <code>hidden</code>, <code>sharpest</code>, <code>rear</code>, <code>nearest</code>, <code>random</code>; per layer). Default: <code>hidden</code></p>

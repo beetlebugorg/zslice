@@ -130,9 +130,9 @@ wall_0_wipe_dist | same | project.outer_wall_wipe
 wall_0_inset | missing | move the outer wall in
 wall_x_inset | missing | move the inner walls in
 optimize_wall_printing_order | derived | zslice prints the walls of an island in the nearest order
-inset_direction | missing | outer wall first, or inner walls first (zslice prints the inner walls first)
+inset_direction | same | project.wall_order
 initial_layer_inset_direction | missing | the wall order of the first layer
-alternate_extra_perimeter | missing | an extra wall on every other layer
+alternate_extra_perimeter | same | project.alternate_extra_wall
 min_wall_line_width | same | project.min_wall_line_width
 min_even_wall_line_width | derived | project.min_wall_line_width
 min_odd_wall_line_width | derived | project.min_wall_line_width

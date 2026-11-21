@@ -54,6 +54,8 @@ fan = {layer} < 3 ? 0 : {fan}
 
 | Setting | What it does |
 |---|---|
+| **Wall order** (`project.wall_order`) | `inner_first` (the default) prints the inner walls, then the outer wall. `outer_first` prints the outer wall first: holes and joints fit better, but an overhang can curl. |
+| **Alternate extra wall** (`project.alternate_extra_wall`) | One more wall on each odd layer. The walls interlock with the infill, so the part is stronger across its layers. |
 | **Gap fill** (`project.gap_fill`) | One line along the middle of each narrow area. On by default. |
 | **Retractless skin** (`project.skin_link_length`) | Prints the skin of each island in few paths: the nozzle goes along the walls to the next zigzag, up to 15 mm. 0 turns it off. |
 | **Bridges** (`project.bridges`) | Prints a skin over air across the air, in the direction of the shortest longest line, anchored 1.5 mm into the plastic around it. Slow, with the fan on. |
