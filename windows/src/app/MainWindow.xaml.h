@@ -51,6 +51,7 @@ namespace winrt::ZSlice::implementation
         winrt::fire_and_forget OnDrop(Microsoft::UI::Xaml::DragEventArgs e);
         void OnLayerChanged(double value);
         void OnKeyDown(Microsoft::UI::Xaml::Input::KeyRoutedEventArgs const &e);
+        void OnPanelDoubleTapped(Microsoft::UI::Xaml::Input::DoubleTappedRoutedEventArgs const &e);
 
         // Plates (MainWindow.Plates.cpp).
         void WirePlates();
@@ -92,6 +93,64 @@ namespace winrt::ZSlice::implementation
         void FillHistoryMenu();
         void AfterRestore(int bits);
 
+        // Tools and cards (MainWindow.Tools.cpp, MainWindow.Cards.cpp).
+        enum class Tool
+        {
+            Select,
+            Move,
+            Turn,
+            Support,
+            Grab,
+            Measure,
+            Paint,
+            Label,
+        };
+        void WireTools();
+        void SetTool(Tool next);
+        int64_t PartAt(double x, double y, double *bed_x, double *bed_y);
+        bool ToolPress(double x, double y, bool ctrl);
+        void ToolDrag(double x, double y, bool shift);
+        void ToolRelease();
+        void ToolClick(double x, double y, bool shift, bool ctrl);
+        void BeginMove(int64_t part, double bed_x, double bed_y);
+        void HandMove(double x, double y, bool alt, bool shift);
+        bool HandRelease();
+        void RunFall();
+        void FallTick();
+        void CheckFall();
+        void MeasureClick(double x, double y, bool shift);
+        void ShowMeasure();
+        void ClearMeasure();
+        void UpdateRings();
+        void SelectLine(int64_t path, int64_t segment);
+        void SelectPart(int64_t part);
+        void TogglePart(int64_t part);
+        void ClearSelection();
+        void ApplySelection();
+        void SaveLineAnchor();
+        void FindLineAnchor();
+        void StepLine(int direction, bool whole);
+        void StepLayer(int direction);
+        void PlateEdited();
+        bool OnToolKey(Windows::System::VirtualKey key, bool shift, bool ctrl);
+        void WireCards();
+#ifdef ZS_DEV_HOOKS
+        void StartDevHooks();
+        void RunDevStep(std::wstring const &step);
+        void LogDevState(std::wstring const &step);
+        bool dev_started = false;
+        size_t dev_next = 0;
+        std::vector<std::wstring> dev_steps;
+        Microsoft::UI::Dispatching::DispatcherQueueTimer dev_timer{ nullptr };
+#endif
+        void FillLineCard();
+        void FillPartCard();
+        void PlaceCard(Microsoft::UI::Xaml::FrameworkElement const &card, double const box[4]);
+        void PlaceLineCard();
+        void PlacePartCard();
+        void HideCards();
+        void MakeCardMovable(Microsoft::UI::Xaml::FrameworkElement const &card, Microsoft::UI::Xaml::FrameworkElement const &head, bool *moved);
+
         HWND hwnd = nullptr;
         Microsoft::UI::Dispatching::DispatcherQueue queue{ nullptr };
         Microsoft::UI::Dispatching::DispatcherQueueTimer retry_timer{ nullptr };
@@ -124,6 +183,45 @@ namespace winrt::ZSlice::implementation
         std::wstring settings_query;
         // True while the code fills an editor: its change event is no edit.
         bool filling_editor = false;
+
+        Tool tool = Tool::Select;
+        std::vector<Microsoft::UI::Xaml::Controls::Primitives::ToggleButton> tool_buttons;
+        // The selection: a line, or one or more parts.
+        int64_t selected_path = -1;
+        int64_t selected_segment = -1;
+        std::vector<int64_t> selected_parts;
+        bool line_anchored = false;
+        double anchor_x = 0, anchor_y = 0, anchor_z = 0;
+        int anchor_feature = 0;
+        double click_x = 0, click_y = 0;
+        bool line_card_moved = false;
+        bool part_card_moved = false;
+        std::vector<SettingEditor> line_editors;
+        // A drag of a tool.
+        bool tool_drag = false;
+        int64_t moving_part = -1;
+        double move_x0 = 0, move_y0 = 0, bed_x0 = 0, bed_y0 = 0, moved_x = 0, moved_y = 0;
+        std::vector<int64_t> move_group;
+        std::vector<double> move_group_xy;
+        int turn_axis = -1;
+        int64_t turn_part = -1;
+        double turn_want = 0, turn_sent = 0, turn_rotation = 0;
+        double turn_pivot[3] = {};
+        int tape_end = -1;
+        double measure[6] = {};
+        double measure_radius[2] = {};
+        int measure_shape[2] = {};
+        int measure_count = 0;
+        // The hand of the Grab tool, and the fall of a part.
+        Microsoft::UI::Dispatching::DispatcherQueueTimer fall_timer{ nullptr };
+        std::chrono::steady_clock::time_point fall_last{};
+        int64_t fall_part = -1;
+        bool falling = false;
+        bool hand = false;
+        bool hand_click = false;
+        bool hand_turning = false;
+        double hand_height = 0, hand_x = 0, hand_y = 0, hand_turn_x = 0, hand_turn_y = 0;
+        double hand_yaw = 0, hand_tilt = 0, hand_yaw_sent = 0, hand_tilt_sent = 0;
     };
 }
 

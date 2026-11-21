@@ -18,8 +18,7 @@ namespace winrt::ZSlice::implementation
     void App::OnLaunched(LaunchActivatedEventArgs const &)
     {
         // ZSLICE_LOG=path: a WinUI app has no console, so the shell and the
-        // core write their log lines to this file. The core writes through
-        // the Win32 handle, and the shell through the C stream.
+        // core write their log lines to this file, through the Win32 handle.
         wchar_t path[512];
         if (::GetEnvironmentVariableW(L"ZSLICE_LOG", path, ARRAYSIZE(path)) > 0)
         {
@@ -27,9 +26,6 @@ namespace winrt::ZSlice::implementation
                                      OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
             if (h != INVALID_HANDLE_VALUE)
                 ::SetStdHandle(STD_ERROR_HANDLE, h);
-            FILE *f = nullptr;
-            _wfreopen_s(&f, path, L"a", stderr);
-            setvbuf(stderr, nullptr, _IONBF, 0);
         }
         window = make<MainWindow>();
         window.Activate();
