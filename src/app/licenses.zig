@@ -25,6 +25,8 @@ pub const licenses = [_]License{
     .{ .name = "GNU General Public License 3.0 (the base of the LGPL-3.0)", .license = "GPL-3.0", .text = @embedFile("license_gpl") },
     .{ .name = "PrusaSlicer printer profiles (printer library), Copyright Prusa Research", .license = "AGPL-3.0", .text = @embedFile("license_zslice") },
     .{ .name = "OrcaSlicer printer profiles (printer library), Copyright the OrcaSlicer authors", .license = "AGPL-3.0", .text = @embedFile("license_zslice") },
+    // The Direct3D 12 declarations of the Windows build.
+    .{ .name = "charttable (Direct3D 12 declarations), Copyright (c) 2026 Jeremy Collins", .license = "MIT", .text = @embedFile("license_charttable") },
     // The font of the labels (src/fonts/Inter-Bold-Latin.ttf).
     .{ .name = "Inter (the font of the labels), Copyright (c) 2016 The Inter Project Authors", .license = "OFL-1.1", .text = @embedFile("license_ofl_inter") },
 };

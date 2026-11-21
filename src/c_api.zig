@@ -55,8 +55,8 @@ pub fn status(e: anyerror) c_int {
         error.NoModel => .no_model,
         error.NoResult => .no_result,
         error.OutOfRange => .out_of_range,
-        error.NoVulkan => .not_supported,
-        error.NoDevice, error.VulkanFailed, error.SurfaceFailed => .gpu_failed,
+        error.NoVulkan, error.NoD3D12 => .not_supported,
+        error.NoDevice, error.VulkanFailed, error.SurfaceFailed, error.D3D12Failed => .gpu_failed,
         else => .invalid_argument,
     };
     return @intFromEnum(s);

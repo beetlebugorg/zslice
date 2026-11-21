@@ -1484,7 +1484,9 @@ size_t zs_app_pick_layer(const zs_app *app, size_t layer, double x, double y);
 /* On Linux, the core draws the 3D view of a slice into a native surface
  * that the shell gives: a Wayland wl_surface or an X11 window. The core
  * loads Vulkan at run time, so the shell does not link it. Without Vulkan,
- * zs_view_new returns ZS_NOT_SUPPORTED. In wasm and on macOS, the core
+ * zs_view_new returns ZS_NOT_SUPPORTED. On Windows, the core draws with
+ * Direct3D 12 into a composition swapchain (ZS_SURFACE_PANEL). In wasm and
+ * on macOS, the core
  * does not draw: the view keeps the frame data (zs_view_web_frame), and
  * the shell draws it with WebGL2 or Metal. Call the view functions from
  * the UI thread. */
@@ -1494,7 +1496,9 @@ enum zs_surface_kind {
     ZS_SURFACE_XLIB = 2,    /* display: Display *, window: Window */
     ZS_SURFACE_WEB = 3,     /* wasm and macOS: no surface; the shell reads
                                the frame data (zs_view_web_frame) and draws it */
-    ZS_SURFACE_FRAME = 3    /* the same as ZS_SURFACE_WEB, for a native shell */
+    ZS_SURFACE_FRAME = 3,   /* the same as ZS_SURFACE_WEB, for a native shell */
+    ZS_SURFACE_PANEL = 4    /* Windows: the core makes a composition swapchain;
+                               attach it with zs_view_swapchain */
 };
 
 typedef struct zs_surface {
@@ -1521,6 +1525,9 @@ int zs_view_look_at_side(zs_view *view, float px, float py, float size);
 /* Makes a view for the surface, width_px x height_px pixels. */
 int zs_view_new(const zs_surface *surface, uint32_t width_px, uint32_t height_px, zs_view **out);
 void zs_view_free(zs_view *view);
+/* Windows: the IDXGISwapChain of a view on ZS_SURFACE_PANEL. The view keeps
+ * its reference. Give it to ISwapChainPanelNative::SetSwapChain. */
+int zs_view_swapchain(zs_view *view, void **out);
 /* The size in pixels: the logical size times the scale. */
 void zs_view_resize(zs_view *view, uint32_t width_px, uint32_t height_px);
 /* Reads the toolpaths of the last slice, and the bed size. Call it after

@@ -14,13 +14,15 @@ const App = zs.app.App;
 const GCode = @import("gcode.zig").GCode;
 
 /// The Vulkan renderer needs libc (it loads the Vulkan loader with
-/// dlopen). It is on Linux now. The wasm build and macOS have the frame
+/// dlopen). It is on Linux. Windows has the Direct3D 12 renderer
+/// (src/render/d3d12.zig). The wasm build and macOS have the frame
 /// backend (see src/render/web.zig): the view keeps the frame data, and
 /// the shell draws it (WebGL2 in JavaScript, Metal in Swift). Other
 /// targets get "not supported" from each call.
 const is_mac = builtin.os.tag == .macos and builtin.link_libc;
 pub const frame_backend = is_wasm or is_mac;
-pub const render_on = (builtin.os.tag == .linux and builtin.link_libc and !is_wasm) or frame_backend;
+const is_windows = builtin.os.tag == .windows and builtin.link_libc;
+pub const render_on = (builtin.os.tag == .linux and builtin.link_libc and !is_wasm) or is_windows or frame_backend;
 pub const view_mod = if (render_on) @import("../render/view.zig") else struct {
     pub const View = opaque {};
 };
@@ -40,12 +42,25 @@ export fn zs_view_new(surface: ?*const CSurface, width: u32, height: u32, out: ?
     const native: view_mod.Surface = if (frame_backend) switch (s.kind) {
         3 => .web,
         else => return @intFromEnum(Status.not_supported),
+    } else if (is_windows) switch (s.kind) {
+        4 => .panel,
+        else => return @intFromEnum(Status.not_supported),
     } else switch (s.kind) {
         1 => .{ .wayland = .{ .display = s.display orelse return @intFromEnum(Status.invalid_argument), .surface = s.surface orelse return @intFromEnum(Status.invalid_argument) } },
         2 => .{ .xlib = .{ .display = s.display orelse return @intFromEnum(Status.invalid_argument), .window = s.window } },
         else => return @intFromEnum(Status.not_supported),
     };
     o.* = View.create(native, width, height) catch |e| return status(e);
+    return ok;
+}
+
+/// The DXGI swapchain of a view on a ZS_SURFACE_PANEL (an IDXGISwapChain).
+/// The view keeps its reference. The shell attaches it to its panel.
+export fn zs_view_swapchain(view: ?*View, out: ?*?*anyopaque) c_int {
+    if (!is_windows) return @intFromEnum(Status.not_supported);
+    const v = view orelse return @intFromEnum(Status.invalid_argument);
+    const o = out orelse return @intFromEnum(Status.invalid_argument);
+    o.* = v.renderer.swapchainPtr() orelse return @intFromEnum(Status.not_supported);
     return ok;
 }
 
