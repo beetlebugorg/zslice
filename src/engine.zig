@@ -3962,6 +3962,96 @@ test "gcode: the travels between support islands lift and wipe with the Bambu St
     try testing.expectEqual(c.retractions, c.wipes);
 }
 
+test "gcode: a tree support travel to another island retracts and lifts, and one in its island does not" {
+    const gpa = testing.allocator;
+    var b: mesh_mod.Builder = .init(gpa);
+    // Two slabs on two columns, 30 mm apart: the trees under each slab
+    // are other islands.
+    try mesh_mod.shapes.addBox(&b, 4, 4, 0, 8, 8, 10);
+    try mesh_mod.shapes.addBox(&b, 0, 0, 10, 12, 12, 12);
+    try mesh_mod.shapes.addBox(&b, 46, 4, 0, 50, 8, 10);
+    try mesh_mod.shapes.addBox(&b, 42, 0, 10, 54, 12, 12);
+    var mesh = try b.finish();
+    defer mesh.deinit(gpa);
+    var s: Settings = .{};
+    s.engine.threads = 1;
+    s.project.support = .everywhere;
+    s.project.support_style = .tree;
+    @import("printers.zig").bambu("bambu-lab-x2d").?.travel.apply(&s.machine);
+    var out: std.Io.Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    _ = try slice(gpa, &mesh, s, &out.writer);
+    const t = try treeTravels(out.written());
+    // Each travel from one slab to the other (over 20 mm) retracts and
+    // lifts. Travels in one island (from a loop to its lines) do not.
+    try testing.expect(t.far > 0);
+    try testing.expectEqual(t.far, t.far_retracted);
+    try testing.expectEqual(t.far, t.far_lifted);
+    try testing.expect(t.near_free > 0);
+}
+
+/// The travels from one support line to the next in a G-code text: the
+/// ones over 20 mm, with a retraction and with a lift, and the ones with
+/// no retraction.
+fn treeTravels(text: []const u8) !struct { far: usize, far_retracted: usize, far_lifted: usize, near_free: usize } {
+    var far: usize = 0;
+    var far_r: usize = 0;
+    var far_l: usize = 0;
+    var near_free: usize = 0;
+    var support = false;
+    var from_support = false;
+    var x: f64 = 0;
+    var y: f64 = 0;
+    var moving = false;
+    var d: f64 = 0;
+    var retracted = false;
+    var lifted = false;
+    var it = std.mem.splitScalar(u8, text, '\n');
+    while (it.next()) |l| {
+        if (std.mem.startsWith(u8, l, ";TYPE:")) {
+            support = std.mem.startsWith(u8, l, ";TYPE:SUPPORT");
+            continue;
+        }
+        if (std.mem.startsWith(u8, l, "G1 E-")) retracted = true;
+        if (std.mem.startsWith(u8, l, "G0 Z") and std.mem.indexOfScalar(u8, l, 'F') == null and retracted and !moving) lifted = true;
+        if (!(std.mem.startsWith(u8, l, "G0 X") or std.mem.startsWith(u8, l, "G1 X"))) continue;
+        var words = std.mem.tokenizeScalar(u8, l, ' ');
+        var nx = x;
+        var ny = y;
+        var e: ?f64 = null;
+        while (words.next()) |w| {
+            if (w[0] == 'X') nx = try std.fmt.parseFloat(f64, w[1..]);
+            if (w[0] == 'Y') ny = try std.fmt.parseFloat(f64, w[1..]);
+            if (w[0] == 'E') e = try std.fmt.parseFloat(f64, w[1..]);
+        }
+        if (e) |v| {
+            if (v < 0) {
+                retracted = true;
+            } else {
+                // An extrusion ends the travel before it.
+                if (moving and from_support and support and d > 1e-3) {
+                    if (d > 20) {
+                        far += 1;
+                        if (retracted) far_r += 1;
+                        if (lifted) far_l += 1;
+                    } else if (!retracted) near_free += 1;
+                }
+                moving = false;
+                d = 0;
+                retracted = false;
+                lifted = false;
+                from_support = support;
+            }
+        } else {
+            moving = true;
+            d += std.math.hypot(nx - x, ny - y);
+        }
+        x = nx;
+        y = ny;
+    }
+    return .{ .far = far, .far_retracted = far_r, .far_lifted = far_l, .near_free = near_free };
+}
+
 /// The retractions after a support line, with their lifts and wipes.
 fn supportTravels(text: []const u8) struct { retractions: usize, lifts: usize, wipes: usize } {
     var r: usize = 0;

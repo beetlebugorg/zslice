@@ -68,6 +68,8 @@ The retraction of the travels is a printer setting too: `z_hop`, `z_hop_only_cro
 
 The wipe (`retract_wipe`) moves the nozzle on a small circle inside the part while the filament pulls back, before a travel that leaves the part. The circle stays clear of the outer wall by half a line width. With no room for a circle (a thin part, the support), the nozzle moves back along the line that it printed last. A travel that stays inside the part has no wipe.
 
+With tree support, a travel inside one branch has no retraction. A travel to another branch retracts, and lifts and wipes with the values of the printer, as in Bambu Studio.
+
 The print settings stay when you change the printer: the layer height, the walls, the infill, and the speed ratios.
 
 Each printer also keeps the filament that you last used with it. When you change to another printer, zslice saves the filament settings for the printer before. When you change back, its filament comes back, and the Filament menu shows it. A printer with no saved filament keeps the filament that you have now. In the Linux app, the roll that a printer reports still wins: its settings load at the next status of the printer.
