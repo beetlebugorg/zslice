@@ -74,6 +74,9 @@ export function plainName(name) {
 // leave the deck ("@other.host/", "//other.host/", a full address).
 export function deckAddress(base, path) {
   if (!base || typeof path !== "string" || path.startsWith("//") || (path !== "" && !/^\/[A-Za-z0-9._~/-]*$/.test(path))) return "";
+  // The path of a printer goes on the root of the deck: a base that is the
+  // address of a printer already gave ".../printers/x2d/printers/x2d".
+  if (path !== "") base = deckRoot(base);
   const url = base.replace(/\/+$/, "") + path;
   try {
     return new URL(url).origin === new URL(base).origin ? url : "";
@@ -126,10 +129,17 @@ function addresses(printer) {
     }
   };
   const last = worked.get(printer.name);
-  if (last && (last === printer.https || last === printer.url)) add(last);
-  add(printer.https);
-  add(printer.url);
+  if (last && (fixDoubled(last) === fixDoubled(printer.https) || fixDoubled(last) === fixDoubled(printer.url))) add(fixDoubled(last));
+  add(fixDoubled(printer.https));
+  add(fixDoubled(printer.url));
   return out;
+}
+
+// An address saved with the path of a printer twice (".../printers/x2d/
+// printers/x2d/", from a deck added again at the address of a printer)
+// has it once.
+export function fixDoubled(u) {
+  return u ? u.replace(/(\/printers\/[^/]+)(?:\1)+(?=\/|$)/g, "$1") : u;
 }
 
 // The address that answered last, for each printer, in this page.
@@ -380,7 +390,7 @@ export async function camera(printer) {
       const r = await request(printer, path, { headers: headers(printer) });
       if (r.status === 401 || r.status === 403) return { ok: false, message: "The printer refused the API key." };
       if (!r.ok) continue;
-      base = worked.get(printer.name) ?? printer.url;
+      base = fixDoubled(worked.get(printer.name) ?? printer.url);
       replies.push([path, await r.text()]);
     }
   } catch (e) {
