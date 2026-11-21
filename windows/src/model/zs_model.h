@@ -79,6 +79,8 @@ namespace zs
         bool TakeSlicePending();
         // During a drag the changes wait. The release slices once.
         void Hold(bool on);
+        // After zs_session_read: the plates are new, and each slices again.
+        void AfterSessionRead();
 
         // The undo list of the active plate (see zs_app_history_commit).
         // The undo calls return the bits of enum zs_history_restored.
@@ -104,6 +106,10 @@ namespace zs
 
     // One line for the log: stderr, or the file of ZSLICE_LOG.
     void Log(char const *format, ...);
+
+    // The folder of the saved state: ZSLICE_STATE_DIR, else %APPDATA%\zslice.
+    // It exists after the call.
+    std::wstring StateDir();
 
     std::string ToUtf8(std::wstring const &text);
     std::wstring ToWide(std::string const &text);

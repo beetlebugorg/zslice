@@ -48,6 +48,24 @@ namespace zs
         return out;
     }
 
+    std::wstring StateDir()
+    {
+        wchar_t dir[MAX_PATH];
+        DWORD n = ::GetEnvironmentVariableW(L"ZSLICE_STATE_DIR", dir, MAX_PATH);
+        std::wstring path;
+        if (n > 0 && n < MAX_PATH)
+        {
+            path = dir;
+        }
+        else
+        {
+            n = ::GetEnvironmentVariableW(L"APPDATA", dir, MAX_PATH);
+            path = std::wstring(dir, n < MAX_PATH ? n : 0) + L"\zslice";
+        }
+        ::CreateDirectoryW(path.c_str(), nullptr);
+        return path;
+    }
+
     Model::Model(std::function<void(Event const &)> post) : post_(std::move(post)) {}
 
     Model::~Model()
@@ -81,6 +99,13 @@ namespace zs
         // The first step of the undo list of a new plate.
         if (zs_app_history_count(app) == 0)
             HistoryCommit();
+    }
+
+    void Model::AfterSessionRead()
+    {
+        SyncActive();
+        for (size_t i = 0; i < zs_set_count(set_); i++)
+            zs_set_changed(set_, i);
     }
 
     bool Model::AddPlate()
