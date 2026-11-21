@@ -460,7 +460,7 @@ struct FilamentMenu: View {
                             .overlay(Circle().strokeBorder(Color(nsColor: .windowBackgroundColor), lineWidth: 1))
                     }
                 }
-                Text(list.count > 1 ? "\(list.count) filaments" : (now.isEmpty ? "Filament" : now))
+                Text(!list.isEmpty && list.allSatisfy(\.fromPrinter) ? "From the printer" : list.count > 1 ? "\(list.count) filaments" : (now.isEmpty ? "Filament" : now))
                 Image(systemName: "chevron.down").font(.system(size: 9, weight: .semibold)).foregroundStyle(.secondary)
             }
             .fixedSize()

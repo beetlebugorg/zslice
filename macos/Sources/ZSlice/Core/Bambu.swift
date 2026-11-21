@@ -354,12 +354,19 @@ enum BambuLink {
     /// Starts the print of a file on the printer, with the MD5 of its
     /// G-code and bed leveling. Call it only after the user said that the
     /// plate is clear.
-    static func start(_ p: Printer, file: String, title: String, gcode: Data, pinned: inout String?) async throws {
+    /// trays: the tray of each filament of the plate (zs_app_ams_mapping);
+    /// with a tray of the AMS or an external spool, the start has the
+    /// ams_mapping and ams_mapping2 of Bambu Studio (flag 2).
+    static func start(_ p: Printer, file: String, title: String, gcode: Data, trays: [Int32] = [], pinned: inout String?) async throws {
         var md5 = [CChar](repeating: 0, count: 33)
         _ = gcode.withUnsafeBytes { zs_bambu_md5($0.bindMemory(to: UInt8.self).baseAddress, $0.count, &md5) }
         let flags: Int32 = 1 | (ftpURL(p) ? 8 : 0)
         let serial = p.serial
-        let start = md5.withUnsafeBufferPointer { m in packet({ zs_bambu_start_packet(serial, file, title, m.baseAddress, flags, $0, $1) }) }
+        let start = md5.withUnsafeBufferPointer { m in
+            trays.contains(where: { $0 >= 0 })
+                ? packet({ out, len in trays.withUnsafeBufferPointer { zs_bambu_start_packet_trays(serial, file, title, m.baseAddress, flags | 2, $0.baseAddress, $0.count, out, len) } })
+                : packet({ zs_bambu_start_packet(serial, file, title, m.baseAddress, flags, $0, $1) })
+        }
         guard let start else { throw BambuError(message: "The start message did not build.") }
         let s = try await mqtt(p, pinned: &pinned)
         defer { s.close() }
