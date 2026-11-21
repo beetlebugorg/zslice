@@ -74,6 +74,10 @@ typedef struct {
 typedef struct {
     ZgModel *model;
     GtkWidget *card, *head, *scope_label, *entry, *list, *scroll;
+    /* The entry in an overlay with a watch of its width (see
+     * fit_placeholder), and the full text of the placeholder. */
+    GtkWidget *entry_box;
+    const char *placeholder;
     /* The header: the field (the icon, the entry, ×, and the undock
      * button), and the Search button of the undocked search. */
     GtkWidget *header, *field, *field_icon, *field_close, *open_button;
@@ -634,10 +638,10 @@ static void move_child(GtkWidget *w, GtkWidget *to, GtkWidget *after) {
 static void move_entry(Search *s, gboolean to_card) {
     if (to_card) {
         move_child(s->scope_label, s->head, s->grip);
-        move_child(s->entry, s->head, s->scope_label);
+        move_child(s->entry_box, s->head, s->scope_label);
     } else {
         move_child(s->scope_label, s->field, s->field_icon);
-        move_child(s->entry, s->field, s->scope_label);
+        move_child(s->entry_box, s->field, s->scope_label);
     }
 }
 
@@ -703,6 +707,30 @@ static GtkWidget *flat_icon_button(const char *icon, const char *tip) {
     return b;
 }
 
+/* The placeholder: the full text if it fits in the entry, else
+ * "Search". The entry gets narrow in a narrow window, and GTK then cuts
+ * the text with "…". */
+static void fit_placeholder(Search *s, int width) {
+    if (width <= 0) width = gtk_widget_get_width(s->entry_box);
+    PangoLayout *layout = gtk_widget_create_pango_layout(s->entry, s->placeholder);
+    int tw = 0;
+    pango_layout_get_pixel_size(layout, &tw, NULL);
+    g_object_unref(layout);
+    /* The entry has a padding of about 9 px at each side. */
+    const char *text = width <= 0 || tw + 20 <= width ? s->placeholder : "Search";
+    const char *now = gtk_entry_get_placeholder_text(GTK_ENTRY(s->entry));
+    if (!now || strcmp(now, text) != 0) gtk_entry_set_placeholder_text(GTK_ENTRY(s->entry), text);
+}
+
+static void set_placeholder(Search *s, const char *text) {
+    s->placeholder = text;
+    fit_placeholder(s, 0);
+}
+
+static void on_entry_resize(GtkDrawingArea *area, int width, int height, gpointer data) {
+    fit_placeholder(data, width);
+}
+
 /* The header part: the field, and the Search button of the undocked
  * search. */
 static void header_new(Search *s) {
@@ -713,7 +741,7 @@ static void header_new(Search *s) {
     s->field_icon = gtk_image_new_from_icon_name("system-search-symbolic");
     gtk_box_append(GTK_BOX(s->field), s->field_icon);
     gtk_box_append(GTK_BOX(s->field), s->scope_label);
-    gtk_box_append(GTK_BOX(s->field), s->entry);
+    gtk_box_append(GTK_BOX(s->field), s->entry_box);
     s->field_close = flat_icon_button("window-close-symbolic", "Close the search (Esc)");
     gtk_widget_set_visible(s->field_close, FALSE);
     g_signal_connect(s->field_close, "clicked", G_CALLBACK(on_close_clicked), s);
@@ -761,8 +789,15 @@ GtkWidget *zg_search_new(ZgModel *model) {
     gtk_label_set_wrap_mode(GTK_LABEL(s->scope_label), PANGO_WRAP_WORD_CHAR);
     gtk_widget_set_visible(s->scope_label, FALSE);
     s->entry = gtk_entry_new();
-    gtk_entry_set_placeholder_text(GTK_ENTRY(s->entry), "Search settings and actions");
     gtk_widget_set_hexpand(s->entry, TRUE);
+    s->entry_box = gtk_overlay_new();
+    gtk_widget_set_hexpand(s->entry_box, TRUE);
+    gtk_overlay_set_child(GTK_OVERLAY(s->entry_box), s->entry);
+    GtkWidget *watch = gtk_drawing_area_new();
+    gtk_widget_set_can_target(watch, FALSE);
+    g_signal_connect(watch, "resize", G_CALLBACK(on_entry_resize), s);
+    gtk_overlay_add_overlay(GTK_OVERLAY(s->entry_box), watch);
+    set_placeholder(s, "Search settings and actions");
     /* A narrow window: the entry gets narrower before the menus of the
      * header lose room. */
     gtk_editable_set_width_chars(GTK_EDITABLE(s->entry), 6);
@@ -843,9 +878,9 @@ static void show_search(Search *s, const char *text, gint64 part, gboolean focus
                           : g_strdup_printf("Part %d", (int)part + 1);
         gtk_label_set_text(GTK_LABEL(s->scope_label), label);
         g_free(label);
-        gtk_entry_set_placeholder_text(GTK_ENTRY(s->entry), "Search the settings of this part");
+        set_placeholder(s, "Search the settings of this part");
     } else {
-        gtk_entry_set_placeholder_text(GTK_ENTRY(s->entry), "Search settings and actions");
+        set_placeholder(s, "Search settings and actions");
     }
     gtk_widget_set_visible(s->scope_label, part >= 0);
     if (text) {
@@ -891,7 +926,7 @@ void zg_search_close(GtkWidget *search) {
     move_entry(s, FALSE);
     s->part = -1;
     gtk_widget_set_visible(s->scope_label, FALSE);
-    gtk_entry_set_placeholder_text(GTK_ENTRY(s->entry), "Search settings and actions");
+    set_placeholder(s, "Search settings and actions");
     gtk_widget_set_visible(s->field_close, FALSE);
     gtk_widget_remove_css_class(s->field, "zg-open");
     /* The view shows the whole print again (or the focus of the panel). */
