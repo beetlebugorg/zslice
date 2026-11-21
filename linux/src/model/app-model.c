@@ -18,7 +18,10 @@
  * from the defaults are in <config>/zslice/{machine,filament,project}.toml
  * (zs_app_state_write). The model loads them at the start, and saves a
  * group 0.5 s after a change of one of its settings, and at the end.
- * ZSLICE_STATE_DIR moves the folder (for tests).
+ * ZSLICE_STATE_DIR moves the folder (for tests). The machine settings are
+ * in the profile of the current printer (printers/<id>.toml). The
+ * filament settings are also in printers/<id>.filament.toml: a switch to
+ * a printer loads the filament that it was last used with.
  *
  * Project mode: a plate of a printdeck.yml project is on the view
  * (zg_model_project_load). Its machine settings come from the Cura stack
@@ -196,6 +199,16 @@ static char *state_path(int group) {
     return path;
 }
 
+/* The file of the filament settings that a printer was last used with:
+ * printers/<id>.filament.toml, next to its profile. */
+static char *printer_filament_path(const ZgPrinter *p) {
+    char *profile = zg_printer_profile_path(p);
+    if (g_str_has_suffix(profile, ".toml")) profile[strlen(profile) - 5] = '\0';
+    char *path = g_strconcat(profile, ".filament.toml", NULL);
+    g_free(profile);
+    return path;
+}
+
 /* The file of the filament settings of a roll, or NULL. */
 static char *roll_path(const char *roll) {
     if (!roll) return NULL;
@@ -217,7 +230,8 @@ static void save_state(ZgModel *self) {
         if (zs_app_state_write(self->core, g, NULL, 0, &len) != ZS_OK) continue;
         char *text = g_malloc(len + 1);
         zs_app_state_write(self->core, g, text, len + 1, NULL);
-        /* The filament settings: also for the roll in the printer. */
+        /* The filament settings: also for the roll in the printer, and
+         * for the printer (it gets them back after a switch to it). */
         char *roll_file = g == ZS_GROUP_FILAMENT && !self->project ? roll_path(self->roll) : NULL;
         if (roll_file) {
             char *rdir = g_path_get_dirname(roll_file);
@@ -225,6 +239,14 @@ static void save_state(ZgModel *self) {
                 g_warning("zslice: the settings of the roll were not saved to %s", roll_file);
             g_free(rdir);
             g_free(roll_file);
+        }
+        if (g == ZS_GROUP_FILAMENT && !self->project) {
+            char *pf = printer_filament_path(zg_printers_current());
+            char *pdir = g_path_get_dirname(pf);
+            if (g_mkdir_with_parents(pdir, 0700) != 0 || !g_file_set_contents(pf, text, (gssize)len, NULL))
+                g_warning("zslice: the filament of the printer was not saved to %s", pf);
+            g_free(pdir);
+            g_free(pf);
         }
         char *path = state_path(g);
         char *dir = g_path_get_dirname(path);
@@ -797,14 +819,37 @@ void zg_model_use_printer(ZgModel *self, const char *id) {
     ZgPrinter *cur = zg_printers_current();
     if (cur && strcmp(cur->id, id) == 0 && !self->project) return;
     /* Save the machine settings of the printer before (save_state skips
-     * them in project mode). */
+     * them in project mode), and the filament that it used. */
     self->dirty |= 1u << ZS_GROUP_MACHINE;
+    if (!self->project) self->dirty |= 1u << ZS_GROUP_FILAMENT;
     save_state(self);
     project_off(self);
     zg_printers_set_current(id);
     zs_app_group_reset(self->core, ZS_GROUP_MACHINE);
     load_group(self, ZS_GROUP_MACHINE);
     zg_model_announce(self, "machine.");
+    /* The roll was in the printer before. The next poll of this printer
+     * names its own roll, and the settings of that roll win. */
+    g_clear_pointer(&self->roll, g_free);
+    /* The filament that this printer was last used with. A printer with
+     * no saved filament keeps the filament now. */
+    char *pf = printer_filament_path(zg_printers_current());
+    char *text = NULL;
+    gsize len = 0;
+    if (g_file_get_contents(pf, &text, &len, NULL)) {
+        char *before = zg_model_group_text(self, ZS_GROUP_FILAMENT);
+        zs_app_group_reset(self->core, ZS_GROUP_FILAMENT);
+        char message[256] = "";
+        if (zs_app_profile_apply(self->core, ZS_GROUP_FILAMENT, text, len, message, sizeof message) != ZS_OK) {
+            g_warning("zslice: %s was not loaded (%s)", pf, message);
+            zs_app_profile_apply(self->core, ZS_GROUP_FILAMENT, before, strlen(before), NULL, 0);
+        }
+        g_free(before);
+        zg_model_announce(self, "filament.");
+        zg_model_save_soon(self, ZS_GROUP_FILAMENT);
+    }
+    g_free(text);
+    g_free(pf);
     g_signal_emit(self, signals[SIGNAL_PRINTER_CHANGED], 0);
     slice_soon(self);
 }
@@ -1496,6 +1541,35 @@ gboolean zg_model_can_redo(ZgModel *self) {
     return zs_app_history_current(self->core) + 1 < zs_app_history_count(self->core) && self->undo_timer == 0;
 }
 
+/* For tests: ZSLICE_USE_PRINTERS=id,id,... switches to each printer in
+ * turn, 4 s apart, and logs the filament and the outer wall acceleration
+ * after each switch. */
+typedef struct {
+    GWeakRef model;
+    char **ids;
+    int next;
+} SwitchTest;
+
+static gboolean switch_test_step(gpointer data) {
+    SwitchTest *t = data;
+    ZgModel *self = g_weak_ref_get(&t->model);
+    if (!self || !t->ids[t->next]) {
+        if (self) g_object_unref(self);
+        g_weak_ref_clear(&t->model);
+        g_strfreev(t->ids);
+        g_free(t);
+        return G_SOURCE_REMOVE;
+    }
+    zg_model_use_printer(self, t->ids[t->next++]);
+    char *fil = zg_model_get(self, "filament.name");
+    char *acc = zg_model_get(self, "machine.outer_wall_accel");
+    g_message("switch test: printer %s, filament %s, outer_wall_accel %s", zg_printers_current()->name, fil, acc);
+    g_free(fil);
+    g_free(acc);
+    g_object_unref(self);
+    return G_SOURCE_CONTINUE;
+}
+
 static void zg_model_init(ZgModel *self) {
     self->selected = -1;
     self->segment = -1;
@@ -1568,6 +1642,13 @@ static void zg_model_init(ZgModel *self) {
         self->dirty |= (1u << ZS_GROUP_MACHINE) | (1u << ZS_GROUP_PROJECT);
         save_state(self);
         if (global_moved) save_global(self);
+    }
+    const char *switches = g_getenv("ZSLICE_USE_PRINTERS");
+    if (switches) {
+        SwitchTest *t = g_new0(SwitchTest, 1);
+        g_weak_ref_init(&t->model, self);
+        t->ids = g_strsplit(switches, ",", -1);
+        g_timeout_add_seconds(4, switch_test_step, t);
     }
     /* The start of the undo list: the state after the start. */
     zs_app_history_commit(self->core, now_ms());

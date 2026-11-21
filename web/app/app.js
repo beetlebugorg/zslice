@@ -1025,14 +1025,36 @@ function updateMenus() {
 }
 
 async function loadProfile(group, name, text) {
+  // A switch to another printer: the printer before keeps the filament
+  // that it used (store.printers[name].filament), for a switch back. A
+  // plate of a project has the filament of the project.
+  const before = group === 0 && store.printer !== name && !projectActive ? store.printers?.[store.printer] : null;
+  if (before && store.saved?.filament !== undefined) {
+    before.filament = store.saved.filament;
+    before.filamentName = store.filament ?? "";
+  }
   const r = await client.call("profile", { group, text });
   if (r.error) {
     toast(`The profile ${name} did not load: ${r.error}`);
     return;
   }
   if (group === 0) {
+    const switched = store.printer !== name;
     store.printer = name;
     projectActive = false;
+    // The filament that this printer was last used with. A printer with
+    // no saved filament keeps the filament now.
+    const mine = switched ? store.printers?.[name] : null;
+    if (mine?.filament !== undefined) {
+      const f = await client.call("profile", { group: 1, text: mine.filament });
+      if (f.error) console.warn(`zslice: the filament of ${name} did not load: ${f.error}`);
+      else {
+        store.filament = mine.filamentName || store.filament;
+        saveStore();
+        applySettings(f);
+        return;
+      }
+    }
   }
   if (group === 1) store.filament = name;
   saveStore();

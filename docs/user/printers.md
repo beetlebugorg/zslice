@@ -66,6 +66,8 @@ Each printer keeps its own printer settings: the bed, the nozzle, the speed limi
 
 The print settings stay when you change the printer: the layer height, the walls, the infill, and the speed ratios.
 
+Each printer also keeps the filament that you last used with it. When you change to another printer, zslice saves the filament settings for the printer before. When you change back, its filament comes back, and the Filament menu shows it. A printer with no saved filament keeps the filament that you have now. In the Linux app, the roll that a printer reports still wins: its settings load at the next status of the printer.
+
 Before this version, the accelerations were print settings. At the first start of this version, zslice moves your saved values to the printer that you use then. Old projects and sessions load too: their accelerations go to the printer of the plate.
 
 ## Print

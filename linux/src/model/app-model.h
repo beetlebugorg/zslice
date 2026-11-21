@@ -232,8 +232,9 @@ void zg_model_profile_remove(ZgModel *self, double z_min, double z_max);
  * ("open-profile"). */
 void zg_model_open_profile(ZgModel *self, double z_min, double z_max);
 
-/* Makes printer `id` the current printer: saves the machine settings of
- * the printer before, and loads the machine profile of the new one.
+/* Makes printer `id` the current printer: saves the machine settings and
+ * the filament of the printer before, and loads the machine profile of the
+ * new one and the filament that it was last used with (if it has one).
  * "printer-changed" follows. */
 void zg_model_use_printer(ZgModel *self, const char *id);
 
