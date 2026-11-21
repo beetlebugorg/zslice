@@ -110,6 +110,9 @@ struct FilamentList: View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 0) {
                 Text(list.count > 1 ? "\(list.count) filaments" : "Filament").font(.callout.weight(.medium))
+                if !list.isEmpty, list.allSatisfy(\.fromPrinter) {
+                    Text(" · from the printer").font(.callout).foregroundStyle(.secondary)
+                }
                 if let st, st.changes > 0 {
                     Text(" · \(st.changes) \(st.changes == 1 ? "change" : "changes")" + (st.flushG > 0.05 ? String(format: " · flush %.1f g", st.flushG) : ""))
                         .font(.callout).foregroundStyle(.secondary)
@@ -123,6 +126,18 @@ struct FilamentList: View {
                         .labelsHidden()
                         .help("The color of filament \(f.index + 1)")
                     Text("\(f.index + 1)").font(.callout.monospacedDigit()).foregroundStyle(.secondary).frame(width: 14)
+                    // The holder of its spool in the printer ("A1"), or a mark
+                    // for a filament set by hand.
+                    if f.fromPrinter, !f.slot.isEmpty {
+                        Text(f.slot)
+                            .font(.caption.monospacedDigit().weight(.medium))
+                            .padding(.horizontal, 4)
+                            .background(Color.secondary.opacity(0.15), in: RoundedRectangle(cornerRadius: 3))
+                            .help("From the printer: the spool in \(f.slot)")
+                    } else if f.hand {
+                        Image(systemName: "hand.point.up.left").font(.caption).foregroundStyle(.secondary)
+                            .help("You set this filament. It stays when the printer has other spools.")
+                    }
                     Picker("", selection: Binding(get: { f.material.isEmpty ? "PLA" : f.material },
                                                   set: { model.setFilament(f.index, "filament.material", $0) })) {
                         let kinds = SliceModel.filamentKinds

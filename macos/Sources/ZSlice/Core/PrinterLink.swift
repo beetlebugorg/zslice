@@ -372,12 +372,12 @@ enum PrinterLink {
     /// there is none to read.
     /// `nozzles`: the codes of the nozzles of a Bambu Lab printer ("HS01"),
     /// if the deck tells them.
-    @MainActor static func loadedFilaments(_ p: Printer) async -> (list: [LoadedFilament]?, nozzles: [String], why: String) {
-        guard p.kind == .printdeck else { return (nil, [], "Only a printdeck printer tells its filaments.") }
+    @MainActor static func loadedFilaments(_ p: Printer) async -> (list: [LoadedFilament]?, nozzles: [String], why: String, json: Data?) {
+        guard p.kind == .printdeck else { return (nil, [], "Only a printdeck printer tells its filaments.", nil) }
         do {
             let (d, r) = try await request(p, "/api/plugin/printdeck")
-            if r.statusCode == 401 || r.statusCode == 403 { return (nil, [], "The deck refused the key.") }
-            guard (200 ..< 300).contains(r.statusCode) else { return (nil, [], "The deck answered \(r.statusCode).") }
+            if r.statusCode == 401 || r.statusCode == 403 { return (nil, [], "The deck refused the key.", nil) }
+            guard (200 ..< 300).contains(r.statusCode) else { return (nil, [], "The deck answered \(r.statusCode).", nil) }
             let j = (try? JSONSerialization.jsonObject(with: d)) as? [String: Any]
             let nozzles = (j?["nozzles"] as? [[String: Any]] ?? []).compactMap { $0["type"] as? String }
             let list = (j?["filaments"] as? [[String: Any]] ?? []).compactMap { f -> LoadedFilament? in
@@ -385,10 +385,10 @@ enum PrinterLink {
                 return LoadedFilament(slot: f["slot"] as? String ?? "", material: m, color: f["color"] as? String ?? "",
                                       nozzle: f["nozzle"] as? String ?? "")
             }
-            if list.isEmpty { return (nil, nozzles, "The printer tells no loaded filaments. Update the deck, or load a spool.") }
-            return (list, nozzles, "")
+            if list.isEmpty { return (nil, nozzles, "The printer tells no loaded filaments. Update the deck, or load a spool.", d) }
+            return (list, nozzles, "", d)
         } catch {
-            return (nil, [], explain(error))
+            return (nil, [], explain(error), nil)
         }
     }
 
@@ -584,6 +584,11 @@ extension PrinterLink {
     @MainActor static func status(_ p: Printer) async -> PrinterStatus? {
         guard let s = await statusObject(p) else { return nil }
         defer { zs_printer_status_free(s) }
+        return status(of: s)
+    }
+
+    /// The status in a status object of the core.
+    @MainActor static func status(of s: OpaquePointer) -> PrinterStatus? {
         var info = zs_printer_info()
         guard zs_printer_status_get(s, &info) == 0 else { return nil }
         var st = PrinterStatus(state: coreText(info.state), job: coreText(info.job), progress: info.progress, timeLeft: info.time_left,
