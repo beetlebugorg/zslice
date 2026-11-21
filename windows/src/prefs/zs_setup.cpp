@@ -206,7 +206,7 @@ namespace zs
         return true;
     }
 
-    bool PrinterSetup::AddPrinter(NewPrinter const &in, bool welcome, std::string &id, std::string &message)
+    bool PrinterSetup::AddNewPrinter(NewPrinter const &in, bool welcome, std::string &id, std::string &message)
     {
         PrinterStore &store = Printers();
         std::string name = in.name.empty() ? "My printer" : in.name;

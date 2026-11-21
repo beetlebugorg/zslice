@@ -310,6 +310,18 @@ namespace winrt::ZSlice::implementation
         // The press that starts a tool: Shift, and the left button.
         bool press_shift = false;
         bool press_left = true;
+    public:
+        // Printers, send, and export (MainWindow.Printers.h).
+        struct PrintersUi;
+
+    private:
+        void WirePrinters();
+        void ClosePrinters();
+        void PrintersOnSliced();
+        void PrintersOnFailed();
+        void PrintersNoteChange();
+        void PrintersOnPlate();
+        std::shared_ptr<PrintersUi> printers;
 
         HWND hwnd = nullptr;
         Microsoft::UI::Dispatching::DispatcherQueue queue{ nullptr };

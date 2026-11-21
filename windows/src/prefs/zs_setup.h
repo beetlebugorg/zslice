@@ -48,7 +48,7 @@ namespace zs
         bool UsePrinter(std::string const &id, std::string &message);
         // Adds a printer from the picker, or on a first start makes the
         // default printer this one. It becomes the current printer.
-        bool AddPrinter(NewPrinter const &printer, bool welcome, std::string &id, std::string &message);
+        bool AddNewPrinter(NewPrinter const &printer, bool welcome, std::string &id, std::string &message);
 
         // A quality: a profile of the user, else the built-in one. The
         // changes of this print stay on top when keep_edits is true.

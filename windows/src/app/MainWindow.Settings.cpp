@@ -562,6 +562,7 @@ namespace winrt::ZSlice::implementation
         history_timer.Stop();
         history_timer.Start();
         RefreshHistoryButtons();
+        PrintersNoteChange();
     }
 
     void MainWindow::RefreshHistoryButtons()
