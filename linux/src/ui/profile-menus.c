@@ -360,6 +360,119 @@ static void on_save(GSimpleAction *a, GVariant *v, gpointer data) {
     save_as(data, FALSE);
 }
 
+/* The report of an import (zs_app_profile_import_report) in words: the
+ * values that zslice set, the values that went into the limits of their
+ * setting, and the keys with no zslice setting. */
+static char *report_text(const char *report, char **title) {
+    GString *set = g_string_new(NULL), *clamp = g_string_new(NULL), *unused = g_string_new(NULL);
+    guint n_set = 0, n_clamp = 0, n_unused = 0;
+    *title = g_strdup("Profile");
+    char **lines = g_strsplit(report, "\n", -1);
+    for (char **l = lines; *l; l++) {
+        char **f = g_strsplit(*l, "\t", -1);
+        guint n = g_strv_length(f);
+        if (n >= 2 && strcmp(f[0], "format") == 0) {
+            g_free(*title);
+            *title = g_strdup(f[1]);
+        } else if (n >= 5 && strcmp(f[0], "set") == 0) {
+            g_string_append_printf(set, "%s = %s\t→ %s = %s\n", f[1], f[2], f[3], f[4]);
+            n_set++;
+        } else if (n >= 6 && strcmp(f[0], "near") == 0) {
+            g_string_append_printf(set, "%s = %s\t→ %s = %s (%s)\n", f[1], f[2], f[3], f[4], f[5]);
+            n_set++;
+        } else if (n >= 6 && strcmp(f[0], "clamp") == 0) {
+            g_string_append_printf(clamp, "%s = %s\t→ %s = %s (wanted %s)\n", f[1], f[2], f[3], f[4], f[5]);
+            n_clamp++;
+        } else if (n >= 4 && strcmp(f[0], "unused") == 0) {
+            g_string_append_printf(unused, "%s = %s\t%s\n", f[1], f[2], f[3]);
+            n_unused++;
+        }
+        g_strfreev(f);
+    }
+    g_strfreev(lines);
+    GString *out = g_string_new(NULL);
+    if (n_set) g_string_append_printf(out, "Set (%u)\n%s\n", n_set, set->str);
+    if (n_clamp) g_string_append_printf(out, "Clamped to the limits of the setting (%u)\n%s\n", n_clamp, clamp->str);
+    if (n_unused) g_string_append_printf(out, "Not imported (%u)\n%s", n_unused, unused->str);
+    g_string_free(set, TRUE);
+    g_string_free(clamp, TRUE);
+    g_string_free(unused, TRUE);
+    return g_string_free(out, FALSE);
+}
+
+static void show_report(GtkWidget *parent, const char *file, const char *report) {
+    char *format = NULL;
+    char *text = report_text(report, &format);
+    GtkWidget *win = gtk_window_new();
+    char *title = g_strdup_printf("%s: %s", format, file);
+    gtk_window_set_title(GTK_WINDOW(win), title);
+    GtkRoot *root = gtk_widget_get_root(parent);
+    if (GTK_IS_WINDOW(root)) gtk_window_set_transient_for(GTK_WINDOW(win), GTK_WINDOW(root));
+    gtk_window_set_modal(GTK_WINDOW(win), TRUE);
+    gtk_window_set_default_size(GTK_WINDOW(win), 760, 520);
+    GtkWidget *view = gtk_text_view_new();
+    gtk_text_view_set_editable(GTK_TEXT_VIEW(view), FALSE);
+    gtk_text_view_set_monospace(GTK_TEXT_VIEW(view), FALSE);
+    gtk_text_view_set_wrap_mode(GTK_TEXT_VIEW(view), GTK_WRAP_WORD_CHAR);
+    gtk_text_view_set_left_margin(GTK_TEXT_VIEW(view), 12);
+    gtk_text_view_set_top_margin(GTK_TEXT_VIEW(view), 12);
+    gtk_text_buffer_set_text(gtk_text_view_get_buffer(GTK_TEXT_VIEW(view)), text, -1);
+    GtkWidget *scroll = gtk_scrolled_window_new();
+    gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(scroll), view);
+    gtk_window_set_child(GTK_WINDOW(win), scroll);
+    gtk_window_present(GTK_WINDOW(win));
+    g_free(title);
+    g_free(text);
+    g_free(format);
+}
+
+static void on_import_chosen(GObject *source, GAsyncResult *res, gpointer data) {
+    Menu *m = data;
+    GFile *file = gtk_file_dialog_open_finish(GTK_FILE_DIALOG(source), res, NULL);
+    if (!file) return;
+    char *bytes = NULL;
+    gsize len = 0;
+    GError *error = NULL;
+    char *name = g_file_get_basename(file);
+    if (g_file_load_contents(file, NULL, &bytes, &len, NULL, &error)) {
+        char *report = zg_model_import_profile(m->model, name, (const guint8 *)bytes, len, &error);
+        if (report) {
+            show_report(m->button, name, report);
+            g_free(report);
+        }
+    }
+    if (error) {
+        GtkAlertDialog *alert = gtk_alert_dialog_new("%s", error->message);
+        GtkRoot *root = gtk_widget_get_root(m->button);
+        gtk_alert_dialog_show(alert, GTK_IS_WINDOW(root) ? GTK_WINDOW(root) : NULL);
+        g_object_unref(alert);
+        g_error_free(error);
+    }
+    g_free(name);
+    g_free(bytes);
+    g_object_unref(file);
+}
+
+/* "Import a profile…": a profile of PrusaSlicer, OrcaSlicer, Bambu
+ * Studio, or Cura. Its values become changes of the settings now. */
+static void on_import(GSimpleAction *a, GVariant *v, gpointer data) {
+    Menu *m = data;
+    GtkFileDialog *dialog = gtk_file_dialog_new();
+    gtk_file_dialog_set_title(dialog, "Import a profile of PrusaSlicer, OrcaSlicer, Bambu Studio, or Cura");
+    GtkFileFilter *filter = gtk_file_filter_new();
+    gtk_file_filter_set_name(filter, "Profiles (.ini, .json, .3mf, .curaprofile)");
+    const char *patterns[] = {"*.ini", "*.INI", "*.json", "*.3mf", "*.3MF", "*.curaprofile", "*.cfg", "*.gcode"};
+    for (size_t i = 0; i < G_N_ELEMENTS(patterns); i++) gtk_file_filter_add_pattern(filter, patterns[i]);
+    GListStore *filters = g_list_store_new(GTK_TYPE_FILE_FILTER);
+    g_list_store_append(filters, filter);
+    gtk_file_dialog_set_filters(dialog, G_LIST_MODEL(filters));
+    GtkRoot *root = gtk_widget_get_root(m->button);
+    gtk_file_dialog_open(dialog, GTK_IS_WINDOW(root) ? GTK_WINDOW(root) : NULL, NULL, on_import_chosen, m);
+    g_object_unref(filters);
+    g_object_unref(filter);
+    g_object_unref(dialog);
+}
+
 static void fill_menu(GtkMenuButton *button, gpointer data) {
     Menu *m = data;
     GMenu *menu = g_menu_new();
@@ -465,6 +578,9 @@ static void fill_menu(GtkMenuButton *button, gpointer data) {
     char *action = g_strdup_printf("profiles%d.save", m->group);
     g_menu_append(save, "Save as profile…", action);
     g_free(action);
+    action = g_strdup_printf("profiles%d.import", m->group);
+    g_menu_append(save, "Import a profile…", action);
+    g_free(action);
     g_menu_append_section(menu, NULL, G_MENU_MODEL(save));
     gtk_menu_button_set_menu_model(button, G_MENU_MODEL(menu));
     g_object_unref(save);
@@ -519,6 +635,7 @@ GtkWidget *zg_profile_menu_new(ZgModel *model, int group) {
     static const GActionEntry entries[] = {
         {.name = "pick", .activate = on_pick, .parameter_type = "s"},
         {.name = "save", .activate = on_save},
+        {.name = "import", .activate = on_import},
         {.name = "material", .activate = on_material, .parameter_type = "s"},
         {.name = "roll", .activate = on_roll, .parameter_type = "s"},
     };

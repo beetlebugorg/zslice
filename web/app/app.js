@@ -1514,6 +1514,7 @@ $("printer-menu").onclick = () => {
     { label: "Printer settings and G-code…", tip: "The bed, the nozzle, the speeds, and the start and end G-code of this printer.", action: openPrinterSettings },
     { label: "Manage printers…", disabled: mine.length === 0, tip: "Rename your printers, set their addresses, or remove them.", action: managePrinters },
     { label: "Connect a printdeck…", action: () => connectDeck() },
+    { label: "Import a profile…", tip: "Read the settings of a PrusaSlicer, OrcaSlicer, Bambu Studio, or Cura profile.", action: importProfile },
     { label: "Add a printer…", action: () => showPrinterPicker() },
   );
   openMenu($("printer-menu"), items);
@@ -1685,8 +1686,74 @@ $("quality-menu").onclick = () => {
       },
     });
   }
+  items.push({ sep: true }, { label: "Import a profile…", tip: "Read the settings of a PrusaSlicer, OrcaSlicer, Bambu Studio, or Cura profile.", action: importProfile });
   openMenu($("quality-menu"), items);
 };
+
+// Imports the profile of another slicer: a PrusaSlicer or OrcaSlicer
+// .ini, an OrcaSlicer or Bambu Studio .json, a 3MF project of these
+// slicers, or a Cura .curaprofile. Its values become changes of the
+// settings, and a dialog shows the report.
+function importProfile() {
+  const input = document.createElement("input");
+  input.type = "file";
+  input.accept = ".ini,.json,.3mf,.curaprofile,.cfg,.gcode";
+  input.onchange = async () => {
+    const f = input.files[0];
+    if (!f) return;
+    const bytes = await f.arrayBuffer();
+    const r = await client.call("importProfile", { name: f.name, bytes }, [bytes]);
+    if (r.error) {
+      toast(r.error);
+      return;
+    }
+    applySettings(r);
+    showImportReport(f.name, r.rows);
+  };
+  input.click();
+}
+
+// The report of an import: the values that zslice set, the values that
+// went into the limits of a setting, and the keys with no zslice setting.
+function showImportReport(file, rows) {
+  const d = document.createElement("dialog");
+  d.className = "import-report";
+  d.style.cssText = "background:var(--dialog);color:var(--fg);border:none;border-radius:12px;padding:12px;max-width:760px;max-height:80vh";
+  const head = document.createElement("h3");
+  const format = rows.find((r) => r[0] === "format")?.[1] ?? "Profile";
+  head.textContent = `${format}: ${file}`;
+  const body = document.createElement("div");
+  body.style.cssText = "overflow:auto;max-height:60vh";
+  const section = (title, list, cells) => {
+    if (!list.length) return;
+    const h = document.createElement("h4");
+    h.textContent = `${title} (${list.length})`;
+    const t = document.createElement("table");
+    t.style.cssText = "border-collapse:collapse;font-size:12px;width:100%";
+    for (const r of list) {
+      const tr = document.createElement("tr");
+      for (const c of cells(r)) {
+        const td = document.createElement("td");
+        td.style.cssText = "padding:2px 6px;vertical-align:top";
+        td.textContent = c;
+        tr.append(td);
+      }
+      t.append(tr);
+    }
+    body.append(h, t);
+  };
+  const set = rows.filter((r) => r[0] === "set" || r[0] === "near");
+  section("Set", set, (r) => [`${r[1]} = ${r[2]}`, `${r[3]} = ${r[4]}`, r[0] === "near" ? r[5] : ""]);
+  section("Clamped to the limits of the setting", rows.filter((r) => r[0] === "clamp"), (r) => [`${r[1]} = ${r[2]}`, `${r[3]} = ${r[4]}`, `wanted ${r[5]}`]);
+  section("Not imported", rows.filter((r) => r[0] === "unused"), (r) => [`${r[1]} = ${r[2]}`, r[3]]);
+  const close = document.createElement("button");
+  close.textContent = "Close";
+  close.onclick = () => d.close();
+  d.onclose = () => d.remove();
+  d.append(head, body, close);
+  document.body.append(d);
+  d.showModal();
+}
 
 // The project items of a menu: the page of the open project and "Close
 // the project", or "Open a project…".
@@ -4061,6 +4128,7 @@ const search = new SearchOverlay({
     { label: "Redo", keys: "Ctrl+Shift+Z", run: () => undoRedo("redo") },
     { label: "2D layer view", keys: "2", run: () => showPage("2d") },
     { label: "3D view", keys: "3", run: () => showPage("3d") },
+    { label: "Import a profile…", hint: "PrusaSlicer, OrcaSlicer, Bambu Studio, or Cura settings", run: () => importProfile() },
     { label: "Manage printers…", run: () => managePrinters() },
     { label: project.openName() ? "The project" : "Open a project", hint: project.openName() ?? "printdeck.yml from GitHub or a folder", run: () => showTab("project") },
     ...(project.openName() ? [{ label: "Close the project", hint: `${project.openName()}: its plates stay`, run: () => closeProject() }] : []),

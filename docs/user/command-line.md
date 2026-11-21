@@ -138,6 +138,7 @@ zslice check part.stl              # what can make the print fail
 | `zslice printers` | Lists the printers of the printer library: the id, the firmware, the bed, and the name. `-m <id>` loads the machine profile of a printer. |
 | `zslice profile project -p fine` | Writes the settings of one group (`machine`, `filament`, or `project`) as a profile file, with the options applied. Start a new profile from it. |
 | `zslice import cura <folder> -o <profiles folder>` | Converts a Cura profile stack (a folder with `cura.json`) to zslice profiles. |
+| `zslice import <file> [-o <profiles folder>]` | Converts a profile of PrusaSlicer, OrcaSlicer, Bambu Studio, or Cura (`.ini`, `.json`, `.3mf`, `.curaprofile`). It writes the report of each value, and with `-o` the profiles. See [Profiles](profiles.md#import-from-prusaslicer-orcaslicer-bambu-studio-or-cura). |
 | `zslice orient part.stl` | Lists the orientations that smart placement compares, with the cost of each, and the best one. |
 | `zslice gcode file.gcode` | Reads a G-code file of any slicer, as the print view does. It prints the size, the layers, the moves, the box, the print time, the time to read it, and the peak memory. |
 

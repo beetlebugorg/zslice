@@ -3096,6 +3096,33 @@ export fn zs_app_profile_apply(a: ?*App, group: c_int, text: ?[*]const u8, len: 
     return ok;
 }
 
+/// Imports a profile file of PrusaSlicer, OrcaSlicer, Bambu Studio, or
+/// Cura (App.importProfile): its values become changes of the settings,
+/// as one step of the undo list. The app keeps the report for
+/// zs_app_profile_import_report. ZS_INVALID_VALUE: the file is not a
+/// profile, and no setting changes.
+export fn zs_app_profile_import(a: ?*App, name: ?[*:0]const u8, bytes: ?[*]const u8, len: usize) c_int {
+    const app = a orelse return @intFromEnum(Status.invalid_argument);
+    const n = std.mem.span(name orelse return @intFromEnum(Status.invalid_argument));
+    const b = (bytes orelse return @intFromEnum(Status.invalid_argument))[0..len];
+    app.import_report.clearRetainingCapacity();
+    var aw: Writer.Allocating = .fromArrayList(app.gpa, &app.import_report);
+    defer app.import_report = aw.toArrayList();
+    app.importProfile(n, b, &aw.writer) catch |e| return switch (e) {
+        error.NotProfile => @intFromEnum(Status.invalid_value),
+        else => @intFromEnum(Status.out_of_memory),
+    };
+    noted(app, null, false);
+    return ok;
+}
+
+/// The report of the last zs_app_profile_import (see
+/// import_profile.Result.writeReport).
+export fn zs_app_profile_import_report(a: ?*const App, buf: ?[*]u8, cap: usize, out_len: ?*usize) c_int {
+    const app = a orelse return @intFromEnum(Status.invalid_argument);
+    return copyOut(app.import_report.items, buf, cap, out_len);
+}
+
 fn profileError(e: anyerror, diag: zs.profile.Diagnostic, message: ?[*]u8, cap: usize) c_int {
     if (message) |m| if (cap > 0) {
         const msg = std.fmt.bufPrint(m[0 .. cap - 1], "line {d}: {s}", .{ diag.line, if (diag.message.len > 0) diag.message else @errorName(e) }) catch m[0 .. cap - 1];
@@ -3418,6 +3445,26 @@ test "C API: the app" {
     var lic: License = undefined;
     try std.testing.expectEqual(ok, zs_license_get(0, &lic));
     try std.testing.expect(std.mem.indexOf(u8, std.mem.span(lic.text), "AFFERO") != null);
+}
+
+test "C API: import a profile of another slicer" {
+    var app: ?*App = null;
+    try std.testing.expectEqual(ok, zs_app_new(null, null, &app));
+    defer zs_app_free(app);
+    const ini = "layer_height = 0.12\nperimeter_speed = 75\nfoo_bar = 3\n";
+    try std.testing.expectEqual(ok, zs_app_profile_import(app, "a.ini", ini.ptr, ini.len));
+    try std.testing.expectEqual(@as(f64, 0.12), app.?.settings.project.layer_height);
+    try std.testing.expectEqual(@as(f64, 0.5), app.?.settings.project.inner_wall_speed);
+    var buf: [512]u8 = undefined;
+    var len: usize = 0;
+    try std.testing.expectEqual(ok, zs_app_profile_import_report(app, &buf, buf.len, &len));
+    const rep = buf[0..len];
+    try std.testing.expect(std.mem.startsWith(u8, rep, "format\tPrusaSlicer config\n"));
+    try std.testing.expect(std.mem.indexOf(u8, rep, "set\tperimeter_speed\t75\tproject.inner_wall_speed\t0.5\n") != null);
+    try std.testing.expect(std.mem.indexOf(u8, rep, "unused\tfoo_bar\t3\t") != null);
+    // A file that is not a profile changes nothing.
+    try std.testing.expectEqual(@intFromEnum(Status.invalid_value), zs_app_profile_import(app, "b.stl", "solid x\n", 8));
+    try std.testing.expectEqual(@as(f64, 0.12), app.?.settings.project.layer_height);
 }
 
 test "C API: the simulated print of a slab over air: the first failed layer and each layer" {

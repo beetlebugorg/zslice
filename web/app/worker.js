@@ -449,7 +449,7 @@ function historyList() {
 // The ops after which a part can lose what held it (see the fall check).
 // An op with hold (a drag) checks at its end.
 const FALL_CHECK_OPS = new Set(["partSettingSet", "supportAreaKind", "supportAreaRemove", "projectLoad", "plateActivate", "treeMoveNode", "treeMoveBranch", "treeDelete", "treeReset"]);
-const SETTING_OPS = new Set(["refineApply", "set", "reset", "quality", "profile", "setScoped", "resetScoped", "rangePaste", "rangeReset"]);
+const SETTING_OPS = new Set(["refineApply", "importProfile", "set", "reset", "quality", "profile", "setScoped", "resetScoped", "rangePaste", "rangeReset"]);
 // The parts whose largest side is under 3 mm: a file in inches or in
 // meters loads that small. The print card offers a scale.
 function tinyParts(c) {
@@ -570,6 +570,14 @@ const ops = {
     const error = core.setQuality(name, true);
     if (!error) wantSlice();
     return { error, ...settingsState() };
+  },
+
+  // A profile of another slicer: its values become changes of the
+  // settings now, and the answer has the report.
+  importProfile({ name, bytes }) {
+    const r = core.importProfile(name, new Uint8Array(bytes));
+    if (!r.error) wantSlice();
+    return { ...r, ...settingsState() };
   },
 
   profile({ group, text }) {

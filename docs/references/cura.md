@@ -439,3 +439,18 @@ summary: `project.coasting_volume` and `project.coasting_speed` have the meaning
 ```
 
 Cura replaces the last part of a path, by its volume of plastic, with a move that does not extrude, at a ratio of the speed. zslice does the same in `Emitter.coastPath`. A path coasts if it has twice the coasting volume, in place of the `coasting_min_volume` of Cura. The settings and the idea only; no code is copied.
+
+### Cura profile exports
+
+```ref
+kind: format
+source: Cura
+license: LGPL-3.0
+link: https://github.com/Ultimaker/Cura
+version: Cura 5.14
+files: src/import_profile.zig
+area: files
+summary: The import of a `.curaprofile` file: a zip of the `.inst.cfg` files of a quality_changes profile.
+```
+
+Cura exports a custom profile as a `.curaprofile` file: a zip with one `.inst.cfg` file for the global stack and one for each extruder (`position` in `[metadata]`). zslice reads the `[values]` of each, the extruder after the global one, and maps the keys with the table of the Cura stack import (`src/import_cura.zig`). The format only; no code is copied.

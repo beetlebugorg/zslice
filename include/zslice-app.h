@@ -1475,6 +1475,23 @@ int zs_app_group_reset(zs_app *app, int group);
  * profile that the user wrote. On an error, message (can be NULL) gets the
  * line and the reason, and the settings do not change. */
 int zs_app_profile_apply(zs_app *app, int group, const char *text, size_t len, char *message, size_t cap);
+/* Imports a profile of another slicer: a PrusaSlicer or OrcaSlicer .ini
+ * (also a config bundle), an OrcaSlicer or Bambu Studio .json preset, a
+ * 3MF project of these slicers, or a Cura .curaprofile. name is the file
+ * name. Its values become changes of the settings now, as one undo step.
+ * A speed in mm/s becomes a ratio of machine.max_speed (after the printer
+ * values of the file); each value goes into the limits of its setting.
+ * ZS_INVALID_VALUE: not a profile file; no setting changes. */
+int zs_app_profile_import(zs_app *app, const char *name, const uint8_t *bytes, size_t len);
+/* The report of the last zs_app_profile_import, one line each (fields
+ * split by tabs):
+ *   "format\t<kind of file>"
+ *   "set\tkey\tvalue\tzslice name\tzslice value"
+ *   "clamp\tkey\tvalue\tzslice name\tzslice value\tvalue before the limits"
+ *   "near\tkey\tvalue\tzslice name\tzslice value\twhy"
+ *   "unused\tkey\tvalue\twhy"
+ * The same buffer rules as zs_app_setting_get. */
+int zs_app_profile_import_report(const zs_app *app, char *buf, size_t cap, size_t *out_len);
 
 /* The cascade of the settings, the lowest first: a higher level replaces
  * the value of a lower one. A part has its own values on top
