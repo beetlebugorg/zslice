@@ -312,6 +312,10 @@ The maximum plastic flow that the hot end melts with this filament. This limits 
 
 A multiplier for all extrusion, to calibrate the flow.
 
+**`filament.pressure_advance`** (number). Default: `0`
+
+The pressure advance of this filament, in seconds: the firmware pushes the filament ahead of a speed change by this time. zslice writes it after the start G-code (M900 K on Marlin, SET_PRESSURE_ADVANCE on Klipper, M572 on RepRapFirmware). 0: no command, so the value of the firmware stays. As "Pressure advance" in OrcaSlicer (`enable_pressure_advance` and `pressure_advance`).
+
 ### Cooling
 
 **`filament.fan_speed`** (number; per layer). Default: `1.0`
@@ -373,6 +377,16 @@ Moves the edges of holes by this distance. A positive value makes holes larger. 
 **`filament.retract_ratio`** (number; per layer). Default: `1.0`
 
 A multiplier for the retraction length of the machine. Soft filament needs less.
+
+### G-code
+
+**`filament.start_gcode`** (text). Default: `""`
+
+G-code after the start G-code of the machine, for this filament. The variables of the start G-code work here. Empty: none. As "Filament start G-code" in OrcaSlicer and PrusaSlicer.
+
+**`filament.end_gcode`** (text). Default: `""`
+
+G-code before the end G-code of the machine, for this filament. Empty: none. As "Filament end G-code" in OrcaSlicer and PrusaSlicer.
 
 ## project
 

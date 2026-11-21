@@ -347,6 +347,13 @@ pub const Filament = struct {
     max_flow: f64 = 12,
     /// A multiplier for all extrusion, to calibrate the flow.
     flow_ratio: f64 = 1.0,
+    /// The pressure advance of this filament, in seconds: the firmware
+    /// pushes the filament ahead of a speed change by this time. zslice
+    /// writes it after the start G-code (M900 K on Marlin,
+    /// SET_PRESSURE_ADVANCE on Klipper, M572 on RepRapFirmware). 0: no
+    /// command, so the value of the firmware stays. As "Pressure advance"
+    /// in OrcaSlicer (`enable_pressure_advance` and `pressure_advance`).
+    pressure_advance: f64 = 0,
 
     // Cooling
     /// The part cooling fan speed, as a ratio.
@@ -396,6 +403,15 @@ pub const Filament = struct {
     /// A multiplier for the retraction length of the machine. Soft filament
     /// needs less.
     retract_ratio: f64 = 1.0,
+
+    // G-code
+    /// G-code after the start G-code of the machine, for this filament.
+    /// The variables of the start G-code work here. Empty: none. As
+    /// "Filament start G-code" in OrcaSlicer and PrusaSlicer.
+    start_gcode: []const u8 = "",
+    /// G-code before the end G-code of the machine, for this filament.
+    /// Empty: none. As "Filament end G-code" in OrcaSlicer and PrusaSlicer.
+    end_gcode: []const u8 = "",
 
     /// The bed temperature of the first layer: `first_layer_bed_temp`, or
     /// `bed_temp` if it is 0.
@@ -1339,6 +1355,7 @@ pub const limits = [_]struct { []const u8, f64, f64 }{
     .{ "filament.first_layer_bed_temp", 0, 150 },
     .{ "filament.max_flow", 0.5, 100 },
     .{ "filament.flow_ratio", 0.5, 2 },
+    .{ "filament.pressure_advance", 0, 2 },
     .{ "filament.fan_speed", 0, 1 },
     .{ "filament.fan_off_layers", 0, 100 },
     .{ "filament.fan_ramp_layers", 0, 100 },

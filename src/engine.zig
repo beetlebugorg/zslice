@@ -3415,6 +3415,47 @@ test "first layer bed temperature and travel speed, as Cura writes them" {
     try testing.expect(std.mem.indexOf(u8, c, "F6000") == null);
 }
 
+test "pressure advance and the filament G-code, as OrcaSlicer writes them" {
+    const gpa = testing.allocator;
+    var s: Settings = .{};
+    s.machine.start_gcode = "G28 ; start";
+    s.machine.end_gcode = "M84 ; end";
+    s.filament.start_gcode = "M117 {filament_name}";
+    s.filament.end_gcode = "M117 done";
+    s.filament.name = "Acme PLA";
+    s.filament.pressure_advance = 0.045;
+    // Marlin: M900 K (OrcaSlicer GCodeWriter::set_pressure_advance).
+    s.machine.gcode_flavor = .marlin;
+    const a = try demoGcodeWith(gpa, s, &.{});
+    defer gpa.free(a);
+    const start = std.mem.indexOf(u8, a, "G28 ; start").?;
+    const fstart = std.mem.indexOf(u8, a, "M117 Acme PLA").?;
+    const pa = std.mem.indexOf(u8, a, "M900 K0.045").?;
+    const layer0 = std.mem.indexOf(u8, a, ";LAYER:0\n").?;
+    try testing.expect(start < fstart and fstart < pa and pa < layer0);
+    const fend = std.mem.indexOf(u8, a, "M117 done\n").?;
+    try testing.expect(fend < std.mem.indexOf(u8, a, "M84 ; end").?);
+    try testing.expect(fend > std.mem.lastIndexOf(u8, a, ";LAYER:").?);
+    // Klipper and RepRapFirmware.
+    s.machine.gcode_flavor = .klipper;
+    const b = try demoGcodeWith(gpa, s, &.{});
+    defer gpa.free(b);
+    try testing.expect(std.mem.indexOf(u8, b, "SET_PRESSURE_ADVANCE ADVANCE=0.045\n") != null);
+    s.machine.gcode_flavor = .reprap;
+    const c = try demoGcodeWith(gpa, s, &.{});
+    defer gpa.free(c);
+    try testing.expect(std.mem.indexOf(u8, c, "M572 D0 S0.045") != null);
+    // 0 and empty: no command and no text.
+    s.machine.gcode_flavor = .marlin;
+    s.filament.pressure_advance = 0;
+    s.filament.start_gcode = "";
+    s.filament.end_gcode = "";
+    const d = try demoGcodeWith(gpa, s, &.{});
+    defer gpa.free(d);
+    try testing.expect(std.mem.indexOf(u8, d, "M900") == null);
+    try testing.expect(std.mem.indexOf(u8, d, "M117") == null);
+}
+
 test "gcode: a wipe retraction stays inside the part" {
     const gpa = testing.allocator;
     var b: mesh_mod.Builder = .init(gpa);

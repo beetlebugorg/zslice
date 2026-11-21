@@ -56,3 +56,32 @@ summary: `project.support_speed` and `project.support_interface_speed` have the 
 
 OrcaSlicer has a speed for the support and one for the support interface (`src/libslic3r/PrintConfig.cpp`). zslice gives them as ratios of the allowed speed, as its other speeds.
 
+### Pressure advance
+
+```ref
+kind: format
+source: OrcaSlicer
+license: AGPL-3.0
+link: https://github.com/SoftFever/OrcaSlicer
+version: commit 5a1ffc6a631ead5886f1c22920deb341fc1a0106
+files: src/gcode.zig, src/settings.zig
+area: gcode
+summary: `filament.pressure_advance` writes the pressure advance command of each firmware, as `GCodeWriter::set_pressure_advance` of OrcaSlicer writes it.
+```
+
+OrcaSlicer writes `M900 K` for Marlin (with `L1000 M10` for Bambu Lab printers), `SET_PRESSURE_ADVANCE ADVANCE=` for Klipper, `M572 D0 S` for RepRapFirmware, and `M233 X Y` for Repetier (`src/libslic3r/GCodeWriter.cpp`) after the start G-code, when `enable_pressure_advance` is on. zslice writes the same commands after the start G-code when `filament.pressure_advance` is more than 0. The commands only; no code is copied.
+
+### Filament start and end G-code
+
+```ref
+kind: setting
+source: OrcaSlicer, PrusaSlicer
+license: AGPL-3.0
+link: https://github.com/SoftFever/OrcaSlicer
+version: commit 5a1ffc6a631ead5886f1c22920deb341fc1a0106
+files: src/gcode.zig, src/settings.zig
+area: gcode
+summary: `filament.start_gcode` and `filament.end_gcode` have the meaning of `filament_start_gcode` and `filament_end_gcode`, for the filament of the print.
+```
+
+OrcaSlicer writes `filament_start_gcode` after the machine start G-code and at each change to the filament, and `filament_end_gcode` before the machine end G-code and at each change from it (`src/libslic3r/GCode.cpp`). zslice writes them after the start G-code and before the end G-code of the print, for the filament of the print. A filament change does not write them yet.

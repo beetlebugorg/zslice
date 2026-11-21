@@ -1194,6 +1194,11 @@ pub const Emitter = struct {
             try self.w.writeAll(" ; zslice: the start G-code does not heat the nozzle\n");
         }
         try self.w.writeAll(start.written());
+        // The G-code of the filament, after the start G-code of the machine.
+        if (s.filament.start_gcode.len > 0) {
+            try self.w.writeAll("\n");
+            _ = try self.writeTemplate(self.w, s.filament.start_gcode, .start);
+        }
         // The end of the start G-code, as Bambu Studio writes it: the
         // marker, then the units, relative extrusion, and the spaghetti
         // detector on.
@@ -1237,6 +1242,7 @@ pub const Emitter = struct {
                 try self.w.writeAll(" ; corner speed (jerk)\n");
             },
         };
+        try self.pressureAdvance(s.filament.pressure_advance);
     }
 
     /// The acceleration for the next moves. With acceleration control, a
@@ -1373,6 +1379,11 @@ pub const Emitter = struct {
         // G-code: the spaghetti detector off (the camera of the printer
         // also uses it as the end of the last layer), and the marker.
         if (self.bambu_blocks) try self.w.writeAll("M981 S0 P20000 ; close spaghetti detector\n; FEATURE: Custom\n; MACHINE_END_GCODE_START\n");
+        // The G-code of the filament, before the end G-code of the machine.
+        if (self.r.settings.filament.end_gcode.len > 0) {
+            _ = try self.writeTemplate(self.w, self.r.settings.filament.end_gcode, .end);
+            try self.w.writeAll("\n");
+        }
         _ = try self.writeTemplate(self.w, makerTemplate(self.r.settings.machine.model, self.r.settings.machine.end_gcode, .end), .end);
         try self.w.writeAll("\n");
         try self.w.writeAll(";Filament used: ");
@@ -2684,6 +2695,43 @@ pub const Emitter = struct {
         }
         const n = found orelse return null;
         return buf[0..n];
+    }
+
+    /// The pressure advance command of the firmware (as OrcaSlicer
+    /// `GCodeWriter::set_pressure_advance` writes it), or nothing for 0.
+    fn pressureAdvance(self: *Emitter, pa: f64) Writer.Error!void {
+        if (!(pa > 0)) return;
+        if (self.bambu_blocks) {
+            try self.w.writeAll("M900 K");
+            try writeNum(self.w, pa, 4);
+            try self.w.writeAll(" L1000 M10 ; pressure advance\n");
+            return;
+        }
+        switch (self.r.settings.machine.gcode_flavor) {
+            .klipper => {
+                try self.w.writeAll("SET_PRESSURE_ADVANCE ADVANCE=");
+                try writeNum(self.w, pa, 4);
+                try self.w.writeAll("\n");
+            },
+            .reprap => {
+                try self.w.writeAll("M572 D0 S");
+                try writeNum(self.w, pa, 4);
+                try self.w.writeAll(" ; pressure advance\n");
+            },
+            .repetier => {
+                // Repetier M233: X (quadratic) and Y (linear) get the value.
+                try self.w.writeAll("M233 X");
+                try writeNum(self.w, pa, 4);
+                try self.w.writeAll(" Y");
+                try writeNum(self.w, pa, 4);
+                try self.w.writeAll(" ; pressure advance\n");
+            },
+            .marlin => {
+                try self.w.writeAll("M900 K");
+                try writeNum(self.w, pa, 4);
+                try self.w.writeAll(" ; linear advance\n");
+            },
+        }
     }
 
     /// The speed of a travel move: `first_layer_travel_speed` on the first

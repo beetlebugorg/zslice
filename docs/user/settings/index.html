@@ -247,6 +247,8 @@ M84</code></pre>
 <p>The maximum plastic flow that the hot end melts with this filament. This limits the speed of wide and tall lines.</p>
 <p><strong><code>filament.flow_ratio</code></strong> (number; per layer). Default: <code>1.0</code></p>
 <p>A multiplier for all extrusion, to calibrate the flow.</p>
+<p><strong><code>filament.pressure_advance</code></strong> (number). Default: <code>0</code></p>
+<p>The pressure advance of this filament, in seconds: the firmware pushes the filament ahead of a speed change by this time. zslice writes it after the start G-code (M900 K on Marlin, SET_PRESSURE_ADVANCE on Klipper, M572 on RepRapFirmware). 0: no command, so the value of the firmware stays. As "Pressure advance" in OrcaSlicer (<code>enable_pressure_advance</code> and <code>pressure_advance</code>).</p>
 <h3 id="cooling">Cooling</h3>
 <p><strong><code>filament.fan_speed</code></strong> (number; per layer). Default: <code>1.0</code></p>
 <p>The part cooling fan speed, as a ratio.</p>
@@ -278,6 +280,11 @@ M84</code></pre>
 <h3 id="retraction">Retraction</h3>
 <p><strong><code>filament.retract_ratio</code></strong> (number; per layer). Default: <code>1.0</code></p>
 <p>A multiplier for the retraction length of the machine. Soft filament needs less.</p>
+<h3 id="g-code-1">G-code</h3>
+<p><strong><code>filament.start_gcode</code></strong> (text). Default: <code>&quot;&quot;</code></p>
+<p>G-code after the start G-code of the machine, for this filament. The variables of the start G-code work here. Empty: none. As "Filament start G-code" in OrcaSlicer and PrusaSlicer.</p>
+<p><strong><code>filament.end_gcode</code></strong> (text). Default: <code>&quot;&quot;</code></p>
+<p>G-code before the end G-code of the machine, for this filament. Empty: none. As "Filament end G-code" in OrcaSlicer and PrusaSlicer.</p>
 <h2 id="project">project</h2>
 <p>What you want for this part.</p>
 <h3 id="layers">Layers</h3>
