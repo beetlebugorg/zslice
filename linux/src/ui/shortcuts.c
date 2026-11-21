@@ -123,47 +123,74 @@ typedef struct {
 
 static GtkWindow *open_sheet;
 
-/* The keys of a shortcut as key caps: "Ctrl+Shift+Z, Ctrl+Y". */
+/* The width of the column of the keys, as on the web (.keys-of). */
+enum { KEYS_WIDTH = 170 };
+
+/* The keys as lines of pieces: a piece goes to a new line when the line
+ * gets wider than KEYS_WIDTH. The width of a piece is its natural width. */
+typedef struct {
+    GtkWidget *box, *line;
+    int used;
+} Lines;
+
+static void put(Lines *l, GtkWidget *piece) {
+    int w = 0;
+    gtk_widget_measure(piece, GTK_ORIENTATION_HORIZONTAL, -1, NULL, &w, NULL, NULL);
+    if (!l->line || (l->used > 0 && l->used + 3 + w > KEYS_WIDTH)) {
+        l->line = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 3);
+        gtk_box_append(GTK_BOX(l->box), l->line);
+        l->used = 0;
+    }
+    gtk_widget_set_valign(piece, GTK_ALIGN_BASELINE_CENTER);
+    gtk_box_append(GTK_BOX(l->line), piece);
+    l->used += (l->used ? 3 : 0) + w;
+}
+
+static GtkWidget *dim(const char *text) {
+    GtkWidget *l = gtk_label_new(text);
+    gtk_widget_add_css_class(l, "dim-label");
+    gtk_widget_add_css_class(l, "caption");
+    return l;
+}
+
+/* The keys of a shortcut as key caps: "Ctrl+Shift+Z, Ctrl+Y". They wrap
+ * in the column of the keys. */
 static GtkWidget *keys_box(const char *text) {
-    GtkWidget *box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 3);
+    Lines l = {.box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 3)};
+    gtk_widget_set_size_request(l.box, KEYS_WIDTH, -1);
     char **alts = g_strsplit(text, ", ", -1);
     for (int i = 0; alts[i]; i++) {
-        if (i > 0) {
-            GtkWidget *or = gtk_label_new("or");
-            gtk_widget_add_css_class(or, "dim-label");
-            gtk_widget_add_css_class(or, "caption");
-            gtk_box_append(GTK_BOX(box), or);
-        }
+        if (i > 0) put(&l, dim("or"));
         /* A note at the end: "(a part)". */
         char *note = strstr(alts[i], " (");
         if (note) *note = 0;
         /* "+" alone is a key; "Ctrl+," splits at the first "+". */
+        /* One combination (Ctrl + Shift + Z) stays on one line. */
+        GtkWidget *combo = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 3);
         const char *p = alts[i];
         gboolean first = TRUE;
         while (*p) {
             const char *plus = strchr(p + 1, '+');
             char *key = plus ? g_strndup(p, (gsize)(plus - p)) : g_strdup(p);
-            if (!first) {
-                GtkWidget *l = gtk_label_new("+");
-                gtk_widget_add_css_class(l, "dim-label");
-                gtk_box_append(GTK_BOX(box), l);
-            }
+            if (!first) gtk_box_append(GTK_BOX(combo), dim("+"));
             GtkWidget *cap = gtk_label_new(key);
             gtk_widget_add_css_class(cap, "zg-keycap");
-            gtk_box_append(GTK_BOX(box), cap);
+            gtk_box_append(GTK_BOX(combo), cap);
             g_free(key);
             first = FALSE;
             p = plus ? plus + 1 : p + strlen(p);
         }
+        put(&l, combo);
         if (note) {
-            GtkWidget *n = gtk_label_new(note + 1);
-            gtk_widget_add_css_class(n, "dim-label");
-            gtk_widget_add_css_class(n, "caption");
-            gtk_box_append(GTK_BOX(box), n);
+            GtkWidget *n = dim(note + 1);
+            gtk_label_set_wrap(GTK_LABEL(n), TRUE);
+            gtk_label_set_xalign(GTK_LABEL(n), 0);
+            gtk_label_set_max_width_chars(GTK_LABEL(n), 22);
+            put(&l, n);
         }
     }
     g_strfreev(alts);
-    return box;
+    return l.box;
 }
 
 static gboolean matches(const char *q, const char *a, const char *b, const char *c) {
@@ -178,38 +205,60 @@ static gboolean matches(const char *q, const char *a, const char *b, const char 
     return ok;
 }
 
+/* The rows of group g that match q, or 0. */
+static int group_rows(size_t g, const char *q) {
+    int n = 0;
+    for (const Key *k = SHORTCUTS[g].keys; k->keys; k++) n += matches(q, k->keys, k->what, SHORTCUTS[g].group);
+    return n;
+}
+
+/* Two columns of groups, as on the web: each group goes to the shorter
+ * column, in order. */
 static void fill(Sheet *s) {
     GtkWidget *child;
     while ((child = gtk_widget_get_first_child(s->body))) gtk_box_remove(GTK_BOX(s->body), child);
     char *q = g_utf8_strdown(gtk_editable_get_text(GTK_EDITABLE(s->filter)), -1);
     g_strstrip(q);
+    int total = 0;
+    for (size_t g = 0; g < G_N_ELEMENTS(SHORTCUTS); g++) total += group_rows(g, q) + 2;
+    GtkWidget *cols = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 28);
+    gtk_widget_set_hexpand(cols, TRUE);
+    gtk_box_append(GTK_BOX(s->body), cols);
+    GtkWidget *col[2];
+    for (int c = 0; c < 2; c++) {
+        col[c] = gtk_box_new(GTK_ORIENTATION_VERTICAL, 6);
+        gtk_widget_set_hexpand(col[c], TRUE);
+        gtk_box_set_homogeneous(GTK_BOX(cols), TRUE);
+        gtk_box_append(GTK_BOX(cols), col[c]);
+    }
     gboolean any = FALSE;
-    /* One table: the keys of all groups line up. */
-    GtkWidget *grid = gtk_grid_new();
-    gtk_grid_set_row_spacing(GTK_GRID(grid), 6);
-    gtk_grid_set_column_spacing(GTK_GRID(grid), 16);
-    gtk_box_append(GTK_BOX(s->body), grid);
-    int row = 0;
+    int done = 0;
     for (size_t g = 0; g < G_N_ELEMENTS(SHORTCUTS); g++) {
-        gboolean head_done = FALSE;
+        int rows = group_rows(g, q);
+        if (rows == 0) continue;
+        /* The first column takes the groups up to half of the rows. */
+        GtkWidget *to = done < total / 2 ? col[0] : col[1];
+        done += rows + 2;
+        GtkWidget *head = gtk_label_new(SHORTCUTS[g].group);
+        gtk_label_set_xalign(GTK_LABEL(head), 0);
+        gtk_widget_add_css_class(head, "zg-keys-group");
+        gtk_box_append(GTK_BOX(to), head);
         for (const Key *k = SHORTCUTS[g].keys; k->keys; k++) {
             if (!matches(q, k->keys, k->what, SHORTCUTS[g].group)) continue;
-            if (!head_done) {
-                GtkWidget *head = gtk_label_new(SHORTCUTS[g].group);
-                gtk_label_set_xalign(GTK_LABEL(head), 0);
-                gtk_widget_add_css_class(head, "zg-keys-group");
-                gtk_grid_attach(GTK_GRID(grid), head, 0, row++, 2, 1);
-                head_done = TRUE;
-            }
+            GtkWidget *row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 12);
             GtkWidget *keys = keys_box(k->keys);
             gtk_widget_set_valign(keys, GTK_ALIGN_START);
             GtkWidget *what = gtk_label_new(k->what);
             gtk_label_set_xalign(GTK_LABEL(what), 0);
+            gtk_widget_set_valign(what, GTK_ALIGN_START);
             gtk_label_set_wrap(GTK_LABEL(what), TRUE);
-            gtk_label_set_max_width_chars(GTK_LABEL(what), 60);
+            gtk_label_set_wrap_mode(GTK_LABEL(what), PANGO_WRAP_WORD);
+            gtk_label_set_width_chars(GTK_LABEL(what), 20);
+            gtk_label_set_max_width_chars(GTK_LABEL(what), 40);
             gtk_widget_set_hexpand(what, TRUE);
-            gtk_grid_attach(GTK_GRID(grid), keys, 0, row, 1, 1);
-            gtk_grid_attach(GTK_GRID(grid), what, 1, row++, 1, 1);
+            gtk_box_append(GTK_BOX(row), keys);
+            gtk_box_append(GTK_BOX(row), what);
+            gtk_box_append(GTK_BOX(to), row);
             any = TRUE;
         }
     }
@@ -250,7 +299,7 @@ void zg_shortcuts_toggle(GtkWindow *parent) {
     gtk_window_set_title(s->window, "Keyboard shortcuts");
     gtk_window_set_transient_for(s->window, parent);
     gtk_window_set_modal(s->window, TRUE);
-    gtk_window_set_default_size(s->window, 760, 640);
+    gtk_window_set_default_size(s->window, 920, 680);
     GtkWidget *header = gtk_header_bar_new();
     s->filter = gtk_search_entry_new();
     gtk_search_entry_set_placeholder_text(GTK_SEARCH_ENTRY(s->filter), "Filter");
