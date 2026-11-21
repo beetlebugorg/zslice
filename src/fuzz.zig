@@ -35,6 +35,7 @@ const discovery = @import("discovery.zig");
 const import_cura = @import("import_cura.zig");
 const settings_mod = @import("settings.zig");
 const font = @import("font.zig");
+const label = @import("label.zig");
 
 /// The most memory that one input can ask for. A small file that asks
 /// for more is a zip bomb or a size field that lies.
@@ -271,6 +272,28 @@ fn checkFont(gpa: Allocator, bytes: []const u8) anyerror!void {
     p.deinit(gpa);
     _ = font.stemRatio(&f);
 }
+
+/// A label from its JSON, and its outline.
+fn checkLabel(gpa: Allocator, bytes: []const u8) anyerror!void {
+    var l = label.parse(gpa, bytes, .{ .frame = false }) catch |e| switch (e) {
+        error.BadLabel => return,
+        else => return e,
+    };
+    defer l.deinit(gpa);
+    var o = label.outline(gpa, &l) catch |e| switch (e) {
+        error.BadFont => return,
+        else => return e,
+    };
+    o.deinit(gpa);
+}
+
+const label_sample =
+    \\{"id":3,"name":"dial","origin":[1,2,3],"normal":[0,-1,0],"right":[1,0,0],"filament":2,"depth":0.42,"stretch":[1,2],
+    \\ "items":[{"kind":"text","text":"VOLUME","size":5,"weight":0.05,"alignment":"left"},
+    \\  {"kind":"ticks","at":[0,-12],"count":11,"radius":8,"length":1.5,"length_end":3,"width":0.6},
+    \\  {"kind":"line","length":4,"width":1,"round":true},{"kind":"bar","width":3,"height":2,"radius":0.5},
+    \\  {"kind":"ring","outer":3,"inner":2},{"kind":"polyline","points":[[0,0],[1,2],[3,1]],"width":0.5,"closed":true,"filled":true}]}
+;
 
 // ---- the seeds ----
 
@@ -604,4 +627,8 @@ test "fuzz: Cura profile stacks" {
 test "fuzz: fonts" {
     // The embedded font is 44 KB: fewer rounds than the small inputs.
     try run("font", &.{font.inter_bold}, rounds(60), checkFont);
+}
+
+test "fuzz: labels" {
+    try run("label", &.{label_sample}, rounds(300), checkLabel);
 }

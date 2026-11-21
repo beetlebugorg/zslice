@@ -58,7 +58,9 @@ pub const gcode_vars = @import("gcode_vars.zig");
 pub const filaments = @import("filaments.zig");
 pub const paint = @import("paint.zig");
 pub const paint_split = @import("paint_split.zig");
-/// The font of the text of the labels (see font.zig).
+/// The labels on the surface of a part (see label.zig), and the font of
+/// their text.
+pub const label = @import("label.zig");
 pub const font = @import("font.zig");
 pub const motion = @import("motion.zig");
 pub const parallel = @import("parallel.zig");
