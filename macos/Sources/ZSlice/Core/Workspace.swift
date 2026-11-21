@@ -1344,23 +1344,55 @@ final class Workspace {
                     switch f[0] {
                     case "turn": for _ in 0 ..< abs(Int(f[1]) ?? 0) { self.turnLabel((Int(f[1]) ?? 0) > 0 ? 1 : -1) }
                     case "scale": if let l = self.labelState.label { self.scaleLabel(from: l, by: Double(f[1]) ?? 1); self.flushLabel() }
-                    case "drag":
+                    // drag:dx:dy moves the label on the surface; pdrag:dx:dy in
+                    // its plane (Shift).
+                    case "drag", "pdrag":
                         if let c = self.labelScreenCenter() {
                             let to = CGPoint(x: c.x + (Double(f[1]) ?? 0), y: c.y + (Double(f[2]) ?? 0))
+                            let flags: NSEvent.ModifierFlags = f[0] == "pdrag" ? [.shift] : []
                             _ = self.labelPress(c, [])
-                            for k in 1 ... 10 { self.labelDrag(CGPoint(x: c.x + (to.x - c.x) * Double(k) / 10, y: c.y + (to.y - c.y) * Double(k) / 10), []) }
+                            for k in 1 ... 10 { self.labelDrag(CGPoint(x: c.x + (to.x - c.x) * Double(k) / 10, y: c.y + (to.y - c.y) * Double(k) / 10), flags) }
+                            NSLog("zslice label drag: %ld guides", self.labelState.planeGuides.count)
                             _ = self.labelRelease()
                         }
+                    // svg: a small SVG picture (a square and a round hole) into
+                    // the label; mode:m sets ink, raised, or cut.
+                    case "svg":
+                        let svg = #"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M0 0H20V20H0Z M10 5A5 5 0 1 0 10 15A5 5 0 1 0 10 5Z"/></svg>"#
+                        NSLog("zslice label svg: %d", self.placeLabelSVG(svg, name: "test.svg") ? 1 : 0)
+                    case "mode":
+                        self.setLabelMode(f[1])
+                        self.flushLabel()
+                        NSLog("zslice label mode: %@ relief %.2f", self.labelState.label?.mode ?? "ink", self.labelState.label?.relief ?? 0)
                     // handle:deg[:shift]: the turn handle dragged deg degrees
+                    // around the center of the label on the screen.
+                    // handle:deg[:shift]: a drag of the turn handle, deg degrees
                     // around the center of the label on the screen.
                     case "handle":
                         if let l = self.labelState.label, let c = self.labelScreenCenter(), let t = self.labelState.turnAt {
                             let a0 = atan2(t.y - c.y, t.x - c.x), r = hypot(t.x - c.x, t.y - c.y)
-                            let a1 = a0 + (Double(f[1]) ?? 0) * .pi / 180
-                            self.turnLabelHandle(from: l, center: c, a0: a0, sign: self.labelTurnSign(l),
-                                                 to: CGPoint(x: c.x + r * cos(a1), y: c.y + r * sin(a1)), snap: f.count > 2)
-                            self.flushLabel()
+                            _ = self.labelPress(t, [])
+                            for k in 1 ... 8 {
+                                let a = a0 + (Double(f[1]) ?? 0) * .pi / 180 * Double(k) / 8
+                                self.labelDrag(CGPoint(x: c.x + r * cos(a), y: c.y + r * sin(a)), f.count > 2 ? [.shift] : [])
+                            }
+                            _ = self.labelRelease()
                             NSLog("zslice label handle: sign %.0f, angle %.1f to %.1f", self.labelTurnSign(l), l.angle, self.labelState.label?.angle ?? 0)
+                        }
+                    // corner:k[:free]: a drag of the upper right corner to k
+                    // times the box (free: Shift, the stretch).
+                    case "corner":
+                        if let l = self.labelState.label, let ol = self.labelOutline(l), let p0 = self.labelCornerScreen(l, ol, 1),
+                           let p1 = self.labelCornerScreen(l, ol, Double(f[1]) ?? 1) {
+                            _ = self.labelPress(p0, [])
+                            for k in 1 ... 8 {
+                                self.labelDrag(CGPoint(x: p0.x + (p1.x - p0.x) * Double(k) / 8, y: p0.y + (p1.y - p0.y) * Double(k) / 8),
+                                               f.count > 2 ? [.shift, .option] : [.option])
+                            }
+                            _ = self.labelRelease()
+                            let size = self.labelState.label.flatMap { self.labelOutline($0) }.map { $0.box.y1 - $0.box.y0 } ?? 0
+                            NSLog("zslice label corner: height %.2f to %.2f, stretch %@", ol.box.y1 - ol.box.y0, size,
+                                  self.labelState.label?.stretch.map { $0.map { String(format: "%.2f", $0) }.joined(separator: " ") } ?? "none")
                         }
                     case "delete": self.removeLabel()
                     case "copy": self.clipCopy()

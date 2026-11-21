@@ -12,6 +12,7 @@
 //! SPDX-License-Identifier: AGPL-3.0-or-later
 
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct LabelCard: View {
     let workspace: Workspace
@@ -37,6 +38,7 @@ struct LabelCard: View {
                   ("start", "Start", "°", -360, 360, "The angle of the first tick (0: to the right, 90: up)"),
                   ("sweep", "Sweep", "°", -360, 360, "The angle from the first tick to the last (negative: clockwise)")],
         "polyline": [("width", "Width", "mm", 0, 100, "The width of the line (0 with Filled)")],
+        "svg": [("size", "Height", "mm", 0.5, 500, "The height of the picture")],
     ]
 
     private var st: LabelState { workspace.labelState }
@@ -82,6 +84,8 @@ struct LabelCard: View {
                 }
                 .help("Add a shape to this label: it shares the place, the turn, and the filament. Ticks go around the center, under the text.")
                 .fixedSize()
+                Button("Place an SVG…") { pickSVG() }
+                    .help("Put the filled shapes of an SVG file on the label. You can also drop an SVG file on a part.")
                 HStack {
                     Text("Turn").frame(width: 70, alignment: .leading)
                     LabelNumberField(value: (l.angle * 10).rounded() / 10, min: -180, max: 180) { workspace.setLabelAngle($0); return true }
@@ -91,6 +95,7 @@ struct LabelCard: View {
                 Text("Filament").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
                 FilamentChips(model: workspace.model, value: String(l.filament)) { workspace.setLabelFilament(Int($0) ?? 1) }
                 depthRow(l)
+                modeRow(l)
                 Text("Print").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
                 info
                 Button("Delete the Label", role: .destructive) { workspace.removeLabel() }
@@ -151,6 +156,17 @@ struct LabelCard: View {
 
     @ViewBuilder
     private func itemBox(_ l: PartLabel, _ it: LabelItem, _ i: Int) -> some View {
+        if it.kind == "svg" {
+            HStack {
+                Text("SVG picture").font(.callout.weight(.medium))
+                Spacer()
+                if l.items.count > 1 {
+                    Button { workspace.removeLabelItem(i) } label: { Image(systemName: "xmark") }
+                        .buttonStyle(.borderless)
+                        .help("Remove this shape from the label")
+                }
+            }
+        } else {
         HStack(spacing: 2) {
             ForEach(LabelItem.shapes, id: \.self) { k in
                 ChoiceButton(title: LabelItem.shapeNames[k] ?? k, on: it.kind == k) { workspace.setLabelShape(i, k) }
@@ -161,6 +177,7 @@ struct LabelCard: View {
                     .buttonStyle(.borderless)
                     .help("Remove this shape from the label")
             }
+        }
         }
         if it.kind == "text" {
             TextField("Text", text: Binding(get: { it.text ?? "" }, set: { t in _ = workspace.editLabelItem(i) { $0.text = String(t.utf8.prefix(256)) ?? t } }))
@@ -196,6 +213,40 @@ struct LabelCard: View {
                 .help("Up from the center of the label, mm")
             Text("mm").foregroundStyle(.secondary)
         }
+    }
+
+    /// Ink, Raised, or Cut in, and the relief of a raised or cut label.
+    @ViewBuilder
+    private func modeRow(_ l: PartLabel) -> some View {
+        let mode = l.mode ?? "ink"
+        HStack {
+            Text("Print").frame(width: 70, alignment: .leading)
+            ForEach(PartLabel.modes, id: \.self) { m in
+                ChoiceButton(title: PartLabel.modeNames[m] ?? m, on: mode == m) { workspace.setLabelMode(m) }
+                    .help(m == "ink" ? "Flush with the surface, in the filament of the label" : m == "raised" ? "Out of the surface by the relief" : "Cut into the surface by the relief")
+            }
+        }
+        if mode != "ink" {
+            HStack {
+                Text("Relief").frame(width: 70, alignment: .leading)
+                LabelNumberField(value: (l.relief ?? 0) > 0 ? l.relief! : PartLabel.defaultRelief, min: 0.1, max: 10) { workspace.setLabelRelief($0); return true }
+                    .help("The height of a raised label, or the depth of a cut, mm")
+                Text("mm").foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    /// Place an SVG…: an open panel for an .svg file (at most 512 KiB).
+    private func pickSVG() {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.svg]
+        panel.allowsMultipleSelection = false
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        guard let d = try? Data(contentsOf: url), d.count <= 512 * 1024, let text = String(data: d, encoding: .utf8) else {
+            workspace.showNote("The SVG did not read: a text file of at most 512 KiB.")
+            return
+        }
+        workspace.placeLabelSVG(text, name: url.lastPathComponent)
     }
 
     private func depthRow(_ l: PartLabel) -> some View {
@@ -327,67 +378,48 @@ private struct ChoiceButton: View {
 }
 
 /// The corner handle of the selected label: a drag scales it.
-/// The round handle over the top of the selected label: a drag around
-/// the label turns it (Shift: steps of 15°).
-struct LabelTurnHandle: View {
+/// The handles of the selected label, drawn in its plane on the screen:
+/// the frame around its box, a square at each corner (a drag resizes the
+/// label about the opposite corner; Shift: each axis on its own), and the
+/// round turn handle over the frame (Shift: steps of 15°). The guides of
+/// the snap show as thin lines during a drag. The view of the slice takes
+/// the presses (Workspace.labelPress), so this view draws only.
+struct LabelHandles: View {
     let workspace: Workspace
-    @State private var start: (label: PartLabel, center: CGPoint, a0: Double, sign: Double)?
+
+    private static let ink = Color(red: 0.98, green: 0.78, blue: 0.1)
+    private static let guide = Color(red: 1, green: 0.18, blue: 0.58)
 
     var body: some View {
-        if let at = workspace.labelState.turnAt {
-            Circle()
-                .fill(Color.yellow)
-                .overlay(Circle().strokeBorder(.black.opacity(0.4)))
-                .frame(width: 13, height: 13)
-                .position(at)
-                .help("Drag to turn the label. Shift: steps of 15°.")
-                .gesture(DragGesture(minimumDistance: 1)
-                    .onChanged { g in
-                        if start == nil, let l = workspace.labelState.label, let c = workspace.labelScreenCenter() {
-                            start = (l, c, atan2(g.startLocation.y - c.y, g.startLocation.x - c.x), workspace.labelTurnSign(l))
-                            workspace.labelState.scaling = true
-                        }
-                        guard let s = start else { return }
-                        workspace.turnLabelHandle(from: s.label, center: s.center, a0: s.a0, sign: s.sign, to: g.location,
-                                                  snap: NSEvent.modifierFlags.contains(.shift))
-                    }
-                    .onEnded { _ in
-                        start = nil
-                        workspace.labelState.scaling = false
-                        workspace.flushLabel()
-                    })
-                .accessibilityHidden(true)
+        let st = workspace.labelState
+        Canvas { ctx, _ in
+            func path(_ pts: [CGPoint]) -> Path {
+                var p = Path()
+                guard let first = pts.first else { return p }
+                p.move(to: first)
+                for q in pts.dropFirst() { p.addLine(to: q) }
+                p.closeSubpath()
+                return p
+            }
+            for (a, b) in st.guides {
+                var p = Path()
+                p.move(to: a)
+                p.addLine(to: b)
+                ctx.stroke(p, with: .color(Self.guide), lineWidth: 1)
+            }
+            if st.frame.count == 4 {
+                ctx.stroke(path(st.frame), with: .color(Self.ink.opacity(0.9)), style: StrokeStyle(lineWidth: 1, dash: [4, 3]))
+            }
+            for c in st.corners where c.count == 4 {
+                ctx.fill(path(c), with: .color(.white))
+                ctx.stroke(path(c), with: .color(Self.ink), lineWidth: 1.5)
+            }
+            if st.turnRing.count > 2 {
+                ctx.fill(path(st.turnRing), with: .color(Self.ink))
+                ctx.stroke(path(st.turnRing), with: .color(.black.opacity(0.4)), lineWidth: 1)
+            }
         }
-    }
-}
-
-struct LabelHandle: View {
-    let workspace: Workspace
-    @State private var start: (label: PartLabel, center: CGPoint, d0: CGFloat)?
-
-    var body: some View {
-        if let at = workspace.labelState.handleAt {
-            Circle()
-                .fill(Color.yellow)
-                .overlay(Circle().strokeBorder(.black.opacity(0.4)))
-                .frame(width: 14, height: 14)
-                .position(at)
-                .help("Drag to make the label larger or smaller")
-                .gesture(DragGesture(minimumDistance: 1)
-                    .onChanged { g in
-                        if start == nil, let l = workspace.labelState.label, let c = workspace.labelScreenCenter() {
-                            start = (l, c, Swift.max(4, hypot(g.startLocation.x - c.x, g.startLocation.y - c.y)))
-                            workspace.labelState.scaling = true
-                        }
-                        guard let s = start else { return }
-                        workspace.scaleLabel(from: s.label, by: hypot(g.location.x - s.center.x, g.location.y - s.center.y) / s.d0)
-                    }
-                    .onEnded { _ in
-                        start = nil
-                        workspace.labelState.scaling = false
-                        workspace.flushLabel()
-                    })
-                .accessibilityHidden(true)
-        }
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
     }
 }
