@@ -1195,7 +1195,15 @@ function pairPrinter(name, fresh = false) {
               const had = store.printers[label];
               // The profile of the printer: the library model of its
               // product name, else the one it had.
-              const m = had?.profile ? null : await findModel(wasm, q.model || q.label || q.name).catch(() => null);
+              // The model, then the full name, then the short label: a label
+              // ("TAZ") alone matched the first TAZ, a TAZ 6.
+              let m = null;
+              if (!had?.profile) {
+                for (const hint of [q.model, q.name, q.label]) {
+                  m = hint ? await findModel(wasm, hint).catch(() => null) : null;
+                  if (m) break;
+                }
+              }
               store.printers[label] = {
                 profile: had?.profile ?? m?.profile ?? (fresh ? "" : p.profile ?? ""),
                 url: q.url ? deckAddress(base, q.url) : base, kind: "printdeck", apiKey: r.key,
@@ -4267,6 +4275,7 @@ function benchPick(step = 40) {
 
 // For tests: the state of the page.
 window.zslice = {
+  wasm,
   project,
   clipboard,
   labelTool,

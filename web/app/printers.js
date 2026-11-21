@@ -142,16 +142,34 @@ const text = (wasm, fn, i, ...args) => wasm.readText((buf, cap, len) => fn(lib, 
 export async function findModel(wasm, product) {
   const words = (s) => String(s ?? "").toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
   const want = words(product);
-  if (want.length === 0) return null;
+  // One word ("TAZ") names a family, not a model: no match.
+  if (want.length < 2) return null;
   await load(wasm);
   const { idx } = search(wasm, product, -1);
-  for (const i of idx.slice(0, 8)) {
+  // Of the models with all the words: first the nozzle in the title
+  // nearest 0.5 mm (the stock size of a family: "TAZ Workhorse" is a
+  // 0.5 mm model, not the AST285), then the fewest other words (the
+  // closest name); a tie keeps the order of the search.
+  const size = (t) => {
+    const n = /(\d+(?:\.\d+)?) mm$/.exec(t);
+    return n ? Math.abs(Number(n[1]) - 0.5) : 1;
+  };
+  let best = null;
+  let bestExtra = Infinity;
+  for (const i of idx.slice(0, 40)) {
     const m = model(wasm, i);
     if (!m) continue;
     const have = words(`${m.brand} ${m.name} ${m.title}`);
-    if (want.every((w) => have.includes(w))) return { model: m, profile: profileText(wasm, i, m.nozzle) };
+    if (!want.every((w) => have.includes(w))) continue;
+    const extra = size(m.title) * 100 + words(m.title).filter((w) => !want.includes(w)).length;
+    if (extra < bestExtra) {
+      best = i;
+      bestExtra = extra;
+    }
   }
-  return null;
+  if (best === null) return null;
+  const m = model(wasm, best);
+  return { model: m, profile: profileText(wasm, best, m.nozzle) };
 }
 
 // The machine profile of model i (zs_printers_profile).
