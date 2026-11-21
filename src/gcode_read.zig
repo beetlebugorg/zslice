@@ -31,6 +31,8 @@
 //!    Cura), or from a quick estimate: the time of each move is its
 //!    length over its speed, with the time to speed up and slow down. A
 //!    total time in a comment of the slicer scales the estimate.
+//! 6. The comments of the slicer at the start and at the end of the file
+//!    (its name, the filament, and its settings) go to gcode_meta.zig.
 //!
 //! The reader gets the file in pieces of any size (`feed`), so a host
 //! can stream a large file and never hold all of it. The segments are 24
@@ -41,6 +43,7 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const flow = @import("flow.zig");
+const gcode_meta = @import("gcode_meta.zig");
 pub const Feature = @import("settings.zig").Feature;
 
 /// The feature code of a travel (a move with no plastic).
@@ -120,6 +123,11 @@ pub const Reader = struct {
     filament: f32 = 0,
     /// The size of the file (bytes).
     size: u64 = 0,
+    /// The filament of the beads (mm): the sum of their E.
+    extruded: f64 = 0,
+    /// The notes of the slicer: its name, and the "key = value" comments
+    /// of the start and the end of the file (see gcode_meta.zig).
+    meta: gcode_meta.Meta = .{},
 
     // The state of the parse.
     /// A line that the last piece cut: its bytes so far, and its offset.
@@ -154,6 +162,7 @@ pub const Reader = struct {
         r.beads_before.deinit(r.gpa);
         r.layers.deinit(r.gpa);
         r.tail.deinit(r.gpa);
+        r.meta.deinit(r.gpa);
         r.* = undefined;
     }
 
@@ -429,6 +438,8 @@ pub const Reader = struct {
         try r.push(s);
         if (bead) {
             r.bead_count += 1;
+            r.extruded += de;
+            r.meta.bead();
             const a = [3]f32{ @floatCast(r.pos[0]), @floatCast(r.pos[1]), @floatCast(p[2]) };
             const b = [3]f32{ s.x, s.y, s.z };
             grow(&r.box, a, b, h);
@@ -555,6 +566,8 @@ pub const Reader = struct {
                 if (std.mem.startsWith(u8, c, "Z_HEIGHT:")) return r.noteZ(c["Z_HEIGHT:".len..]);
             },
             'H' => if (std.mem.startsWith(u8, c, "HEIGHT:")) return r.noteHeight(c["HEIGHT:".len..]),
+            'G', 'g' => if (std.ascii.startsWithIgnoreCase(c, "generated ")) return r.meta.slicerLine(c),
+            'B' => if (std.mem.startsWith(u8, c, "BambuStudio ")) return r.meta.slicerLine(c),
             'E', 'e' => if (std.ascii.startsWithIgnoreCase(c, "estimated time:")) {
                 // zslice: ";Estimated time: 3026s".
                 r.total_note = @floatCast(duration(c["estimated time:".len..]));
@@ -571,6 +584,7 @@ pub const Reader = struct {
         const key = std.mem.trim(u8, c[0..sep], " ");
         var i: usize = sep + 1;
         while (i < c.len and c[i] == ' ') i += 1;
+        try r.meta.note(r.gpa, key, std.mem.trimEnd(u8, c[i..], " \t"));
         if (std.mem.endsWith(u8, key, "filament_diameter") or std.mem.endsWith(u8, key, "filament.diameter") or std.mem.endsWith(u8, key, "material_diameter")) {
             if (num(c, &i)) |d| if (d > 0.5 and d < 5) {
                 r.diameter_note = @floatCast(d);
@@ -1068,6 +1082,32 @@ test "gcode_read: Cura G-code with absolute E" {
     try testing.expectApproxEqAbs(@as(f32, 25), @as(f32, r.at(last).speed), 1e-3);
     const skin_off = std.mem.indexOf(u8, cura_sample, "G1 F1500").? + 10;
     try testing.expectEqual(@as(u8, @intFromEnum(Feature.skin)), r.at(r.segmentAt(skin_off + 20).?).feature);
+}
+
+test "gcode_read: the notes of the slicer" {
+    const text =
+        \\;FLAVOR:Marlin
+        \\;Filament used: 0.5m
+        \\;Layer height: 0.2
+        \\;Generated with Cura_SteamEngine 5.13.0
+        \\G1 Z0.2 F600
+        \\G1 X10 Y0 E1
+        \\;WIDTH:0.45
+        \\G1 X10 Y10 E2
+        \\;Filament weight: 1.5g
+        \\;  project.layer_height = 0.2
+        \\
+    ;
+    var r = try Reader.parse(testing.allocator, text);
+    defer r.deinit();
+    const m = &r.meta;
+    try testing.expectEqualStrings("Cura_SteamEngine 5.13.0", m.slicer());
+    // The note between the beads (WIDTH) is gone.
+    try testing.expectEqual(@as(usize, 5), m.count());
+    try testing.expectEqualStrings("project.layer_height", m.key(4));
+    try testing.expectApproxEqAbs(@as(f64, 0.5), m.meters().?, 1e-9);
+    try testing.expectApproxEqAbs(@as(f64, 1.5), m.grams().?, 1e-9);
+    try testing.expectApproxEqAbs(@as(f64, 2), r.extruded, 1e-9);
 }
 
 test "gcode_read: PrusaSlicer G-code with 2.85 mm filament" {

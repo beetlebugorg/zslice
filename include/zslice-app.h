@@ -1809,6 +1809,23 @@ typedef struct zs_gcode_info {
 } zs_gcode_info;
 int zs_gcode_get_info(const zs_gcode *g, zs_gcode_info *out);
 
+/* The facts that the slicer writes in comments (see src/gcode_meta.zig).
+ * The texts stay valid while the zs_gcode lives. */
+typedef struct zs_gcode_meta {
+    const char *slicer;  /* the slicer and its version, or "" */
+    double filament_m;   /* the filament length (m): from a comment, else
+                            the sum of the E of the beads */
+    double filament_g;   /* the filament weight (g): from a comment, else
+                            an estimate for PLA (1.24 g/cm3) */
+    int weight_known;    /* 1 if filament_g comes from a comment */
+    size_t notes;        /* the count of notes (zs_gcode_get_note) */
+} zs_gcode_meta;
+int zs_gcode_get_meta(const zs_gcode *g, zs_gcode_meta *out);
+/* Note i: a comment "key = value" or "key: value" of the start of the file
+ * (before the first bead) or of its end (after the last bead). It has the
+ * header of the slicer and its settings. ZS_OUT_OF_RANGE for i >= notes. */
+int zs_gcode_get_note(const zs_gcode *g, size_t i, const char **key, const char **value);
+
 /* A byte offset counts the bytes read: a printer at offset p has read the
  * lines that end at or before p (the file position of Klipper). */
 typedef struct zs_gcode_layer {

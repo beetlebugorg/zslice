@@ -14,6 +14,7 @@ Link `zig-out/lib/libzslice.a` with `-lc -lm -lpthread -ldl`. The library loads 
 ## The flow
 
 1. Read the file: `zs_gcode_open(path, &g)`. To stream it (an upload), use `zs_gcode_new`, then `zs_gcode_feed` for each piece, then `zs_gcode_finish`. The reader reads G-code of zslice, Cura, PrusaSlicer, OrcaSlicer, and Bambu Studio.
+   The facts of the file: `zs_gcode_get_info` (the size, the layers, the time, the box) and `zs_gcode_get_meta` (the slicer, the filament length and weight). `zs_gcode_get_note` gives each "key = value" comment of the start and the end of the file: the header of the slicer and its settings.
 2. Make the view: `zs_view_offscreen(800, 480, ZS_VIEW_REDUCED | ZS_VIEW_BGRA, &v)`. The view needs no window system and no display.
 3. Show the file: `zs_view_load_gcode(v, g, bed_x, bed_y)`. Keep `g` while the view shows it.
 4. On each change, set the state, then draw and read the pixels:

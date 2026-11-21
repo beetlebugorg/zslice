@@ -122,6 +122,48 @@ export fn zs_gcode_get_info(g: ?*const GCode, out: ?*Info) c_int {
     return ok;
 }
 
+pub const Meta = extern struct {
+    slicer: [*:0]const u8,
+    filament_m: f64,
+    filament_g: f64,
+    weight_known: c_int,
+    notes: usize,
+};
+
+/// The facts of the slicer (see gcode_meta.zig). The slicer text stays
+/// valid while the zs_gcode lives.
+export fn zs_gcode_get_meta(g: ?*const GCode, out: ?*Meta) c_int {
+    const r = finished(g) orelse return bad();
+    const o = out orelse return bad();
+    const m = &r.meta;
+    const meters = m.meters() orelse r.extruded / 1000;
+    const known = m.grams();
+    // With no weight in the file: PLA (1.24 g/cm3) of the filament
+    // diameter of the reader.
+    const radius: f64 = r.filament / 2;
+    const estimate = meters * 1000 * std.math.pi * radius * radius / 1000 * 1.24;
+    o.* = .{
+        .slicer = m.slicer().ptr,
+        .filament_m = meters,
+        .filament_g = known orelse estimate,
+        .weight_known = @intFromBool(known != null),
+        .notes = m.count(),
+    };
+    return ok;
+}
+
+/// Note i of the slicer: its key and its value. Both stay valid while the
+/// zs_gcode lives.
+export fn zs_gcode_get_note(g: ?*const GCode, i: usize, key: ?*[*:0]const u8, value: ?*[*:0]const u8) c_int {
+    const r = finished(g) orelse return bad();
+    const k = key orelse return bad();
+    const v = value orelse return bad();
+    if (i >= r.meta.count()) return @intFromEnum(Status.out_of_range);
+    k.* = r.meta.key(i).ptr;
+    v.* = r.meta.value(i).ptr;
+    return ok;
+}
+
 pub const LayerInfo = extern struct {
     start: u64,
     end: u64,
