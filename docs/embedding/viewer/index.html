@@ -91,8 +91,125 @@
 <p class="eyebrow">Embedding</p>
 <h1>The G-code viewer for a web page</h1>
 
-<nav class="onpage"><b>On this page</b><ol><li><a href="#build">Build</a></li><li><a href="#serve">Serve</a></li><li><a href="#use">Use</a></li><li><a href="#the-calls">The calls</a></li><li><a href="#the-mouse-the-touchpad-and-touch">The mouse, the touchpad, and touch</a></li><li><a href="#large-files">Large files</a></li><li><a href="#test">Test</a></li></ol></nav><p>The viewer shows a G-code file in the 3D view of zslice, on a canvas of your page. It reads G-code of zslice, CuraEngine, PrusaSlicer, OrcaSlicer, and Bambu Studio. It has the beads, the light, and the feature colors of the app and of the printdeck screen. It has no tools and no panel. Your page draws its own controls, for example a layer slider.</p>
+<nav class="onpage"><b>On this page</b><ol><li><a href="#try-it">Try it</a></li><li><a href="#build">Build</a></li><li><a href="#serve">Serve</a></li><li><a href="#use">Use</a></li><li><a href="#the-calls">The calls</a></li><li><a href="#the-mouse-the-touchpad-and-touch">The mouse, the touchpad, and touch</a></li><li><a href="#large-files">Large files</a></li><li><a href="#test">Test</a></li></ol></nav><p>The viewer shows a G-code file in the 3D view of zslice, on a canvas of your page. It reads G-code of zslice, CuraEngine, PrusaSlicer, OrcaSlicer, and Bambu Studio. It has the beads, the light, and the feature colors of the app and of the printdeck screen. It has no tools and no panel. Your page draws its own controls, for example a layer slider.</p>
 <p>The viewer uses <code>zslice.wasm</code>, the module with no threads. It needs no worker and no cross-origin isolation.</p>
+<h2 id="try-it">Try it</h2>
+<p>This page runs the viewer on a G-code file of zslice: the bridge test part of <code>tools/calib/parts/bridges.stl</code>. Drag in the view to turn it. Move the slider to show fewer layers. The code under the demo is the code that runs it.</p>
+<div class="live"><canvas id="gcode-view" style="width: 100%; height: 380px; touch-action: none"></canvas>
+<label>Layer <input id="gcode-layer" type="range" min="1" value="1"> <output id="gcode-note">Loading…</output></label>
+<script type="module">
+  import { ZsliceView } from "../../zslice-view.js";
+
+  const canvas = document.getElementById("gcode-view");
+  const slider = document.getElementById("gcode-layer");
+  const note = document.getElementById("gcode-note");
+  try {
+    const v = await ZsliceView.create(canvas);
+    const info = await v.loadGcode(await fetch("bridges.gcode"), { bedX: 220, bedY: 220 });
+    slider.max = info.layers;
+    slider.value = info.layers;
+    const show = () => {
+      v.setLayer(slider.value - 1);
+      note.textContent = `${slider.value} of ${info.layers}`;
+    };
+    slider.oninput = show;
+    show();
+  } catch (e) {
+    note.textContent = `The viewer did not start: ${e.message}`;
+  }
+</script></div>
+<pre><code>&lt;canvas id="gcode-view" style="width: 100%; height: 380px; touch-action: none"&gt;&lt;/canvas&gt;
+&lt;label&gt;Layer &lt;input id="gcode-layer" type="range" min="1" value="1"&gt; &lt;output id="gcode-note"&gt;Loading…&lt;/output&gt;&lt;/label&gt;
+&lt;script type="module"&gt;
+  import { ZsliceView } from "../../zslice-view.js";
+
+  const canvas = document.getElementById("gcode-view");
+  const slider = document.getElementById("gcode-layer");
+  const note = document.getElementById("gcode-note");
+  try {
+    const v = await ZsliceView.create(canvas);
+    const info = await v.loadGcode(await fetch("bridges.gcode"), { bedX: 220, bedY: 220 });
+    slider.max = info.layers;
+    slider.value = info.layers;
+    const show = () =&gt; {
+      v.setLayer(slider.value - 1);
+      note.textContent = `${slider.value} of ${info.layers}`;
+    };
+    slider.oninput = show;
+    show();
+  } catch (e) {
+    note.textContent = `The viewer did not start: ${e.message}`;
+  }
+&lt;/script&gt;</code></pre>
+<h3 id="follow-a-print">Follow a print</h3>
+<p>A printer host gives the viewer the file position of the printer. The view shows the moves before it, with the nozzle at the last one. In this demo, ▶ moves the position through the file, as a printer does.</p>
+<div class="live"><canvas id="print-view" style="width: 100%; height: 380px; touch-action: none"></canvas>
+<label><button id="print-play" type="button">▶</button> <input id="print-at" type="range" min="0" value="0"> <output id="print-note">Loading…</output></label>
+<script type="module">
+  import { ZsliceView } from "../../zslice-view.js";
+
+  const canvas = document.getElementById("print-view");
+  const slider = document.getElementById("print-at");
+  const play = document.getElementById("print-play");
+  const note = document.getElementById("print-note");
+  try {
+    const v = await ZsliceView.create(canvas);
+    const info = await v.loadGcode(await fetch("bridges.gcode"), { bedX: 220, bedY: 220 });
+    slider.max = info.size;
+    const show = () => {
+      v.setPosition(Number(slider.value));
+      note.textContent = `${Math.round((100 * slider.value) / info.size)} %`;
+    };
+    slider.oninput = show;
+    let timer = 0;
+    play.onclick = () => {
+      clearInterval(timer);
+      if (Number(slider.value) >= info.size) slider.value = 0;
+      timer = setInterval(() => {
+        slider.value = Math.min(info.size, Number(slider.value) + info.size / 600);
+        show();
+        if (Number(slider.value) >= info.size) clearInterval(timer);
+      }, 50);
+    };
+    show();
+  } catch (e) {
+    note.textContent = `The viewer did not start: ${e.message}`;
+  }
+</script></div>
+<pre><code>&lt;canvas id="print-view" style="width: 100%; height: 380px; touch-action: none"&gt;&lt;/canvas&gt;
+&lt;label&gt;&lt;button id="print-play" type="button"&gt;▶&lt;/button&gt; &lt;input id="print-at" type="range" min="0" value="0"&gt; &lt;output id="print-note"&gt;Loading…&lt;/output&gt;&lt;/label&gt;
+&lt;script type="module"&gt;
+  import { ZsliceView } from "../../zslice-view.js";
+
+  const canvas = document.getElementById("print-view");
+  const slider = document.getElementById("print-at");
+  const play = document.getElementById("print-play");
+  const note = document.getElementById("print-note");
+  try {
+    const v = await ZsliceView.create(canvas);
+    const info = await v.loadGcode(await fetch("bridges.gcode"), { bedX: 220, bedY: 220 });
+    slider.max = info.size;
+    const show = () =&gt; {
+      v.setPosition(Number(slider.value));
+      note.textContent = `${Math.round((100 * slider.value) / info.size)} %`;
+    };
+    slider.oninput = show;
+    let timer = 0;
+    play.onclick = () =&gt; {
+      clearInterval(timer);
+      if (Number(slider.value) &gt;= info.size) slider.value = 0;
+      timer = setInterval(() =&gt; {
+        slider.value = Math.min(info.size, Number(slider.value) + info.size / 600);
+        show();
+        if (Number(slider.value) &gt;= info.size) clearInterval(timer);
+      }, 50);
+    };
+    show();
+  } catch (e) {
+    note.textContent = `The viewer did not start: ${e.message}`;
+  }
+&lt;/script&gt;</code></pre>
+<p>On your site, change the two paths: the path of <code>zslice-view.js</code> in your folder, and the URL of your G-code file. The viewer loads <code>zslice.wasm</code> from the folder of <code>zslice-view.js</code>.</p>
 <h2 id="build">Build</h2>
 <pre><code>zig build web-view</code></pre>
 <p>The files go in <code>zig-out/web/view</code>:</p>

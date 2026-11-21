@@ -4,6 +4,78 @@ The viewer shows a G-code file in the 3D view of zslice, on a canvas of your pag
 
 The viewer uses `zslice.wasm`, the module with no threads. It needs no worker and no cross-origin isolation.
 
+## Try it
+
+This page runs the viewer on a G-code file of zslice: the bridge test part of `tools/calib/parts/bridges.stl`. Drag in the view to turn it. Move the slider to show fewer layers. The code under the demo is the code that runs it.
+
+```html live
+<canvas id="gcode-view" style="width: 100%; height: 380px; touch-action: none"></canvas>
+<label>Layer <input id="gcode-layer" type="range" min="1" value="1"> <output id="gcode-note">Loading…</output></label>
+<script type="module">
+  import { ZsliceView } from "../../zslice-view.js";
+
+  const canvas = document.getElementById("gcode-view");
+  const slider = document.getElementById("gcode-layer");
+  const note = document.getElementById("gcode-note");
+  try {
+    const v = await ZsliceView.create(canvas);
+    const info = await v.loadGcode(await fetch("bridges.gcode"), { bedX: 220, bedY: 220 });
+    slider.max = info.layers;
+    slider.value = info.layers;
+    const show = () => {
+      v.setLayer(slider.value - 1);
+      note.textContent = `${slider.value} of ${info.layers}`;
+    };
+    slider.oninput = show;
+    show();
+  } catch (e) {
+    note.textContent = `The viewer did not start: ${e.message}`;
+  }
+</script>
+```
+
+### Follow a print
+
+A printer host gives the viewer the file position of the printer. The view shows the moves before it, with the nozzle at the last one. In this demo, ▶ moves the position through the file, as a printer does.
+
+```html live
+<canvas id="print-view" style="width: 100%; height: 380px; touch-action: none"></canvas>
+<label><button id="print-play" type="button">▶</button> <input id="print-at" type="range" min="0" value="0"> <output id="print-note">Loading…</output></label>
+<script type="module">
+  import { ZsliceView } from "../../zslice-view.js";
+
+  const canvas = document.getElementById("print-view");
+  const slider = document.getElementById("print-at");
+  const play = document.getElementById("print-play");
+  const note = document.getElementById("print-note");
+  try {
+    const v = await ZsliceView.create(canvas);
+    const info = await v.loadGcode(await fetch("bridges.gcode"), { bedX: 220, bedY: 220 });
+    slider.max = info.size;
+    const show = () => {
+      v.setPosition(Number(slider.value));
+      note.textContent = `${Math.round((100 * slider.value) / info.size)} %`;
+    };
+    slider.oninput = show;
+    let timer = 0;
+    play.onclick = () => {
+      clearInterval(timer);
+      if (Number(slider.value) >= info.size) slider.value = 0;
+      timer = setInterval(() => {
+        slider.value = Math.min(info.size, Number(slider.value) + info.size / 600);
+        show();
+        if (Number(slider.value) >= info.size) clearInterval(timer);
+      }, 50);
+    };
+    show();
+  } catch (e) {
+    note.textContent = `The viewer did not start: ${e.message}`;
+  }
+</script>
+```
+
+On your site, change the two paths: the path of `zslice-view.js` in your folder, and the URL of your G-code file. The viewer loads `zslice.wasm` from the folder of `zslice-view.js`.
+
 ## Build
 
 ```sh

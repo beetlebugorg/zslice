@@ -92,6 +92,11 @@ pub fn build(b: *std.Build) void {
     // The printer library: the picker loads it when it opens (the wasm
     // module does not embed it).
     web_step.dependOn(&b.addInstallFileWithDir(b.path("src/printers/library.txt"), .{ .custom = "web/app" }, "printers.txt").step);
+    // The module of the G-code viewer (web/view). The site is the docs
+    // folder with this folder on top, so the viewer page of the docs runs
+    // its demo from these files: zslice-view.js, view.js, gl.js, wasm.js,
+    // input.js, and zslice.wasm.
+    web_step.dependOn(&b.addInstallFileWithDir(b.path("web/view/zslice-view.js"), .{ .custom = "web/app" }, "zslice-view.js").step);
     // The bed models of the printers: the page loads the files of the
     // current printer from beds/ (see web/app/README.md).
     web_step.dependOn(&b.addInstallDirectory(.{

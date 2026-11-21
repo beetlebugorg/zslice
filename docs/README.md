@@ -40,7 +40,7 @@
 - [Zig API](embedding/zig.md)
 - [C API](embedding/c.md)
 - [JavaScript and WebAssembly](embedding/javascript.md)
-- [The G-code viewer](embedding/viewer.md): a 3D view of a G-code file on a web page.
+- [The G-code viewer](embedding/viewer.md): a 3D view of a G-code file on a web page, with a live demo.
 
 ## The app
 

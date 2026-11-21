@@ -2,6 +2,8 @@
 
 A printer host (for example printdeck, in Go on a Raspberry Pi 5) can show the print as the zslice 3D view: the same beads, light, and colors as a slice, in a reduced view with no tools. The host gives the file position of the printer, and the view draws the print up to it. The calls are in `include/zslice-app.h`, in the part "a print view".
 
+A web page can do the same with [the G-code viewer](viewer.md): Give the file position of the printer to `setPosition`. The viewer page has a live demo: [Follow a print](viewer.md#follow-a-print).
+
 ## Build
 
 ```sh
