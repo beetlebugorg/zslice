@@ -339,18 +339,18 @@ charttable, `src/gpu/gpu_vk.zig` (same author, MIT license)
 kind: idea
 source: Lookout Marine
 license: MIT
-files: windows/build-core.ps1
+files: windows/build-core.ps1, windows/ZSlice.vcxproj, windows/src/app/MainWindow.xaml.cpp, windows/src/app/winrt_glue.cpp
 area: build
-summary: The layout of the Windows core build.
+summary: The layout of the Windows core build and of the WinUI project.
 ```
 
-Lookout Marine, `windows/build-core.ps1` at commit 221df217 (same author, MIT license)
+Lookout Marine, `windows/build-core.ps1` at commit 221df217, and `windows/LookoutMarine.vcxproj`, `windows/src/app/ui/winrt_glue.cpp`, and the panel code of `windows/src/chart/ui/Open.cpp` at commit 232224f3 (same author, MIT license)
 
 **License:** MIT
 
-**Used in:** `windows/build-core.ps1`
+**Used in:** `windows/build-core.ps1`, `windows/ZSlice.vcxproj`, `windows/src/app/MainWindow.xaml.cpp`, `windows/src/app/winrt_glue.cpp`
 
-**How zslice uses it:** The form of the script: one PowerShell step that runs `zig build lib` for the MSVC target of the platform. The code is new.
+**How zslice uses it:** The form of the script: one PowerShell step that runs `zig build lib` for the MSVC target of the platform. The layout of an unpackaged, self-contained WinUI 3 project that builds with msbuild, the unit that compiles the generated XAML files, and a swapchain in a SwapChainPanel with the inverse of the composition scale. The app code is new.
 
 ### Core and native shells
 

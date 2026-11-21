@@ -64,6 +64,7 @@ SOURCES = [
     ("docs/user/command-line.md", "user/command-line/", "Reference", "The command line"),
     ("docs/user/apps.md", "user/apps/", "Reference", "Web, Linux, and Mac"),
     ("docs/user/macos.md", "user/macos/", "Reference", "The macOS app"),
+    ("docs/user/windows.md", "user/windows/", "Reference", "The Windows app"),
     ("docs/user/troubleshooting.md", "user/troubleshooting/", "Reference", "Problems and errors"),
     ("docs/embedding/overview.md", "embedding/", "Embedding", "Overview"),
     ("docs/embedding/c.md", "embedding/c/", "Embedding", "C"),
