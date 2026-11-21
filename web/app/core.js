@@ -1032,6 +1032,17 @@ export class Core {
 
   // ---- the plate ----
 
+  // Imports the profile of another slicer (zs_app_profile_import):
+  // { error, rows }. rows: [kind, key, value, ...] (see the header).
+  importProfile(name, bytes) {
+    const w = this.w;
+    const rc = w.withString(name, (n) => w.withBytes(bytes, (p, len) => w.x.zs_app_profile_import(this.app, n, p, len)));
+    if (rc === 6) return { error: "The file is not a profile of PrusaSlicer, OrcaSlicer, Bambu Studio, or Cura." };
+    if (rc !== 0) return { error: `The profile did not import (${statusText(rc)}).` };
+    const text = w.readText((b, c, l) => w.x.zs_app_profile_import_report(this.app, b, c, l)) ?? "";
+    return { error: "", rows: text.split("\n").filter(Boolean).map((l) => l.split("\t")) };
+  }
+
   addStl(name, bytes) {
     const w = this.w;
     const r = w.withString(name, (n) => w.withBytes(bytes, (p, len) => w.x.zs_app_add_stl(this.app, n, p, len)));

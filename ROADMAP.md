@@ -23,7 +23,7 @@
 - [x] Ironing on top surfaces (`project.ironing`).
 - [x] Profiles. Machine, filament, and project profiles are separate files. Load order: machine, then filament, then project, then overrides. An override can change any field, for example `filament.nozzle_temp=230` for one project. Later: overrides for each object in a project.
 - [x] Profile format: TOML (a subset: comments, `key = value`, strings, numbers, booleans, multi-line strings), with a small parser in zslice. `extends = "name"` loads a base profile first. Example: a brand PLA profile, and a gray PLA profile that extends it and changes one value.
-- [x] Profile importers: Cura profile stacks (the printdeck TAZ profile `printdeck/profiles/taz-workhorse-se` is the first test case). PrusaSlicer and OrcaSlicer profiles are still open (see below).
+- [x] Profile importers: Cura profile stacks (the printdeck TAZ profile `printdeck/profiles/taz-workhorse-se` is the first test case), PrusaSlicer and OrcaSlicer profiles, and Cura profile exports.
 - [x] 3MF load.
 
 ## Done in November 2026
@@ -125,7 +125,7 @@ The goal is the features that people use in PrusaSlicer and Cura. zslice designs
 - [x] Profiles in the app: pick, edit, and save profiles, through the C API with a resolver callback
 - [x] Import of Cura profile stacks (the printdeck layout with cura.json)
 - [x] A list of each Cura and OrcaSlicer setting with its zslice setting (docs/user/setting-coverage.md)
-- [ ] Import of PrusaSlicer and OrcaSlicer profiles, and of a Cura profile export (.curaprofile)
+- [x] Import of PrusaSlicer and OrcaSlicer profiles, and of a Cura profile export (.curaprofile): the `.ini` files, the OrcaSlicer and Bambu Studio `.json` presets, the 3MF projects, a report of each value (set, clamped, not imported), in the apps and `zslice import`
 - [x] Shrinkage compensation and XY offsets for outlines, holes, and the first layer (imported from the printdeck rolls)
 - [x] A printer profile library
 - [x] Send to printer: printdeck, OctoPrint, Moonraker (native; the web app since 0.1.0-beta, and printer.json for a printer that serves the app)

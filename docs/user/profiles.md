@@ -22,7 +22,7 @@ zslice applies the settings in this order. Each step replaces the values of the 
 4. The project profile (`-p`).
 5. Each `-s group.name=value` on the command line.
 
-`zslice profiles` lists the built-in profiles. To convert Cura profiles, see [Import from Cura](#import-from-cura).
+`zslice profiles` lists the built-in profiles. To convert Cura profiles, see [Import from Cura](#import-from-cura). To read a profile of PrusaSlicer, OrcaSlicer, or Bambu Studio, see [Import from PrusaSlicer, OrcaSlicer, Bambu Studio, or Cura](#import-from-prusaslicer-orcaslicer-bambu-studio-or-cura).
 
 ## Write a profile
 
@@ -156,6 +156,47 @@ What the import does:
 | `material_shrinkage_percentage_xy` and `_z` (100.3) | `filament.shrinkage_xy` and `shrinkage_z` (1.003) |
 
 Each Cura setting that has no zslice setting yet is in a comment at the end of the profile. Read these comments: they show what the import did not keep. [Cura and OrcaSlicer settings](setting-coverage.md) lists each Cura setting and each OrcaSlicer setting, and the zslice setting that does the same.
+
+## Import from PrusaSlicer, OrcaSlicer, Bambu Studio, or Cura
+
+zslice reads the profiles of other slicers:
+
+- A PrusaSlicer or OrcaSlicer config file (`.ini`). A config bundle of PrusaSlicer also works: zslice reads the presets that its `[presets]` section names.
+- An OrcaSlicer or Bambu Studio preset (`.json`).
+- A 3MF project of PrusaSlicer, OrcaSlicer, or Bambu Studio: its print, filament, and printer settings.
+- A Cura profile export (`.curaprofile`).
+
+In the app, open the printer menu or the quality menu, and click **Import a profile…**. The search (Ctrl+K) has it too. The values of the file become changes of the settings now. Undo takes them back in one step. Then use **Save as profile…** to keep them.
+
+A window shows the report of the import:
+
+- **Set**: each value of the file, and the zslice setting and value that it became.
+- **Clamped to the limits of the setting**: a value out of the limits of its zslice setting. zslice uses the nearest value in the limits. The report shows the value that the file wanted.
+- **Not imported**: each key with no zslice setting, by its name, and why.
+
+The command line does the same, and writes the report to the output:
+
+```sh
+zslice import my-print.ini -o profiles
+```
+
+`-o` writes a profile for each group that the file sets: `profiles/machine/my-print.toml`, `profiles/filament/my-print.toml`, and `profiles/project/my-print.toml`.
+
+How the import converts the values:
+
+| The file | zslice |
+|---|---|
+| A speed in mm/s | A ratio: the speed divided by `machine.max_speed`. The printer limits of the file (`machine_max_feedrate_x` and `_y`) set `machine.max_speed` first. A speed over `machine.max_speed` becomes 1, and the report shows it as clamped. |
+| A speed in percent (`external_perimeter_speed = 50%`) | First the speed in mm/s, from the speed that the percentage is of in the file. Then a ratio. |
+| A percentage (infill, fan, flow) | A ratio |
+| A count of top or bottom layers | A thickness: the count times the layer height, at least the minimum thickness of the file |
+| A support threshold angle (from the horizontal) | `project.support_angle` (from the vertical): 90 minus the angle |
+| A support distance between lines | A density: the line width over the line width and the distance |
+| A support Z distance | A count of layers |
+| A line width in percent | Of the nozzle (OrcaSlicer) or of the layer height (PrusaSlicer) |
+| A value for each extruder (`215,215`) | The first value |
+| The bed temperature of each plate type (OrcaSlicer) | The temperature of the plate type of the printer (`machine.bed_type`) |
+| `inherits` (an OrcaSlicer preset) | The values of the parent preset are not in the file. zslice keeps its own values for them. |
 
 ## Errors
 

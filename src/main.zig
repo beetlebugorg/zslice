@@ -19,6 +19,7 @@ const usage =
     \\  zslice printers
     \\  zslice profile <machine|filament|project> [options]
     \\  zslice import cura <stack folder> -o <profiles folder>
+    \\  zslice import <profile file> [-o <profiles folder>]
     \\  zslice settings
     \\  zslice demo <out.stl>
     \\  zslice bench <model.stl> [options]
@@ -45,6 +46,10 @@ const usage =
     \\  import    Convert a Cura profile stack (a folder with cura.json, as in
     \\            the printdeck profiles) to zslice profiles. The output folder
     \\            gets machine/, filament/, and project/ files.
+    \\            Or convert the profile of another slicer: a PrusaSlicer or
+    \\            OrcaSlicer .ini, an OrcaSlicer .json preset, a 3MF project
+    \\            of these slicers, or a Cura .curaprofile. The report of
+    \\            each value goes to stdout; -o writes the profiles.
     \\  settings  List all settings and their default values.
     \\  gcode     Read a G-code file as the print view does (any slicer):
     \\            print the layers, the moves, the box, the time, the
@@ -168,9 +173,19 @@ pub fn main(init: std.process.Init) !void {
     }
 
     if (std.mem.eql(u8, cmd, "import")) {
-        if (args.len != 6 or !std.mem.eql(u8, args[2], "cura") or !std.mem.eql(u8, args[4], "-o")) fail(err, "{s}", .{usage});
-        try importCura(arena, io, err, args[3], args[5]);
-        return;
+        if (args.len == 6 and std.mem.eql(u8, args[2], "cura") and std.mem.eql(u8, args[4], "-o")) {
+            try importCura(arena, io, err, args[3], args[5]);
+            return;
+        }
+        if (args.len == 3) {
+            try importProfile(arena, io, err, args[2], null);
+            return;
+        }
+        if (args.len == 5 and std.mem.eql(u8, args[3], "-o")) {
+            try importProfile(arena, io, err, args[2], args[4]);
+            return;
+        }
+        fail(err, "{s}", .{usage});
     }
 
     if (std.mem.eql(u8, cmd, "gcode")) {
@@ -1258,6 +1273,37 @@ fn importCura(arena: std.mem.Allocator, io: Io, err: *Io.Writer, stack: []const 
         const path = try std.fmt.allocPrint(arena, "{s}/{s}.toml", .{ dir, o.name });
         try Io.Dir.cwd().writeFile(io, .{ .sub_path = path, .data = o.text });
         try err.print("wrote {s}\n", .{path});
+    }
+}
+
+fn importProfile(arena: std.mem.Allocator, io: Io, err: *Io.Writer, path: []const u8, out_dir: ?[]const u8) !void {
+    const bytes = Io.Dir.cwd().readFileAlloc(io, path, arena, .limited(256 << 20)) catch |e| fail(err, "{s}: {s}\n", .{ path, @errorName(e) });
+    const base: zslice.Settings = .{};
+    const r = zslice.import_profile.read(arena, bytes, std.fs.path.basename(path), &base) catch |e| switch (e) {
+        error.NotProfile => fail(err, "{s}: not a profile of PrusaSlicer, OrcaSlicer, Bambu Studio, or Cura\n", .{path}),
+        else => return e,
+    };
+    var buf: [4096]u8 = undefined;
+    var out_w: Io.File.Writer = .init(.stdout(), io, &buf);
+    try r.writeReport(&out_w.interface);
+    try out_w.interface.flush();
+    const dir = out_dir orelse return;
+    var s = base;
+    for (r.changes) |ch| try s.set(ch.name, ch.value);
+    const stem = std.fs.path.stem(path);
+    for ([_]profile.Group{ .machine, .filament, .project }) |g| {
+        var any = false;
+        for (r.changes) |ch| {
+            if (std.mem.startsWith(u8, ch.name, @tagName(g)) and ch.name[@tagName(g).len] == '.') any = true;
+        }
+        if (!any) continue;
+        var aw: Io.Writer.Allocating = .init(arena);
+        try profile.writeChanged(s, g, &aw.writer);
+        const gdir = try std.fs.path.join(arena, &.{ dir, @tagName(g) });
+        try Io.Dir.cwd().createDirPath(io, gdir);
+        const file = try std.fmt.allocPrint(arena, "{s}/{s}.toml", .{ gdir, stem });
+        try Io.Dir.cwd().writeFile(io, .{ .sub_path = file, .data = aw.written() });
+        try err.print("wrote {s}\n", .{file});
     }
 }
 

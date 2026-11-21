@@ -381,6 +381,8 @@ pub const App = struct {
     slice_filaments: []zs.settings.Filament = &.{},
     /// The last mesh of zs_app_part_mesh.
     mesh_out: ?zs.Mesh = null,
+    /// The report of the last profile import (zs_app_profile_import).
+    import_report: std.ArrayList(u8) = .empty,
 
     pub fn create(gpa: Allocator, event_fn: ?EventFn, user: ?*anyopaque) Allocator.Error!*App {
         const app = try gpa.create(App);
@@ -407,6 +409,7 @@ pub const App = struct {
         app.gpa.free(app.slice_filaments);
         app.gpa.free(app.slice_view_marks);
         if (app.mesh_out) |*m| m.deinit(app.gpa);
+        app.import_report.deinit(app.gpa);
         app.gpa.free(app.file_bytes);
         app.undo.deinit(app.gpa);
         app.edits.deinit(app.gpa);
@@ -1942,6 +1945,17 @@ pub const App = struct {
         var s = app.settings;
         try zs.profile.apply(a, &s, group, name, owned, null, diag);
         app.settings = s;
+    }
+
+    /// Imports the profile of another slicer (import_profile.zig): its
+    /// values become changes of the settings now, and `w` gets the
+    /// report. The settings change only if the file is a profile.
+    pub fn importProfile(app: *App, name: []const u8, bytes: []const u8, w: *std.Io.Writer) (zs.import_profile.Error || std.Io.Writer.Error)!void {
+        var arena_state = std.heap.ArenaAllocator.init(app.gpa);
+        defer arena_state.deinit();
+        const r = try zs.import_profile.read(arena_state.allocator(), bytes, name, &app.settings);
+        for (r.changes) |ch| app.setSetting(ch.name, ch.value) catch {};
+        try r.writeReport(w);
     }
 
     pub const OverrideError = Settings.SetError || error{ NotPerLayer, OutOfMemory };

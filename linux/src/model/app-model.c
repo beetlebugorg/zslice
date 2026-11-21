@@ -1024,6 +1024,32 @@ gboolean zg_model_load_profile(ZgModel *self, int group, const char *text, size_
     return TRUE;
 }
 
+static void undo_commit(ZgModel *self);
+
+char *zg_model_import_profile(ZgModel *self, const char *name, const guint8 *bytes, size_t len, GError **error) {
+    int rc = zs_app_profile_import(self->core, name, bytes, len);
+    if (rc == ZS_INVALID_VALUE) {
+        g_set_error(error, G_IO_ERROR, G_IO_ERROR_INVALID_DATA, "The file is not a profile of PrusaSlicer, OrcaSlicer, Bambu Studio, or Cura.");
+        return NULL;
+    }
+    if (rc != ZS_OK) {
+        g_set_error(error, G_IO_ERROR, G_IO_ERROR_FAILED, "The profile did not import (status %d).", rc);
+        return NULL;
+    }
+    size_t n = 0;
+    zs_app_profile_import_report(self->core, NULL, 0, &n);
+    char *report = g_malloc(n + 1);
+    zs_app_profile_import_report(self->core, report, n + 1, NULL);
+    static const char *prefixes[] = {"machine.", "filament.", "project."};
+    for (int g = 0; g < 3; g++) {
+        zg_model_announce(self, prefixes[g]);
+        zg_model_save_soon(self, g);
+    }
+    undo_commit(self);
+    slice_soon(self);
+    return report;
+}
+
 char *zg_model_group_text(ZgModel *self, int group) {
     size_t len = 0;
     if (zs_app_state_write(self->core, group, NULL, 0, &len) != ZS_OK) return g_strdup("");

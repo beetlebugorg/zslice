@@ -153,3 +153,18 @@ summary: The start G-code variables `first_layer_print_min` of PrusaSlicer and `
 ```
 
 PrusaSlicer has `first_layer_print_min` and `first_layer_print_max`, and OrcaSlicer has `adaptive_bed_mesh_min` and `adaptive_bed_mesh_max`: the box of the first layer, for a bed mesh of that area. zslice computes the box when a start G-code uses one of them (`usesFirstLayerBox` in `src/engine.zig`).
+
+### PrusaSlicer config files and their keys
+
+```ref
+kind: format
+source: PrusaSlicer
+license: AGPL-3.0
+link: https://github.com/prusa3d/PrusaSlicer
+version: PrusaSlicer 2.8 (src/libslic3r/PrintConfig.cpp)
+files: src/import_profile.zig
+area: files
+summary: The import of a PrusaSlicer config file, a config bundle, and the config of a 3MF project, with the meaning of each key that zslice maps.
+```
+
+PrusaSlicer saves its settings as `key = value` lines: an exported config (`.ini`), a config bundle with a section for each preset (`[print:Name]`) and a `[presets]` section, the end of a G-code file (`; key = value`), and `Metadata/Slic3r_PE.config` in a 3MF project. A text escapes a line break as `\n`. A value for each extruder is a list with commas. Some speeds are percentages of other speeds (`external_perimeter_speed` of `perimeter_speed`, `solid_infill_speed` of `infill_speed`), and a line width in percent is of the layer height. `support_material_threshold` is an angle from the horizontal plane. zslice reads these files and maps the keys to its settings. The format and the names only; no code is copied.

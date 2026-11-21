@@ -399,6 +399,11 @@ gboolean zg_model_can_redo(ZgModel *self);
  * defaults, then the text. On an error the settings stay as they were.
  * Saves the group and slices again. */
 gboolean zg_model_load_profile(ZgModel *self, int group, const char *text, size_t len, GError **error);
+/* Imports the profile of another slicer (zs_app_profile_import): its
+ * values become changes of the settings now. Returns the report
+ * (zs_app_profile_import_report; free with g_free), or NULL with the
+ * reason in error. Saves the groups and slices again. */
+char *zg_model_import_profile(ZgModel *self, const char *name, const guint8 *bytes, size_t len, GError **error);
 /* The settings of a group that differ from the defaults, as profile text
  * (zs_app_state_write). Free with g_free. */
 char *zg_model_group_text(ZgModel *self, int group);

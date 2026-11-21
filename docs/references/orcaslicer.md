@@ -135,3 +135,18 @@ summary: `project.overhang_wall_speed`, `project.overhang_wall_fan`, and `projec
 ```
 
 OrcaSlicer slows the parts of a wall by how much of the line hangs over the layer below (`overhang_1_4_speed` to `overhang_4_4_speed`), and turns the fan up from `overhang_fan_threshold`. Cura slows the walls over `wall_overhang_angle`. zslice has one speed and one fan for all wall parts that hang over air by more than a share of the line width. It finds them by the middle of each segment against the outline of the layer below, grown or shrunk by the threshold. The settings and the idea only; no code is copied.
+
+### OrcaSlicer presets and their keys
+
+```ref
+kind: format
+source: OrcaSlicer, Bambu Studio
+license: AGPL-3.0
+link: https://github.com/SoftFever/OrcaSlicer
+version: commit 5a1ffc6a631ead5886f1c22920deb341fc1a0106 (src/libslic3r/PrintConfig.cpp)
+files: src/import_profile.zig
+area: files
+summary: The import of an OrcaSlicer or Bambu Studio preset (.json) and of the settings of a 3MF project, with the meaning of each key that zslice maps.
+```
+
+OrcaSlicer and Bambu Studio keep a preset as a JSON object: a text, or a list of texts for each extruder, for each key, and `inherits` for the parent preset. A 3MF project has the same object in `Metadata/project_settings.config`. The bed temperature is for each plate type (`hot_plate_temp`, `textured_plate_temp`). A line width in percent is of the nozzle. `support_threshold_angle` is from the horizontal plane. zslice reads these files and maps the keys to its settings. The format and the names only; no code is copied.
