@@ -22,6 +22,13 @@ GtkWidget *zg_filament_button_new(ZgModel *model);
  * the default gray. */
 void zg_filament_rgb(const char *color, double rgb[3]);
 
+/* The color of filament `filament` (from 1) as 0xRRGGBB: the color of
+ * filament 1 for a filament with no color. */
+guint32 zg_filament_rgb24(ZgModel *model, int filament);
+
+/* The filament of part `index` (from 1): its own, or the plate's. */
+int zg_part_filament(ZgModel *model, gint64 index);
+
 /* A round button in `color` with `text` on it. A selected chip has a
  * ring. A NULL color gives a chip with no fill ("+", "Part"). */
 GtkWidget *zg_filament_chip_new(const char *color, const char *text, gboolean selected);

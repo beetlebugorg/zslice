@@ -42,6 +42,7 @@
 #include "clipboard.h"
 #include "label-tool.h"
 #include "native-surface.h"
+#include "part-mesh.h"
 #include "range-card.h"
 #include "setting-editor.h"
 #include "support-tool.h"
@@ -174,8 +175,9 @@ typedef struct {
     double fall_f[10];
     /* The Support tool, and the cursor that it set last. */
     ZgSupport *support;
-    /* The Label tool. */
+    /* The Label tool, and the meshes of the parts for its pick. */
     ZgLabelTool *label;
+    ZgPartMeshes *meshes;
     const char *cursor;
     /* The fall of a part, or the hand that holds it: a tick on each frame
      * runs the rigid body (zg_model_fall_step). */
@@ -2982,6 +2984,7 @@ static void view_free(gpointer data) {
     if (v->group_xy) g_array_free(v->group_xy, TRUE);
     zg_support_free(v->support);
     zg_label_tool_free(v->label);
+    zg_part_meshes_free(v->meshes);
     if (v->view) zs_view_free(v->view);
     zg_native_surface_free(v->native);
     g_free(v->error);
@@ -2996,7 +2999,8 @@ GtkWidget *zg_view3d_new(ZgModel *model) {
     v->turn_axis = -1;
     v->area = gtk_drawing_area_new();
     v->support = zg_support_new(model, v->area, (ZgSupportHost){support_frame, support_focus, v});
-    v->label = zg_label_tool_new(model, v->area, (ZgLabelHost){support_frame, label_focus, label_part_at, v});
+    v->meshes = zg_part_meshes_new(model);
+    v->label = zg_label_tool_new(model, v->area, (ZgLabelHost){support_frame, label_focus, label_part_at, v}, v->meshes);
     gtk_widget_set_hexpand(v->area, TRUE);
     gtk_widget_set_vexpand(v->area, TRUE);
     gtk_drawing_area_set_draw_func(GTK_DRAWING_AREA(v->area), draw_message, v, NULL);

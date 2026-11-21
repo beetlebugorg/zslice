@@ -23,6 +23,7 @@
 #include "filaments.h"
 #include "float.h"
 #include "label-card.h"
+#include "part-mesh.h"
 #include "preview.h"
 
 /* The lift of the decal out of the surface, mm (as the core view). */
@@ -60,7 +61,7 @@ struct ZgLabelTool {
     double curve;
     JsonObject *info;
     GHashTable *outlines; /* id -> Outline */
-    GHashTable *sessions; /* part index -> zs_paint */
+    ZgPartMeshes *meshes; /* shared with the Paint tool */
     /* A drag of a label: its id, the point of the press in its plane, the
      * label at the press, and the pointer of the press. */
     gboolean dragging, moved;
@@ -183,18 +184,6 @@ static Outline *outline(ZgLabelTool *t, const ZgLabel *l) {
     return o;
 }
 
-static guint32 filament_rgb(ZgLabelTool *t, int filament) {
-    char *c = zg_model_filament_get(t->model, (size_t)MAX(filament - 1, 0), "filament.color");
-    if (!c || !c[0]) {
-        g_free(c);
-        c = zg_model_filament_get(t->model, 0, "filament.color");
-    }
-    double rgb[3];
-    zg_filament_rgb(c, rgb);
-    g_free(c);
-    return ((guint32)lround(rgb[0] * 255) << 16) | ((guint32)lround(rgb[1] * 255) << 8) | (guint32)lround(rgb[2] * 255);
-}
-
 /* The decals of the labels of the part to the core view. */
 static void redraw(ZgLabelTool *t) {
     if (!t->view) return;
@@ -207,7 +196,7 @@ static void redraw(ZgLabelTool *t) {
         memcpy(frame, l->origin, sizeof l->origin);
         memcpy(frame + 3, l->normal, sizeof l->normal);
         memcpy(frame + 6, l->right, sizeof l->right);
-        zs_view_label_add(t->view, frame, o->pts, o->ends, o->n, filament_rgb(t, l->filament), l->id == (guint32)t->sel);
+        zs_view_label_add(t->view, frame, o->pts, o->ends, o->n, zg_filament_rgb24(t->model, l->filament), l->id == (guint32)t->sel);
     }
     t->host.frame(t->host.data);
 }
@@ -226,22 +215,13 @@ static gboolean ray(ZgLabelTool *t, double x, double y, float r[6], double o[3],
 
 /* The paint session of the mesh of part `index`, for the pick. */
 static zs_paint *session(ZgLabelTool *t, gint64 index) {
-    zs_app *core = zg_model_core(t->model);
-    if (index < 0) return NULL;
-    zs_paint *have = g_hash_table_lookup(t->sessions, GINT_TO_POINTER((int)index));
-    if (have) return have;
-    const float *verts = NULL;
-    const uint32_t *faces = NULL;
-    size_t nv = 0, nf = 0;
-    zs_paint *s = NULL;
-    if (zs_app_part_mesh(core, (size_t)index, &verts, &nv, &faces, &nf) != ZS_OK || nf == 0) return NULL;
-    if (zs_paint_new(verts, nv, faces, nf, &s) != ZS_OK) return NULL;
-    g_hash_table_insert(t->sessions, GINT_TO_POINTER((int)index), s);
-    return s;
+    const ZgPartMesh *e = zg_part_meshes_get(t->meshes, index);
+    return e ? e->session : NULL;
 }
 
+/* The part can be at another place now: the next pick checks its mesh. */
 static void free_sessions(ZgLabelTool *t) {
-    g_hash_table_remove_all(t->sessions);
+    zg_part_meshes_check(t->meshes);
 }
 
 /* The frame of a label at x, y on the mesh of part `index`: out as
@@ -337,15 +317,6 @@ static char *labels_json(zs_app *core, gint64 index) {
     return NULL;
 }
 
-/* The filament of part `index` (from 1): its own, or the plate's. */
-static int part_filament(ZgLabelTool *t, gint64 index) {
-    char *own = zg_model_part_setting(t->model, (size_t)index, "project.filament");
-    char *v = own ? own : zg_model_get(t->model, "project.filament");
-    int f = atoi(v ? v : "1");
-    g_free(v);
-    return f > 0 ? f : 1;
-}
-
 void zg_label_tool_select(ZgLabelTool *t, gint64 id);
 
 /* The labels of part `index` from the core. id: the label to select (-1:
@@ -376,15 +347,15 @@ static void load(ZgLabelTool *t, gint64 index, gint64 id) {
     t->labels = list;
     t->index = index;
     t->core = core;
-    t->base = part_filament(t, index);
+    t->base = zg_part_filament(t->model, index);
     if (id >= 0) zg_label_tool_select(t, id);
     else if (!zg_label_tool_label(t)) zg_label_tool_select(t, -1);
     else card_show(t, zg_label_tool_label(t));
     redraw(t);
 }
 
-/* After a slice, an undo, or another plate: the labels again, and a new
- * mesh for the pick (the part can be at another place). */
+/* After a slice, an undo, or another plate: the labels again, and a
+ * check of the mesh for the pick (the part can be at another place). */
 static void reload(ZgLabelTool *t) {
     if (!t->on || t->dragging || t->scaling) return;
     free_sessions(t);
@@ -1107,7 +1078,7 @@ void zg_label_tool_open(ZgLabelTool *t, gint64 part, guint32 id) {
     load(t, part, id);
 }
 
-ZgLabelTool *zg_label_tool_new(ZgModel *model, GtkWidget *area, ZgLabelHost host) {
+ZgLabelTool *zg_label_tool_new(ZgModel *model, GtkWidget *area, ZgLabelHost host, ZgPartMeshes *meshes) {
     ZgLabelTool *t = g_new0(ZgLabelTool, 1);
     t->model = model;
     t->area = area;
@@ -1118,7 +1089,7 @@ ZgLabelTool *zg_label_tool_new(ZgModel *model, GtkWidget *area, ZgLabelHost host
     t->drawing = -1;
     t->labels = g_ptr_array_new_with_free_func((GDestroyNotify)zg_label_free);
     t->outlines = g_hash_table_new_full(g_direct_hash, g_direct_equal, NULL, outline_free);
-    t->sessions = g_hash_table_new_full(g_direct_hash, g_direct_equal, NULL, (GDestroyNotify)zs_paint_free);
+    t->meshes = meshes;
     t->drawn = g_array_new(FALSE, FALSE, sizeof(double));
     t->card = g_object_ref_sink(zg_label_card_new(model, t));
     t->handle = g_object_ref_sink(gtk_drawing_area_new());
@@ -1148,7 +1119,6 @@ void zg_label_tool_free(ZgLabelTool *t) {
     if (!t) return;
     g_signal_handlers_disconnect_by_data(t->model, t);
     if (t->timer) g_source_remove(t->timer);
-    g_hash_table_destroy(t->sessions);
     g_hash_table_destroy(t->outlines);
     g_ptr_array_unref(t->labels);
     g_array_free(t->drawn, TRUE);

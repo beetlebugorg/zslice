@@ -19,8 +19,9 @@
  *   the plate slices.
  *
  * The pick uses the mesh of the part (zs_app_part_mesh) in a paint
- * session (zs_paint_new, zs_label_place). The session goes after each
- * slice, each undo, and each switch of the plate: the part can be at
+ * session (zs_paint_new, zs_label_place), from the cache that the Paint
+ * tool shares (part-mesh.h). After each slice, each undo, and each switch
+ * of the plate, the cache checks the mesh again: the part can be at
  * another place then.
  *
  * view3d.c makes the tool, and sends it the clicks, the drags, the wheel,
@@ -34,6 +35,7 @@
 
 #include "../model/app-model.h"
 #include "label-model.h"
+#include "part-mesh.h"
 
 typedef struct ZgLabelTool ZgLabelTool;
 
@@ -47,7 +49,8 @@ typedef struct {
     gpointer data;
 } ZgLabelHost;
 
-ZgLabelTool *zg_label_tool_new(ZgModel *model, GtkWidget *area, ZgLabelHost host);
+/* meshes: the meshes of the parts, shared with the Paint tool. */
+ZgLabelTool *zg_label_tool_new(ZgModel *model, GtkWidget *area, ZgLabelHost host, ZgPartMeshes *meshes);
 void zg_label_tool_free(ZgLabelTool *t);
 /* The core view, after the view starts. */
 void zg_label_tool_set_view(ZgLabelTool *t, zs_view *view);

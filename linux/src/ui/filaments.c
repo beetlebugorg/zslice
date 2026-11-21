@@ -8,6 +8,8 @@
 #include "../net/printer-link.h"
 #include "../prefs/printers.h"
 
+#include <math.h>
+#include <stdlib.h>
 #include <string.h>
 
 /* The most filaments of a plate (src/app/filament_slots.zig), and the
@@ -28,6 +30,26 @@ void zg_filament_rgb(const char *color, double rgb[3]) {
     rgb[0] = 0xd0 / 255.0;
     rgb[1] = 0xd0 / 255.0;
     rgb[2] = 0xcc / 255.0;
+}
+
+guint32 zg_filament_rgb24(ZgModel *model, int filament) {
+    char *c = zg_model_filament_get(model, (size_t)MAX(filament - 1, 0), "filament.color");
+    if (!c || !c[0]) {
+        g_free(c);
+        c = zg_model_filament_get(model, 0, "filament.color");
+    }
+    double rgb[3];
+    zg_filament_rgb(c, rgb);
+    g_free(c);
+    return ((guint32)lround(rgb[0] * 255) << 16) | ((guint32)lround(rgb[1] * 255) << 8) | (guint32)lround(rgb[2] * 255);
+}
+
+int zg_part_filament(ZgModel *model, gint64 index) {
+    char *own = index >= 0 ? zg_model_part_setting(model, (size_t)index, "project.filament") : NULL;
+    char *v = own ? own : zg_model_get(model, "project.filament");
+    int f = atoi(v ? v : "1");
+    g_free(v);
+    return f > 0 ? f : 1;
 }
 
 /* ---- the chips ---- */
