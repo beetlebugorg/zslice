@@ -100,3 +100,7 @@ A right click opens a menu for what is under the pointer. On a touchpad, a two-f
 On a part, the menu adds support, blocks support, makes a layer profile, and places the part. On the bed, it arranges, clears, copies, and duplicates the plate.
 
 Ctrl+C, Ctrl+X, Ctrl+V, and Ctrl+D copy, cut, paste, and duplicate the selected parts. Ctrl+Shift+V pastes them as a new plate. C shows the layers up to the selected line, and Shift+C shows all layers.
+
+## The 2D view
+
+Press 2, or choose **2D view** in the main menu, to see the top layer from above. Press 2 again or 3 to go back. A drag pans the layer, the wheel or a pinch zooms it, and a double click fits it. A click selects a line. A tool other than Select goes back to the 3D view.
