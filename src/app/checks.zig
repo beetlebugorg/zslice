@@ -737,7 +737,7 @@ fn retractionIssues(b: *Builder, t: *const Toolpaths) Allocator.Error!void {
         n += 1;
         if (n > max_per_kind) break;
         const c = midpoint(t, first);
-        try b.add(.{ .kind = .retractions, .severity = 0, .layer = @intCast(l), .path = Issue.no_path, .x = c[0], .y = c[1], .value = @floatFromInt(count), .text_start = 0, .text_len = 0 }, "Layer {d} has {d} retractions. Many retractions grind the filament at one place of the feeder. Combing (project.combing) keeps more travels inside the part.", .{ l + 1, count });
+        try b.add(.{ .kind = .retractions, .severity = 0, .layer = @intCast(l), .path = Issue.no_path, .x = c[0], .y = c[1], .value = @floatFromInt(count), .text_start = 0, .text_len = 0 }, "Layer {d} has {d} retractions. Many retractions grind the filament at one place of the feeder. Combing (project.combing_mode) keeps more travels inside the part.", .{ l + 1, count });
     }
 }
 

@@ -123,6 +123,8 @@ const Conv = enum {
     seam_corner,
     /// support_interface_pattern.
     interface_pattern,
+    /// retraction_combing: off, all, noskin, no_outer_surfaces, infill.
+    combing,
     /// A zslice choice that prepareProfile wrote (a "zslice:" key).
     choice,
 };
@@ -175,6 +177,7 @@ const project_map = [_]Map{
     .{ .cura = "support_xy_distance", .group = "project", .key = "support_xy_gap" },
     .{ .cura = "support_interface_density", .group = "project", .key = "support_interface_density", .conv = .percent },
     .{ .cura = "support_interface_pattern", .group = "project", .key = "support_interface_pattern", .conv = .interface_pattern },
+    .{ .cura = "retraction_combing", .group = "project", .key = "combing_mode", .conv = .combing },
     .{ .cura = "skirt_line_count", .group = "project", .key = "skirt_loops" },
     .{ .cura = "skirt_gap", .group = "project", .key = "skirt_distance" },
     .{ .cura = "brim_width", .group = "project", .key = "brim_width" },
@@ -720,6 +723,11 @@ fn convert(arena: Allocator, conv: Conv, text: []const u8, speed: SpeedBase) !?[
                 .{ "z_seam_corner_any", "any" },     .{ "z_seam_corner_weighted", "weighted" },
             };
             for (pairs) |pr| if (std.mem.eql(u8, text, pr[0])) return try std.fmt.allocPrint(arena, "\"{s}\"", .{pr[1]});
+            return null;
+        },
+        .combing => {
+            const pairs = [_][2][]const u8{ .{ "off", "\"off\"" }, .{ "all", "\"all\"" }, .{ "noskin", "\"not_in_skin\"" }, .{ "no_outer_surfaces", "\"not_on_top\"" }, .{ "infill", "\"within_infill\"" } };
+            for (pairs) |q| if (std.mem.eql(u8, text, q[0])) return q[1];
             return null;
         },
         .interface_pattern => {
@@ -1475,7 +1483,7 @@ fn mapSettings(arena: Allocator, meta: anytype, base: *const @import("settings.z
                 .seam => (try convert(arena, .seam, v, .{ .base = 0, .precise = false })),
                 .support_type => (try convert(arena, .support_type, v, .{ .base = 0, .precise = false })),
                 .support_structure => (try convert(arena, .support_structure, v, .{ .base = 0, .precise = false })),
-                .ratio, .seam_corner, .interface_pattern => (try convert(arena, m_.conv, v, .{ .base = 0, .precise = false })),
+                .ratio, .seam_corner, .interface_pattern, .combing => (try convert(arena, m_.conv, v, .{ .base = 0, .precise = false })),
                 else => null,
             };
             const text = value orelse {
@@ -1696,11 +1704,13 @@ test "import a small Cura stack and load the result" {
     try testing.expect(std.mem.indexOf(u8, s.machine.start_gcode, "M117 {job_name}") != null);
     try testing.expectEqual(@as(u32, 2), s.project.wall_count); // the expression is not imported
     try testing.expectEqual(@import("settings.zig").SupportMode.buildplate, s.project.support);
+    try testing.expectEqual(@import("settings.zig").CombingMode.not_in_skin, s.project.combing_mode);
     // The settings that are not imported are listed.
     const proj = for (outs) |o| {
         if (std.mem.eql(u8, o.group, "project")) break o.text;
     } else unreachable;
-    try testing.expect(std.mem.indexOf(u8, proj, "#   retraction_combing = noskin") != null);
+    // The combing mode of Cura is a combing mode of zslice.
+    try testing.expect(std.mem.indexOf(u8, proj, "#   retraction_combing = noskin") == null);
     try testing.expect(std.mem.indexOf(u8, proj, "#   wall_line_count = =3") != null);
 }
 

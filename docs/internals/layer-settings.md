@@ -96,7 +96,7 @@ An adaptive layer height (thin layers where a surface has a small slope) can use
 | `slow_layers` | no | settings | A count of layers from the bed. |
 | `machine.outer_wall_accel`, `machine.inner_wall_accel`, `machine.skin_accel`, `machine.infill_accel`, `machine.travel_accel` | yes | settings (`Resolved.accel`), gcode | |
 | `machine.first_layer_accel` | no | settings | The first layer only. |
-| `machine.retract_min_travel`, `combing`, `combing_max_distance` | yes | gcode | The planning threads find the combing ways with the settings of the layer (`gcode.prepare`). |
+| `machine.retract_min_travel`, `combing_mode`, `combing_max_distance` | yes | layer, gcode | The planning threads find the combing ways with the settings of the layer (`gcode.prepare`). The plan of each layer has its comb area (`LayerPlan.comb_area`). |
 | `machine.retract_wipe`, `machine.retract_wipe_distance`, `outer_wall_wipe` | yes | gcode | The wipe of each layer. |
 | `machine.z_hop` | yes | gcode | The preview draws the lift of a travel with the z hop of the print. |
 | `support`, `support_style` | no | support | The support areas of all layers come from one pass. A column or a branch goes through many layers. |

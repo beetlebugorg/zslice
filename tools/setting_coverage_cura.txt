@@ -392,7 +392,7 @@ retraction_prime_speed | derived | machine.retract_speed
 retraction_extra_prime_amount | missing | more plastic after a retraction
 retraction_count_max | missing | a limit of retractions on one spot of filament
 retraction_extrusion_window | missing | a limit of retractions on one spot of filament
-retraction_combing | same | project.combing
+retraction_combing | same | project.combing_mode
 retraction_combing_max_distance | same | project.combing_max_distance
 retraction_combing_avoid_distance | missing | the distance of a combing way from the walls
 travel_retract_before_outer_wall | missing | retract before the outer wall

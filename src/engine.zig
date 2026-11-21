@@ -1925,7 +1925,7 @@ test "the work of the planning threads gives the same G-code" {
     defer m.deinit(gpa);
     var s: Settings = .{};
     s.engine.threads = 4;
-    s.project.combing = true;
+    s.project.combing_mode = .all;
     var job = try Job.init(gpa, &m, s);
     defer job.deinit();
     var a: Writer.Allocating = .init(gpa);
@@ -4050,6 +4050,98 @@ fn treeTravels(text: []const u8) !struct { far: usize, far_retracted: usize, far
         y = ny;
     }
     return .{ .far = far, .far_retracted = far_r, .far_lifted = far_l, .near_free = near_free };
+}
+
+test "combing not_in_skin keeps the travels off the top skin between two islands" {
+    const gpa = testing.allocator;
+    var b: mesh_mod.Builder = .init(gpa);
+    // A slab with two towers on it: the top of the slab between the
+    // towers is top skin. The travels go from one tower to the other.
+    try mesh_mod.shapes.addBox(&b, 0, 0, 0, 40, 12, 4);
+    try mesh_mod.shapes.addBox(&b, 0, 0, 4, 8, 12, 10);
+    try mesh_mod.shapes.addBox(&b, 32, 0, 4, 40, 12, 10);
+    var mesh = try b.finish();
+    defer mesh.deinit(gpa);
+    var counts: [2]SkinTravels = undefined;
+    for ([_]settings_mod.CombingMode{ .all, .not_in_skin }, 0..) |mode, k| {
+        var s: Settings = .{};
+        s.engine.threads = 1;
+        s.project.skirt_loops = 0;
+        s.project.combing_mode = mode;
+        var job = try Job.init(gpa, &mesh, s);
+        defer job.deinit();
+        var out: std.Io.Writer.Allocating = .init(gpa);
+        defer out.deinit();
+        _ = try job.writeGcode(&out.writer);
+        // The skin between the towers, in G-code coordinates, one line
+        // width in from its edges.
+        const ox = s.machine.origin_x + job.dx;
+        const oy = s.machine.origin_y + job.dy;
+        // The layers of the top skin: 0.8 mm under the top at 4 mm.
+        counts[k] = try skinTravels(out.written(), .{ 9 + ox, 1.5 + oy, 31 + ox, 10.5 + oy }, 3.25, 4);
+    }
+    // With all: some combed travels go over the skin. With not_in_skin:
+    // none; the travels that cannot go around it retract.
+    try testing.expect(counts[0].over_skin > 0);
+    try testing.expectEqual(@as(usize, 0), counts[1].over_skin);
+    try testing.expect(counts[1].retractions > counts[0].retractions);
+}
+
+const SkinTravels = struct { over_skin: usize, retractions: usize };
+
+/// The travels over 2 mm with no retraction that cross the box `skin`
+/// (x0, y0, x1, y1) on the layers from z_min to z_max, and the
+/// retractions on those layers.
+fn skinTravels(text: []const u8, skin: [4]f64, z_min: f64, z_max: f64) !SkinTravels {
+    var out: SkinTravels = .{ .over_skin = 0, .retractions = 0 };
+    var x: f64 = 0;
+    var y: f64 = 0;
+    var z: f64 = 0;
+    var retracted = false;
+    var len: f64 = 0;
+    var crossed = false;
+    var it = std.mem.splitScalar(u8, text, '\n');
+    while (it.next()) |l| {
+        const on = z >= z_min - 1e-6 and z <= z_max + 1e-6;
+        if (std.mem.startsWith(u8, l, "G0 Z") and std.mem.indexOfScalar(u8, l, 'F') != null) {
+            z = try std.fmt.parseFloat(f64, l[4..std.mem.indexOfScalarPos(u8, l, 4, ' ').?]);
+            continue;
+        }
+        if (std.mem.startsWith(u8, l, "G1 E-")) {
+            retracted = true;
+            if (on) out.retractions += 1;
+            continue;
+        }
+        const travel = std.mem.startsWith(u8, l, "G0 X");
+        if (!travel and !std.mem.startsWith(u8, l, "G1 X")) continue;
+        var words = std.mem.tokenizeScalar(u8, l, ' ');
+        var nx = x;
+        var ny = y;
+        while (words.next()) |w| {
+            if (w[0] == 'X') nx = try std.fmt.parseFloat(f64, w[1..]);
+            if (w[0] == 'Y') ny = try std.fmt.parseFloat(f64, w[1..]);
+        }
+        if (travel) {
+            const d = std.math.hypot(nx - x, ny - y);
+            len += d;
+            const steps: usize = @intFromFloat(@ceil(d / 0.1));
+            for (0..steps + 1) |k| {
+                const t = if (steps == 0) 0 else @as(f64, @floatFromInt(k)) / @as(f64, @floatFromInt(steps));
+                const px = x + (nx - x) * t;
+                const py = y + (ny - y) * t;
+                if (px > skin[0] and px < skin[2] and py > skin[1] and py < skin[3]) crossed = true;
+            }
+        } else {
+            // An extrusion ends the travel before it.
+            if (on and len > 2 and !retracted and crossed) out.over_skin += 1;
+            len = 0;
+            crossed = false;
+            retracted = false;
+        }
+        x = nx;
+        y = ny;
+    }
+    return out;
 }
 
 /// The retractions after a support line, with their lifts and wipes.

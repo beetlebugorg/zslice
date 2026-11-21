@@ -145,7 +145,7 @@ pub const first_settings = [_][]const u8{
     "project.infill_speed",       "project.skin_speed",
     "project.first_layer_speed",
     // Travel
-    "project.combing",
+    "project.combing_mode",
     // Cooling
     "filament.fan_speed",         "filament.min_layer_time",
     "filament.fan_off_layers",    "filament.min_speed",

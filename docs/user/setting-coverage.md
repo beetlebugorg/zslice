@@ -337,7 +337,7 @@ The lists come from Cura `resources/definitions/fdmprinter.def.json` and `fdmext
 | `retraction_min_travel` (Retraction Minimum Travel) | Same | `machine.retract_min_travel` |
 | `retraction_count_max` (Maximum Retraction Count) | Missing | a limit of retractions on one spot of filament |
 | `retraction_extrusion_window` (Minimum Extrusion Distance Window) | Missing | a limit of retractions on one spot of filament |
-| `retraction_combing` (Combing Mode) | Same | `project.combing` |
+| `retraction_combing` (Combing Mode) | Same | `project.combing_mode` |
 | `retraction_combing_max_distance` (Max Comb Distance With No Retract) | Same | `project.combing_max_distance` |
 | `retraction_combing_avoid_distance` (Inside Travel Avoid Distance) | Missing | the distance of a combing way from the walls |
 | `travel_retract_before_outer_wall` (Retract Before Outer Wall) | Missing | retract before the outer wall |
@@ -974,8 +974,8 @@ The print, printer, and filament settings first, by status. The settings of resi
 | `printable_height` (Printable height) | `machine.max_height` |
 | `printer_model` (Printer type) | `machine.model` |
 | `printer_structure` (Printer structure) | `machine.kinematics` |
-| `reduce_crossing_wall` (Avoid crossing walls) | `project.combing` |
-| `reduce_infill_retraction` (Reduce infill retraction) | `project.combing` (no retraction inside the part) |
+| `reduce_crossing_wall` (Avoid crossing walls) | `project.combing_mode` |
+| `reduce_infill_retraction` (Reduce infill retraction) | `project.combing_mode` (no retraction inside the part) |
 | `resolution` (Resolution) | `engine.resolution` |
 | `retract_lift_enforce` (On surfaces) | `machine.z_hop_only_crossing` |
 | `retract_when_changing_layer` (Retract on layer change) | `machine.retract_layer_change` |
