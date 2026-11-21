@@ -65,6 +65,7 @@ fan = {layer} < 3 ? 0 : {fan}
 | **Ironing** (`project.ironing`) | Goes over each top surface again with close lines and a small flow. |
 | **Slope smoothing** (`project.slope_smoothing`, experimental) | Lays a small bead in each step of a sloped top. Each point of the bead has its own Z. |
 | **Slope ironing** (`project.slope_ironing`) | Irons the filled steps. |
+| **Coasting** (`project.coasting_volume`) | The last part of each path moves with no plastic, for this volume (mm³): the pressure in the nozzle prints it, so the end of a path has less of a blob. Cura uses 0.064. |
 | **Wipe inside the part** (`project.retract_wipe`) | Moves on a small arc inside the part at each retraction. For stringy filament. |
 | **Infill anchor** (`project.infill_anchor`) | The infill grid starts at the center of each part. `bed`: one grid for all parts. |
 | **Object labels** (`machine.label_objects`) | Labels each part in the G-code, so the printer can skip a part that fails: EXCLUDE_OBJECT on Klipper (add `[exclude_object]` to printer.cfg), M486 on Marlin and RepRapFirmware. |

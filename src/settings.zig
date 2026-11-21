@@ -822,6 +822,15 @@ pub const Project = struct {
     /// retraction. The end of the wall then joins its start with no gap,
     /// and the seam shows less. 0 turns it off.
     outer_wall_wipe: f64 = 0,
+    /// Coasting: the last part of each path moves with no plastic, for
+    /// this volume of plastic (mm³). The pressure in the nozzle prints it,
+    /// so the end of the path has less of a blob, and the travel after it
+    /// strings less. A path shorter than twice this volume prints as
+    /// usual. 0 turns it off. Cura uses 0.064.
+    coasting_volume: f64 = 0,
+    /// The speed of the coasting moves, as a ratio of the speed of the
+    /// path.
+    coasting_speed: f64 = 0.9,
     /// Lift the nozzle (`z_hop`) only for a travel that crosses an edge of
     /// the layer: it leaves the part, or it goes over a hole. A travel in
     /// a straight line inside the part (it retracts because it is longer
@@ -1522,6 +1531,8 @@ pub const limits = [_]struct { []const u8, f64, f64 }{
     .{ "project.skirt_layers", 0, 50 },
     .{ "project.brim_width", 0, 50 },
     .{ "project.outer_wall_wipe", 0, 10 },
+    .{ "project.coasting_volume", 0, 5 },
+    .{ "project.coasting_speed", 0.1, 1 },
     .{ "project.first_layer_xy_offset", -2, 2 },
     // engine
     .{ "engine.resolution", 0.0005, 0.5 },
@@ -1835,6 +1846,8 @@ pub const layer_settings = [_][]const u8{
     "project.z_hop",
     "project.retract_wipe",
     "project.outer_wall_wipe",
+    "project.coasting_volume",
+    "project.coasting_speed",
     // The layer planner reads these from the settings of each layer.
     "project.line_width",
     "project.wall_thickness",

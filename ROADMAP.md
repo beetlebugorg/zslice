@@ -91,7 +91,7 @@ The goal is the features that people use in PrusaSlicer and Cura. zslice designs
 - [x] Avoid crossing walls (combing) on travel
 - [x] Retraction on layer change, z hop only for a travel that crosses an edge
 - [x] Wipe on retraction: a small arc inside the part while it retracts (`project.retract_wipe`), and a wipe along the start of a closed outer wall (`project.outer_wall_wipe`)
-- [ ] Coasting
+- [x] Coasting (`project.coasting_volume`, `project.coasting_speed`)
 - [x] Acceleration and jerk control for each feature; a time estimate with acceleration
 - [ ] Arc fitting (G2/G3)
 - [x] Pressure advance for each filament (`filament.pressure_advance`: M900, SET_PRESSURE_ADVANCE, M572)

@@ -29,6 +29,8 @@
 //!   rising outer wall has no Z move of its own; the wall rises from the
 //!   z of the layer below (the spiralize mode of Cura, see
 //!   docs/references/cura.md).
+//! - Coasting (`Project.coasting_volume`): the last part of a path moves
+//!   with no plastic, as in Cura (see docs/references/cura.md).
 //! - Object labels (`Machine.label_objects`): EXCLUDE_OBJECT on Klipper
 //!   and M486 on Marlin and RepRapFirmware, around the paths of each part
 //!   on each layer (see docs/references/klipper-marlin-firmware.md).
@@ -2234,7 +2236,10 @@ pub const Emitter = struct {
                 try self.wallWipe(path, pts, path_r.settings.project.outer_wall_wipe, speed);
                 continue;
             }
-            if (self.prep != null and self.x == x0 and self.y == y0) {
+            const coast = path_r.settings.project.coasting_volume;
+            if (coast > 0 and e > 0 and path.feature != .ironing and try self.coastPath(pts, path.closed and pts.len > 2, e, speed, coast, path_r.settings.project.coasting_speed)) {
+                // The path ended with its coasting moves.
+            } else if (self.prep != null and self.x == x0 and self.y == y0) {
                 // The lengths of the moves from this start are known.
                 const pr = self.prep.?;
                 const base: usize = if (i == 0) 0 else lp.points.ends.items[i - 1];
@@ -2357,6 +2362,45 @@ pub const Emitter = struct {
             try self.wipeMove(x, y, speed);
             left -= d;
         }
+    }
+
+    /// Coasting (Project.coasting_volume): the moves of a path with
+    /// plastic up to the last `volume` mm³, then the rest of the path with
+    /// no plastic at `ratio` times the speed. False (and no move) for a
+    /// path shorter than twice the coasting length.
+    fn coastPath(self: *Emitter, pts: []const geom.Point, closed: bool, e: f64, speed: f64, volume: f64, ratio: f64) Error!bool {
+        const hypot = @import("geom.zig").hypot;
+        const n = pts.len + @as(usize, @intFromBool(closed));
+        var total: f64 = 0;
+        for (1..n) |k| {
+            const a = pts[k - 1];
+            const b = pts[k % pts.len];
+            total += hypot(geom.toMm(b.x) - geom.toMm(a.x), geom.toMm(b.y) - geom.toMm(a.y));
+        }
+        const coast_len = volume / (e * self.r.filament_area);
+        if (!(total > 2 * coast_len)) return false;
+        const stop = total - coast_len;
+        var done: f64 = 0;
+        for (1..n) |k| {
+            const q = pts[k % pts.len];
+            const x = geom.toMm(q.x);
+            const y = geom.toMm(q.y);
+            const d = hypot(x - self.x, y - self.y);
+            if (done >= stop) {
+                try self.wipeMove(x, y, speed * ratio);
+            } else if (done + d > stop) {
+                // The point on this move where the coasting starts.
+                const t = (stop - done) / d;
+                const cx = self.x + (x - self.x) * t;
+                const cy = self.y + (y - self.y) * t;
+                try self.extrude(cx, cy, e, speed);
+                try self.wipeMove(x, y, speed * ratio);
+            } else {
+                try self.extrude(x, y, e, speed);
+            }
+            done += d;
+        }
+        return true;
     }
 
     /// A move with no plastic at `speed`, on the line of a path.

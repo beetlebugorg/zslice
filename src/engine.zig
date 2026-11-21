@@ -3542,6 +3542,40 @@ test "gcode: overhang walls print slower and with more fan" {
     try testing.expectApproxEqRel(st0.filament_mm, st1.filament_mm, 1e-3);
 }
 
+test "gcode: coasting ends each long path with no plastic" {
+    const gpa = testing.allocator;
+    var mesh = try mesh_mod.shapes.box(gpa, 20, 20, 2);
+    defer mesh.deinit(gpa);
+    var s: Settings = .{};
+    s.engine.threads = 1;
+    var plain = try Job.init(gpa, &mesh, s);
+    defer plain.deinit();
+    var out0: std.Io.Writer.Allocating = .init(gpa);
+    defer out0.deinit();
+    const st0 = try plain.writeGcode(&out0.writer);
+    s.project.coasting_volume = 0.1;
+    var job = try Job.init(gpa, &mesh, s);
+    defer job.deinit();
+    var out: std.Io.Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    const st1 = try job.writeGcode(&out.writer);
+    // Less plastic: each long path coasts 0.1 mm³.
+    const area = std.math.pi * 0.875 * 0.875;
+    try testing.expect(st1.filament_mm < st0.filament_mm - 10 * 0.1 / area);
+    // The moves with no E and no Z inside the paths.
+    const dry = struct {
+        fn count(g: []const u8) usize {
+            var n: usize = 0;
+            var it = std.mem.splitScalar(u8, g, '\n');
+            while (it.next()) |line| {
+                if (std.mem.startsWith(u8, line, "G1 X") and std.mem.indexOf(u8, line, " E") == null and std.mem.indexOf(u8, line, " Z") == null) n += 1;
+            }
+            return n;
+        }
+    }.count;
+    try testing.expect(dry(out.written()) > dry(out0.written()) + 10);
+}
+
 test "gcode: the object label of a part of its own" {
     const gpa = testing.allocator;
     var mesh = try mesh_mod.shapes.box(gpa, 20, 20, 2);

@@ -59,6 +59,8 @@ const mark_settings = [_]struct { []const u8, u32 }{
     .{ "project.z_hop", mark_travel | mark_retract },
     .{ "project.retract_wipe", mark_retract },
     .{ "project.outer_wall_wipe", mark_retract },
+    .{ "project.coasting_volume", mark_retract },
+    .{ "project.coasting_speed", mark_retract },
     .{ "project.retract_layer_change", mark_travel | mark_retract },
     .{ "machine.travel_speed", mark_travel },
     .{ "machine.first_layer_travel_speed", mark_travel },

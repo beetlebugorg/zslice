@@ -424,3 +424,18 @@ summary: `project.spiral_vase` has the meaning of `magic_spiralize` (Cura) and `
 ```
 
 Cura and OrcaSlicer print a vase as one spiral: after the bottom layers, the outer wall of each layer rises from the layer below to its own height along its length, so there is no layer change and no seam. zslice does the same in `layer.spiralize`, with the z of each point as a path that is not planar, and the bead of the first spiral layer grows from zero. The idea and the setting only; no code is copied.
+
+### Coasting
+
+```ref
+kind: setting
+source: Cura
+license: AGPL-3.0
+link: https://github.com/Ultimaker/Cura
+version: commit 1a221ec29a86960d16a412940becc1f63534c41f
+files: src/gcode.zig, src/settings.zig
+area: gcode
+summary: `project.coasting_volume` and `project.coasting_speed` have the meaning of `coasting_volume` and `coasting_speed` of Cura.
+```
+
+Cura replaces the last part of a path, by its volume of plastic, with a move that does not extrude, at a ratio of the speed. zslice does the same in `Emitter.coastPath`. A path coasts if it has twice the coasting volume, in place of the `coasting_min_volume` of Cura. The settings and the idea only; no code is copied.
