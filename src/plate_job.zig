@@ -2010,6 +2010,194 @@ test "plate job: the G-code of a Bambu Lab X2D has the config block of Bambu Stu
     try testing.expect(std.mem.indexOf(u8, out2.written(), "CONFIG_BLOCK") == null);
 }
 
+/// The check of one Bambu Lab model of the library (see the test below):
+/// a plate of two cubes of two filaments, the second on the second nozzle
+/// of a model with two.
+fn checkBambuModel(gpa: Allocator, lib: *const @import("printers.zig").Library, i: usize) !void {
+    const printers = @import("printers.zig");
+    const bambu = @import("bambu.zig");
+    const zipfile = @import("zipfile.zig");
+    const m = lib.models[i];
+    const facts = printers.bambu(m.id) orelse return error.NoFacts;
+    var arena_state: std.heap.ArenaAllocator = .init(gpa);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    var text: Writer.Allocating = .init(a);
+    try lib.profileText(i, 0, &text.writer);
+    var s: Settings = .{};
+    s.engine.threads = 1;
+    var diag: @import("profile.zig").Diagnostic = .{};
+    try @import("profile.zig").apply(a, &s, .machine, m.id, text.written(), null, &diag);
+    // Each model has the templates of Bambu Studio and a tool change.
+    try testing.expect(printers.bambuTemplate(m.id, .layer) != null);
+    try testing.expectEqual(settings_mod.FilamentChange.tool, s.machine.filament_change);
+    const cx = s.machine.bed_size_x / 2;
+    const cy = s.machine.bed_size_y / 2;
+    var m1 = try testBox(cx - 15, cy - 5, cx - 5, cy + 5, 2);
+    defer m1.deinit(gpa);
+    var m2 = try testBox(cx + 5, cy - 5, cx + 15, cy + 5, 2);
+    defer m2.deinit(gpa);
+    var second = s.filament;
+    second.color = "#d93a3a";
+    if (facts.nozzles >= 2) second.nozzle = 1;
+    const parts = [_]PartInput{
+        .{ .mesh = &m1, .part = 0 },
+        .{ .mesh = &m2, .part = 1, .changes = &.{.{ .name = "project.filament", .value = "2" }} },
+    };
+    var pj = try PlateJob.init(gpa, s, &parts, .{ .filaments = &.{second} });
+    defer pj.deinit();
+    var out: Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    const st = try pj.writeGcode(&out.writer);
+    const g = out.written();
+    try testing.expect(st.slot_g[0] > 0 and st.slot_g[1] > 0);
+
+    // The blocks of Bambu Studio, and its marks of the start and the end.
+    try testing.expect(std.mem.startsWith(u8, g, "; HEADER_BLOCK_START\n"));
+    try testing.expect(std.mem.endsWith(u8, g, "; EXECUTABLE_BLOCK_END\n"));
+    for ([_][]const u8{ "; CONFIG_BLOCK_START\n", "; CONFIG_BLOCK_END\n", "; EXECUTABLE_BLOCK_START\n", "; MACHINE_START_GCODE_END\n", "; MACHINE_END_GCODE_START\n", "M981 S1 P20000", "M981 S0 P20000" }) |mark| {
+        try testing.expectEqual(@as(usize, 1), std.mem.count(u8, g, mark));
+    }
+    const exec = g[std.mem.indexOf(u8, g, "; EXECUTABLE_BLOCK_START\n").?..];
+    const print_start = std.mem.indexOf(u8, exec, "; MACHINE_START_GCODE_END\n").?;
+    const print_end = std.mem.indexOf(u8, exec, "; MACHINE_END_GCODE_START\n").?;
+
+    // Each layer tells the printer its number (M73 L, M991).
+    const layers = std.mem.count(u8, exec, "\n;LAYER:");
+    try testing.expect(layers > 5);
+    try testing.expectEqual(layers, std.mem.count(u8, exec, "\nM73 L"));
+    // The end G-code ends the time lapse with "M991 S0 P-1".
+    try testing.expectEqual(layers, std.mem.count(u8, exec, "\nM991 S0 P") - std.mem.count(u8, exec, "\nM991 S0 P-"));
+
+    var lines = std.mem.splitScalar(u8, exec, '\n');
+    var pos: usize = 0;
+    var x: f64 = 0;
+    var y: f64 = 0;
+    var z: f64 = 0;
+    var tool: usize = 0;
+    var relative = false;
+    var in_change = false;
+    while (lines.next()) |line| {
+        defer pos += line.len + 1;
+        // Each variable of the templates has a value, except the path of
+        // the head to the purge (Studio plans it around the parts) and
+        // the limit of the Y acceleration by the mass on the bed.
+        if (std.mem.indexOf(u8, line, "zslice: no value for ")) |k| {
+            const name = line[k + "zslice: no value for ".len ..];
+            const ok = std.mem.startsWith(u8, name, "travel_point_") or std.mem.startsWith(u8, name, "curr_y_acceleration_limit");
+            if (!ok) std.debug.print("{s}: {s}\n", .{ m.id, line });
+            try testing.expect(ok);
+        }
+        const cmd = std.mem.trim(u8, if (std.mem.indexOfScalar(u8, line, ';')) |c| line[0..c] else line, " \t\r");
+        if (cmd.len == 0) continue;
+        if (std.mem.indexOfAny(u8, cmd, "{}") != null) {
+            std.debug.print("{s}: {s}\n", .{ m.id, line });
+            return error.TestUnexpectedResult;
+        }
+        var words = std.mem.tokenizeScalar(u8, cmd, ' ');
+        const op = words.next().?;
+        // The moves of the change G-code of the maker go to its purge.
+        if (std.mem.eql(u8, op, "M620") and std.mem.startsWith(u8, cmd, "M620 S")) in_change = true;
+        if (std.mem.eql(u8, op, "M621") and std.mem.startsWith(u8, cmd, "M621 S")) in_change = false;
+        if (std.mem.eql(u8, op, "G90")) relative = false;
+        if (std.mem.eql(u8, op, "G91")) relative = true;
+        if (op[0] == 'T' and op.len > 1) tool = std.fmt.parseInt(usize, op[1..], 10) catch tool;
+        if (!(std.mem.eql(u8, op, "G0") or std.mem.eql(u8, op, "G1") or std.mem.eql(u8, op, "G2") or std.mem.eql(u8, op, "G3"))) continue;
+        var e: f64 = 0;
+        while (words.next()) |w| {
+            if (w.len < 2) continue;
+            const v = std.fmt.parseFloat(f64, w[1..]) catch continue;
+            switch (w[0]) {
+                'X' => x = if (relative) x + v else v,
+                'Y' => y = if (relative) y + v else v,
+                'Z' => z = if (relative) z + v else v,
+                'E' => e = v,
+                else => {},
+            }
+        }
+        // The extrusions of the print stay on the bed, under the height,
+        // and in the reach of the nozzle of their filament.
+        if (e <= 0 or in_change or pos < print_start or pos > print_end) continue;
+        const eps = 1e-3;
+        try testing.expect(x >= -eps and x <= s.machine.bed_size_x + eps);
+        try testing.expect(y >= -eps and y <= s.machine.bed_size_y + eps);
+        try testing.expect(z > 0 and z <= s.machine.max_height + eps);
+        if (facts.nozzles >= 2) {
+            const nozzle: usize = if (tool == 1) 1 else 0;
+            if (nozzle == 0 and facts.max_x[0] > 0) try testing.expect(x <= facts.max_x[0] + eps);
+            if (nozzle == 1) try testing.expect(x >= facts.min_x[1] - eps);
+        }
+    }
+
+    // The .gcode.3mf: the files of a Bambu Studio file, and the keys of
+    // its slice_info.config in the order of Studio.
+    const fils = [_]bambu.FilamentUse{
+        .{ .id = 1, .kind = "PLA", .color = "#FFFFFF", .meters = st.slot_mm[0] / 1000, .grams = st.slot_g[0] },
+        .{ .id = 2, .kind = "PLA", .color = "#D93A3A", .meters = st.slot_mm[1] / 1000, .grams = st.slot_g[1], .nozzle = if (facts.nozzles >= 2) 1 else 0 },
+    };
+    const file = try bambu.gcode3mfInfo(gpa, g, "two cubes", .{
+        .filaments = &fils,
+        .seconds = st.print_time_s,
+        .nozzles = facts.nozzles,
+        .model_id = facts.code,
+        .nozzle = s.machine.nozzle_diameter,
+        .printer_model = facts.name,
+        .bed_type = s.machine.bed_type.studioName(),
+        .extruder_types = facts.types,
+        .default_volumes = facts.volumes,
+        .variants = facts.variants,
+        .base_project = printers.bambuProject(m.id) orelse "",
+        .bbox = .{ cx - 15, cy - 5, cx + 15, cy + 5 },
+        .layer_lists = try bambu.layerFilamentLists(a, g),
+    });
+    defer gpa.free(file);
+    const entries = try zipfile.readAll(gpa, file);
+    defer zipfile.freeAll(gpa, entries);
+    const want = [_][]const u8{ "[Content_Types].xml", "_rels/.rels", "3D/3dmodel.model", "Metadata/model_settings.config", "Metadata/plate_1.json", "Metadata/filament_sequence.json", "Metadata/plate_1.gcode", "Metadata/plate_1.gcode.md5", "Metadata/slice_info.config", "Metadata/project_settings.config" };
+    for (want) |name| {
+        var found = false;
+        for (entries) |en| found = found or std.mem.eql(u8, en.name, name);
+        if (!found) std.debug.print("{s}: no {s}\n", .{ m.id, name });
+        try testing.expect(found);
+    }
+    for (entries) |en| {
+        if (std.mem.eql(u8, en.name, "Metadata/plate_1.gcode")) try testing.expectEqualStrings(g, en.data);
+        if (std.mem.eql(u8, en.name, "Metadata/plate_1.gcode.md5")) try testing.expectEqualStrings(&bambu.gcodeMd5(g), en.data);
+        if (!std.mem.eql(u8, en.name, "Metadata/slice_info.config")) continue;
+        var code: [64]u8 = undefined;
+        const order = [_][]const u8{ "\"index\"", "\"extruder_type\"", "\"nozzle_volume_type\"", try std.fmt.bufPrint(&code, "\"printer_model_id\" value=\"{s}\"", .{facts.code}), "\"nozzle_diameters\"", "\"timelapse_type\"", "\"prediction\"", "\"weight\"", "\"pause_count\"", "\"first_layer_time\"", "\"outside\"", "\"support_used\"", "\"label_object_enabled\"", "\"support_material_on_wipe_tower\"", "\"enable_filament_dynamic_map\"", "\"has_filament_switcher\"", "\"multi_nozzle_diameter_mode\"", "\"filament_maps\"", "<object identify_id=", "<filament id=\"1\"", "<filament id=\"2\"", "<nozzle id=\"0\"", "<layer_filament_lists>", "</plate>" };
+        var at: usize = 0;
+        for (order) |key| {
+            const k = std.mem.indexOfPos(u8, en.data, at, key) orelse {
+                std.debug.print("{s}: slice_info.config: no {s} after {d}\n", .{ m.id, key, at });
+                return error.TestUnexpectedResult;
+            };
+            at = k + key.len;
+        }
+        try testing.expect(std.mem.indexOf(u8, en.data, "used_m=\"0.00\"") == null);
+    }
+}
+
+test "plate job: each Bambu Lab model of the library prints two filaments in the file of Bambu Studio" {
+    const printers = @import("printers.zig");
+    if (printers.builtin_data.len == 0) return error.SkipZigTest;
+    const gpa = testing.allocator;
+    const lib = try printers.Library.parse(gpa, printers.builtin_data);
+    defer lib.deinit();
+    var count: usize = 0;
+    for (lib.models, 0..) |m, i| {
+        if (!std.mem.startsWith(u8, m.id, "bambu-lab-")) continue;
+        checkBambuModel(gpa, lib, i) catch |e| {
+            std.debug.print("{s}: {s}\n", .{ m.id, @errorName(e) });
+            return e;
+        };
+        count += 1;
+    }
+    // A1, A1 mini, A2L, H2C, H2D, H2D Pro, H2S, P1P, P1S, P2S, X1, X1
+    // Carbon, X1E, X2D.
+    try testing.expectEqual(@as(usize, 14), count);
+}
+
 test "plate job: a PLA part with a PETG support interface, and a tower for each" {
     const gpa = testing.allocator;
     // A post with a shelf on one side, 4 mm over the bed: support under
