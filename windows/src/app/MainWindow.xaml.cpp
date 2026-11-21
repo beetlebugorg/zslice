@@ -32,30 +32,6 @@ namespace
         return at == std::wstring::npos ? path : path.substr(at + 1);
     }
 
-    // The first file on the command line, or empty.
-    std::wstring CommandLineFile()
-    {
-        int count = 0;
-        LPWSTR *args = ::CommandLineToArgvW(::GetCommandLineW(), &count);
-        std::wstring path;
-        if (args != nullptr)
-        {
-            if (count > 1)
-                path = args[1];
-            ::LocalFree(args);
-        }
-        return path;
-    }
-
-    bool IsModelFile(std::wstring const &name)
-    {
-        size_t at = name.find_last_of(L'.');
-        if (at == std::wstring::npos)
-            return false;
-        std::wstring ext = name.substr(at);
-        std::transform(ext.begin(), ext.end(), ext.begin(), ::towlower);
-        return ext == L".stl" || ext == L".3mf" || ext == L".step" || ext == L".stp" || ext == L".obj";
-    }
 }
 
 namespace winrt::ZSlice::implementation
@@ -193,17 +169,19 @@ namespace winrt::ZSlice::implementation
             PrintersNoteChange();
         }
         zs_view_set_dark(view, Root().ActualTheme() == ElementTheme::Dark ? 1 : 0);
-        std::wstring file = CommandLineFile();
-        if (!RestoreSession(!file.empty()))
+        if (!RestoreSession())
             ShowPlate();
         ViewPanel().Focus(FocusState::Programmatic);
 
-        if (!file.empty())
-            LoadPath(file);
+        StartOpenLinks();
+        std::wstring argument = zs::appshell::FirstArgument();
+        if (!argument.empty())
+            OpenExternal(argument);
     }
 
     void MainWindow::CloseView()
     {
+        StopOpenLinks();
         retry_timer.Stop();
         animation_timer.Stop();
         scene_timer.Stop();
@@ -438,7 +416,7 @@ namespace winrt::ZSlice::implementation
             LoadPath(std::wstring(file.Path()));
     }
 
-    void MainWindow::LoadPath(std::wstring path)
+    void MainWindow::LoadPath(std::wstring path, bool new_plate)
     {
         if (model == nullptr)
             return;
@@ -446,14 +424,14 @@ namespace winrt::ZSlice::implementation
         // A large file reads off the UI thread.
         auto self = get_strong();
         auto target = queue;
-        std::thread([self, target, path] {
+        std::thread([self, target, path, new_plate] {
             auto bytes = std::make_shared<std::string>();
             bool read = zs::Model::ReadFile(path, *bytes);
-            target.TryEnqueue([self, path, bytes, read] { self->FinishLoad(path, *bytes, read); });
+            target.TryEnqueue([self, path, bytes, read, new_plate] { self->FinishLoad(path, *bytes, read, new_plate); });
         }).detach();
     }
 
-    void MainWindow::FinishLoad(std::wstring const &path, std::string const &bytes, bool read)
+    void MainWindow::FinishLoad(std::wstring const &path, std::string const &bytes, bool read, bool new_plate)
     {
         if (model == nullptr)
             return;
@@ -463,6 +441,10 @@ namespace winrt::ZSlice::implementation
             ShowError(L"Could not read " + name);
             return;
         }
+        // A file from outside the app replaces no work on this plate.
+        if (new_plate && zs_app_part_count(model->Active()) > 0 &&
+            !zs_project_file_is(reinterpret_cast<uint8_t const *>(bytes.data()), bytes.size()) && model->AddPlate())
+            ShowPlate();
         std::string message;
         frame_next = true;
         int rc = model->Load(name, bytes, message);
@@ -494,7 +476,7 @@ namespace winrt::ZSlice::implementation
         for (auto const &item : items)
         {
             std::wstring path{ item.Path() };
-            if (item.IsOfType(Storage::StorageItemTypes::File) && IsModelFile(path))
+            if (item.IsOfType(Storage::StorageItemTypes::File) && zs::openlink::IsModelName(path))
             {
                 LoadPath(path);
                 break;

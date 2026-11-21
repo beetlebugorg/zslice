@@ -140,12 +140,13 @@ namespace winrt::ZSlice::implementation
     }
 
     // Puts the last session back, before the first frame.
-    bool MainWindow::RestoreSession(bool has_file)
+    bool MainWindow::RestoreSession()
     {
-        // A file on the command line opens in place of the session.
+        // A file on the command line opens after this, on a new plate, so
+        // it never takes the place of the session.
         std::wstring path = SessionPath();
         std::string bytes;
-        if (has_file || !zs::Model::ReadFile(path, bytes))
+        if (!zs::Model::ReadFile(path, bytes))
         {
             session_ready = true;
             return false;

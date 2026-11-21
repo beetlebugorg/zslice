@@ -140,6 +140,7 @@
     <ClCompile Include="src\app\MainWindow.ContextMenu.cpp" />
     <ClCompile Include="src\app\MainWindow.Chrome.cpp" />
     <ClCompile Include="src\app\MainWindow.Search.cpp" />
+    <ClCompile Include="src\app\MainWindow.Open.cpp" />
     <ClCompile Include="src\app\MainWindow.Layer2D.cpp" />
     <ClCompile Include="src\app\Layer2D.cpp" />
     <!-- The test hooks: -p:ZsDevHooks=true. A shipped build has none. -->
