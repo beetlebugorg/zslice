@@ -263,6 +263,26 @@ STL file format, 3D Systems. Description: https://en.wikipedia.org/wiki/STL_(fil
 
 **How zslice uses it:** The binary and ASCII STL loader and the binary STL writer.
 
+### Wavefront OBJ file format
+
+```ref
+kind: format
+source: Wavefront Technologies
+license: File format
+link: https://paulbourke.net/dataformats/obj/
+files: src/mesh.zig
+area: files
+summary: The OBJ loader reads the vertices and the faces, and makes a fan of triangles from each face.
+```
+
+The OBJ format of Wavefront Technologies. Description: https://paulbourke.net/dataformats/obj/
+
+**License:** File format
+
+**Used in:** `src/mesh.zig`
+
+**How zslice uses it:** The loader reads the `v` and `f` lines (indices from 1, or negative from the end, with or without texture and normal indices), and makes a fan of triangles from each face. It skips the other lines.
+
 ### ZIP file format
 
 ```ref

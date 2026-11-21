@@ -103,12 +103,12 @@ The goal is the features that people use in PrusaSlicer and Cura. zslice designs
 ### Models and plate
 - [x] More than one object on the plate, with automatic arrangement
 - [x] 3MF load (parts at their places, components, units, zip64; items that overlap stay one part) and 3MF plate save (Ctrl+S)
-- [ ] OBJ load
+- [x] OBJ load (the vertices and the faces, in mm)
 - [ ] STEP load
 - [x] Rotate, scale, place on face ("Put this side on the bed")
 - [x] Cut: a level plane, with closed caps, and pegs to join the two parts
 - [x] Split a part into its separate bodies
-- [ ] Mirror (the core takes a negative scale; the apps have no mirror action)
+- [x] Mirror along the X or Y axis of the bed (web and GTK)
 - [x] Modifiers (per-region settings), and settings for each object
 - [ ] Mesh repair
 - [ ] Sequential printing (one object at a time)

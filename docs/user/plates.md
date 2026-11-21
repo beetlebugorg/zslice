@@ -26,7 +26,7 @@ All plates slice: the active plate first. With two plates or more, the print car
 ## Save and open
 
 - **Save project…** (Ctrl+S, in the main menu) writes all plates into one 3MF file: the parts, their places, their settings, the support areas, and the edits of the lines.
-- **Open…** (Ctrl+O) opens an STL or a 3MF file. Another slicer opens a zslice 3MF as its first plate.
+- **Open…** (Ctrl+O) opens an STL, 3MF, or OBJ file. An OBJ file has no unit: zslice reads it in mm. Another slicer opens a zslice 3MF as its first plate.
 - zslice opens the 3MF files of other slicers. Parts that touch in the file stay one part.
 
 ## Cura projects

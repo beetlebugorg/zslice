@@ -2887,6 +2887,16 @@ export fn zs_clipboard_clear() void {
     app_mod.clipboard.clear();
 }
 
+/// Mirrors part i along the X (axis 0) or Y (axis 1) axis of the bed.
+export fn zs_app_part_mirror(a: ?*App, i: usize, axis: c_int) c_int {
+    const app = a orelse return @intFromEnum(Status.invalid_argument);
+    if (axis < 0 or axis > 1) return @intFromEnum(Status.invalid_argument);
+    if (i >= app.plate.count()) return @intFromEnum(Status.out_of_range);
+    app.mirrorPart(i, @intCast(axis)) catch |e| return status(e);
+    noted(app, null, true);
+    return ok;
+}
+
 export fn zs_app_part_reset(a: ?*App, i: usize) c_int {
     const app = a orelse return @intFromEnum(Status.invalid_argument);
     if (i >= app.plate.count()) return @intFromEnum(Status.out_of_range);

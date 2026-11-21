@@ -1305,6 +1305,9 @@ enum zs_place_mode {
     ZS_PLACE_STRENGTH = 2,     /* strong along `axis` (0 X, 1 Y, 2 Z of the file) */
 };
 int zs_app_part_place(zs_app *app, size_t i, int mode, int axis);
+/* Mirrors a part along the X (axis 0) or Y (axis 1) axis of the bed. The
+ * part keeps its place. */
+int zs_app_part_mirror(zs_app *app, size_t i, int axis);
 /* The orientation and the scale of the file again. */
 int zs_app_part_reset(zs_app *app, size_t i);
 /* Plates: the app has one or more plates. The active plate is the one that

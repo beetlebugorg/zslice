@@ -2152,6 +2152,10 @@ void zg_model_part_place(ZgModel *self, size_t i, int mode, int axis) {
     if (zs_app_part_place(self->core, i, mode, axis) == ZS_OK) plate_changed(self);
 }
 
+void zg_model_part_mirror(ZgModel *self, size_t i, int axis) {
+    if (zs_app_part_mirror(self->core, i, axis) == ZS_OK) plate_changed(self);
+}
+
 void zg_model_part_reset(ZgModel *self, size_t i) {
     if (zs_app_part_reset(self->core, i) == ZS_OK) plate_changed(self);
 }

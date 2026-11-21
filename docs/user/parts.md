@@ -14,6 +14,7 @@ Click a part with the Move tool (M). With another tool, hold Ctrl and click. The
 | **Split to parts** | Each separate body becomes a part. |
 | **Cut…** | Cuts the part in two with a level plane. |
 | **Best orientation**, **Less support** | Turns the part. |
+| **Mirror X**, **Mirror Y** | Mirrors the part from left to right, or from front to back. The part stays at its place. |
 | **Scale**, **Reset** | The scale in %, or the turn and the scale of the file. |
 | **To a new plate** | Moves the part to a new plate. |
 | **Remove** (Delete) | Removes the part. |

@@ -170,6 +170,12 @@
 <p><strong>License:</strong> File format</p>
 <p><strong>Used in:</strong> <code>src/mesh.zig</code></p>
 <p><strong>How zslice uses it:</strong> The binary and ASCII STL loader and the binary STL writer.</p>
+<h3 id="wavefront-obj-file-format">Wavefront OBJ file format</h3>
+<div class="ref"><span class="kind k-format">format</span><span class="area">files</span><dl><dt>Source</dt><dd>Wavefront Technologies</dd><dt>What zslice uses</dt><dd>The OBJ loader reads the vertices and the faces, and makes a fan of triangles from each face.</dd><dt>License</dt><dd>File format</dd><dt>Link</dt><dd><a href="https://paulbourke.net/dataformats/obj/">https://paulbourke.net/dataformats/obj/</a></dd><dt>Used in</dt><dd><a href="https://github.com/beetlebugorg/zslice/blob/main/src/mesh.zig"><code>src/mesh.zig</code></a></dd></dl></div>
+<p>The OBJ format of Wavefront Technologies. Description: <a href="https://paulbourke.net/dataformats/obj/">https://paulbourke.net/dataformats/obj/</a></p>
+<p><strong>License:</strong> File format</p>
+<p><strong>Used in:</strong> <code>src/mesh.zig</code></p>
+<p><strong>How zslice uses it:</strong> The loader reads the <code>v</code> and <code>f</code> lines (indices from 1, or negative from the end, with or without texture and normal indices), and makes a fan of triangles from each face. It skips the other lines.</p>
 <h3 id="zip-file-format">ZIP file format</h3>
 <div class="ref"><span class="kind k-format">format</span><span class="area">files</span><dl><dt>Source</dt><dd>PKWARE</dd><dt>What zslice uses</dt><dd>The zip records (local header, central directory, end record, and the zip64 records and extra field).</dd><dt>License</dt><dd>Public specification</dd><dt>Link</dt><dd><a href="https://pkware.cachefly.net/webdocs/casestudies/APPNOTE.TXT">https://pkware.cachefly.net/webdocs/casestudies/APPNOTE.TXT</a></dd><dt>Used in</dt><dd><a href="https://github.com/beetlebugorg/zslice/blob/main/src/zipfile.zig"><code>src/zipfile.zig</code></a></dd></dl></div>
 <p>PKWARE, ".ZIP File Format Specification" (APPNOTE.TXT), <a href="https://pkware.cachefly.net/webdocs/casestudies/APPNOTE.TXT">https://pkware.cachefly.net/webdocs/casestudies/APPNOTE.TXT</a></p>

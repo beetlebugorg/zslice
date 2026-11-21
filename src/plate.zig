@@ -726,6 +726,22 @@ pub const Plate = struct {
         try self.repose(gpa, i);
     }
 
+    /// Mirrors part i along the X (axis 0) or Y (axis 1) axis of the bed.
+    /// The part keeps its place. With M the mirror of the bed axis, P the
+    /// pose, S the scale, and D the mirror of the first axis of the file:
+    /// M P S = (M P D) (D S). M P D is a turn, so it is the new pose, and
+    /// D S negates the scale along the first axis of the file. The turn
+    /// about z changes its sign: M Rz(a) = Rz(-a) M.
+    pub fn mirror(self: *Plate, gpa: Allocator, i: usize, axis: u1) Allocator.Error!void {
+        if (i >= self.parts.items.len) return;
+        const p = &self.parts.items[i];
+        for (0..3) |c| p.pose[axis][c] = -p.pose[axis][c];
+        for (0..3) |row| p.pose[row][0] = -p.pose[row][0];
+        p.scale[0] = -p.scale[0];
+        p.rot = @mod(-p.rot, 360);
+        try self.repose(gpa, i);
+    }
+
     /// Turns part i by `deg` degrees around the X (0) or Y (1) axis of the
     /// bed. A turn around Z is `rotate`.
     pub fn turn(self: *Plate, gpa: Allocator, i: usize, axis: u2, deg: f64) Allocator.Error!void {
@@ -1144,6 +1160,60 @@ test "plate: turn, scale, put down, place, and reset a part" {
     // The reset gives the file again: 40 mm.
     try plate.resetPose(gpa, 0);
     try std.testing.expectApproxEqAbs(@as(f64, 40), p.height, 1e-3);
+}
+
+test "plate: mirror a part along X and Y of the bed" {
+    const gpa = std.testing.allocator;
+    var plate: Plate = .{};
+    defer plate.deinit(gpa);
+    _ = try plate.add(gpa, "w", try mesh_mod.shapes.wedge(gpa, 30, 10, 2, 12), .{ 200, 200 }, 3, false);
+    // A turn about z and about x first: the mirror is along the bed axes.
+    plate.rotate(0, 30);
+    try plate.turn(gpa, 0, 0, 90);
+    const fp = plate.parts.items[0].footprint();
+    var before = try plate.partMesh(gpa, 0);
+    defer before.deinit(gpa);
+    for ([_]u1{ 0, 1 }) |axis| {
+        try plate.mirror(gpa, 0, axis);
+        var after = try plate.partMesh(gpa, 0);
+        defer after.deinit(gpa);
+        // The footprint stays.
+        const fa = plate.parts.items[0].footprint();
+        for (fp, fa) |x, y| try std.testing.expectApproxEqAbs(x, y, 1e-3);
+        // Each vertex has its mirror image.
+        const c = if (axis == 0) (fp[0] + fp[2]) / 2 else (fp[1] + fp[3]) / 2;
+        for (before.vertices.items) |v| {
+            var want = [3]f64{ v.x, v.y, v.z };
+            want[axis] = 2 * c - want[axis];
+            var found = false;
+            for (after.vertices.items) |q| {
+                if (@abs(q.x - want[0]) < 1e-3 and @abs(q.y - want[1]) < 1e-3 and @abs(q.z - want[2]) < 1e-3) found = true;
+            }
+            try std.testing.expect(found);
+        }
+        // The faces still point out: the volume keeps its sign.
+        try std.testing.expect(signedVolume(after) * signedVolume(before) > 0);
+        // A second mirror gives the part back.
+        try plate.mirror(gpa, 0, axis);
+        var back = try plate.partMesh(gpa, 0);
+        defer back.deinit(gpa);
+        for (before.vertices.items, back.vertices.items) |v, q| {
+            try std.testing.expectApproxEqAbs(v.x, q.x, 1e-3);
+            try std.testing.expectApproxEqAbs(v.y, q.y, 1e-3);
+            try std.testing.expectApproxEqAbs(v.z, q.z, 1e-3);
+        }
+    }
+}
+
+fn signedVolume(m: Mesh) f64 {
+    var vol: f64 = 0;
+    for (m.faces.items) |f| {
+        const a = m.vertices.items[f[0]];
+        const b = m.vertices.items[f[1]];
+        const c = m.vertices.items[f[2]];
+        vol += (@as(f64, a.x) * (@as(f64, b.y) * c.z - @as(f64, b.z) * c.y) - @as(f64, a.y) * (@as(f64, b.x) * c.z - @as(f64, b.z) * c.x) + @as(f64, a.z) * (@as(f64, b.x) * c.y - @as(f64, b.y) * c.x)) / 6;
+    }
+    return vol;
 }
 
 test "duplicate a part" {
