@@ -513,15 +513,17 @@ pub const App = struct {
             for (p.labels) |l| pl.labels.appendAssumeCapacity(l);
             app.gpa.free(p.labels);
             p.labels = &.{};
-            if (p.filament > 1) {
-                var buf: [8]u8 = undefined;
-                const v = std.fmt.bufPrint(&buf, "{d}", .{p.filament}) catch unreachable;
-                app.setPartSetting(i, "project.filament", v) catch |e| if (e == error.OutOfMemory) return error.OutOfMemory;
-            }
             // With no part that prints, a volume prints as a part.
             if (zs.part_settings.prints(p.meta)) {
                 app.plate.setMeta(app.gpa, i, p.meta);
                 p.meta = &.{};
+            }
+            // The filament goes into the settings of the part after the
+            // settings of the file, as they replace all of them.
+            if (p.filament > 1) {
+                var buf: [8]u8 = undefined;
+                const v = std.fmt.bufPrint(&buf, "{d}", .{p.filament}) catch unreachable;
+                app.setPartSetting(i, "project.filament", v) catch |e| if (e == error.OutOfMemory) return error.OutOfMemory;
             }
         }
         for (loaded.parts) |*p| {
@@ -4439,6 +4441,55 @@ fn grilleProject(gpa: Allocator) ![]u8 {
     errdefer out.deinit();
     try zs.zipfile.write(gpa, &out.writer, &entries);
     return out.toOwnedSlice();
+}
+
+test "app: the parts of a Bambu Studio project keep their filaments, and the slice has two" {
+    const gpa = testing.allocator;
+    // Two cubes of 10 mm side by side: object 2 has filament 2 in
+    // Metadata/model_settings.config.
+    var model: std.Io.Writer.Allocating = .init(gpa);
+    defer model.deinit();
+    const w = &model.writer;
+    try w.writeAll("<?xml version=\"1.0\"?><model unit=\"millimeter\" xmlns=\"http://schemas.microsoft.com/3dmanufacturing/core/2015/02\"><resources>");
+    for (1..3) |id| {
+        try w.print("<object id=\"{d}\" type=\"model\"><mesh><vertices>", .{id});
+        for ([_][3]f64{ .{ 0, 0, 0 }, .{ 10, 0, 0 }, .{ 10, 10, 0 }, .{ 0, 10, 0 }, .{ 0, 0, 10 }, .{ 10, 0, 10 }, .{ 10, 10, 10 }, .{ 0, 10, 10 } }) |v| try w.print("<vertex x=\"{d}\" y=\"{d}\" z=\"{d}\"/>", .{ v[0], v[1], v[2] });
+        try w.writeAll("</vertices><triangles>");
+        for ([_][3]u32{ .{ 0, 2, 1 }, .{ 0, 3, 2 }, .{ 4, 5, 6 }, .{ 4, 6, 7 }, .{ 0, 1, 5 }, .{ 0, 5, 4 }, .{ 1, 2, 6 }, .{ 1, 6, 5 }, .{ 2, 3, 7 }, .{ 2, 7, 6 }, .{ 3, 0, 4 }, .{ 3, 4, 7 } }) |f| try w.print("<triangle v1=\"{d}\" v2=\"{d}\" v3=\"{d}\"/>", .{ f[0], f[1], f[2] });
+        try w.writeAll("</triangles></mesh></object>");
+    }
+    try w.writeAll("</resources><build><item objectid=\"1\" transform=\"1 0 0 0 1 0 0 0 1 80 100 0\"/><item objectid=\"2\" transform=\"1 0 0 0 1 0 0 0 1 110 100 0\"/></build></model>");
+    const settings =
+        \\<?xml version="1.0" encoding="UTF-8"?>
+        \\<config>
+        \\  <object id="1"><metadata key="extruder" value="1"/></object>
+        \\  <object id="2"><metadata key="extruder" value="2"/></object>
+        \\</config>
+    ;
+    const project =
+        \\{ "filament_colour": ["#FFFFFF", "#D93A3A"], "filament_type": ["PLA", "PLA"] }
+    ;
+    const entries = [_]zs.zipfile.Entry{
+        .{ .name = "3D/3dmodel.model", .data = model.written() },
+        .{ .name = "Metadata/model_settings.config", .data = @constCast(settings) },
+        .{ .name = "Metadata/project_settings.config", .data = @constCast(project) },
+    };
+    var file: std.Io.Writer.Allocating = .init(gpa);
+    defer file.deinit();
+    try zs.zipfile.write(gpa, &file.writer, &entries);
+    const app = try App.create(gpa, null, null);
+    defer app.destroy();
+    app.keep_places = true;
+    try app.loadStl("two.3mf", file.written());
+    try testing.expectEqual(@as(usize, 2), app.plate.count());
+    try testing.expectEqual(@as(usize, 2), filament_slots.count(app));
+    try testing.expect(app.partSetting(0, "project.filament") == null);
+    try testing.expectEqualStrings("2", app.partSetting(1, "project.filament").?);
+    try app.startSlice();
+    app.stopWorkerForTest();
+    const st = app.result().?;
+    try testing.expect(st.slot_g[0] > 0);
+    try testing.expect(st.slot_g[1] > 0);
 }
 
 test "app: a Cura project with a modifier volume: load, slice, inspect, and save" {
