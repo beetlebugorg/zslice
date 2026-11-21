@@ -100,6 +100,12 @@
 <p><strong>License:</strong> W3C standard</p>
 <p><strong>Used in:</strong> <code>macos/Sources/ZSlice/Views/HistoryGlyph.swift</code></p>
 <p><strong>How zslice uses it:</strong> The Mac app draws the glyphs of the history steps (the SVG paths of <code>web/app/history.js</code>) with SwiftUI paths. The code is new.</p>
+<h3 id="svg-11-pictures-on-labels">SVG 1.1 pictures on labels</h3>
+<div class="ref"><span class="kind k-format">format</span><span class="area">files</span><dl><dt>Source</dt><dd>W3C</dd><dt>What zslice uses</dt><dd>An SVG picture on a label: the path data, the basic shapes, the transforms, the fill rules, and the arc conversion.</dd><dt>License</dt><dd>W3C standard</dd><dt>Link</dt><dd><a href="https://www.w3.org/TR/SVG11/">https://www.w3.org/TR/SVG11/</a></dd><dt>Used in</dt><dd><a href="https://github.com/beetlebugorg/zslice/blob/main/src/svg_path.zig"><code>src/svg_path.zig</code></a>, <a href="https://github.com/beetlebugorg/zslice/blob/main/src/label.zig"><code>src/label.zig</code></a></dd></dl></div>
+<p>Scalable Vector Graphics (SVG) 1.1 (Second Edition), W3C Recommendation 16 August 2011: the path data (chapter 8), the basic shapes (chapter 9), the transform attribute (7.6), the fill rules nonzero and evenodd (11.3), and the conversion of an arc from its end points to its center (appendix F.6.5 and F.6.6), <a href="https://www.w3.org/TR/SVG11/">https://www.w3.org/TR/SVG11/</a></p>
+<p><strong>License:</strong> W3C standard</p>
+<p><strong>Used in:</strong> <code>src/svg_path.zig</code>, <code>src/label.zig</code></p>
+<p><strong>How zslice uses it:</strong> svg_path.zig reads the filled shapes of an SVG file into polygons for a label: the commands M L H V C S Q T A Z, the elements path, rect, circle, ellipse, polygon, polyline, and line, the transforms, and the fill rules. A stroke with no fill becomes a simple outline. The code is new.</p>
 <h3 id="toml-v100">TOML v1.0.0</h3>
 <div class="ref"><span class="kind k-format">format</span><span class="area">files</span><dl><dt>Source</dt><dd>TOML</dd><dt>What zslice uses</dt><dd>The profile file format.</dd><dt>License</dt><dd>MIT</dd><dt>Link</dt><dd><a href="https://toml.io/en/v1.0.0">https://toml.io/en/v1.0.0</a></dd><dt>Used in</dt><dd><a href="https://github.com/beetlebugorg/zslice/blob/main/src/toml.zig"><code>src/toml.zig</code></a>, <a href="https://github.com/beetlebugorg/zslice/blob/main/src/profile.zig"><code>src/profile.zig</code></a></dd></dl></div>
 <p>TOML v1.0.0, <a href="https://toml.io/en/v1.0.0">https://toml.io/en/v1.0.0</a></p>
