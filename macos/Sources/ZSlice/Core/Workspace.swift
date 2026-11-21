@@ -624,6 +624,39 @@ final class Workspace {
                 NSLog("zslice history card: step %ld of %ld, keys %@, changes %@", i, model.history.count, historyCardKeys(i).joined(separator: ","), model.history.step(i)?.changes.joined(separator: " / ") ?? "-")
             }
         }
+        // ZSLICE_SPOOLS_TEST=url: a printdeck printer at url becomes the
+        // printer of the plate, with machine.filament_change "tool". Then
+        // the follow (flag 2), a filament set by hand, the follow again (the
+        // hand-set one stays), and Use the Filaments (flag 1). It logs the
+        // filaments and the AMS mapping after each.
+        if let u = env["ZSLICE_SPOOLS_TEST"] {
+            Task { @MainActor in
+                @MainActor func log(_ step: String) {
+                    var trays = [Int32](repeating: -1, count: 16)
+                    let n = zs_app_ams_mapping(self.model.core, &trays, 16)
+                    NSLog("zslice spools %@: %@; trays %@; note %@", step,
+                          self.model.filaments.map { "\($0.index + 1) \($0.material) \($0.color) [\($0.slot)\($0.fromPrinter ? " printer" : "")\($0.hand ? " hand" : "")]" }.joined(separator: ", "),
+                          trays.prefix(n).map(String.init).joined(separator: " "), self.note ?? "-")
+                }
+                try? await Task.sleep(for: .seconds(2))
+                var p = Printer(name: "Spool Test", kind: .printdeck, url: u)
+                p.machine = ""
+                PrinterStore.shared.add(p)
+                p.apiKey = "K"
+                self.model.set("machine.filament_change", "tool")
+                self.usePrinter(p)
+                try? await Task.sleep(for: .seconds(3))
+                log("follow")
+                self.model.setFilament(0, "filament.color", "#ffff00")
+                try? await Task.sleep(for: .seconds(1))
+                self.followSpoolsNow()
+                try? await Task.sleep(for: .seconds(3))
+                log("hand then follow")
+                let words = await self.useLoadedFilaments(p)
+                NSLog("zslice spools use: %@", words)
+                log("use")
+            }
+        }
         // ZSLICE_USE_FILAMENTS=1 runs Use the Filaments of the printer of
         // the plate 4 s after the start, and logs its note and the list.
         if env["ZSLICE_USE_FILAMENTS"] != nil {
@@ -2007,6 +2040,7 @@ final class Workspace {
         }
         store.currentID = p.id
         setPlatePrinter(model.active, p)
+        defer { followSpoolsNow() }
         let machine = applyMachine(p, to: model.core)
         let filament = applyFilament(of: store.printers.first { $0.id == p.id } ?? p)
         if ProcessInfo.processInfo.environment["ZSLICE_SWITCH_LOG"] != nil {
@@ -2091,8 +2125,20 @@ final class Workspace {
             while !Task.isCancelled {
                 guard let self else { return }
                 if let p = connectedPrinter {
-                    let s = await PrinterLink.status(p)
+                    let obj = await PrinterLink.statusObject(p)
+                    let s = obj.flatMap { PrinterLink.status(of: $0) }
                     if s != printerStatus { printerStatus = s }
+                    // The spools of the printer of the plate follow, with
+                    // the same status when it is that printer.
+                    if let plate = platePrinter, plate.kind == .printdeck || plate.kind == .bambu {
+                        if plate.id == p.id {
+                            if let obj { followSpools(plate, status: obj) }
+                        } else if let o2 = await PrinterLink.statusObject(plate) {
+                            followSpools(plate, status: o2)
+                            zs_printer_status_free(o2)
+                        }
+                    }
+                    if let obj { zs_printer_status_free(obj) }
                 } else if printerStatus != nil {
                     printerStatus = nil
                 }
@@ -2116,6 +2162,13 @@ final class Workspace {
                 return
             }
             defer { zs_printer_status_free(s) }
+            // The filament: the spools of the printer, through the core,
+            // also over a filament set by hand.
+            if what == 2, let text = coreString({ zs_printer_status_filaments(s, $0, $1, $2) }), !text.isEmpty {
+                let words = fromPrinter(p, Data(text.utf8), flags: 1)
+                if !words.isEmpty { showNote(words, seconds: 6) }
+                return
+            }
             if zs_app_apply_printer_status(model.core, s, what) == 0 { model.settingsChanged() }
         }
     }
@@ -2218,7 +2271,14 @@ final class Workspace {
         var pinned: String?
         do {
             try await BambuLink.upload(p, name: file, data: bytes, pinned: &pinned)
-            if print { try await BambuLink.start(p, file: file, title: title, gcode: gcode, pinned: &pinned) }
+            if print {
+                // The tray of each filament, so the printer loads each one
+                // from its spool (ams_mapping).
+                let app = zs_set_app(model.set, plate ?? model.active) ?? model.core
+                var trays = [Int32](repeating: -1, count: 16)
+                let n = min(zs_app_ams_mapping(app, &trays, trays.count), trays.count)
+                try await BambuLink.start(p, file: file, title: title, gcode: gcode, trays: Array(trays.prefix(n)), pinned: &pinned)
+            }
             if let pinned { showNote("zslice trusts the certificate of \(p.name) from now on (SHA-256 \(pinned.prefix(11))…)", seconds: 8) }
             return LinkResult(ok: true, message: (print ? "Printing on \(p.name)" : "Uploaded to \(p.name)") + ". Not verified: Bambu printers do not check signatures.")
         } catch {
