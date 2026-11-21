@@ -470,7 +470,12 @@ pub const Job = struct {
                     .core => .core,
                 },
             };
-            pc.split.compute(self.outlines, cut, frame, w, s.project.top_thickness, s.project.bottom_thickness, self.threads, roots) catch |e| return @as(Error, @errorCast(e));
+            // The narrowest line of a label (see paint_split.Split.labelLayer):
+            // the narrowest Arachne line (see layer.arachneParams).
+            const p = s.project;
+            const min_wall = if (p.min_wall_line_width > 0) p.min_wall_line_width else 0.85 * s.machine.nozzle_diameter;
+            const min_bead = if (p.min_bead_width > 0) p.min_bead_width else min_wall;
+            pc.split.compute(self.outlines, cut, frame, w, s.project.top_thickness, s.project.bottom_thickness, self.threads, roots, min_bead) catch |e| return @as(Error, @errorCast(e));
         }
         if (pc.split.layers != n) return error.InvalidSettings;
         for (0..n) |i| {

@@ -32,10 +32,20 @@
 //! of its filament as the outline of each layer (see plate_job.zig). So
 //! each region gets its own walls and infill, with its own filament.
 //!
+//! The labels of a part (label.zig) come last, each with a state of its
+//! own. A label is a 2D shape in a plane on the part. On each layer, the
+//! prism of the shape along the normal of the label (over the range of
+//! the surface under it) meets the plane of the layer. The part of that
+//! cut within the depth of the label from the outline of the layer (the
+//! skin band) is the region of the label. A top or bottom label colors
+//! the top or bottom layers under its shape. The region of a label wins
+//! over the paint and the roots (see `Split.labelLayer`).
+//!
 //! References (see REFERENCES.md): the multi-material segmentation of
 //! PrusaSlicer (MultiMaterialSegmentation.cpp: the colored edges of a
-//! layer, the projection of painted top and bottom surfaces); the method,
-//! no code.
+//! layer, the projection of painted top and bottom surfaces); the text
+//! tools of PrusaSlicer and Bambu Studio and the segmented region width
+//! of PrusaSlicer and OrcaSlicer (the labels); the methods, no code.
 //!
 //! SPDX-License-Identifier: AGPL-3.0-or-later
 
@@ -47,6 +57,7 @@ const offset_mod = @import("offset.zig");
 const parallel = @import("parallel.zig");
 const mesh_mod = @import("mesh.zig");
 const paint_mod = @import("paint.zig");
+const label_mod = @import("label.zig");
 const Mesh = mesh_mod.Mesh;
 const Paths = geom.Paths;
 const Point = geom.Point;
@@ -91,8 +102,17 @@ pub const Split = struct {
     /// For each layer and state (as `regions`): the region is all root
     /// (see `anchor`). Empty with no roots.
     root_only: []bool = &.{},
+    /// The labels of the part, ready for the cut of each layer (see
+    /// `labelLayer`).
+    labels: []LabelCut = &.{},
+    /// For each state: the index of its label in the labels of `init`,
+    /// or null for the part and the paint. Empty with no labels.
+    label_of: []?u32 = &.{},
 
     pub fn deinit(s: *Split) void {
+        for (s.labels) |*c| c.shape.deinit(s.gpa);
+        s.gpa.free(s.labels);
+        s.gpa.free(s.label_of);
         for (s.regions) |*r| r.deinit(s.gpa);
         s.gpa.free(s.regions);
         s.gpa.free(s.root_only);
@@ -104,6 +124,53 @@ pub const Split = struct {
     /// The painted pieces of `paint` on `mesh`. `base`: the filament of
     /// the part; paint of the same filament is no paint.
     pub fn init(gpa: Allocator, mesh: *const Mesh, paint: *const paint_mod.Paint, base: u8) Allocator.Error!Split {
+        return initLabels(gpa, mesh, paint, base, &.{});
+    }
+
+    /// `init`, with the labels of the part (see label.zig) in the frame
+    /// of `mesh`. Each label gets a state of its own after the states of
+    /// the paint, also when its filament is a filament of the paint. A
+    /// label in the filament of the part, or with no shape, gets none.
+    pub fn initLabels(gpa: Allocator, mesh: *const Mesh, paint: *const paint_mod.Paint, base: u8, labels: []const label_mod.Label) Allocator.Error!Split {
+        var s = try initPaint(gpa, mesh, paint, base);
+        errdefer s.deinit();
+        if (labels.len == 0) return s;
+        var cuts: std.ArrayList(LabelCut) = .empty;
+        errdefer {
+            for (cuts.items) |*c| c.shape.deinit(gpa);
+            cuts.deinit(gpa);
+        }
+        var grid: ?paint_mod.Grid = null;
+        defer if (grid) |*g| g.deinit(gpa);
+        for (labels, 0..) |*l, li| {
+            if (l.filament == base or l.filament > 255 or l.items.len == 0) continue;
+            if (grid == null) grid = try paint_mod.Grid.init(gpa, mesh);
+            var c = (try LabelCut.init(gpa, l, mesh, &grid.?)) orelse continue;
+            c.index = @intCast(li);
+            c.state = s.states.len + cuts.items.len;
+            cuts.append(gpa, c) catch |e| {
+                c.shape.deinit(gpa);
+                return e;
+            };
+        }
+        if (cuts.items.len == 0) {
+            cuts.deinit(gpa);
+            return s;
+        }
+        const n = s.states.len;
+        const states = try gpa.alloc(u8, n + cuts.items.len);
+        @memcpy(states[0..n], s.states);
+        for (cuts.items, states[n..]) |c, *st| st.* = @intCast(labels[c.index].filament);
+        gpa.free(s.states);
+        s.states = states;
+        s.label_of = try gpa.alloc(?u32, states.len);
+        @memset(s.label_of, null);
+        for (cuts.items) |c| s.label_of[c.state] = c.index;
+        s.labels = try cuts.toOwnedSlice(gpa);
+        return s;
+    }
+
+    fn initPaint(gpa: Allocator, mesh: *const Mesh, paint: *const paint_mod.Paint, base: u8) Allocator.Error!Split {
         var s: Split = .{ .gpa = gpa };
         errdefer s.deinit();
         var leaves: std.ArrayList(Leaf) = .empty;
@@ -172,8 +239,9 @@ pub const Split = struct {
     /// `cut_z[i]`: the cut z of layer i in the frame of the job (before
     /// the z scale). `width`: the line width (mm). `top` and `bottom`: the
     /// depth (mm) of the color of a painted top or bottom face. `roots`:
-    /// the anchors of the painted features (see `anchor`).
-    pub fn compute(s: *Split, outlines: []const Paths, cut_z: []const f64, frame: Frame, width: f64, top: f64, bottom: f64, threads: usize, roots: Anchor) anyerror!void {
+    /// the anchors of the painted features (see `anchor`). `min_bead`:
+    /// the narrowest line (mm) of a label (see `labelLayer`).
+    pub fn compute(s: *Split, outlines: []const Paths, cut_z: []const f64, frame: Frame, width: f64, top: f64, bottom: f64, threads: usize, roots: Anchor, min_bead: f64) anyerror!void {
         if (s.done) return;
         const gpa = s.gpa;
         const n = outlines.len;
@@ -195,7 +263,110 @@ pub const Split = struct {
         const ctx: Pass = .{ .s = s, .outlines = outlines, .cut_z = cut_z, .frame = frame, .w = geom.fromMm(width), .top = top, .bottom = bottom };
         try parallel.forEach(threads, n, &ctx, Pass.run);
         if (roots.depth > 0 and s.states.len > 1) try s.anchor(outlines, cut_z, width, top, bottom, roots);
+        if (s.labels.len > 0) {
+            const LabelPass = struct {
+                s: *Split,
+                outlines: []const Paths,
+                cut_z: []const f64,
+                frame: Frame,
+                width: f64,
+                min_bead: f64,
+                fn run(c: *const @This(), i: usize) anyerror!void {
+                    try c.s.labelLayer(i, c.outlines, c.cut_z, c.frame, c.width, c.min_bead);
+                }
+            };
+            const lp: LabelPass = .{ .s = s, .outlines = outlines, .cut_z = cut_z, .frame = frame, .width = width, .min_bead = min_bead };
+            try parallel.forEach(threads, n, &lp, LabelPass.run);
+        }
         s.done = true;
+    }
+
+    /// The labels on layer i (after the paint and the anchors). For each
+    /// label in order, its region L of the layer goes to its state, and
+    /// each other region of the layer loses L. So a later label wins over
+    /// an earlier one, and a label wins over the paint and the roots.
+    ///
+    /// A side label: the prism of its shape along its normal, over the
+    /// range H of the surface under it, cut by the plane of the layer
+    /// (see `LabelCut.side`), and within the depth D of the outline of
+    /// the layer (the skin band). A top label: its shape, projected
+    /// along its normal, in the area of the layer that is within k
+    /// layers of a top (k = D / the layer height, at least 2). A bottom
+    /// label: the same with the layers under it.
+    ///
+    /// The clean-up: a piece of L thinner than `min_bead` goes back to
+    /// the part (an opening), and a gap of the band narrower than
+    /// `min_bead` between two pieces of L goes to the label (a closing).
+    fn labelLayer(s: *Split, i: usize, outlines: []const Paths, cut_z: []const f64, frame: Frame, width: f64, min_bead: f64) anyerror!void {
+        const gpa = s.gpa;
+        const outline = outlines[i];
+        if (outline.isEmpty()) return;
+        const k = s.states.len;
+        const out = s.regions[i * k ..][0..k];
+        var arena_state = std.heap.ArenaAllocator.init(gpa);
+        defer arena_state.deinit();
+        const a = arena_state.allocator();
+        const z = frame.z_base + cut_z[i] / frame.z_scale;
+        // The layer height, for the count of layers in D.
+        const lh = if (i > 0) cut_z[i] - cut_z[i - 1] else if (cut_z.len > 1) cut_z[1] - cut_z[0] else width / 2;
+        const r_bead = @divTrunc(geom.fromMm(min_bead), 2);
+        // The skin bands of the layer, for each depth.
+        var bands: std.ArrayList(struct { d: f64, band: Paths }) = .empty;
+        for (s.labels) |*lc| {
+            const d = if (lc.depth > 0) lc.depth else width;
+            var l: Paths = .empty;
+            switch (lc.kind) {
+                .side => {
+                    const p = try lc.side(a, z, lc.h_min - width, lc.h_max + d + width, frame);
+                    if (p.isEmpty()) continue;
+                    var band: ?Paths = null;
+                    for (bands.items) |b| if (b.d == d) {
+                        band = b.band;
+                    };
+                    if (band == null) {
+                        const inner = try offset_mod.offset(a, outline, -geom.fromMm(d), .{});
+                        band = try clip.difference(a, outline, inner);
+                        try bands.append(a, .{ .d = d, .band = band.? });
+                    }
+                    l = try clip.intersect(a, p, band.?);
+                    if (l.isEmpty()) continue;
+                    l = try clean(a, l, band.?, r_bead);
+                },
+                .top, .bottom => {
+                    // Only near the surface under the label.
+                    const layers: usize = @max(2, @as(usize, @intFromFloat(@ceil(d / @max(lh, 1e-3) - 1e-6))));
+                    const reach = (@as(f64, @floatFromInt(layers)) + 1) * lh / frame.z_scale + width;
+                    if (lc.kind == .top and (z < lc.z_min - reach or z > lc.z_max + width)) continue;
+                    if (lc.kind == .bottom and (z > lc.z_max + reach or z < lc.z_min - width)) continue;
+                    const p = try lc.flat(a, z, frame);
+                    if (p.isEmpty()) continue;
+                    // The area within `layers` layers of a top (or of a
+                    // bottom): the outline less the area that all those
+                    // layers have.
+                    var keep: ?Paths = null;
+                    var j: usize = 1;
+                    while (j <= layers) : (j += 1) {
+                        const o: Paths = if (lc.kind == .top) (if (i + j < outlines.len) outlines[i + j] else .empty) else (if (i >= j) outlines[i - j] else .empty);
+                        keep = if (keep) |kp| try clip.intersect(a, kp, o) else o;
+                        if (keep.?.isEmpty()) break;
+                    }
+                    const skin = try clip.difference(a, outline, keep orelse .empty);
+                    l = try clip.intersect(a, p, skin);
+                    if (l.isEmpty()) continue;
+                    l = try clean(a, l, skin, r_bead);
+                },
+            }
+            if (l.isEmpty()) continue;
+            for (out, 0..) |*r, st| {
+                if (st == lc.state or r.isEmpty()) continue;
+                const rest = try clip.difference(gpa, r.*, l);
+                r.deinit(gpa);
+                r.* = rest;
+            }
+            const mine = try l.clone(gpa);
+            out[lc.state].deinit(gpa);
+            out[lc.state] = mine;
+        }
     }
 
     /// The anchors of the painted features: where a region of a painted
@@ -478,6 +649,249 @@ pub const Anchor = struct {
     pub const Shape = enum { footprint, core };
 };
 
+/// The clean-up of a label region `l` in the area `room` (see
+/// `Split.labelLayer`): no piece thinner than 2 r, and no gap narrower
+/// than 2 r.
+fn clean(a: Allocator, l: Paths, room: Paths, r: i64) Allocator.Error!Paths {
+    if (r <= 0) return l;
+    const open = try clip.intersect(a, try offset_mod.opening(a, l, r, .{}), l);
+    if (open.isEmpty()) return open;
+    const grown = try offset_mod.offset(a, open, r, .{});
+    const closed = try offset_mod.offset(a, grown, -r, .{});
+    return clip.intersect(a, try clip.unite(a, closed, open), room);
+}
+
+/// A label of a part, ready for the cut of each layer (see
+/// `Split.labelLayer`). The vectors are in the frame of the mesh of the
+/// job.
+pub const LabelCut = struct {
+    /// The index of the label in the labels of `Split.initLabels`, and of
+    /// its state in `Split.states`.
+    index: u32 = 0,
+    state: usize = 0,
+    kind: Kind,
+    /// The shape in the units of geom: for a side label in the axes
+    /// (a, b), else in the axes (right, up) of the label.
+    shape: Paths,
+    origin: [3]f64,
+    normal: [3]f64,
+    right: [3]f64,
+    up: [3]f64,
+    /// A side label: a = normal × Z (level), b = normal × a.
+    a: [3]f64 = .{ 0, 0, 0 },
+    b: [3]f64 = .{ 0, 0, 0 },
+    /// The depth (mm); 0: one line width.
+    depth: f64,
+    /// The range of the surface under the shape, as the distance from
+    /// the plane of the label into the part (mm), and as z (mm).
+    h_min: f64,
+    h_max: f64,
+    z_min: f64,
+    z_max: f64,
+
+    pub const Kind = enum { side, top, bottom };
+
+    /// The cut of a label, or null if the shape is empty or no ray from
+    /// it meets the mesh.
+    fn init(gpa: Allocator, l: *const label_mod.Label, mesh: *const Mesh, grid: *const paint_mod.Grid) Allocator.Error!?LabelCut {
+        var shape = label_mod.outline(gpa, l) catch |e| switch (e) {
+            error.OutOfMemory => return error.OutOfMemory,
+            error.BadFont => return null,
+        };
+        errdefer shape.deinit(gpa);
+        if (shape.isEmpty()) {
+            shape.deinit(gpa);
+            return null;
+        }
+        const nz = l.normal[2];
+        var c: LabelCut = .{
+            .kind = if (nz > 0.7) .top else if (nz < -0.7) .bottom else .side,
+            .shape = shape,
+            .origin = l.origin,
+            .normal = l.normal,
+            .right = l.right,
+            .up = l.up(),
+            .depth = l.depth,
+            .h_min = std.math.inf(f64),
+            .h_max = -std.math.inf(f64),
+            .z_min = std.math.inf(f64),
+            .z_max = -std.math.inf(f64),
+        };
+        // The surface range: rays along -normal from the vertices of the
+        // shape and from a grid of 1 mm in it, from 1 mm out of the plane.
+        const back = 1.0;
+        const Cast = struct {
+            fn one(cc: *LabelCut, m: *const Mesh, g: *const paint_mod.Grid, s: f64, t: f64) void {
+                const p: [3]f64 = .{
+                    cc.origin[0] + s * cc.right[0] + t * cc.up[0] + back * cc.normal[0],
+                    cc.origin[1] + s * cc.right[1] + t * cc.up[1] + back * cc.normal[1],
+                    cc.origin[2] + s * cc.right[2] + t * cc.up[2] + back * cc.normal[2],
+                };
+                const o: paint_mod.V3 = .{ @floatCast(p[0]), @floatCast(p[1]), @floatCast(p[2]) };
+                const d: paint_mod.V3 = .{ @floatCast(-cc.normal[0]), @floatCast(-cc.normal[1]), @floatCast(-cc.normal[2]) };
+                const hit = g.hit(m, o, d) orelse return;
+                const h = @as(f64, hit.t) - back;
+                cc.h_min = @min(cc.h_min, h);
+                cc.h_max = @max(cc.h_max, h);
+                const hz = p[2] - @as(f64, hit.t) * cc.normal[2];
+                cc.z_min = @min(cc.z_min, hz);
+                cc.z_max = @max(cc.z_max, hz);
+            }
+        };
+        const pts = shape.points.items;
+        const stride = @max(1, pts.len / 2000);
+        var k: usize = 0;
+        while (k < pts.len) : (k += stride) Cast.one(&c, mesh, grid, geom.toMm(pts[k].x), geom.toMm(pts[k].y));
+        const box = shape.bounds();
+        const step = geom.fromMm(1);
+        var y = box.min.y + @divTrunc(step, 2);
+        while (y < box.max.y) : (y += step) {
+            var x = box.min.x + @divTrunc(step, 2);
+            while (x < box.max.x) : (x += step) {
+                if (geom.insideAny(shape, .init(x, y))) Cast.one(&c, mesh, grid, geom.toMm(x), geom.toMm(y));
+            }
+        }
+        if (!(c.h_min <= c.h_max)) {
+            shape.deinit(gpa);
+            return null;
+        }
+        if (c.kind == .side) {
+            // The shape in the axes (a, b): a turn in the plane.
+            c.a = label_mod.normalize(label_mod.cross(c.normal, .{ 0, 0, 1 })) orelse .{ 1, 0, 0 };
+            c.b = label_mod.cross(c.normal, c.a);
+            const ra = label_mod.dot(c.right, c.a);
+            const ua = label_mod.dot(c.up, c.a);
+            const rb = label_mod.dot(c.right, c.b);
+            const ub = label_mod.dot(c.up, c.b);
+            for (c.shape.points.items) |*q| {
+                const s: f64 = @floatFromInt(q.x);
+                const t: f64 = @floatFromInt(q.y);
+                q.* = .init(@intFromFloat(@round(s * ra + t * ua)), @intFromFloat(@round(s * rb + t * ub)));
+            }
+        }
+        return c;
+    }
+
+    /// The region of a side label on the plane at z (mesh frame), for h
+    /// in [h_lo, h_hi] (mm), in the units of the job (before the band).
+    fn side(c: *const LabelCut, a: Allocator, z: f64, h_lo: f64, h_hi: f64, frame: Frame) Allocator.Error!Paths {
+        const nz = c.normal[2];
+        const bz = c.b[2];
+        const dz = z - c.origin[2];
+        const box = c.shape.bounds();
+        const hl = geom.fromMm(h_lo);
+        const hh = geom.fromMm(h_hi);
+        // The region in (s, h): s along a, h into the part.
+        var sh: Paths = .empty;
+        if (@abs(nz) < 1e-6) {
+            // An upright face: the plane cuts the shape on one line of b.
+            const line = dz / bz * geom.units_per_mm;
+            if (line < @as(f64, @floatFromInt(box.min.y)) or line > @as(f64, @floatFromInt(box.max.y))) return .empty;
+            const xs = try crossings(a, c.shape, line);
+            var j: usize = 0;
+            while (j + 1 < xs.len) : (j += 2) {
+                const s0: i64 = @intFromFloat(@round(xs[j]));
+                const s1: i64 = @intFromFloat(@round(xs[j + 1]));
+                if (s1 <= s0) continue;
+                try sh.append(a, &.{ .init(s0, hl), .init(s1, hl), .init(s1, hh), .init(s0, hh) });
+            }
+        } else {
+            // A face with a draft: on the plane z, the point at t of the
+            // shape is at h = (t bz - dz) / nz, an affine map of t.
+            const m = [6]f64{ 1, 0, 0, 0, bz / nz, -dz * geom.units_per_mm / nz };
+            const mapped = try affine(a, c.shape, m);
+            var strip: Paths = .empty;
+            try strip.append(a, &.{ .init(box.min.x - 1, hl), .init(box.max.x + 1, hl), .init(box.max.x + 1, hh), .init(box.min.x - 1, hh) });
+            sh = try clip.intersect(a, mapped, strip);
+        }
+        if (sh.isEmpty()) return sh;
+        // (s, h) to the XY of the mesh: p = origin + s a + t(h) b - h normal
+        // with t(h) = (dz + h nz) / bz; then the frame of the job.
+        const k = frame.xy_scale;
+        var m: [6]f64 = undefined;
+        for (0..2) |ax| {
+            const o = c.origin[ax] + dz * c.b[ax] / bz;
+            const g = nz * c.b[ax] / bz - c.normal[ax];
+            const d = if (ax == 0) frame.dx else frame.dy;
+            const cn = frame.center[ax];
+            m[3 * ax + 0] = k * c.a[ax];
+            m[3 * ax + 1] = k * g;
+            m[3 * ax + 2] = ((o + d - cn) * k + cn) * geom.units_per_mm;
+        }
+        return affine(a, sh, m);
+    }
+
+    /// The shape of a top or bottom label projected along its normal onto
+    /// the plane at z (mesh frame), in the units of the job.
+    fn flat(c: *const LabelCut, a: Allocator, z: f64, frame: Frame) Allocator.Error!Paths {
+        const n = c.normal;
+        const k = frame.xy_scale;
+        var m: [6]f64 = undefined;
+        for (0..2) |ax| {
+            const o = c.origin[ax] + (z - c.origin[2]) * n[ax] / n[2];
+            const d = if (ax == 0) frame.dx else frame.dy;
+            const cn = frame.center[ax];
+            m[3 * ax + 0] = k * (c.right[ax] - c.right[2] * n[ax] / n[2]);
+            m[3 * ax + 1] = k * (c.up[ax] - c.up[2] * n[ax] / n[2]);
+            m[3 * ax + 2] = ((o + d - cn) * k + cn) * geom.units_per_mm;
+        }
+        return affine(a, c.shape, m);
+    }
+};
+
+/// The paths under the affine map x' = m0 x + m1 y + m2, y' = m3 x +
+/// m4 y + m5 (units). A map that mirrors turns each path back, so outer
+/// paths stay counterclockwise.
+fn affine(a: Allocator, p: Paths, m: [6]f64) Allocator.Error!Paths {
+    var out: Paths = .empty;
+    const flip = m[0] * m[4] - m[1] * m[3] < 0;
+    for (0..p.count()) |i| {
+        const poly = p.get(i);
+        for (0..poly.len) |j| {
+            const q = poly[if (flip) poly.len - 1 - j else j];
+            const x: f64 = @floatFromInt(q.x);
+            const y: f64 = @floatFromInt(q.y);
+            try out.appendPoint(a, .init(@intFromFloat(@round(m[0] * x + m[1] * y + m[2])), @intFromFloat(@round(m[3] * x + m[4] * y + m[5]))));
+        }
+        try out.endPath(a, 3);
+    }
+    return out;
+}
+
+/// The x of the points where the line y = `line` (units) enters and
+/// leaves the paths (non-zero rule), in pairs: [x0, x1, x2, x3, ...].
+fn crossings(a: Allocator, p: Paths, line: f64) Allocator.Error![]f64 {
+    const X = struct { x: f64, w: i32 };
+    var list: std.ArrayList(X) = .empty;
+    for (0..p.count()) |i| {
+        const poly = p.get(i);
+        for (poly, 0..) |q, j| {
+            const r = poly[(j + 1) % poly.len];
+            const qy: f64 = @floatFromInt(q.y);
+            const ry: f64 = @floatFromInt(r.y);
+            if ((qy <= line) == (ry <= line)) continue;
+            const t = (line - qy) / (ry - qy);
+            const qx: f64 = @floatFromInt(q.x);
+            const rx: f64 = @floatFromInt(r.x);
+            try list.append(a, .{ .x = qx + t * (rx - qx), .w = if (ry > qy) 1 else -1 });
+        }
+    }
+    std.mem.sort(X, list.items, {}, struct {
+        fn lt(_: void, u: X, v: X) bool {
+            return u.x < v.x;
+        }
+    }.lt);
+    var out: std.ArrayList(f64) = .empty;
+    var wsum: i32 = 0;
+    for (list.items) |c| {
+        const was = wsum != 0;
+        wsum += c.w;
+        const now = wsum != 0;
+        if (was != now) try out.append(a, c.x);
+    }
+    return out.items;
+}
+
 const Seg = struct { a: Point, b: Point, si: u8 };
 
 /// The squared distance (in units²) from p to the segment a b.
@@ -660,7 +1074,7 @@ test "paint split: a part painted all over prints all in its paint" {
     const x1 = geom.fromMm(b.max[0]);
     const y1 = geom.fromMm(b.max[1]);
     try outline.append(gpa, &.{ .init(x0, y0), .init(x1, y0), .init(x1, y1), .init(x0, y1) });
-    try s.compute(&.{outline}, &.{5 - b.min[2]}, .{ .z_base = b.min[2] }, 0.4, 0.8, 0.8, 1, .{});
+    try s.compute(&.{outline}, &.{5 - b.min[2]}, .{ .z_base = b.min[2] }, 0.4, 0.8, 0.8, 1, .{}, 0.34);
     var area: f64 = 0;
     const red = s.region(0, 1);
     for (0..red.count()) |i| area += geom.areaMm2(red.get(i));
@@ -694,7 +1108,7 @@ test "paint split: a painted side colors a strip, and the rest is the part" {
     const x1 = geom.fromMm(b.max[0]);
     const y1 = geom.fromMm(b.max[1]);
     try outline.append(gpa, &.{ .init(x0, y0), .init(x1, y0), .init(x1, y1), .init(x0, y1) });
-    try s.compute(&.{outline}, &.{5 - b.min[2]}, .{ .z_base = b.min[2] }, 0.4, 1, 1, 1, .{});
+    try s.compute(&.{outline}, &.{5 - b.min[2]}, .{ .z_base = b.min[2] }, 0.4, 1, 1, 1, .{}, 0.34);
     const red = s.region(0, 1);
     const part = s.region(0, 0);
     try testing.expect(!red.isEmpty() and !part.isEmpty());
@@ -706,4 +1120,252 @@ test "paint split: a painted side colors a strip, and the rest is the part" {
     // steps), and the rest is the filament of the part.
     try testing.expectApproxEqAbs(@as(f64, 400), red_area + part_area, 1);
     try testing.expect(red_area > 25 and red_area < 50);
+}
+
+// ---- the labels ----
+
+/// The outlines of a mesh at the middle of each layer of height h, and
+/// their cut z (the mesh frame).
+const TestLayers = struct {
+    outlines: []Paths,
+    cut: []f64,
+
+    fn init(gpa: Allocator, m: *const Mesh, h: f64) !TestLayers {
+        const slicer = @import("slicer.zig");
+        const b = m.bounds();
+        const n: usize = @intFromFloat(@floor((b.max[2] - b.min[2]) / h + 1e-9));
+        const faces = try gpa.alloc(u32, m.faces.items.len);
+        defer gpa.free(faces);
+        for (faces, 0..) |*f, i| f.* = @intCast(i);
+        const t: TestLayers = .{ .outlines = try gpa.alloc(Paths, n), .cut = try gpa.alloc(f64, n) };
+        for (t.outlines, t.cut, 0..) |*o, *z, i| {
+            z.* = b.min[2] + (@as(f64, @floatFromInt(i)) + 0.5) * h;
+            o.* = try slicer.sliceAt(gpa, m, faces, z.*, 0, 0);
+        }
+        return t;
+    }
+
+    fn deinit(t: *TestLayers, gpa: Allocator) void {
+        for (t.outlines) |*o| o.deinit(gpa);
+        gpa.free(t.outlines);
+        gpa.free(t.cut);
+    }
+};
+
+/// A label of one text item.
+fn testLabel(gpa: Allocator, text: []const u8, size: f64, origin: [3]f64, normal: [3]f64) !label_mod.Label {
+    const items = try gpa.alloc(label_mod.Item, 1);
+    items[0] = .{ .shape = .{ .text = .{ .text = try gpa.dupe(u8, text), .size = size } } };
+    return .{ .id = 1, .name = try gpa.dupe(u8, ""), .origin = origin, .normal = normal, .right = label_mod.defaultRight(normal, .{ 1, 0, 0 }), .filament = 2, .items = items };
+}
+
+/// Splits the layers with the labels (no paint, part filament 1).
+fn splitWith(gpa: Allocator, m: *const Mesh, t: TestLayers, labels: []const label_mod.Label, paint: *const paint_mod.Paint) !Split {
+    var s = try Split.initLabels(gpa, m, paint, 1, labels);
+    errdefer s.deinit();
+    try s.compute(t.outlines, t.cut, .{}, 0.42, 0.8, 0.8, 1, .{}, 0.34);
+    return s;
+}
+
+/// The largest distance (mm) from a point of `r` to the edge of `o`.
+fn deepest(gpa: Allocator, r: Paths, o: Paths) !f64 {
+    var idx = try geom.EdgeIndex.init(gpa, o, geom.fromMm(5));
+    defer idx.deinit(gpa);
+    var d: f64 = 0;
+    for (r.points.items) |p| d = @max(d, idx.distance(p, geom.fromMm(5)));
+    return geom.toMm(@intFromFloat(d));
+}
+
+test "label split: IH on the side of a box" {
+    const gpa = testing.allocator;
+    var m = try mesh_mod.shapes.box(gpa, 20, 20, 10);
+    defer m.deinit(gpa);
+    var t = try TestLayers.init(gpa, &m, 0.2);
+    defer t.deinit(gpa);
+    var l = try testLabel(gpa, "IH", 5, .{ 20, 10, 5 }, .{ 1, 0, 0 });
+    defer l.deinit(gpa);
+    var p: paint_mod.Paint = .{};
+    var s = try splitWith(gpa, &m, t, &.{l}, &p);
+    defer s.deinit();
+    try testing.expectEqual(@as(usize, 2), s.states.len);
+    try testing.expectEqual(@as(?u32, 0), s.label_of[1]);
+    var shape = try label_mod.outline(gpa, &l);
+    defer shape.deinit(gpa);
+    var a = std.heap.ArenaAllocator.init(gpa);
+    defer a.deinit();
+    var with: usize = 0;
+    for (0..t.outlines.len) |i| {
+        const z = t.cut[i];
+        const lab = s.region(i, 1);
+        const base = s.region(i, 0);
+        if (lab.isEmpty()) continue;
+        with += 1;
+        // Only the layers from z 2.5 to 7.5.
+        try testing.expect(z > 2.5 - 1e-9 and z < 7.5 + 1e-9);
+        // Within D of the +x face.
+        const b = lab.bounds();
+        try testing.expect(geom.toMm(b.min.x) > 20 - 0.42 - 0.005);
+        try testing.expect(geom.toMm(b.max.x) <= 20 + 0.001);
+        // The area: the length of the strokes on the cut line times D
+        // (the text runs along +y; the cut line is t = z - 5).
+        const xs = try crossings(a.allocator(), shape, (z - 5) * geom.units_per_mm);
+        var len: f64 = 0;
+        var j: usize = 0;
+        while (j + 1 < xs.len) : (j += 2) len += (xs[j + 1] - xs[j]) / geom.units_per_mm;
+        // (The layers at the ends cut the edge of the letters.)
+        if (z > 2.5 + 1e-6 and z < 7.5 - 1e-6) try testing.expectApproxEqAbs(len * 0.42, lab.areaMm2(), 0.02);
+        // The base keeps the rest, and the two do not overlap.
+        try testing.expectApproxEqAbs(@as(f64, 400), lab.areaMm2() + base.areaMm2(), 0.01);
+        try testing.expect((try clip.intersect(a.allocator(), lab.*, base.*)).areaMm2() < 1e-6);
+    }
+    // 5 mm of layers of 0.2 mm.
+    try testing.expect(with >= 24 and with <= 26);
+}
+
+/// A box 20 x 20 x 10 whose +x side leans in by `deg` from the vertical.
+fn draftBox(gpa: Allocator, deg: f64) !Mesh {
+    const top = 20 - 10 * @tan(std.math.degreesToRadians(deg));
+    const V = mesh_mod.Vec3;
+    const v = struct {
+        fn f(x: f64, y: f64, z: f64) V {
+            return .{ .x = @floatCast(x), .y = @floatCast(y), .z = @floatCast(z) };
+        }
+    }.f;
+    var b: mesh_mod.Builder = .init(gpa);
+    errdefer b.deinit();
+    try b.addQuad(v(0, 0, 0), v(0, 20, 0), v(20, 20, 0), v(20, 0, 0));
+    try b.addQuad(v(0, 0, 10), v(top, 0, 10), v(top, 20, 10), v(0, 20, 10));
+    try b.addQuad(v(0, 0, 0), v(20, 0, 0), v(top, 0, 10), v(0, 0, 10));
+    try b.addQuad(v(0, 20, 0), v(0, 20, 10), v(top, 20, 10), v(20, 20, 0));
+    try b.addQuad(v(0, 0, 0), v(0, 0, 10), v(0, 20, 10), v(0, 20, 0));
+    try b.addQuad(v(20, 0, 0), v(20, 20, 0), v(top, 20, 10), v(top, 0, 10));
+    return b.finish();
+}
+
+test "label split: the same depth on a face with a draft and on a cylinder" {
+    const gpa = testing.allocator;
+    const dr = std.math.degreesToRadians(10.0);
+    var draft = try draftBox(gpa, 10);
+    defer draft.deinit(gpa);
+    var cyl = try mesh_mod.shapes.frustum(gpa, 0, 0, 15, 15, 10, 256);
+    defer cyl.deinit(gpa);
+    const cases = [_]struct { m: *const Mesh, origin: [3]f64, normal: [3]f64 }{
+        .{ .m = &draft, .origin = .{ 20 - 5 * @tan(dr), 10, 5 }, .normal = .{ @cos(dr), 0, @sin(dr) } },
+        .{ .m = &cyl, .origin = .{ 15, 0, 5 }, .normal = .{ 1, 0, 0 } },
+    };
+    for (cases) |c| {
+        var t = try TestLayers.init(gpa, c.m, 0.2);
+        defer t.deinit(gpa);
+        var l = try testLabel(gpa, "IH", 5, c.origin, c.normal);
+        defer l.deinit(gpa);
+        var p: paint_mod.Paint = .{};
+        var s = try splitWith(gpa, c.m, t, &.{l}, &p);
+        defer s.deinit();
+        var with: usize = 0;
+        for (0..t.outlines.len) |i| {
+            const lab = s.region(i, 1);
+            if (lab.isEmpty()) continue;
+            with += 1;
+            // The deepest point of the label is D from the surface.
+            const d = try deepest(gpa, lab.*, t.outlines[i]);
+            try testing.expectApproxEqAbs(@as(f64, 0.42), d, 0.02);
+        }
+        try testing.expect(with >= 20);
+    }
+}
+
+test "label split: no label on the inner side of a hollow box" {
+    const gpa = testing.allocator;
+    // A box 20 x 20 x 10 with walls of 2 mm (open at the top).
+    var b: mesh_mod.Builder = .init(gpa);
+    defer b.deinit();
+    try mesh_mod.shapes.addBox(&b, 0, 0, 0, 20, 2, 10);
+    try mesh_mod.shapes.addBox(&b, 0, 18, 0, 20, 20, 10);
+    try mesh_mod.shapes.addBox(&b, 0, 2, 0, 2, 18, 10);
+    try mesh_mod.shapes.addBox(&b, 18, 2, 0, 20, 18, 10);
+    var m = try b.finish();
+    defer m.deinit(gpa);
+    var t = try TestLayers.init(gpa, &m, 0.2);
+    defer t.deinit(gpa);
+    var l = try testLabel(gpa, "IH", 5, .{ 20, 10, 5 }, .{ 1, 0, 0 });
+    defer l.deinit(gpa);
+    var p: paint_mod.Paint = .{};
+    var s = try splitWith(gpa, &m, t, &.{l}, &p);
+    defer s.deinit();
+    var with: usize = 0;
+    for (0..t.outlines.len) |i| {
+        const lab = s.region(i, 1);
+        if (lab.isEmpty()) continue;
+        with += 1;
+        try testing.expect(geom.toMm(lab.bounds().min.x) > 20 - 0.42 - 0.005);
+    }
+    try testing.expect(with > 20);
+}
+
+test "label split: a top label colors only its top layers" {
+    const gpa = testing.allocator;
+    var m = try mesh_mod.shapes.box(gpa, 20, 20, 9);
+    defer m.deinit(gpa);
+    // Layers of 0.3 mm: D = 0.42 is 2 layers.
+    var t = try TestLayers.init(gpa, &m, 0.3);
+    defer t.deinit(gpa);
+    var l = try testLabel(gpa, "IH", 5, .{ 10, 10, 9 }, .{ 0, 0, 1 });
+    defer l.deinit(gpa);
+    var p: paint_mod.Paint = .{};
+    var s = try splitWith(gpa, &m, t, &.{l}, &p);
+    defer s.deinit();
+    var shape = try label_mod.outline(gpa, &l);
+    defer shape.deinit(gpa);
+    const n = t.outlines.len;
+    for (0..n) |i| {
+        const lab = s.region(i, 1);
+        if (i + 2 < n) {
+            try testing.expect(lab.isEmpty());
+            continue;
+        }
+        // The whole shape, on each of the top 2 layers.
+        try testing.expectApproxEqAbs(shape.areaMm2(), lab.areaMm2(), 0.05);
+    }
+}
+
+test "label split: a label wins over paint, and thin strokes and gaps clean up" {
+    const gpa = testing.allocator;
+    var m = try mesh_mod.shapes.box(gpa, 20, 20, 10);
+    defer m.deinit(gpa);
+    var t = try TestLayers.init(gpa, &m, 0.2);
+    defer t.deinit(gpa);
+    // The +x side painted with filament 3.
+    var p: paint_mod.Paint = .{};
+    defer p.deinit(gpa);
+    for (m.faces.items, 0..) |f, i| {
+        var all_x = true;
+        for (f) |vi| if (m.vertices.items[vi].x < 20 - 1e-3) {
+            all_x = false;
+        };
+        if (all_x) try p.setTriangle(gpa, i, 3);
+    }
+    // Three bars on the +x side: one 0.2 mm wide (too thin), and two of
+    // 2 mm with a gap of 0.2 mm between them.
+    const items = try gpa.alloc(label_mod.Item, 3);
+    items[0] = .{ .at = .{ -6, 0 }, .shape = .{ .bar = .{ .width = 0.2, .height = 4 } } };
+    items[1] = .{ .at = .{ 1.1, 0 }, .shape = .{ .bar = .{ .width = 2, .height = 4 } } };
+    items[2] = .{ .at = .{ 3.3, 0 }, .shape = .{ .bar = .{ .width = 2, .height = 4 } } };
+    var l: label_mod.Label = .{ .name = try gpa.dupe(u8, ""), .origin = .{ 20, 10, 5 }, .normal = .{ 1, 0, 0 }, .right = .{ 0, 1, 0 }, .filament = 2, .items = items };
+    defer l.deinit(gpa);
+    var s = try splitWith(gpa, &m, t, &.{l}, &p);
+    defer s.deinit();
+    try testing.expectEqual(@as(usize, 3), s.states.len);
+    const i: usize = 25; // z 5.1
+    const lab = s.region(i, 2);
+    const red = s.region(i, 1);
+    // One piece from y 10.1 to 14.3 (the gap filled), none at y 4.
+    try testing.expectEqual(@as(usize, 1), lab.count());
+    const b = lab.bounds();
+    try testing.expectApproxEqAbs(@as(f64, 10.1), geom.toMm(b.min.y), 0.01);
+    try testing.expectApproxEqAbs(@as(f64, 14.3), geom.toMm(b.max.y), 0.01);
+    // The paint loses the label.
+    var a = std.heap.ArenaAllocator.init(gpa);
+    defer a.deinit();
+    try testing.expect((try clip.intersect(a.allocator(), lab.*, red.*)).areaMm2() < 1e-6);
+    try testing.expect(!red.isEmpty());
 }
