@@ -1368,6 +1368,10 @@ pub const Emitter = struct {
             st.slot_mm[0] = st.filament_mm;
             st.slot_g[0] = st.filament_g;
         }
+        // The end of the print, as Bambu Studio writes it before the end
+        // G-code: the spaghetti detector off (the camera of the printer
+        // also uses it as the end of the last layer), and the marker.
+        if (self.bambu_blocks) try self.w.writeAll("M981 S0 P20000 ; close spaghetti detector\n; FEATURE: Custom\n; MACHINE_END_GCODE_START\n");
         _ = try self.writeTemplate(self.w, makerTemplate(self.r.settings.machine.model, self.r.settings.machine.end_gcode, .end), .end);
         try self.w.writeAll("\n");
         try self.w.writeAll(";Filament used: ");
