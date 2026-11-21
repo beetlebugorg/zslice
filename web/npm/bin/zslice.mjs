@@ -19,6 +19,7 @@
 //   -o FILE              the G-code file (default: stdout)
 //   --stats FILE         write the print time, the plastic, the layers,
 //                        and the bounds as JSON ("-": stderr)
+//   --bambu FILE         write the .gcode.3mf file of a Bambu Lab printer
 //
 // A 3MF file is a plate: each object prints at the place of its build
 // item. The command stops if a part is not on the bed. Each object can
@@ -41,7 +42,7 @@ const GROUPS = { machine: 0, filament: 1, project: 2 };
 function usage(code) {
   const out = code === 0 ? console.log : console.error;
   out(`usage:
-  zslice slice <model.stl|plate.3mf> [-m machine] [-f filament] [-p project] [-c cura_key=value]... [-s group.name=value]... [-o out.gcode] [--stats file]
+  zslice slice <model.stl|plate.3mf> [-m machine] [-f filament] [-p project] [-c cura_key=value]... [-s group.name=value]... [-o out.gcode] [--stats file] [--bambu out.gcode.3mf]
   zslice version
 A profile is a built-in name (zslice profiles lists them in the native command) or a path to a .toml file.`);
   process.exit(code);
@@ -63,6 +64,7 @@ async function slice(args) {
   let model = null;
   let out = null;
   let statsOut = null;
+  let bambuOut = null;
   const profiles = [];
   const sets = [];
   const cura = {};
@@ -84,6 +86,7 @@ async function slice(args) {
     }
     else if (a === "-o") out = next();
     else if (a === "--stats") statsOut = next();
+    else if (a === "--bambu") bambuOut = next();
     else if (a === "-h" || a === "--help") usage(0);
     else if (a.startsWith("-")) throw new Error(`unknown option ${a}`);
     else if (model === null) model = a;
@@ -120,12 +123,21 @@ async function slice(args) {
   if (r.state !== STATE.done) throw new Error(`the slice failed${r.error ? `: ${r.error}` : ""}`);
   const gcode = c.gcode();
   if (out) await writeFile(out, gcode);
-  else process.stdout.write(gcode);
+  else if (!bambuOut) process.stdout.write(gcode);
+  if (bambuOut) {
+    const file = c.bambuFile(basename(model).replace(/\.(stl|3mf)$/i, ""));
+    if (!file) throw new Error("the slice has no .gcode.3mf file");
+    await writeFile(bambuOut, file);
+  }
   if (statsOut) {
     const st = c.stats();
+    const fil = c.filamentStats();
     const stats = {
       ...st,
       filamentM: st.filamentMm / 1000,
+      filamentGrams: fil ? fil.grams : [],
+      filamentChanges: fil ? fil.changes : 0,
+      flushG: fil ? fil.flushG : 0,
       layerHeight: Number(c.get("project.layer_height")),
       firstLayerHeight: Number(c.get("project.first_layer_height")),
       parts: c.w.x.zs_app_part_count(c.app),
