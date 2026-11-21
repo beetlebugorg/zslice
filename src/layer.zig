@@ -204,6 +204,10 @@ pub const LayerPlan = struct {
     part: u32 = no_part,
     /// The outline of the layer.
     outline: Paths = .empty,
+    /// The area where a travel can comb (see `Project.combing_mode`), or
+    /// null for the outline (`all`). gcode.Emitter combs and tests the
+    /// travels against it.
+    comb_area: ?Paths = null,
     /// The area of the sparse infill: inside the walls, and not skin. Its
     /// infill is sparse on purpose, so a check for gaps (see gaps.zig)
     /// leaves it out.
@@ -305,6 +309,10 @@ pub const LayerPlan = struct {
         try self.point_w.appendSlice(a, src.point_w.items);
         try appendMoved(a, &self.points, src.points, dx, dy);
         try appendMoved(a, &self.outline, src.outline, dx, dy);
+        if (src.comb_area) |c| {
+            if (self.comb_area == null) self.comb_area = .empty;
+            try appendMoved(a, &self.comb_area.?, c, dx, dy);
+        }
         try appendMoved(a, &self.sparse_area, src.sparse_area, dx, dy);
         self.width = @max(self.width, src.width);
         self.height = @max(self.height, src.height);
@@ -1492,6 +1500,21 @@ pub fn plan(gpa: Allocator, ctx: Context, i: usize) Allocator.Error!LayerPlan {
         try memo.fill(reg, true, skin_inset, ctx.gen)
     else
         try clip.difference(s, try memo.fill(reg, true, skin_inset, ctx.gen), mods.taken_skin);
+    // The comb area of the layer (see `Project.combing_mode`): the
+    // outline without the skin or the top surfaces, with half a line more
+    // around them, or the sparse infill.
+    switch (p.combing_mode) {
+        .all, .off => {},
+        .not_in_skin, .not_on_top => {
+            const keep_off = if (p.combing_mode == .not_in_skin) skin_region else blk: {
+                const above: Paths = if (i + 1 < ctx.outlines.len) ctx.outlines[i + 1] else .empty;
+                break :blk try clip.difference(s, outline, above);
+            };
+            const grown = try offset_mod.offset(s, keep_off, @divTrunc(w, 2), .{});
+            lp.comb_area = try (try clip.difference(s, outline, grown)).clone(a);
+        },
+        .within_infill => lp.comb_area = try sparse.clone(a),
+    }
     // Bridges (see `bridgeLines`): their area leaves the skin.
     var bridge_lines: Paths = .empty;
     var bridge_area: Paths = .empty;

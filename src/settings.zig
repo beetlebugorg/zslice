@@ -53,6 +53,8 @@ pub const BrimLocation = enum { outside, inside, everywhere };
 pub const SupportMode = enum { off, everywhere, buildplate };
 /// How a short layer gets its cooling time. See `Filament.cooling_mode`.
 pub const CoolingMode = enum { slow_down, lap };
+/// Where a travel can comb. See `Project.combing_mode`.
+pub const CombingMode = enum { all, not_in_skin, not_on_top, within_infill, off };
 /// The shape of the support. See `Project.support_style`.
 pub const SupportStyle = enum { grid, tree, bridge };
 /// The lines of the support interface. See `Project.support_interface_pattern`.
@@ -892,9 +894,14 @@ pub const Project = struct {
     // Travel
     /// Combing: a travel move that stays inside the part (it crosses no
     /// outline of the layer) does not retract, because an ooze there is
-    /// inside the part. Off: each travel longer than `retract_min_travel`
-    /// retracts.
-    combing: bool = true,
+    /// inside the part. The mode sets where the way can go, as the combing
+    /// modes of Cura. `all`: anywhere in the part. `not_in_skin`: not
+    /// over the top and bottom skin of the layer. `not_on_top`: not over
+    /// the top surfaces (the area that no layer covers above). `within_infill`:
+    /// only in the sparse infill. `off`: each travel longer than
+    /// `retract_min_travel` retracts. A travel with no way in its area
+    /// retracts, and lifts with `z_hop`.
+    combing_mode: CombingMode = .all,
     /// A travel inside the part that is longer than this retracts all the
     /// same (a long move can ooze a string over a top surface). 0: no limit.
     combing_max_distance: f64 = 0,
@@ -1132,8 +1139,9 @@ pub const Settings = struct {
     /// Sets a field from a dotted name ("project.wall_count") and a text
     /// value. String values are not copied: the caller keeps them alive
     /// while the settings are in use.
-    pub fn set(self: *Settings, old_name: []const u8, value: []const u8) SetError!void {
+    pub fn set(self: *Settings, old_name: []const u8, old_value: []const u8) SetError!void {
         const name = currentName(old_name);
+        const value = currentValue(old_name, old_value);
         const dot = std.mem.indexOfScalar(u8, name, '.') orelse return error.UnknownSetting;
         const group = name[0..dot];
         const field = name[dot + 1 ..];
@@ -1938,7 +1946,7 @@ pub const plate_settings = [_][]const u8{
     "filament.fan_ramp_layers",
     "filament.fan_max_speed",         "filament.fan_boost_time",    "filament.min_layer_time",
     "filament.min_speed",             "filament.cooling_mode",      "filament.retract_ratio",
-    "project.first_layer_height",     "machine.retract_min_travel", "project.combing",
+    "project.first_layer_height",     "machine.retract_min_travel", "project.combing_mode",
     "project.combing_max_distance",   "machine.z_hop",              "machine.z_hop_only_crossing",
     "machine.retract_wipe",           "machine.retract_wipe_distance",
     "machine.retract_layer_change",   "machine.travel_accel",       "project.skirt_loops",
@@ -2006,7 +2014,20 @@ pub const moved_settings = [_][2][]const u8{
     .{ "project.z_hop_only_crossing", "machine.z_hop_only_crossing" },
     .{ "project.retract_wipe", "machine.retract_wipe" },
     .{ "project.retract_layer_change", "machine.retract_layer_change" },
+    .{ "project.combing", "project.combing_mode" },
 };
+
+/// The value of a setting now: an old value of a setting that changed its
+/// form (see `moved_settings`), else `value`. `project.combing` was true
+/// or false: `all` or `off` now.
+pub fn currentValue(name: []const u8, value: []const u8) []const u8 {
+    if (std.mem.eql(u8, name, "project.combing")) {
+        const v = std.mem.trim(u8, value, " \"");
+        if (std.mem.eql(u8, v, "true") or std.mem.eql(u8, v, "1")) return "all";
+        if (std.mem.eql(u8, v, "false") or std.mem.eql(u8, v, "0")) return "off";
+    }
+    return value;
+}
 
 /// The name of a setting now: the new name of a setting that moved to
 /// another group (see `moved_settings`), else `name`.
@@ -2095,7 +2116,7 @@ pub const layer_settings = [_][]const u8{
     "filament.min_speed",
     "filament.cooling_mode",
     "machine.retract_min_travel",
-    "project.combing",
+    "project.combing_mode",
     "project.combing_max_distance",
     "machine.z_hop",
     "machine.retract_wipe",
@@ -2184,12 +2205,13 @@ test "a setting that moved loads by its old name" {
     try std.testing.expect(isPatchSetting("project.skin_accel"));
     try std.testing.expectEqualStrings("machine.skin_accel", currentName("project.skin_accel"));
     try std.testing.expectEqualStrings("project.skin_speed", currentName("project.skin_speed"));
-    // Each new name is a machine setting.
+    // Each new name is a machine setting, or the combing mode.
     for (moved_settings) |m| {
         var t: Settings = .{};
         const bool_value = std.mem.indexOf(u8, m[1], "wipe") != null or std.mem.indexOf(u8, m[1], "only") != null or std.mem.indexOf(u8, m[1], "layer_change") != null;
-        try t.set(m[1], if (bool_value) "true" else "7");
-        try std.testing.expect(std.mem.startsWith(u8, m[1], "machine."));
+        const enum_value = std.mem.eql(u8, m[1], "project.combing_mode");
+        try t.set(m[1], if (bool_value) "true" else if (enum_value) "off" else "7");
+        try std.testing.expect(std.mem.startsWith(u8, m[1], "machine.") or enum_value);
     }
     // The travel retraction moved too, with its overrides.
     var r: Settings = .{};
@@ -2199,4 +2221,10 @@ test "a setting that moved loads by its old name" {
     try std.testing.expect(r.machine.retract_wipe);
     try std.testing.expect(isLayerSetting("project.z_hop"));
     try std.testing.expect(isPartSetting("machine.retract_wipe_distance"));
+    // The bool combing of before is a combing mode now.
+    try r.set("project.combing", "false");
+    try std.testing.expectEqual(CombingMode.off, r.project.combing_mode);
+    try r.set("project.combing", "true");
+    try std.testing.expectEqual(CombingMode.all, r.project.combing_mode);
+    try std.testing.expect(isLayerSetting("project.combing"));
 }

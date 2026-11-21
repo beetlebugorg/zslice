@@ -6,6 +6,11 @@
 //!   support path to the next has no retraction if it stays inside one
 //!   support island (one branch) and crosses no edge of the part, as in
 //!   Bambu Studio (see docs/references/bambu-studio.md).
+//! - Combing (`Project.combing_mode`, the combing modes of Cura, see
+//!   docs/references/cura.md): a travel follows a way inside the comb
+//!   area of the layer (`LayerPlan.comb_area`: the part, the part
+//!   without its skin or its top surfaces, or the sparse infill) and
+//!   does not retract. A travel with no such way retracts.
 //! - The retraction of the travels is a printer setting (`Machine.z_hop`
 //!   and the others). A travel that leaves the part, crosses an edge, or
 //!   goes to or from the support can string. With `retract_wipe`, its
@@ -414,9 +419,10 @@ pub fn prepare(gpa: std.mem.Allocator, r: *const Resolved, lp: *const LayerPlan,
     var em: Emitter = .{ .gpa = gpa, .w = undefined, .r = r, .lr = lp.resolved orelse r };
     em.setOutline(lp);
     const p = em.lr.settings.project;
-    if (p.combing and !lp.outline.isEmpty()) {
+    const area = em.outline.?.*;
+    if (p.combing_mode != .off and !area.isEmpty()) {
         if (out.arena == null) out.arena = .init(gpa);
-        out.index = try CombIndex.init(out.arena.?.allocator(), lp.outline);
+        out.index = try CombIndex.init(out.arena.?.allocator(), area);
         em.comb_index = &out.index.?;
     }
     // The nozzle position, as `layer` moves it. It is not known before
@@ -2797,7 +2803,9 @@ pub const Emitter = struct {
     /// of the outline polygons, for fast combing tests (none for an outline
     /// of more polygons than the buffer holds).
     fn setOutline(self: *Emitter, lp: *const LayerPlan) void {
-        self.outline = &lp.outline;
+        // The comb area of the layer (Project.combing_mode), or its
+        // outline.
+        self.outline = if (lp.comb_area) |*c| c else &lp.outline;
         self.plan = lp;
         self.width = lp.width;
         self.travel_accel = (lp.resolved orelse self.r).accel(null, lp.index == 0);
@@ -3424,7 +3432,7 @@ pub const Emitter = struct {
     /// count.
     fn comb(self: *const Emitter, x: f64, y: f64, d: f64, way: *[max_way][2]f64, walks: bool) ?usize {
         const p = self.lr.settings.project;
-        if (!p.combing) return null;
+        if (p.combing_mode == .off) return null;
         if (p.combing_max_distance > 0 and d > p.combing_max_distance) return null;
         const outline = self.outline orelse return null;
         const b: geom.Point = .{ .x = geom.fromMm(x), .y = geom.fromMm(y) };
@@ -4089,7 +4097,7 @@ test "combing goes along a round ring, where the box of the hole is outside the 
     try outline.append(a, &outer);
     try outline.append(a, &hole);
     var r = try (settings_mod.Settings{}).resolve();
-    r.settings.project.combing = true;
+    r.settings.project.combing_mode = .all;
     var discard: Writer.Discarding = .init(&.{});
     var em: Emitter = .init(gpa, &discard.writer, &r);
     em.outline = &outline;

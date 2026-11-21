@@ -440,6 +440,21 @@ summary: `project.coasting_volume` and `project.coasting_speed` have the meaning
 
 Cura replaces the last part of a path, by its volume of plastic, with a move that does not extrude, at a ratio of the speed. zslice does the same in `Emitter.coastPath`. A path coasts if it has twice the coasting volume, in place of the `coasting_min_volume` of Cura. The settings and the idea only; no code is copied.
 
+### Combing modes
+
+```ref
+kind: setting
+source: Cura
+license: AGPL-3.0
+link: https://github.com/Ultimaker/Cura
+version: commit 1a221ec29a86960d16a412940becc1f63534c41f
+files: src/settings.zig, src/layer.zig, src/gcode.zig, src/import_cura.zig
+area: gcode
+summary: `project.combing_mode` has the modes of `retraction_combing` of Cura: all, not in skin, not on outer surface, within infill, and off.
+```
+
+Cura has five combing modes (`retraction_combing` in `resources/definitions/fdmprinter.def.json`): `all`, `noskin` ("Not in Skin"), `no_outer_surfaces` ("Not on Outer Surface"), `infill` ("Within Infill"), and `off`. zslice has the same modes: `all`, `not_in_skin`, `not_on_top` (only the top surfaces of the layer), `within_infill`, and `off`. Each layer plan has the area where a travel can comb (`LayerPlan.comb_area`), and the emitter combs and tests the travels in it. The settings and the idea only; no code is copied.
+
 ### Cura profile exports
 
 ```ref

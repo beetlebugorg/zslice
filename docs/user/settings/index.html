@@ -498,8 +498,8 @@ M84</code></pre>
 <p><strong><code>project.slow_layers</code></strong> (integer). Default: <code>0</code></p>
 <p>The layers after the first that print slower: their speed goes up in even steps from the first layer speed to the full speed, so that the part bonds to the bed. 0: the second layer prints at full speed.</p>
 <h3 id="travel">Travel</h3>
-<p><strong><code>project.combing</code></strong> (true or false; per layer). Default: <code>true</code></p>
-<p>Combing: a travel move that stays inside the part (it crosses no outline of the layer) does not retract, because an ooze there is inside the part. Off: each travel longer than <code>retract_min_travel</code> retracts.</p>
+<p><strong><code>project.combing_mode</code></strong> (one of: <code>all</code>, <code>not_in_skin</code>, <code>not_on_top</code>, <code>within_infill</code>, <code>off</code>; per layer). Default: <code>all</code></p>
+<p>Combing: a travel move that stays inside the part (it crosses no outline of the layer) does not retract, because an ooze there is inside the part. The mode sets where the way can go, as the combing modes of Cura. <code>all</code>: anywhere in the part. <code>not_in_skin</code>: not over the top and bottom skin of the layer. <code>not_on_top</code>: not over the top surfaces (the area that no layer covers above). <code>within_infill</code>: only in the sparse infill. <code>off</code>: each travel longer than <code>retract_min_travel</code> retracts. A travel with no way in its area retracts, and lifts with <code>z_hop</code>.</p>
 <p><strong><code>project.combing_max_distance</code></strong> (number; per layer). Default: <code>0</code></p>
 <p>A travel inside the part that is longer than this retracts all the same (a long move can ooze a string over a top surface). 0: no limit.</p>
 <p><strong><code>project.outer_wall_wipe</code></strong> (number; per layer). Default: <code>0</code></p>

@@ -293,9 +293,9 @@ wipe | same | machine.retract_wipe
 wipe_distance | derived | machine.retract_wipe_distance
 z_hop | same | machine.z_hop
 z_hop_types | derived | machine.z_hop (a straight lift); Auto Lift is machine.z_hop_only_crossing
-reduce_crossing_wall | same | project.combing
+reduce_crossing_wall | same | project.combing_mode
 max_travel_detour_distance | same | project.combing_max_distance
-reduce_infill_retraction | same | project.combing (no retraction inside the part)
+reduce_infill_retraction | same | project.combing_mode (no retraction inside the part)
 retract_lift_enforce | same | machine.z_hop_only_crossing
 retract_length_toolchange | derived | machine.change_gcode and the Bambu Lab presets
 

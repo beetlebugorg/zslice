@@ -804,9 +804,9 @@ The layers after the first that print slower: their speed goes up in even steps 
 
 ### Travel
 
-**`project.combing`** (true or false; per layer). Default: `true`
+**`project.combing_mode`** (one of: `all`, `not_in_skin`, `not_on_top`, `within_infill`, `off`; per layer). Default: `all`
 
-Combing: a travel move that stays inside the part (it crosses no outline of the layer) does not retract, because an ooze there is inside the part. Off: each travel longer than `retract_min_travel` retracts.
+Combing: a travel move that stays inside the part (it crosses no outline of the layer) does not retract, because an ooze there is inside the part. The mode sets where the way can go, as the combing modes of Cura. `all`: anywhere in the part. `not_in_skin`: not over the top and bottom skin of the layer. `not_on_top`: not over the top surfaces (the area that no layer covers above). `within_infill`: only in the sparse infill. `off`: each travel longer than `retract_min_travel` retracts. A travel with no way in its area retracts, and lifts with `z_hop`.
 
 **`project.combing_max_distance`** (number; per layer). Default: `0`
 

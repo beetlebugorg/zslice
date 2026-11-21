@@ -54,7 +54,7 @@ const mark_settings = [_]struct { []const u8, u32 }{
     .{ "project.seam", mark_seam },
     .{ "project.seam_corner", mark_seam },
     .{ "machine.retract_min_travel", mark_travel | mark_retract },
-    .{ "project.combing", mark_travel | mark_retract },
+    .{ "project.combing_mode", mark_travel | mark_retract },
     .{ "project.combing_max_distance", mark_travel | mark_retract },
     .{ "machine.z_hop", mark_travel | mark_retract },
     .{ "machine.retract_wipe", mark_retract },
