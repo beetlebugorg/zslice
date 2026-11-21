@@ -29,6 +29,10 @@
 //! batch. The peak memory is the outlines plus one batch of plans, and not
 //! the plans of all layers. The G-code goes to the writer as it is made, so
 //! the engine never holds the whole file.
+//!
+//! Polyholes (`Project.polyholes`): in pass 1, the round holes of the
+//! outlines become the polygons of nophead (see `polyholes` and
+//! docs/references/slicer-techniques.md).
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
@@ -210,6 +214,7 @@ fn slicePart(gpa: Allocator, mesh: *const Mesh, settings: Settings, outline_over
             /// The XY offset and the hole offset of each layer.
             xy_offsets: []const [2]i64,
             first_offset: i64,
+            polyholes: bool,
 
             fn run(c: *const @This(), i: usize) anyerror!void {
                 if (c.reporter.monitor.canceled()) return error.Canceled;
@@ -236,6 +241,7 @@ fn slicePart(gpa: Allocator, mesh: *const Mesh, settings: Settings, outline_over
                     o.deinit(c.gpa);
                     o = moved;
                 }
+                if (c.polyholes) try polyholes(c.gpa, &o);
                 c.outlines[i] = o;
             }
         };
@@ -257,6 +263,7 @@ fn slicePart(gpa: Allocator, mesh: *const Mesh, settings: Settings, outline_over
             .center_y = center_y,
             .xy_offsets = xy_offsets,
             .first_offset = geom.fromMm(settings.project.first_layer_xy_offset),
+            .polyholes = settings.project.polyholes,
         };
         parallel.forEach(threads, layers.len, &ctx, Pass1.run) catch |e| return @as(Error, @errorCast(e));
         if (monitor.canceled()) return error.Canceled;
@@ -1597,7 +1604,7 @@ fn outlineKey(settings: Settings, outline_overrides: []const settings_mod.Overri
         b.max[0],             b.max[1],             b.max[2],          dx,
         dy,                   p.first_layer_height, p.layer_height,    f.shrinkage_z,
         f.shrinkage_xy,       f.xy_offset,          f.hole_xy_offset,  p.first_layer_xy_offset,
-        e.resolution,         e.gap_closing,
+        e.resolution,         e.gap_closing,        @floatFromInt(@intFromBool(p.polyholes)),
     };
     h.update(std.mem.sliceAsBytes(&values));
     for (outline_overrides) |o| {
@@ -1608,6 +1615,81 @@ fn outlineKey(settings: Settings, outline_overrides: []const settings_mod.Overri
         h.update("\x00");
     }
     return h.final();
+}
+
+/// Polyholes (Project.polyholes): each hole of the outline that is a
+/// circle (each point within 3 % of the radius from the center, the
+/// points all around it, a diameter from 1 to 50 mm) becomes a regular
+/// polygon of n = max(3, round(2 d)) sides (d in mm), at the radius
+/// r / cos(pi / n), so the circle inside the polygon is the hole. The
+/// polyholes of nophead (see docs/references/slicer-techniques.md).
+fn polyholes(gpa: Allocator, outline: *Paths) Allocator.Error!void {
+    var any = false;
+    var out: Paths = .empty;
+    errdefer out.deinit(gpa);
+    var poly: std.ArrayList(geom.Point) = .empty;
+    defer poly.deinit(gpa);
+    for (0..outline.count()) |k| {
+        const pts = outline.get(k);
+        const c = circleOf(pts);
+        if (c == null or geom.area2(pts) >= 0) {
+            try out.append(gpa, pts);
+            continue;
+        }
+        const ci = c.?;
+        const d = 2 * ci[2];
+        const n: usize = @intFromFloat(@max(3, @round(2 * d)));
+        const r = ci[2] / @cos(std.math.pi / @as(f64, @floatFromInt(n)));
+        poly.clearRetainingCapacity();
+        // Clockwise, as a hole.
+        for (0..n) |j| {
+            const a = -2 * std.math.pi * @as(f64, @floatFromInt(j)) / @as(f64, @floatFromInt(n));
+            try poly.append(gpa, .init(geom.fromMm(ci[0] + r * @cos(a)), geom.fromMm(ci[1] + r * @sin(a))));
+        }
+        try out.append(gpa, poly.items);
+        any = true;
+    }
+    if (!any) {
+        out.deinit(gpa);
+        return;
+    }
+    outline.deinit(gpa);
+    outline.* = out;
+}
+
+/// The center and the radius (mm) of a loop that is a circle, or null.
+fn circleOf(pts: []const geom.Point) ?[3]f64 {
+    if (pts.len < 8) return null;
+    var cx: f64 = 0;
+    var cy: f64 = 0;
+    for (pts) |q| {
+        cx += geom.toMm(q.x);
+        cy += geom.toMm(q.y);
+    }
+    const n: f64 = @floatFromInt(pts.len);
+    cx /= n;
+    cy /= n;
+    var rsum: f64 = 0;
+    for (pts) |q| rsum += geom.hypot(geom.toMm(q.x) - cx, geom.toMm(q.y) - cy);
+    const r = rsum / n;
+    if (r < 0.5 or r > 25) return null;
+    var turn: f64 = 0;
+    for (pts, 0..) |q, i| {
+        const rr = geom.hypot(geom.toMm(q.x) - cx, geom.toMm(q.y) - cy);
+        if (@abs(rr - r) > 0.03 * r) return null;
+        // No gap of more than 45 degrees between two points.
+        const p2 = pts[(i + 1) % pts.len];
+        const a1 = std.math.atan2(geom.toMm(q.y) - cy, geom.toMm(q.x) - cx);
+        const a2 = std.math.atan2(geom.toMm(p2.y) - cy, geom.toMm(p2.x) - cx);
+        var da = a2 - a1;
+        while (da > std.math.pi) da -= 2 * std.math.pi;
+        while (da < -std.math.pi) da += 2 * std.math.pi;
+        if (@abs(da) > std.math.pi / 4.0) return null;
+        turn += da;
+    }
+    // Once around.
+    if (@abs(@abs(turn) - 2 * std.math.pi) > 0.1) return null;
+    return .{ cx, cy, r };
 }
 
 /// Moves the outer boundaries of an outline by `xy`, and its holes by
@@ -3540,6 +3622,35 @@ test "gcode: overhang walls print slower and with more fan" {
     try testing.expect(std.mem.indexOf(u8, out.written(), "M106 S255") != null);
     // The same plastic.
     try testing.expectApproxEqRel(st0.filament_mm, st1.filament_mm, 1e-3);
+}
+
+test "polyholes: a round hole becomes a polygon around the hole" {
+    const gpa = testing.allocator;
+    var o: Paths = .empty;
+    defer o.deinit(gpa);
+    try o.append(gpa, &.{ .init(0, 0), .init(30_000, 0), .init(30_000, 20_000), .init(0, 20_000) });
+    // A round hole of 5 mm at (10, 10), clockwise, with 40 points.
+    var circle: [40]geom.Point = undefined;
+    for (&circle, 0..) |*q, j| {
+        const a = -2 * std.math.pi * @as(f64, @floatFromInt(j)) / 40;
+        q.* = .init(geom.fromMm(10 + 2.5 * @cos(a)), geom.fromMm(10 + 2.5 * @sin(a)));
+    }
+    try o.append(gpa, &circle);
+    // A square hole stays.
+    try o.append(gpa, &.{ .init(20_000, 5_000), .init(20_000, 10_000), .init(25_000, 10_000), .init(25_000, 5_000) });
+    try polyholes(gpa, &o);
+    try testing.expectEqual(@as(usize, 3), o.count());
+    const p = o.get(1);
+    // 2 x 5 = 10 sides; the middle of each side is 2.5 mm from the center.
+    try testing.expectEqual(@as(usize, 10), p.len);
+    try testing.expect(geom.area2(p) < 0);
+    for (p, 0..) |q, j| {
+        const n = p[(j + 1) % p.len];
+        const mx = geom.toMm(@divTrunc(q.x + n.x, 2)) - 10;
+        const my = geom.toMm(@divTrunc(q.y + n.y, 2)) - 10;
+        try testing.expectApproxEqAbs(@as(f64, 2.5), @sqrt(mx * mx + my * my), 2e-3);
+    }
+    try testing.expectEqual(@as(usize, 4), o.get(2).len);
 }
 
 test "gcode: coasting ends each long path with no plastic" {

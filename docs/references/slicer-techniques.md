@@ -195,3 +195,18 @@ Auto orientation of a part for less support (the method of the "Tweaker" auto-ro
 **Used in:** `src/orient.zig`
 
 **How zslice uses it:** The best orientation of a part for the smart, less-support, and strength placements.
+
+### Polyholes
+
+```ref
+kind: idea
+source: Chris Palmer (nophead), PrusaSlicer, OrcaSlicer
+license: Blog post; AGPL-3.0
+link: https://hydraraptor.blogspot.com/2011/02/polyholes.html
+version: 2011; OrcaSlicer commit 5a1ffc6a631ead5886f1c22920deb341fc1a0106 (hole_to_polyhole)
+files: src/engine.zig, src/settings.zig
+area: slicing
+summary: A round hole prints as a regular polygon of max(3, round(2 d)) sides at the radius r / cos(pi / n), so that it prints to size.
+```
+
+nophead found that a printed round hole shrinks, and that a polygon with few sides, whose inner circle is the hole, prints to size. PrusaSlicer and OrcaSlicer convert the round holes of a part to polyholes (`hole_to_polyhole`). zslice does it on each layer outline in `engine.polyholes`. The idea and the formula only; no code is copied.

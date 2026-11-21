@@ -18,7 +18,7 @@ The lists come from Cura `resources/definitions/fdmprinter.def.json` and `fdmext
 | Slicer | Settings | Same | Covered | Missing | Not for zslice |
 |---|---|---|---|---|---|
 | Cura | 762 | 169 | 91 | 439 | 63 |
-| OrcaSlicer | 1013 | 160 | 121 | 500 | 232 |
+| OrcaSlicer | 1013 | 161 | 122 | 498 | 232 |
 
 ## Cura
 
@@ -923,6 +923,7 @@ The print, printer, and filament settings first, by status. The settings of resi
 | `fuzzy_skin_thickness` (Fuzzy skin thickness) | `project.fuzzy_skin_thickness` |
 | `gcode_flavor` (G-code flavor) | `machine.gcode_flavor` |
 | `gcode_label_objects` (Label objects) | `machine.label_objects` |
+| `hole_to_polyhole` (Convert holes to polyholes) | `project.polyholes` |
 | `idle_temperature` (Idle temperature) | `filament.standby_temp` |
 | `infill_combination` (Infill combination) | `project.infill_layers` |
 | `infill_direction` (Sparse infill direction) | `project.infill_angle` |
@@ -1068,6 +1069,7 @@ The print, printer, and filament settings first, by status. The settings of resi
 | `fuzzy_skin` (Fuzzy skin) | `project.fuzzy_skin` (external is outer_wall; no fuzzy skin on all walls) |
 | `fuzzy_skin_first_layer` (Apply fuzzy skin to first layer) | `project.fuzzy_skin` (the first layer stays smooth) |
 | `gap_fill_target` (Apply gap fill) | `project.gap_fill` |
+| `hole_to_polyhole_threshold` (Polyhole detection margin) | `project.polyholes` (a hole within 3 % of a circle) |
 | `hot_plate_temp` (Other layers) | `filament.bed_temp` |
 | `hot_plate_temp_initial_layer` (First layer) | `filament.first_layer_bed_temp` |
 | `infill_anchor` (Sparse infill anchor length) | `project.infill_connect` |
@@ -1336,10 +1338,8 @@ The print, printer, and filament settings first, by status. The settings of resi
 | `has_scarf_joint_seam` |  |
 | `high_current_on_filament_swap` (High extruder current on filament swap) | High extruder current on filament swap |
 | `high_precision_gcode` (High precision G-code (experimental)) | High precision G-code (experimental) |
-| `hole_to_polyhole` (Convert holes to polyholes) | Convert holes to polyholes |
 | `hole_to_polyhole_max_edges` (Maximum Polyhole edge count) | Maximum Polyhole edge count |
-| `hole_to_polyhole_threshold` (Polyhole detection margin) | Polyhole detection margin |
-| `hole_to_polyhole_twisted` (Polyhole twist) | Polyhole twist |
+| `hole_to_polyhole_twisted` (Polyhole twist) | polyholes that turn on each layer |
 | `hotend_cooling_rate` |  |
 | `hotend_heating_rate` |  |
 | `imex_carriage_margin` (Safety Margin) | IDEX printers |

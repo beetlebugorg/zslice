@@ -493,6 +493,13 @@ pub const Project = struct {
     /// no infill, no inner walls, no holes. For a part with one outline on
     /// each layer. The bottom layers (`bottom_thickness`) print as usual.
     spiral_vase: bool = false,
+    /// Polyholes: each round hole of a layer becomes a polygon with few
+    /// sides (two for each mm of its diameter, at least 3), whose inner
+    /// circle is the hole. A printed round hole shrinks, because each
+    /// short segment of its wall cuts the corner; the flat sides of a
+    /// polyhole print to size, so a pin or a screw fits. The method of
+    /// nophead. Off by default.
+    polyholes: bool = false,
     /// Print parts of the outline that are thinner than one line width
     /// (a thin fin, a sheet, a label): a loop inside each thin part, with a
     /// narrower line, so that its two sides fill the thickness. Without
