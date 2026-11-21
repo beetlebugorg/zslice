@@ -3077,12 +3077,110 @@ function updateSummary() {
   updateBadge();
 }
 
+// The work bar of the view: the draft slice, the exact slice, and the
+// simulated print, each with the progress of the core. The bar shows
+// after SHOW_MS of work, so a fast slice gives no flicker. The text has
+// what runs and its time, then the times of the last draft and the last
+// exact slice. "Draft" comes first while the view shows a draft.
+const work = {
+  SHOW_MS: 150,
+  // The text stays this long after the work ends.
+  KEEP_MS: 2500,
+  kind: "", // "draft", "exact", "sim", or "" (no work)
+  t0: 0,
+  fraction: 0,
+  showTimer: 0,
+  hideTimer: 0,
+  tick: 0,
+  // The times of the last draft and exact slice (ms), and the progress
+  // of the simulation that ended.
+  last: { draft: 0, exact: 0 },
+  // For tests: each start and end, with its time.
+  log: [],
+
+  start(kind) {
+    if (this.kind !== kind) {
+      this.kind = kind;
+      this.t0 = performance.now();
+      this.log.push({ kind, start: this.t0 });
+    }
+    this.fraction = 0;
+    $("work-fill").style.width = "0%";
+    clearTimeout(this.hideTimer);
+    if (!this.showTimer && !$("work").classList.contains("on")) {
+      this.showTimer = setTimeout(() => {
+        this.showTimer = 0;
+        if (!this.kind) return;
+        $("work").classList.add("on");
+        this.text();
+      }, this.SHOW_MS);
+    }
+    if (!this.tick) this.tick = setInterval(() => this.text(), 100);
+  },
+
+  progress(f) {
+    this.fraction = f;
+    $("work-fill").style.width = `${(f * 100).toFixed(1)}%`;
+    this.text();
+  },
+
+  // The work of `kind` ended; ms: the time of a slice (0: the time since
+  // the start).
+  end(kind, ms = 0) {
+    if (kind && this.kind && kind !== this.kind) return;
+    const took = ms > 0 ? ms : performance.now() - this.t0;
+    if (this.kind === "draft" || this.kind === "exact") this.last[this.kind] = took;
+    if (this.kind) this.log.push({ kind: this.kind, end: performance.now(), ms: took });
+    this.kind = "";
+    clearTimeout(this.showTimer);
+    this.showTimer = 0;
+    clearInterval(this.tick);
+    this.tick = 0;
+    $("work").classList.remove("on");
+    this.text();
+    clearTimeout(this.hideTimer);
+    this.hideTimer = setTimeout(() => this.text(), this.KEEP_MS);
+  },
+
+  time(ms) {
+    return ms < 1000 ? `${ms.toFixed(0)} ms` : `${(ms / 1000).toFixed(2)} s`;
+  },
+
+  // The times of the last slices: "Draft 480 ms · Exact 1.47 s".
+  lastText() {
+    const parts = [];
+    if (this.last.draft > 0) parts.push(`Draft ${this.time(this.last.draft)}`);
+    if (this.last.exact > 0) parts.push(`Exact ${this.time(this.last.exact)}`);
+    return parts.join(" · ");
+  },
+
+  text() {
+    const node = $("busy");
+    let t = "";
+    if (this.kind) {
+      const s = ((performance.now() - this.t0) / 1000).toFixed(this.kind === "draft" ? 2 : 1);
+      if (this.kind === "sim") t = `Simulation ${Math.round(this.fraction * 100)} %`;
+      else t = `${this.kind === "draft" ? "Draft" : "Slice"} ${s} s`;
+      // The view still has the draft while the exact slice runs.
+      if (app.draft && this.kind !== "draft") t = `Draft · ${t}`;
+    } else if (app.draft) t = `Draft · ${this.time(this.last.draft)}`;
+    else t = this.lastText();
+    const running = !!this.kind && performance.now() - this.t0 >= this.SHOW_MS;
+    const fresh = !this.kind && this.log.length > 0 && performance.now() - this.log[this.log.length - 1].end < this.KEEP_MS;
+    node.textContent = t;
+    node.classList.toggle("on", t !== "" && (running || app.draft || fresh));
+  },
+};
+
 function updateSummaryCard() {
   // An empty plate has no print: no card.
   $("summary").classList.toggle("is-empty", app.state === "empty");
   const card = $("summary");
-  card.classList.toggle("stale", app.slicing);
-  $("export").disabled = app.state !== "done";
+  // A draft on the view: the print (its file, its time, its weight) is
+  // of the exact slice, which follows.
+  const ready = app.state === "done" && !app.draft;
+  card.classList.toggle("stale", app.slicing || app.draft);
+  $("export").disabled = !ready;
   // A printer with a connection: the card prints to it, and the export
   // goes to the menu of the print button (window.c).
   const pr = currentPrinter();
@@ -3094,8 +3192,8 @@ function updateSummaryCard() {
     // A printdeck with "Start prints from the slicer" off waits for a
     // press of Print on the deck.
     $("send").title = pr.kind === "printdeck" ? `Upload the G-code to ${pr.name} and start the print (a deck set to ask waits for a press of Print on it)` : `Upload the G-code to ${pr.name} and start the print`;
-    $("send").disabled = app.state !== "done" || sending;
-    $("send-menu").disabled = app.state !== "done" || sending;
+    $("send").disabled = !ready || sending;
+    $("send-menu").disabled = !ready || sending;
   }
   if (app.slicing) return;
   if (app.state !== "done" || !app.stats) {
@@ -3114,7 +3212,7 @@ function updateSummaryCard() {
   const fs = filamentStats();
   const changes = fs?.changes > 0 ? ` · ${fs.changes} ${fs.changes === 1 ? "change" : "changes"}` : "";
   $("sum-detail").textContent = `${st.filamentG.toFixed(1)} g · ${(st.filamentMm / 1000).toFixed(2)} m${cost} · ${st.layerCount} layers${changes}`;
-  $("sum-took").textContent = app.sliceMs < 1000 ? `Sliced in ${app.sliceMs.toFixed(0)} ms` : `Sliced in ${(app.sliceMs / 1000).toFixed(1)} s`;
+  $("sum-took").textContent = work.lastText() || (app.sliceMs < 1000 ? `Sliced in ${app.sliceMs.toFixed(0)} ms` : `Sliced in ${(app.sliceMs / 1000).toFixed(1)} s`);
   // A part off the bed, or on another part: the printer can hit its frame.
   const warn = $("sum-warn");
   warn.replaceChildren();
@@ -3468,14 +3566,21 @@ function onWorkerEvent(m) {
     case "slicing":
       app.slicing = true;
       inspector.setStale(true);
-      $("busy").hidden = false;
-      $("busy").textContent = "Slicing…";
+      work.start(m.draft ? "draft" : "exact");
       $("sum-progress").hidden = false;
       $("sum-progress").firstElementChild.style.width = "0%";
       updateSummary();
       break;
+    case "sim":
+      // The simulated print of the slice runs in the worker.
+      if (m.progress >= 1) work.end("sim");
+      else {
+        if (work.kind !== "sim") work.start("sim");
+        work.progress(m.progress);
+      }
+      break;
     case "progress":
-      $("busy").textContent = `Slicing… ${Math.round(m.progress * 100)} %`;
+      work.progress(m.progress);
       $("sum-progress").firstElementChild.style.width = `${(m.progress * 100).toFixed(1)}%`;
       break;
     case "sliced": {
@@ -3486,11 +3591,16 @@ function onWorkerEvent(m) {
       // A plate with a slice is not empty (also a plate that became active).
       $("empty").hidden = true;
       inspector.setStale(false);
-      $("busy").hidden = true;
       $("sum-progress").hidden = true;
       app.state = "done";
-      if (m.ms > 0) app.sliceMs = m.ms;
-      app.stats = m.stats;
+      // A draft keeps the numbers of the last exact slice on the print
+      // card: the exact slice follows.
+      app.draft = !!m.draft;
+      if (m.ms > 0) {
+        work.end(m.draft ? "draft" : "exact", m.ms);
+        if (!m.draft) app.sliceMs = m.ms;
+      } else work.text();
+      if (!m.draft || !app.stats) app.stats = m.stats;
       // A "sliced" event of the simulated print has no filaments.
       if (m.filaments) setFilaments(m.filaments, m.filamentStats ?? null);
       paintTool?.refresh();
@@ -3538,12 +3648,16 @@ function onWorkerEvent(m) {
       updateSummary();
       if (key) inspect(key);
       else if (app.sel >= 0) select(-1, -1, false);
-      gaps.refresh(layers.hi, true);
+      // A draft has no gap fill: its gaps are not the gaps of the print.
+      if (!m.draft) gaps.refresh(layers.hi, true);
       requestFrame();
       keepSoon();
       refineSoon();
       break;
     }
+    case "canceled":
+      work.end("");
+      break;
     case "history":
       history.refresh();
       break;
@@ -3575,7 +3689,8 @@ function onWorkerEvent(m) {
       break;
     case "failed":
       app.slicing = false;
-      $("busy").hidden = true;
+      app.draft = false;
+      work.end("");
       $("sum-progress").hidden = true;
       app.state = m.state === 4 ? "failed" : app.state;
       updateSummary();
@@ -4520,7 +4635,7 @@ window.zslice = {
   paintTool,
   turnRings,
   supportTool,
-  app, view, view2d, layers, browser, client, gl, inspector, gaps, history, undoRedo, tools, store, managePrinters, openPrinterSettings, loadProfile, setSetting, pickAt, topLayerPoint, openCheck, frameTimes,
+  app, work, view, view2d, layers, browser, client, gl, inspector, gaps, history, undoRedo, tools, store, managePrinters, openPrinterSettings, loadProfile, setSetting, pickAt, topLayerPoint, openCheck, frameTimes,
   select, showPage, showTab, hitAt, showContextMenu, step, bench, benchPick, settleSelected, grabStart, grabMove, grabEnd, grabTurn, grabLift,
   get frameCount() { return frameCount; },
   get pickMs() { return pickMs; },

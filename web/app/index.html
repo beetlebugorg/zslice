@@ -157,7 +157,11 @@
       <div id="empty" class="empty">
         <button id="empty-open" class="plate-open" title="Open a model on this plate. You can also drop an STL or 3MF file on the view.">Open a model</button>
       </div>
-      <div id="busy" class="busy" hidden>Slicing…</div>
+      <!-- The work that runs (the draft slice, the exact slice, the
+           simulated print): a thin bar at the top edge of the view, and a
+           dim line of text. Both take no clicks. -->
+      <div id="work" class="work" aria-hidden="true"><div id="work-fill"></div></div>
+      <div id="busy" class="busy" role="status"></div>
       <div id="toast" class="toast" hidden></div>
       <!-- The history: a popover over the history bar. -->
       <div id="history-pop" class="float history-pop" role="dialog" aria-label="History" hidden>

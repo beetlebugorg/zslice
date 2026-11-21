@@ -1833,6 +1833,15 @@ export fn zs_app_sim_progress(a: ?*const App) f64 {
     return app.simulationProgress();
 }
 
+/// 1 if the simulation of the slice runs on the worker now, with the
+/// share that ran in `fraction` (0 to 1); else 0.
+export fn zs_app_sim_work(a: ?*const App, fraction: ?*f64) c_int {
+    const app = a orelse return 0;
+    const f = app.simulationWork() orelse return 0;
+    if (fraction) |out| out.* = f;
+    return 1;
+}
+
 /// The numbers of the last simulated print, with no new simulation.
 /// ZS_NO_RESULT if there is no simulation of the last slice.
 export fn zs_app_sim_stats(a: ?*const App, out: ?*PrintSimStats) c_int {

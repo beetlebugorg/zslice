@@ -49,7 +49,8 @@ This is the rule after several corrections. Match it in each shell.
 - **Keep the orbit center sane.** A zoom toward the pointer moves the orbit center only with the zoom. An orbit turns about the point of the print under the center of the view, or the center of the print, so the print never swings away.
 - Keep the camera put when a slice comes back. Keep the start view of the camera at a plate switch.
 - Slice a turned part coarse during the drag of a ring (`zs_app_set_coarse_part`): a 3DBenchy slices coarse in 85 ms in the browser and in 864 ms in full.
-- Slice a draft during a drag or an edit that keeps all the paths in the view (`zs_app_set_draft`): an outline tolerance of 0.05 mm, no gap fill, and classic walls. A draft of a 3DBenchy needs a third of the CPU time. A draft has no G-code for a file or a printer (`zs_app_gcode` gives `ZS_NO_RESULT`): turn the draft off at the end of the drag and slice again.
+- Slice a draft during a drag or an edit that keeps all the paths in the view (`zs_app_set_draft`): an outline tolerance of 0.05 mm, no gap fill, and classic walls. A draft of a 3DBenchy needs a third of the CPU time. A draft has no G-code for a file or a printer (`zs_app_gcode` gives `ZS_NO_RESULT`): turn the draft off 300 ms after the last change, or at the end of the drag, and slice again. Show a small "Draft" note while the view has a draft, and keep the export, the print, and the numbers of the print card for the exact slice.
+- Show the work that runs in a bar of 2 px at the top edge of the view, in the accent color: the draft slice, the exact slice, and the simulated print, each with the progress of the core. Fade it in after 150 ms of work and out at the end. Put small dim text next to it: what runs and its time, then the times of the last draft and exact slice. The bar and the text take no clicks and no room.
 - Build the light levels again only for the changed layers.
 
 ## Acceptance checks

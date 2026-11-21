@@ -295,6 +295,10 @@ pub const App = struct {
     /// start of the slice, or `requestSimulation`). The worker clears it
     /// when it ends.
     sim_coming: std.atomic.Value(bool) = .init(false),
+    /// True while the simulation of the slice runs on the worker, and its
+    /// progress in 1/1000 (see `simulationWork`).
+    sim_working: std.atomic.Value(bool) = .init(false),
+    sim_permille: std.atomic.Value(u32) = .init(0),
     /// A simulation that runs in pieces (`beginSimulation`).
     sim_job: ?*sim_print.Job = null,
     /// The checkpoints of the last simulation that ended (see
@@ -2451,7 +2455,8 @@ pub const App = struct {
         // plate, which the shell changes while the slice runs.
         if (app.auto_checks) app.slice_stands = try app.checkStands(app.slice_arena.?.allocator());
         app.cancel_flag.store(false, .release);
-        app.sim_coming.store(app.auto_simulate, .release);
+        // The simulation is for the exact slice: a draft has none.
+        app.sim_coming.store(app.auto_simulate and !app.draft, .release);
         app.state.store(.slicing, .release);
         // The experiment of a faster offset (project.fast_offsets): a
         // switch of the process, read by each offset of this slice.
@@ -2990,9 +2995,13 @@ pub const App = struct {
         // A change stops the run within a step of the simulation, so the
         // shell thread waits little for this thread (see stopWorker).
         job.setCancel(&app.cancel_flag);
+        app.sim_permille.store(0, .release);
+        app.sim_working.store(true, .release);
+        defer app.sim_working.store(false, .release);
         while (true) {
             if (app.cancel_flag.load(.acquire)) return;
             const done = job.advance(sim_piece) catch return;
+            app.sim_permille.store(@intFromFloat(std.math.clamp(job.progress(), 0, 1) * 1000), .release);
             if (done) break;
         }
         if (app.cancel_flag.load(.acquire)) return;
@@ -3281,6 +3290,14 @@ pub const App = struct {
         app.sim = r;
         app.show_sim = true;
         return true;
+    }
+
+    /// The share of the simulation on the worker that ran (the simulation
+    /// after each slice, and `requestSimulation`), 0 to 1, or null if
+    /// none runs. For a progress bar of the shell; any thread can call it.
+    pub fn simulationWork(app: *const App) ?f64 {
+        if (!app.sim_working.load(.acquire)) return null;
+        return @as(f64, @floatFromInt(app.sim_permille.load(.acquire))) / 1000;
     }
 
     /// The share of the simulation of `beginSimulation` that ran, 0 to 1.

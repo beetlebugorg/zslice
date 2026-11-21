@@ -57,6 +57,14 @@ static const char *ZG_CSS =
     "button.zg-crumb { padding: 2px 6px; min-height: 24px; font-weight: normal; }"
     "button.zg-crumb-here { font-weight: bold; }"
     "progressbar.zg-thin trough, progressbar.zg-thin progress { min-height: 3px; }"
+    /* The work bar of the view: 2 px, no trough, and a fade. */
+    "progressbar.zg-work { opacity: 0; transition: opacity 200ms ease; }"
+    "progressbar.zg-work.on { opacity: 1; }"
+    "progressbar.zg-work trough { min-height: 2px; background: none; border: none; box-shadow: none; }"
+    "progressbar.zg-work progress { min-height: 2px; min-width: 2px; border-radius: 0; }"
+    /* What runs and its time: small dim text, with a fade. */
+    ".zg-work-text { opacity: 0; transition: opacity 200ms ease; }"
+    ".zg-work-text.on { opacity: 0.6; }"
     "button.zg-reset { min-height: 20px; min-width: 20px; padding: 0; }"
     /* The controls that float over the preview. */
     ".zg-measure-readout { padding: 4px 12px; border-radius: 8px; }\n"
