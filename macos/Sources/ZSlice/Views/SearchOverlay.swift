@@ -64,8 +64,24 @@ final class SearchState {
     var docked = prefs.object(forKey: "search.docked") as? Bool ?? true {
         didSet { prefs.set(docked, forKey: "search.docked") }
     }
+    /// Off the toolbar: a rail of the view ("left", beside the tool strip,
+    /// or "right"), the height of the view, or "" for a card. A rail and a
+    /// card stay open at a click outside, until × or Esc.
+    var rail = prefs.string(forKey: "search.rail") ?? "" {
+        didSet { prefs.set(rail, forKey: "search.rail") }
+    }
     /// A field asks for the focus when this changes.
     var focusTick = 0
+
+    /// Where the search goes: "toolbar", "card", "left", or "right".
+    func place(_ p: String) {
+        docked = p == "toolbar"
+        rail = p == "left" || p == "right" ? p : ""
+        show()
+    }
+
+    /// The place now, as for `place`.
+    var placeName: String { docked ? "toolbar" : rail.isEmpty ? "card" : rail }
     /// The left edge of the field of the toolbar in the window, for the
     /// results under it.
     var fieldMinX: CGFloat = 0
@@ -199,9 +215,20 @@ struct SearchOverlay: View {
 
     private var search: SearchState { workspace.search }
 
+    /// The width of a rail, and the room above and below it.
+    static let railWidth: CGFloat = 330
+
     var body: some View {
         if search.docked {
             card
+        } else if !search.rail.isEmpty {
+            // A rail: beside the tool strip, or beside the layer slider, from
+            // under the toolbar down to the bottom bar.
+            let h = max(200, area.height - 60 - workspace.dockHeight - 12)
+            card
+                .frame(height: h, alignment: .top)
+                .position(x: search.rail == "left" ? 72 + Self.railWidth / 2 : area.width - 92 - Self.railWidth / 2,
+                          y: 60 + h / 2)
         } else {
             // A card over the view, at its place (the parent gives the area).
             card
@@ -251,7 +278,8 @@ struct SearchOverlay: View {
                             .buttonStyle(.plain)
                         }
                         ForEach(Array(found.enumerated()), id: \.element.id) { i, info in
-                            SearchRow(workspace: workspace, info: info, selected: acts.count + i == search.index, editing: Bindable(search).editing) {
+                            SearchRow(workspace: workspace, info: info, selected: acts.count + i == search.index, editing: Bindable(search).editing,
+                                      stacked: !search.rail.isEmpty) {
                                 // Back to the field of the search.
                                 if search.docked { workspace.focusSearchField() } else { fieldFocus = true }
                             }
@@ -263,13 +291,14 @@ struct SearchOverlay: View {
                         }
                     }
                 }
-                .frame(maxHeight: resultsHeight)
+                .frame(maxHeight: search.rail.isEmpty ? resultsHeight : .infinity)
             }
+            if !search.rail.isEmpty { Spacer(minLength: 0) }
         }
         .frame(width: cardWidth)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
         .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(.separator))
-        .modifier(CardGrip(on: !search.docked, size: size))
+        .modifier(CardGrip(on: !search.docked && search.rail.isEmpty, size: size))
         .shadow(color: .black.opacity(0.2), radius: 16, y: 6)
         .onGeometryChange(for: CGSize.self) { $0.size } action: { size = $0 }
         .onAppear {
@@ -282,6 +311,7 @@ struct SearchOverlay: View {
     /// The kept width of the card; the results under the toolbar have the
     /// plain width.
     private var cardWidth: CGFloat {
+        if !search.docked, !search.rail.isEmpty { return Self.railWidth }
         guard !search.docked, let s = SpatialStore.shared.size("search") else { return Self.width }
         return max(s.width, 300)
     }
@@ -308,15 +338,16 @@ struct SearchOverlay: View {
         HStack {
             Text("Search").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
             Spacer()
-            if !search.docked {
-                Button {
-                    search.docked = true
-                    search.show()
-                } label: {
-                    Image(systemName: "dock.arrow.up.rectangle").foregroundStyle(.secondary)
+            // The other places of the search.
+            ForEach([("toolbar", "dock.arrow.up.rectangle", "Dock the search in the toolbar"),
+                     ("card", "rectangle.on.rectangle", "A card over the view that you can move and size"),
+                     ("left", "sidebar.left", "Pin the search to the left of the view"),
+                     ("right", "sidebar.right", "Pin the search to the right of the view")].filter { $0.0 != search.placeName && !(search.docked && $0.0 == "toolbar") }, id: \.0) { p in
+                Button { search.place(p.0) } label: {
+                    Image(systemName: p.1).foregroundStyle(.secondary)
                 }
                 .buttonStyle(.borderless)
-                .help("Dock the search in the toolbar")
+                .help(p.2)
             }
             Button {
                 workspace.closeSearch()
@@ -331,7 +362,7 @@ struct SearchOverlay: View {
         .padding(.bottom, search.docked ? 4 : 0)
         .contentShape(Rectangle())
         .help(search.docked ? "" : "Drag to move the search; zslice keeps its place. A double click puts it back.")
-        .gesture(search.docked ? nil : DragGesture()
+        .gesture(search.docked || !search.rail.isEmpty ? nil : DragGesture()
             .onChanged { drag = $0.translation }
             .onEnded { g in
                 let c = cardCenter(in: area)
@@ -359,6 +390,8 @@ private struct SearchRow: View {
     let info: SettingInfo
     let selected: Bool
     @Binding var editing: String?
+    /// In a rail: the name on its own line, over the controls.
+    var stacked = false
     /// The focus goes back to the search field.
     let back: () -> Void
 
@@ -391,7 +424,15 @@ private struct SearchRow: View {
                 }
                 .help(info.doc)
                 Spacer(minLength: 8)
-                SettingEditor(model: model, info: info, entry: entry, compact: true, focusRequest: $editing, onDone: back)
+                if !stacked {
+                    SettingEditor(model: model, info: info, entry: entry, compact: true, focusRequest: $editing, onDone: back)
+                }
+            }
+            if stacked {
+                HStack {
+                    Spacer(minLength: 26)
+                    SettingEditor(model: model, info: info, entry: entry, compact: true, focusRequest: $editing, onDone: back)
+                }
             }
             if info.hasSlider {
                 QuickSlider(model: model, info: info, entry: entry)
