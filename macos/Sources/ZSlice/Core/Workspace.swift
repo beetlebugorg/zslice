@@ -206,6 +206,9 @@ final class Workspace {
     var gapsOn = false
     var gapSummary: (count: Int, area: Double)?
     var gapCard: GapInfo?
+    /// The bed and its grid do not draw (key B), so the bottom of a part
+    /// shows from below.
+    var bedHidden = false
     /// The size of the card of a gap as it shows, for its place.
     var gapCardSize = CGSize(width: 320, height: 220)
     var checkOpen = false
@@ -1276,6 +1279,9 @@ final class Workspace {
                     case "dupplate": self.duplicatePlate()
                     case "pasteplate": self.pasteAsPlate()
                     case "undo": self.model.history.undoManager.undo()
+                    case "mirrorx", "mirrory":
+                        self.mirrorParts(axis: f[0] == "mirrorx" ? 0 : 1)
+                        if let q = self.part(0) { NSLog("zslice clip %@: scale %.2f %.2f %.2f, at %.2f %.2f", String(step), q.scale_x, q.scale_y, q.scale_z, q.x, q.y) }
                     // area: a Grid area of 10 mm around the center of part 0,
                     // selected in the Support tool.
                     case "area":
@@ -1679,7 +1685,7 @@ final class Workspace {
     /// Adds models to the active plate with an open panel.
     func addModels() {
         let panel = NSOpenPanel()
-        panel.allowedContentTypes = [.stl, .threeMF]
+        panel.allowedContentTypes = [.stl, .threeMF, .step, .obj]
         panel.allowsMultipleSelection = true
         panel.message = "Choose the models to add to the plate."
         let add = { [weak self] (r: NSApplication.ModalResponse) in
@@ -2585,6 +2591,7 @@ extension Workspace: SliceViewDelegate {
             // 2 shows the 2D view, and 2 again the 3D view; 3 the 3D view.
             case "2" where !shift: page = page == .twoD ? .threeD : .twoD
             case "3" where !shift: page = .threeD
+            case "b" where !shift: toggleBed()
             case "?": shortcutsOpen = true
             case "[": selectPlate(max(0, model.active - 1))
             case "]": selectPlate(min(model.plates.count - 1, model.active + 1))
@@ -2596,6 +2603,15 @@ extension Workspace: SliceViewDelegate {
     }
 
     private func scrubStep(_ df: Double) { scrub(to: min(1, max(0, scrubFraction + df))) }
+
+    /// Key B and View > Hide the Bed: the bed model and the grids of the
+    /// plates hide or show (zs_view_set_bed_hidden).
+    func toggleBed() {
+        bedHidden.toggle()
+        if let v = canvas.view { zs_view_set_bed_hidden(v, bedHidden ? 1 : 0) }
+        canvas.requestFrame()
+        showNote(bedHidden ? "The bed is hidden. Press B to show it." : "The bed shows again.")
+    }
 }
 
 extension Workspace {

@@ -20,6 +20,7 @@ struct ShortcutSheet: View {
             ("N or ⌥⌘I", "Show or hide the settings"),
             ("2", "The 2D view of one layer, and 2 again the 3D view (also View > 2D View, ⌘2)"),
             ("3", "The 3D view"),
+            ("B", "Hide the bed and its grid, or show them again: the bottom of a part shows from below (also View > Hide the Bed)"),
             ("⌘0", "Fit the part"),
             ("⌘O", "Open a model or a project"),
             ("⌘S", "Save the project: all plates in one 3MF file"),

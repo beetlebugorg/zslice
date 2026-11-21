@@ -17,6 +17,10 @@ extension UTType {
     static let stl = UTType(importedAs: "public.standard-tesselated-geometry-format", conformingTo: .threeDContent)
     static let threeMF = UTType(importedAs: "org.3mf.3mf", conformingTo: .threeDContent)
     static let gcode = UTType(filenameExtension: "gcode", conformingTo: .plainText) ?? .plainText
+    /// STEP (.step, .stp) and OBJ models: the core reads them by their
+    /// bytes, as STL (zs_app_load_stl sniffs the format).
+    static let step = UTType(importedAs: "org.iso.step", conformingTo: .threeDContent)
+    static let obj = UTType(importedAs: "public.geometry-definition-format", conformingTo: .threeDContent)
 }
 
 /// The document of a window: a project file (all plates, ProjectFile.swift),
@@ -24,10 +28,10 @@ extension UTType {
 /// until the window loads them into its plates. A save writes the plates of
 /// the window as a project file (zs_set_project_save): snapshot runs on the
 /// main thread, where the plates are, and the write runs on another thread.
-/// A model file (STL, or a 3MF that is not a project) becomes an untitled
+/// A model file (STL, STEP, OBJ, or a 3MF that is not a project) becomes an untitled
 /// document after the load, so a save never writes over the model.
 final class ProjectDocument: ReferenceFileDocument, @unchecked Sendable {
-    static let readableContentTypes: [UTType] = [.threeMF, .stl]
+    static let readableContentTypes: [UTType] = [.threeMF, .stl, .step, .obj]
     static let writableContentTypes: [UTType] = [.threeMF]
 
     let data: Data
@@ -275,6 +279,9 @@ struct ViewCommands: Commands {
                 .disabled(workspace == nil)
             Button("Fit the Part") { workspace?.fit() }
                 .keyboardShortcut("0", modifiers: .command)
+                .disabled(workspace == nil)
+            Toggle("Hide the Bed", isOn: Binding(get: { workspace?.bedHidden == true }, set: { _ in workspace?.toggleBed() }))
+                .help("The bed and its grid do not draw, so the bottom of a part shows from below (B)")
                 .disabled(workspace == nil)
             Divider()
             Button("Show Gaps") { workspace?.toggleGaps() }

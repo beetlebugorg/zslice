@@ -740,6 +740,17 @@ extension Workspace {
         model.settingsChanged()
     }
 
+    /// Mirrors each selected part along the X (axis 0) or Y (axis 1) axis
+    /// of the bed, in place. One step of the history.
+    func mirrorParts(axis: Int32) {
+        let list = selectedParts
+        guard !list.isEmpty else { return }
+        model.history.commit()
+        guard list.map({ zs_app_part_mirror(model.core, $0, axis) == 0 }).contains(true) else { return }
+        if let i = selectedPart { selectPart(i) }
+        model.settingsChanged()
+    }
+
     /// Makes each separate body of the selected part a part of its own.
     func splitPart() {
         guard let i = selectedPart else { return }
