@@ -399,6 +399,12 @@ gboolean zg_model_fall_start(ZgModel *self, size_t i);
 int zg_model_fall_step(ZgModel *self, double dt, double out[10]);
 void zg_model_fall_cancel(ZgModel *self);
 gboolean zg_model_falling(ZgModel *self);
+/* The count of the changes of the plate (a move, a turn, the end of a
+ * fall), and the count that the last done slice shows. While the slice
+ * shows an older count, the view moves the beads of a turned or fallen
+ * part (zs_view_part_preview). */
+gint64 zg_model_edit_gen(ZgModel *self);
+gint64 zg_model_shown_gen(ZgModel *self);
 gboolean zg_model_grab_start(ZgModel *self, size_t i, double x, double y, double z);
 void zg_model_grab_move(ZgModel *self, double x, double y, double z);
 void zg_model_grab_turn(ZgModel *self, double ax, double ay, double az, double degrees);

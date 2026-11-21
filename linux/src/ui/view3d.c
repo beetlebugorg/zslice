@@ -138,6 +138,23 @@ typedef struct {
     int turn_axis;
     double turn_want, turn_sent;
     double turn_px, turn_py;
+    /* The part of a ring drag, and its pivot and its turn about Z at the
+     * press. */
+    gint64 turn_part;
+    double turn_pivot[3], turn_rot;
+    /* The slices wait for the end of a ring drag, so the beads of the
+     * view show the part before the turn until the slice of its new place
+     * comes. The base is the turn that puts them where the part is now
+     * (base_q: a unit quaternion x, y, z, w about base_c, then the move
+     * base_m), and press_q, press_c, press_m are the base at the press of
+     * the drag (press_on: there was one). */
+    gboolean base_on;
+    double base_q[4], base_c[3], base_m[3];
+    /* The change of the plate (zg_model_edit_gen) that the base leads
+     * to: a slice of it ends the base. */
+    gint64 base_gen;
+    gboolean press_on;
+    double press_q[4], press_c[3], press_m[3];
     /* The Support tool, and the cursor that it set last. */
     ZgSupport *support;
     const char *cursor;
@@ -169,6 +186,7 @@ static void fall_finish(View3d *v);
 static void set_cursor(View3d *v, const char *name);
 
 static void load_data(View3d *v);
+static void show_preview(View3d *v);
 
 /* The new scene went in after the copy of its beads into the GPU: the
  * selection, the lit layers, and the plates again, and a frame. */
@@ -419,6 +437,12 @@ static void load_data(View3d *v) {
     /* A large new scene: the view draws the old one until the copy of its
      * beads into the GPU is done (poll_scene). */
     if (zs_view_scene_pending(v->view) && !v->scene_poll) v->scene_poll = g_timeout_add(4, poll_scene, v);
+    /* A load ends the preview of a part. The beads of the slice of the
+     * part as it is now end the turn; else the view turns the old beads
+     * again. */
+    if (zg_model_plate_switching(v->model)) v->base_on = FALSE;
+    else if (!zs_view_scene_pending(v->view) && zg_model_shown_gen(v->model) >= v->base_gen) v->base_on = FALSE;
+    if (v->base_on) show_preview(v);
     zg_bed_model_update(v->view, zg_model_core(v->model));
     /* The other plates of the set, in a row beside the active plate. */
     zs_set_view_sync(zg_model_plate_set(v->model), v->view);
@@ -841,10 +865,105 @@ static gboolean ring_press(View3d *v, double x, double y) {
     v->turn_want = v->turn_sent = 0;
     v->turn_px = x;
     v->turn_py = y;
+    v->turn_part = zg_model_selected_part(v->model);
+    zs_part p;
+    if (v->turn_part >= 0 && zs_app_part_get(zg_model_core(v->model), (size_t)v->turn_part, &p) == ZS_OK) {
+        v->turn_pivot[0] = p.x;
+        v->turn_pivot[1] = p.y;
+        v->turn_pivot[2] = p.size_z / 2;
+        v->turn_rot = p.rotation;
+    } else {
+        v->turn_part = -1;
+    }
+    v->press_on = v->base_on;
+    memcpy(v->press_q, v->base_q, sizeof v->press_q);
+    memcpy(v->press_c, v->base_c, sizeof v->press_c);
+    memcpy(v->press_m, v->base_m, sizeof v->press_m);
     zg_model_hold(v->model, TRUE);
     queue_frame(v);
     gtk_widget_queue_draw(v->area);
     return TRUE;
+}
+
+/* The turn q1 about c1 and the move m1 after the turn q0 about c0 and the
+ * move m0: as one turn q about c0 and a move m. */
+static void turn_compose(const double q1[4], const double c1[3], const double m1[3], const double q0[4], const double c0[3],
+                         const double m0[3], double q[4], double m[3]) {
+    double t[4] = {
+        q1[3] * q0[0] + q1[0] * q0[3] + q1[1] * q0[2] - q1[2] * q0[1],
+        q1[3] * q0[1] - q1[0] * q0[2] + q1[1] * q0[3] + q1[2] * q0[0],
+        q1[3] * q0[2] + q1[0] * q0[1] - q1[1] * q0[0] + q1[2] * q0[3],
+        q1[3] * q0[3] - q1[0] * q0[0] - q1[1] * q0[1] - q1[2] * q0[2],
+    };
+    /* The point c0 + m0 - c1 turned by q1. */
+    double d[3] = {c0[0] + m0[0] - c1[0], c0[1] + m0[1] - c1[1], c0[2] + m0[2] - c1[2]};
+    double x = q1[0], y = q1[1], z = q1[2], w = q1[3];
+    double r[3] = {
+        (1 - 2 * (y * y + z * z)) * d[0] + 2 * (x * y - z * w) * d[1] + 2 * (x * z + y * w) * d[2],
+        2 * (x * y + z * w) * d[0] + (1 - 2 * (x * x + z * z)) * d[1] + 2 * (y * z - x * w) * d[2],
+        2 * (x * z - y * w) * d[0] + 2 * (y * z + x * w) * d[1] + (1 - 2 * (x * x + y * y)) * d[2],
+    };
+    for (int k = 0; k < 3; k++) m[k] = r[k] + c1[k] + m1[k] - c0[k];
+    for (int k = 0; k < 4; k++) q[k] = t[k];
+}
+
+/* The part in the view: the beads of the last slice turned by the base
+ * (a ring drag, or a turn that waits for its slice). */
+static void show_preview(View3d *v) {
+    if (!v->view) return;
+    if (v->base_on) {
+        zs_view_part_preview(v->view, (int)v->turn_part, (float)v->base_q[0], (float)v->base_q[1], (float)v->base_q[2], (float)v->base_q[3],
+                             (float)v->base_c[0], (float)v->base_c[1], (float)v->base_c[2], (float)v->base_m[0], (float)v->base_m[1],
+                             (float)v->base_m[2], 0);
+        return;
+    }
+    zs_view_part_preview(v->view, -1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0);
+}
+
+/* The beads of the part turn in the view at once, by the angle of the
+ * drag (after the base at the press, if the slice of an earlier turn has
+ * not come yet). */
+static void turn_preview(View3d *v) {
+    if (v->turn_part < 0) return;
+    double t = v->turn_want * G_PI / 180 / 2;
+    double r = v->turn_rot * G_PI / 180;
+    double ax[3] = {0, 0, 1};
+    if (v->turn_axis == 0) {
+        ax[0] = cos(r);
+        ax[1] = sin(r);
+        ax[2] = 0;
+    } else if (v->turn_axis == 1) {
+        ax[0] = -sin(r);
+        ax[1] = cos(r);
+        ax[2] = 0;
+    }
+    double s = sin(t);
+    double q1[4] = {ax[0] * s, ax[1] * s, ax[2] * s, cos(t)};
+    double zero[3] = {0, 0, 0};
+    if (v->press_on) {
+        turn_compose(q1, v->turn_pivot, zero, v->press_q, v->press_c, v->press_m, v->base_q, v->base_m);
+        memcpy(v->base_c, v->press_c, sizeof v->base_c);
+    } else {
+        memcpy(v->base_q, q1, sizeof v->base_q);
+        memcpy(v->base_c, v->turn_pivot, sizeof v->base_c);
+    }
+    v->base_on = v->press_on || v->turn_want != 0;
+    v->base_gen = zg_model_edit_gen(v->model);
+    zs_part p;
+    if (!v->base_on || !v->view || zs_app_part_get(zg_model_core(v->model), (size_t)v->turn_part, &p) != ZS_OK) {
+        v->base_on = FALSE;
+        show_preview(v);
+        return;
+    }
+    /* The view places the turned beads as the core places the part: the
+     * center of its box at the center of the footprint, on the bed. The
+     * base keeps the move that the view found. */
+    float m[3];
+    zs_view_part_preview(v->view, (int)v->turn_part, (float)v->base_q[0], (float)v->base_q[1], (float)v->base_q[2], (float)v->base_q[3],
+                         (float)v->base_c[0], (float)v->base_c[1], (float)v->base_c[2], (float)p.x, (float)p.y, 0,
+                         ZS_PREVIEW_ON_BED | ZS_PREVIEW_CENTERED);
+    if (zs_view_part_preview_move(v->view, m))
+        for (int k = 0; k < 3; k++) v->base_m[k] = m[k];
 }
 
 /* The pointer of a ring drag is at x, y: the part turns in steps (the core
@@ -855,6 +974,7 @@ static void ring_move(View3d *v, double x, double y, gboolean fine) {
     int s = gtk_widget_get_scale_factor(v->area);
     v->turn_want = round(zs_view_ring_drag(v->view, (float)(x * s), (float)(y * s), fine ? 5 : 15));
     turn_send(v);
+    turn_preview(v);
     queue_frame(v);
     gtk_widget_queue_draw(v->area);
 }
@@ -872,11 +992,21 @@ static void ring_release(View3d *v) {
 }
 
 /* For tests: ZSLICE_RING_DRAG=x0,y0,x1,y1 drags from x0, y0 to x1, y1 in
- * 12 steps (one each 50 ms), with the Turn tool. */
+ * 12 steps (one each 50 ms), with the Turn tool. "auto" drags from the
+ * point of the rings at +X to the point at +Y; "auto:45" stops the drag
+ * at 45 degrees. ZSLICE_RING_DRAG_MS=400 sets the time of a step, for
+ * screenshots during the drag. */
+static guint ring_drag_ms(void) {
+    const char *ms = g_getenv("ZSLICE_RING_DRAG_MS");
+    return ms && atoi(ms) > 0 ? (guint)atoi(ms) : 50;
+}
+
 typedef struct {
     View3d *v;
     double x0, y0, x1, y1;
     int step;
+    /* The end of the drag at this angle (degrees), or 0. */
+    double stop;
 } RingDrag;
 
 static gboolean ring_drag_step(gpointer data) {
@@ -890,7 +1020,7 @@ static gboolean ring_drag_step(gpointer data) {
     d->step++;
     double t = d->step / 12.0;
     ring_move(v, d->x0 + (d->x1 - d->x0) * t, d->y0 + (d->y1 - d->y0) * t, FALSE);
-    if (d->step < 12) return G_SOURCE_CONTINUE;
+    if (d->step < 12 && (d->stop <= 0 || fabs(v->turn_want) < d->stop)) return G_SOURCE_CONTINUE;
     g_message("ring drag: axis %d, %.0f degrees", v->turn_axis, v->turn_want);
     /* The end of the drag: the label goes, and the part slices. */
     ring_release(v);
@@ -901,20 +1031,22 @@ static gboolean ring_drag_step(gpointer data) {
 static void ring_drag_hook(gpointer data) {
     View3d *v = data;
     /* "auto": from the point of the rings at +X to the point at +Y. */
-    if (strcmp(g_getenv("ZSLICE_RING_DRAG"), "auto") == 0) {
+    const char *spec = g_getenv("ZSLICE_RING_DRAG");
+    if (g_str_has_prefix(spec, "auto")) {
         gint64 i = zg_model_selected_part(v->model);
         zs_part p;
         if (i < 0 || zs_app_part_get(zg_model_core(v->model), (size_t)i, &p) != ZS_OK) return;
         double r = 0.62 * MAX(p.size_x, MAX(p.size_y, p.size_z)) + 4;
         RingDrag *d = g_new0(RingDrag, 1);
         d->v = v;
+        if (spec[4] == ':') d->stop = g_ascii_strtod(spec + 5, NULL);
         if (!zg_view3d_pixel_of(v->area, p.x + r, p.y, p.size_z / 2, &d->x0, &d->y0) ||
             !zg_view3d_pixel_of(v->area, p.x, p.y + r, p.size_z / 2, &d->x1, &d->y1)) {
             g_free(d);
             return;
         }
         zg_model_set_tool(v->model, ZG_TOOL_TURN);
-        g_timeout_add(50, ring_drag_step, d);
+        g_timeout_add(ring_drag_ms(), ring_drag_step, d);
         return;
     }
     char **f = g_strsplit(g_getenv("ZSLICE_RING_DRAG"), ",", 4);
@@ -926,7 +1058,7 @@ static void ring_drag_hook(gpointer data) {
         d->x1 = g_ascii_strtod(f[2], NULL);
         d->y1 = g_ascii_strtod(f[3], NULL);
         zg_model_set_tool(v->model, ZG_TOOL_TURN);
-        g_timeout_add(50, ring_drag_step, d);
+        g_timeout_add(ring_drag_ms(), ring_drag_step, d);
     }
     g_strfreev(f);
 }

@@ -56,6 +56,10 @@ struct _ZgModel {
     gboolean held;
     /* A part falls, or the hand holds it (zs_app_fall_step runs). */
     gboolean falling;
+    /* The count of the changes of the plate (zg_model_edit_gen), the count
+     * at the start of the last slice, and the count of the plate that the
+     * last done slice shows. */
+    gint64 edit_gen, slice_gen, shown_gen;
     /* The id of each plate in the store of the refinements (by plate). */
     GPtrArray *refine_ids;
     /* The tool of the preview (ZgTool), and the points of the measure tape
@@ -159,6 +163,7 @@ static void sync_core(ZgModel *self) {
 static int request_slice(ZgModel *self) {
     if (self->held) return zs_set_changed_held(self->set, zs_set_active(self->set));
     self->slice_start = g_get_monotonic_time();
+    self->slice_gen = self->edit_gen;
     return zs_set_changed(self->set, zs_set_active(self->set));
 }
 
@@ -171,6 +176,7 @@ static void fall_check(ZgModel *self);
 void zg_model_slice_now(ZgModel *self) {
     if (!self->held) return;
     self->slice_start = g_get_monotonic_time();
+    self->slice_gen = self->edit_gen;
     zs_set_release(self->set);
 }
 
@@ -179,6 +185,7 @@ void zg_model_hold(ZgModel *self, gboolean hold) {
     self->held = hold;
     if (!hold) {
         self->slice_start = g_get_monotonic_time();
+        self->slice_gen = self->edit_gen;
         zs_set_release(self->set);
         /* The changes of the drag are one step. */
         if (zs_app_history_pending(self->core)) undo_commit(self);
@@ -392,6 +399,7 @@ static gboolean deliver(gpointer data) {
     if (model) {
         /* A new slice has new paths: pick the path at the place of the old
          * selection again, so the inspector stays on the same line. */
+        if (p->event == ZS_EVENT_SLICED) model->shown_gen = model->slice_gen;
         if (p->event == ZS_EVENT_SLICED && model->slice_start) {
             model->slice_ms = (g_get_monotonic_time() - model->slice_start) / 1000.0;
         }
@@ -1696,6 +1704,7 @@ static void update_name(ZgModel *self) {
 }
 
 static void plate_changed(ZgModel *self) {
+    self->edit_gen++;
     update_name(self);
     /* The part of the scope went: the plate. */
     if (self->part_scope >= (gint64)zs_app_part_count(self->core)) {
@@ -1932,6 +1941,14 @@ void zg_model_fall_cancel(ZgModel *self) {
 
 gboolean zg_model_falling(ZgModel *self) {
     return self->falling;
+}
+
+gint64 zg_model_edit_gen(ZgModel *self) {
+    return self->edit_gen;
+}
+
+gint64 zg_model_shown_gen(ZgModel *self) {
+    return self->shown_gen;
 }
 
 gboolean zg_model_grab_start(ZgModel *self, size_t i, double x, double y, double z) {
