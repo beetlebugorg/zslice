@@ -17,7 +17,7 @@ The lists come from Cura `resources/definitions/fdmprinter.def.json` and `fdmext
 
 | Slicer | Settings | Same | Covered | Missing | Not for zslice |
 |---|---|---|---|---|---|
-| Cura | 762 | 167 | 89 | 443 | 63 |
+| Cura | 762 | 169 | 91 | 439 | 63 |
 | OrcaSlicer | 1013 | 160 | 121 | 500 | 232 |
 
 ## Cura
@@ -668,10 +668,10 @@ The lists come from Cura `resources/definitions/fdmprinter.def.json` and `fdmext
 | `conical_overhang_enabled` (Make Overhang Printable) | Missing | make an overhang printable |
 | `conical_overhang_angle` (Maximum Model Angle) | Missing | make an overhang printable |
 | `conical_overhang_hole_size` (Maximum Overhang Hole Area) | Missing | make an overhang printable |
-| `coasting_enable` (Enable Coasting) | Missing | stop the extrusion before the end of a loop |
-| `coasting_volume` (Coasting Volume) | Missing | stop the extrusion before the end of a loop |
-| `coasting_min_volume` (Minimum Volume Before Coasting) | Missing | stop the extrusion before the end of a loop |
-| `coasting_speed` (Coasting Speed) | Missing | stop the extrusion before the end of a loop |
+| `coasting_enable` (Enable Coasting) | Covered | `project.coasting_volume` (more than 0) |
+| `coasting_volume` (Coasting Volume) | Same | `project.coasting_volume` |
+| `coasting_min_volume` (Minimum Volume Before Coasting) | Covered | `project.coasting_volume` (a path coasts if it has twice this volume) |
+| `coasting_speed` (Coasting Speed) | Same | `project.coasting_speed` |
 | `cross_infill_pocket_size` (Cross 3D Pocket Size) | Missing | the cross infill pattern |
 | `cross_infill_density_image` (Cross Infill Density Image) | Missing | an image of the infill density |
 | `cross_support_density_image` (Cross Fill Density Image for Support) | Missing | an image of the support density |

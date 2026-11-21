@@ -702,10 +702,10 @@ draft_shield_height | missing | a draft shield around the part
 conical_overhang_enabled | missing | make an overhang printable
 conical_overhang_angle | missing | make an overhang printable
 conical_overhang_hole_size | missing | make an overhang printable
-coasting_enable | missing | stop the extrusion before the end of a loop
-coasting_volume | missing | stop the extrusion before the end of a loop
-coasting_min_volume | missing | stop the extrusion before the end of a loop
-coasting_speed | missing | stop the extrusion before the end of a loop
+coasting_enable | derived | project.coasting_volume (more than 0)
+coasting_volume | same | project.coasting_volume
+coasting_min_volume | derived | project.coasting_volume (a path coasts if it has twice this volume)
+coasting_speed | same | project.coasting_speed
 cross_infill_pocket_size | missing | the cross infill pattern
 cross_infill_density_image | missing | an image of the infill density
 cross_support_density_image | missing | an image of the support density

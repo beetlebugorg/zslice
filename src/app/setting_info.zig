@@ -365,6 +365,8 @@ const units = [_][2][]const u8{
     .{ "project.skirt_layers", "layers" },
     .{ "project.brim_width", "mm" },
     .{ "project.outer_wall_wipe", "mm" },
+    .{ "project.coasting_volume", "mm³" },
+    .{ "project.coasting_speed", "%" },
     .{ "project.first_layer_xy_offset", "mm" },
     .{ "project.filament", "slot" },
     .{ "project.support_filament", "slot" },
@@ -507,6 +509,8 @@ const sliders = [_]struct { []const u8, f64, f64, f64 }{
     .{ "project.skirt_layers", 0, 5, 1 },
     .{ "project.brim_width", 0, 20, 0.5 },
     .{ "project.outer_wall_wipe", 0, 2, 0.05 },
+    .{ "project.coasting_volume", 0, 0.5, 0.01 },
+    .{ "project.coasting_speed", 0.5, 1, 0.05 },
     .{ "project.first_layer_xy_offset", -0.5, 0.5, 0.01 },
     // engine
     .{ "engine.gap_closing", 0, 3, 0.1 },

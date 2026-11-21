@@ -474,6 +474,10 @@ M84</code></pre>
 <p>A retraction after a line of the part moves the nozzle on a small arc inside the part while the filament pulls back, as a hand wipes a drip off: the plastic that oozes goes inside, and not onto the surface. The arc stays inside the layer, or the retraction stays plain.</p>
 <p><strong><code>project.outer_wall_wipe</code></strong> (number; per layer). Default: <code>0</code></p>
 <p>After a closed outer wall, the nozzle moves on along the start of the wall for this distance (mm), with no plastic, before the retraction. The end of the wall then joins its start with no gap, and the seam shows less. 0 turns it off.</p>
+<p><strong><code>project.coasting_volume</code></strong> (number; per layer). Default: <code>0</code></p>
+<p>Coasting: the last part of each path moves with no plastic, for this volume of plastic (mm³). The pressure in the nozzle prints it, so the end of the path has less of a blob, and the travel after it strings less. A path shorter than twice this volume prints as usual. 0 turns it off. Cura uses 0.064.</p>
+<p><strong><code>project.coasting_speed</code></strong> (number; per layer). Default: <code>0.9</code></p>
+<p>The speed of the coasting moves, as a ratio of the speed of the path.</p>
 <p><strong><code>project.z_hop_only_crossing</code></strong> (true or false). Default: <code>true</code></p>
 <p>Lift the nozzle (<code>z_hop</code>) only for a travel that crosses an edge of the layer: it leaves the part, or it goes over a hole. A travel in a straight line inside the part (it retracts because it is longer than <code>combing_max_distance</code>) does not lift. Off: each travel with a retraction lifts.</p>
 <p><strong><code>project.retract_layer_change</code></strong> (true or false). Default: <code>false</code></p>

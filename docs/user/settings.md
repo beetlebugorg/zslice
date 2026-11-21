@@ -758,6 +758,14 @@ A retraction after a line of the part moves the nozzle on a small arc inside the
 
 After a closed outer wall, the nozzle moves on along the start of the wall for this distance (mm), with no plastic, before the retraction. The end of the wall then joins its start with no gap, and the seam shows less. 0 turns it off.
 
+**`project.coasting_volume`** (number; per layer). Default: `0`
+
+Coasting: the last part of each path moves with no plastic, for this volume of plastic (mm³). The pressure in the nozzle prints it, so the end of the path has less of a blob, and the travel after it strings less. A path shorter than twice this volume prints as usual. 0 turns it off. Cura uses 0.064.
+
+**`project.coasting_speed`** (number; per layer). Default: `0.9`
+
+The speed of the coasting moves, as a ratio of the speed of the path.
+
 **`project.z_hop_only_crossing`** (true or false). Default: `true`
 
 Lift the nozzle (`z_hop`) only for a travel that crosses an edge of the layer: it leaves the part, or it goes over a hole. A travel in a straight line inside the part (it retracts because it is longer than `combing_max_distance`) does not lift. Off: each travel with a retraction lifts.
