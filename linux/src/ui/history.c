@@ -90,143 +90,132 @@ static const char *step_kind(ZgModel *model, guint i) {
     return k;
 }
 
-static void arrow_head(cairo_t *cr, double x, double y, double ang, double s) {
-    cairo_move_to(cr, x + s * cos(ang + 2.5), y + s * sin(ang + 2.5));
-    cairo_line_to(cr, x, y);
-    cairo_line_to(cr, x + s * cos(ang - 2.5), y + s * sin(ang - 2.5));
+/* A rectangle with round corners of radius r, in the units of the glyph. */
+static void round_rect(cairo_t *cr, double cx, double cy, double u, double x, double y, double w, double h, double r) {
+    x = cx + (x - 9) * u, y = cy + (y - 9) * u, w *= u, h *= u, r *= u;
+    cairo_new_sub_path(cr);
+    cairo_arc(cr, x + w - r, y + r, r, -G_PI / 2, 0);
+    cairo_arc(cr, x + w - r, y + h - r, r, 0, G_PI / 2);
+    cairo_arc(cr, x + r, y + h - r, r, G_PI / 2, G_PI);
+    cairo_arc(cr, x + r, y + r, r, G_PI, 3 * G_PI / 2);
+    cairo_close_path(cr);
 }
 
-/* The glyph of a kind, in white, in a box of size u * 20 around (cx, cy). */
+/* A path of points of the glyph: n pairs of x, y. */
+static void poly(cairo_t *cr, double cx, double cy, double u, const double *pts, int n, gboolean close) {
+    cairo_move_to(cr, cx + (pts[0] - 9) * u, cy + (pts[1] - 9) * u);
+    for (int i = 1; i < n; i++) cairo_line_to(cr, cx + (pts[2 * i] - 9) * u, cy + (pts[2 * i + 1] - 9) * u);
+    if (close) cairo_close_path(cr);
+}
+
+/* The glyph of a kind, in white, in a box of size u * 20 around (cx, cy).
+ * The paths are the SVG glyphs of the web app (GLYPHS in
+ * web/app/history.js), in their box of 18 units. */
 static void draw_glyph(cairo_t *cr, const char *k, double cx, double cy, double u) {
     cairo_set_source_rgb(cr, 1, 1, 1);
     cairo_set_line_width(cr, 1.6 * u);
     cairo_set_line_cap(cr, CAIRO_LINE_CAP_ROUND);
     cairo_set_line_join(cr, CAIRO_LINE_JOIN_ROUND);
-#define P(x, y) (cx + (x) * u), (cy + (y) * u)
+#define L(...) poly(cr, cx, cy, u, (const double[]){__VA_ARGS__}, sizeof((const double[]){__VA_ARGS__}) / sizeof(double) / 2, FALSE)
+#define Z(...) poly(cr, cx, cy, u, (const double[]){__VA_ARGS__}, sizeof((const double[]){__VA_ARGS__}) / sizeof(double) / 2, TRUE)
+#define X(v) (cx + ((v) - 9) * u)
+#define Y(v) (cy + ((v) - 9) * u)
     if (!strcmp(k, "walls")) {
-        cairo_rectangle(cr, P(-5.5, -5.5), 11 * u, 11 * u);
-        cairo_rectangle(cr, P(-2.5, -2.5), 5 * u, 5 * u);
+        round_rect(cr, cx, cy, u, 2.5, 2.5, 13, 13, 3);
+        round_rect(cr, cx, cy, u, 6, 6, 6, 6, 1);
     } else if (!strcmp(k, "infill")) {
-        /* Crossed lines in a disc, as a grid infill. */
-        cairo_save(cr);
-        cairo_arc(cr, cx, cy, 5.8 * u, 0, 2 * G_PI);
-        cairo_clip(cr);
-        cairo_set_line_width(cr, 1.3 * u);
-        for (int d = -1; d <= 1; d++) {
-            cairo_move_to(cr, P(-6 + d * 4.5, -6));
-            cairo_line_to(cr, P(6 + d * 4.5, 6));
-            cairo_move_to(cr, P(6 + d * 4.5, -6));
-            cairo_line_to(cr, P(-6 + d * 4.5, 6));
-        }
-        cairo_stroke(cr);
-        cairo_restore(cr);
-        return;
+        round_rect(cr, cx, cy, u, 2.5, 2.5, 13, 13, 1);
+        L(2.5, 9, 9, 2.5);
+        L(2.5, 15.5, 15.5, 2.5);
+        L(9, 15.5, 15.5, 9);
+        L(2.5, 9, 9, 15.5);
+        L(2.5, 2.5, 15.5, 15.5);
+        L(9, 2.5, 15.5, 9);
     } else if (!strcmp(k, "surface")) {
-        for (int d = -1; d <= 1; d++) {
-            cairo_move_to(cr, P(-5 + d * 4 - 1, 4));
-            cairo_line_to(cr, P(1 + d * 4, -4));
-        }
+        L(2.5, 3.5, 15.5, 3.5);
+        L(2.5, 14.5, 15.5, 14.5);
+        cairo_stroke(cr);
+        const double dash[] = {1.6 * u, 1.9 * u};
+        cairo_set_dash(cr, dash, 2, 0);
+        L(2.5, 6, 15.5, 6);
+        L(2.5, 12, 15.5, 12);
+        cairo_stroke(cr);
+        cairo_set_dash(cr, NULL, 0, 0);
+        return;
     } else if (!strcmp(k, "speed")) {
-        for (int d = 0; d < 2; d++) {
-            cairo_move_to(cr, P(-5 + d * 5, -4.5));
-            cairo_line_to(cr, P(-0.5 + d * 5, 0));
-            cairo_line_to(cr, P(-5 + d * 5, 4.5));
-        }
+        /* A dial: an arc from (3, 13.5) to (15, 13.5), and its needle. */
+        cairo_arc(cr, X(9), Y(11), 6.5 * u, 157.38 * G_PI / 180, 382.62 * G_PI / 180);
+        L(9, 11, 12.5, 6.5);
+        cairo_new_sub_path(cr);
+        cairo_arc(cr, X(9), Y(11), 1 * u, 0, 2 * G_PI);
     } else if (!strcmp(k, "heat")) {
         /* A thermometer. */
-        cairo_move_to(cr, P(0, -6));
-        cairo_line_to(cr, P(0, 2));
-        cairo_stroke(cr);
-        cairo_arc(cr, P(0, 3.5), 2.6 * u, 0, 2 * G_PI);
-        cairo_fill(cr);
-        cairo_move_to(cr, P(2.5, -4));
-        cairo_line_to(cr, P(4, -4));
-        cairo_move_to(cr, P(2.5, -1));
-        cairo_line_to(cr, P(4, -1));
+        cairo_move_to(cr, X(7), Y(10.6));
+        cairo_line_to(cr, X(7), Y(4));
+        cairo_arc(cr, X(9), Y(4), 2 * u, G_PI, 2 * G_PI);
+        cairo_line_to(cr, X(11), Y(10.6));
+        cairo_arc(cr, X(9), Y(13.593), 3.6 * u, -56.25 * G_PI / 180, 236.25 * G_PI / 180);
+        cairo_close_path(cr);
+        L(9, 12.5, 9, 7);
     } else if (!strcmp(k, "label")) {
-        /* A tag: its body with a point at the right, and a line of text. */
-        cairo_move_to(cr, P(-6.5, -4.5));
-        cairo_line_to(cr, P(1.5, -4.5));
-        cairo_line_to(cr, P(6.5, 0));
-        cairo_line_to(cr, P(1.5, 4.5));
-        cairo_line_to(cr, P(-6.5, 4.5));
-        cairo_close_path(cr);
-        cairo_move_to(cr, P(-4, 0));
-        cairo_line_to(cr, P(0, 0));
+        Z(2.5, 4.5, 10.5, 4.5, 15.5, 9, 10.5, 13.5, 2.5, 13.5);
+        L(5, 9, 9, 9);
     } else if (!strcmp(k, "filament")) {
-        /* A spool from the side: its two flanges and the filament. */
-        cairo_rectangle(cr, P(-6.5, -6.5), 2.5 * u, 13 * u);
-        cairo_rectangle(cr, P(4, -6.5), 2.5 * u, 13 * u);
-        for (int d = -1; d <= 1; d++) {
-            cairo_move_to(cr, P(-4, d * 2.5));
-            cairo_line_to(cr, P(4, d * 2.5));
-        }
+        round_rect(cr, cx, cy, u, 2.5, 2.5, 2.5, 13, 1);
+        round_rect(cr, cx, cy, u, 13, 2.5, 2.5, 13, 1);
+        L(5, 6.5, 13, 6.5);
+        L(5, 9, 13, 9);
+        L(5, 11.5, 13, 11.5);
     } else if (!strcmp(k, "support")) {
-        cairo_move_to(cr, P(-6, -4.5));
-        cairo_line_to(cr, P(6, -4.5));
-        for (int d = -1; d <= 1; d++) {
-            cairo_move_to(cr, P(d * 4, -4.5));
-            cairo_line_to(cr, P(d * 4, 5.5));
-        }
+        Z(2, 4.5, 16, 4.5, 14, 7.5, 4, 7.5);
+        L(5, 7.5, 5, 15.5);
+        L(9, 7.5, 9, 15.5);
+        L(13, 7.5, 13, 15.5);
+        L(3.5, 15.5, 14.5, 15.5);
     } else if (!strcmp(k, "layers")) {
-        for (int d = -1; d <= 1; d++) {
-            cairo_move_to(cr, P(-5.5, d * 3.8));
-            cairo_line_to(cr, P(5.5, d * 3.8));
-        }
+        Z(9, 2.5, 16, 6, 9, 9.5, 2, 6);
+        L(2, 9.5, 9, 13, 16, 9.5);
+        L(2, 12.5, 9, 16, 16, 12.5);
     } else if (!strcmp(k, "move")) {
-        cairo_move_to(cr, P(-6, 0));
-        cairo_line_to(cr, P(6, 0));
-        cairo_move_to(cr, P(0, -6));
-        cairo_line_to(cr, P(0, 6));
-        arrow_head(cr, P(6, 0), 0, 2.4 * u);
-        arrow_head(cr, P(-6, 0), G_PI, 2.4 * u);
-        arrow_head(cr, P(0, 6), G_PI / 2, 2.4 * u);
-        arrow_head(cr, P(0, -6), -G_PI / 2, 2.4 * u);
+        L(2, 9, 16, 9);
+        L(9, 2, 9, 16);
+        L(13.7, 6.8, 16, 9, 13.7, 11.2);
+        L(4.3, 6.8, 2, 9, 4.3, 11.2);
+        L(6.8, 4.3, 9, 2, 11.2, 4.3);
+        L(6.8, 13.7, 9, 16, 11.2, 13.7);
     } else if (!strcmp(k, "rotate")) {
-        cairo_arc(cr, cx, cy, 5 * u, -G_PI / 2, G_PI);
-        cairo_stroke(cr);
-        arrow_head(cr, P(-5, 0), G_PI / 2, 2.6 * u);
+        cairo_arc(cr, X(9), Y(9), 5.5 * u, 0, G_PI * 1.75);
+        L(13.6, 2.2, 13.6, 5.5, 10.3, 5.5);
     } else if (!strcmp(k, "scale")) {
-        cairo_move_to(cr, P(-5, 5));
-        cairo_line_to(cr, P(5, -5));
-        cairo_move_to(cr, P(1, -5));
-        cairo_line_to(cr, P(5, -5));
-        cairo_line_to(cr, P(5, -1));
-        cairo_move_to(cr, P(-5, 1));
-        cairo_line_to(cr, P(-5, 5));
-        cairo_line_to(cr, P(-1, 5));
+        L(3, 15, 15, 3);
+        L(10, 3, 15, 3, 15, 8);
+        L(3, 10, 3, 15, 8, 15);
     } else if (!strcmp(k, "add") || !strcmp(k, "remove")) {
-        cairo_move_to(cr, P(-5, 0));
-        cairo_line_to(cr, P(5, 0));
-        if (!strcmp(k, "add")) {
-            cairo_move_to(cr, P(0, -5));
-            cairo_line_to(cr, P(0, 5));
-        }
+        L(3.5, 9, 14.5, 9);
+        if (!strcmp(k, "add")) L(9, 3.5, 9, 14.5);
     } else if (!strcmp(k, "quality")) {
-        for (int i = 0; i < 10; i++) {
-            double a = -G_PI / 2 + i * G_PI / 5, rr = (i % 2 ? 2.6 : 6.0) * u;
-            if (i == 0) cairo_move_to(cr, cx + rr * cos(a), cy + rr * sin(a));
-            else cairo_line_to(cr, cx + rr * cos(a), cy + rr * sin(a));
-        }
-        cairo_close_path(cr);
-        cairo_fill(cr);
-        return;
+        Z(9, 2.2, 11, 6.5, 15.7, 7.1, 12.3, 10.3, 13.2, 14.9, 9, 12.6, 4.8, 14.9, 5.7, 10.3, 2.3, 7.1, 7, 6.5);
     } else if (!strcmp(k, "printer")) {
-        cairo_rectangle(cr, P(-6, -2), 12 * u, 6 * u);
-        cairo_rectangle(cr, P(-3.5, -6), 7 * u, 4 * u);
-        cairo_move_to(cr, P(-2, 5.5));
-        cairo_line_to(cr, P(2, 5.5));
+        L(5, 6.5, 5, 2.5, 13, 2.5, 13, 6.5);
+        L(5, 13, 2.5, 13, 2.5, 6.5, 15.5, 6.5, 15.5, 13, 13, 13);
+        Z(5, 10.5, 13, 10.5, 13, 15.5, 5, 15.5);
     } else if (!strcmp(k, "start")) {
-        cairo_move_to(cr, P(-3, 6));
-        cairo_line_to(cr, P(-3, -6));
-        cairo_line_to(cr, P(5, -3.5));
-        cairo_line_to(cr, P(-3, -1));
+        /* A ring with a dot in the middle. */
+        cairo_arc(cr, X(9), Y(9), 5.5 * u, 0, 2 * G_PI);
+        cairo_stroke(cr);
+        cairo_arc(cr, X(9), Y(9), 1.5 * u, 0, 2 * G_PI);
+        cairo_fill_preserve(cr);
     } else {
-        cairo_arc(cr, cx, cy, 2 * u, 0, 2 * G_PI);
-        cairo_fill(cr);
-        return;
+        /* Other: three dots. */
+        for (int d = 0; d < 3; d++) {
+            cairo_new_sub_path(cr);
+            cairo_arc(cr, X(4 + 5 * d), Y(9), 0.6 * u, 0, 2 * G_PI);
+        }
     }
-#undef P
+#undef L
+#undef Z
+#undef X
+#undef Y
     cairo_stroke(cr);
 }
 
