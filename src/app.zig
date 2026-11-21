@@ -505,6 +505,12 @@ pub const App = struct {
             // The paint of the file, and the filament of the part.
             app.plate.parts.items[i].paint = p.paint;
             p.paint = .{};
+            // The labels of the file, in the frame of the mesh.
+            const pl = &app.plate.parts.items[i];
+            try pl.labels.ensureTotalCapacity(app.gpa, p.labels.len);
+            for (p.labels) |l| pl.labels.appendAssumeCapacity(l);
+            app.gpa.free(p.labels);
+            p.labels = &.{};
             if (p.filament > 1) {
                 var buf: [8]u8 = undefined;
                 const v = std.fmt.bufPrint(&buf, "{d}", .{p.filament}) catch unreachable;
@@ -1586,6 +1592,12 @@ pub const App = struct {
             if (p.scale[0] != 1 or p.scale[1] != 1 or p.scale[2] != 1) try w.print("part:{s}\tscale\t{d:.3}, {d:.3}, {d:.3}\n", .{ name, p.scale[0], p.scale[1], p.scale[2] });
             // The paint: a hash, so a change of the paint is a step.
             if (!p.paint.isEmpty()) try w.print("part:{s}\t(paint)\t{x}\n", .{ name, p.paint.hash() });
+            // Each label: a summary, so each edit of a label is a step.
+            for (p.labels.items) |*l| {
+                try w.print("part:{s}\tlabel {d}\t", .{ name, l.id });
+                try zs.label.summary(l, w);
+                try w.writeByte('\n');
+            }
             for (p.meta) |m| {
                 if (!std.mem.startsWith(u8, m.key, "zslice:")) continue;
                 try w.print("part:{s}\t{s}\t", .{ name, m.key["zslice:".len..] });

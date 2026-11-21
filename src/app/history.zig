@@ -11,7 +11,8 @@
 //! - "part:<name>": a setting of one part ("project.wall_count"), and its
 //!   place: "(part)" (the part is on the plate), "position", "rotation"
 //!   (the turn around the vertical axis), "orientation" (the side on the
-//!   bed), "scale", and "(paint)" (a hash of the paint of the part).
+//!   bed), "scale", "(paint)" (a hash of the paint of the part), and
+//!   "label <id>" (a label of the part, see `label.summary`).
 //! - "layers:<z_min>:<z_max>": a change for some layers (an override), and
 //!   "(name)", the name of a layer profile.
 //! - "filament <n>": filament n of the plate (from 2, see
@@ -227,6 +228,7 @@ pub fn writeChange(w: *std.Io.Writer, c: Change) std.Io.Writer.Error!void {
     }
     if (std.mem.eql(u8, c.key, "(slot)")) return w.writeAll(if (c.new.len > 0) "Added to the plate" else "Removed from the plate");
     if (is_part and std.mem.eql(u8, c.key, "(paint)")) return w.writeAll(if (c.new.len > 0) "Painted" else "Paint removed");
+    if (is_part and std.mem.startsWith(u8, c.key, "label ")) return writeLabelChange(w, c);
     if (is_layers and std.mem.eql(u8, c.key, "(name)")) {
         if (c.new.len == 0) return w.print("Layer profile \"{s}\" removed", .{c.old});
         if (c.old.len == 0) return w.print("Layer profile \"{s}\"", .{c.new});
@@ -256,6 +258,60 @@ pub fn writeChange(w: *std.Io.Writer, c: Change) std.Io.Writer.Error!void {
     try writeValue(w, info, if (c.old.len > 0) c.old else none);
     try w.writeAll(" → ");
     try writeValue(w, info, if (c.new.len > 0) c.new else none);
+}
+
+/// The fields of a label summary (see label.summary): the kind, the
+/// text, and the rest by name ("filament 2", "at 1 2 3").
+const LabelFacts = struct {
+    kind: []const u8 = "",
+    text: []const u8 = "",
+    rest: [8][]const u8 = @splat(""),
+
+    fn parse(v: []const u8) LabelFacts {
+        var f: LabelFacts = .{};
+        // The text is in quotes, and has no quote of its own.
+        var tail = v;
+        if (std.mem.indexOfScalar(u8, v, '"')) |q0| {
+            const q1 = std.mem.indexOfScalarPos(u8, v, q0 + 1, '"') orelse v.len;
+            f.kind = std.mem.trim(u8, v[0..q0], " ");
+            f.text = v[q0 + 1 .. q1];
+            tail = v[@min(q1 + 1, v.len)..];
+        } else {
+            const c = std.mem.indexOf(u8, v, ", ") orelse v.len;
+            f.kind = v[0..c];
+            tail = v[c..];
+        }
+        var it = std.mem.splitSequence(u8, std.mem.trimStart(u8, tail, ", "), ", ");
+        var k: usize = 0;
+        while (it.next()) |part| : (k += 1) if (k < f.rest.len) {
+            f.rest[k] = part;
+        };
+        return f;
+    }
+
+    fn get(f: LabelFacts, name: []const u8) []const u8 {
+        for (f.rest) |r| if (r.len > name.len and std.mem.startsWith(u8, r, name) and r[name.len] == ' ') return r[name.len + 1 ..];
+        return "";
+    }
+};
+
+/// A change of a label in words: "Label “VOLUME” added", "Label
+/// “VOLUME” moved", "Label “VOLUME”: filament 2 → 3".
+fn writeLabelChange(w: *std.Io.Writer, c: Change) std.Io.Writer.Error!void {
+    const old = LabelFacts.parse(c.old);
+    const new = LabelFacts.parse(c.new);
+    const any = if (c.new.len > 0) new else old;
+    if (any.text.len > 0) try w.print("Label \u{201c}{s}\u{201d}", .{any.text}) else if (any.kind.len > 0 and !std.mem.eql(u8, any.kind, "text")) try w.print("Label ({s})", .{any.kind}) else try w.writeAll("Label");
+    if (c.old.len == 0) return w.writeAll(" added");
+    if (c.new.len == 0) return w.writeAll(" removed");
+    if (!std.mem.eql(u8, old.text, new.text)) return w.print(" \u{2192} \u{201c}{s}\u{201d}", .{new.text});
+    const fo = old.get("filament");
+    const fnew = new.get("filament");
+    if (!std.mem.eql(u8, fo, fnew)) return w.print(": filament {s} \u{2192} {s}", .{ fo, fnew });
+    for ([_][]const u8{ "at", "facing" }) |k| if (!std.mem.eql(u8, old.get(k), new.get(k))) return w.writeAll(" moved");
+    if (!std.mem.eql(u8, old.get("turned"), new.get("turned"))) return w.print(" turned to {s}\u{b0}", .{new.get("turned")});
+    if (!std.mem.eql(u8, old.get("depth"), new.get("depth"))) return w.writeAll(": new depth");
+    return w.writeAll(" changed");
 }
 
 /// The kind of a change, in broad strokes, for the look of a step in a
@@ -316,6 +372,15 @@ pub fn kindOf(c: Change) Kind {
         if (eq(u8, c.key, "position")) return .move;
         if (eq(u8, c.key, "rotation") or eq(u8, c.key, "orientation")) return .rotate;
         if (eq(u8, c.key, "scale")) return .scale;
+        if (std.mem.startsWith(u8, c.key, "label ")) {
+            if (c.old.len == 0) return .add;
+            if (c.new.len == 0) return .remove;
+            const o = LabelFacts.parse(c.old);
+            const n = LabelFacts.parse(c.new);
+            if (!eq(u8, o.get("filament"), n.get("filament"))) return .filament;
+            if (!eq(u8, o.get("at"), n.get("at")) or !eq(u8, o.get("facing"), n.get("facing"))) return .move;
+            return .other;
+        }
     }
     if (eq(u8, c.key, "quality")) return .quality;
     if (eq(u8, c.key, "(slot)") or std.mem.startsWith(u8, c.scope, "filament ")) return .filament;
@@ -784,6 +849,23 @@ test "history: the diff of two facts texts, and the changes in words" {
     try testing.expectEqualStrings("Part Benchy\tWall count → 4 walls", lines.next().?);
     const third = lines.next().?;
     try testing.expect(std.mem.startsWith(u8, third, "Printer\tBed size x 300 mm → "));
+}
+
+test "history: the words of a label" {
+    const add = "part:Box\tlabel 1\t\ttext \"VOLUME\", filament 2, shape 1a2b, at 20.0 10.0 5.0, facing 100 0 0, turned 0\n";
+    const moved = "part:Box\tlabel 1\ttext \"VOLUME\", filament 2, shape 1a2b, at 20.0 10.0 5.0, facing 100 0 0, turned 0\ttext \"VOLUME\", filament 2, shape 1a2b, at 20.0 12.0 5.0, facing 100 0 0, turned 0\n";
+    const fil = "part:Box\tlabel 1\ttext \"VOLUME\", filament 2, shape 1a2b, at 20.0 10.0 5.0, facing 100 0 0, turned 0\ttext \"VOLUME\", filament 3, shape 1a2b, at 20.0 10.0 5.0, facing 100 0 0, turned 0\n";
+    const gone = "part:Box\tlabel 1\ttext \"VOLUME\", filament 2, shape 1a2b, at 20.0 10.0 5.0, facing 100 0 0, turned 0\t\n";
+    const want = [_][]const u8{ "Label \u{201c}VOLUME\u{201d} added", "Label \u{201c}VOLUME\u{201d} moved", "Label \u{201c}VOLUME\u{201d}: filament 2 \u{2192} 3", "Label \u{201c}VOLUME\u{201d} removed" };
+    const kinds = [_]Kind{ .add, .move, .filament, .remove };
+    for ([_][]const u8{ add, moved, fil, gone }, want, kinds) |ch, wd, kd| {
+        var words: std.Io.Writer.Allocating = .init(testing.allocator);
+        defer words.deinit();
+        try describe(testing.allocator, ch, 1e5, &.{}, &words.writer);
+        try testing.expectEqualStrings("Part Box\t", words.written()[0.."Part Box\t".len]);
+        try testing.expectEqualStrings(wd, std.mem.trimEnd(u8, words.written()["Part Box\t".len..], "\n"));
+        try testing.expectEqual(kd, try stepKind(testing.allocator, ch));
+    }
 }
 
 test "history: the scope of a layer range in words" {

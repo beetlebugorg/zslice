@@ -32,6 +32,10 @@
 //! indices of these files are checked: a paint text has a limit of size
 //! and depth, and a range of triangles is cut to the mesh.
 //!
+//! The labels of the parts (label.zig) go in Metadata/zslice_labels.json,
+//! each in the frame of the mesh of its object (see `Labels`). Other
+//! slicers do not read the entry.
+//!
 //! Format: 3MF Core Specification 1.3 and the Production Extension, 3MF
 //! Consortium, and the Cura project metadata (see REFERENCES.md). The XML reader handles the elements and
 //! attributes of these files; it is not a general XML parser.
@@ -41,6 +45,7 @@ const Allocator = std.mem.Allocator;
 const mesh_mod = @import("mesh.zig");
 const zipfile = @import("zipfile.zig");
 const plate_mod = @import("plate.zig");
+const label_mod = @import("label.zig");
 const paint_mod = @import("paint.zig");
 const Mesh = mesh_mod.Mesh;
 
@@ -84,8 +89,13 @@ pub const LoadedPart = struct {
     paint: paint_mod.Paint = .{},
     /// The filament of the part in the file (from 1), or 0: none.
     filament: u8 = 0,
+    /// The labels of the part (see label.zig), in the frame of `mesh`.
+    labels: []label_mod.Label = &.{},
 
     pub fn deinit(p: *LoadedPart, gpa: Allocator) void {
+        for (p.labels) |*l| l.deinit(gpa);
+        gpa.free(p.labels);
+        p.labels = &.{};
         gpa.free(p.name);
         p.mesh.deinit(gpa);
         freeMeta(gpa, p.meta);
@@ -113,6 +123,9 @@ pub const Loaded = struct {
     /// project of another slicer (Bambu Studio, PrusaSlicer), or empty.
     colors: [][]u8 = &.{},
     materials: [][]u8 = &.{},
+    /// The count of the labels that the reader dropped (a bad value, see
+    /// label.parse).
+    labels_dropped: u32 = 0,
 
     pub fn deinit(self: *Loaded, gpa: Allocator) void {
         for (self.parts) |*p| p.deinit(gpa);
@@ -544,6 +557,7 @@ pub fn read(gpa: Allocator, bytes: []const u8) Error!Loaded {
     files.fils = &fils;
     const mf = files.model(root) catch return error.EmptyMesh;
 
+    var labels: Labels = try .init(a, entries);
     var parts: std.ArrayList(LoadedPart) = .empty;
     errdefer {
         for (parts.items) |*p| p.deinit(gpa);
@@ -587,7 +601,11 @@ pub fn read(gpa: Allocator, bytes: []const u8) Error!Loaded {
         errdefer gpa.free(name);
         const meta = try ownMeta(gpa, &.{}, if (obj) |o| o.meta.items else &.{});
         try parts.append(gpa, .{ .name = name, .mesh = m, .meta = meta, .paint = paint });
-        parts.items[parts.items.len - 1].settle(gpa);
+        const lp = &parts.items[parts.items.len - 1];
+        lp.settle(gpa);
+        if (std.fmt.parseInt(u32, item.id, 10)) |oid| {
+            lp.labels = try labels.take(gpa, oid, t);
+        } else |_| {}
     }
     if (parts.items.len == 0) return error.EmptyMesh;
     var overrides: []u8 = try gpa.dupe(u8, "");
@@ -595,10 +613,125 @@ pub fn read(gpa: Allocator, bytes: []const u8) Error!Loaded {
         gpa.free(overrides);
         overrides = try gpa.dupe(u8, e.data);
     };
-    var loaded: Loaded = .{ .parts = try parts.toOwnedSlice(gpa), .overrides = overrides };
+    var loaded: Loaded = .{ .parts = try parts.toOwnedSlice(gpa), .overrides = overrides, .labels_dropped = labels.dropped };
     errdefer loaded.deinit(gpa);
     try readColors(gpa, entries, &loaded);
     return loaded;
+}
+
+/// The name of the entry of the labels (see label.zig).
+pub const labels_entry = "Metadata/zslice_labels.json";
+/// The largest labels entry that the reader reads.
+const max_labels_bytes = 8 << 20;
+/// The most labels of one object.
+pub const max_labels = 256;
+
+/// The labels of the objects of a file: the JSON of
+/// Metadata/zslice_labels.json, {"version":1,"objects":[{"object":id,
+/// "labels":[...]}]}. Each label is in the frame of the mesh of its
+/// object. A bad label is dropped (and counted); a bad entry is ignored.
+const Labels = struct {
+    objects: []const std.json.Value = &.{},
+    dropped: u32 = 0,
+
+    fn init(a: Allocator, entries: []const zipfile.Entry) Allocator.Error!Labels {
+        for (entries) |e| if (std.mem.eql(u8, e.name, labels_entry)) {
+            if (e.data.len > max_labels_bytes) return .{};
+            const v = std.json.parseFromSliceLeaky(std.json.Value, a, e.data, .{}) catch |err| switch (err) {
+                error.OutOfMemory => return error.OutOfMemory,
+                else => return .{},
+            };
+            const o = switch (v) {
+                .object => |x| x,
+                else => return .{},
+            };
+            const ver = o.get("version") orelse return .{};
+            if (ver != .integer or ver.integer != 1) return .{};
+            const objs = o.get("objects") orelse return .{};
+            if (objs != .array) return .{};
+            return .{ .objects = objs.array.items };
+        };
+        return .{};
+    }
+
+    /// The labels of object `id`, moved by the transform `t` of its build
+    /// item. The caller owns the result.
+    fn take(self: *Labels, gpa: Allocator, id: u32, t: Transform) Allocator.Error![]label_mod.Label {
+        var out: std.ArrayList(label_mod.Label) = .empty;
+        errdefer {
+            for (out.items) |*l| l.deinit(gpa);
+            out.deinit(gpa);
+        }
+        for (self.objects) |ov| {
+            if (ov != .object) continue;
+            const oid = ov.object.get("object") orelse continue;
+            if (oid != .integer or oid.integer != id) continue;
+            const list = ov.object.get("labels") orelse continue;
+            if (list != .array) continue;
+            for (list.array.items) |lv| {
+                if (out.items.len >= max_labels) {
+                    self.dropped += 1;
+                    continue;
+                }
+                var l = label_mod.fromValue(gpa, lv, .{}) catch |e| switch (e) {
+                    error.OutOfMemory => return error.OutOfMemory,
+                    error.BadLabel => {
+                        self.dropped += 1;
+                        continue;
+                    },
+                };
+                // The ids are unique in a part.
+                for (out.items) |o| if (o.id == l.id) {
+                    l.id = 0;
+                };
+                if (l.id == 0) {
+                    var m: u32 = 0;
+                    for (out.items) |o| m = @max(m, o.id);
+                    l.id = m + 1;
+                }
+                const m: plate_mod.M3 = .{ .{ t[0], t[3], t[6] }, .{ t[1], t[4], t[7] }, .{ t[2], t[5], t[8] } };
+                const placed = plate_mod.mapLabel(l, m, .{ t[9], t[10], t[11] });
+                l.origin = placed.origin;
+                l.normal = placed.normal;
+                l.right = placed.right;
+                l.stretch = placed.stretch;
+                if (!std.math.isFinite(l.origin[0] + l.origin[1] + l.origin[2])) {
+                    l.deinit(gpa);
+                    self.dropped += 1;
+                    continue;
+                }
+                out.append(gpa, l) catch |e| {
+                    l.deinit(gpa);
+                    return e;
+                };
+            }
+        }
+        return out.toOwnedSlice(gpa);
+    }
+};
+
+/// Writes the labels entry of the parts of a plate (see `Labels`), or
+/// nothing if no part has a label. `ids[i]` is the object id of part i.
+fn writeLabels(w: *std.Io.Writer, plate: *const plate_mod.Plate, ids: []const usize) std.Io.Writer.Error!bool {
+    var any = false;
+    for (plate.parts.items) |p| any = any or p.labels.items.len > 0;
+    if (!any) return false;
+    try w.writeAll("{\"version\":1,\"objects\":[");
+    var first = true;
+    for (plate.parts.items, ids) |*p, id| {
+        if (p.labels.items.len == 0) continue;
+        if (!first) try w.writeByte(',');
+        first = false;
+        try w.print("{{\"object\":{d},\"labels\":[", .{id});
+        for (p.labels.items, 0..) |l, k| {
+            if (k > 0) try w.writeByte(',');
+            const m = p.meshLabel(l);
+            try label_mod.write(&m, w);
+        }
+        try w.writeAll("]}");
+    }
+    try w.writeAll("]}\n");
+    return true;
 }
 
 /// The value of a key of a Bambu Studio <metadata key=".." value=".."/>.
@@ -738,6 +871,8 @@ pub fn joinOverlapping(gpa: Allocator, loaded: *Loaded) Allocator.Error!void {
     for (0..n) |i| for (i + 1..n) |j| {
         // A part with its own settings (or a modifier volume) stays apart.
         if (loaded.parts[i].meta.len > 0 or loaded.parts[j].meta.len > 0) continue;
+        // A part with labels stays apart: its labels are on its mesh.
+        if (loaded.parts[i].labels.len > 0 or loaded.parts[j].labels.len > 0) continue;
         const a = boxes[i];
         const b = boxes[j];
         var touch = true;
@@ -755,6 +890,7 @@ pub fn joinOverlapping(gpa: Allocator, loaded: *Loaded) Allocator.Error!void {
         loaded.parts[i].name = &.{};
         loaded.parts[i].meta = &.{};
         loaded.parts[i].paint = .{};
+        loaded.parts[i].labels = &.{};
         // A group of parts with other filaments or paint: the filament of
         // each part becomes the paint of its triangles.
         var mixed = !part.paint.isEmpty();
@@ -888,13 +1024,25 @@ pub fn write(gpa: Allocator, out: *std.Io.Writer, plate: *const plate_mod.Plate,
         \\<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Target="/3D/3dmodel.model" Id="rel0" Type="http://schemas.microsoft.com/3dmanufacturing/2013/01/3dmodel"/></Relationships>
         \\
     ;
+    // The labels: the object id of each part.
+    var lw: std.Io.Writer.Allocating = .init(gpa);
+    defer lw.deinit();
+    const ids = try gpa.alloc(usize, plate.parts.items.len);
+    defer gpa.free(ids);
+    id = 0;
+    for (plate.parts.items, ids) |*p, *pid| {
+        pid.* = id + 1;
+        id += 1 + p.volumes.items.len;
+    }
+    const has_labels = writeLabels(&lw.writer, plate, ids) catch return error.OutOfMemory;
     const entries = [_]zipfile.Entry{
         .{ .name = "[Content_Types].xml", .data = @constCast(types) },
         .{ .name = "_rels/.rels", .data = @constCast(rels) },
         .{ .name = "3D/3dmodel.model", .data = model.written() },
         .{ .name = "Metadata/zslice_overrides.txt", .data = @constCast(overrides) },
+        .{ .name = labels_entry, .data = lw.written() },
     };
-    try zipfile.write(gpa, out, &entries);
+    try zipfile.write(gpa, out, if (has_labels) &entries else entries[0..4]);
 }
 
 // ---- the snapshot of the history ----
@@ -984,6 +1132,16 @@ pub fn writeSnapshot(gpa: Allocator, out: *std.Io.Writer, plate: *const plate_mo
     }
     try entries.append(a, .{ .name = "objects.bin", .data = objects.written() });
     try entries.append(a, .{ .name = "Metadata/zslice_overrides.txt", .data = @constCast(overrides) });
+    // The labels: the object of part i is mesh k + 1 (as the ids of
+    // `write`).
+    const ids = try a.alloc(usize, plate.parts.items.len);
+    k = 0;
+    for (plate.parts.items, ids) |*p, *pid| {
+        pid.* = k + 1;
+        k += 1 + p.volumes.items.len;
+    }
+    var lw: std.Io.Writer.Allocating = .init(a);
+    if (writeLabels(&lw.writer, plate, ids) catch return error.OutOfMemory) try entries.append(a, .{ .name = labels_entry, .data = lw.written(), .store = true });
     try zipfile.write(gpa, out, entries.items);
 }
 
@@ -1016,6 +1174,9 @@ pub fn readSnapshot(gpa: Allocator, bytes: []const u8) Error!Loaded {
         else => error.Corrupt,
     };
     defer zipfile.freeAll(gpa, entries);
+    var arena_state = std.heap.ArenaAllocator.init(gpa);
+    defer arena_state.deinit();
+    var labels: Labels = try .init(arena_state.allocator(), entries);
     var objects: ?[]const u8 = null;
     var overrides: []const u8 = "";
     for (entries) |e| {
@@ -1088,9 +1249,10 @@ pub fn readSnapshot(gpa: Allocator, bytes: []const u8) Error!Loaded {
                 };
             }
         };
+        part.labels = try labels.take(gpa, k + 1, t);
         try parts.append(gpa, part);
     }
-    return .{ .parts = try parts.toOwnedSlice(gpa), .overrides = try gpa.dupe(u8, overrides) };
+    return .{ .parts = try parts.toOwnedSlice(gpa), .overrides = try gpa.dupe(u8, overrides), .labels_dropped = labels.dropped };
 }
 
 const testing = std.testing;
