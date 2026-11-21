@@ -462,7 +462,7 @@ function tinyParts(c) {
   return out;
 }
 
-const PLATE_OPS = new Set(["fallStep", "load", "add", "plate", "projectLoad", "partAction", "partsAction", "partsMove", "partsSettingSet", "partsToPlate", "partCut", "partMove", "partFill", "partToPlate", "editAdd", "editDot", "editRemove", "partSettingSet", "paintSet", "filamentAdd", "filamentRemove", "filamentSet", "partPutDown", "partTurn", "putDown", "place", "partMove", "partRotate", "partScale", "partSettle", "markAdd", "supportRemoveAt", "supportKindAt", "markRemoveNear", "markSet", "markRemove", "marksClear", "supportAreaAdd", "supportAreaSet", "supportAreaKind", "supportAreaRemove", "treeMoveNode", "treeRadius", "treeMoveBranch", "treeDelete", "treeAdd", "treeReset"]);
+const PLATE_OPS = new Set(["fallStep", "load", "add", "plate", "projectLoad", "partAction", "partsAction", "partsMove", "partsSettingSet", "partsToPlate", "partCut", "partMove", "partFill", "partToPlate", "editAdd", "editDot", "editRemove", "partSettingSet", "paintSet", "labelAdd", "labelUpdate", "labelRemove", "filamentAdd", "filamentRemove", "filamentSet", "partPutDown", "partTurn", "putDown", "place", "partMove", "partRotate", "partScale", "partSettle", "markAdd", "supportRemoveAt", "supportKindAt", "markRemoveNear", "markSet", "markRemove", "marksClear", "supportAreaAdd", "supportAreaSet", "supportAreaKind", "supportAreaRemove", "treeMoveNode", "treeRadius", "treeMoveBranch", "treeDelete", "treeAdd", "treeReset"]);
 
 // The values of settings at z (core.valueAt): { name: entry }.
 function valuesAt({ z, names }) {
@@ -1132,6 +1132,41 @@ const ops = {
     if (!core.setPartPaint(index, text)) return { error: "No part." };
     wantSlice();
     return {};
+  },
+
+  // ---- the labels of a part (label.js) ----
+
+  // The labels of part `index`, and the filament of the part (from 1).
+  labelsGet({ index }) {
+    const p = core.part(index);
+    if (!p) return { labels: [], filament: 1 };
+    const own = core.partSettings(index).find(([n]) => n === "project.filament");
+    return { labels: core.partLabels(index), filament: Number(own ? own[1] : core.get("project.filament")) || 1 };
+  },
+
+  // A new label on part `index`: its id (-1: the core did not take it).
+  labelAdd({ index, label }) {
+    const id = core.labelAdd(index, label);
+    if (id >= 0) wantSlice();
+    return { id, labels: core.partLabels(index) };
+  },
+
+  // labelId: a message has its own `id`.
+  labelUpdate({ index, labelId, label }) {
+    const ok = core.labelUpdate(index, labelId, label);
+    if (ok) wantSlice();
+    return { ok };
+  },
+
+  labelRemove({ index, labelId }) {
+    const ok = core.labelRemove(index, labelId);
+    if (ok) wantSlice();
+    return { ok, labels: core.partLabels(index) };
+  },
+
+  // The facts of a label for its card (zs_app_label_info).
+  labelInfo({ index, labelId }) {
+    return { info: core.labelInfo(index, labelId) };
   },
 
   // ---- the filaments of the plate ----

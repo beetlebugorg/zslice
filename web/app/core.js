@@ -1127,6 +1127,51 @@ export class Core {
     return w.withBytes(bytes, (p, n) => w.x.zs_app_part_paint_set(this.app, i, p, n)) === 0;
   }
 
+  // ---- the labels of a part (zs_app_part_labels_get, zs_app_label_*) ----
+
+  // The labels of part i: an array of label objects (the JSON of
+  // include/zslice-app.h), or [] for no part.
+  partLabels(i) {
+    const w = this.w;
+    const text = w.readText((b, cap, l) => w.x.zs_app_part_labels_get(this.app, i, b, cap, l));
+    try {
+      return text ? JSON.parse(text) : [];
+    } catch {
+      return [];
+    }
+  }
+
+  // Adds a label to part i: its id, or -1 for a bad label.
+  labelAdd(i, label) {
+    const w = this.w;
+    const bytes = new TextEncoder().encode(JSON.stringify(label));
+    const rc = w.withBytes(bytes, (p, n) => w.x.zs_app_label_add(this.app, i, p, n, w.cell));
+    return rc === 0 ? w.u32(w.cell) : -1;
+  }
+
+  // Replaces label `id` of part i: true when the core accepts it.
+  labelUpdate(i, id, label) {
+    const w = this.w;
+    const bytes = new TextEncoder().encode(JSON.stringify(label));
+    return w.withBytes(bytes, (p, n) => w.x.zs_app_label_update(this.app, i, id, p, n)) === 0;
+  }
+
+  labelRemove(i, id) {
+    return this.w.x.zs_app_label_remove(this.app, i, id) === 0;
+  }
+
+  // The facts of label `id` of part i for its card (zs_app_label_info),
+  // or null.
+  labelInfo(i, id) {
+    const w = this.w;
+    const text = w.readText((b, cap, l) => w.x.zs_app_label_info(this.app, i, id, b, cap, l));
+    try {
+      return text ? JSON.parse(text) : null;
+    } catch {
+      return null;
+    }
+  }
+
   // ---- the filaments of the plate (zs_app_filament_*) ----
 
   // The filaments: [{ index, name, material, color, nozzleTemp }].
