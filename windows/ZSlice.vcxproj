@@ -49,7 +49,8 @@
 
   <PropertyGroup Label="Configuration">
     <ConfigurationType>Application</ConfigurationType>
-    <PlatformToolset>v145</PlatformToolset>
+    <!-- The toolset of the installed Visual Studio: v143 for 2022, v145 for 2026. -->
+    <PlatformToolset Condition="'197121PlatformToolset)' == ''">197121DefaultPlatformToolset)</PlatformToolset>
     <CharacterSet>Unicode</CharacterSet>
     <UseDebugLibraries Condition="'$(Configuration)'=='Debug'">true</UseDebugLibraries>
     <UseDebugLibraries Condition="'$(Configuration)'=='Release'">false</UseDebugLibraries>
