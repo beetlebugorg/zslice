@@ -113,6 +113,8 @@ namespace winrt::ZSlice::implementation
         LayerSlider().ValueChanged([this](auto &&, Primitives::RangeBaseValueChangedEventArgs const &e) {
             OnLayerChanged(e.NewValue());
         });
+        Root().KeyDown([this](auto &&, Input::KeyRoutedEventArgs const &e) { OnKeyDown(e); });
+        WirePlates();
         Closed([this](auto &&, auto &&) { CloseView(); });
     }
 
@@ -171,8 +173,16 @@ namespace winrt::ZSlice::implementation
             return;
         }
         ApplySize();
-        zs_set_view_sync(model->Set(), view);
-        RequestDraw();
+        // ZSLICE_PRINTER=id: starts on a printer of the library, for tests.
+        wchar_t printer[128];
+        if (::GetEnvironmentVariableW(L"ZSLICE_PRINTER", printer, ARRAYSIZE(printer)) > 0)
+        {
+            std::string message;
+            if (!model->UsePrinter(zs::ToUtf8(printer), message))
+                ShowError(zs::ToWide(message));
+        }
+        ShowPlate();
+        ViewPanel().Focus(FocusState::Programmatic);
 
         std::wstring file = CommandLineFile();
         if (!file.empty())
@@ -262,6 +272,7 @@ namespace winrt::ZSlice::implementation
         if (event.kind == ZS_EVENT_PLATES)
         {
             zs_set_view_sync(model->Set(), view);
+            RefreshPlates();
             RequestDraw();
             return;
         }
@@ -318,7 +329,9 @@ namespace winrt::ZSlice::implementation
 
     void MainWindow::AfterScene()
     {
+        model->UpdateBed(view);
         zs_set_view_sync(model->Set(), view);
+        RefreshPlates();
         size_t count = zs_app_layer_count(model->Active());
         bool at_top = layer_count == 0 || LayerSlider().Value() >= (double)layer_count;
         layer_count = count;
@@ -444,8 +457,8 @@ namespace winrt::ZSlice::implementation
             drag = Drag::Orbit;
         else
             return;
-        last_x = point.Position().X;
-        last_y = point.Position().Y;
+        last_x = press_x = point.Position().X;
+        last_y = press_y = point.Position().Y;
         ViewPanel().CapturePointer(e.Pointer());
         ViewPanel().Focus(FocusState::Pointer);
         e.Handled(true);
@@ -475,6 +488,32 @@ namespace winrt::ZSlice::implementation
             return;
         drag = Drag::None;
         ViewPanel().ReleasePointerCapture(e.Pointer());
+        e.Handled(true);
+        // A click on the sign of a plate makes that plate active.
+        if (view != nullptr && std::abs(last_x - press_x) <= 4 && std::abs(last_y - press_y) <= 4)
+        {
+            int64_t sign = zs_view_sign_at(view, (float)(last_x * Scale()), (float)(last_y * Scale()));
+            if (sign >= 0)
+                SelectPlate((size_t)sign);
+        }
+    }
+
+    void MainWindow::OnKeyDown(Input::KeyRoutedEventArgs const &e)
+    {
+        if (model == nullptr || view == nullptr)
+            return;
+        // The keys of the shortcuts sheet of the other apps.
+        constexpr auto bracket_left = static_cast<Windows::System::VirtualKey>(219);
+        constexpr auto bracket_right = static_cast<Windows::System::VirtualKey>(221);
+        auto key = e.Key();
+        if (key == bracket_left || key == bracket_right)
+            StepPlate(key == bracket_left ? -1 : 1);
+        else if (key == Windows::System::VirtualKey::Home && model->PlateCount() > 1)
+            FramePlate((size_t)-1);
+        else if (key == Windows::System::VirtualKey::F)
+            FramePlate(model->ActivePlate());
+        else
+            return;
         e.Handled(true);
     }
 

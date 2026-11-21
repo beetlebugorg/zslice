@@ -50,6 +50,16 @@ namespace winrt::ZSlice::implementation
         void OnDragOver(Microsoft::UI::Xaml::DragEventArgs const &e);
         winrt::fire_and_forget OnDrop(Microsoft::UI::Xaml::DragEventArgs e);
         void OnLayerChanged(double value);
+        void OnKeyDown(Microsoft::UI::Xaml::Input::KeyRoutedEventArgs const &e);
+
+        // Plates (MainWindow.Plates.cpp).
+        void WirePlates();
+        void RefreshPlates();
+        void RefreshSigns();
+        void ShowPlate();
+        void StepPlate(int direction);
+        void SelectPlate(size_t index);
+        void FramePlate(size_t index);
 
         HWND hwnd = nullptr;
         Microsoft::UI::Dispatching::DispatcherQueue queue{ nullptr };
@@ -66,7 +76,10 @@ namespace winrt::ZSlice::implementation
         Drag drag = Drag::None;
         double last_x = 0;
         double last_y = 0;
+        double press_x = 0;
+        double press_y = 0;
         std::chrono::steady_clock::time_point last_tick{};
+        std::wstring sign_key;
 
         size_t layer_count = 0;
         bool setting_layer = false;

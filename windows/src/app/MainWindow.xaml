@@ -41,6 +41,31 @@
                            Foreground="#5B6168" HorizontalAlignment="Center" />
             </StackPanel>
 
+            <!-- The plates: as the dock of the other apps. -->
+            <Border x:Name="PlateBar" HorizontalAlignment="Center" VerticalAlignment="Bottom"
+                    Margin="0,0,0,14" Padding="6,4" Background="#F2FFFFFF"
+                    BorderBrush="#DDE0E4" BorderThickness="1" CornerRadius="8">
+                <StackPanel Orientation="Horizontal" Spacing="2">
+                    <Button x:Name="PlatePrev" Background="Transparent" BorderThickness="0"
+                            ToolTipService.ToolTip="The plate before ([)">
+                        <FontIcon Glyph="&#xE76B;" FontSize="12" />
+                    </Button>
+                    <TextBlock x:Name="PlateName" VerticalAlignment="Center" Margin="8,0" FontSize="13" />
+                    <Button x:Name="PlateNext" Background="Transparent" BorderThickness="0"
+                            ToolTipService.ToolTip="The next plate (])">
+                        <FontIcon Glyph="&#xE76C;" FontSize="12" />
+                    </Button>
+                    <Button x:Name="PlateAll" Content="All" Background="Transparent" BorderThickness="0"
+                            Visibility="Collapsed" ToolTipService.ToolTip="Show all plates (Home). F shows the active plate." />
+                    <Button x:Name="PlateAdd" Content="+ Plate" Background="Transparent" BorderThickness="0"
+                            ToolTipService.ToolTip="A new plate with the settings of this plate" />
+                    <Button x:Name="PlateRemove" Background="Transparent" BorderThickness="0"
+                            ToolTipService.ToolTip="Remove this plate">
+                        <FontIcon Glyph="&#xE711;" FontSize="12" />
+                    </Button>
+                </StackPanel>
+            </Border>
+
             <Border x:Name="LayerCard" Visibility="Collapsed" HorizontalAlignment="Right"
                     VerticalAlignment="Stretch" Margin="0,16,16,16" Padding="8,12"
                     Background="#F2FFFFFF" BorderBrush="#DDE0E4" BorderThickness="1" CornerRadius="8">
