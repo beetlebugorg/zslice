@@ -3331,7 +3331,7 @@ fn splitBridgeWalls(s: Allocator, a: Allocator, lp: *LayerPlan, memo: *Memo, bel
 /// nozzle so rises along the wall with no layer change and no seam. On
 /// the first spiral layer (`first`), the bead grows from zero at the
 /// start to a full bead at the end, on the flat top of the bottom layers.
-/// This is the spiralize mode of Cura (the idea, not its code).
+/// The idea comes from the spiralize mode of Cura; no code is copied.
 fn spiralize(s: Allocator, a: Allocator, lp: *LayerPlan, first: bool) Allocator.Error!void {
     // The outer wall loop with the largest area.
     var best: ?usize = null;
@@ -3394,7 +3394,7 @@ fn spiralize(s: Allocator, a: Allocator, lp: *LayerPlan, first: bool) Allocator.
 /// point (the seam) stays. With `outside`, a hole (a loop that turns
 /// clockwise) stays smooth. The random numbers come from the layer and the
 /// path index, so a slice of the same part gives the same points. This
-/// is the method of Cura (the idea, not its code).
+/// is the method of Cura; no code is copied.
 fn fuzzWalls(s: Allocator, a: Allocator, lp: *LayerPlan, p: settings_mod.Project, layer_no: usize) Allocator.Error!void {
     const t = geom.fromMm(p.fuzzy_skin_thickness);
     const dist: f64 = @floatFromInt(geom.fromMm(p.fuzzy_skin_point_distance));

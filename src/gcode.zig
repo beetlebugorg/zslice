@@ -2170,7 +2170,7 @@ pub const Emitter = struct {
                 if (path.feature == .bridge) {
                     try self.setFan(@intFromFloat(@round(255 * path_r.settings.project.bridge_fan)));
                 } else if (path.overhang and path_r.settings.project.overhang_wall_fan > 0) {
-                    // The fan of a wall overhang, not below the fan of the
+                    // The fan of a wall overhang, and at least the fan of the
                     // layer.
                     const f: i32 = @intFromFloat(@round(255 * path_r.settings.project.overhang_wall_fan));
                     try self.setFan(@max(f, self.layer_fan));

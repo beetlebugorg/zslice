@@ -333,7 +333,7 @@ fn parseBinaryStl(gpa: Allocator, bytes: []const u8) Error!Mesh {
     return b.finish();
 }
 
-/// True for an OBJ text: no zero byte at the start, not "solid", and a
+/// True for an OBJ text: no zero byte and no "solid" at the start, and a
 /// line "v ..." and a line "f ..." in the file.
 fn isObj(bytes: []const u8) bool {
     const head = bytes[0..@min(bytes.len, 512)];
