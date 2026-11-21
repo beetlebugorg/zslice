@@ -109,8 +109,36 @@ extension Workspace {
         }
         line.path = path
         rangeLine = line
+        if let v = canvas.view { zs_view_light_color(v, rangeBodyColor) }
         lightRange(r.lo, r.hi, line: line)
         canvas.requestFrame()
+    }
+
+    /// Paints the lit body of the range with filament `f` (from 1): the
+    /// mesh of the part under its beads (zs_app_paint_body). The body
+    /// shows in the color of the filament at once; the slice follows. The
+    /// filament of the part takes the paint away. Returns why it did not
+    /// paint, or nil.
+    @discardableResult
+    func paintBody(_ f: Int) -> String? {
+        guard let r = rangeCard, let line = rangeLine, let v = canvas.view else { return "No body is lit." }
+        var out: UnsafePointer<Float>?
+        var n = 0
+        guard zs_view_connected_beads(v, line.path, min(r.lo, r.hi), max(r.lo, r.hi), &out, &n) == 0, let out, n > 0 else {
+            return "No body is lit."
+        }
+        let beads = Array(UnsafeBufferPointer(start: out, count: n))
+        if let hex = model.filaments[safe: f - 1]?.color, hex.count == 7, let rgb = Int32(hex.dropFirst(), radix: 16) {
+            rangeBodyColor = rgb
+            zs_view_light_color(v, rgb)
+            canvas.requestFrame()
+        }
+        var changed = 0
+        let rc = zs_app_paint_body(model.core, beads, beads.count, UInt32(f), &changed)
+        guard rc == 0 else { return "The body did not paint. \(statusText(rc))" }
+        rangeBodyFilament = f
+        if changed > 0 { model.settingsChanged() }
+        return nil
     }
 
     /// The layer under the pointer in a drag over layers.
@@ -186,6 +214,9 @@ extension Workspace {
         guard let a = layerTopBottom(lo), let b = layerTopBottom(hi), canvas.view != nil else { return }
         rangeCard = (lo, hi)
         rangeLine = line
+        rangeBodyFilament = 0
+        rangeBodyColor = -1
+        if let v = canvas.view { zs_view_light_color(v, -1) }
         lightRange(lo, hi, line: line)
         model.scope = .layers(zMin: a.top, zMax: b.top, name: lo == hi ? "Layer \(lo + 1)" : "Layers \(lo + 1)–\(hi + 1)")
         canvas.requestFrame()
@@ -222,7 +253,10 @@ extension Workspace {
         rangeCard = nil
         rangeLine = nil
         if case .layers = model.scope { model.scope = .print }
+        rangeBodyFilament = 0
+        rangeBodyColor = -1
         if let v = canvas.view {
+            zs_view_light_color(v, -1)
             zs_view_light_layers(v, 1, 0)
             zs_view_highlight_more(v, nil, 0)
         }

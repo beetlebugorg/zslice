@@ -74,6 +74,17 @@ struct RangeCard: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
             Divider()
+            // The lit body of a drag from a line: its own filament.
+            if workspace.rangeLine != nil {
+                HStack(alignment: .firstTextBaseline) {
+                    Text("This body")
+                        .help("The filament of the lit body only, on these layers. The paint of the part keeps it. The filament of the part takes the paint away.")
+                    Spacer(minLength: 8)
+                    FilamentChips(model: model, value: String(workspace.rangeBodyFilament > 0 ? workspace.rangeBodyFilament : Int(Double(model.entry("project.filament").value) ?? 1))) { v in
+                        if let f = Int(v), let why = workspace.paintBody(f) { workspace.showNote(why) }
+                    }
+                }
+            }
             ForEach(Self.settings.compactMap { SettingInfo.byName[$0] }.filter(\.perLayer)) { s in
                 HStack(alignment: .firstTextBaseline) {
                     Text(s.label)
