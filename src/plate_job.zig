@@ -48,9 +48,16 @@
 //! as one job of its mesh: then the plan of a level is the plan of the
 //! job, with its own skirt and brim.
 //!
+//! The prime towers (see `PlateJob.towers`): for a print with tool
+//! changes, one tower (or one for each family of materials), as large as
+//! the most purge of one layer, and the last level with a change into
+//! each. The tower grows on each level up to it.
+//!
 //! References (see docs/references/papers-and-algorithms.md): the greedy nearest-neighbor order.
 //! Sequential printing: the head clearance model of PrusaSlicer and
 //! OrcaSlicer (see docs/references/prusaslicer.md).
+//! The prime tower: see docs/references/prusaslicer.md and
+//! docs/references/bambu-studio.md.
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
@@ -620,6 +627,40 @@ pub const PlateJob = struct {
         return last;
     }
 
+    /// The highest level with support of any part, or null for none: a
+    /// support filament can change on each level up to it.
+    pub fn supportTop(self: *const PlateJob) ?usize {
+        var top: ?usize = null;
+        for (self.groups) |g| {
+            var j = g.job.support.len;
+            while (j > 0) {
+                j -= 1;
+                const sl = g.job.support[j];
+                if (sl.body.ends.items.len == 0 and sl.interface.ends.items.len == 0 and sl.filled.ends.items.len == 0) continue;
+                if (j < g.layer_level.len) top = @max(top orelse 0, g.layer_level[j]);
+                break;
+            }
+        }
+        return top;
+    }
+
+    /// The highest level with sparse infill of any part, or null for
+    /// none: an infill filament of its own (Project.infill_filament) can
+    /// change on each level up to it. The top skin layers of each part
+    /// have no sparse infill.
+    pub fn infillTop(self: *const PlateJob) ?usize {
+        var top: ?usize = null;
+        for (self.groups) |g| {
+            const n = g.job.layers.len;
+            if (n == 0) continue;
+            const skin = g.job.resolvedAt(n - 1).top_layers;
+            if (n <= skin) continue;
+            const j = n - 1 - skin;
+            if (j < g.layer_level.len) top = @max(top orelse 0, g.layer_level[j]);
+        }
+        return top;
+    }
+
     /// The prime towers of the print (see gcode.Towers): none with no
     /// tower or no change; one; or with Project.prime_tower_split, one for
     /// each family of materials that the print changes to, side by side
@@ -649,43 +690,51 @@ pub const PlateJob = struct {
             }
             out.of_slot[i] = @intCast(k);
         }
-        // A family gets a tower if a filament of it is ever changed to:
-        // the support filaments (any layer), and the part changes.
+        // A family gets a tower if a filament of it is ever changed to,
+        // and the tower grows up to the last level with such a change: a
+        // level whose filament differs from the one before, or a level of
+        // more filaments (its order of filaments can change), and each
+        // level with own support filaments up to the top of the support.
         const p = s.project;
         const sup = filaments_mod.pathSlot(.support, p, n_slots);
         const iface = filaments_mod.pathSlot(.support_interface, p, n_slots);
         // The infill of its own filament (project.infill_filament) changes
-        // the filament inside a layer too.
+        // the filament inside a layer too, up to the top of the infill.
         const fill = filaments_mod.lineSlot(.infill, true, p, n_slots);
         const own_infill = ownInfill(p, n_slots);
-        const own_support = (p.support != .off and (p.support_filament > 0 or p.support_interface_filament > 0)) or own_infill;
-        if (own_support) {
-            if (p.support != .off) {
-                used[out.of_slot[sup]] = true;
-                used[out.of_slot[iface]] = true;
+        const own_support = p.support != .off and (p.support_filament > 0 or p.support_interface_filament > 0);
+        const sup_top = if (own_support) self.supportTop() else null;
+        const fill_top = if (own_infill) self.infillTop() else null;
+        var last: [gcode.Towers.max]?usize = @splat(null);
+        {
+            var prev: ?u32 = null;
+            for (self.levels, 0..) |lv, i| {
+                var mask: u32 = 0;
+                for (self.entries[lv.first..lv.end]) |e| {
+                    mask |= @as(u32, 1) << @intCast(@min(self.toolAt(self.instances[e.instance].group, e.layer), n_slots - 1));
+                }
+                if (sup_top) |top| if (i <= top) {
+                    mask |= (@as(u32, 1) << @intCast(sup)) | (@as(u32, 1) << @intCast(iface));
+                };
+                if (fill_top) |top| if (i <= top) {
+                    mask |= @as(u32, 1) << @intCast(fill);
+                };
+                if (mask == 0) continue;
+                const change = if (prev) |pm| (pm != mask or @popCount(mask) > 1) else @popCount(mask) > 1;
+                if (change) for (0..n_slots) |k| if (mask & (@as(u32, 1) << @intCast(k)) != 0) {
+                    last[out.of_slot[k]] = i;
+                };
+                prev = mask;
             }
-            if (own_infill) used[out.of_slot[fill]] = true;
         }
-        var tool: ?u32 = null;
-        for (self.levels) |lv| for (self.entries[lv.first..lv.end]) |e| {
-            const t = self.toolAt(self.instances[e.instance].group, e.layer);
-            if (tool != null and tool.? != t) used[out.of_slot[@min(t, n_slots - 1)]] = true;
-            tool = t;
-        };
-        if (own_support) {
-            // After the support, the print changes back to a part filament.
-            var t2: ?u32 = null;
-            for (self.levels) |lv| for (self.entries[lv.first..lv.end]) |e| {
-                t2 = self.toolAt(self.instances[e.instance].group, e.layer);
-                used[out.of_slot[@min(t2.?, n_slots - 1)]] = true;
-            };
-        }
+        for (last, 0..) |l, k| used[k] = l != null;
         // Number the used families from 0, in slot order.
         var map = [_]u8{0} ** gcode.Towers.max;
         var n: usize = 0;
         for (0..fam_n) |k| if (used[k]) {
             map[k] = @intCast(n);
             var t = one;
+            t.last_layer = last[k].?;
             @memcpy(t.family[0..lens[k]], names[k][0..lens[k]]);
             out.list[n] = t;
             n += 1;
@@ -713,12 +762,14 @@ pub const PlateJob = struct {
             };
         }
         var support_mask: u32 = 0;
-        if (own_support and p.support != .off) support_mask = (@as(u32, 1) << @intCast(sup)) | (@as(u32, 1) << @intCast(iface));
-        if (own_infill) support_mask |= @as(u32, 1) << @intCast(fill);
+        if (sup_top != null) support_mask = (@as(u32, 1) << @intCast(sup)) | (@as(u32, 1) << @intCast(iface));
+        var fill_mask: u32 = 0;
+        if (fill_top != null) fill_mask = @as(u32, 1) << @intCast(fill);
         var most = [_]f64{0} ** gcode.Towers.max;
         var prev: u32 = 1; // The start G-code loads filament 1.
-        for (self.levels) |lv| {
-            var mask: u32 = support_mask;
+        for (self.levels, 0..) |lv, li| {
+            var mask: u32 = if (li <= sup_top orelse 0) support_mask else 0;
+            if (li <= fill_top orelse 0) mask |= fill_mask;
             for (self.entries[lv.first..lv.end]) |e| {
                 const t = self.toolAt(self.instances[e.instance].group, e.layer);
                 mask |= @as(u32, 1) << @intCast(@min(t, n_slots - 1));
@@ -734,14 +785,14 @@ pub const PlateJob = struct {
         }
         // A tower as wide as Project.prime_tower_width, or wider for a
         // large purge: a square of the area of the purge, then as deep as
-        // its rows (at most `max_tower_rows`). Side by side to the left,
-        // a gap of one width between them.
+        // its rows (at most `max_tower_rows`) inside its loop. Side by
+        // side to the left, a gap of one width between them.
         var right = if (n > 0) out.list[0].x + out.list[0].size / 2 else 0;
         for (out.list[0..n], 0..) |*t, k| {
             const area = most[k] / (flowArea(w, h) / w);
-            t.size = @max(t.size, @sqrt(area));
-            const rows = @ceil(most[k] / (t.size * flowArea(w, h)));
-            t.depth = @min(@max(t.size, rows * w), @as(f64, @floatFromInt(gcode.max_tower_rows)) * w);
+            t.size = @max(t.size, @sqrt(area) + 2 * w);
+            const rows = @ceil(most[k] / ((t.size - 3 * w) * flowArea(w, h)));
+            t.depth = @min(@max(t.size, rows * w + 2 * w), @as(f64, @floatFromInt(gcode.max_tower_rows)) * w + 2 * w);
             if (k > 0) t.x = right - t.size / 2;
             right = t.x - t.size / 2 - @max(t.size, 10);
             if (p.prime_tower_x < 0 and k == 0) {
@@ -750,7 +801,6 @@ pub const PlateJob = struct {
             }
             if (p.prime_tower_y < 0) t.y = m.bed_size_y - t.depth / 2 - 10;
         }
-        out.stack = own_support;
         return out;
     }
 
@@ -780,15 +830,22 @@ pub const PlateJob = struct {
         // again, and a tower cannot rise with them.
         if (self.sequential) return null;
         const p = s.project;
-        const own_support = ((p.support != .off and (p.support_filament > 0 or p.support_interface_filament > 0)) or ownInfill(p, self.slots.len)) and self.slots.len > 1;
-        const last = self.lastChange() orelse (if (own_support) self.levels.len -| 1 else return null);
+        const two = self.slots.len > 1;
+        const own_support = p.support != .off and (p.support_filament > 0 or p.support_interface_filament > 0) and two;
+        const sup_top = if (own_support) self.supportTop() else null;
+        const fill_top = if (two and ownInfill(p, self.slots.len)) self.infillTop() else null;
+        var last = self.lastChange();
+        for ([_]?usize{ sup_top, fill_top }) |t| if (t) |v| {
+            last = @max(last orelse 0, v);
+        };
+        if (last == null) return null;
         const size = s.project.prime_tower_width;
         const margin = 10;
         return .{
             .x = if (s.project.prime_tower_x >= 0) s.project.prime_tower_x else towerEdge(s.machine) - size / 2 - margin,
             .y = if (s.project.prime_tower_y >= 0) s.project.prime_tower_y else s.machine.bed_size_y - size / 2 - margin,
             .size = size,
-            .last_layer = last,
+            .last_layer = last.?,
         };
     }
 
@@ -2659,7 +2716,6 @@ test "plate job: a PLA part with a PETG support interface, and a tower for each"
     // Two towers: PLA and PETG, apart; filament 1 to the first.
     const tw = pj.towers();
     try testing.expectEqual(@as(usize, 2), tw.n);
-    try testing.expect(tw.stacked());
     // A gap of at least 10 mm between their edges.
     try testing.expect(@abs(tw.list[0].x - tw.list[1].x) - (tw.list[0].size + tw.list[1].size) / 2 >= 10 - 1e-9);
     try testing.expect(tw.of_slot[0] != tw.of_slot[1]);
@@ -2668,7 +2724,7 @@ test "plate job: a PLA part with a PETG support interface, and a tower for each"
     const st = try pj.writeGcode(&out.writer);
     const g = out.written();
     // The interface prints with T1; the support body and the part with
-    // T0. Each tower line prints with the filament of its tower.
+    // T0. Each purge prints in the tower of its filament.
     var it = std.mem.splitScalar(u8, g, '\n');
     var tool: u8 = 0;
     var feature: []const u8 = "";
@@ -2676,18 +2732,28 @@ test "plate job: a PLA part with a PETG support interface, and a tower for each"
     var iface_t0: usize = 0;
     var body_t1: usize = 0;
     var tower_x: [2]?f64 = .{ null, null };
+    var purge = false;
+    var after_change = false;
     var mixed = false;
     while (it.next()) |line| {
         if (std.mem.eql(u8, line, "T0")) tool = 0;
         if (std.mem.eql(u8, line, "T1")) tool = 1;
-        if (std.mem.startsWith(u8, line, ";TYPE:")) feature = line[6..];
+        if (std.mem.startsWith(u8, line, "; filament change")) after_change = true;
+        if (std.mem.startsWith(u8, line, ";TYPE:")) {
+            feature = line[6..];
+            purge = after_change and std.mem.eql(u8, feature, "PRIME-TOWER");
+            after_change = false;
+        }
+        if (std.mem.eql(u8, line, ";WIPE")) purge = false;
         const extrudes = std.mem.startsWith(u8, line, "G1 X") and std.mem.indexOf(u8, line, " E") != null;
         if (!extrudes) continue;
         if (std.mem.eql(u8, feature, "SUPPORT-INTERFACE")) {
             if (tool == 1) iface_t1 += 1 else iface_t0 += 1;
         }
         if (std.mem.eql(u8, feature, "SUPPORT") and tool == 1) body_t1 += 1;
-        if (std.mem.eql(u8, feature, "PRIME-TOWER")) {
+        // The purge of a change: in the tower of its filament. The loop
+        // and the grid of a tower can print with another filament.
+        if (purge) {
             const x = std.fmt.parseFloat(f64, line[4 .. std.mem.indexOfScalarPos(u8, line, 4, ' ') orelse line.len]) catch continue;
             // The tower of this tool: its x side of the gap between them.
             const mid = (tw.list[0].x + tw.list[1].x) / 2;
@@ -2700,7 +2766,7 @@ test "plate job: a PLA part with a PETG support interface, and a tower for each"
     try testing.expectEqual(@as(usize, 0), iface_t0);
     try testing.expectEqual(@as(usize, 0), body_t1);
     try testing.expect(st.changes > 0);
-    // No PETG on the PLA tower, no PLA on the PETG tower.
+    // No PETG purge on the PLA tower, no PLA purge on the PETG tower.
     try testing.expect(!mixed);
     try testing.expect(tower_x[0] != null and tower_x[1] != null);
     try testing.expect(st.tower_layers[0] > 0 and st.tower_layers[1] > 0);
@@ -2896,19 +2962,28 @@ test "plate job: a tower holds the whole purge of a layer, row by row" {
     // than wide when one layer needs more rows than a square holds.
     try testing.expectEqual(@as(f64, 0), st.tower_short_mm3);
     const per_layer = 2 * filaments_mod.flushVolume("#000000", "#ffffff", s.machine.flush_volume, s.project.flush_multiplier);
-    const square = tw.list[0].size * tw.list[0].size * s.project.layer_height;
+    // The rows fill the area inside the loop.
+    const lw = pj.resolved.line_width;
+    const square = (tw.list[0].size - 3 * lw) * (tw.list[0].size - 2 * lw) * s.project.layer_height;
     if (per_layer > square) try testing.expect(tw.list[0].ySize() > tw.list[0].size);
-    // No two purge rows of one layer at one y.
+    // No two purge rows of one layer at one y. The purge is the tower
+    // block after a change, up to its wipe.
     var it = std.mem.splitScalar(u8, out.written(), '\n');
-    var feature: []const u8 = "";
+    var purge = false;
+    var after_change = false;
     var ys: std.ArrayList(i64) = .empty;
     defer ys.deinit(gpa);
     var last_y: i64 = std.math.minInt(i64);
     while (it.next()) |line| {
         if (std.mem.startsWith(u8, line, ";LAYER:")) ys.clearRetainingCapacity();
         if (std.mem.startsWith(u8, line, "G0 ")) last_y = std.math.minInt(i64);
-        if (std.mem.startsWith(u8, line, ";TYPE:")) feature = line[6..];
-        if (!std.mem.eql(u8, feature, "PRIME-TOWER")) continue;
+        if (std.mem.startsWith(u8, line, "; filament change")) after_change = true;
+        if (std.mem.startsWith(u8, line, ";TYPE:")) {
+            purge = after_change and std.mem.eql(u8, line[6..], "PRIME-TOWER");
+            after_change = false;
+        }
+        if (std.mem.eql(u8, line, ";WIPE")) purge = false;
+        if (!purge) continue;
         if (!std.mem.startsWith(u8, line, "G1 X") or std.mem.indexOf(u8, line, " E") == null) continue;
         const yi = std.mem.indexOf(u8, line, " Y") orelse continue;
         var e = yi + 2;
@@ -3221,4 +3296,243 @@ test "second nozzle: combined infill on the second nozzle every second layer" {
     // layer (walls then infill, then infill then walls).
     try testing.expect(comb.changes <= 2 * n_comb + 4);
     try testing.expect(each.changes + 4 >= n_each and each.changes <= n_each + 4);
+}
+
+/// The G-code of a plate of two boxes on the machine of the library
+/// with id `id` (or a plain tool changer for "generic"): box 1 of
+/// filament 1, and box 2 of filament 2 (on the second nozzle of a head
+/// with two). With `late`, one box only, of filament 2 from z 3 mm: one
+/// change, on layer 14.
+fn towerPlate(gpa: Allocator, id: []const u8, late: bool, second_material: []const u8, sup: bool) ![]u8 {
+    const printers = @import("printers.zig");
+    var arena_state: std.heap.ArenaAllocator = .init(gpa);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    var s: Settings = .{};
+    s.engine.threads = 2;
+    if (std.mem.eql(u8, id, "generic")) {
+        s.machine.filament_change = .tool;
+    } else {
+        if (printers.builtin_data.len == 0) return error.SkipZigTest;
+        const lib = try printers.Library.parse(gpa, printers.builtin_data);
+        defer lib.deinit();
+        const i = lib.find(id) orelse return error.NoModel;
+        var text: Writer.Allocating = .init(a);
+        try lib.profileText(i, 0, &text.writer);
+        var diag: @import("profile.zig").Diagnostic = .{};
+        try @import("profile.zig").apply(a, &s, .machine, id, text.written(), null, &diag);
+    }
+    const cx = s.machine.bed_size_x / 2;
+    const cy = s.machine.bed_size_y / 2;
+    var m1 = try testBox(cx - 25, cy - 10, cx - 5, cy + 10, 5);
+    defer m1.deinit(gpa);
+    var m2 = try testBox(cx + 5, cy - 10, cx + 25, cy + 10, 5);
+    defer m2.deinit(gpa);
+    var second = s.filament;
+    second.color = "#d93a3a";
+    second.material = second_material;
+    if (s.machine.nozzles >= 2) second.nozzle = 1;
+    if (sup) {
+        // A shelf over air: support under it, with an interface of
+        // filament 2.
+        s.project.support = .everywhere;
+        s.project.support_interface_filament = 2;
+    }
+    var b: mesh_mod.Builder = .init(gpa);
+    try mesh_mod.shapes.addBox(&b, cx - 25, cy - 10, 0, cx - 15, cy + 10, 5);
+    try mesh_mod.shapes.addBox(&b, cx - 15, cy - 10, 3, cx + 5, cy + 10, 5);
+    var shelf = try b.finish();
+    defer shelf.deinit(gpa);
+    const ov = [_]settings_mod.Override{.{ .z_min = 3, .z_max = 100, .name = "project.filament", .value = "2" }};
+    const parts = [_]PartInput{
+        .{ .mesh = &m1, .part = 0 },
+        .{ .mesh = &m2, .part = 1, .changes = &.{.{ .name = "project.filament", .value = "2" }} },
+    };
+    const one = [_]PartInput{.{ .mesh = if (sup) &shelf else &m1, .part = 0 }};
+    var pj = if (late)
+        try PlateJob.init(gpa, s, &one, .{ .filaments = &.{second}, .overrides = &ov })
+    else if (sup)
+        try PlateJob.init(gpa, s, &one, .{ .filaments = &.{second} })
+    else
+        try PlateJob.init(gpa, s, &parts, .{ .filaments = &.{second} });
+    defer pj.deinit();
+    return gcodeOf(&pj);
+}
+
+/// The checks of the prime tower in G-code `g` with tool changes:
+/// - each change goes to the tower before any line of the part: the
+///   first feature after a change is the tower;
+/// - each tower line prints at the z of the layer (no move down into the
+///   tower);
+/// - each layer up to the last change has a layer of the tower.
+/// Returns the count of changes.
+fn checkTowerOrder(g: []const u8) !usize {
+    var changes: usize = 0;
+    var after_change = false;
+    var in_tower = false;
+    var layer: usize = 0;
+    var layers_with_tower: usize = 0;
+    var tower_this_layer = false;
+    var last_change_layer: usize = 0;
+    var it = std.mem.splitScalar(u8, g, '\n');
+    while (it.next()) |line| {
+        if (std.mem.startsWith(u8, line, ";LAYER:")) {
+            if (tower_this_layer) layers_with_tower += 1;
+            tower_this_layer = false;
+            layer = try std.fmt.parseInt(usize, line[7..], 10);
+            in_tower = false;
+        } else if (std.mem.startsWith(u8, line, "; filament change")) {
+            changes += 1;
+            after_change = true;
+            in_tower = false;
+            last_change_layer = layer;
+        } else if (std.mem.startsWith(u8, line, ";TYPE:")) {
+            in_tower = std.mem.eql(u8, line[6..], "PRIME-TOWER");
+            if (after_change and !in_tower) {
+                std.debug.print("change {d}: {s} before the tower\n", .{ changes, line });
+                return error.TestUnexpectedResult;
+            }
+            after_change = false;
+            if (in_tower) tower_this_layer = true;
+        } else if (in_tower and std.mem.startsWith(u8, line, "G0 Z")) {
+            std.debug.print("layer {d}: the nozzle goes down into the tower\n", .{layer});
+            return error.TestUnexpectedResult;
+        }
+    }
+    if (tower_this_layer) layers_with_tower += 1;
+    try testing.expect(changes > 0);
+    try testing.expect(layers_with_tower >= last_change_layer + 1);
+    return changes;
+}
+
+test "plate job: each change primes on the tower before the part, on each printer kind" {
+    const gpa = testing.allocator;
+    for ([_][]const u8{ "bambu-lab-x2d", "bambu-lab-a1", "bambu-lab-x1-carbon", "generic" }) |id| {
+        const g = try towerPlate(gpa, id, false, "PLA", false);
+        defer gpa.free(g);
+        const n = checkTowerOrder(g) catch |e| {
+            std.debug.print("{s}\n", .{id});
+            return e;
+        };
+        try testing.expect(n > 10);
+        // A wipe on the tower after each prime.
+        try testing.expect(std.mem.count(u8, g, ";WIPE\n") >= n);
+    }
+}
+
+test "plate job: a first change on a late layer finds the tower at the height of the nozzle" {
+    const gpa = testing.allocator;
+    for ([_][]const u8{ "bambu-lab-x2d", "generic" }) |id| {
+        const g = try towerPlate(gpa, id, true, "PLA", false);
+        defer gpa.free(g);
+        // One change, on layer 14: the tower has a layer on each layer
+        // before it (its loop and grid), so the change primes on its top.
+        try testing.expectEqual(@as(usize, 1), try checkTowerOrder(g));
+        const at = std.mem.indexOf(u8, g, "; filament change 1").?;
+        try testing.expect(std.mem.count(u8, g[0..at], ";TYPE:PRIME-TOWER\n") >= 14);
+    }
+}
+
+test "plate job: towers of two families grow on each layer, at the z of the print" {
+    const gpa = testing.allocator;
+    // PLA and PETG: a tower for each, and a PETG support interface. Each
+    // change primes at the z of the layer.
+    const g = try towerPlate(gpa, "generic", false, "PETG", false);
+    defer gpa.free(g);
+    _ = try checkTowerOrder(g);
+    const g2 = try towerPlate(gpa, "generic", false, "PETG", true);
+    defer gpa.free(g2);
+    _ = try checkTowerOrder(g2);
+}
+
+test "plate job: a switch of the nozzles of the X2D: no flush, the idle nozzle waits, the new nozzle gets its temperature back" {
+    const gpa = testing.allocator;
+    const g = try towerPlate(gpa, "bambu-lab-x2d", false, "PLA", false);
+    defer gpa.free(g);
+    var it = std.mem.splitScalar(u8, g, '\n');
+    var switches: usize = 0;
+    var idle: usize = 0;
+    var reheat: usize = 0;
+    var to: u8 = 0;
+    while (it.next()) |line| {
+        if (std.mem.startsWith(u8, line, "; filament change")) {
+            switches += 1;
+            to = line[line.len - 1];
+        }
+        // Each nozzle holds its own filament: no color flush.
+        if (std.mem.startsWith(u8, line, "M620.10 A1 ") and switches > 0) {
+            try testing.expect(std.mem.indexOf(u8, line, " L0 ") != null);
+        }
+        // The idle nozzle: filament 1 is on the main nozzle (firmware
+        // index 1), filament 2 on the second one (index 0). After a change
+        // to filament 2, the main nozzle waits 10 °C below 210 °C.
+        if (std.mem.startsWith(u8, line, "M104 T")) {
+            idle += 1;
+            const want: []const u8 = if (to == '2') "M104 T1 S" else "M104 T0 S";
+            try testing.expect(std.mem.startsWith(u8, line, want));
+            const t = try std.fmt.parseFloat(f64, line[9..std.mem.indexOfScalarPos(u8, line, 9, ' ').?]);
+            try testing.expect(t >= 190 and t < 215);
+        }
+        if (std.mem.startsWith(u8, line, "M104 S") and std.mem.indexOf(u8, line, "cooling for the tower") != null) reheat += 1;
+    }
+    try testing.expect(switches > 10);
+    try testing.expectEqual(switches, idle);
+    try testing.expectEqual(switches, reheat);
+    // A printer with one nozzle: no M104 T.
+    const a1 = try towerPlate(gpa, "bambu-lab-a1", false, "PLA", false);
+    defer gpa.free(a1);
+    try testing.expect(std.mem.indexOf(u8, a1, "\nM104 T") == null);
+}
+
+test "plate job: infill on the second nozzle of the X2D: a tower on each layer up to the last infill change, no flush at a switch" {
+    const printers = @import("printers.zig");
+    if (printers.builtin_data.len == 0) return error.SkipZigTest;
+    const gpa = testing.allocator;
+    var arena_state: std.heap.ArenaAllocator = .init(gpa);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    const lib = try printers.Library.parse(gpa, printers.builtin_data);
+    defer lib.deinit();
+    const id = "bambu-lab-x2d";
+    var text: Writer.Allocating = .init(a);
+    try lib.profileText(lib.find(id).?, 0, &text.writer);
+    var s: Settings = .{};
+    s.engine.threads = 2;
+    var diag: @import("profile.zig").Diagnostic = .{};
+    try @import("profile.zig").apply(a, &s, .machine, id, text.written(), null, &diag);
+    s.project.infill_density = 0.2;
+    s.project.infill_filament = 2;
+    const cx = s.machine.bed_size_x / 2;
+    const cy = s.machine.bed_size_y / 2;
+    var m = try testBox(cx - 15, cy - 15, cx + 15, cy + 15, 5);
+    defer m.deinit(gpa);
+    var second = s.filament;
+    second.color = "#d93a3a";
+    second.nozzle = 1;
+    const parts = [_]PartInput{.{ .mesh = &m, .part = 0 }};
+    var pj = try PlateJob.init(gpa, s, &parts, .{ .filaments = &.{second} });
+    defer pj.deinit();
+    const tw = pj.towers();
+    try testing.expectEqual(@as(usize, 1), tw.n);
+    // The infill stops under the top skin: the tower stops at its last
+    // change, below the top of the part.
+    try testing.expect(tw.list[0].last_layer + 1 < pj.levels.len);
+    const g = try gcodeOf(&pj);
+    defer gpa.free(g);
+    // Each change primes on the tower first, at the z of the layer, and
+    // each layer up to the last change has a layer of the tower.
+    const n = try checkTowerOrder(g);
+    try testing.expect(n > 10);
+    // Each nozzle holds its own filament: no flush at a switch.
+    var it = std.mem.splitScalar(u8, g, '\n');
+    var changes: usize = 0;
+    var flushes: usize = 0;
+    while (it.next()) |line| {
+        if (std.mem.startsWith(u8, line, "; filament change")) changes += 1;
+        if (changes > 0 and std.mem.startsWith(u8, line, "M620.10 A1 ")) {
+            flushes += 1;
+            try testing.expect(std.mem.indexOf(u8, line, " L0 ") != null);
+        }
+    }
+    try testing.expectEqual(changes, flushes);
 }

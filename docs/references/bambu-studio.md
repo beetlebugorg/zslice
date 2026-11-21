@@ -85,6 +85,33 @@ The filament change of Bambu Lab printers: the `change_filament_gcode` of the ma
 
 **How zslice uses it:** The variables of a change G-code. The rule that a change from a dark color to a light color flushes more; zslice has its own simple formula for the volume (see `src/filaments.zig`).
 
+### Prime tower of a Bambu Lab change
+
+```ref
+kind: idea
+source: Bambu Studio
+license: AGPL-3.0
+version: Bambu Studio 02.09.01.70
+files: src/gcode.zig, src/plate_job.zig, src/render/view.zig
+area: gcode
+summary: The order of a change (change, flush, prime and wipe on a tower at the z of the layer, then the part), the prime volume, the grid layers of the tower, the idle nozzle of a head with two nozzles, and the reheat after the cooling before the tower.
+```
+
+The prime tower and the filament change of Bambu Studio, as a .gcode.3mf of the user's X2D shows them (Bambu Studio 02.09.01.70, two filaments on two nozzles, 19 November 2026):
+
+- The order of a change: the old filament prints its tower layer ("CP TOOLCHANGE START"), the change G-code (M620, T, M621) flushes into the chute, the nozzle goes to the tower at the z of the layer, a short line and a wipe, then the prime rows ("CP_TOOLCHANGE_WIPE"), a 2 mm wipe back along the last row with the retraction, then the part.
+- The prime of the new filament on the tower: `filament_prime_volume` = 45 mm³.
+- A switch of the nozzles flushes nothing (`L0` in M620.10): each nozzle holds its own filament. The flush matrix of a nozzle counts only the changes in that nozzle.
+- The tower grows on each layer (`wipe_tower_no_sparse_layers` = 0). A layer with no change prints its walls and a sparse grid ("CP EMPTY GRID") of lines across the rows, about 9 mm apart.
+- The change G-code sets the new nozzle `filament_cooling_before_tower` (10 °C) below its temperature (M620.15 C). After the first lines on the tower, the slicer sets the print temperature again ("M104 ... ;Wipe tower reheat before wipe").
+- The idle nozzle of a head with two nozzles: M104 T (the firmware index of the nozzle, `physical_extruder_map`) to `filament_preheat_temperature_delta` (10 °C) below its temperature when the print uses it again soon ("Multi extruder pre heating"), or off for a long wait.
+
+**License:** AGPL-3.0 (the method and the values, no code)
+
+**Used in:** `src/gcode.zig` (`Emitter.changeTool`, `towerPurge`, `towerFinish`, `towerWipe`, `tower_prime_mm3`, `idle_nozzle_delta`, `grid_gap`), `src/plate_job.zig` (`PlateJob.towers`), `src/render/view.zig` (`View.loadTower`)
+
+**How zslice uses it:** The same order of a change, the prime of 45 mm³, no flush at a switch of the nozzles, a tower that grows on each layer up to its last change with a grid of lines at most 5 mm apart, the print temperature after M620.15, and the idle nozzle at 10 °C below its temperature (zslice does not turn it off: it does not know the time to the next use).
+
 ### Bambu Lab LAN mode
 
 ```ref

@@ -1036,17 +1036,19 @@ pub const Project = struct {
     infill_filament: u32 = 0,
     /// A prime tower for a printer that changes the filament with a tool
     /// change (`machine.filament_change = tool`): after each change, the
-    /// nozzle flushes the old color into a small tower next to the parts,
-    /// and each layer up to the last change prints a light layer of it,
-    /// so the tower grows with the print. A Bambu Lab printer flushes into
-    /// its chute (its change G-code); its tower then gets a small prime.
+    /// nozzle flushes the old color out into a small tower next to the
+    /// parts, and wipes there, before the new filament touches the part.
+    /// The tower grows on each layer up to the last change (its loop and a
+    /// grid of lines), so it is at the height of the nozzle at each change.
+    /// A Bambu Lab printer flushes into its chute (its change G-code); its
+    /// tower then gets a prime of 45 mm³ of the new filament.
     prime_tower: bool = true,
     /// A prime tower for each family of materials that bond (PLA, PETG,
     /// ABS and ASA, and the others): a change purges into the tower of
-    /// the new filament, so PETG never prints on PLA. Each of these
-    /// towers grows only on the layers with a purge into it (no light
-    /// layers): the nozzle goes down to its top. Keep parts away from the
-    /// towers. With one family, one tower as before.
+    /// the new filament, so PETG never purges on PLA. Each tower grows on
+    /// each layer up to its last change; on a layer with no filament of
+    /// its family, its loop and grid print with the filament in the
+    /// nozzle. With one family, one tower.
     prime_tower_split: bool = true,
     /// The width of the square prime tower.
     prime_tower_width: f64 = 20,

@@ -51,6 +51,21 @@ After a change, the nozzle flushes the old color out: into the chute of a Bambu 
 - **Flush into hidden lines.** After a change, the new filament first prints its infill and its support body on that layer. Nobody sees these lines, so the old color can go into them. The flush is less by the plastic of these lines. A change between two kinds of material (PLA and PETG) flushes into the support body only. Search for **flush into hidden** to turn it off.
 - **The best order on each layer.** A change from a dark color to a light color flushes the most. On each layer, zslice tries each order of its filaments (up to 8) and picks the one with the least flush, after the hidden lines take their part. For black, red, and white, it prints black, then red, then white. It counts the time of each change too, so it never adds a change to save a little plastic.
 
+## The prime tower
+
+A printer that changes the filament by itself (an AMS, a tool changer) prints a prime tower next to the parts. The tower makes the new filament ready before it touches the part. At each change, the steps are:
+
+1. The change. A Bambu Lab printer flushes the old color into its chute. Other printers flush into the tower in step 3.
+2. On a head with two nozzles, the nozzle that stops printing waits 10 °C below its temperature. The new nozzle gets its print temperature back after the cooling of the change.
+3. The tower. The nozzle primes the new filament in rows on the tower, and wipes on it. A Bambu Lab printer primes 45 mm³ there, as Bambu Studio does.
+4. The part. The hidden lines print first (see **Flush into hidden lines**), then the walls and the skin.
+
+The tower grows on each layer up to the last change. A layer with no change prints the loop of the tower and a grid of lines on it. So the tower is always at the height of the nozzle, and the rows of the next change have a base.
+
+On the X2D and the H2D, each nozzle holds its own filament. A switch to the other nozzle has no color flush. Only a change of the filament in one nozzle flushes.
+
+Keep the parts away from the tower. The Check tells you when the tower is on a part or off the bed. Set **prime tower x** and **prime tower y** to move it.
+
 ## Use the filaments of the printer
 
 The plate uses the filaments that are in its printer. zslice reads the spools of a printdeck printer, and the AMS trays of a Bambu Lab printer in the GTK app. Filament 1 is the first spool, filament 2 the next spool, and so on.

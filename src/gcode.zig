@@ -40,6 +40,15 @@
 //!   change G-code of the machine, or M600 (PAUSE on Klipper), or a tool
 //!   change Tn. The change takes `change_time`, and a tool change flushes
 //!   the old color out (the flush counts in the filament of the new slot).
+//! - The prime tower (see `Tower`): each change flushes or primes the new
+//!   filament on a tower at the z of the layer, and wipes the nozzle
+//!   there, before the first line of the new filament on the part. The
+//!   tower grows on each layer up to its last change: its loop and a grid
+//!   of lines on the rest of its area. This is the order and the tower of
+//!   Bambu Studio and of the wipe tower of PrusaSlicer (see
+//!   docs/references/bambu-studio.md and docs/references/prusaslicer.md).
+//!   A head with two nozzles switches with no color flush, and its idle
+//!   nozzle waits a little below its temperature.
 //! - Comments mark each layer (";LAYER:n") and each feature
 //!   (";TYPE:WALL-OUTER"). These follow the CuraEngine convention (see
 //!   docs/references/), which G-code viewers and printdeck read.
@@ -440,20 +449,22 @@ pub fn prepare(gpa: std.mem.Allocator, r: *const Resolved, lp: *const LayerPlan,
 pub const Error = Writer.Error || std.mem.Allocator.Error;
 
 /// The prime tower of a print with tool changes (Project.prime_tower): a
-/// square of `size` mm at (x, y) on the bed. Each change purges into it
-/// in rows of lines; each layer up to `last_layer` that has no change
-/// prints a light layer of it (its loop and a diagonal), so the tower
-/// grows with the print and the purge of a later layer has a base.
+/// box of `size` by `ySize()` mm at (x, y) on the bed. Each layer up to
+/// `last_layer` prints a layer of it at the z of the layer, so the tower
+/// is as high as the nozzle at each change. A change primes the new
+/// filament in rows of lines inside its loop (see `Emitter.towerPurge`).
+/// At the end of the layer, the tower gets its loop and a grid of lines
+/// across the rows on the rest of its area (see `Emitter.towerFinish`),
+/// so the rows of the next layer have a base.
 pub const Tower = struct {
     x: f64,
     y: f64,
     size: f64,
+    /// The last layer with a change into a filament of this tower: the
+    /// tower grows on each layer up to it.
     last_layer: usize,
     /// The family of its materials (see filaments.family), for the view.
     family: [8]u8 = .{0} ** 8,
-    /// The number of layers with a purge into it (a tower of `Towers`
-    /// with stacked layers).
-    purges: usize = 0,
     /// Its depth in y (mm): `size`, or more for the rows that the most
     /// purge of one layer needs (see PlateJob.towers). 0: `size`.
     depth: f64 = 0,
@@ -461,24 +472,81 @@ pub const Tower = struct {
     pub fn ySize(t: Tower) f64 {
         return if (t.depth > t.size) t.depth else t.size;
     }
+
+    /// The lines of one layer of the tower with lines `w` mm wide, after
+    /// `rows` rows of purge (see `towerRow`): the loop on its edge, then a
+    /// grid of lines in y across the rest of the area. The lines of the
+    /// grid are at most `grid_gap` mm apart, so a row of the next layer
+    /// bridges no longer gap. Writes the points to `out`: the loop is
+    /// `out[0..5]`, and the grid is one line through `out[5..n]` (the
+    /// nozzle travels from the loop to it). Returns n.
+    pub fn finishLines(t: Tower, w: f64, rows: u32, out: *[finish_points_max][2]f64) usize {
+        const x0 = t.x - t.size / 2 + w / 2;
+        const x1 = t.x + t.size / 2 - w / 2;
+        const y0 = t.y - t.ySize() / 2 + w / 2;
+        const y1 = t.y + t.ySize() / 2 - w / 2;
+        out[0] = .{ x0, y0 };
+        out[1] = .{ x1, y0 };
+        out[2] = .{ x1, y1 };
+        out[3] = .{ x0, y1 };
+        out[4] = .{ x0, y0 };
+        var n: usize = 5;
+        // The grid: from the row after the last purge row to the back of
+        // the loop, a zigzag of lines in y that joins at the ends.
+        const ya = y0 + w / 2 + @as(f64, @floatFromInt(rows)) * w + w / 2;
+        const yb = y1 - w;
+        if (yb - ya < w) return n;
+        const span = x1 - x0;
+        const gaps: usize = @min(finish_points_max / 2 - 4, @max(2, @as(usize, @intFromFloat(@ceil(span / grid_gap)))));
+        var up = true;
+        for (1..gaps) |k| {
+            const x = x0 + span * @as(f64, @floatFromInt(k)) / @as(f64, @floatFromInt(gaps));
+            out[n] = .{ x, if (up) ya else yb };
+            out[n + 1] = .{ x, if (up) yb else ya };
+            n += 2;
+            up = !up;
+        }
+        return n;
+    }
+
+    /// The row `row` of the purge rows of a layer, for lines `w` mm wide:
+    /// its y, and the x of its two ends. The rows fill the area inside the
+    /// loop from the front, one line width apart, and their ends touch the
+    /// loop.
+    pub fn towerRow(t: Tower, w: f64, row: u32) struct { y: f64, x0: f64, x1: f64 } {
+        return .{
+            .y = t.y - t.ySize() / 2 + w + (@as(f64, @floatFromInt(row)) + 0.5) * w,
+            .x0 = t.x - t.size / 2 + 1.5 * w,
+            .x1 = t.x + t.size / 2 - 1.5 * w,
+        };
+    }
+
+    /// The count of purge rows that fit in one layer, for lines `w` mm
+    /// wide: the depth inside the loop.
+    pub fn rowsMax(t: Tower, w: f64) u32 {
+        const inside = t.ySize() - 2 * w;
+        return @min(max_tower_rows, @max(1, @as(u32, @intFromFloat(@max(0, inside) / w))));
+    }
 };
 
+/// The most points of the lines of `Tower.finishLines`.
+pub const finish_points_max = 64;
+
+/// The largest gap (mm) between the lines of the grid of a tower layer:
+/// a row of purge over the grid bridges no more. The grid of Bambu Studio
+/// ("CP EMPTY GRID") has gaps of about 9 mm (see
+/// docs/references/bambu-studio.md).
+pub const grid_gap = 5.0;
+
 /// The prime towers of a print: one, or one for each family of materials
-/// (Project.prime_tower_split), and the tower of each filament slot.
+/// (Project.prime_tower_split), and the tower of each filament slot. Each
+/// tower grows on each layer up to its own last layer.
 pub const Towers = struct {
     pub const max = 4;
     list: [max]Tower = undefined,
     n: usize = 0,
     /// The tower of each slot (index in `list`).
     of_slot: [filaments.max_slots]u8 = .{0} ** filaments.max_slots,
-    /// Each tower grows only on the layers with a purge into it, and the
-    /// nozzle goes down to its top: more than one tower, or a filament
-    /// for the support (its changes are known only as the G-code is
-    /// written, so a tower with light layers cannot know its last layer).
-    stack: bool = false,
-    pub fn stacked(t: *const Towers) bool {
-        return t.stack or t.n > 1;
-    }
 
     pub fn items(t: *const Towers) []const Tower {
         return t.list[0..t.n];
@@ -488,15 +556,22 @@ pub const Towers = struct {
 /// The most rows of a tower on one layer.
 pub const max_tower_rows = 512;
 
-/// The prime volume (mm³) of a change into the tower when the change
-/// G-code of the machine flushes into a chute (Bambu Lab).
-pub const tower_prime_mm3 = 15;
+/// The prime volume (mm³) of the new filament on the tower after a
+/// change whose G-code flushes into a chute (Bambu Lab): the
+/// filament_prime_volume of Bambu Studio (see
+/// docs/references/bambu-studio.md). The nozzle is full of the new
+/// filament before its first line on the part.
+pub const tower_prime_mm3 = 45;
 
 /// The least flush (mm³) of a change after the hidden lines take their
-/// part (see `Emitter.hiddenRun`): the prime of the tower of a Bambu Lab
-/// printer, so the nozzle is full before the first hidden line. A change
-/// whose flush is less than this keeps its flush.
-pub const min_flush_mm3 = tower_prime_mm3;
+/// part (see `Emitter.hiddenRun`), so the nozzle is full before the first
+/// hidden line. A change whose flush is less than this keeps its flush.
+pub const min_flush_mm3 = 15;
+
+/// The idle nozzle of a head with two nozzles waits this much (°C) below
+/// its print temperature: the filament_preheat_temperature_delta of Bambu
+/// Studio. It oozes less, and it is hot again quickly.
+pub const idle_nozzle_delta = 10;
 
 /// The slot of the filament of the last path of a layer plan, with the
 /// settings `r` of the print and the filaments `slots` of the plate.
@@ -727,12 +802,18 @@ pub const Emitter = struct {
     /// The prime towers (see `Towers`), none for no tower.
     towers: Towers = .{},
     /// For each tower: the layer whose rows `tower_rows` counts, the z of
-    /// its top and of the layer it prints now, and its layer count.
+    /// its top and of the layer it prints now, its layer count, and the
+    /// layer has its loop and grid (see `towerFinish`).
     tower_layer: [Towers.max]usize = .{std.math.maxInt(usize)} ** Towers.max,
     tower_rows: [Towers.max]u32 = .{0} ** Towers.max,
     tower_top: [Towers.max]f64 = .{0} ** Towers.max,
     tower_z: [Towers.max]f64 = .{0} ** Towers.max,
     tower_count: [Towers.max]usize = .{0} ** Towers.max,
+    tower_done: [Towers.max]bool = .{false} ** Towers.max,
+    /// A head with two nozzles (`machine.nozzles`): the slot of the
+    /// filament in each nozzle, or null before its first load. A switch
+    /// to the other nozzle flushes from the filament in that nozzle.
+    nozzle_slot: [2]?u32 = .{ null, null },
     /// The parts of the print for the object labels (see `Object`), and
     /// the index of the part whose label is open in the layer, or null.
     objects: []const Object = &.{},
@@ -1648,30 +1729,85 @@ pub const Emitter = struct {
         return if (self.r.settings.machine.nozzles >= 2 and self.slots[self.tool].nozzle >= 1) 1 else 0;
     }
 
+    /// The nozzle of slot `k` on a head with two nozzles (0 or 1), or null
+    /// for a head with one nozzle.
+    fn nozzleOf(self: *const Emitter, k: u32) ?u32 {
+        if (self.r.settings.machine.nozzles < 2 or k >= self.slots.len) return null;
+        return @min(self.slots[k].nozzle, 1);
+    }
+
+    /// The flush volume (mm³) of a change from slot `a` to slot `b`, for
+    /// the flush planner: the color flush of one nozzle. A switch to the
+    /// other nozzle of a head with two flushes nothing: that nozzle holds
+    /// its own filament (Bambu Studio: L0 in M620.10).
+    fn flushOf(self: *const Emitter, a: u32, b: u32) f64 {
+        const g = self.r.settings;
+        if (g.machine.filament_change != .tool or a >= self.slots.len or b >= self.slots.len) return 0;
+        if (self.nozzleOf(a)) |na| if (na != self.nozzleOf(b).?) return 0;
+        return filaments.flushVolume(self.slots[a].color, self.slots[b].color, g.machine.flush_volume, g.project.flush_multiplier);
+    }
+
+    /// The physical index of nozzle `n` of a Bambu Lab head with two
+    /// nozzles, for M104 T: the firmware numbers them the other way (see
+    /// physical_extruder_map in `bambuBlocks`), or null for no such head.
+    fn bambuNozzleIndex(self: *const Emitter, n: u32) ?u32 {
+        const m = self.r.settings.machine;
+        const b = @import("printers.zig").bambu(m.model) orelse return null;
+        if (m.nozzles < 2 or b.nozzles < 2 or std.mem.eql(u8, b.code, "O1C2")) return null;
+        return (n + 1) % 2;
+    }
+
     /// A filament change to slot `next` before path `i` of `lp`, which
-    /// starts at (x, y) mm. The text is the change G-code of the machine,
-    /// or the command of the flavor (see filaments.zig). The change takes
-    /// `change_time`, and a tool change flushes the old color out. The
-    /// hidden lines from path `i` on (see `hiddenRun`) take a part of the
-    /// flush, down to `min_flush_mm3`.
+    /// starts at (x, y) mm. The order makes the new filament ready before
+    /// it touches the part:
+    ///
+    /// 1. The change: the change G-code of the machine, or the command of
+    ///    the flavor (see filaments.zig). A Bambu Lab change flushes the
+    ///    old color into its chute; a plain tool change flushes into the
+    ///    tower in step 3.
+    /// 2. A head with two nozzles: the idle nozzle waits a little below
+    ///    its temperature (`idle_nozzle_delta`). A change G-code that cools
+    ///    the new nozzle before the tower (M620.15) gets its temperature
+    ///    back here.
+    /// 3. The tower at the z of the layer (see `towerPurge`): the flush,
+    ///    or the prime of the new filament, then a wipe on the tower.
+    /// 4. The part: the hidden lines first (see `hiddenRun`), which take a
+    ///    part of the flush, down to `min_flush_mm3`.
+    ///
+    /// The change takes `change_time`.
     fn changeTool(self: *Emitter, lp: *const LayerPlan, i: usize, next: u32, x: f64, y: f64, first: bool) Error!void {
         const g = self.r.settings;
         const m = g.machine;
         const from = self.slots[self.tool];
         const to = self.slots[next];
+        // The layer of the tower of the old filament, in its own material,
+        // if no later change of this layer goes into that tower.
+        if (self.towers.n > 0 and m.filament_change == .tool) {
+            const k = self.towers.of_slot[@min(self.tool, filaments.max_slots - 1)];
+            if (k < self.towers.n and (lp.index <= self.towers.list[k].last_layer or self.tower_layer[k] == lp.index) and !self.laterInto(lp, i, k)) try self.towerFinish(k, first);
+        }
         try self.retractHop(false);
         self.stats.changes += 1;
-        const full_mm3 = if (m.filament_change == .tool) filaments.flushVolume(from.color, to.color, m.flush_volume, g.project.flush_multiplier) else 0;
+        // The flush: from the filament in the nozzle that prints next. On
+        // a head with two nozzles, that nozzle can hold another filament
+        // than the one now in use, or none yet (then no flush, as in
+        // Bambu Studio).
+        const from_n = self.nozzleOf(self.tool);
+        const to_n = self.nozzleOf(next);
+        if (from_n) |n| self.nozzle_slot[n] = self.tool;
+        const flush_from: ?u32 = if (to_n) |n| self.nozzle_slot[n] else self.tool;
+        const full_mm3 = if (flush_from) |f| (if (f == next) 0 else self.flushOf(f, next)) else 0;
         const hidden_mm3 = if (full_mm3 > min_flush_mm3) @min(self.hiddenRun(lp, i, self.tool, next), full_mm3 - min_flush_mm3) else 0;
         const flush_mm3 = full_mm3 - hidden_mm3;
         const flush_mm = flush_mm3 / self.r.filament_area;
         self.stats.flush_hidden_mm += hidden_mm3 / self.r.filament_area;
         const old_temp = self.nozzle_temp orelse from.nozzle_temp;
         const new_temp = if (first) to.first_layer_nozzle_temp else to.nozzle_temp;
+        const template = if (m.change_gcode.len > 0) makerTemplate(m.model, m.change_gcode, .change) else "";
         if (!self.dry) {
             try self.w.print("; filament change {d}: filament {d} to filament {d}\n", .{ self.stats.changes, self.tool + 1, next + 1 });
-            if (m.change_gcode.len > 0) {
-                try self.writeChange(makerTemplate(m.model, m.change_gcode, .change), next, flush_mm, old_temp, new_temp, x, y);
+            if (template.len > 0) {
+                try self.writeChange(template, next, flush_mm, old_temp, new_temp, x, y);
             } else {
                 switch (m.filament_change) {
                     .pause => try self.w.writeAll(if (m.gcode_flavor == .klipper) "PAUSE ; change the filament, then resume\n" else "M600 ; change the filament\n"),
@@ -1682,6 +1818,24 @@ pub const Emitter = struct {
                     try writeNum(self.w, new_temp, 0);
                     try self.w.writeAll("\n");
                 }
+            }
+            // A switch of the nozzles of a Bambu Lab head: the old nozzle
+            // waits below its temperature (Bambu Studio: "Multi extruder
+            // pre heating", M104 T S).
+            if (from_n != null and to_n != null and from_n.? != to_n.?) {
+                if (self.bambuNozzleIndex(from_n.?)) |p| {
+                    try self.w.print("M104 T{d} S", .{p});
+                    try writeNum(self.w, old_temp - idle_nozzle_delta, 0);
+                    try self.w.writeAll(" ; the idle nozzle\n");
+                }
+            }
+            // The change G-code set the new nozzle below its temperature
+            // for the tower (M620.15 C): back to it (Bambu Studio: "Wipe
+            // tower reheat before wipe").
+            if (std.mem.indexOf(u8, template, "M620.15") != null) {
+                try self.w.writeAll("M104 S");
+                try writeNum(self.w, new_temp, 0);
+                try self.w.writeAll(" ; the print temperature after the cooling for the tower\n");
             }
             // The change can move the nozzle up: back to the layer.
             try self.w.writeAll("G0 Z");
@@ -1699,6 +1853,7 @@ pub const Emitter = struct {
             self.stats.slot_mm[next] += flush_mm;
         }
         self.tool = next;
+        if (to_n) |n| self.nozzle_slot[n] = next;
         self.nozzle_temp = new_temp;
         // The change loads the new filament to the nozzle tip.
         self.retracted = false;
@@ -1909,7 +2064,7 @@ pub const Emitter = struct {
         const m = g.machine;
         var flush: f64 = 0;
         if (m.filament_change == .tool and a < self.slots.len and b < self.slots.len) {
-            flush = filaments.flushVolume(self.slots[a].color, self.slots[b].color, m.flush_volume, g.project.flush_multiplier);
+            flush = self.flushOf(a, b);
             if (flush > min_flush_mm3) {
                 const hidden = if (self.sameFamily(a, b)) h.all[b] else h.support[b];
                 flush -= @min(hidden, flush - min_flush_mm3);
@@ -1962,10 +2117,12 @@ pub const Emitter = struct {
         self.stop = true;
     }
 
-    /// Lines of tower k at the z of its layer: a travel to (x0, y0) at the
-    /// z of the print, then extrusions through `pts`. A stacked tower
-    /// below the print: the nozzle goes down to its layer, and back up.
-    fn towerLines(self: *Emitter, k: usize, pts: []const [2]f64, first: bool) Error!void {
+    /// Lines of tower k at the z of its layer: a travel to the first point
+    /// at the z of the print, then extrusions through `pts`, with a travel
+    /// (no retraction: it stays on the tower) to `pts[jump]`. A tower
+    /// below the print (it missed a layer, see `towerLayer`): the nozzle
+    /// goes down to its layer, and back up.
+    fn towerLines(self: *Emitter, k: usize, pts: []const [2]f64, jump: usize, first: bool) Error!void {
         if (pts.len < 2) return;
         if (!self.dry) try self.w.writeAll(";TYPE:PRIME-TOWER\n");
         if (!self.dry and self.bambu_blocks) try self.w.writeAll("; FEATURE: Prime tower\n");
@@ -1981,12 +2138,14 @@ pub const Emitter = struct {
             try self.w.writeAll("\n");
         }
         try self.unretract();
-        // A stacked layer is as high as the gap to the top of the tower.
-        const h = if (self.towers.stacked()) tz - self.tower_top[k] else self.layer_h;
-        const t_first = first or (self.towers.stacked() and self.tower_count[k] == 1);
+        // The layer is as high as the gap to the layer of the tower below.
+        const h = @max(tz - self.tower_top[k], 0.01);
+        const t_first = first or self.tower_count[k] == 1;
         const e = flow.beadArea(self.layer_w, h) / self.r.filament_area;
         const speed = self.lr.nozzleSpeed(self.lr.speed(.skirt, self.layer_w, h, t_first), self.nozzleNow());
-        for (pts[1..]) |q| try self.extrude(q[0], q[1], e, speed);
+        for (pts[1..], 1..) |q, j| {
+            if (j == jump) try self.move(q[0], q[1]) else try self.extrude(q[0], q[1], e, speed);
+        }
         self.extruded = true;
         if (down > 1e-6) {
             try self.towerRetract();
@@ -1998,15 +2157,20 @@ pub const Emitter = struct {
     }
 
     /// Starts layer `self.layer_index` of tower k, once for each layer:
-    /// its rows from 0, and its z. A stacked tower puts its layer on its
-    /// top (the first one on the bed, as high as a first layer); one tower
-    /// prints at the z of the print.
+    /// its rows from 0, and its z. A tower that had its layer on the
+    /// print layer before (or the first layer) prints at the z of the
+    /// print. A tower that missed a layer (a change after its
+    /// `last_layer`) is lower than the nozzle: its layer goes on its top
+    /// (the first one on the bed, as high as a first layer), never in the
+    /// air.
     fn towerLayer(self: *Emitter, k: usize) void {
         if (self.tower_layer[k] == self.layer_index) return;
+        const behind = if (self.tower_count[k] == 0) self.layer_index > 0 else self.tower_layer[k] + 1 != self.layer_index;
         self.tower_layer[k] = self.layer_index;
         self.tower_rows[k] = 0;
+        self.tower_done[k] = false;
         self.tower_top[k] = if (self.tower_count[k] == 0) 0 else self.tower_z[k];
-        self.tower_z[k] = if (!self.towers.stacked())
+        self.tower_z[k] = if (!behind)
             self.z
         else if (self.tower_count[k] == 0)
             @min(self.z, self.r.settings.project.first_layer_height)
@@ -2016,49 +2180,98 @@ pub const Emitter = struct {
         self.stats.tower_layers[k] = @intCast(self.tower_count[k]);
     }
 
-    /// Purges `volume` mm³ into tower k: rows of lines across it, from
-    /// the row after the last one of this layer.
+    /// Purges `volume` mm³ into tower k: rows of lines inside its loop,
+    /// from the row after the last one of this layer, then a wipe on the
+    /// tower. A purge past the last row stops there (counted in
+    /// Stats.tower_short_mm3); the depth of the tower makes room for the
+    /// most purge of a layer (PlateJob.towers).
     fn towerPurge(self: *Emitter, k: usize, volume: f64, first: bool) Error!void {
         const t = self.towers.list[k];
         self.towerLayer(k);
         const w = self.layer_w;
-        const x0 = t.x - t.size / 2;
-        const x1 = t.x + t.size / 2;
-        const y0 = t.y - t.ySize() / 2;
-        // The rows of one layer: a row never prints over another one of
-        // the same layer. A purge past the last row stops there (counted
-        // in Stats.tower_short_mm3); the depth of the tower makes room
-        // for the most purge of a layer (PlateJob.towers).
-        const rows_max: u32 = @min(max_tower_rows, @max(1, @as(u32, @intFromFloat(t.ySize() / w))));
-        const h = if (self.towers.stacked()) self.tower_z[k] - self.tower_top[k] else self.layer_h;
+        // A row never prints over another one of the same layer.
+        const rows_max = t.rowsMax(w);
+        const h = self.tower_z[k] - self.tower_top[k];
         const area = flow.beadArea(w, @max(h, 0.01));
         var len = volume / area;
         var pts: [2 * max_tower_rows + 2][2]f64 = undefined;
         var n: usize = 0;
         while (len > 1e-9 and self.tower_rows[k] < rows_max) {
-            const row = self.tower_rows[k];
-            const y = y0 + (@as(f64, @floatFromInt(row)) + 0.5) * w;
-            const ltr = row % 2 == 0;
+            const row = t.towerRow(w, self.tower_rows[k]);
+            const ltr = self.tower_rows[k] % 2 == 0;
             // The last row is as long as the purge that is left.
-            const run = @min(len, t.size);
-            pts[n] = .{ if (ltr) x0 else x1, y };
-            pts[n + 1] = .{ if (ltr) x0 + run else x1 - run, y };
+            const run = @min(len, row.x1 - row.x0);
+            pts[n] = .{ if (ltr) row.x0 else row.x1, row.y };
+            pts[n + 1] = .{ if (ltr) row.x0 + run else row.x1 - run, row.y };
             n += 2;
             len -= run;
             self.tower_rows[k] += 1;
         }
         if (len > 1e-9) self.stats.tower_short_mm3 += len * area;
-        try self.towerLines(k, pts[0..n], first);
+        try self.towerLines(k, pts[0..n], n, first);
+        if (n >= 2) try self.towerWipe(pts[n - 2], pts[n - 1]);
     }
 
-    /// A light layer of the tower on a layer with no change: its loop and
-    /// a diagonal.
-    fn towerSparse(self: *Emitter, k: usize, first: bool) Error!void {
-        const t = self.towers.list[k];
-        const h = t.size / 2;
-        const d = t.ySize() / 2;
-        const pts = [_][2]f64{ .{ t.x - h, t.y - d }, .{ t.x + h, t.y - d }, .{ t.x + h, t.y + d }, .{ t.x - h, t.y + d }, .{ t.x - h, t.y - d }, .{ t.x + h, t.y + d } };
-        try self.towerLines(k, &pts, first);
+    /// True if a path of `lp` from path `i` on prints with a filament of
+    /// tower k: a change of this layer can still purge into it.
+    fn laterInto(self: *const Emitter, lp: *const LayerPlan, i: usize, k: usize) bool {
+        const lr = lp.resolved orelse self.r;
+        for (lp.paths.items[i..], i..) |path, j| {
+            if (lp.points.get(j).len == 0) continue;
+            const t = self.toolOf(path, lp.pathResolved(path) orelse lr);
+            if (self.towers.of_slot[@min(t, filaments.max_slots - 1)] == k) return true;
+        }
+        return false;
+    }
+
+    /// The end of a layer of tower k: its loop, and the grid on the area
+    /// that no row of this layer covers (see `Tower.finishLines`), once
+    /// for each layer.
+    fn towerFinish(self: *Emitter, k: usize, first: bool) Error!void {
+        self.towerLayer(k);
+        if (self.tower_done[k]) return;
+        self.tower_done[k] = true;
+        var pts: [finish_points_max][2]f64 = undefined;
+        const n = self.towers.list[k].finishLines(self.layer_w, self.tower_rows[k], &pts);
+        try self.towerLines(k, pts[0..n], 5, first);
+    }
+
+    /// A retraction while the nozzle moves back on the last line of the
+    /// tower, from `b` toward `a`: the nozzle leaves the ooze of the new
+    /// filament on the tower, not on the part (the wipe of Bambu Studio
+    /// after its prime: about 2 mm).
+    fn towerWipe(self: *Emitter, a: [2]f64, b: [2]f64) Error!void {
+        const len = self.lr.retract_length;
+        if (self.retracted or !self.extruded or len <= 0) return;
+        const d = geom.hypot(b[0] - a[0], b[1] - a[1]);
+        if (d < 1e-3) return;
+        const go = @min(d, 2.0);
+        const x = b[0] + (a[0] - b[0]) * go / d;
+        const y = b[1] + (a[1] - b[1]) * go / d;
+        const m = self.r.settings.machine;
+        // The move lasts as long as the retraction, at most the travel
+        // speed.
+        const t = self.retractTime(len);
+        const speed = @min(m.travel_speed, go / @max(t, 1e-3));
+        if (!self.dry) {
+            try self.w.writeAll(";WIPE\nG1 X");
+            try writeNum(self.w, x + m.origin_x, 3);
+            try self.w.writeAll(" Y");
+            try writeNum(self.w, y + m.origin_y, 3);
+            try self.w.writeAll(" E-");
+            try writeNum(self.w, len, 4);
+            try self.w.writeAll(" F");
+            try writeNum(self.w, speed * 60, 0);
+            try self.w.writeAll("\n");
+        }
+        self.x = x;
+        self.y = y;
+        self.retracted = true;
+        self.retract_len = len;
+        self.feed = -1;
+        self.stats.retractions += 1;
+        try self.addTime(@max(go / speed, t));
+        self.stop = true;
     }
 
     /// Writes the change G-code of the machine with the facts of the
@@ -2287,15 +2500,10 @@ pub const Emitter = struct {
             try self.wallWipe(path, pts, path_r.settings.project.outer_wall_wipe, speed);
         }
         if (self.open_object != null) try self.objectEnd();
-        // The tower grows on each layer up to the last change: a light
-        // layer where this layer had no change.
-        // Stacked towers have no light layers.
-        if (self.towers.n == 1 and !self.towers.stacked()) {
-            const t = self.towers.list[0];
-            if (lp.index <= t.last_layer and self.tower_layer[0] != lp.index) {
-                self.towerLayer(0);
-                try self.towerSparse(0, first);
-            }
+        // Each tower grows on each layer up to its last change: its loop,
+        // and a grid on the area with no row of this layer.
+        for (self.towers.items(), 0..) |t, k| {
+            if (lp.index <= t.last_layer or self.tower_layer[k] == lp.index) try self.towerFinish(k, first);
         }
     }
 
