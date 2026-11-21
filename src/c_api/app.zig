@@ -2295,6 +2295,16 @@ export fn zs_app_part_paint_set(a: ?*App, i: usize, text: ?[*]const u8, len: usi
     return ok;
 }
 
+/// The states that the paint of part i uses: bit k for state k (0 is the
+/// filament of the part, k + 1 filament k). 0: no paint.
+export fn zs_app_part_paint_used(a: ?*const App, i: usize, out: ?*u32) c_int {
+    const app = a orelse return @intFromEnum(Status.invalid_argument);
+    const o = out orelse return @intFromEnum(Status.invalid_argument);
+    if (i >= app.plate.count()) return @intFromEnum(Status.out_of_range);
+    o.* = app.plate.parts.items[i].paint.used();
+    return ok;
+}
+
 /// The number of filaments of the plate, at least 1 (see
 /// app/filament_slots.zig).
 export fn zs_app_filament_count(a: ?*const App) usize {

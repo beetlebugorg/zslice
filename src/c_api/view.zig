@@ -450,6 +450,45 @@ export fn zs_view_label_add(view: ?*View, frame: ?*const [9]f64, pts: ?[*]const 
     return 1;
 }
 
+/// The mesh of the Paint tool: the view draws it in place of the beads,
+/// each triangle in the color of its state (zs_view_paint_colors). verts:
+/// nv points x, y, z (mm, the frame of zs_app_part_mesh); faces: nf
+/// triangles of three indexes. All states are 0 at first. nf = 0: no
+/// mesh, and the beads draw again. 1 if the view has it.
+export fn zs_view_paint_mesh(view: ?*View, verts: ?[*]const f32, nv: usize, faces: ?[*]const u32, nf: usize) c_int {
+    if (!render_on) return 0;
+    const v = view orelse return 0;
+    if (nf == 0) {
+        v.clearPaint();
+        return 1;
+    }
+    const p = verts orelse return 0;
+    const f = faces orelse return 0;
+    v.setPaintMesh(p[0 .. 3 * nv], f[0 .. 3 * nf]) catch return 0;
+    return 1;
+}
+
+/// The color 0xRRGGBB of each state of the paint mesh, from state 0 (at
+/// most 32).
+export fn zs_view_paint_colors(view: ?*View, rgb: ?[*]const u32, n: usize) void {
+    if (!render_on) return;
+    const v = view orelse return;
+    const colors = rgb orelse return;
+    v.setPaintColors(colors[0..n]);
+}
+
+/// The state of each triangle of the paint mesh (zs_paint_states), plus
+/// 128 for a lit triangle, and the nl pieces of the split triangles
+/// (zs_paint_leaves: 10 floats each). 1 if the view has them.
+export fn zs_view_paint_states(view: ?*View, states: ?[*]const u8, n: usize, leaves: ?[*]const f32, nl: usize) c_int {
+    if (!render_on) return 0;
+    const v = view orelse return 0;
+    const s: []const u8 = if (states) |p| p[0..n] else &.{};
+    const l: []const f32 = if (leaves) |p| p[0 .. 10 * nl] else &.{};
+    v.setPaintStates(s, l) catch return 0;
+    return 1;
+}
+
 /// on != 0: a pick of a point of the print (zs_view_surface_point,
 /// zs_view_pick) skips the support lines, so a click finds the part under
 /// them (the Support tool).

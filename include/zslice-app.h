@@ -1042,6 +1042,9 @@ int zs_app_part_setting_get(const zs_app *app, size_t i, const char *name, char 
 int zs_app_part_mesh(zs_app *app, size_t i, const float **verts, size_t *nv, const uint32_t **faces, size_t *nf);
 int zs_app_part_paint_get(const zs_app *app, size_t i, char *buf, size_t cap, size_t *out_len);
 int zs_app_part_paint_set(zs_app *app, size_t i, const char *text, size_t len);
+/* The states that the paint of part i uses: bit k for state k (bit 0:
+ * the filament of the part; bit k + 1: filament k). 0: no paint. */
+int zs_app_part_paint_used(const zs_app *app, size_t i, uint32_t *out);
 
 typedef struct zs_paint zs_paint;
 /* A session of a mesh (mm). It keeps the regions of the smart select: the
@@ -1634,6 +1637,18 @@ int zs_view_support_add(zs_view *view, const double *pts, size_t n, int kind, in
  * little. Returns 1 if the view has the label. */
 void zs_view_labels_clear(zs_view *view);
 int zs_view_label_add(zs_view *view, const double frame[9], const float *pts, const uint32_t *ends, size_t n, uint32_t rgb, int selected);
+/* The mesh of the Paint tool (zs_paint_*): the view draws it in place of
+ * the beads, each triangle in the color of its state, lit from above.
+ * verts: nv points x, y, z (mm, the frame of zs_app_part_mesh); faces: nf
+ * triangles of three indexes. All states are 0 at first. nf = 0: no mesh,
+ * and the beads draw again. zs_view_paint_colors: the color 0xRRGGBB of
+ * each state, from state 0 (at most 32). zs_view_paint_states: the state
+ * of each triangle (zs_paint_states), plus 128 for a lit triangle (mixed
+ * with blue), and the nl pieces of the split triangles (zs_paint_leaves,
+ * 10 floats each). Each returns 1 if the view has the data. */
+int zs_view_paint_mesh(zs_view *view, const float *verts, size_t nv, const uint32_t *faces, size_t nf);
+void zs_view_paint_colors(zs_view *view, const uint32_t *rgb, size_t n);
+int zs_view_paint_states(zs_view *view, const uint8_t *states, size_t n, const float *leaves, size_t nl);
 /* on != 0: zs_view_surface_point and the picks skip the support lines, so
  * a click finds the part under them (the Support tool). */
 void zs_view_pick_skip_support(zs_view *view, int on);

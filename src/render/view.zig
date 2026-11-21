@@ -443,6 +443,22 @@ pub const View = struct {
     old_tris: std.ArrayList([2]f32) = .empty,
     /// The outline of the selected labels in the last frame.
     label_edges: std.ArrayList(bed_mod.Vertex) = .empty,
+    /// The mesh of the Paint tool (see `setPaintMesh`): its vertices for
+    /// the GPU (the triangles of the mesh, then the pieces of the split
+    /// triangles), the triangle count of the mesh, the state of each
+    /// triangle, the pieces (10 floats each), and the color of each
+    /// state. `paint_gen` changes with them.
+    paint_verts: std.ArrayList(bed_mod.Vertex) = .empty,
+    paint_tris: usize = 0,
+    paint_states: std.ArrayList(u8) = .empty,
+    paint_leaves: std.ArrayList(f32) = .empty,
+    paint_colors: [max_paint_colors]u32 = @splat(0xd0d0cc),
+    paint_gen: u32 = 0,
+    /// The vertices that changed since the last frame (lo .. hi; empty
+    /// when lo >= hi), and the gen of the last frame. A backend with the
+    /// mesh of that gen copies only those vertices.
+    paint_dirty: [2]u32 = .{ 0, 0 },
+    paint_frame_gen: u32 = 0,
     plate_draws: std.ArrayList(Draw) = .empty,
     /// The part of the plate of each path (Toolpaths.path_part), for a
     /// part preview.
@@ -522,6 +538,9 @@ pub const View = struct {
         v.sign_rects.deinit(gpa);
         v.sign_verts.deinit(gpa);
         inline for (.{ &v.labels, &v.label_tris, &v.label_pts, &v.label_ends, &v.label_verts, &v.old_labels, &v.old_tris, &v.label_edges }) |l| l.deinit(gpa);
+        v.paint_verts.deinit(gpa);
+        v.paint_states.deinit(gpa);
+        v.paint_leaves.deinit(gpa);
         v.tower_beads.deinit(gpa);
         v.tower_layer.deinit(gpa);
         if (v.extras_buf) |b| gpa.free(b);
@@ -2549,6 +2568,136 @@ pub const View = struct {
         v.label_verts.ensureUnusedCapacity(gpa, d.tri_count) catch return error.OutOfMemory;
         for (v.label_tris.items[tri_first..]) |p| v.label_verts.appendAssumeCapacity(.{ .pos = d.at(p[0], p[1], label_lift), .normal = d.rgb, .uv = .{ 1, 0 } });
         v.label_gen +%= 1;
+    }
+
+    // ---- the mesh of the Paint tool ----
+    //
+    // The Paint tool of a shell shows the mesh of a part in place of the
+    // beads, each triangle in the color of its filament (as web/app/gl.js
+    // draws it). The shell gives the mesh once (setPaintMesh), the colors
+    // of the filaments (setPaintColors), and the states of the paint
+    // session after each change (setPaintStates). A state is the index of
+    // a color (0 to 127), plus 128 for a lit triangle; 255 is a triangle
+    // split into pieces, and the pieces draw in its place.
+
+    pub const max_paint_colors = 32;
+
+    /// No mesh: the beads draw again.
+    pub fn clearPaint(v: *View) void {
+        v.paint_verts.clearRetainingCapacity();
+        v.paint_states.clearRetainingCapacity();
+        v.paint_leaves.clearRetainingCapacity();
+        v.paint_tris = 0;
+        v.paint_gen +%= 1;
+    }
+
+    /// The mesh to paint: `verts` x, y, z (mm, in the world of the view),
+    /// and `faces` three vertex indexes a triangle. All triangles get state
+    /// 0. A face with an index out of range draws nothing.
+    pub fn setPaintMesh(v: *View, verts: []const f32, faces: []const u32) Error!void {
+        v.clearPaint();
+        const nv = verts.len / 3;
+        const nf = faces.len / 3;
+        v.paint_verts.ensureTotalCapacity(gpa, 3 * nf) catch return error.OutOfMemory;
+        v.paint_states.appendNTimes(gpa, 0, nf) catch return error.OutOfMemory;
+        for (0..nf) |t| {
+            var p: [3][3]f32 = @splat(.{ 0, 0, 0 });
+            for (0..3) |k| {
+                const i = faces[3 * t + k];
+                if (i < nv) p[k] = .{ verts[3 * i], verts[3 * i + 1], verts[3 * i + 2] };
+            }
+            const n = faceNormal(p[0], p[1], p[2]);
+            for (p) |q| v.paint_verts.appendAssumeCapacity(.{ .pos = q, .normal = n, .uv = .{ 0, 0 } });
+        }
+        v.paint_tris = nf;
+        v.bakePaint();
+    }
+
+    /// The color 0xRRGGBB of each state, from state 0.
+    pub fn setPaintColors(v: *View, rgb: []const u32) void {
+        for (rgb[0..@min(rgb.len, max_paint_colors)], 0..) |c, k| v.paint_colors[k] = c & 0xffffff;
+        v.bakePaint();
+    }
+
+    /// The state of each triangle (as many as the mesh has), and the
+    /// pieces of the split triangles: 10 floats each, the three points
+    /// and the state. Only the triangles that changed get new colors, so
+    /// a step of a brush costs little.
+    pub fn setPaintStates(v: *View, states: []const u8, leaves: []const f32) Error!void {
+        if (v.paint_tris == 0) return;
+        const n = @min(states.len, v.paint_tris);
+        const verts = v.paint_verts.items;
+        var lo: usize = std.math.maxInt(usize);
+        var hi: usize = 0;
+        for (states[0..n], v.paint_states.items[0..n], 0..) |s, *have, t| {
+            if (s == have.*) continue;
+            have.* = s;
+            const info = v.paintInfo(s);
+            for (verts[3 * t ..][0..3]) |*q| q.uv = info;
+            lo = @min(lo, 3 * t);
+            hi = 3 * t + 3;
+        }
+        if (lo < hi) v.markPaint(lo, hi);
+        const whole = leaves[0 .. leaves.len / 10 * 10];
+        if (!std.mem.eql(f32, whole, v.paint_leaves.items)) {
+            v.paint_leaves.clearRetainingCapacity();
+            v.paint_leaves.appendSlice(gpa, whole) catch return error.OutOfMemory;
+            v.paint_verts.ensureTotalCapacity(gpa, 3 * v.paint_tris + 3 * (whole.len / 10)) catch return error.OutOfMemory;
+            v.bakeLeaves();
+        }
+        v.paint_gen +%= 1;
+    }
+
+    /// Vertices lo .. hi changed.
+    fn markPaint(v: *View, lo: usize, hi: usize) void {
+        if (v.paint_dirty[0] >= v.paint_dirty[1]) {
+            v.paint_dirty = .{ @intCast(lo), @intCast(hi) };
+        } else {
+            v.paint_dirty = .{ @min(v.paint_dirty[0], @as(u32, @intCast(lo))), @max(v.paint_dirty[1], @as(u32, @intCast(hi))) };
+        }
+    }
+
+    /// The color and the flags of each vertex of the mesh, and the
+    /// vertices of the pieces.
+    fn bakePaint(v: *View) void {
+        if (v.paint_tris == 0) return;
+        const verts = v.paint_verts.items;
+        for (v.paint_states.items, 0..) |s, t| {
+            const info = v.paintInfo(s);
+            for (verts[3 * t ..][0..3]) |*q| q.uv = info;
+        }
+        v.markPaint(0, 3 * v.paint_tris);
+        v.bakeLeaves();
+        v.paint_gen +%= 1;
+    }
+
+    /// The vertices of the pieces, after the vertices of the mesh.
+    fn bakeLeaves(v: *View) void {
+        const old_len = v.paint_verts.items.len;
+        v.paint_verts.shrinkRetainingCapacity(3 * v.paint_tris);
+        const leaves = v.paint_leaves.items;
+        var i: usize = 0;
+        while (i + 10 <= leaves.len) : (i += 10) {
+            const q = leaves[i..][0..10];
+            const a = [3]f32{ q[0], q[1], q[2] };
+            const b = [3]f32{ q[3], q[4], q[5] };
+            const c = [3]f32{ q[6], q[7], q[8] };
+            const n = faceNormal(a, b, c);
+            const state: u8 = @intFromFloat(std.math.clamp(q[9], 0, 127));
+            const info = v.paintInfo(state);
+            v.paint_verts.appendAssumeCapacity(.{ .pos = a, .normal = n, .uv = info });
+            v.paint_verts.appendAssumeCapacity(.{ .pos = b, .normal = n, .uv = info });
+            v.paint_verts.appendAssumeCapacity(.{ .pos = c, .normal = n, .uv = info });
+        }
+        v.markPaint(3 * v.paint_tris, @max(old_len, v.paint_verts.items.len));
+    }
+
+    /// The uv of a vertex in state s: the color and the flags as integers
+    /// (shaders/paint.vert).
+    fn paintInfo(v: *const View, s: u8) [2]f32 {
+        if (s == 255) return .{ @bitCast(@as(u32, 0)), @bitCast(@as(u32, 2)) };
+        const color = v.paint_colors[@min(s & 127, max_paint_colors - 1)];
+        return .{ @bitCast(color), @bitCast(@as(u32, if (s & 128 != 0) 1 else 0)) };
     }
 
     /// The outline of each selected label for a camera at `eye`: a strip
@@ -5047,6 +5196,12 @@ pub const View = struct {
                 .params = .{ 0, 0, 0, if (v.mode == .print) 0 else 1 },
             };
         };
+        // The vertices of the paint mesh that changed since the frame
+        // before, for a backend that has the mesh of that frame.
+        const paint_dirty = v.paint_dirty;
+        const paint_base_gen = v.paint_frame_gen;
+        v.paint_dirty = .{ 0, 0 };
+        v.paint_frame_gen = v.paint_gen;
         const signs = try v.buildSigns(eye, cam.u);
         const label_edges = try v.buildLabelEdges(eye);
         try v.renderer.draw(.{
@@ -5054,6 +5209,10 @@ pub const View = struct {
             .signs = signs,
             .decals = v.label_verts.items,
             .decal_gen = v.label_gen,
+            .paint = v.paint_verts.items,
+            .paint_gen = v.paint_gen,
+            .paint_dirty = paint_dirty,
+            .paint_base_gen = paint_base_gen,
             .decal_edges = label_edges,
             .head = v.head_buf[0..n_head],
             .part = part_push,
@@ -5556,6 +5715,14 @@ fn segDist(px: f32, py: f32, a: [2]f32, b: [2]f32) f32 {
     const dx = a[0] + ex * t - px;
     const dy = a[1] + ey * t - py;
     return @sqrt(dx * dx + dy * dy);
+}
+
+/// The unit normal of a triangle, or +z for a triangle with no area.
+fn faceNormal(a: [3]f32, b: [3]f32, c: [3]f32) [3]f32 {
+    const n = cross(.{ b[0] - a[0], b[1] - a[1], b[2] - a[2] }, .{ c[0] - a[0], c[1] - a[1], c[2] - a[2] });
+    const l = @sqrt(dot(n, n));
+    if (!(l > 0)) return .{ 0, 0, 1 };
+    return .{ n[0] / l, n[1] / l, n[2] / l };
 }
 
 fn dot(a: [3]f32, b: [3]f32) f32 {

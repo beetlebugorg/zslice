@@ -235,6 +235,8 @@ const bed_vert = spvWords(@embedFile("shaders/bed.vert.spv"));
 const bed_frag = spvWords(@embedFile("shaders/bed.frag.spv"));
 const sign_frag = spvWords(@embedFile("shaders/sign.frag.spv"));
 const decal_frag = spvWords(@embedFile("shaders/decal.frag.spv"));
+const paint_vert = spvWords(@embedFile("shaders/paint.vert.spv"));
+const paint_frag = spvWords(@embedFile("shaders/paint.frag.spv"));
 
 const BedVertex = @import("../bed.zig").Vertex;
 const BedImage = @import("../bed.zig").Image;
@@ -329,6 +331,13 @@ pub const Renderer = struct {
     decal_buf: Buffer = .{},
     decal_gen: u32 = 0,
     decal_fill: usize = 0,
+    /// The mesh of the Paint tool (Frame.paint): solid, with the depth
+    /// test and both sides of each triangle. The buffer has the mesh of
+    /// generation `paint_gen` (paint_len vertices).
+    paint_pipeline: c.VkPipeline = null,
+    paint_buf: Buffer = .{},
+    paint_gen: u32 = 0,
+    paint_len: usize = 0,
     pool: c.VkCommandPool,
     cmd: c.VkCommandBuffer,
     acquired: c.VkSemaphore,
@@ -600,6 +609,8 @@ pub const Renderer = struct {
         r.freeTexture(&r.sign_tex);
         r.freeBuffer(&r.sign_buf);
         r.freeBuffer(&r.decal_buf);
+        r.freeBuffer(&r.paint_buf);
+        if (r.paint_pipeline != null) d.vkDestroyPipeline.?(r.device, r.paint_pipeline, null);
         if (r.sign_pipeline != null) d.vkDestroyPipeline.?(r.device, r.sign_pipeline, null);
         if (r.decal_pipeline != null) d.vkDestroyPipeline.?(r.device, r.decal_pipeline, null);
         if (r.sampler != null) d.vkDestroySampler.?(r.device, r.sampler, null);
@@ -881,7 +892,20 @@ pub const Renderer = struct {
         // decal on a face stays in front of the beads of that face.
         const df = try r.shader(decal_frag);
         defer d.vkDestroyShaderModule.?(r.device, df, null);
-        r.decal_pipeline = try r.pipelineBias(vs, df, &bindings, &attrs, c.VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST, true, false, r.bed_layout, -2, -4);
+        r.decal_pipeline = try r.pipelineBias(vs, df, &bindings, &attrs, c.VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST, true, false, r.bed_layout, -2, -4, false);
+        // The mesh of the Paint tool: its own shaders, and the uv of a
+        // vertex as two integers (the color and the flags). Both sides of
+        // each triangle draw: the winding of a file can be either way.
+        const pv = try r.shader(paint_vert);
+        defer d.vkDestroyShaderModule.?(r.device, pv, null);
+        const pf = try r.shader(paint_frag);
+        defer d.vkDestroyShaderModule.?(r.device, pf, null);
+        const paint_attrs = [_]c.VkVertexInputAttributeDescription{
+            attrs[0],
+            attrs[1],
+            .{ .location = 2, .binding = 0, .format = c.VK_FORMAT_R32G32_UINT, .offset = @offsetOf(BedVertex, "uv") },
+        };
+        r.paint_pipeline = try r.pipelineBias(pv, pf, &bindings, &paint_attrs, c.VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST, false, false, r.bed_layout, 0, 0, false);
     }
 
     fn pipeline(
@@ -897,11 +921,16 @@ pub const Renderer = struct {
         bed: bool,
         layout: c.VkPipelineLayout,
     ) Error!c.VkPipeline {
-        return r.pipelineBias(vs, fs, bindings, attrs, topology, ghost, bed, layout, if (bed) 4 else 0, if (bed) 2 else 0);
+        // The solid beads: a bead is a closed mesh, wound the same way, so
+        // its back faces never show (as the web does, 23901eb). The picture
+        // is the same; the GPU shades fewer pixels. The ghosts show their
+        // back faces through their front.
+        const cull = !ghost and !bed and topology == c.VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+        return r.pipelineBias(vs, fs, bindings, attrs, topology, ghost, bed, layout, if (bed) 4 else 0, if (bed) 2 else 0, cull);
     }
 
     /// `pipeline` with a depth bias of its own (constant and slope; 0 and
-    /// 0: none).
+    /// 0: none). cull: the back faces do not draw.
     fn pipelineBias(
         r: *Renderer,
         vs: c.VkShaderModule,
@@ -914,6 +943,7 @@ pub const Renderer = struct {
         layout: c.VkPipelineLayout,
         bias: f32,
         bias_slope: f32,
+        cull: bool,
     ) Error!c.VkPipeline {
         const stages = [_]c.VkPipelineShaderStageCreateInfo{
             .{ .sType = c.VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, .stage = c.VK_SHADER_STAGE_VERTEX_BIT, .module = vs, .pName = "main" },
@@ -938,11 +968,7 @@ pub const Renderer = struct {
         const raster: c.VkPipelineRasterizationStateCreateInfo = .{
             .sType = c.VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO,
             .polygonMode = c.VK_POLYGON_MODE_FILL,
-            // The solid beads: a bead is a closed mesh, wound the same way,
-            // so its back faces never show (as the web does, 23901eb). The
-            // picture is the same; the GPU shades fewer pixels. The ghosts
-            // show their back faces through their front.
-            .cullMode = if (!ghost and !bed and topology == c.VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST) c.VK_CULL_MODE_BACK_BIT else c.VK_CULL_MODE_NONE,
+            .cullMode = if (cull) c.VK_CULL_MODE_BACK_BIT else c.VK_CULL_MODE_NONE,
             .frontFace = c.VK_FRONT_FACE_COUNTER_CLOCKWISE,
             .depthBiasEnable = if (bias != 0 or bias_slope != 0) c.VK_TRUE else c.VK_FALSE,
             .depthBiasConstantFactor = bias,
@@ -1797,6 +1823,61 @@ pub const Renderer = struct {
         if (pres == c.VK_ERROR_OUT_OF_DATE_KHR or pres == c.VK_SUBOPTIMAL_KHR) r.stale = true else try check(pres);
     }
 
+    /// The bed model, and its copy at each other plate of the same
+    /// printer.
+    fn drawBed(r: *Renderer, cmd: c.VkCommandBuffer, frame: Frame) void {
+        const d = r.d;
+        const zero: c.VkDeviceSize = 0;
+        const stages = c.VK_SHADER_STAGE_VERTEX_BIT | c.VK_SHADER_STAGE_FRAGMENT_BIT;
+        if (frame.bed_vertices == 0 or r.bed_count == 0) return;
+        d.vkCmdBindPipeline.?(cmd, c.VK_PIPELINE_BIND_POINT_GRAPHICS, r.bed_pipeline);
+        d.vkCmdBindDescriptorSets.?(cmd, c.VK_PIPELINE_BIND_POINT_GRAPHICS, r.bed_layout, 0, 1, &r.bed_set, 0, null);
+        d.vkCmdPushConstants.?(cmd, r.bed_layout, stages, 0, @sizeOf(Push), &frame.bed);
+        d.vkCmdBindVertexBuffers.?(cmd, 0, 1, &r.bed.buf, &zero);
+        d.vkCmdDraw.?(cmd, @min(frame.bed_vertices, r.bed_count), 1, 0, 0);
+        for (frame.plates) |pf| {
+            if (!otherPlate(pf) or pf.flags & PlateFrame.flag_bed == 0) continue;
+            var push = frame.bed;
+            push.mvp = pf.bed_mvp;
+            d.vkCmdPushConstants.?(cmd, r.bed_layout, stages, 0, @sizeOf(Push), &push);
+            d.vkCmdDraw.?(cmd, @min(frame.bed_vertices, r.bed_count), 1, 0, 0);
+        }
+    }
+
+    /// The mesh of the Paint tool. It goes into its buffer only when it
+    /// changes; the frame before is done (the fence), so the CPU can
+    /// write the buffer.
+    fn drawPaint(r: *Renderer, cmd: c.VkCommandBuffer, frame: Frame) void {
+        const d = r.d;
+        const zero: c.VkDeviceSize = 0;
+        const stages = c.VK_SHADER_STAGE_VERTEX_BIT | c.VK_SHADER_STAGE_FRAGMENT_BIT;
+        const bytes = std.mem.sliceAsBytes(frame.paint);
+        if (bytes.len > r.paint_buf.size) {
+            r.makeBuffer(&r.paint_buf, bytes.len + bytes.len / 2, c.VK_BUFFER_USAGE_VERTEX_BUFFER_BIT) catch return;
+            r.paint_len = std.math.maxInt(usize);
+        }
+        if (frame.paint_gen != r.paint_gen or r.paint_len != frame.paint.len) {
+            // The buffer has the mesh of the frame before: only the
+            // vertices that changed since then.
+            const lo = @min(frame.paint_dirty[0], frame.paint.len);
+            const hi = @min(frame.paint_dirty[1], frame.paint.len);
+            const size = @sizeOf(BedVertex);
+            if (r.paint_len != std.math.maxInt(usize) and r.paint_gen == frame.paint_base_gen) {
+                if (lo < hi) @memcpy(r.paint_buf.map.?[lo * size .. hi * size], bytes[lo * size .. hi * size]);
+            } else {
+                @memcpy(r.paint_buf.map.?[0..bytes.len], bytes);
+            }
+            r.paint_gen = frame.paint_gen;
+            r.paint_len = frame.paint.len;
+        }
+        var push = frame.sign;
+        push.eye = frame.paint_light;
+        d.vkCmdBindPipeline.?(cmd, c.VK_PIPELINE_BIND_POINT_GRAPHICS, r.paint_pipeline);
+        d.vkCmdPushConstants.?(cmd, r.bed_layout, stages, 0, @sizeOf(Push), &push);
+        d.vkCmdBindVertexBuffers.?(cmd, 0, 1, &r.paint_buf.buf, &zero);
+        d.vkCmdDraw.?(cmd, @intCast(frame.paint.len), 1, 0, 0);
+    }
+
     /// Records the render pass of a frame into `fb`.
     fn recordPass(r: *Renderer, cmd: c.VkCommandBuffer, pass: c.VkRenderPass, fb: c.VkFramebuffer, frame: Frame) void {
         const d = r.d;
@@ -1846,6 +1927,13 @@ pub const Renderer = struct {
                 d.vkCmdPushConstants.?(cmd, r.layout, stages, 0, @sizeOf(Push), &light);
                 d.vkCmdDraw.?(cmd, plate_grid_n - dim, 1, dim, 0);
             }
+        }
+        // The Paint tool: the mesh of the part, the bed, and no beads.
+        if (frame.paint.len > 0 and r.paint_pipeline != null) {
+            r.drawPaint(cmd, frame);
+            r.drawBed(cmd, frame);
+            d.vkCmdEndRenderPass.?(cmd);
+            return;
         }
         // The other plates, with no beads of the active plate too.
         if (frame.box_count == 0 and r.box_index_count > 0 and frame.plates.len > 0) {
@@ -1900,21 +1988,7 @@ pub const Renderer = struct {
             d.vkCmdDrawIndexed.?(cmd, r.box_index_count, @intCast(extras.len), 0, 0, r.instance_count);
         }
         // The bed after the beads and the extras: its see-through parts blend over them.
-        if (frame.bed_vertices > 0 and r.bed_count > 0) {
-            d.vkCmdBindPipeline.?(cmd, c.VK_PIPELINE_BIND_POINT_GRAPHICS, r.bed_pipeline);
-            d.vkCmdBindDescriptorSets.?(cmd, c.VK_PIPELINE_BIND_POINT_GRAPHICS, r.bed_layout, 0, 1, &r.bed_set, 0, null);
-            d.vkCmdPushConstants.?(cmd, r.bed_layout, stages, 0, @sizeOf(Push), &frame.bed);
-            d.vkCmdBindVertexBuffers.?(cmd, 0, 1, &r.bed.buf, &zero);
-            d.vkCmdDraw.?(cmd, @min(frame.bed_vertices, r.bed_count), 1, 0, 0);
-            // The bed model at each other plate of the same printer.
-            for (frame.plates) |pf| {
-                if (!otherPlate(pf) or pf.flags & PlateFrame.flag_bed == 0) continue;
-                var push = frame.bed;
-                push.mvp = pf.bed_mvp;
-                d.vkCmdPushConstants.?(cmd, r.bed_layout, stages, 0, @sizeOf(Push), &push);
-                d.vkCmdDraw.?(cmd, @min(frame.bed_vertices, r.bed_count), 1, 0, 0);
-            }
-        }
+        r.drawBed(cmd, frame);
         // The signs of the plates, after the bed: the parts hide them.
         if (frame.signs.len > 0 and r.sign_tex.image != null) sign: {
             const bytes = std.mem.sliceAsBytes(frame.signs);

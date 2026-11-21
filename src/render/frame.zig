@@ -114,6 +114,20 @@ pub const Frame = struct {
     decals: []const BedVertex = &.{},
     decal_gen: u32 = 0,
     decal_edges: []const BedVertex = &.{},
+    /// The mesh of the Paint tool (see View.setPaintMesh): its triangles
+    /// in the world of the view, with the push data of `sign` and the
+    /// light in `paint_light`. The uv of a vertex holds two integers: the
+    /// color 0xRRGGBB and the flags (shaders/paint.vert). The mesh changes
+    /// with `paint_gen`. With a mesh, the frame draws the grid, the mesh,
+    /// and the bed, and no beads.
+    paint: []const BedVertex = &.{},
+    paint_gen: u32 = 0,
+    /// The vertices of `paint` that changed since the frame of gen
+    /// `paint_base_gen` (lo .. hi; empty when lo >= hi). A backend with
+    /// the mesh of that gen copies only them.
+    paint_dirty: [2]u32 = .{ 0, 0 },
+    paint_base_gen: u32 = 0,
+    paint_light: [4]f32 = .{ -0.4, -0.6, 0.7, 0 },
     /// The beads box_first .. box_count in ranges, with the boxes out of
     /// the view left out and a coarse mesh far from the camera. The frame
     /// backend uses it: an empty list there is no bead in the view. The
