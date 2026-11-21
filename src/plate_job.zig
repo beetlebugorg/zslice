@@ -48,6 +48,7 @@ const geom = @import("geom.zig");
 const mesh_mod = @import("mesh.zig");
 const settings_mod = @import("settings.zig");
 const engine = @import("engine.zig");
+const gcode_mod = @import("gcode.zig");
 const layer_mod = @import("layer.zig");
 const stream_mod = @import("stream.zig");
 const support_mod = @import("support.zig");
@@ -106,6 +107,9 @@ pub const PartInput = struct {
     /// painted part: one more job for each label. They must live as long
     /// as the job.
     labels: []const label_mod.Label = &.{},
+    /// The name of the part, for the object labels of the G-code (see
+    /// Machine.label_objects). It must live as long as the job.
+    name: []const u8 = "",
 };
 
 /// A part on the plate: the group whose job slices it, and its move from
@@ -113,6 +117,8 @@ pub const PartInput = struct {
 pub const Instance = struct {
     part: u32,
     group: u32,
+    /// The name of the part (see PartInput.name).
+    name: []const u8 = "",
     /// The move in X and Y, in the units of geom.
     dx: i64 = 0,
     dy: i64 = 0,
@@ -268,7 +274,7 @@ pub const PlateJob = struct {
         for (parts, keys) |p, *k| k.* = shapeKey(p.mesh);
         for (parts, 0..) |p, i| {
             const b = boxes[i];
-            var inst: Instance = .{ .part = p.part, .group = @intCast(reps.items.len), .center = .{ (b.min[0] + b.max[0]) / 2, (b.min[1] + b.max[1]) / 2 } };
+            var inst: Instance = .{ .part = p.part, .name = p.name, .group = @intCast(reps.items.len), .center = .{ (b.min[0] + b.max[0]) / 2, (b.min[1] + b.max[1]) / 2 } };
             for (reps.items, 0..) |ri, g| {
                 if (!copies(parts[ri], p, keys[ri], keys[i], boxes[ri], b)) continue;
                 inst.group = @intCast(g);
@@ -1057,6 +1063,23 @@ pub const PlateJob = struct {
             }
         };
         const ctx: Ctx = .{ .pj = self, .ctxs = ctxs, .lo = lo, .drop = drop };
+        // The object labels: one object for each part, around all its
+        // instances (a painted part has one for each filament).
+        var objects: std.ArrayList(gcode_mod.Object) = .empty;
+        defer {
+            for (objects.items) |o| gpa.free(o.name);
+            objects.deinit(gpa);
+        }
+        const m = self.resolved.settings.machine;
+        if (m.label_objects) for (self.instances) |inst| {
+            const box = engine.outlineBox(ctxs[inst.group].outlines, inst.dx, inst.dy, m) orelse continue;
+            var found = false;
+            for (objects.items) |*o| if (o.id == inst.part) {
+                o.box = .{ @min(o.box[0], box[0]), @min(o.box[1], box[1]), @max(o.box[2], box[2]), @max(o.box[3], box[3]) };
+                found = true;
+            };
+            if (!found) try objects.append(gpa, .{ .id = inst.part, .name = try engine.objectName(gpa, inst.name, inst.part), .box = box });
+        };
         const src: engine.PlanSource = .{
             .ctx = &ctx,
             .plan = Ctx.plan,
@@ -1068,6 +1091,7 @@ pub const PlateJob = struct {
             .bind = Ctx.bind,
             .slots = self.slots,
             .towers = if (lo == 0) self.towers() else .{},
+            .objects = objects.items,
         };
         return engine.emitAll(gpa, src, self.threads, self.monitor, out, sink);
     }
@@ -1708,6 +1732,56 @@ fn wallsOfParts(pj: *const PlateJob, level: usize) ![2]usize {
         if (part < 2) n[part] += 1;
     }
     return n;
+}
+
+test "plate job: object labels for Klipper and M486" {
+    const gpa = testing.allocator;
+    var m1 = try testBox(0, 0, 20, 20, 5);
+    defer m1.deinit(gpa);
+    var m2 = try testBox(40, 0, 60, 20, 5);
+    defer m2.deinit(gpa);
+    var s: Settings = .{};
+    s.engine.threads = 2;
+    s.machine.label_objects = true;
+    s.machine.gcode_flavor = .klipper;
+    const parts = [_]PartInput{
+        .{ .mesh = &m1, .part = 0, .name = "left box" },
+        .{ .mesh = &m2, .part = 1, .name = "right" },
+    };
+    var pj = try PlateJob.init(gpa, s, &parts, .{});
+    defer pj.deinit();
+    const g = try gcodeOf(&pj);
+    defer gpa.free(g);
+    try testing.expectEqual(@as(usize, 2), std.mem.count(u8, g, "EXCLUDE_OBJECT_DEFINE NAME="));
+    try testing.expect(std.mem.indexOf(u8, g, "EXCLUDE_OBJECT_DEFINE NAME=left_box_0 CENTER=") != null);
+    // Each layer opens and closes the label of each part once.
+    const layers = std.mem.count(u8, g, ";LAYER:");
+    try testing.expectEqual(layers, std.mem.count(u8, g, "EXCLUDE_OBJECT_START NAME=left_box_0\n"));
+    try testing.expectEqual(layers, std.mem.count(u8, g, "EXCLUDE_OBJECT_START NAME=right_1\n"));
+    try testing.expectEqual(std.mem.count(u8, g, "EXCLUDE_OBJECT_START"), std.mem.count(u8, g, "EXCLUDE_OBJECT_END"));
+    // The definitions come before the first layer, and the skirt is
+    // outside of all labels.
+    try testing.expect(std.mem.indexOf(u8, g, "EXCLUDE_OBJECT_DEFINE").? < std.mem.indexOf(u8, g, ";LAYER:0\n").?);
+    const l0 = std.mem.indexOf(u8, g, ";LAYER:0\n").?;
+    const skirt = std.mem.indexOfPos(u8, g, l0, ";TYPE:SKIRT").?;
+    const first = std.mem.indexOfPos(u8, g, l0, "EXCLUDE_OBJECT_START").?;
+    try testing.expect(skirt < first);
+    // Marlin: M486.
+    s.machine.gcode_flavor = .marlin;
+    var pm = try PlateJob.init(gpa, s, &parts, .{});
+    defer pm.deinit();
+    const gm = try gcodeOf(&pm);
+    defer gpa.free(gm);
+    try testing.expect(std.mem.indexOf(u8, gm, "M486 T2\n") != null);
+    try testing.expectEqual(layers, std.mem.count(u8, gm, "M486 S1 ; right_1\n"));
+    try testing.expectEqual(std.mem.count(u8, gm, "M486 S-1\n"), 2 * layers);
+    // Off: no label.
+    s.machine.label_objects = false;
+    var po = try PlateJob.init(gpa, s, &parts, .{});
+    defer po.deinit();
+    const go = try gcodeOf(&po);
+    defer gpa.free(go);
+    try testing.expect(std.mem.indexOf(u8, go, "M486") == null);
 }
 
 test "plate job: two parts with their own wall counts" {

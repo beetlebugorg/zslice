@@ -281,6 +281,11 @@ pub const Machine = struct {
     /// of the printer: sizes in pixels, as "300x300,32x32" (PNG, the form
     /// of PrusaSlicer and Klipper). Empty: none.
     thumbnails: []const u8 = "",
+    /// Label each part in the G-code, so the printer can skip a part that
+    /// fails and print the others: EXCLUDE_OBJECT_DEFINE, _START, and _END
+    /// on Klipper (it needs [exclude_object] in printer.cfg), and M486 on
+    /// Marlin and RepRapFirmware. Off by default.
+    label_objects: bool = false,
     /// The text before the print. These variables are replaced:
     /// {nozzle_temp}, {first_layer_nozzle_temp}, {bed_temp}, {standby_temp},
     /// {layer_height}, {first_layer_height}, {first_layer_speed} (mm/s),

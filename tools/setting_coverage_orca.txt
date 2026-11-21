@@ -100,8 +100,8 @@ machine_min_travel_rate | missing | the lowest speed of the firmware, for the ti
 use_relative_e_distances | derived | zslice writes relative extrusion (M83)
 use_firmware_retraction | missing | G10 and G11 for the retraction
 gcode_comments | missing | comments on each G-code line
-gcode_label_objects | missing | the object labels for the firmware (EXCLUDE_OBJECT, M486)
-exclude_object | missing | the object labels for the firmware (EXCLUDE_OBJECT, M486)
+gcode_label_objects | same | machine.label_objects
+exclude_object | derived | machine.label_objects (EXCLUDE_OBJECT on Klipper)
 gcode_add_line_number | missing | line numbers in the G-code
 enable_arc_fitting | missing | arcs (G2, G3) in the G-code
 disable_m73 | missing | no M73 progress lines

@@ -226,6 +226,10 @@ The plastic (mm³) that the nozzle flushes after a change to a filament of the s
 
 The pictures of the print at the top of the G-code, for the screen of the printer: sizes in pixels, as "300x300,32x32" (PNG, the form of PrusaSlicer and Klipper). Empty: none.
 
+**`machine.label_objects`** (true or false). Default: `false`
+
+Label each part in the G-code, so the printer can skip a part that fails and print the others: EXCLUDE_OBJECT_DEFINE, _START, and _END on Klipper (it needs [exclude_object] in printer.cfg), and M486 on Marlin and RepRapFirmware. Off by default.
+
 **`machine.start_gcode`** (text). Default: (multi-line text)
 
 ```gcode

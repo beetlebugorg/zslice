@@ -2653,6 +2653,7 @@ pub const App = struct {
                 .trees_layers = trees_layers,
                 .paint = paint,
                 .labels = part_labels,
+                .name = if (part_of[pp.input]) |pi| try a.dupe(u8, app.plate.parts.items[pi].name) else "",
             };
         }
         app.slice_parts = parts;

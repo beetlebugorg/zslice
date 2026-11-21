@@ -29,6 +29,9 @@
 //!   rising outer wall has no Z move of its own; the wall rises from the
 //!   z of the layer below (the spiralize mode of Cura, see
 //!   docs/references/cura.md).
+//! - Object labels (`Machine.label_objects`): EXCLUDE_OBJECT on Klipper
+//!   and M486 on Marlin and RepRapFirmware, around the paths of each part
+//!   on each layer (see docs/references/klipper-marlin-firmware.md).
 //! - A plate can have many filaments (see filaments.zig). Each path
 //!   prints with the filament of its settings (`project.filament`). Before
 //!   a path of another filament, the emitter changes the filament: the
@@ -105,6 +108,12 @@ pub const Stats = struct {
     /// in `filament_mm`, and this part is not in `flush_mm`.
     flush_hidden_mm: f64 = 0,
 };
+
+/// A part of the print for the object labels of the firmware (see
+/// `Machine.label_objects`): the id of the part (`LayerPlan.partOf`), a
+/// name with no spaces, and its footprint in G-code coordinates (min x,
+/// min y, max x, max y).
+pub const Object = struct { id: u32, name: []const u8, box: [4]f64 };
 
 /// What the emitter records for each path of a layer, if `record` is set.
 pub const PathInfo = struct {
@@ -715,6 +724,10 @@ pub const Emitter = struct {
     tower_top: [Towers.max]f64 = .{0} ** Towers.max,
     tower_z: [Towers.max]f64 = .{0} ** Towers.max,
     tower_count: [Towers.max]usize = .{0} ** Towers.max,
+    /// The parts of the print for the object labels (see `Object`), and
+    /// the index of the part whose label is open in the layer, or null.
+    objects: []const Object = &.{},
+    open_object: ?usize = null,
     /// The height and the line width of the layer that `paths` writes.
     layer_h: f64 = 0.2,
     layer_w: f64 = 0.4,
@@ -1201,6 +1214,7 @@ pub const Emitter = struct {
         }});
         try self.w.print(";MACHINE:{f}\n;FILAMENT:{f}\n", .{ oneLine(s.machine.name), oneLine(s.filament.name) });
         try self.w.print(";LAYER_COUNT:{d}\n", .{layer_count});
+        try self.defineObjects();
         // The start G-code goes into a buffer first: zslice heats before
         // it if it does not heat.
         var start: Writer.Allocating = .init(self.gpa);
@@ -2129,7 +2143,12 @@ pub const Emitter = struct {
             const retractions = self.stats.retractions;
             // A path of another filament: a filament change first.
             const next_tool = self.toolOf(path.feature, lp.pathResolved(path) orelse lr);
+            // The label of the part of the path (see `Object`): a filament
+            // change is outside of all labels, so a skipped part keeps it.
+            const obj = self.objectOf(lp, path);
+            if (self.open_object != null and (obj != self.open_object or next_tool != self.tool)) try self.objectEnd();
             if (next_tool != self.tool) try self.changeTool(lp, i, next_tool, geom.toMm(pts[0].x), geom.toMm(pts[0].y), first);
+            if (obj != null and self.open_object == null) try self.objectStart(obj.?);
             try self.setAccel(lr.accel(null, first));
             self.path_index = i;
             try self.travel(geom.toMm(pts[0].x), geom.toMm(pts[0].y), path.feature);
@@ -2229,6 +2248,7 @@ pub const Emitter = struct {
             if (self.record) |rec| rec.appendAssumeCapacity(.{ .start_time = start_time, .end_time = self.stats.print_time_s, .area = e * self.r.filament_area, .retracted = retracted, .slowed = slow < 1 or lapped, .fan = fanByte(self.fan), .tool = @intCast(self.tool) });
             try self.wallWipe(path, pts, path_r.settings.project.outer_wall_wipe, speed);
         }
+        if (self.open_object != null) try self.objectEnd();
         // The tower grows on each layer up to the last change: a light
         // layer where this layer had no change.
         // Stacked towers have no light layers.
@@ -2238,6 +2258,59 @@ pub const Emitter = struct {
                 self.towerLayer(0);
                 try self.towerSparse(0, first);
             }
+        }
+    }
+
+    /// The object labels are on: the setting, and a firmware that has them.
+    fn labels(self: *const Emitter) bool {
+        const m = self.r.settings.machine;
+        return m.label_objects and self.objects.len > 0 and !self.bambu_blocks and m.gcode_flavor != .repetier;
+    }
+
+    /// The object of a path, or null (the skirt and the brim of a plate,
+    /// or no labels). A print of one part has one object.
+    fn objectOf(self: *const Emitter, lp: *const LayerPlan, path: layer_mod.Path) ?usize {
+        if (!self.labels() or path.feature == .skirt) return null;
+        const id = lp.partOf(path);
+        for (self.objects, 0..) |o, k| if (o.id == id) return k;
+        return if (self.objects.len == 1) 0 else null;
+    }
+
+    /// The objects at the start of the file: their names and boxes for
+    /// Klipper, their count for M486.
+    fn defineObjects(self: *Emitter) Writer.Error!void {
+        if (!self.labels() or self.dry) return;
+        if (self.r.settings.machine.gcode_flavor == .klipper) {
+            for (self.objects) |o| {
+                const b = o.box;
+                try self.w.print("EXCLUDE_OBJECT_DEFINE NAME={s} CENTER={d:.3},{d:.3} POLYGON=[[{d:.3},{d:.3}],[{d:.3},{d:.3}],[{d:.3},{d:.3}],[{d:.3},{d:.3}]]\n", .{
+                    o.name, (b[0] + b[2]) / 2, (b[1] + b[3]) / 2, b[0], b[1], b[2], b[1], b[2], b[3], b[0], b[3],
+                });
+            }
+        } else {
+            try self.w.print("M486 T{d}\n", .{self.objects.len});
+        }
+    }
+
+    fn objectStart(self: *Emitter, k: usize) Writer.Error!void {
+        self.open_object = k;
+        if (self.dry) return;
+        const o = self.objects[k];
+        if (self.r.settings.machine.gcode_flavor == .klipper) {
+            try self.w.print("EXCLUDE_OBJECT_START NAME={s}\n", .{o.name});
+        } else {
+            try self.w.print("M486 S{d} ; {s}\n", .{ k, o.name });
+        }
+    }
+
+    fn objectEnd(self: *Emitter) Writer.Error!void {
+        const k = self.open_object orelse return;
+        self.open_object = null;
+        if (self.dry) return;
+        if (self.r.settings.machine.gcode_flavor == .klipper) {
+            try self.w.print("EXCLUDE_OBJECT_END NAME={s}\n", .{self.objects[k].name});
+        } else {
+            try self.w.writeAll("M486 S-1\n");
         }
     }
 

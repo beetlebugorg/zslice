@@ -104,6 +104,26 @@ The filament change commands of the firmwares: Marlin `M600` (Filament Change, h
 
 **How zslice uses it:** A change of the filament between layers or parts: a pause with M600 (PAUSE on Klipper) for a printer with one filament path, or a tool change Tn for a unit that feeds many filaments.
 
+### Object labels: EXCLUDE_OBJECT and M486
+
+```ref
+kind: format
+source: Klipper, Marlin, RepRapFirmware, OrcaSlicer
+license: Public documents
+link: https://www.klipper3d.org/G-Codes.html#exclude_object
+files: src/gcode.zig, src/engine.zig, src/plate_job.zig
+area: gcode
+summary: The labels of the parts in the G-code, so the firmware can skip a part: EXCLUDE_OBJECT_DEFINE, EXCLUDE_OBJECT_START, and EXCLUDE_OBJECT_END on Klipper, and M486 T, S, and S-1 on Marlin and RepRapFirmware.
+```
+
+Klipper `exclude_object` (https://www.klipper3d.org/G-Codes.html#exclude_object), Marlin `M486` (https://marlinfw.org/docs/gcode/M486.html), and RepRapFirmware `M486` (https://docs.duet3d.com/User_manual/Reference/Gcodes). OrcaSlicer writes them with `gcode_label_objects`.
+
+**License:** Public documents
+
+**Used in:** `src/gcode.zig`, `src/engine.zig`, `src/plate_job.zig`
+
+**How zslice uses it:** With `machine.label_objects`, the start of the file defines each part (its name and the box of its footprint on Klipper, the count with M486 T), and the paths of a part on each layer go between a start and an end label. A filament change is outside of all labels.
+
 ## Reading G-code and the planner
 
 ### Layer, feature, and time comments of other slicers
