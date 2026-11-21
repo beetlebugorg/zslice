@@ -18,6 +18,8 @@ Open an STL, 3MF, STEP (.step, .stp), or OBJ file in one of these ways:
 - File > Open (Command-O), or File > Open Recent.
 - Drop the file on the icon of the app.
 
+An "Open in slicer" link of a model site (`zslice://open?file=…`) opens zslice too. zslice asks first, with the name of the file and the site; Cancel is the default. After a yes it downloads the model and opens it on a new plate. A link never starts a print, and it does not open a zslice project or a file from a device on your network.
+
 Each file opens in a window. A window can be a tab of another window (Window > Merge All Windows). File > New (Command-N) opens an empty window.
 
 ## The window

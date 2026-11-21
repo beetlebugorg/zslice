@@ -46,6 +46,7 @@
 		38E549BCBDDF1C4FD86D458D /* LayerRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3C1CD092508B18D3F709B0F2 /* LayerRenderer.swift */; };
 		39F4E9AB78BD07DB04AB3913 /* Metal.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 49588518E29C3C87C78FF133 /* Metal.framework */; };
 		3CC87DC7D988A97882EE10D0 /* Throttle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4087D0E30A0C2C8AA5CCB806 /* Throttle.swift */; };
+		3CE6EFD51E001843422E14F0 /* OpenLink.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD004E025E974616E983FB82 /* OpenLink.swift */; };
 		41B1B2FA972EE5677E665102 /* History.swift in Sources */ = {isa = PBXBuildFile; fileRef = 83D64EAFB6216F86FAA95810 /* History.swift */; };
 		4346EC626787E98FEA864106 /* SupportCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2977A2A862AF9DF5A41EB352 /* SupportCard.swift */; };
 		4364B741E247D96B133E6FA6 /* Tools.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A5ECA8E1EFD07A5C43D42E1 /* Tools.swift */; };
@@ -257,8 +258,9 @@
 		EA10293385EE3CF16A69AAA6 /* CheckViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CheckViews.swift; sourceTree = "<group>"; };
 		F817BC998AF3DF2ED3A00C81 /* Discovery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Discovery.swift; sourceTree = "<group>"; };
 		FA1563DC7A7E6004C5F6CF3E /* SupportTrees.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SupportTrees.swift; sourceTree = "<group>"; };
+		FD004E025E974616E983FB82 /* OpenLink.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenLink.swift; sourceTree = "<group>"; };
 		FEB19535AAD2F45E9ADECD3E /* Shaders.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Shaders.swift; sourceTree = "<group>"; };
-		"TEMP_45BBB1FF-24D3-448D-9F5E-7FC1A0010D5A" /* Signing.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Signing.xcconfig; sourceTree = "<group>"; };
+		"TEMP_F6A71317-77D0-4CF4-9378-9BFFB5384F0D" /* Signing.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Signing.xcconfig; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -441,6 +443,7 @@
 				7657D91DD784AA19847F2BED /* Label.swift */,
 				7E4AB363FA474780AE856ABD /* LabelTool.swift */,
 				A6D838E156394C6F8A401B5E /* LayerRange.swift */,
+				FD004E025E974616E983FB82 /* OpenLink.swift */,
 				3F32D9E3EE1F6D78B72D3FAF /* PaintTool.swift */,
 				6208D0AEED978B77B7B878E6 /* PrinterLink.swift */,
 				C9428DD624784183D949AFFB /* Printers.swift */,
@@ -466,10 +469,10 @@
 			path = Core;
 			sourceTree = "<group>";
 		};
-		"TEMP_52212441-2CC5-48FA-AF0F-4E7C34D8FF1C" /* macos */ = {
+		"TEMP_338A4E8F-5239-4F26-9544-2BA495808BF3" /* macos */ = {
 			isa = PBXGroup;
 			children = (
-				"TEMP_45BBB1FF-24D3-448D-9F5E-7FC1A0010D5A" /* Signing.xcconfig */,
+				"TEMP_F6A71317-77D0-4CF4-9378-9BFFB5384F0D" /* Signing.xcconfig */,
 			);
 			path = macos;
 			sourceTree = "<group>";
@@ -690,6 +693,7 @@
 				276A7D05686F2DF573381F9C /* Licenses.swift in Sources */,
 				5F878A3F7FE1F112E0903748 /* LineCard.swift in Sources */,
 				8D0F28D1C4834CD0459891CC /* MetalSliceView.swift in Sources */,
+				3CE6EFD51E001843422E14F0 /* OpenLink.swift in Sources */,
 				B25215FA4B6A9DCFC053A3F8 /* PaintCard.swift in Sources */,
 				8BF80F003D1AF2162C02CDE2 /* PaintTool.swift in Sources */,
 				2AAFD6FAAAD0FA47FA1435DE /* PairSheet.swift in Sources */,
@@ -793,7 +797,7 @@
 		};
 		1BF4A7F21A34A94F2F8BE4A1 /* Release */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = "TEMP_45BBB1FF-24D3-448D-9F5E-7FC1A0010D5A" /* Signing.xcconfig */;
+			baseConfigurationReference = "TEMP_F6A71317-77D0-4CF4-9378-9BFFB5384F0D" /* Signing.xcconfig */;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
 				CLANG_ANALYZER_NONNULL = YES;
@@ -930,7 +934,7 @@
 		};
 		BB3F32C66D957B876F949001 /* Debug */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = "TEMP_45BBB1FF-24D3-448D-9F5E-7FC1A0010D5A" /* Signing.xcconfig */;
+			baseConfigurationReference = "TEMP_F6A71317-77D0-4CF4-9378-9BFFB5384F0D" /* Signing.xcconfig */;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
 				CLANG_ANALYZER_NONNULL = YES;

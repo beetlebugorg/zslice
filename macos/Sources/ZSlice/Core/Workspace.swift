@@ -607,6 +607,9 @@ final class Workspace {
                 NSLog("zslice deck test: key %@, list %@, https %@", r.key ?? r.message, list.map { $0.map(\.path).joined(separator: " ") } ?? "none", https ?? "none")
             }
         }
+        // ZSLICE_OPEN_LINK=link: a zslice:// link, as the Get URL event of
+        // a web page gives it (ZSLICE_LINK_YES=1 answers yes, and logs).
+        if let l = env["ZSLICE_OPEN_LINK"] { LinkRouter.receive(l) }
         // ZSLICE_SEARCH_PLACE=toolbar|card|left|right: the place of the search.
         if let p = env["ZSLICE_SEARCH_PLACE"] { search.place(p) }
         // ZSLICE_FIND_MODEL="TAZ Workhorse;TAZ": the library model of each
