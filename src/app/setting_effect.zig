@@ -94,6 +94,7 @@ const preview_notes = [_]struct { []const u8, [:0]const u8 }{
     .{ "machine.travel_accel", "The acceleration of the travel moves: the G-code commands and the print time." },
     .{ "machine.first_layer_accel", "The acceleration of the first layer: the G-code commands and the print time." },
     .{ "machine.start_gcode", "The G-code before the print: heating, homing, and the purge line." },
+    .{ "machine.label_objects", "Labels of the parts in the G-code, so the printer can skip a part. The lines do not move." },
     .{ "machine.thumbnails", "Pictures of the print in the G-code, for the screen of the printer. The lines do not move." },
     .{ "machine.end_gcode", "The G-code after the print." },
     .{ "machine.extruder", "The extruder type, for the retraction defaults." },

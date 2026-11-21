@@ -67,6 +67,7 @@ fan = {layer} < 3 ? 0 : {fan}
 | **Slope ironing** (`project.slope_ironing`) | Irons the filled steps. |
 | **Wipe inside the part** (`project.retract_wipe`) | Moves on a small arc inside the part at each retraction. For stringy filament. |
 | **Infill anchor** (`project.infill_anchor`) | The infill grid starts at the center of each part. `bed`: one grid for all parts. |
+| **Object labels** (`machine.label_objects`) | Labels each part in the G-code, so the printer can skip a part that fails: EXCLUDE_OBJECT on Klipper (add `[exclude_object]` to printer.cfg), M486 on Marlin and RepRapFirmware. |
 | **Thumbnails** (`machine.thumbnails`) | The sizes of the pictures for the printer screen, for example `300x300,32x32`. |
 | **Placement** (`project.placement`) | `auto` keeps the X and Y of the file if the part is on the bed there. `file` and `center` always do one of the two. |
 

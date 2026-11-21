@@ -98,7 +98,7 @@ The goal is the features that people use in PrusaSlicer and Cura. zslice designs
 - [ ] Pressure advance and input shaper calibration prints
 - [x] Cooling: minimum layer time, fan boost on short layers, slow down for small layers
 - [x] Firmware flavors: Marlin, Klipper, RepRapFirmware, Repetier; Bambu Lab .gcode.3mf files with the header, the config blocks, and the slice info of Bambu Studio
-- [ ] Exclude-object labels (Klipper EXCLUDE_OBJECT, M486)
+- [x] Exclude-object labels (Klipper EXCLUDE_OBJECT, M486; `machine.label_objects`)
 
 ### Models and plate
 - [x] More than one object on the plate, with automatic arrangement

@@ -1047,12 +1047,25 @@ pub const Job = struct {
                 dropMemo(g, c.cache, i);
             }
         };
+        // One object: the part.
+        var objects: [1]gcode.Object = undefined;
+        var n_objects: usize = 0;
+        var obj_name: []u8 = &.{};
+        defer gpa.free(obj_name);
+        if (self.resolved.settings.machine.label_objects) {
+            if (outlineBox(plan_ctx.outlines, 0, 0, self.resolved.settings.machine)) |box| {
+                obj_name = try objectName(gpa, self.resolved.settings.engine.job_name, 0);
+                objects[0] = .{ .id = LayerPlan.no_part, .name = obj_name, .box = box };
+                n_objects = 1;
+            }
+        }
         const src: PlanSource = .{
             .ctx = &plan_ctx,
             .plan = Src.plan,
             .done = if (self.keep_memos) null else Src.done,
             .resolved = &self.resolved,
             .layers = self.layers.len,
+            .objects = objects[0..n_objects],
         };
         return emitAll(gpa, src, self.threads, self.monitor, out, sink);
     }
@@ -1089,7 +1102,36 @@ pub const PlanSource = struct {
     slots: []const settings_mod.Filament = &.{},
     /// The prime towers (see gcode.Towers).
     towers: gcode.Towers = .{},
+    /// The parts of the print for the object labels (see gcode.Object).
+    objects: []const gcode.Object = &.{},
 };
+
+/// The box of the outlines of all layers, moved by (dx, dy), in G-code
+/// coordinates (min x, min y, max x, max y), or null for no point.
+pub fn outlineBox(outlines: []const Paths, dx: i64, dy: i64, m: settings_mod.Machine) ?[4]f64 {
+    var lo: [2]i64 = .{ std.math.maxInt(i64), std.math.maxInt(i64) };
+    var hi: [2]i64 = .{ std.math.minInt(i64), std.math.minInt(i64) };
+    for (outlines) |o| for (o.points.items) |q| {
+        lo[0] = @min(lo[0], q.x);
+        lo[1] = @min(lo[1], q.y);
+        hi[0] = @max(hi[0], q.x);
+        hi[1] = @max(hi[1], q.y);
+    };
+    if (lo[0] > hi[0]) return null;
+    return .{ geom.toMm(lo[0] + dx) + m.origin_x, geom.toMm(lo[1] + dy) + m.origin_y, geom.toMm(hi[0] + dx) + m.origin_x, geom.toMm(hi[1] + dy) + m.origin_y };
+}
+
+/// A name for an object label: the letters, digits, and "-" of `name`
+/// (other characters become "_"), then "_" and the id, so each name is
+/// one word and differs from the others.
+pub fn objectName(gpa: Allocator, name: []const u8, id: u32) Allocator.Error![]u8 {
+    const base = if (name.len == 0) "part" else name[0..@min(name.len, 48)];
+    const out = try std.fmt.allocPrint(gpa, "{s}_{d}", .{ base, id });
+    for (out) |*c| if (!(std.ascii.isAlphanumeric(c.*) or c.* == '-' or c.* == '_')) {
+        c.* = '_';
+    };
+    return out;
+}
 
 /// True if a start or end G-code has a variable of the box of the first
 /// layer (PrusaSlicer first_layer_print_min, OrcaSlicer
@@ -1124,6 +1166,7 @@ pub fn emitAll(gpa: Allocator, src: PlanSource, threads: usize, monitor: Monitor
     var em: gcode.Emitter = .init(gpa, out, src.resolved);
     em.slots = src.slots;
     em.towers = src.towers;
+    em.objects = src.objects;
     var record: std.ArrayList(gcode.PathInfo) = .empty;
     defer record.deinit(gpa);
     if (sink != null) em.record = &record;
@@ -3497,6 +3540,25 @@ test "gcode: overhang walls print slower and with more fan" {
     try testing.expect(std.mem.indexOf(u8, out.written(), "M106 S255") != null);
     // The same plastic.
     try testing.expectApproxEqRel(st0.filament_mm, st1.filament_mm, 1e-3);
+}
+
+test "gcode: the object label of a part of its own" {
+    const gpa = testing.allocator;
+    var mesh = try mesh_mod.shapes.box(gpa, 20, 20, 2);
+    defer mesh.deinit(gpa);
+    var s: Settings = .{};
+    s.engine.threads = 1;
+    s.machine.label_objects = true;
+    s.machine.gcode_flavor = .klipper;
+    var job = try Job.init(gpa, &mesh, s);
+    defer job.deinit();
+    var out: std.Io.Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    _ = try job.writeGcode(&out.writer);
+    const g = out.written();
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, g, "EXCLUDE_OBJECT_DEFINE NAME=part_"));
+    try testing.expectEqual(std.mem.count(u8, g, ";LAYER:"), std.mem.count(u8, g, "EXCLUDE_OBJECT_START"));
+    try testing.expectEqual(std.mem.count(u8, g, "EXCLUDE_OBJECT_START"), std.mem.count(u8, g, "EXCLUDE_OBJECT_END"));
 }
 
 test "gcode: spiral vase mode rises with no layer change" {

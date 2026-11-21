@@ -18,7 +18,7 @@ The lists come from Cura `resources/definitions/fdmprinter.def.json` and `fdmext
 | Slicer | Settings | Same | Covered | Missing | Not for zslice |
 |---|---|---|---|---|---|
 | Cura | 762 | 167 | 89 | 443 | 63 |
-| OrcaSlicer | 1013 | 159 | 120 | 502 | 232 |
+| OrcaSlicer | 1013 | 160 | 121 | 500 | 232 |
 
 ## Cura
 
@@ -922,6 +922,7 @@ The print, printer, and filament settings first, by status. The settings of resi
 | `fuzzy_skin_point_distance` (Fuzzy skin point distance) | `project.fuzzy_skin_point_distance` |
 | `fuzzy_skin_thickness` (Fuzzy skin thickness) | `project.fuzzy_skin_thickness` |
 | `gcode_flavor` (G-code flavor) | `machine.gcode_flavor` |
+| `gcode_label_objects` (Label objects) | `machine.label_objects` |
 | `idle_temperature` (Idle temperature) | `filament.standby_temp` |
 | `infill_combination` (Infill combination) | `project.infill_layers` |
 | `infill_direction` (Sparse infill direction) | `project.infill_angle` |
@@ -1056,6 +1057,7 @@ The print, printer, and filament settings first, by status. The settings of resi
 | `enable_pressure_advance` (Enable pressure advance) | `filament.pressure_advance` 0 is off |
 | `eng_plate_temp` (Other layers) | `filament.bed_temp` |
 | `eng_plate_temp_initial_layer` (First layer) | `filament.first_layer_bed_temp` |
+| `exclude_object` (Exclude objects) | `machine.label_objects` (EXCLUDE_OBJECT on Klipper) |
 | `extruder` (Extruder) | `filament.nozzle` |
 | `extruder_colour` (Extruder Color) | `filament.color` |
 | `filament_soluble` (Soluble material) | `project.support_filament` |
@@ -1206,7 +1208,6 @@ The print, printer, and filament settings first, by status. The settings of resi
 | `enable_volumetric_speeds` (Volumetric speeds) | Volumetric speeds |
 | `enforce_support_layers` (Enforce support for the first) | Enforce support for the first |
 | `ensure_vertical_shell_thickness` (Ensure vertical shell thickness) | Ensure vertical shell thickness |
-| `exclude_object` (Exclude objects) | the object labels for the firmware (EXCLUDE_OBJECT, M486) |
 | `exclude_object_tolerance` (Outline tolerance) | Outline tolerance |
 | `extra_brim_width` (Extra brim width) | Extra brim width |
 | `extra_loading_move` (Extra loading distance) | Extra loading distance |
@@ -1326,7 +1327,6 @@ The print, printer, and filament settings first, by status. The settings of resi
 | `gap_infill_volumetric_flow` (Gap infill) | Gap infill |
 | `gcode_add_line_number` (Add line number) | line numbers in the G-code |
 | `gcode_comments` (Verbose G-code) | comments on each G-code line |
-| `gcode_label_objects` (Label objects) | the object labels for the firmware (EXCLUDE_OBJECT, M486) |
 | `gcode_skip_config_block` (Skip G-code config block) | Skip G-code config block |
 | `grab_length` (Grab length) | Grab length |
 | `group_algo_with_time` |  |

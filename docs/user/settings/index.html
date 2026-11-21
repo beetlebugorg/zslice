@@ -202,6 +202,8 @@
 <h3 id="g-code">G-code</h3>
 <p><strong><code>machine.thumbnails</code></strong> (text). Default: <code>&quot;&quot;</code></p>
 <p>The pictures of the print at the top of the G-code, for the screen of the printer: sizes in pixels, as "300x300,32x32" (PNG, the form of PrusaSlicer and Klipper). Empty: none.</p>
+<p><strong><code>machine.label_objects</code></strong> (true or false). Default: <code>false</code></p>
+<p>Label each part in the G-code, so the printer can skip a part that fails and print the others: EXCLUDE_OBJECT_DEFINE, _START, and _END on Klipper (it needs [exclude_object] in printer.cfg), and M486 on Marlin and RepRapFirmware. Off by default.</p>
 <p><strong><code>machine.start_gcode</code></strong> (text). Default: (multi-line text)</p>
 <pre><code>G90 ; absolute positions
 M83 ; relative extrusion
