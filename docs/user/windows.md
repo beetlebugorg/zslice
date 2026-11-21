@@ -37,6 +37,14 @@ The card of the Support tool is at the top left of the view. It has the kind of 
 
 With the Select tool, a click on a support line shows that support. **Remove this support** takes a grid support away. For a tree, drag its dots, or right-click a dot for **Delete branch**.
 
+## Search
+
+Press `/` or click the search field to find a setting or an action. Each setting in the results has its slider, list, or switch, and the view shows the new slice. The eye of a result shows only the lines that the setting changes.
+
+Up and Down go through the results. Left and Right change the value. Space or Enter turns a switch or runs an action. `V` turns the eye on or off. Esc closes the search.
+
+The results under the field close at a click outside them. The buttons over the results move the search to the left rail, to the right rail, or to a card that you can drag and resize. A rail or a card stays open until you close it, and the app remembers the place.
+
 ## Filaments
 
 The button in the top bar has a dot for each filament of the plate. Click it to see the list.

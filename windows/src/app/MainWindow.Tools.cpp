@@ -1241,7 +1241,15 @@ namespace winrt::ZSlice::implementation
         }
         else if (key == slash)
         {
-            HeaderSearch().Focus(FocusState::Keyboard);
+            // / again closes the search: it stays open while the view moves.
+            if (search_open)
+                CloseSearch();
+            else
+                OpenSearch(true);
+        }
+        else if (key == VirtualKey::Escape && search_open)
+        {
+            CloseSearch();
         }
         else if (key == VirtualKey::Tab && !ctrl && InViewFocus(focused) && zs_app_part_count(model->Active()) > 0)
         {

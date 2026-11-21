@@ -44,6 +44,9 @@
 //   set name value  a setting
 //   plate add, plate i
 //   pickline        the Select tool: a click on the first support line
+//   chrome path     writes the XAML chrome to a BMP file
+//   search words, searchplace header|card|left|right, searchclose
+//   searchkey down|up|left|right|v|enter|esc, searchlog
 // Each step writes the state to the log (ZSLICE_LOG).
 //
 // SPDX-License-Identifier: AGPL-3.0-or-later
@@ -58,10 +61,45 @@
 
 #include <winrt/Microsoft.UI.Xaml.Automation.Peers.h>
 #include <winrt/Microsoft.UI.Xaml.Automation.Provider.h>
+#include <winrt/Microsoft.UI.Xaml.Media.Imaging.h>
+#include <winrt/Windows.Storage.Streams.h>
 #include "Layer2D.h"
 
 using namespace winrt;
 using Windows::System::VirtualKey;
+
+namespace
+{
+    // Writes the XAML chrome to a BMP file. This works when the desktop does
+    // not compose the window. The core's swapchains are not in the picture.
+    winrt::fire_and_forget SaveChrome(Microsoft::UI::Xaml::UIElement root, std::wstring path)
+    {
+        Microsoft::UI::Xaml::Media::Imaging::RenderTargetBitmap bitmap;
+        co_await bitmap.RenderAsync(root);
+        auto pixels = co_await bitmap.GetPixelsAsync();
+        int32_t w = bitmap.PixelWidth(), h = bitmap.PixelHeight();
+        BITMAPINFOHEADER info{};
+        info.biSize = sizeof info;
+        info.biWidth = w;
+        info.biHeight = -h;
+        info.biPlanes = 1;
+        info.biBitCount = 32;
+        info.biCompression = BI_RGB;
+        BITMAPFILEHEADER file{};
+        file.bfType = 0x4D42;
+        file.bfOffBits = sizeof file + sizeof info;
+        file.bfSize = file.bfOffBits + pixels.Length();
+        HANDLE out = ::CreateFileW(path.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+        if (out == INVALID_HANDLE_VALUE)
+            co_return;
+        DWORD written = 0;
+        ::WriteFile(out, &file, sizeof file, &written, nullptr);
+        ::WriteFile(out, &info, sizeof info, &written, nullptr);
+        ::WriteFile(out, pixels.data(), pixels.Length(), &written, nullptr);
+        ::CloseHandle(out);
+        zs::Log("dev: chrome %dx%d written\n", w, h);
+    }
+}
 
 namespace winrt::ZSlice::implementation
 {
@@ -377,6 +415,48 @@ namespace winrt::ZSlice::implementation
             // 0 follows the system, 1 light, 2 dark.
             int choice = (int)number(0);
             Root().RequestedTheme(choice == 2 ? Microsoft::UI::Xaml::ElementTheme::Dark : choice == 1 ? Microsoft::UI::Xaml::ElementTheme::Light : Microsoft::UI::Xaml::ElementTheme::Default);
+        }
+        else if (verb == L"chrome")
+        {
+            // chrome path.bmp: the XAML chrome alone, with no 3D view.
+            if (!words.empty())
+                SaveChrome(Root(), words[0]);
+        }
+        else if (verb == L"search")
+        {
+            // search <words>: types them in the search. No words opens it.
+            std::wstring text;
+            for (auto const &w : words)
+                text += (text.empty() ? L"" : L" ") + w;
+            OpenSearch(true);
+            ActiveSearchEntry().Text(text);
+        }
+        else if (verb == L"searchplace")
+        {
+            std::wstring at = words.empty() ? L"header" : words[0];
+            SetSearchPlace(at == L"card" ? SearchPlace::Card : at == L"left" ? SearchPlace::Left : at == L"right" ? SearchPlace::Right : SearchPlace::Header);
+        }
+        else if (verb == L"searchclose")
+        {
+            CloseSearch();
+        }
+        else if (verb == L"searchkey")
+        {
+            // searchkey down|up|left|right|v|enter|esc: the key on a row.
+            std::wstring k = words.empty() ? L"" : words[0];
+            auto key = k == L"down" ? VirtualKey::Down : k == L"up" ? VirtualKey::Up : k == L"left" ? VirtualKey::Left : k == L"right" ? VirtualKey::Right : k == L"v" ? VirtualKey::V : k == L"enter" ? VirtualKey::Enter : VirtualKey::Escape;
+            SearchKeyPress(key, false);
+        }
+        else if (verb == L"searchlog")
+        {
+            auto box = SearchBox();
+            zs::Log("dev: search open %d place %d rows %zu index %d eye '%s' text '%s' box %.0f,%.0f %.0fx%.0f header field %d button %d\n",
+                    search_open ? 1 : 0, (int)search_place, search_rows.size(), search_index, search_eye.c_str(), zs::ToUtf8(search_text).c_str(),
+                    Microsoft::UI::Xaml::Controls::Canvas::GetLeft(box), Microsoft::UI::Xaml::Controls::Canvas::GetTop(box), box.ActualWidth(), box.ActualHeight(),
+                    SearchField().Visibility() == Microsoft::UI::Xaml::Visibility::Visible ? 1 : 0,
+                    SearchOpen().Visibility() == Microsoft::UI::Xaml::Visibility::Visible ? 1 : 0);
+            if (search_index >= 0 && (size_t)search_index < search_rows.size() && !search_rows[(size_t)search_index].name.empty())
+                zs::Log("dev: search row %s = %s\n", search_rows[(size_t)search_index].name.c_str(), model->GetSetting(search_rows[(size_t)search_index].name.c_str()).c_str());
         }
         else if (verb == L"popups")
         {

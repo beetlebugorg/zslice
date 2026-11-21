@@ -132,6 +132,7 @@ namespace winrt::ZSlice::implementation
     void MainWindow::PrintersUi::Start()
     {
         setup.Start();
+        w.RestoreSearchPlace();
         started = true;
         BuildTopBar();
         BuildPage();

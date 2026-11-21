@@ -47,6 +47,8 @@
                     <ColumnDefinition Width="Auto" />
                     <ColumnDefinition Width="*" />
                     <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
                 </Grid.ColumnDefinitions>
                 <Path Width="15" Height="15" Opacity="0.7" VerticalAlignment="Center" Stroke="{ThemeResource ZsFg}" StrokeThickness="1.6"
                       StrokeStartLineCap="Round" StrokeEndLineCap="Round"
@@ -65,7 +67,29 @@
                         Padding="5,0" Opacity="0.7" VerticalAlignment="Center" IsHitTestVisible="False">
                     <TextBlock Text="/" FontSize="11.5" />
                 </Border>
+                <Button x:Name="SearchClose" Grid.Column="3" Width="26" Height="26" MinWidth="0" Padding="0" Opacity="0.75" Background="Transparent"
+                        Visibility="Collapsed" Content="×" FontSize="16" VerticalAlignment="Center"
+                        AutomationProperties.Name="Close the search" ToolTipService.ToolTip="Close the search (Esc)" />
+                <Button x:Name="SearchUndock" Grid.Column="4" Width="26" Height="26" MinWidth="0" Padding="0" Opacity="0.7" Background="Transparent"
+                        VerticalAlignment="Center" AutomationProperties.Name="Undock the search"
+                        ToolTipService.ToolTip="Undock the search: a card over the view that you can move and resize">
+                    <Path Width="15" Height="15" Stroke="{ThemeResource ZsFg}" StrokeThickness="1.5" StrokeStartLineCap="Round" StrokeEndLineCap="Round"
+                          StrokeLineJoin="Round" Data="M9.5 2.5h4v4M13.5 2.5 8 8M7 3.5H2.5v10h10V9" />
+                </Button>
             </Grid>
+            <!-- The search is a card or on a rail: the header opens it. -->
+            <Button x:Name="SearchOpen" Grid.Column="1" Height="32" Padding="10,0" Visibility="Collapsed" HorizontalAlignment="Center"
+                    AutomationProperties.Name="Search settings and actions"
+                    ToolTipService.ToolTip="Search settings and actions (/). Change a setting right in the results, and watch the slice.">
+                <StackPanel Orientation="Horizontal" Spacing="6">
+                    <Path Width="15" Height="15" Opacity="0.7" VerticalAlignment="Center" Stroke="{ThemeResource ZsFg}" StrokeThickness="1.6"
+                          StrokeStartLineCap="Round" StrokeEndLineCap="Round" Data="M11.8 7a4.8 4.8 0 1 1-9.6 0a4.8 4.8 0 1 1 9.6 0z M10.6 10.6l3.4 3.4" />
+                    <TextBlock Text="Search" VerticalAlignment="Center" />
+                    <Border BorderThickness="1" BorderBrush="{ThemeResource ZsLine}" CornerRadius="4" Padding="5,0" Opacity="0.8" VerticalAlignment="Center">
+                        <TextBlock Text="/" FontSize="11.5" />
+                    </Border>
+                </StackPanel>
+            </Button>
 
             <StackPanel x:Name="HeaderEnd" Grid.Column="2" Orientation="Horizontal" Spacing="4" HorizontalAlignment="Right" VerticalAlignment="Center">
                 <!-- The printer, the filament, and the quality, as one group. -->
@@ -315,6 +339,51 @@
 
             <!-- The cards float over the view, beside what they describe. -->
             <Canvas x:Name="CardLayer">
+                <!-- The results of the search (MainWindow.Search.cpp). The
+                     view keeps the mouse around them. -->
+                <Border x:Name="SearchBox" Canvas.ZIndex="70" Width="560" Visibility="Collapsed" CornerRadius="14" BorderThickness="1"
+                        Background="{ThemeResource ZsPopover}" BorderBrush="{ThemeResource ZsPopoverBorder}"
+                        AutomationProperties.Name="Search settings and actions">
+                    <Grid>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="*" />
+                        </Grid.RowDefinitions>
+                        <Grid x:Name="SearchHead" Padding="10,8,10,8" ColumnSpacing="8" Background="Transparent"
+                              BorderThickness="0,0,0,1" BorderBrush="{ThemeResource ZsLine}">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <Path x:Name="SearchGrip" Width="10" Height="18" Opacity="0.45" VerticalAlignment="Center" Fill="{ThemeResource ZsFg}"
+                                  Data="M1 3a1.2 1.2 0 1 1 2.4 0a1.2 1.2 0 1 1-2.4 0z M6 3a1.2 1.2 0 1 1 2.4 0a1.2 1.2 0 1 1-2.4 0z M1 9a1.2 1.2 0 1 1 2.4 0a1.2 1.2 0 1 1-2.4 0z M6 9a1.2 1.2 0 1 1 2.4 0a1.2 1.2 0 1 1-2.4 0z M1 15a1.2 1.2 0 1 1 2.4 0a1.2 1.2 0 1 1-2.4 0z M6 15a1.2 1.2 0 1 1 2.4 0a1.2 1.2 0 1 1-2.4 0z"
+                                  ToolTipService.ToolTip="Drag to move the search. Double-click: back to its first place." />
+                            <TextBox x:Name="SearchEntry" Grid.Column="1" PlaceholderText="Search settings and actions"
+                                     AutomationProperties.Name="Search settings and actions" BorderThickness="0" Padding="0,5,0,0"
+                                     MinHeight="28" Background="Transparent" VerticalAlignment="Center" FontSize="16">
+                                <TextBox.Resources>
+                                    <SolidColorBrush x:Key="TextControlBackgroundFocused" Color="Transparent" />
+                                    <SolidColorBrush x:Key="TextControlBackgroundPointerOver" Color="Transparent" />
+                                    <SolidColorBrush x:Key="TextControlBorderBrushFocused" Color="Transparent" />
+                                    <Thickness x:Key="TextControlBorderThemeThicknessFocused">0</Thickness>
+                                </TextBox.Resources>
+                            </TextBox>
+                            <StackPanel x:Name="SearchHeadPins" Grid.Column="2" Orientation="Horizontal" Spacing="2" VerticalAlignment="Center" />
+                        </Grid>
+                        <Grid x:Name="SearchPinRow" Grid.Row="1" Padding="12,10,12,2">
+                            <StackPanel x:Name="SearchPins" Orientation="Horizontal" Spacing="2" HorizontalAlignment="Right" />
+                        </Grid>
+                        <ScrollViewer x:Name="SearchScroll" Grid.Row="2" HorizontalScrollBarVisibility="Disabled">
+                            <StackPanel x:Name="SearchList" Padding="6" />
+                        </ScrollViewer>
+                        <Border x:Name="SearchResize" Grid.Row="2" Width="18" Height="18" HorizontalAlignment="Right" VerticalAlignment="Bottom"
+                                Background="Transparent" ToolTipService.ToolTip="Drag to change the size">
+                            <Path Width="14" Height="14" Opacity="0.5" Stroke="{ThemeResource ZsFg}" StrokeThickness="1.2" Data="M13 3 3 13M13 8l-5 5" />
+                        </Border>
+                    </Grid>
+                </Border>
                 <Border x:Name="LineCard" Width="340" Visibility="Collapsed" Padding="12"
                         Background="{ThemeResource ZsPopover}" BorderBrush="{ThemeResource ZsPopoverBorder}" BorderThickness="1" CornerRadius="8">
                     <StackPanel Spacing="6">
