@@ -316,6 +316,8 @@ static GtkWidget *setting_row(Search *s, const zs_setting_info *info) {
         gtk_widget_add_css_class(unit, "zg-unit");
         gtk_label_set_xalign(GTK_LABEL(unit), 0);
         gtk_box_append(GTK_BOX(controls), unit);
+        /* A speed ratio: the speed it gives, as in the panel. */
+        zg_setting_editor_show_speed(r->editor, unit);
     }
     gtk_box_append(GTK_BOX(row), controls);
     return row;

@@ -44,7 +44,7 @@ To change a number:
 - drag the name of the setting to the left or the right;
 - drag its slider.
 
-A speed is a ratio of what the printer and the filament allow: "50 % = 75 mm/s". So one quality works on each printer.
+A speed is a ratio of what the printer and the filament allow. So one quality works on each printer. Next to the ratio, the app shows the speed that it gives on this printer: "50 % ≈ 75 mm/s". The flow limit can make the speed lower. The search results show it too.
 
 ## Where a value comes from
 

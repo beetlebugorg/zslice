@@ -461,7 +461,8 @@ static void on_dropdown(GObject *dd, GParamSpec *pspec, gpointer data) {
 }
 
 /* A speed ratio: the unit label also gives the speed that it makes, for
- * example "% = 45 mm/s". */
+ * example "% \u2248 45 mm/s", as on the web. The flow limit can make the
+ * speed lower. */
 /* A thickness that the slicer covers with whole layers. */
 static gboolean is_layer_thickness(const char *key) {
     return strcmp(key, "project.top_thickness") == 0 || strcmp(key, "project.bottom_thickness") == 0;
@@ -490,7 +491,7 @@ static void show_ratio_speed(GtkWidget *editor, const char *value) {
     }
     double mm_s = 0;
     if (zs_app_ratio_speed(zg_model_core(model_of(editor)), key_of(editor), value, &mm_s) != ZS_OK) return;
-    char *text = g_strdup_printf("%% = %.0f mm/s", mm_s);
+    char *text = g_strdup_printf("%% \u2248 %.0f mm/s", mm_s);
     gtk_label_set_text(GTK_LABEL(unit), text);
     g_free(text);
 }
