@@ -383,6 +383,16 @@ namespace winrt::ZSlice::implementation
         }
     }
 
+    // Opens the search on these words, as a click on a fact of the print.
+    void MainWindow::SearchFor(std::wstring const &query)
+    {
+        search_text = query;
+        ActiveSearchEntry().Text(query);
+        if (search_open)
+            FillSearch();
+        OpenSearch(true);
+    }
+
     void MainWindow::CloseSearch()
     {
         if (!search_open)

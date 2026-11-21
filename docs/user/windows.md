@@ -85,7 +85,9 @@ Under the tools are the line colors, Gaps, and Check.
 
 - **The line colors**: the filament, one color for each feature, or a ramp of the speed, the flow, the layer time, or the line width. The range of a ramp shows at the top of the view. **Show the print as it forms** shows the simulated plastic, which sags where nothing holds it.
 - **Gaps**: the areas of the top layer that should be solid and that no line covers, in red. Click a gap for the settings that can close it, and **Try** one.
-- **Check**: the things that can make the print fail. Click one to go to its layer and its line.
+- **Check**: the things that can make the print fail. Its button shows the count of problems, and the print card says "N to check". Click a problem to go to its layer and its line.
+
+Click the time in the bottom bar for the details of the print. Each main setting is a button that opens the search on it. The details also have the filaments, the time of the slice, a warning with its usual fix, and the changes that you made in at least two other prints, with **Apply**.
 
 The bar under the view replays the print at a speed of 1× to 100×. Its slider moves the nozzle through the top layer. B hides the bed.
 

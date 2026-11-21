@@ -128,8 +128,15 @@ namespace winrt::ZSlice::implementation
         char text[128];
         snprintf(text, sizeof text, "{\"width\":%d,\"height\":%d,\"maximized\":%s}", restore_size.Width, restore_size.Height,
                  maximized ? "true" : "false");
+        // The ids of the plates in the store of the refinements.
+        std::string app_text = text;
+        app_text.pop_back();
+        app_text += ",\"refine\":\"";
+        for (size_t i = 0; i < refine_ids.size(); i++)
+            app_text += (i > 0 ? "," : "") + refine_ids[i];
+        app_text += "\"}";
         zs_session_snapshot *snapshot = nullptr;
-        if (zs_session_snapshot_take(model->Set(), has_camera ? camera : nullptr, text, &snapshot) != ZS_OK)
+        if (zs_session_snapshot_take(model->Set(), has_camera ? camera : nullptr, app_text.c_str(), &snapshot) != ZS_OK)
             return;
         std::wstring path = SessionPath();
         uint32_t serial = ++session_serial;
@@ -177,6 +184,22 @@ namespace winrt::ZSlice::implementation
             if (text.find("\"maximized\":true") != std::string::npos)
                 if (auto presenter = window.Presenter().try_as<OverlappedPresenter>())
                     presenter.Maximize();
+            char const *const refine_key = "\"refine\":\"";
+            size_t at = text.find(refine_key);
+            if (at != std::string::npos)
+            {
+                at += strlen(refine_key);
+                std::string list = text.substr(at, text.find('"', at) - at);
+                refine_ids.clear();
+                for (size_t start = 0; start <= list.size() && !list.empty();)
+                {
+                    size_t comma = list.find(',', start);
+                    refine_ids.push_back(list.substr(start, comma == std::string::npos ? comma : comma - start));
+                    if (comma == std::string::npos)
+                        break;
+                    start = comma + 1;
+                }
+            }
         }
         model->AfterSessionRead();
         // The last scene of the active plate shows at once, and the plate

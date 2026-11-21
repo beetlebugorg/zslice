@@ -97,6 +97,7 @@ namespace winrt::ZSlice::implementation
         WireMenu();
         Wire2D();
         WireChrome();
+        WireSummary();
         Closed([this](auto &&, auto &&) {
             SaveSession(true);
             CloseView();
@@ -290,6 +291,11 @@ namespace winrt::ZSlice::implementation
             // The state is the truth: an old slice can still report.
             if (zs_app_state(model->Active()) == ZS_STATE_SLICING)
             {
+                if (!slice_timing)
+                {
+                    slice_timing = true;
+                    slice_start = std::chrono::steady_clock::now();
+                }
                 SliceProgress().Visibility(Visibility::Visible);
                 SliceProgress().Value(event.progress);
                 ShowBusy(L"Slicing…");
@@ -298,6 +304,10 @@ namespace winrt::ZSlice::implementation
         case ZS_EVENT_SLICED:
             if (zs_app_state(model->Active()) == ZS_STATE_DONE)
             {
+                slice_ms = slice_timing ? std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - slice_start).count() : 0;
+                slice_timing = false;
+                refine_timer.Stop();
+                refine_timer.Start();
                 // A new slice shows the plan again.
                 simulated = false;
                 sim_item.IsChecked(false);
@@ -314,6 +324,7 @@ namespace winrt::ZSlice::implementation
         case ZS_EVENT_FAILED:
             if (zs_app_state(model->Active()) == ZS_STATE_FAILED)
             {
+                slice_timing = false;
                 SliceProgress().Visibility(Visibility::Collapsed);
                 ShowError(zs::ToWide(zs_status_message(event.status)));
                 PrintersOnFailed();
@@ -458,6 +469,8 @@ namespace winrt::ZSlice::implementation
         Title(name + L" - zslice");
         EmptyHint().Visibility(Visibility::Collapsed);
         ShowBusy(L"Slicing…");
+        // The load is a step of its own. The first edit after it is another.
+        NoteChange();
     }
 
     void MainWindow::OnDragOver(DragEventArgs const &e)

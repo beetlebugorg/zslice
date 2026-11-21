@@ -495,6 +495,7 @@ namespace winrt::ZSlice::implementation
     // The Check button and the badge of the print card show this count.
     void MainWindow::ShowCheckCount(size_t count)
     {
+        check_problems = count;
         check_count_text.Text(std::to_wstring(count));
         check_count.Visibility(count > 0 ? Visibility::Visible : Visibility::Collapsed);
         std::wstring tip = count > 0 ? L"Check the print: " + std::to_wstring(count) + (count == 1 ? L" problem" : L" problems") + L" to look at"

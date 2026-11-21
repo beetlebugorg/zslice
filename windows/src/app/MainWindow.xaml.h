@@ -297,6 +297,22 @@ namespace winrt::ZSlice::implementation
         bool GapClick(double x, double y);
         void FillCheck();
         void ShowCheckCount(size_t count);
+
+        // The details of the print (MainWindow.Summary.cpp).
+        struct RefineTip
+        {
+            std::string line;
+            std::wstring where, what;
+            int count = 0;
+        };
+        void WireSummary();
+        void FillFacts();
+        bool FillSummaryWarn();
+        void UpdateSummaryBadge(bool warn);
+        void RefreshRefine();
+        void ShowRefineTips();
+        void ApplyRefine(RefineTip const &tip);
+        void SearchFor(std::wstring const &query);
         void GoToIssue(zs_issue const &issue);
         void ToggleBed();
         // The Support tool (MainWindow.Support.cpp).
@@ -433,6 +449,15 @@ namespace winrt::ZSlice::implementation
         std::wstring settings_query;
         // True while the code fills an editor: its change event is no edit.
         bool filling_editor = false;
+
+        size_t check_problems = 0;
+        std::vector<RefineTip> refine_tips;
+        // The id of each plate in the store of the refinements.
+        std::vector<std::string> refine_ids;
+        Microsoft::UI::Dispatching::DispatcherQueueTimer refine_timer{ nullptr };
+        bool slice_timing = false;
+        std::chrono::steady_clock::time_point slice_start{};
+        double slice_ms = 0;
 
         std::unique_ptr<zs::appshell::OpenServer> open_server;
         zs::http::CancelPtr download_cancel;

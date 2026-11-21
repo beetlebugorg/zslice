@@ -367,10 +367,10 @@ namespace winrt::ZSlice::implementation
         {
             SummaryTime().Text(state == ZS_STATE_FAILED ? L"Slice failed" : L"—");
             SummaryDetail().Text(L"");
-            SummaryBadge().Visibility(Visibility::Collapsed);
-            SummaryWarn().Visibility(Visibility::Collapsed);
-            SummaryFacts().Text(L"");
+            SummaryWarnBox().Visibility(Visibility::Collapsed);
+            SummaryFacts().Children().Clear();
             SummaryTook().Text(L"");
+            UpdateSummaryBadge(false);
             return;
         }
         SummaryTime().Text(FormatTime(stats.print_time_s));
@@ -392,11 +392,22 @@ namespace winrt::ZSlice::implementation
         if (zs_app_filament_stats(app, grams, 16, &changes, &flush) == ZS_OK && changes > 0)
             detail += L" · " + std::to_wstring(changes) + (changes == 1 ? L" change" : L" changes");
         SummaryDetail().Text(detail);
-        SummaryFacts().Text(detail);
+        if (slice_ms > 0)
+        {
+            wchar_t took[48];
+            if (slice_ms < 1000)
+                swprintf_s(took, L"Sliced in %.0f ms", slice_ms);
+            else
+                swprintf_s(took, L"Sliced in %.1f s", slice_ms / 1000);
+            SummaryTook().Text(took);
+        }
+        else
+        {
+            SummaryTook().Text(L"");
+        }
 
         // The problems of the check: a warning or worse. The Check button
         // and the badge show the same count.
-        std::wstring first;
         size_t problems = 0;
         zs_issue const *issues = nullptr;
         size_t n = 0;
@@ -404,20 +415,13 @@ namespace winrt::ZSlice::implementation
         if (zs_app_checks(app, &issues, &n, &words) == ZS_OK)
             for (size_t i = 0; i < n; i++)
                 if (issues[i].severity >= 1)
-                {
-                    if (problems++ == 0)
-                        first = zs::ToWide(std::string(words + issues[i].text_start, issues[i].text_len));
-                }
+                    problems++;
         ShowCheckCount(problems);
-
-        // A part off the bed comes first. Else the first problem.
-        std::wstring warn = first;
-        if (zs_app_plate_fits(app) != 1)
-            warn = L"A part is off the bed or on another part. Move it, turn it, scale it, or cut it (the part card) before you print.";
-        SummaryBadgeText().Text(problems > 0 ? std::to_wstring(problems) + L" to check" : std::wstring(L"Check"));
-        SummaryBadge().Visibility(warn.empty() ? Visibility::Collapsed : Visibility::Visible);
-        SummaryWarn().Text(warn);
-        SummaryWarn().Visibility(warn.empty() ? Visibility::Collapsed : Visibility::Visible);
+        FillFacts();
+        bool warn = FillSummaryWarn();
+        if (!warn)
+            SummaryWarnBox().Visibility(Visibility::Collapsed);
+        UpdateSummaryBadge(warn);
     }
 
     void MainWindow::ShowBusy(winrt::param::hstring const &text)

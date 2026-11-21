@@ -48,6 +48,7 @@
 //   search words, searchplace header|card|left|right, searchclose
 //   searchkey down|up|left|right|v|enter|esc, searchlog
 //   open file-or-link, linkok, plates
+//   sumopen, sumshot path, sumlog, tipapply
 // Each step writes the state to the log (ZSLICE_LOG).
 //
 // SPDX-License-Identifier: AGPL-3.0-or-later
@@ -96,7 +97,16 @@ namespace
         DWORD written = 0;
         ::WriteFile(out, &file, sizeof file, &written, nullptr);
         ::WriteFile(out, &info, sizeof info, &written, nullptr);
-        ::WriteFile(out, pixels.data(), pixels.Length(), &written, nullptr);
+        // The pixels have premultiplied alpha: they go over white.
+        std::vector<uint8_t> flat(pixels.data(), pixels.data() + pixels.Length());
+        for (size_t i = 0; i + 3 < flat.size(); i += 4)
+        {
+            int rest = 255 - flat[i + 3];
+            for (int c = 0; c < 3; c++)
+                flat[i + c] = (uint8_t)std::min(255, flat[i + c] + rest);
+            flat[i + 3] = 255;
+        }
+        ::WriteFile(out, flat.data(), (DWORD)flat.size(), &written, nullptr);
         ::CloseHandle(out);
         zs::Log("dev: chrome %dx%d written\n", w, h);
     }
@@ -436,6 +446,30 @@ namespace winrt::ZSlice::implementation
         {
             std::wstring at = words.empty() ? L"header" : words[0];
             SetSearchPlace(at == L"card" ? SearchPlace::Card : at == L"left" ? SearchPlace::Left : at == L"right" ? SearchPlace::Right : SearchPlace::Header);
+        }
+        else if (verb == L"sumopen")
+        {
+            SummaryFlyout().ShowAt(SummaryButton());
+        }
+        else if (verb == L"sumshot")
+        {
+            // sumshot path.bmp: the open details of the print.
+            if (!words.empty())
+                SaveChrome(SummaryFlyout().Content(), words[0]);
+        }
+        else if (verb == L"sumlog")
+        {
+            zs::Log("dev: details rows %u, badge '%s' shown %d, took '%s', warn %d '%s', buttons %u, tips %zu\n", SummaryFacts().Children().Size(),
+                    to_string(SummaryBadgeText().Text()).c_str(), SummaryBadge().Visibility() == Microsoft::UI::Xaml::Visibility::Visible ? 1 : 0,
+                    to_string(SummaryTook().Text()).c_str(), SummaryWarnBox().Visibility() == Microsoft::UI::Xaml::Visibility::Visible ? 1 : 0,
+                    to_string(SummaryWarn().Text()).c_str(), SummaryWarnButtons().Children().Size(), refine_tips.size());
+            for (auto const &tip : refine_tips)
+                zs::Log("dev: tip %s: %s (%d)\n", zs::ToUtf8(tip.where).c_str(), zs::ToUtf8(tip.what).c_str(), tip.count);
+        }
+        else if (verb == L"tipapply")
+        {
+            if (!refine_tips.empty())
+                ApplyRefine(RefineTip(refine_tips[0]));
         }
         else if (verb == L"open")
         {
