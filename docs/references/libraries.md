@@ -150,6 +150,26 @@ boost::polygon Voronoi, Andrii Sydorchuk, https://github.com/boostorg/polygon, c
 
 **Notes:** `src/voronoi.zig`, `src/voronoi_predicates.zig`, and `src/voronoi_ctypes.zig` are a port to Zig of `include/boost/polygon/voronoi_builder.hpp`, `voronoi_diagram.hpp`, `voronoi_geometry_type.hpp`, `detail/voronoi_structures.hpp`, `detail/voronoi_predicates.hpp`, `detail/voronoi_robust_fpt.hpp`, and `detail/voronoi_ctypes.hpp`: the sweep line Voronoi diagram of points and segments, with robust predicates. The Arachne walls use it. Each file keeps the copyright line and names its sources.
 
+### charttable Direct3D 12 declarations
+
+```ref
+kind: code
+source: charttable
+license: MIT
+files: src/render/c_d3d12.zig, src/render/d3d12.zig
+texts: licenses/charttable-MIT.txt
+area: ui
+summary: The COM declarations of Direct3D 12 and DXGI, and the structure of the Windows backend.
+```
+
+charttable, `src/gpu/c_d3d12.zig` and `src/gpu/gpu_d3d12.zig` at commit 2a4b6d3 (same author, MIT license)
+
+**License:** MIT
+
+**Text:** `licenses/charttable-MIT.txt`
+
+**Notes:** `src/render/c_d3d12.zig` is a copy of the declarations, with the calls that the zslice backend adds and the IID that `EnumWarpAdapter` needs. `src/render/d3d12.zig` follows the structure of the charttable backend: run-time loading of the DLLs, upload-heap buffers, a composition swapchain, and a WARP fallback. Its draw code is a port of `src/render/vk.zig`.
+
 ## Libraries that the app shells link
 
 The shells link these libraries as shared libraries from the system. Their code is not in a zslice binary. The Licenses window of each shell lists them.
