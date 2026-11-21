@@ -2721,6 +2721,11 @@ int zs_farm_job_get(zs_farm *farm, size_t i, zs_farm_job *out);
 int zs_farm_status(zs_farm *farm, size_t printer, int state, double progress, const char *why, int64_t now);
 size_t zs_farm_next(zs_farm *farm, zs_farm_send *out, size_t cap);
 int zs_farm_sent(zs_farm *farm, uint32_t job, size_t printer, int64_t now);
+/* The main points of built-in quality profile `name` in a short line for a
+ * menu ("0.1 mm layers · 3 walls · slower walls · ironed tops"). Writes at
+ * most cap - 1 bytes and a 0 to buf; out_len gets the full length. An
+ * empty text for an unknown name. */
+int zs_quality_summary(const char *name, char *buf, size_t cap, size_t *out_len);
 /* A person took the print off printer i: the printer is free. */
 int zs_farm_collected(zs_farm *farm, size_t printer);
 size_t zs_farm_events(zs_farm *farm, zs_farm_event *out, size_t cap);

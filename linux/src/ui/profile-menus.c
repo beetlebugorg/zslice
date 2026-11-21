@@ -43,6 +43,20 @@ static gboolean changed(Menu *m) {
     return c;
 }
 
+/* The name of a quality for the screen: a built-in one (or "custom")
+ * with a capital at the start ("Standard"); a name of the user as the
+ * user wrote it. */
+static char *quality_name(const char *n) {
+    gboolean builtin = strcmp(n, "custom") == 0;
+    for (size_t i = 0; !builtin && i < zs_builtin_profile_count(ZS_GROUP_PROJECT); i++)
+        builtin = strcmp(zs_builtin_profile_name(ZS_GROUP_PROJECT, i), n) == 0;
+    if (!builtin || !n[0]) return g_strdup(n);
+    char *first = g_utf8_strup(n, 1);
+    char *out = g_strconcat(first, n + 1, NULL);
+    g_free(first);
+    return out;
+}
+
 /* TRUE if this print has changes over the quality profile (the state of
  * the project group has a setting). */
 static gboolean edits(Menu *m) {
@@ -81,7 +95,9 @@ static void update_label(Menu *m) {
         /* The quality profile, with a mark when this print has changes on
          * top of it. */
         const char *q = zg_model_quality(m->model);
-        label = g_strdup_printf("Quality: %s%s", q && q[0] ? q : "custom", edits(m) ? " •" : "");
+        char *qn = quality_name(q && q[0] ? q : "custom");
+        label = g_strdup_printf("Quality: %s%s", qn, edits(m) ? " •" : "");
+        g_free(qn);
     }
     gtk_menu_button_set_label(GTK_MENU_BUTTON(m->button), label);
     ellipsize_labels(m->button);
@@ -372,7 +388,31 @@ static void fill_menu(GtkMenuButton *button, gpointer data) {
     for (size_t i = 0; i < zs_builtin_profile_count(m->group); i++) {
         const char *n = zs_builtin_profile_name(m->group, i);
         char *action = g_strdup_printf("profiles%d.pick('builtin:%s')", m->group, n);
-        g_menu_append(builtin, n, action);
+        if (m->group == ZS_GROUP_PROJECT) {
+            /* A quality: its name with a capital, and its main points in
+             * small text under it (zs_quality_summary). */
+            char *name = quality_name(n);
+            size_t len = 0;
+            char *sum = NULL;
+            if (zs_quality_summary(n, NULL, 0, &len) == ZS_OK) {
+                sum = g_malloc(len + 1);
+                zs_quality_summary(n, sum, len + 1, NULL);
+            }
+            char *name_m = g_markup_escape_text(name, -1);
+            char *sum_m = g_markup_escape_text(sum ? sum : "", -1);
+            char *markup = sum && sum[0] ? g_strdup_printf("%s\n<small>%s</small>", name_m, sum_m) : g_strdup(name_m);
+            GMenuItem *item = g_menu_item_new(markup, action);
+            g_menu_item_set_attribute(item, "use-markup", "b", TRUE);
+            g_menu_append_item(builtin, item);
+            g_object_unref(item);
+            g_free(markup);
+            g_free(name_m);
+            g_free(sum_m);
+            g_free(sum);
+            g_free(name);
+        } else {
+            g_menu_append(builtin, n, action);
+        }
         g_free(action);
     }
     if (m->group == ZS_GROUP_FILAMENT) {
