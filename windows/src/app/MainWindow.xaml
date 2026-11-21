@@ -103,6 +103,7 @@
             </Border>
 
             <SwapChainPanel x:Name="ViewPanel" IsTabStop="True" />
+            <SwapChainPanel x:Name="Layer2DPanel" IsTabStop="True" Visibility="Collapsed" />
 
             <StackPanel x:Name="EmptyHint" HorizontalAlignment="Center" VerticalAlignment="Center"
                         Spacing="6" IsHitTestVisible="False">

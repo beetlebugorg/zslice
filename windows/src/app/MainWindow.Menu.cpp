@@ -98,6 +98,10 @@ namespace winrt::ZSlice::implementation
         menu_bed.Text(L"Hide the bed");
         menu_bed.Click([this](auto &&, auto &&) { ToggleBed(); });
         MainMenu().Items().Append(menu_bed);
+        menu_2d = ToggleMenuFlyoutItem{};
+        menu_2d.Text(L"2D view");
+        menu_2d.Click([this](auto &&, auto &&) { Set2D(!show_2d); });
+        MainMenu().Items().Append(menu_2d);
         line();
         add(L"Keyboard shortcuts", [this] { ShowShortcuts(); });
         add(L"Licenses", [this] { ShowLicenses(); });
@@ -110,6 +114,7 @@ namespace winrt::ZSlice::implementation
                 menu_redo.IsEnabled(zs_app_history_current(app) + 1 < zs_app_history_count(app));
             }
             menu_bed.IsChecked(bed_hidden);
+            menu_2d.IsChecked(show_2d);
         });
 
         // The theme follows the system.
