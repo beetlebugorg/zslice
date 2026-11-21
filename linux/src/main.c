@@ -61,6 +61,10 @@ static const char *ZG_CSS =
     /* The controls that float over the preview. */
     ".zg-measure-readout { padding: 4px 12px; border-radius: 8px; }\n"
     ".zg-note-view { padding: 6px 14px; border-radius: 8px; }"
+    /* The Open button of an empty plate, on the plate: small and calm. */
+    "button.zg-plate-open { padding: 2px 12px; min-height: 24px; border-radius: 999px; font-size: 0.9em;"
+    "  background: alpha(@theme_bg_color, 0.88); border: 1px solid alpha(@theme_fg_color, 0.14); }"
+    "button.zg-plate-open:hover { border-color: @accent_bg_color; }"
     ".zg-float { background: alpha(@theme_bg_color, 0.88); border-radius: 10px; padding: 4px;"
     "  box-shadow: 0 1px 4px alpha(black, 0.25); }"
     /* The layer slider on the 3D view: a thin track, white knobs with a
@@ -73,7 +77,6 @@ static const char *ZG_CSS =
     ".zg-layers slider:hover { box-shadow: 0 1px 4px alpha(#000, 0.4), 0 0 0 3px alpha(@accent_bg_color, 0.25); }"
     ".zg-summary { padding: 12px 14px 14px; }"
     /* The cards over the view (float.h), and the drawer of the panel. */
-    ".zg-card.zg-empty { padding: 24px 32px; }"
     ".zg-card { background: @theme_bg_color; border-radius: 12px; padding: 10px 12px;"
     "  box-shadow: 0 2px 10px alpha(black, 0.30); border: 1px solid alpha(@theme_fg_color, 0.08); }"
     ".zg-card-head { min-height: 24px; }"

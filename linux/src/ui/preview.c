@@ -68,7 +68,7 @@ typedef struct {
     /* The scrub bar: the nozzle through the top layer (0 its start, 1 the
      * layer done), and its time label. */
     GtkWidget *scrub, *scrub_label, *scrub_box;
-    /* The card of an empty plate: open a model. */
+    /* The Open button of an empty plate, on the plate. */
     GtkWidget *empty;
     /* The dock: one bar at the bottom of the preview with three groups
      * (the plates, the replay, the history), and the lines between them. */
@@ -388,8 +388,11 @@ static void place_measure(Preview *p) {
     zg_float_place(p->measure_label, px, py);
 }
 
+static void place_open_button(Preview *p);
+
 static void on_view_frame(gpointer data) {
     place_measure(data);
+    place_open_button(data);
 }
 
 /* The measure tape in the 2D view (the 3D view draws it in the core): a
@@ -983,6 +986,39 @@ static void fill_plate_signs(Preview *p) {
 
 static void on_theme_signs(gpointer data) {
     fill_plate_signs(data);
+}
+
+/* The Open button of an empty plate: small, on the middle of the active
+ * plate in the view, so it moves with the plate. It hides when another
+ * plate is in front of it or the plate is out of the view. */
+static void place_open_button(Preview *p) {
+    if (!p->empty || !gtk_widget_get_visible(p->empty)) return;
+    gboolean shown = strcmp(gtk_stack_get_visible_child_name(GTK_STACK(p->stack)), "3d") == 0;
+    zs_set *set = zg_model_plate_set(p->model);
+    size_t a = zs_set_active(set), n = zs_set_count(set);
+    zs_plate_info info;
+    double bx = 220, by = 220, px, py;
+    if (zs_set_plate_info(set, a, &info) == ZS_OK && info.bed_x > 0) {
+        bx = info.bed_x;
+        by = info.bed_y;
+    }
+    int w = 0, h = 0;
+    gtk_widget_measure(p->empty, GTK_ORIENTATION_HORIZONTAL, -1, NULL, &w, NULL, NULL);
+    gtk_widget_measure(p->empty, GTK_ORIENTATION_VERTICAL, w, NULL, &h, NULL, NULL);
+    int W = gtk_widget_get_width(p->root), Hh = gtk_widget_get_height(p->root);
+    gboolean ok = shown && zg_view3d_pixel_of(p->view3d, bx / 2, by / 2, 0, &px, &py) && px - w / 2.0 > 4 && px + w / 2.0 < W - 4 &&
+                  py - h / 2.0 > 4 && py + h / 2.0 < Hh - 4;
+    /* Another plate (or its parts) at the button: it hides. */
+    static const double at[5][2] = {{0, 0}, {-0.5, 0}, {0.5, 0}, {0, -0.5}, {0, 0.5}};
+    for (int k = 0; ok && n > 1 && k < 5; k++) {
+        gint64 i = zg_view3d_plate_at(p->view3d, px + at[k][0] * w, py + at[k][1] * h);
+        if (i >= 0 && (size_t)i != a) ok = FALSE;
+    }
+    gtk_widget_set_opacity(p->empty, ok ? 1 : 0);
+    gtk_widget_set_can_target(p->empty, ok);
+    if (!ok) return;
+    double x = px - w / 2.0, y = py - h / 2.0, ox, oy;
+    if (!zg_float_get(p->empty, &ox, &oy) || fabs(ox - x) > 0.5 || fabs(oy - y) > 0.5) zg_float_place(p->empty, x, y);
 }
 
 /* The text of the bar, and a tooltip with the name and the status of
@@ -2230,6 +2266,7 @@ GtkWidget *zg_preview_new(ZgModel *model) {
     /* The layer slider keeps over the dock (on_bottom_position). */
     g_signal_connect(box, "get-child-position", G_CALLBACK(on_bottom_position), p);
     p->root = box;
+    g_signal_connect_swapped(stack, "notify::visible-child", G_CALLBACK(place_open_button), p);
     zg_on_theme_changed(box, on_theme_signs, p);
     gtk_overlay_add_overlay(GTK_OVERLAY(box), strip);
     gtk_overlay_add_overlay(GTK_OVERLAY(box), p->slider_box);
@@ -2305,25 +2342,16 @@ GtkWidget *zg_preview_new(ZgModel *model) {
     gtk_widget_set_can_target(p->note, FALSE);
     gtk_widget_set_visible(p->note, FALSE);
     gtk_overlay_add_overlay(GTK_OVERLAY(box), p->note);
-    /* An empty plate: a card in the middle of the view that opens a model
-     * (the replay and the layer slider have nothing to show then). */
-    p->empty = zg_card_new();
-    gtk_widget_add_css_class(p->empty, "zg-empty");
-    gtk_widget_set_halign(p->empty, GTK_ALIGN_CENTER);
-    gtk_widget_set_valign(p->empty, GTK_ALIGN_CENTER);
-    GtkWidget *empty_title = gtk_label_new("Open a model");
-    gtk_widget_add_css_class(empty_title, "title-2");
-    GtkWidget *empty_text = gtk_label_new("Drop an STL or 3MF file here, or click Open.");
-    gtk_widget_add_css_class(empty_text, "dim-label");
-    GtkWidget *empty_open = gtk_button_new_with_label("Open…");
-    gtk_widget_add_css_class(empty_open, "suggested-action");
-    gtk_widget_add_css_class(empty_open, "pill");
-    gtk_widget_set_halign(empty_open, GTK_ALIGN_CENTER);
-    gtk_widget_set_margin_top(empty_open, 8);
-    gtk_actionable_set_action_name(GTK_ACTIONABLE(empty_open), "app.open");
-    gtk_box_append(GTK_BOX(p->empty), empty_title);
-    gtk_box_append(GTK_BOX(p->empty), empty_text);
-    gtk_box_append(GTK_BOX(p->empty), empty_open);
+    /* An empty plate: a small Open button on the plate (it moves with the
+     * plate, see place_open_button). The replay and the layer slider
+     * hide then. */
+    p->empty = gtk_button_new_with_label("Open a model");
+    gtk_widget_add_css_class(p->empty, "zg-plate-open");
+    gtk_widget_set_tooltip_text(p->empty, "Open a model on this plate. You can also drop an STL or 3MF file on the view.");
+    gtk_widget_set_focus_on_click(p->empty, FALSE);
+    gtk_widget_set_halign(p->empty, GTK_ALIGN_START);
+    gtk_widget_set_valign(p->empty, GTK_ALIGN_START);
+    gtk_actionable_set_action_name(GTK_ACTIONABLE(p->empty), "app.open");
     gtk_widget_set_visible(p->empty, FALSE);
     gtk_overlay_add_overlay(GTK_OVERLAY(box), p->empty);
     /* The card of the Support tool, at the top left of the 3D view. */
@@ -2504,6 +2532,7 @@ void zg_preview_refresh(GtkWidget *preview) {
     gtk_widget_set_visible(p->empty, empty);
     /* The status of the active plate is on its sign. */
     fill_plate_signs(p);
+    place_open_button(p);
     gtk_widget_set_visible(p->scrub_box, !empty);
     gtk_widget_set_visible(p->slider_box, !empty);
     if (state == ZS_STATE_EMPTY) {
