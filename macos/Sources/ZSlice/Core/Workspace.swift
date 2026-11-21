@@ -577,6 +577,25 @@ final class Workspace {
                 }
             }
         }
+        // ZSLICE_DECK_TEST=url: a printdeck printer at url (an address of one
+        // printer of a deck) asks for a key, the list of the deck, and the
+        // https address, as a pairing does, and logs what came back.
+        if let u = env["ZSLICE_DECK_TEST"] {
+            Task { @MainActor in
+                let p = Printer(name: "Deck Test", kind: .printdeck, url: u)
+                let r = await PrinterLink.requestKey(p) { _ in }
+                if let k = r.key { p.apiKey = k }
+                let list = await PrinterLink.deckPrinters(p)
+                let https = await PrinterLink.printdeckHTTPS(p)
+                // A request of the printer itself goes to its own address, and
+                // an address with the path of a printer twice has it once.
+                _ = try? await PrinterLink.request(p, "/api/job")
+                let twice = Printer(name: "Deck Test 2", kind: .printdeck, url: u + "/printers/x2d/")
+                _ = try? await PrinterLink.request(twice, "/api/plugin/printdeck", apiKey: r.key ?? "")
+                NSLog("zslice deck test: root of the doubled address %@", PrinterLink.deckSplit(twice.url).root)
+                NSLog("zslice deck test: key %@, list %@, https %@", r.key ?? r.message, list.map { $0.map(\.path).joined(separator: " ") } ?? "none", https ?? "none")
+            }
+        }
         // ZSLICE_FIND_MODEL="TAZ Workhorse;TAZ": the library model of each
         // product name (PrinterLibrary.findModel), as a deck add finds it.
         if let spec = env["ZSLICE_FIND_MODEL"] {
