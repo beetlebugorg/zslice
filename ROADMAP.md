@@ -70,7 +70,7 @@ The goal is the features that people use in PrusaSlicer and Cura. zslice designs
 - [x] Support: tree support, support blockers and enforcers (marks in the 3D view), bridges without support (support_style bridge)
 - [x] Skirt and brim
 - [x] Bridges: find them, print them with their own direction, speed, flow, and fan
-- [ ] Overhang walls: slower speed and more fan for overhang (a wall more than half a line over air already prints as a bridge, with the bridge speed, flow, and fan)
+- [x] Overhang walls: slower speed and more fan for the parts of a wall over air (`project.overhang_wall_speed`, `project.overhang_wall_fan`); a wall a whole line over air prints as a bridge
 - [x] Seam placement: sharpest corner (hidden), rear, nearest, random
 - [x] Gap fill and thin walls with a variable line width: Arachne walls, ported from CuraEngine (`project.wall_generator = arachne`)
 - [x] Infill patterns: gyroid, cubic, triangles, concentric

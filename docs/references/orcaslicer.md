@@ -120,3 +120,18 @@ OrcaSlicer, the setting `align_infill_direction_to_model`: the infill and solid 
 **Used in:** `src/app.zig` (angleChanges), `src/settings.zig`
 
 **How zslice uses it:** The idea and the meaning of the setting; the code is new. zslice turns the skin and infill angles of each part by the turn of the part on the bed, on by default.
+
+### Slower walls and more fan over an overhang
+
+```ref
+kind: setting
+source: OrcaSlicer, Cura
+license: AGPL-3.0
+link: https://github.com/SoftFever/OrcaSlicer
+version: OrcaSlicer commit 5a1ffc6a631ead5886f1c22920deb341fc1a0106; Cura commit 1a221ec29a86960d16a412940becc1f63534c41f
+files: src/layer.zig, src/gcode.zig, src/settings.zig
+area: walls
+summary: `project.overhang_wall_speed`, `project.overhang_wall_fan`, and `project.overhang_wall_threshold` have the meaning of the overhang speeds and the overhang fan threshold of OrcaSlicer, and of `wall_overhang_angle` and `wall_overhang_speed_factors` of Cura.
+```
+
+OrcaSlicer slows the parts of a wall by how much of the line hangs over the layer below (`overhang_1_4_speed` to `overhang_4_4_speed`), and turns the fan up from `overhang_fan_threshold`. Cura slows the walls over `wall_overhang_angle`. zslice has one speed and one fan for all wall parts that hang over air by more than a share of the line width. It finds them by the middle of each segment against the outline of the layer below, grown or shrunk by the threshold. The settings and the idea only; no code is copied.
