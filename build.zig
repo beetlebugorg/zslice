@@ -52,7 +52,9 @@ pub fn build(b: *std.Build) void {
     const shared_lib = b.addLibrary(.{ .name = "zslice", .linkage = .dynamic, .root_module = c_mod });
     const lib_step = b.step("lib", "Build the C library");
     lib_step.dependOn(&b.addInstallArtifact(static_lib, .{}).step);
-    lib_step.dependOn(&b.addInstallArtifact(shared_lib, .{}).step);
+    // On Windows the static library and the import library of a DLL have
+    // the same name, zslice.lib. The Windows shell links the static one.
+    if (target.result.os.tag != .windows) lib_step.dependOn(&b.addInstallArtifact(shared_lib, .{}).step);
     lib_step.dependOn(&b.addInstallHeaderFile(b.path("include/zslice.h"), "zslice.h").step);
     lib_step.dependOn(&b.addInstallHeaderFile(b.path("include/zslice-app.h"), "zslice-app.h").step);
 

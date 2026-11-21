@@ -13,3 +13,6 @@ macos/ZSlice.xcodeproj/project.xcworkspace/xcuserdata/
 
 # Finder state of macOS.
 .DS_Store
+
+# The Windows shell.
+windows/test/out/
