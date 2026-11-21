@@ -69,3 +69,5 @@ zslice is at version 0.1. The API can change before version 1.0. Setting names c
 - [Zig](zig.md)
 - [C](c.md)
 - [JavaScript and WebAssembly](javascript.md)
+
+The app core has guides of its own: [the print view](print-view.md) and [labels on a part](labels.md).

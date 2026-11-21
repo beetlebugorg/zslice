@@ -44,7 +44,7 @@ pub const Session = struct {
 
 /// A session of a mesh: `nv` vertices (x, y, z) and `nf` triangles (three
 /// vertex indices each), in mm.
-export fn zs_paint_new(verts: ?[*]const f32, nv: usize, faces: ?[*]const u32, nf: usize, out: ?*?*Session) c_int {
+pub export fn zs_paint_new(verts: ?[*]const f32, nv: usize, faces: ?[*]const u32, nf: usize, out: ?*?*Session) c_int {
     const o = out orelse return @intFromEnum(Status.invalid_argument);
     const v = verts orelse return @intFromEnum(Status.invalid_argument);
     const f = faces orelse return @intFromEnum(Status.invalid_argument);
@@ -88,7 +88,7 @@ export fn zs_paint_new(verts: ?[*]const f32, nv: usize, faces: ?[*]const u32, nf
     return ok;
 }
 
-export fn zs_paint_free(s: ?*Session) void {
+pub export fn zs_paint_free(s: ?*Session) void {
     const p = s orelse return;
     p.deinit();
     gpa.destroy(p);

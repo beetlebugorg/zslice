@@ -1042,6 +1042,109 @@ size_t zs_paint_states(zs_paint *p, const uint8_t **out);
  * the state). Returns their count. */
 size_t zs_paint_leaves(zs_paint *p, const float **out);
 
+/* ---- the labels of a part ----
+ *
+ * A label is a 2D shape on the surface of a part, in a filament of its
+ * own: text, a line, a bar, a ring, the ticks of a dial, or a free line.
+ * The slice cuts it into each layer as a region within a depth of the
+ * surface (one line width by default), so the color prints flush in the
+ * outer wall: on a side face in the outer wall of each layer, on a top
+ * or bottom face in its top or bottom layers. Each label slices as one
+ * more job with Arachne walls. A 3MF save, the history, and the session
+ * keep the labels. A plate with one filament prints no label.
+ *
+ * JSON is the exchange form. A label:
+ *
+ *   {"id":1, "name":"", "origin":[x,y,z], "normal":[x,y,z],
+ *    "right":[x,y,z], "filament":2, "depth":0, "stretch":[1,1],
+ *    "items":[ ... ]}
+ *
+ * - origin, normal, right: the frame of the label in the frame of the
+ *   part on the bed (the frame of zs_app_part_mesh and of the paint
+ *   session). normal points out of the part; right is the +x axis of
+ *   the shape; up = normal x right is its +y axis. normal and right are
+ *   unit vectors at right angles (within 1e-3). zs_label_place gives
+ *   them from a ray. The core keeps the frame in the frame of the file
+ *   mesh of the part, so a move or a turn of the part keeps the label on
+ *   its face.
+ * - filament: from 1 (1 is filament 0 of the plate). A label in the
+ *   filament of the part prints nothing.
+ * - depth: mm from the surface; 0 is one line width.
+ * - stretch: optional, [along right, along up]. A size of a shape times
+ *   the stretch is its size on the bed. A label without it keeps its
+ *   size on the bed; a later scale of the part stretches it.
+ * - name: optional, at most 128 bytes.
+ * - items: up to 64. Each has "kind", "at" ([x,y] mm in the plane,
+ *   default [0,0]) and "angle" (degrees, default 0), and the fields of
+ *   its kind:
+ *     text:     "text" (UTF-8, at most 256 bytes; "\n" starts a line),
+ *               "size" (the cap height, mm), "weight" (0 to 0.3 mm, grows
+ *               each glyph), "alignment" ("left", "center", "right"),
+ *               "spacing" (mm after each letter), "font" ("sans": Inter
+ *               Bold). The capitals of one line span y from -size/2 to
+ *               size/2.
+ *     line:     "length", "width", "round" (round ends).
+ *     bar:      "width", "height", "radius" (of the corners).
+ *     ring:     "outer", "inner" (0: a disk).
+ *     ticks:    "count" (1 to 360), "radius", "length", "length_end" (the
+ *               length of the last tick; 0: the same), "width", "start"
+ *               (degrees, default 225), "sweep" (default -270: the arc
+ *               of a knob, clockwise).
+ *     polyline: "points" ([[x,y], ...], 2 to 1024), "width", "closed",
+ *               "filled".
+ *
+ * A bad value (not finite, out of range, a frame that is not unit) gives
+ * ZS_INVALID_VALUE and changes nothing. Each change notes a change of the
+ * plate for the history ("*"). The check of a slice has the kind
+ * ZS_ISSUE_LABEL. */
+
+/* The labels of part i: a JSON array of labels (the buffer rules of
+ * zs_app_setting_get). */
+int zs_app_part_labels_get(const zs_app *app, size_t i, char *buf, size_t cap, size_t *out_len);
+/* Adds a label to part i; `id` gets its id (unique in the part). The id
+ * in the JSON is not used. */
+int zs_app_label_add(zs_app *app, size_t i, const char *json, size_t len, uint32_t *id);
+/* Replaces label `id` of part i with the JSON (the whole label). The id
+ * stays. ZS_OUT_OF_RANGE: no such label. */
+int zs_app_label_update(zs_app *app, size_t i, uint32_t id, const char *json, size_t len);
+int zs_app_label_remove(zs_app *app, size_t i, uint32_t id);
+/* The frame of a label at a ray (zs_view_ray) on the mesh of a paint
+ * session: out[0..2] origin, out[3..5] normal, out[6..8] right, and
+ * out[9] the largest angle (degrees) between the label plane and the face
+ * within `radius` mm (0: 5 mm). Over 60 degrees, the label stretches by
+ * more than two times: say so on the card. The normal is the mean of the
+ * face (the region of the smart select) near the point. On a side face,
+ * right is level; on a top or bottom face, it is the right of the view.
+ * 1 for a hit, 0 for none. Call it on the thread of the view. */
+int zs_label_place(const zs_paint *mesh, const float ray[6], double radius, double out[10]);
+/* The outline of the shapes of a label (JSON; the frame can be left out)
+ * in its plane, for the live preview: `pts` gets x, y pairs (mm along
+ * right and up, with the stretch), `ends` the end (in points) of each of
+ * the `n` paths. Outer paths are counterclockwise, holes clockwise. Map a
+ * point (x, y) to origin + x right + y up, and draw it 0.05 mm out of the
+ * surface. No slice. The memory stays valid until the next call on the
+ * same thread. */
+int zs_label_outline(const char *json, size_t len, const float **pts, const uint32_t **ends, size_t *n);
+/* The facts of label `id` of part i for its card, as JSON:
+ *   "kind": "side", "top", or "bottom" (|normal.z| <= 0.7 is a side);
+ *   "same_filament": the label has the filament of the part;
+ *   "thinnest", "gap": the thinnest stroke and the smallest gap (mm);
+ *   "line_width", "depth": mm;
+ *   "clean_size", "fair_size": text: the cap height (mm) for strokes of
+ *     two lines and of one line (0 with no text);
+ *   "weight": the weight (mm) that makes the thinnest stroke one line;
+ *   "z_min", "z_max", "layers": the layers of the label;
+ *   "estimate_changes": the filament changes before a slice;
+ *   "top_changes": the changes of the same label on a top face;
+ *   "sliced": the last slice has this label; "changes" are then the
+ *     changes on its layers in the G-code;
+ *   "minutes", "grams": the time and the flush of those changes (of the
+ *     estimate before a slice);
+ *   "advice": one line of words for the card ("Thinnest stroke 0.60 mm:
+ *     prints, but rough. Make the text 4.1 mm tall for clean strokes.").
+ * The buffer rules of zs_app_setting_get. */
+int zs_app_label_info(const zs_app *app, size_t i, uint32_t id, char *buf, size_t cap, size_t *out_len);
+
 /* ---- the filaments of the plate ----
  *
  * A plate has a list of filaments. Filament 0 is the filament of the

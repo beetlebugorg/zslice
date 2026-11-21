@@ -3420,6 +3420,102 @@ test "app: paint goes into the 3MF and comes back with undo, and the slice has t
     try testing.expectEqual(zs.paint.split, app.plate.parts.items[0].paint.stateOf(nf - 1));
 }
 
+/// The JSON of a label "VOLUME" 5 mm tall in filament 2 on the +x side of
+/// part 0 (on the bed), at height z.
+fn volumeLabel(app: *App, gpa: Allocator, z: f64) ![]u8 {
+    var m = try app.plate.partMesh(gpa, 0);
+    defer m.deinit(gpa);
+    const b = m.bounds();
+    return std.fmt.allocPrint(gpa, "{{\"origin\":[{d},{d},{d}],\"normal\":[1,0,0],\"right\":[0,1,0],\"filament\":2,\"items\":[{{\"kind\":\"text\",\"text\":\"VOLUME\",\"size\":5}}]}}", .{ b.max[0], (b.min[1] + b.max[1]) / 2, z });
+}
+
+test "app: a label goes into the history, the 3MF, and the slice" {
+    const gpa = testing.allocator;
+    // A box with a +x side 40 mm wide.
+    var mesh = try zs.mesh.shapes.box(gpa, 20, 40, 10);
+    var bytes: std.Io.Writer.Allocating = .init(gpa);
+    defer bytes.deinit();
+    try mesh.writeStl(&bytes.writer);
+    mesh.deinit(gpa);
+    const app = try App.create(gpa, null, null);
+    defer app.destroy();
+    app.settings.machine.filament_change = .tool;
+    try app.loadStl("box.stl", bytes.written());
+    _ = try filament_slots.add(app);
+    _ = app.undo.commit(app, 0);
+    // Add.
+    const json = try volumeLabel(app, gpa, 5);
+    defer gpa.free(json);
+    const id = try labels.add(app, 0, json);
+    app.undo.note(gpa, null, true);
+    _ = app.undo.commit(app, 1000);
+    try testing.expectEqual(@as(usize, 1), app.plate.parts.items[0].labels.items.len);
+    // Move up 1 mm.
+    const moved = try volumeLabel(app, gpa, 6);
+    defer gpa.free(moved);
+    try labels.update(app, 0, id, moved);
+    app.undo.note(gpa, null, true);
+    _ = app.undo.commit(app, 2000);
+    const placed = struct {
+        fn z(ap: *App) f64 {
+            const p = &ap.plate.parts.items[0];
+            return p.placeLabel(p.labels.items[0]).origin[2];
+        }
+    };
+    try testing.expectApproxEqAbs(@as(f64, 6), placed.z(app), 1e-6);
+    // The facts of the step say so.
+    var facts: std.Io.Writer.Allocating = .init(gpa);
+    defer facts.deinit();
+    try app.writeFacts(&facts.writer);
+    try testing.expect(std.mem.indexOf(u8, facts.written(), "part:box.stl\tlabel 1\ttext \"VOLUME\", filament 2") != null);
+    // Undo the move, and redo it.
+    _ = app.undo.undo(app, 3000);
+    try testing.expectApproxEqAbs(@as(f64, 5), placed.z(app), 1e-4);
+    _ = app.undo.redo(app, 4000);
+    try testing.expectApproxEqAbs(@as(f64, 6), placed.z(app), 1e-4);
+    // Remove, and undo the removal.
+    try labels.remove(app, 0, id);
+    app.undo.note(gpa, null, true);
+    _ = app.undo.commit(app, 5000);
+    try testing.expectEqual(@as(usize, 0), app.plate.parts.items[0].labels.items.len);
+    _ = app.undo.undo(app, 6000);
+    try testing.expectEqual(@as(usize, 1), app.plate.parts.items[0].labels.items.len);
+    try testing.expectEqual(id, app.plate.parts.items[0].labels.items[0].id);
+
+    // The 3MF keeps the label at its place.
+    const file = try app.write3mfAlloc(gpa);
+    defer gpa.free(file);
+    const other = try App.create(gpa, null, null);
+    defer other.destroy();
+    other.keep_places = true;
+    try other.loadStl("plate.3mf", file);
+    const op = &other.plate.parts.items[0];
+    try testing.expectEqual(@as(usize, 1), op.labels.items.len);
+    const a0 = app.plate.parts.items[0].placeLabel(app.plate.parts.items[0].labels.items[0]);
+    const b0 = op.placeLabel(op.labels.items[0]);
+    for (0..3) |k| {
+        try testing.expectApproxEqAbs(a0.origin[k], b0.origin[k], 1e-4);
+        try testing.expectApproxEqAbs(a0.normal[k], b0.normal[k], 1e-9);
+        try testing.expectApproxEqAbs(a0.right[k], b0.right[k], 1e-9);
+    }
+    try testing.expectEqualStrings("VOLUME", op.labels.items[0].firstText());
+
+    // The slice: the label prints in filament 2, with changes on its
+    // layers only, and the card gets them.
+    try app.startSlice();
+    app.stopWorkerForTest();
+    const st = app.result().?;
+    try testing.expect(st.slot_g[1] > 0);
+    const in = try labels.info(app, 0, id);
+    try testing.expect(in.sliced);
+    try testing.expectEqual(st.changes, in.changes);
+    try testing.expect(in.changes >= in.layers);
+    try testing.expect(in.minutes > 0);
+    // The check: text 5 mm tall prints clean, so no label issue.
+    const r = try app.checks();
+    for (r.issues) |is| try testing.expect(is.kind != .label);
+}
+
 test "app: a pick of the overhang under a point, as an area, gives support" {
     const gpa = testing.allocator;
     var b: zs.mesh.Builder = .init(gpa);

@@ -52,6 +52,7 @@
 <a href="../../embedding/zig/">Zig</a>
 <a href="../../embedding/javascript/">JavaScript</a>
 <a href="../../embedding/print-view/" aria-current="page">The print view</a>
+<a href="../../embedding/labels/">Labels</a>
 <div class="group">Internals</div>
 <a href="../../internals/architecture/">Architecture</a>
 <a href="../../internals/one-view/">Plan: one view</a>
@@ -113,7 +114,7 @@ import "C"</code></pre>
 <h2 id="speed-and-memory">Speed and memory</h2>
 <ul><li>The reader needs about 0.4 s for 85 MB of G-code on a desktop CPU (x86-64). The Pi 5 is slower: plan for a few seconds.</li><li>The reader keeps 24 bytes for each move: 70 MB for an 85 MB file with 3 million moves. It never holds the whole file.</li><li>The view puts 32 bytes for each bead in one GPU buffer, once. A position or a layer only changes how many beads draw.</li><li>An offscreen print view keeps the finished layers in a cached image. When the camera and the colors stay the same, a frame draws only the new beads and the top layer. A touch that moves the camera draws all the beads once.</li><li>The reduced view uses the coarse bead mesh (36 triangles for each bead in place of 100).</li><li><code>zs_view_draw</code>, <code>zs_view_read</code>, and the set and touch calls do not allocate memory.</li></ul>
 <h2 id="thumbnails">Thumbnails</h2>
-<p><code>zs_gcode_thumbnail_png(g, w, h, by_feature, rgb, &amp;png, &amp;len)</code> draws the beads on the CPU (no GPU) in the view of the thumbnails of a slice, and gives a PNG with a clear background. Free it with <code>zs_buffer_free</code>.</p><nav class="pager"><a class="prev" href="../../embedding/javascript/"><span>Previous</span><b>JavaScript</b></a><a class="next" href="../../internals/architecture/"><span>Next</span><b>Architecture</b></a></nav>
+<p><code>zs_gcode_thumbnail_png(g, w, h, by_feature, rgb, &amp;png, &amp;len)</code> draws the beads on the CPU (no GPU) in the view of the thumbnails of a slice, and gives a PNG with a clear background. Free it with <code>zs_buffer_free</code>.</p><nav class="pager"><a class="prev" href="../../embedding/javascript/"><span>Previous</span><b>JavaScript</b></a><a class="next" href="../../embedding/labels/"><span>Next</span><b>Labels</b></a></nav>
 </main>
 </div>
 <footer>zslice is free software (AGPL-3.0-or-later). <a href="../../privacy/">Privacy</a>: no analytics, no cookies, nothing from other sites. <a href="https://github.com/beetlebugorg/zslice/blob/main/docs/build.py">docs/build.py</a> writes this site from <a href="https://github.com/beetlebugorg/zslice/blob/main/docs/embedding/print-view.md">docs/embedding/print-view.md</a>.</footer>

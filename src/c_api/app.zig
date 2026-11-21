@@ -22,7 +22,7 @@ fn noted(app: *App, key: ?[]const u8, plate: bool) void {
     app.undo.note(app.gpa, key, plate);
 }
 
-export fn zs_app_new(event_fn: ?app_mod.EventFn, user: ?*anyopaque, out: ?*?*App) c_int {
+pub export fn zs_app_new(event_fn: ?app_mod.EventFn, user: ?*anyopaque, out: ?*?*App) c_int {
     const o = out orelse return @intFromEnum(Status.invalid_argument);
     o.* = App.create(gpa, event_fn, user) catch |e| return status(e);
     return ok;
@@ -45,7 +45,7 @@ comptime {
     if (c.is_wasm) @export(&web_events.new, .{ .name = "zs_app_new_web" });
 }
 
-export fn zs_app_free(a: ?*App) void {
+pub export fn zs_app_free(a: ?*App) void {
     const app = a orelse return;
     app.destroy();
 }
@@ -61,7 +61,7 @@ export fn zs_app_state(a: ?*const App) c_int {
     return @intFromEnum(app.getState());
 }
 
-export fn zs_app_load_stl(a: ?*App, name: ?[*:0]const u8, data: ?[*]const u8, len: usize) c_int {
+pub export fn zs_app_load_stl(a: ?*App, name: ?[*:0]const u8, data: ?[*]const u8, len: usize) c_int {
     const app = a orelse return @intFromEnum(Status.invalid_argument);
     const d = data orelse return @intFromEnum(Status.invalid_argument);
     const n = if (name) |p| std.mem.span(p) else "";
@@ -2250,7 +2250,7 @@ export fn zs_app_part_get(a: ?*App, i: usize, out: ?*Part) c_int {
 /// The mesh of part i at its place on the bed (mm): `nv` vertices (x, y,
 /// z) and `nf` triangles, in the order of the paint of the part. Valid
 /// until the next call or until the app goes.
-export fn zs_app_part_mesh(a: ?*App, i: usize, verts: ?*[*]const f32, nv: ?*usize, faces: ?*[*]const u32, nf: ?*usize) c_int {
+pub export fn zs_app_part_mesh(a: ?*App, i: usize, verts: ?*[*]const f32, nv: ?*usize, faces: ?*[*]const u32, nf: ?*usize) c_int {
     const app = a orelse return @intFromEnum(Status.invalid_argument);
     if (i >= app.plate.count()) return @intFromEnum(Status.out_of_range);
     const m = app.plate.partMesh(app.gpa, i) catch return @intFromEnum(Status.out_of_memory);
