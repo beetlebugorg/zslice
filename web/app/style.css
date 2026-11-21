@@ -478,6 +478,8 @@ select.choice {
 .menu button:hover:not(:disabled) { background: rgba(var(--fg-rgb), 0.08); }
 .menu button .check { width: 14px; flex: none; }
 .menu button .label { flex: 1; }
+.menu button .label:has(.menu-detail) { display: flex; flex-direction: column; align-items: flex-start; gap: 1px; }
+.menu button .label .menu-detail { font-size: 0.8em; line-height: 1.25; color: var(--dim); white-space: normal; }
 .menu button .accel { color: var(--dim); padding-left: 18px; }
 .menu button.back { font-weight: 700; }
 

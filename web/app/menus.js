@@ -2,7 +2,8 @@
 // a context menu at the pointer, as a GTK popover menu.
 //
 // items: { title } starts a section, { sep: true } is a line, and
-// { label, checked, disabled, action, accel, submenu, tip } is an item. An
+// { label, detail, checked, disabled, action, accel, submenu, tip } is an
+// item (detail: a line in small text under the label). An
 // item with a submenu (a list of items) shows the submenu in place of the
 // menu, with a back row at the top, as a GTK popover menu does.
 //
@@ -72,6 +73,13 @@ function fill(menu, items, back) {
         dot.className = "menu-dot";
         dot.style.background = it.color;
         t.prepend(dot);
+      }
+      // A line under the label in small text (the main points of a quality).
+      if (it.detail) {
+        const d = document.createElement("span");
+        d.className = "menu-detail";
+        d.textContent = it.detail;
+        t.append(d);
       }
       b.append(c, t);
       if (it.accel || it.submenu) {

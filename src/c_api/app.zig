@@ -1901,6 +1901,26 @@ export fn zs_builtin_profile_name(group: c_int, i: usize) ?[*:0]const u8 {
     return null;
 }
 
+/// The main points of built-in quality profile `name` in a short line for a
+/// menu ("0.1 mm layers · 3 walls · slower walls · ironed tops"), as
+/// zs.profile.qualitySummary. Writes at most cap - 1 bytes and a 0 to buf;
+/// out_len gets the full length. An empty text for an unknown name.
+export fn zs_quality_summary(name: ?[*:0]const u8, buf: ?[*]u8, cap: usize, out_len: ?*usize) c_int {
+    const n = name orelse return @intFromEnum(Status.invalid_argument);
+    var out: std.Io.Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    zs.profile.qualitySummary(gpa, std.mem.span(n), &out.writer) catch return @intFromEnum(Status.out_of_memory);
+    const text = out.written();
+    if (out_len) |l| l.* = text.len;
+    if (buf) |b| {
+        if (cap == 0) return ok;
+        const k = @min(text.len, cap - 1);
+        @memcpy(b[0..k], text[0..k]);
+        b[k] = 0;
+    }
+    return ok;
+}
+
 /// The gaps of a layer of the last slice (see App.layerGaps). The arrays
 /// stay valid until the next call for another layer, or the next slice.
 export fn zs_app_layer_gaps(a: ?*App, layer: usize, gaps: ?*?[*]const zs.gaps.Gap, n_gaps: ?*usize, runs: ?*?[*]const zs.gaps.Run, n_runs: ?*usize) c_int {

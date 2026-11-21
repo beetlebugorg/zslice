@@ -1060,7 +1060,7 @@ function value(name) {
 function updateMenus() {
   $("printer-menu").textContent = store.printer || "generic";
   drawFilamentButton();
-  const q = app.snapshot?.quality || "custom";
+  const q = qualityName(app.snapshot?.quality || "custom");
   $("quality-menu").textContent = `${q}${stateHasChanges(store.saved?.project) ? " •" : ""}`;
   $("quality-menu").title = `Quality settings: ${q}. Pick a profile.`;
 }
@@ -1648,12 +1648,19 @@ function drawFilamentButton() {
 }
 followFilaments(drawFilamentButton);
 
+// The name of a quality for the screen: a built-in one in capitals at
+// the start ("Standard"); a name of the user as the user wrote it.
+function qualityName(n) {
+  return wasm.builtinProfiles(2).includes(n) || n === "custom" ? n.charAt(0).toUpperCase() + n.slice(1) : n;
+}
+
 $("quality-menu").onclick = () => {
   const q = app.snapshot?.quality || "";
   const items = [{ title: "Built-in" }];
   for (const n of wasm.builtinProfiles(2)) {
     items.push({
-      label: n,
+      label: qualityName(n),
+      detail: wasm.qualitySummary(n),
       checked: n === q,
       action: async () => {
         const r = await client.call("quality", { name: n });

@@ -211,6 +211,12 @@ export class Wasm {
   }
 
   // The built-in profiles of a group (0 printer, 1 filament, 2 quality).
+  // The main points of a built-in quality profile in a short line, or ""
+  // (zs_quality_summary).
+  qualitySummary(name) {
+    return this.withString(name, (s) => this.readText((b, c, l) => this.x.zs_quality_summary(s, b, c, l))) ?? "";
+  }
+
   builtinProfiles(group) {
     const n = this.x.zs_builtin_profile_count(group);
     const out = [];

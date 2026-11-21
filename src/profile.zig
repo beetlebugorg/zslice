@@ -186,6 +186,53 @@ pub fn builtin(group: Group, name: []const u8) ?[]const u8 {
     return null;
 }
 
+/// The main points of a built-in quality profile in a short line, for a
+/// menu: its layer height first, then what differs from `standard`: the
+/// walls, the infill, the speed of the walls, the top thickness, and
+/// ironing ("0.1 mm layers · 3 walls · slower walls · ironed tops"). For
+/// `standard` itself: its layers, walls, and infill. Empty for a name
+/// that is not a built-in quality profile.
+pub fn qualitySummary(gpa: Allocator, name: []const u8, w: *std.Io.Writer) (std.Io.Writer.Error || Allocator.Error)!void {
+    if (builtin(.project, name) == null) return;
+    var arena_state = std.heap.ArenaAllocator.init(gpa);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    var diag: Diagnostic = .{};
+    var s: Settings = .{};
+    load(a, &s, .project, name, null, &diag) catch return;
+    var base: Settings = .{};
+    load(a, &base, .project, "standard", null, &diag) catch return;
+    const p = s.project;
+    const b = base.project;
+    try w.print("{d} mm layers", .{p.layer_height});
+    const is_base = std.mem.eql(u8, name, "standard");
+    if (is_base or p.wall_count != b.wall_count) try w.print(" \u{b7} {d} walls", .{p.wall_count});
+    if (is_base or @abs(p.infill_density - b.infill_density) > 1e-9) try w.print(" \u{b7} {d} % infill", .{@round(p.infill_density * 100)});
+    if (p.outer_wall_speed < b.outer_wall_speed - 1e-9) try w.writeAll(" \u{b7} slower walls");
+    if (p.outer_wall_speed > b.outer_wall_speed + 1e-9) try w.writeAll(" \u{b7} faster walls");
+    if (p.top_thickness > b.top_thickness + 1e-9) try w.writeAll(" \u{b7} thicker tops");
+    if (p.ironing and !b.ironing) try w.writeAll(" \u{b7} ironed tops");
+}
+
+test "qualitySummary: the main points of each built-in quality" {
+    const cases = [_][2][]const u8{
+        .{ "standard", "0.2 mm layers \u{b7} 2 walls \u{b7} 20 % infill" },
+        .{ "draft", "0.3 mm layers \u{b7} 10 % infill \u{b7} faster walls" },
+        .{ "fine", "0.1 mm layers \u{b7} 3 walls \u{b7} slower walls \u{b7} ironed tops" },
+        .{ "strong", "0.2 mm layers \u{b7} 4 walls \u{b7} 40 % infill \u{b7} thicker tops" },
+    };
+    for (cases) |c| {
+        var out: std.Io.Writer.Allocating = .init(std.testing.allocator);
+        defer out.deinit();
+        try qualitySummary(std.testing.allocator, c[0], &out.writer);
+        try std.testing.expectEqualStrings(c[1], out.written());
+    }
+    var none: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer none.deinit();
+    try qualitySummary(std.testing.allocator, "no such", &none.writer);
+    try std.testing.expectEqualStrings("", none.written());
+}
+
 // ---------------------------------------------------------------------------
 // Write a profile
 
