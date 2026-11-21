@@ -1897,6 +1897,11 @@ pub const Inspect = extern struct {
     /// that it holds up. ZS_NO_PATH and -1: none.
     holds_layer: u32,
     holds_feature: c_int,
+    /// The nozzle of the line on a printer with two nozzles: 1 the main
+    /// nozzle, 2 the second. 0: a printer with one nozzle.
+    nozzle: c_int,
+    /// The nozzle of the line and its speed limits in words, or "".
+    nozzle_text: [*:0]const u8,
 };
 
 /// 1 if the check of the last slice has run, so zs_app_checks returns at
@@ -2066,6 +2071,8 @@ export fn zs_app_inspect(a: ?*App, path: usize, out: ?*Inspect) c_int {
         .flow_limited = @intFromBool(i.flow_limited),
         .holds_layer = if (i.holds) |h| @intCast(h.layer) else 0xffffffff,
         .holds_feature = if (i.holds) |h| @intFromEnum(h.feature) else -1,
+        .nozzle = i.nozzle,
+        .nozzle_text = i.nozzle_text.ptr,
     };
     return ok;
 }

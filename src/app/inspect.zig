@@ -49,6 +49,11 @@ pub const Inspection = struct {
     /// For a support line: the line of the part that it holds up (the
     /// first line above it that is not support), or null.
     holds: ?Held = null,
+    /// The nozzle of the line on a printer with two nozzles: 1 the main
+    /// nozzle, 2 the second. 0: a printer with one nozzle.
+    nozzle: u8 = 0,
+    /// The nozzle of the line and its speed limits, in words, or "".
+    nozzle_text: [:0]const u8 = "",
 };
 
 /// The part line that a support line holds up.
@@ -81,8 +86,16 @@ pub fn inspect(arena: Allocator, t: *const Toolpaths, pj: *const zs.PlateJob, pa
     const layer_h: f64 = if (job) |j| j.layers[local].height else t.layer_height.items[layer];
     const combined = planar_h > layer_h + 1e-4;
     const group_n: usize = if (job) |j| (if (combined and local < j.groups.len) j.groups[local].count() else 1) else 1;
-    // The line width of the layer of the part.
-    const w: f64 = if (job) |j| (if (local == 0) j.resolvedAt(0).first_layer_line_width else j.resolvedAt(local).line_width) else t.layer_width.items[layer];
+    // The line width of the layer of the part. Sparse infill of the
+    // nozzle of another filament has the line width of that nozzle (as
+    // the G-code writer has it).
+    var w: f64 = if (job) |j| (if (local == 0) j.resolvedAt(0).first_layer_line_width else j.resolvedAt(local).line_width) else t.layer_width.items[layer];
+    if (feature == .infill and local > 0) w = @max(w, r.infill_line_width);
+    // The nozzle of the line: of the filament that prints it.
+    const pm = pj.resolved.settings.machine;
+    const tool: usize = if (path < t.path_tool.items.len) t.path_tool.items[path] else 0;
+    const two = pm.nozzles >= 2;
+    const nozzle: u32 = if (two and tool < pj.slots.len and pj.slots[tool].nozzle >= 1) 1 else 0;
     const area: f64 = t.path_area.items[path];
     // A path with a z for each point (slope smoothing): the bead is under
     // the nozzle, down to the top of the layer below. Its height is the
@@ -102,7 +115,7 @@ pub fn inspect(arena: Allocator, t: *const Toolpaths, pj: *const zs.PlateJob, pa
     const t0: f64 = t.path_start_time.items[path];
     const t1: f64 = t.path_end_time.items[path];
     // The speed of this layer, with the ramp of the slow first layers.
-    const planned = r.speedAt(feature, w, h, local);
+    const planned = r.speedOn(feature, w, h, local, nozzle);
     const real = if (t1 > t0) length / (t1 - t0) else planned;
 
     var text: std.Io.Writer.Allocating = .init(arena);
@@ -113,6 +126,9 @@ pub fn inspect(arena: Allocator, t: *const Toolpaths, pj: *const zs.PlateJob, pa
         const m = job.?.modifiers[modifier - 1];
         try out.print("Modifier volume \"{s}\": this path is inside it, so it has the settings of the volume: its infill ({s}, {d:.0} %), its walls ({d}), its speed and its flow ({d:.0} %). The volume does not print; it changes the part inside it.\n\n", .{ m.name, @tagName(s.project.infill_pattern), s.project.infill_density * 100, s.project.wall_count, s.project.infill_flow * 100 });
     }
+    var nt: std.Io.Writer.Allocating = .init(arena);
+    if (two) try nozzleText(&nt.writer, pm, nozzle, tool);
+    if (nt.written().len > 0) try out.print("{s}\n\n", .{nt.written()});
     if (combined) {
         try out.print("Combined: {d} layers, {d:.2} mm. The sparse infill of layers {d} to {d} prints here as one bead (project.infill_layers). The nozzle is at the z of this layer, and the bead goes down to the bottom of layer {d}.\n\n", .{ group_n, h, local + 2 - group_n, local + 1, local + 2 - group_n });
     }
@@ -170,6 +186,7 @@ pub fn inspect(arena: Allocator, t: *const Toolpaths, pj: *const zs.PlateJob, pa
     try nw.writeAll("# Speed\n");
     try nw.print("{s}\n", .{fs.speedRatioSetting(feature, first)});
     try nw.writeAll("machine.max_speed\n");
+    if (nozzle == 1) try nw.writeAll("machine.nozzle2_speed\nmachine.nozzle2_max_speed\n");
     if (feature != .ironing and feature != .slope_ironing) try nw.writeAll("filament.max_flow\n");
     for (fs.cooling_speed_settings) |n| try nw.print("{s}\n", .{n});
     try nw.writeAll("# Shape\n");
@@ -192,7 +209,7 @@ pub fn inspect(arena: Allocator, t: *const Toolpaths, pj: *const zs.PlateJob, pa
         const bead_area = zs.flow.beadArea(w, h);
         const flow_limit = s.filament.max_flow / bead_area;
         const limit = @min(s.machine.max_speed, flow_limit);
-        const full = r.speed(feature, w, h, first);
+        const full = r.nozzleSpeed(r.speed(feature, w, h, first), nozzle);
         const ratio = if (limit > 0) full / limit else 0;
         try pw.print("{d:.0} mm/s = {d:.0} % ({{{{{s}}}}}) of {d:.0} mm/s.\n\n{d:.0} mm/s is the lower of two limits:\n\u{2022} the machine: {d:.0} mm/s ({{{{machine.max_speed}}}})\n\u{2022} the flow: {d:.1} mm\u{b3}/s ({{{{filament.max_flow}}}}) \u{f7} the bead area {d:.4} mm\u{b2} = {d:.0} mm/s\n", .{ full, ratio * 100, ratio_name, limit, limit, s.machine.max_speed, s.filament.max_flow, bead_area, flow_limit });
         if (flow_limit < s.machine.max_speed) {
@@ -202,6 +219,11 @@ pub fn inspect(arena: Allocator, t: *const Toolpaths, pj: *const zs.PlateJob, pa
         }
         if (planned < full * 0.999) {
             try pw.print("\n\nLayer {d} is one of the slow first layers ({{{{project.slow_layers}}}}): its speed goes up in steps from the first layer speed ({{{{project.first_layer_speed}}}}), so it prints at {d:.0} mm/s.", .{ layer + 1, planned });
+        }
+        if (nozzle == 1 and (pm.nozzle2_speed > 0 or pm.nozzle2_max_speed > 0)) {
+            try pw.print("\n\nThe second nozzle prints it: {d:.0} % of that speed ({{{{machine.nozzle2_speed}}}})", .{if (pm.nozzle2_speed > 0) pm.nozzle2_speed * 100 else 100});
+            if (pm.nozzle2_max_speed > 0) try pw.print(", at most {d:.0} mm/s ({{{{machine.nozzle2_max_speed}}}})", .{pm.nozzle2_max_speed});
+            try pw.print(": {d:.0} mm/s.", .{planned});
         }
         try pw.print("\n\nTo print it faster: raise {{{{{s}}}}} (up to 100 %), or the limit that applies.", .{ratio_name});
     }
@@ -236,6 +258,8 @@ pub fn inspect(arena: Allocator, t: *const Toolpaths, pj: *const zs.PlateJob, pa
         .max_flow = s.filament.max_flow,
         .flow_limited = flow_limited,
         .holds = holds,
+        .nozzle = if (two) @intCast(nozzle + 1) else 0,
+        .nozzle_text = try arena.dupeZ(u8, nt.written()),
         .feature = feature,
         .layer = layer,
         .path = path,
@@ -326,6 +350,15 @@ fn heldBy(t: *const Toolpaths, path: usize, layer: usize, w: f64) ?Held {
         if (part != null and part_d <= 4 * near) return .{ .layer = l, .feature = part.? };
     }
     return null;
+}
+
+/// The nozzle of a line of filament slot `tool` on a printer with two
+/// nozzles, and the speed limits of the second nozzle.
+fn nozzleText(w: *std.Io.Writer, m: zs.settings.Machine, nozzle: u32, tool: usize) std.Io.Writer.Error!void {
+    if (nozzle == 0) return w.print("Main nozzle, filament {d}.", .{tool + 1});
+    try w.print("Second nozzle, filament {d}.", .{tool + 1});
+    if (m.nozzle2_speed > 0) try w.print(" Its lines print at {d:.0} % of the speed of the main nozzle (machine.nozzle2_speed).", .{m.nozzle2_speed * 100});
+    if (m.nozzle2_max_speed > 0) try w.print(" Its lines print at most at {d:.0} mm/s (machine.nozzle2_max_speed).", .{m.nozzle2_max_speed});
 }
 
 fn hours(t: f64) u64 {

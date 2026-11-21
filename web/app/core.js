@@ -498,7 +498,7 @@ export class Core {
   // seg: the selected segment (-1: none), for the support mark there.
   inspect(path, seg = -1) {
     const w = this.w;
-    const size = 168; // zs_inspect on wasm32
+    const size = 176; // zs_inspect on wasm32
     const p = w.alloc(size);
     try {
       if (w.x.zs_app_inspect(this.app, path, p) !== 0) return null;
@@ -540,6 +540,9 @@ export class Core {
       info.flowLimited = w.i32(p + 152) !== 0;
       const held = w.u32(p + 156);
       info.holds = held === 0xffffffff ? null : { layer: held, feature: w.i32(p + 160) };
+      // The nozzle on a printer with two (1 main, 2 second; 0 one nozzle).
+      info.nozzle = w.i32(p + 164);
+      info.nozzleText = s(168);
       // The key of the line for an edit (zs_app_path_key), read now: the
       // edit then works while a new slice runs.
       info.key = String(w.x.zs_app_path_key(this.app, path));

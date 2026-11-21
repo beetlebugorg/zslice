@@ -96,8 +96,14 @@ export class SettingsBrowser {
   // ---- data from the worker ----
 
   setValues(snapshot) {
+    const two = this.twoNozzles();
     this.values = snapshot.values;
     this.quality = snapshot.quality;
+    // The "Second nozzle" section comes and goes with the second nozzle.
+    if (two !== this.twoNozzles()) {
+      this.fillSections();
+      for (const r of this.sectionRows) r.classList.toggle("selected", r.dataset.group === this.group && r.dataset.section === this.section);
+    }
     for (const [name, list] of this.editors) {
       for (const ed of list) ed.update(this.values[name]);
     }
@@ -166,6 +172,17 @@ export class SettingsBrowser {
 
   // ---- column 1: the sections ----
 
+  // A printer with two nozzles (machine.nozzles).
+  twoNozzles() {
+    return Number(this.values["machine.nozzles"]?.value ?? 1) >= 2;
+  }
+
+  // A section that the printer has: "Second nozzle" only on a printer
+  // with two nozzles.
+  hasSection(info) {
+    return info.group !== "machine" || info.section !== "Second nozzle" || this.twoNozzles();
+  }
+
   fillSections() {
     const col = this.cols[0];
     col.replaceChildren();
@@ -173,7 +190,7 @@ export class SettingsBrowser {
     for (const g of GROUP_ORDER) {
       const seen = new Set();
       for (const i of this.infos) {
-        if (i.group !== g || seen.has(i.section)) continue;
+        if (i.group !== g || seen.has(i.section) || !this.hasSection(i)) continue;
         if (seen.size === 0) col.append(el("div", "group-title", GROUP_TITLES[g] ?? g));
         seen.add(i.section);
         const row = el("div", "row");

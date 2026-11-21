@@ -84,6 +84,12 @@ pub fn display(s: *const SettingInfo, value: []const u8, with_unit: bool, w: *Wr
     if ((number(value) orelse 1) == 0) {
         if (std.mem.eql(u8, s.name, "project.support_filament")) return w.writeAll("the part");
         if (std.mem.eql(u8, s.name, "project.support_interface_filament")) return w.writeAll("the support filament");
+        if (std.mem.eql(u8, s.name, "project.infill_filament")) return w.writeAll("the part");
+        // The second nozzle: 0 is the value of the first, or no limit.
+        for ([_][]const u8{ "machine.nozzle2_diameter", "machine.nozzle2_line_width", "machine.nozzle2_speed", "machine.nozzle2_retract_length", "machine.nozzle2_retract_speed" }) |n| {
+            if (std.mem.eql(u8, s.name, n)) return w.writeAll("as the first nozzle");
+        }
+        if (std.mem.eql(u8, s.name, "machine.nozzle2_max_speed") or std.mem.eql(u8, s.name, "machine.nozzle2_max_accel")) return w.writeAll("no limit");
     }
     var buf: [256]u8 = undefined;
     var shown_w: Writer = .fixed(&buf);

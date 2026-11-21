@@ -508,7 +508,7 @@ pub fn endTool(lp: *const LayerPlan, r: *const Resolved, slots: []const settings
         if (lp.points.get(i).len == 0) continue;
         const path = lp.paths.items[i];
         const pr = lp.pathResolved(path) orelse lp.resolved orelse r;
-        return filaments.pathSlot(path.feature, pr.settings.project, slots.len);
+        return filaments.slotOfPath(path, pr.settings.project, slots.len);
     }
     return 0;
 }
@@ -523,7 +523,7 @@ pub fn startTool(lp: *const LayerPlan, r: *const Resolved, slots: []const settin
     for (lp.paths.items, 0..) |path, i| {
         if (lp.points.get(i).len == 0) continue;
         const pr = lp.pathResolved(path) orelse lp.resolved orelse r;
-        return filaments.pathSlot(path.feature, pr.settings.project, slots.len);
+        return filaments.slotOfPath(path, pr.settings.project, slots.len);
     }
     return 0;
 }
@@ -1373,7 +1373,7 @@ pub const Emitter = struct {
             .klipper => @min(1, 4 * m.nozzle_diameter * m.nozzle_diameter / self.r.filament_area),
             .marlin, .reprap, .repetier => 1,
         };
-        return motion.restTime(len, m.retract_speed, m.max_accel * ratio);
+        return motion.restTime(len, self.r.retractSpeedOn(self.nozzleNow()), m.max_accel * ratio);
     }
 
     /// A Z move from rest to rest.
@@ -1635,11 +1635,17 @@ pub const Emitter = struct {
         return if (first) f.first_layer_nozzle_temp else f.nozzle_temp;
     }
 
-    /// The slot of the filament of a path of `feature` with the settings
-    /// `r` (the support filament for support).
-    pub fn toolOf(self: *const Emitter, feature: settings_mod.Feature, r: *const Resolved) u32 {
+    /// The slot of the filament of `path` with the settings `r` (the
+    /// support filament for support, see filaments.slotOfPath).
+    pub fn toolOf(self: *const Emitter, path: layer_mod.Path, r: *const Resolved) u32 {
         if (self.slots.len < 2) return 0;
-        return filaments.pathSlot(feature, r.settings.project, self.slots.len);
+        return filaments.slotOfPath(path, r.settings.project, self.slots.len);
+    }
+
+    /// The nozzle (0 or 1) of the filament in the nozzle (`tool`).
+    fn nozzleNow(self: *const Emitter) u32 {
+        if (self.slots.len < 2 or self.tool >= self.slots.len) return 0;
+        return if (self.r.settings.machine.nozzles >= 2 and self.slots[self.tool].nozzle >= 1) 1 else 0;
     }
 
     /// A filament change to slot `next` before path `i` of `lp`, which
@@ -1769,7 +1775,7 @@ pub const Emitter = struct {
         var v: f64 = 0;
         for (lp.paths.items[i..], i..) |path, k| {
             if (lp.points.get(k).len == 0) continue;
-            if (self.toolOf(path.feature, lp.pathResolved(path) orelse lr) != to) break;
+            if (self.toolOf(path, lp.pathResolved(path) orelse lr) != to) break;
             if (!self.hiddenFor(lp, path, from, to)) break;
             v += self.pathVolume(lp, k);
         }
@@ -1794,7 +1800,7 @@ pub const Emitter = struct {
         defer gpa.free(tool);
         var present = [_]bool{false} ** filaments.max_slots;
         for (lp.paths.items, tool) |path, *t| {
-            t.* = @min(self.toolOf(path.feature, lp.pathResolved(path) orelse lr), filaments.max_slots - 1);
+            t.* = @min(self.toolOf(path, lp.pathResolved(path) orelse lr), filaments.max_slots - 1);
             present[t.*] = true;
         }
         var blocks: [filaments.max_slots]u32 = undefined;
@@ -1881,7 +1887,7 @@ pub const Emitter = struct {
         var h: Hidden = .{};
         const lr = lp.resolved orelse self.r;
         for (lp.paths.items, 0..) |path, i| {
-            const t = self.toolOf(path.feature, lp.pathResolved(path) orelse lr);
+            const t = self.toolOf(path, lp.pathResolved(path) orelse lr);
             if (t >= filaments.max_slots or !self.hiddenFor(lp, path, t, t)) continue;
             const v = self.pathVolume(lp, i);
             h.all[t] += v;
@@ -1941,12 +1947,12 @@ pub const Emitter = struct {
     /// A plain retraction before a move to the tower (no wipe, no z hop:
     /// the tower is away from the part).
     fn towerRetract(self: *Emitter) Error!void {
-        const len = self.lr.retract_length;
+        const len = self.lr.retractLengthOn(self.nozzleNow());
         if (self.retracted or !self.extruded or len <= 0) return;
         try self.w.writeAll("G1 E-");
         try writeNum(self.w, len, 4);
         try self.w.writeAll(" F");
-        try writeNum(self.w, self.r.settings.machine.retract_speed * 60, 0);
+        try writeNum(self.w, self.r.retractSpeedOn(self.nozzleNow()) * 60, 0);
         try self.w.writeAll("\n");
         self.retracted = true;
         self.retract_len = len;
@@ -1979,7 +1985,7 @@ pub const Emitter = struct {
         const h = if (self.towers.stacked()) tz - self.tower_top[k] else self.layer_h;
         const t_first = first or (self.towers.stacked() and self.tower_count[k] == 1);
         const e = flow.beadArea(self.layer_w, h) / self.r.filament_area;
-        const speed = self.lr.speed(.skirt, self.layer_w, h, t_first);
+        const speed = self.lr.nozzleSpeed(self.lr.speed(.skirt, self.layer_w, h, t_first), self.nozzleNow());
         for (pts[1..]) |q| try self.extrude(q[0], q[1], e, speed);
         self.extruded = true;
         if (down > 1e-6) {
@@ -2168,7 +2174,7 @@ pub const Emitter = struct {
             }
             const retractions = self.stats.retractions;
             // A path of another filament: a filament change first.
-            const next_tool = self.toolOf(path.feature, lp.pathResolved(path) orelse lr);
+            const next_tool = self.toolOf(path, lp.pathResolved(path) orelse lr);
             // The label of the part of the path (see `Object`): a filament
             // change is outside of all labels, so a skipped part keeps it.
             const obj = self.objectOf(lp, path);
@@ -2181,7 +2187,7 @@ pub const Emitter = struct {
             self.layer_start = false;
             // A path in a modifier volume has the settings of the volume.
             const path_r = lp.pathResolved(path) orelse lr;
-            try self.setAccel(path_r.accel(path.feature, first));
+            try self.setAccel(path_r.accelOn(path.feature, first, self.nozzleNow()));
             const retracted = self.stats.retractions != retractions;
             if (self.feature != path.feature) {
                 self.feature = path.feature;
@@ -2215,9 +2221,12 @@ pub const Emitter = struct {
                 speed_width = if (lp.layerOf(path) == 0) path_r.first_layer_line_width else path_r.line_width;
             }
             for (widths) |pw| speed_width = geom.fmax(speed_width, pw);
+            // Infill of another nozzle, with its own line width.
+            if (path.feature == .infill and path.width > speed_width) speed_width = path.width;
             // The layer index in the job of the part, for the speed ramp of
-            // the first layers (see LayerPlan.layerOf).
-            const wall_speed = path_r.speedAt(path.feature, speed_width, h, lp.layerOf(path));
+            // the first layers (see LayerPlan.layerOf). The second nozzle
+            // has its own limits.
+            const wall_speed = path_r.speedOn(path.feature, speed_width, h, lp.layerOf(path), self.nozzleNow());
             // A wall overhang prints slower (see layer.markOverhangWalls).
             const full = if (path.overhang) wall_speed * path_r.settings.project.overhang_wall_speed else wall_speed;
             // The path rules of the settings (project.path_rules).
@@ -2724,7 +2733,7 @@ pub const Emitter = struct {
         const sweep = 1.5 * std.math.pi;
         const arc = r * sweep;
         // The arc lasts as long as the retraction, at most the travel speed.
-        const t = len / self.r.settings.machine.retract_speed;
+        const t = len / self.r.retractSpeedOn(self.nozzleNow());
         const speed = @min(self.r.settings.machine.travel_speed, arc / @max(t, 1e-3));
         const a0 = std.math.atan2(self.y - c[1], self.x - c[0]);
         try self.w.writeAll(";WIPE\n");
@@ -2756,14 +2765,14 @@ pub const Emitter = struct {
 
     /// A retraction, and a z hop if `hop` and `z_hop` is on.
     fn retractHop(self: *Emitter, hop: bool) Error!void {
-        const len = self.lr.retract_length;
+        const len = self.lr.retractLengthOn(self.nozzleNow());
         if (self.retracted or !self.extruded or len <= 0) return;
         const wiped = self.lr.settings.project.retract_wipe and try self.wipeRetract(len);
         if (!wiped) {
             try self.w.writeAll("G1 E-");
             try writeNum(self.w, len, 4);
             try self.w.writeAll(" F");
-            try writeNum(self.w, self.r.settings.machine.retract_speed * 60, 0);
+            try writeNum(self.w, self.r.retractSpeedOn(self.nozzleNow()) * 60, 0);
             try self.w.writeAll("\n");
         }
         self.retracted = true;
@@ -2820,7 +2829,7 @@ pub const Emitter = struct {
         try self.w.writeAll("G1 E");
         try writeNum(self.w, len, 4);
         try self.w.writeAll(" F");
-        try writeNum(self.w, self.r.settings.machine.retract_speed * 60, 0);
+        try writeNum(self.w, self.r.retractSpeedOn(self.nozzleNow()) * 60, 0);
         try self.w.writeAll("\n");
         self.retracted = false;
         self.feed = -1;
@@ -3099,7 +3108,7 @@ pub const Emitter = struct {
         }
         const t_way = motion.plan(moves[0..k], self.limits());
         const hop = self.lr.settings.project.z_hop;
-        const stop = 2 * self.retractTime(self.lr.retract_length) + if (hop > 0) 2 * motion.restTime(hop, m.max_z_speed, m.max_z_accel) else 0;
+        const stop = 2 * self.retractTime(self.lr.retractLengthOn(self.nozzleNow())) + if (hop > 0) 2 * motion.restTime(hop, m.max_z_speed, m.max_z_accel) else 0;
         return t_way > motion.restTime(d, self.travelSpeed(), a) + stop;
     }
 

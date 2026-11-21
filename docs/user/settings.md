@@ -220,6 +220,36 @@ The time of one filament change, in seconds, for the time estimate: the cut, the
 
 The plastic (mm³) that the nozzle flushes after a change to a filament of the same color. A change from a dark color to a light color flushes up to 5 times more (see `project.flush_multiplier`). A pause flushes nothing: you push the new filament through by hand.
 
+### Second nozzle
+
+**`machine.nozzle2_diameter`** (number). Default: `0`
+
+The diameter of the second nozzle of a head with two (`nozzles = 2`). 0: `nozzle_diameter`. With the automatic line width (`project.line_width = 0`), the lines of the second nozzle are 1.1 times this wide.
+
+**`machine.nozzle2_line_width`** (number). Default: `0`
+
+The line width of the walls, the skin, and the infill of the second nozzle, in mm. 0: the line width of the first nozzle, times `nozzle2_diameter` / `nozzle_diameter`. The first layer gets the same ratio to its own width.
+
+**`machine.nozzle2_speed`** (number). Default: `0`
+
+The speed of the lines of the second nozzle, as a ratio of the speed that the same line gets on the first nozzle. The ratios of the features to each other stay. 0: the same speeds. Travel moves keep `travel_speed`: one head moves both nozzles.
+
+**`machine.nozzle2_max_speed`** (number). Default: `0`
+
+The highest speed of the lines of the second nozzle, in mm/s, after `nozzle2_speed`. 0: no limit of its own. A Bambu Lab X2D prints with its second nozzle (a bowden extruder) at most at 200 mm/s.
+
+**`machine.nozzle2_max_accel`** (number). Default: `0`
+
+The highest acceleration of the lines of the second nozzle, in mm/s². 0: no limit of its own. The G-code has it only with `accel_control`; the time estimate always uses it.
+
+**`machine.nozzle2_retract_length`** (number). Default: `0`
+
+The retraction length of the second nozzle, in mm. 0: `retract_length`. The X2D feeds its second nozzle through a bowden tube: Bambu Studio retracts 2 mm there and 0.8 mm on the first.
+
+**`machine.nozzle2_retract_speed`** (number). Default: `0`
+
+The speed of the filament in a retraction of the second nozzle, in mm/s. 0: `retract_speed`.
+
 ### G-code
 
 **`machine.thumbnails`** (text). Default: `""`
@@ -650,7 +680,7 @@ Sparse infill lines go this far into the walls, as a fraction of the line width.
 
 **`project.infill_layers`** (integer; per layer). Default: `1`
 
-Print the sparse infill once every this many layers, as one taller bead at the top layer of each group, with the flow of all the layers. The walls and the skin still print on each layer. Sparse infill is hidden, so it does not need the fine layers, and the print has fewer infill moves. A group is never thicker than the nozzle diameter: the count goes down where the layers are too thick. Only the area that is sparse infill in all layers of a group gets the tall bead, and the dense band under the top skin prints on each layer. 1: each layer.
+Print the sparse infill once every this many layers, as one taller bead at the top layer of each group, with the flow of all the layers. The walls and the skin still print on each layer. Sparse infill is hidden, so it does not need the fine layers, and the print has fewer infill moves. A group is never thicker than the diameter or the line width of the nozzle of the infill (see `infill_filament`): the count goes down where the layers are too thick, and the Check tells it. Only the area that is sparse infill in all layers of a group gets the tall bead, and the dense band under the top skin prints on each layer. 1: each layer.
 
 ### Ironing
 
@@ -899,6 +929,10 @@ The filament of the support: 1 is the first filament of the plate, 2 the second,
 **`project.support_interface_filament`** (integer). Default: `0`
 
 The filament of the support interface (the layers that touch the part). 0: the support filament.
+
+**`project.infill_filament`** (integer). Default: `0`
+
+The filament of the sparse infill: 1 is the first filament of the plate, 2 the second, and so on. 0: the filament of the part. On a printer with two nozzles, a filament of the second nozzle prints the infill with that nozzle, at its line width. With combined infill (`infill_layers` above 1), this filament prints only the tall beads, and the filament of the part prints the narrow areas of infill that print on each layer: the nozzle then changes once in each group of layers.
 
 **`project.prime_tower`** (true or false). Default: `true`
 

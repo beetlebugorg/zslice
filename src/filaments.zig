@@ -105,13 +105,34 @@ pub fn flushVolume(from: []const u8, to: []const u8, base: f64, multiplier: f64)
 /// (a Project): the support filament for support, the interface filament
 /// for the support interface, else the filament of the part. Count: the
 /// filaments of the plate.
+/// The sparse infill of a layer is of the infill filament, but with
+/// combined infill (`infill_layers` above 1) only the tall beads are: see
+/// `slotOfPath`.
 pub fn pathSlot(feature: @import("settings.zig").Feature, p: anytype, count: usize) u32 {
+    return lineSlot(feature, false, p, count);
+}
+
+/// The slot of the filament of a path (a layer.Path): as `pathSlot`, with
+/// the tall beads of combined infill (a path with its own height), and
+/// the root of a painted feature (a hidden path), which keeps the
+/// filament of the part.
+pub fn slotOfPath(path: anytype, p: anytype, count: usize) u32 {
+    if (path.hidden) return if (count < 2) 0 else slotOf(p.filament, count);
+    return lineSlot(path.feature, path.height > 0, p, count);
+}
+
+/// The slot of a line of `feature`; `tall`: a tall bead of combined
+/// infill. The infill filament (`infill_filament`) prints the sparse
+/// infill; with combined infill only the tall beads, so the nozzle
+/// changes once for each group of layers.
+pub fn lineSlot(feature: @import("settings.zig").Feature, tall: bool, p: anytype, count: usize) u32 {
     if (count < 2) return 0;
     const part = slotOf(p.filament, count);
     const support = if (p.support_filament > 0) slotOf(p.support_filament, count) else part;
     return switch (feature) {
         .support => support,
         .support_interface => if (p.support_interface_filament > 0) slotOf(p.support_interface_filament, count) else support,
+        .infill => if (p.infill_filament > 0 and (tall or p.infill_layers <= 1)) slotOf(p.infill_filament, count) else part,
         else => part,
     };
 }

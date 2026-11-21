@@ -741,6 +741,12 @@ typedef struct zs_inspect {
      * the part line that it holds up. ZS_NO_PATH and -1: none. */
     uint32_t holds_layer;
     int holds_feature;
+    /* The nozzle of the line on a printer with two nozzles: 1 the main
+     * nozzle, 2 the second. 0: a printer with one nozzle. */
+    int nozzle;
+    /* The nozzle of the line and the speed limits of the second nozzle,
+     * in plain words, or "". */
+    const char *nozzle_text;
 } zs_inspect;
 
 /* The measurements of a path at its segment seg (src/app/measure.zig):
@@ -764,7 +770,7 @@ int zs_app_measure(const zs_app *app, size_t path, size_t seg, zs_measure *out);
  * is too thin to print), and its text,
  * text[text_start .. text_start + text_len) of the text of the call. The
  * worst first. Valid until the next slice. */
-enum zs_issue_kind { ZS_ISSUE_FLOW = 0, ZS_ISSUE_COOLING = 1, ZS_ISSUE_OVERHANG = 2, ZS_ISSUE_ISLAND = 3, ZS_ISSUE_RETRACTIONS = 4, ZS_ISSUE_BRIDGE = 5, ZS_ISSUE_STAND = 6, ZS_ISSUE_COLOR = 7, ZS_ISSUE_CHANGES = 8, ZS_ISSUE_TOWER = 9, ZS_ISSUE_REACH = 10, ZS_ISSUE_LABEL = 11, ZS_ISSUE_SEQUENCE = 12 };
+enum zs_issue_kind { ZS_ISSUE_FLOW = 0, ZS_ISSUE_COOLING = 1, ZS_ISSUE_OVERHANG = 2, ZS_ISSUE_ISLAND = 3, ZS_ISSUE_RETRACTIONS = 4, ZS_ISSUE_BRIDGE = 5, ZS_ISSUE_STAND = 6, ZS_ISSUE_COLOR = 7, ZS_ISSUE_CHANGES = 8, ZS_ISSUE_TOWER = 9, ZS_ISSUE_REACH = 10, ZS_ISSUE_LABEL = 11, ZS_ISSUE_SEQUENCE = 12, ZS_ISSUE_INFILL = 13 };
 #define ZS_NO_PATH 0xffffffffu
 typedef struct {
     uint8_t kind;
