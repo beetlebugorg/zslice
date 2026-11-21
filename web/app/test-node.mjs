@@ -280,6 +280,30 @@ if (!info.measure || !(info.measure.path > 0) || !(info.measure.segment > 0)) th
 console.log(`measure: segment ${info.measure.segment.toFixed(2)} mm, path ${info.measure.path.toFixed(2)} mm, shape ${info.measure.shape}`);
 check(info && info.layer === mid && info.title.length > 0 && Object.keys(info.values).length > 0, "the Selected page of the path");
 check((core.lineReport(path) ?? "").includes("## The line"), "the report of Copy for AI");
+// The filament of a body of some layers (rangecard.js): the beads of the
+// lit body come from the view, the core paints its part under them, and
+// the body prints in filament 2.
+{
+  const top = Math.min(mid + 10, layers.z.length - 1);
+  const lit = view.lightConnected(path, mid, top);
+  const beads = view.connectedBeads(path, mid, top);
+  check(lit > 0 && beads && beads.length > 0 && beads.length % 9 === 0, "the beads of a lit body");
+  view.lightColor("#ff0000");
+  view.lightColor(null);
+  view.lightConnected(-1);
+  check(core.filamentAdd() === 1, "a second filament for the body");
+  t0 = performance.now();
+  const changed = core.paintBody(beads, 2);
+  const paintMs = performance.now() - t0;
+  check(changed > 0, "the body paints its part");
+  check(core.slice().state === STATE.done, "the slice of the body in filament 2");
+  const bs = core.filamentStats();
+  check(bs.grams[1] > 0, `the body prints in filament 2 (${JSON.stringify(bs)})`);
+  console.log(`body filament: ${beads.length / 9} beads, ${changed} triangles in ${paintMs.toFixed(0)} ms, ${bs.grams[1].toFixed(2)} g of filament 2, ${bs.changes} changes`);
+  check(core.paintBody(beads, 1) > 0 && core.partPaint(0) === "", "the filament of the part removes the paint");
+  check(core.filamentRemove(1), "remove the filament of the body");
+  core.slice();
+}
 // A 3D pick in the middle of the view.
 t0 = performance.now();
 const hit3d = view.pickSegment(400, 300);

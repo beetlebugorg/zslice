@@ -204,6 +204,9 @@ gboolean zg_model_label_update(ZgModel *self, size_t part, guint32 id, const cha
 /* The paint of a part (zs_app_part_paint_set, the text of zs_paint_text):
  * a slice, and one step of the history. */
 gboolean zg_model_part_paint_set(ZgModel *self, size_t part, const char *text, size_t len);
+/* The filament of a body of some layers (zs_app_paint_body, the beads of
+ * zs_view_connected_beads): a slice, and one step of the history. */
+gboolean zg_model_paint_body(ZgModel *self, const float *beads, size_t n, guint filament);
 gboolean zg_model_label_remove(ZgModel *self, size_t part, guint32 id);
 /* After an edit of the support trees (zs_app_support_tree_*): a slice
  * (held during a drag), a step of the history, and the fall check. */

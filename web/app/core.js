@@ -1150,6 +1150,15 @@ export class Core {
     return w.withBytes(bytes, (p, n) => w.x.zs_app_part_paint_set(this.app, i, p, n)) === 0;
   }
 
+  // Paints the body of some layers with filament `filament` (from 1): the
+  // beads of View.connectedBeads (zs_app_paint_body). Returns the count of
+  // triangles whose paint changed, or -1.
+  paintBody(beads, filament) {
+    const w = this.w;
+    const bytes = new Uint8Array(beads.buffer, beads.byteOffset, beads.byteLength);
+    return w.withBytes(bytes, (p) => (w.x.zs_app_paint_body(this.app, p, beads.length, filament, w.cell) === 0 ? w.u32(w.cell) : -1));
+  }
+
   // ---- the labels of a part (zs_app_part_labels_get, zs_app_label_*) ----
 
   // The labels of part i: an array of label objects (the JSON of

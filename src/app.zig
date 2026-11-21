@@ -874,6 +874,38 @@ pub const App = struct {
         try p.paint.readLines(app.gpa, text, p.mesh.faces.items.len);
     }
 
+    /// Paints a body of a range of layers with filament `filament` (from
+    /// 1): the parts of the plate under the beads of `beads` (see
+    /// paint_body.zig, the beads of zs_view_connected_beads). The filament
+    /// of a part is no paint on it. Returns the count of triangles whose
+    /// paint changed. The next slice splits each painted part.
+    pub fn paintBody(app: *App, beads: []const f32, filament: u32) Allocator.Error!usize {
+        const stride = zs.paint_body.stride;
+        var changed: usize = 0;
+        for (0..app.plate.parts.items.len) |i| {
+            var has = false;
+            var k: usize = 0;
+            while (k + stride <= beads.len) : (k += stride) {
+                if (beads[k] == @as(f32, @floatFromInt(i))) {
+                    has = true;
+                    break;
+                }
+            }
+            if (!has) continue;
+            // The filament of the part: paint of it is no paint.
+            var own: u32 = app.settings.project.filament;
+            if (app.partSetting(i, "project.filament")) |v| own = std.fmt.parseInt(u32, std.mem.trim(u8, v, " "), 10) catch own;
+            const state: u8 = if (filament == own) 0 else @intCast(@min(filament, 255));
+            var mesh = try app.plate.partMesh(app.gpa, i);
+            defer mesh.deinit(app.gpa);
+            const p = &app.plate.parts.items[i];
+            // No slice reads the paint while it changes.
+            if (changed == 0) app.stopWorker();
+            changed += try zs.paint_body.paintBody(&p.paint, app.gpa, &mesh, beads, @intCast(i), state);
+        }
+        return changed;
+    }
+
     pub fn setPartSetting(app: *App, i: usize, name: []const u8, value: ?[]const u8) (Allocator.Error || Settings.SetError || error{NoPart})!void {
         if (i >= app.plate.parts.items.len) return error.NoPart;
         if (value) |v| {
@@ -3484,6 +3516,73 @@ test "app: paint goes into the 3MF and comes back with undo, and the slice has t
     try testing.expect(app.plate.parts.items[0].paint.isEmpty());
     _ = app.undo.redo(app, 3000);
     try testing.expectEqual(zs.paint.split, app.plate.parts.items[0].paint.stateOf(nf - 1));
+}
+
+test "app: the filament of a body of some layers paints the body, a step of kind filament, with undo" {
+    const gpa = testing.allocator;
+    // A base and a column on it.
+    var b: zs.mesh.Builder = .init(gpa);
+    try zs.mesh.shapes.addBox(&b, 0, 0, 0, 30, 20, 3);
+    try zs.mesh.shapes.addBox(&b, 12, 7, 3, 18, 13, 13);
+    var mesh = try b.finish();
+    var bytes: std.Io.Writer.Allocating = .init(gpa);
+    defer bytes.deinit();
+    try mesh.writeStl(&bytes.writer);
+    mesh.deinit(gpa);
+    const app = try App.create(gpa, null, null);
+    defer app.destroy();
+    try app.loadStl("column.stl", bytes.written());
+    _ = try filament_slots.add(app);
+    _ = app.undo.commit(app, 0);
+    const base_count = app.undo.count();
+    // The outer wall of the column on the layers from z 5 to 9 (as the
+    // view gives its beads), in the frame of the part on the bed.
+    var placed = try app.plate.partMesh(gpa, 0);
+    const box = placed.bounds();
+    placed.deinit(gpa);
+    const x0: f32 = @floatCast(box.min[0] + 12 + 0.2);
+    const y0: f32 = @floatCast(box.min[1] + 7 + 0.2);
+    const x1: f32 = @floatCast(box.min[0] + 18 - 0.2);
+    const y1: f32 = @floatCast(box.min[1] + 13 - 0.2);
+    var beads: std.ArrayList(f32) = .empty;
+    defer beads.deinit(gpa);
+    var l: usize = 25;
+    while (l <= 45) : (l += 1) {
+        const z: f32 = 0.2 * @as(f32, @floatFromInt(l));
+        const c = [_][2]f32{ .{ x0, y0 }, .{ x1, y0 }, .{ x1, y1 }, .{ x0, y1 } };
+        for (0..4) |k| try beads.appendSlice(gpa, &.{ 0, @floatFromInt(l), z, 0.2, c[k][0], c[k][1], c[(k + 1) % 4][0], c[(k + 1) % 4][1], 0.4 });
+    }
+    try testing.expect(try app.paintBody(beads.items, 2) > 0);
+    app.undo.note(gpa, null, true);
+    _ = app.undo.commit(app, 1000);
+    try testing.expectEqual(base_count + 1, app.undo.count());
+    const info = try app.undo.step(app, app.undo.count() - 1);
+    try testing.expectEqualStrings("filament", info.kind);
+
+    // The slice: filament 2 (tool 1) on the column, near its layers (and its root,
+    // 1 mm under it: paint_anchor_depth), and not on the base.
+    try app.startSlice();
+    app.stopWorkerForTest();
+    try testing.expect(app.result().?.slot_g[1] > 0);
+    const tp = app.allToolpaths().?;
+    var first: usize = 0;
+    var two: usize = 0;
+    for (tp.layer_ends.items, tp.layer_z.items) |end, z| {
+        defer first = end;
+        for (tp.path_tool.items[first..end]) |t| if (t == 1) {
+            two += 1;
+            try testing.expect(z > 3.7 and z < 9.4);
+        };
+    }
+    try testing.expect(two > 0);
+
+    // The filament of the part removes the paint. Undo restores it.
+    _ = try app.paintBody(beads.items, 1);
+    try testing.expect(app.plate.parts.items[0].paint.isEmpty());
+    app.undo.note(gpa, null, true);
+    _ = app.undo.commit(app, 2000);
+    _ = app.undo.undo(app, 3000);
+    try testing.expect(!app.plate.parts.items[0].paint.isEmpty());
 }
 
 /// The JSON of a label "VOLUME" 5 mm tall in filament 2 on the +x side of

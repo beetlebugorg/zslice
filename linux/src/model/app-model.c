@@ -1222,6 +1222,13 @@ gboolean zg_model_part_paint_set(ZgModel *self, size_t part, const char *text, s
     return TRUE;
 }
 
+gboolean zg_model_paint_body(ZgModel *self, const float *beads, size_t n, guint filament) {
+    size_t changed = 0;
+    if (zs_app_paint_body(self->core, beads, n, filament, &changed) != ZS_OK) return FALSE;
+    if (changed > 0) labels_changed(self);
+    return TRUE;
+}
+
 gboolean zg_model_label_remove(ZgModel *self, size_t part, guint32 id) {
     if (zs_app_label_remove(self->core, part, id) != ZS_OK) return FALSE;
     labels_changed(self);

@@ -764,6 +764,38 @@ export fn zs_view_light_connected(view: ?*View, start: usize, lo: usize, hi: usi
     return ok;
 }
 
+/// The beads of the paths of layers lo to hi joined to path `start` (its
+/// body of its part, as zs_view_light_connected), for zs_app_paint_body:
+/// 9 floats for each bead (its part, its layer, its top z, its height, its
+/// ends a and b, and its width, mm). `out` points to `n` floats, valid
+/// until the next call. The light does not change.
+export fn zs_view_connected_beads(view: ?*View, start: usize, lo: usize, hi: usize, out: ?*[*]const f32, n: ?*usize) c_int {
+    if (!render_on) return @intFromEnum(Status.not_supported);
+    const v = view orelse return @intFromEnum(Status.invalid_argument);
+    var list: std.ArrayList(usize) = .empty;
+    defer list.deinit(View.gpa);
+    v.connectedPaths(start, lo, hi, &list) catch |e| return status(e);
+    v.bodyBeads(list.items, &body_beads) catch |e| return status(e);
+    if (out) |o| o.* = body_beads.items.ptr;
+    if (n) |count| count.* = body_beads.items.len;
+    return ok;
+}
+
+/// The memory of zs_view_connected_beads.
+var body_beads: std.ArrayList(f32) = .empty;
+
+/// The color of the lit paths (zs_view_light_connected, and the other
+/// paths of a multiple selection): 0xRRGGBB, or -1 for the yellow of a
+/// selection. A shell gives the color of the filament that the user gave
+/// to a lit body, so it shows at once.
+export fn zs_view_light_color(view: ?*View, rgb: i32) c_int {
+    if (!render_on) return @intFromEnum(Status.not_supported);
+    const v = view orelse return @intFromEnum(Status.invalid_argument);
+    const color: [3]u8 = if (rgb < 0) View.more_yellow else .{ @intCast((rgb >> 16) & 0xff), @intCast((rgb >> 8) & 0xff), @intCast(rgb & 0xff) };
+    v.setMoreColor(color) catch |e| return status(e);
+    return ok;
+}
+
 /// The other paths of a multiple selection (yellow), or none (n = 0).
 export fn zs_view_highlight_more(view: ?*View, paths: ?[*]const usize, n: usize) c_int {
     if (!render_on) return @intFromEnum(Status.not_supported);

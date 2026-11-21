@@ -71,7 +71,7 @@ source: PrusaSlicer, Bambu Studio
 license: AGPL-3.0
 link: https://github.com/prusa3d/PrusaSlicer
 version: tag version_2.9.7
-files: src/paint.zig, src/threemf.zig
+files: src/paint.zig, src/paint_body.zig, src/threemf.zig
 area: files
 summary: zslice reads and writes the triangle paint of PrusaSlicer and Bambu Studio 3MF files.
 ```
@@ -80,9 +80,9 @@ The paint of a mesh in a 3MF file: the triangle attribute `slic3rpe:mmu_segmenta
 
 **License:** AGPL-3.0 (the format, no code)
 
-**Used in:** `src/paint.zig`, `src/threemf.zig`
+**Used in:** `src/paint.zig`, `src/paint_body.zig`, `src/threemf.zig`
 
-**How zslice uses it:** zslice reads and writes the paint of each triangle in this form, so a painted model from MakerWorld or Printables opens with its colors, and a file of zslice opens in PrusaSlicer and Bambu Studio with its paint. It reads the filament of each object and part, and the colors of the filaments of the project.
+**How zslice uses it:** zslice reads and writes the paint of each triangle in this form, so a painted model from MakerWorld or Printables opens with its colors, and a file of zslice opens in PrusaSlicer and Bambu Studio with its paint. The filament of a body of some layers (`src/paint_body.zig`) is paint in the same form. It reads the filament of each object and part, and the colors of the filaments of the project.
 
 ### Multi-material segmentation
 

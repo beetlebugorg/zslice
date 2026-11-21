@@ -2145,6 +2145,7 @@ function onPreviewKey(e) {
     // From the selected line: its body of its part; else all the layers.
     if (keyRange.path === undefined) keyRange.path = app.sel;
     if (keyRange.path >= 0) {
+      view.lightColor(null);
       view.lightConnected(keyRange.path, lo, hi);
       app.rangeLight = { path: keyRange.path, layer: view.pathLayer(keyRange.path), lo, hi };
     } else view.lightLayers(lo, hi);
@@ -2578,10 +2579,26 @@ var rangeCard = new RangeCard({ // var: drawFrame can run before this line
   },
   values: async (z, names) => (await client.call("valuesAt", { z, names })).at,
   search: (text, scope) => search.show(text, scope),
+  // The range lights one body of a part (a drag from a line).
+  body: () => (app.rangeLight?.path ?? -1) >= 0,
+  // The filament of the lit body: its beads go to the worker, which
+  // paints the part under them (src/paint_body.zig) and slices. The body
+  // shows in the color of the filament at once.
+  paintBody: async (f) => {
+    const r = app.rangeLight;
+    const beads = r && r.path >= 0 ? view.connectedBeads(r.path, r.lo, r.hi) : null;
+    if (!beads) return "No body is lit.";
+    r.color = filaments()[f - 1]?.color ?? null;
+    view.lightColor(r.color);
+    requestFrame();
+    const res = await client.call("paintBody", { beads, filament: f });
+    return res.error ?? null;
+  },
   close: () => {
     app.rangeLight = null;
     view.lightLayers(-1);
     view.lightConnected(-1);
+    view.lightColor(null);
     requestFrame();
   },
 });
@@ -2616,9 +2633,14 @@ function layerUnder(d, px, py) {
 // A new scene (a slice, or the simulated print after it) clears the lit
 // body of a range: light it again from its start line, if that line is
 // still on its layer; else all the lines of the layers.
+// A slice can number the lines again (a new filament of a body splits its
+// layers), so the start line is the line of its layer at the point of the
+// press, if the range has one.
 view.onLoad = () => {
   const r = app.rangeLight;
   if (!r || !rangeCard.open) return;
+  if (r.path >= 0 && r.pt && view.pickLayer(r.layer, r.pt[0], r.pt[1])) r.path = view.hit[0];
+  view.lightColor(r.color ?? null);
   if (r.path >= 0 && view.pathLayer(r.path) === r.layer) view.lightConnected(r.path, r.lo, r.hi);
   else view.lightLayers(r.lo, r.hi);
 };
@@ -2646,8 +2668,9 @@ const rangeDrag = {
     d.cur = l;
     // The body of the part of the line where the drag started, on these
     // layers: not every line of the layers.
+    view.lightColor(null);
     view.lightConnected(d.path, d.layer, l);
-    app.rangeLight = { path: d.path, layer: d.layer, lo: d.layer, hi: l };
+    app.rangeLight = { path: d.path, layer: d.layer, lo: Math.min(d.layer, l), hi: Math.max(d.layer, l), pt: d.pt };
     requestFrame();
   },
   end(d) {
