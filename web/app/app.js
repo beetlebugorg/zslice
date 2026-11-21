@@ -3360,7 +3360,10 @@ function onPlates(m) {
   project.showActive(m.active);
   updatePlateBar();
   requestFrame();
-  if (listChanged || m.active !== before) keepSoon();
+  // A plate added or removed: the session now, so a reload right after
+  // keeps the change.
+  if (listChanged) keepSoon(0);
+  else if (m.active !== before) keepSoon();
 }
 
 // Makes plate i the active plate; with `frame`, the camera goes to it.
@@ -3521,10 +3524,19 @@ $("plate-remove").onclick = () => removePlate(app.activePlate);
 // it: the plates of a project slice one after the other, and each slice
 // is a change. So the session is at most 1.5 s old.
 let keepTimer = 0;
-function keepSoon() {
-  if (keepTimer) return;
+let keepAgain = false;
+let keepBusy = false;
+function keepSoon(delay = 1500) {
+  if (keepTimer && delay > 0) return;
+  clearTimeout(keepTimer);
   keepTimer = setTimeout(async () => {
     keepTimer = 0;
+    // One write at a time; a change during a write writes again after.
+    if (keepBusy) {
+      keepAgain = true;
+      return;
+    }
+    keepBusy = true;
     try {
       // The tag and the map of the plates at the time of the write (the
       // write waits for a slice, and a plate can go meanwhile).
@@ -3533,11 +3545,25 @@ function keepSoon() {
       // The worker writes the session and keeps it: the bytes stay off
       // the main thread.
       await client.call("sessionKeep", { camera: cameraNow(), tag, map });
-    } catch {
+    } catch (e) {
       // The next change tries again.
+      console.warn("zslice: the session was not saved:", e);
+    } finally {
+      keepBusy = false;
+      if (keepAgain) {
+        keepAgain = false;
+        keepSoon(0);
+      }
     }
-  }, 1500);
+  }, delay);
 }
+
+// The page goes away or hides: the session now, so a reload or a closed
+// tab finds the last state.
+addEventListener("pagehide", () => keepSoon(0));
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "hidden") keepSoon(0);
+});
 
 // The camera of the view: 8 floats (zs_view_get_camera).
 function cameraNow() {
