@@ -5,6 +5,7 @@
 #include <memory>
 
 #include "zs_model.h"
+#include "zs_part_meshes.h"
 
 namespace winrt::ZSlice::implementation
 {
@@ -150,6 +151,56 @@ namespace winrt::ZSlice::implementation
         void PlacePartCard();
         void HideCards();
         void MakeCardMovable(Microsoft::UI::Xaml::FrameworkElement const &card, Microsoft::UI::Xaml::FrameworkElement const &head, bool *moved);
+
+        // The filaments, Paint, and Label (MainWindow.Filaments.cpp,
+        // MainWindow.Paint.cpp, MainWindow.Label.cpp). Their state is in
+        // those files.
+        struct FilamentState;
+        struct PaintState;
+        struct LabelState;
+        void WireFilaments();
+        std::string FilamentValue(size_t i, char const *name);
+        uint32_t FilamentRgb(int filament);
+        int PartFilament(int64_t part);
+        Microsoft::UI::Xaml::Controls::Button MakeFilamentChip(std::string const &color, std::wstring const &text, bool selected);
+        int64_t AddFilament();
+        void FilamentsChanged();
+        void RefreshFilamentTools();
+        void FillPartExtras();
+        void WirePaint();
+        void PaintTool(bool on);
+        bool PaintPress(double x, double y, bool shift);
+        bool PaintPressed();
+        void PaintDrag(double x, double y);
+        void PaintRelease();
+        void PaintHover(double x, double y);
+        void PaintReload();
+        void PaintPartSelected(int64_t part);
+        void PaintFilamentsChanged();
+        void WireLabel();
+        void LabelTool(bool on);
+        bool LabelPress(double x, double y);
+        bool LabelDragging();
+        void LabelDrag(double x, double y, bool shift);
+        void LabelRelease();
+        void LabelClick(double x, double y);
+        bool LabelWheel(double x, double y, int delta, bool shift);
+        bool LabelKey(Windows::System::VirtualKey key);
+        void LabelReload();
+        void LabelPlace();
+        void LabelOpen(int64_t part, uint32_t id);
+        void LabelFilamentsChanged();
+#ifdef ZS_DEV_HOOKS
+        bool RunPaintStep(std::wstring const &verb, std::vector<std::wstring> const &words);
+        bool RunLabelStep(std::wstring const &verb, std::vector<std::wstring> const &words);
+#endif
+        std::shared_ptr<FilamentState> filaments;
+        std::shared_ptr<PaintState> paint;
+        std::shared_ptr<LabelState> label;
+        zs::PartMeshes meshes;
+        // The press that starts a tool: Shift, and the left button.
+        bool press_shift = false;
+        bool press_left = true;
 
         HWND hwnd = nullptr;
         Microsoft::UI::Dispatching::DispatcherQueue queue{ nullptr };

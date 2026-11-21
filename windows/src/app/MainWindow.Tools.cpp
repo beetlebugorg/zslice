@@ -1,7 +1,8 @@
 // The tools of the main window: the strip, the pointer, and the keys.
 //
-// V Select, M Move, R Turn, G Grab, and T Measure work here. S Support,
-// P Paint, and E Label have their buttons. The behavior follows the GTK
+// V Select, M Move, R Turn, G Grab, and T Measure work here. P Paint and
+// E Label route to MainWindow.Paint.cpp and MainWindow.Label.cpp. S Support
+// has its button. The behavior follows the GTK
 // shell (linux/src/ui/view3d.c and preview.c), and the glyphs are those of
 // the web app (web/app/index.html).
 //
@@ -51,9 +52,10 @@ namespace
         { L"Measure", L"T", L"Measure (T): click two points of the print. The ends of the lines snap. Shift: no snap.",
           L"<Path Data='M1 6H17V12H1ZM4 6v2.5M6.5 6v1.5M9 6v2.5M11.5 6v1.5M14 6v2.5' RenderTransformOrigin='0.5,0.5' " ZS_STROKE L"><Path.RenderTransform><RotateTransform Angle='-45' CenterX='9' CenterY='9'/></Path.RenderTransform></Path>", true },
         { L"Paint", L"P", L"Paint (P): paint filaments on the surface of a part",
-          L"<Path Data='M15.5 2.5 8.6 9.4M8.6 9.4c-1.3-.6-2.9-.1-3.5 1.3-.6 1.3-.2 2.4-1.6 3.8 2.6.7 4.9.2 5.7-1.4.6-1.3.4-2.7-.6-3.7z' " ZS_STROKE L"/>", false },
+          L"<Path Data='M9 2.5a6.5 6.5 0 1 0 0 13c1 0 1.5-.6 1.5-1.3 0-1-.9-1.2-.9-2s.6-1.2 1.4-1.2h1.6a2.9 2.9 0 0 0 2.9-2.9C15.5 5 12.6 2.5 9 2.5z' " ZS_STROKE L"/>"
+          L"<Path Data='M4.6 8.4a1 1 0 1 0 2 0a1 1 0 1 0-2 0ZM6.6 5.4a1 1 0 1 0 2 0a1 1 0 1 0-2 0ZM10 5.4a1 1 0 1 0 2 0a1 1 0 1 0-2 0Z' Fill='{ThemeResource TextFillColorPrimaryBrush}'/>", true },
         { L"Label", L"E", L"Label (E): click a face of a part to put text or marks on it",
-          L"<Path Data='M3.5 3.5H14.5A1.5 1.5 0 0 1 16 5V13A1.5 1.5 0 0 1 14.5 14.5H3.5A1.5 1.5 0 0 1 2 13V5A1.5 1.5 0 0 1 3.5 3.5ZM5.5 7h5M8 7v4.5M12 11.5h1.2' " ZS_STROKE L"/>", false },
+          L"<Path Data='M3.5 3.5H14.5A1.5 1.5 0 0 1 16 5V13A1.5 1.5 0 0 1 14.5 14.5H3.5A1.5 1.5 0 0 1 2 13V5A1.5 1.5 0 0 1 3.5 3.5ZM5.5 7h5M8 7v4.5M12 11.5h1.2' " ZS_STROKE L"/>", true },
     };
 
     FrameworkElement MakeGlyph(wchar_t const *markup)
@@ -117,6 +119,9 @@ namespace winrt::ZSlice::implementation
 
         ViewPanel().DoubleTapped([this](auto &&, Input::DoubleTappedRoutedEventArgs const &e) { OnPanelDoubleTapped(e); });
         WireCards();
+        WireFilaments();
+        WirePaint();
+        WireLabel();
     }
 
     void MainWindow::SetTool(Tool next)
@@ -127,7 +132,16 @@ namespace winrt::ZSlice::implementation
             HandRelease();
             if (tool == Tool::Measure)
                 ClearMeasure();
+            Tool was = tool;
             tool = next;
+            if (was == Tool::Paint)
+                PaintTool(false);
+            if (was == Tool::Label)
+                LabelTool(false);
+            if (next == Tool::Paint)
+                PaintTool(true);
+            if (next == Tool::Label)
+                LabelTool(true);
         }
         for (size_t i = 0; i < tool_buttons.size(); i++)
             tool_buttons[i].IsChecked(static_cast<Tool>(i) == tool);
@@ -151,6 +165,8 @@ namespace winrt::ZSlice::implementation
         last_x = press_x = x;
         last_y = press_y = y;
         tool_drag = false;
+        press_shift = shift;
+        press_left = props.IsLeftButtonPressed();
 
         // A left press can start a tool.
         if (props.IsLeftButtonPressed() && !props.IsMiddleButtonPressed() && ToolPress(x, y, ctrl))
@@ -189,7 +205,11 @@ namespace winrt::ZSlice::implementation
             return;
         }
         if (drag == Drag::None)
+        {
+            if (tool == Tool::Paint)
+                PaintHover(position.X, position.Y);
             return;
+        }
         double dx = position.X - last_x;
         double dy = position.Y - last_y;
         last_x = position.X;
@@ -245,7 +265,8 @@ namespace winrt::ZSlice::implementation
 
     void MainWindow::OnPanelDoubleTapped(Input::DoubleTappedRoutedEventArgs const &e)
     {
-        if (view == nullptr)
+        // The Paint tool: two quick clicks paint two times. The view stays.
+        if (view == nullptr || tool == Tool::Paint)
             return;
         auto at = e.GetPosition(ViewPanel());
         // On a side of the print the view turns to it. Elsewhere it resets.
@@ -282,6 +303,12 @@ namespace winrt::ZSlice::implementation
             return false;
         double s = Scale();
         zs_app *app = model->Active();
+        // The Paint tool: a press paints. Ctrl and a press still move a part.
+        if (tool == Tool::Paint && !ctrl && PaintPress(x, y, press_shift))
+            return true;
+        // The Label tool: a press on a label drags it.
+        if (tool == Tool::Label && !ctrl && LabelPress(x, y))
+            return true;
         // The Turn tool: a press on a ring.
         if (tool == Tool::Turn && !selected_parts.empty())
         {
@@ -407,6 +434,16 @@ namespace winrt::ZSlice::implementation
     {
         double s = Scale();
         zs_app *app = model->Active();
+        if (PaintPressed())
+        {
+            PaintDrag(x, y);
+            return;
+        }
+        if (LabelDragging())
+        {
+            LabelDrag(x, y, shift);
+            return;
+        }
         if (turn_axis >= 0)
         {
             turn_want = std::round(zs_view_ring_drag(view, (float)(x * s), (float)(y * s), shift ? 5.0f : 15.0f));
@@ -503,6 +540,8 @@ namespace winrt::ZSlice::implementation
         zs_app *app = model != nullptr ? model->Active() : nullptr;
         if (app == nullptr)
             return;
+        PaintRelease();
+        LabelRelease();
         if (turn_axis >= 0)
         {
             turn_axis = -1;
@@ -554,6 +593,17 @@ namespace winrt::ZSlice::implementation
             return;
         }
         if (tool == Tool::Grab)
+            return;
+        // The Label tool: a label, or a new label on the face there. A click
+        // of another button does nothing here.
+        if (tool == Tool::Label && !ctrl)
+        {
+            if (press_left)
+                LabelClick(x, y);
+            return;
+        }
+        // The Paint tool: the press painted.
+        if (tool == Tool::Paint && !ctrl)
             return;
         // Shift adds a part to the selection, or takes it out.
         bool select_tool = tool == Tool::Select;
@@ -795,6 +845,8 @@ namespace winrt::ZSlice::implementation
         ApplySelection();
         FillLineCard();
         FillPartCard();
+        if (tool == Tool::Paint)
+            PaintPartSelected(part);
     }
 
     void MainWindow::TogglePart(int64_t part)
@@ -960,6 +1012,14 @@ namespace winrt::ZSlice::implementation
     {
         if (ctrl)
             return false;
+        // Delete, Backspace, and Esc act on the selected label first.
+        if (tool == Tool::Label && LabelKey(key))
+            return true;
+        if (tool == Tool::Paint && key == VirtualKey::Escape)
+        {
+            SetTool(Tool::Select);
+            return true;
+        }
         // The arrows and Delete act on the selected parts first.
         if (!selected_parts.empty())
         {
@@ -1006,6 +1066,8 @@ namespace winrt::ZSlice::implementation
         case VirtualKey::R: SetTool(Tool::Turn); return true;
         case VirtualKey::G: SetTool(Tool::Grab); return true;
         case VirtualKey::T: SetTool(Tool::Measure); return true;
+        case VirtualKey::P: SetTool(Tool::Paint); return true;
+        case VirtualKey::E: SetTool(Tool::Label); return true;
         case VirtualKey::H:
         case VirtualKey::Left: StepLine(-1, shift); return true;
         case VirtualKey::L:

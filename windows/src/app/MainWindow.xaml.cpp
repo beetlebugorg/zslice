@@ -257,6 +257,8 @@ namespace winrt::ZSlice::implementation
             retry_timer.Start();
         else if (rc != ZS_OK && rc != ZS_BUSY)
             zs::Log("shell: the view did not draw: %s\n", zs_status_string(rc));
+        // The handle and the card of a label follow the camera.
+        LabelPlace();
     }
 
     void MainWindow::StartAnimation()
@@ -343,6 +345,7 @@ namespace winrt::ZSlice::implementation
         FindLineAnchor();
         ApplySelection();
         FillPartCard();
+        RefreshFilamentTools();
         size_t count = zs_app_layer_count(model->Active());
         bool at_top = layer_count == 0 || LayerSlider().Value() >= (double)layer_count;
         layer_count = count;
@@ -462,6 +465,14 @@ namespace winrt::ZSlice::implementation
         int delta = point.Properties().MouseWheelDelta();
         if (delta == 0)
             return;
+        // The wheel over the selected label turns it.
+        auto wheel_mods = e.KeyModifiers();
+        if (tool == Tool::Label && (wheel_mods & Windows::System::VirtualKeyModifiers::Control) == Windows::System::VirtualKeyModifiers::None &&
+            LabelWheel(point.Position().X, point.Position().Y, delta, (wheel_mods & Windows::System::VirtualKeyModifiers::Shift) != Windows::System::VirtualKeyModifiers::None))
+        {
+            e.Handled(true);
+            return;
+        }
         // One notch (120) is a step of 15 %. A touchpad and a pinch send
         // small deltas, so they zoom smoothly.
         float factor = std::pow(1.15f, -(float)delta / 120.0f);
