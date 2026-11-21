@@ -394,3 +394,18 @@ summary: `project.wall_order` has the meaning of `inset_direction` (Cura) and `w
 ```
 
 Cura and OrcaSlicer let the user print the outer wall first, for a more exact outer surface, or last, for better overhangs. Both can add one wall on every other layer, so that the infill lies between the extra walls. zslice has the two orders (no inner-outer-inner order) and the extra wall on the odd layers. The settings only; no code is copied.
+
+### Fuzzy skin
+
+```ref
+kind: idea
+source: Cura, OrcaSlicer
+license: AGPL-3.0
+link: https://github.com/Ultimaker/Cura
+version: Cura commit 1a221ec29a86960d16a412940becc1f63534c41f; OrcaSlicer commit 5a1ffc6a631ead5886f1c22920deb341fc1a0106
+files: src/layer.zig, src/settings.zig
+area: walls
+summary: `project.fuzzy_skin`, `project.fuzzy_skin_thickness`, and `project.fuzzy_skin_point_distance` have the meaning of the fuzzy skin settings of Cura (`magic_fuzzy_skin_*`) and OrcaSlicer (`fuzzy_skin*`).
+```
+
+Cura and OrcaSlicer replace the points of the outer wall with random points a random distance apart, each moved a random distance across the wall. zslice does the same in `fuzzWalls`, with the random numbers from the layer and the path, so a slice gives the same points each time. The seam point stays. The idea and the settings only; no code is copied.

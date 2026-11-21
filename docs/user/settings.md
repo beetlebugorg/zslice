@@ -442,6 +442,18 @@ The fan while a wall overhang prints, from 0 to 1. The fan does not go below the
 
 How far a wall must hang over air to print as an overhang (see `overhang_wall_speed`): the part of its line width that is outside the layer below, from 0 to 1. With a 0.2 mm layer and a 0.44 mm line, 0.5 is a slope of about 48 degrees.
 
+**`project.fuzzy_skin`** (one of: `off`, `outer_wall`, `outside`; per layer). Default: `off`
+
+A rough surface: the nozzle moves to a random side along the outer wall, so the surface looks fuzzy and hides the layer lines and the seam. `off`: a smooth wall. `outer_wall`: each outer wall, the holes too. `outside`: only the outside of each part, and not its holes (a hole keeps its size). The first layer stays smooth.
+
+**`project.fuzzy_skin_thickness`** (number; per layer). Default: `0.3`
+
+Fuzzy skin: the width of the band of the random points, in mm. A point goes up to half of it to the outside or to the inside of the wall. Keep it below the line width.
+
+**`project.fuzzy_skin_point_distance`** (number; per layer). Default: `0.8`
+
+Fuzzy skin: the mean distance between the random points, in mm.
+
 **`project.thin_walls`** (true or false; per layer). Default: `false`
 
 Print parts of the outline that are thinner than one line width (a thin fin, a sheet, a label): a loop inside each thin part, with a narrower line, so that its two sides fill the thickness. Without it, these parts print nothing. Off by default.
