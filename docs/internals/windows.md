@@ -6,14 +6,16 @@ The port is in progress. This page describes the parts that exist.
 
 ## Build the core
 
-The core needs Zig 0.16 and Visual Studio with the C++ tools.
+The core needs Zig 0.16 and Visual Studio with the C++ tools. The app builds for x64 and ARM64.
 
 ```powershell
 pwsh windows/build-core.ps1 -Platform x64
 pwsh windows/build-tests.ps1 -Platform x64
+pwsh windows/build-core.ps1 -Platform ARM64
+pwsh windows/build-tests.ps1 -Platform ARM64
 ```
 
-- **`build-core.ps1`** runs `zig build lib` for the MSVC target of the platform. The result is `zig-out/lib/zslice.lib`, with the headers in `zig-out/include`.
+- **`build-core.ps1`** runs `zig build lib` for the MSVC target of the platform. The result is `lib/zslice.lib` and `include/` under `zig-out/windows-x64` or `zig-out/windows-arm64`, so both platforms stay built.
   - A Release core is ReleaseFast.
   - The script sets `-Dcompiler-rt`, so the library has the f128 helpers that `std.json` and `std.fmt.parseFloat` call.
   - For an ARM64 core on an x64 machine, the script gives Zig a libc file with the ARM64 library folders.
@@ -21,7 +23,7 @@ pwsh windows/build-tests.ps1 -Platform x64
   - `core_link.c` opens a G-code file by a UTF-8 path with characters outside the ANSI code page.
   - `view_offscreen.c` draws a model with Direct3D 12, reads the frame, and checks its pixels, also after a resize. Set `ZSLICE_WARP=1` to run it on the software rasterizer.
 
-To link an ARM64 program, Visual Studio needs the component "MSVC ARM64 build tools". The core itself compiles without it.
+To link an ARM64 program, Visual Studio needs the component "MSVC ARM64 build tools" (`Microsoft.VisualStudio.Component.VC.Tools.ARM64`). The core itself compiles without it. An x64 machine builds the ARM64 test programs and does not run them.
 
 ## The Direct3D 12 backend
 

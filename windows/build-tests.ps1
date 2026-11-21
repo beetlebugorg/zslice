@@ -1,7 +1,8 @@
 # Builds and runs the Windows host tests with MSVC.
 #
-# The tests link zig-out\lib\zslice.lib, so run build-core.ps1 first. An
-# ARM64 test program builds on an x64 machine and does not run there.
+# The tests link the core of the platform in zig-out\windows-x64 or
+# zig-out\windows-arm64, so run build-core.ps1 first. An ARM64 test program
+# builds on an x64 machine and does not run there.
 #
 # core_link     calls the C API, and opens a file by a UTF-8 path.
 # view_offscreen draws a model with Direct3D 12 and checks the pixels.
@@ -28,8 +29,10 @@ $hostArch = if ($env:PROCESSOR_ARCHITECTURE -eq 'ARM64') { 'arm64' } else { 'x64
 $targetArch = $Platform.ToLowerInvariant()
 $arch = if ($hostArch -eq $targetArch) { $targetArch } else { "${hostArch}_$targetArch" }
 
-$include = Join-Path $repo 'zig-out\include'
-$lib = Join-Path $repo 'zig-out\lib\zslice.lib'
+$core = Join-Path $repo "zig-out\windows-$targetArch"
+$include = Join-Path $core 'include'
+$lib = Join-Path $core 'lib\zslice.lib'
+if (-not (Test-Path $lib)) { throw "no core at $lib. Run build-core.ps1 -Platform $Platform first." }
 
 foreach ($name in 'core_link', 'view_offscreen') {
     $source = Join-Path $PSScriptRoot "test\$name.c"
