@@ -54,6 +54,7 @@ const Allocator = std.mem.Allocator;
 const Writer = std.Io.Writer;
 const settings_mod = @import("settings.zig");
 const flow = @import("flow.zig");
+const printers = @import("printers.zig");
 const Resolved = settings_mod.Resolved;
 
 pub const Value = union(enum) {
@@ -140,6 +141,19 @@ pub const Context = struct {
     /// A Bambu Lab printer (machine.model "bambu-lab-...").
     fn bambu(c: *const Context) bool {
         return std.mem.startsWith(u8, c.r.settings.machine.model, "bambu-lab");
+    }
+
+    /// The facts of the presets of a Bambu Lab model, or null.
+    fn facts(c: *const Context) ?printers.Bambu {
+        return printers.bambu(c.r.settings.machine.model);
+    }
+
+    /// The nozzle of a list index: an extruder index (`each_nozzle`) or a
+    /// filament index.
+    fn nozzleIndex(c: *const Context, i: ?f64, of_filament: bool) usize {
+        const v = i orelse return c.nozzleOf(c.tool);
+        const k: u32 = if (v >= 0 and v < 64) @intFromFloat(v) else 0;
+        return if (of_filament) c.nozzleOf(k) else @min(k, 1);
     }
 
     fn slot(c: *const Context, i: ?f64) settings_mod.Filament {
@@ -285,6 +299,30 @@ pub const Key = enum {
     /// The glass point of the material (°C): Bambu Studio's
     /// temperature_vitrification of its generic filaments.
     vitrification,
+    /// The same on a Bambu Lab printer (its templates use it), else no
+    /// value.
+    bambu_vitrification,
+    /// The facts of the presets of a Bambu Lab model (printers.Bambu), by
+    /// nozzle: the retraction of a filament change (else the retraction
+    /// of zslice), the heating and the cooling rate of the hotend, the
+    /// retraction before the cutter, and a long retraction at the cut.
+    /// A list index of the first three is a nozzle; of the last two, a
+    /// filament.
+    toolchange_retract,
+    heating_rate,
+    cooling_rate,
+    cut_retract,
+    long_cut,
+    /// The id of the generic filament of Bambu Studio of the material.
+    bambu_filament_id,
+    /// The volume type of each nozzle, as Bambu Studio names it
+    /// ("Standard", "High Flow").
+    volume_name,
+    /// The acceleration of the first layer (mm/s²).
+    first_layer_accel,
+    /// The retraction of a filament change with no cutter (mm): 14 in the
+    /// filament presets of Bambu Studio (fdm_filament_common).
+    nc_retract,
     lagrange,
     /// zslice has no value: see the header comment.
     no_value,
@@ -363,8 +401,9 @@ pub const names = std.StaticStringMap(Entry).initComptime(.{
     .{ "chamber_minimal_temperature", each(.chamber_temp) },
     .{ "overall_chamber_temperature", just(.chamber_temp) },
     .{ "build_volume_temperature", just(.chamber_temp) },
-    // The temperature at which the material gets soft: zslice has none.
-    .{ "temperature_vitrification", each(.no_value) },
+    // The temperature at which the material gets soft: the table of the
+    // generic filaments of Bambu Studio, for a Bambu Lab printer.
+    .{ "temperature_vitrification", each(.bambu_vitrification) },
     .{ "min_vitrification_temperature", just(.vitrification) },
 
     // Layers and sizes. c: layer_height_0. o: initial_layer_print_height.
@@ -464,7 +503,13 @@ pub const names = std.StaticStringMap(Entry).initComptime(.{
     .{ "deretract_speed", each(.retract_speed) },
     .{ "retract_restart_extra", each(.zero) },
     .{ "retract_restart_extra_toolchange", each(.zero) },
-    .{ "retract_length_toolchange", each(.retract_length) },
+    .{ "retract_length_toolchange", each(.toolchange_retract) },
+    // b: the retraction of the old and of the new filament of a change,
+    // and the length that the new extruder has retracted (the
+    // retraction of a change).
+    .{ "old_retract_length_toolchange", just(.toolchange_retract) },
+    .{ "new_retract_length_toolchange", just(.toolchange_retract) },
+    .{ "new_extruder_retracted_length", just(.toolchange_retract) },
     .{ "switch_extruder_retraction_amount", just(.no_value) },
     .{ "retraction_hop", just(.z_hop) },
     .{ "retract_lift", each(.z_hop) },
@@ -507,6 +552,9 @@ pub const names = std.StaticStringMap(Entry).initComptime(.{
     .{ "material_profile", just(.no_value) },
     .{ "filament_notes", each(.empty_text) },
     .{ "filament_vendor", each(.no_value) },
+    // b: the id of the filament preset ("GFL99" for a generic PLA): the
+    // id of the generic filament of its material (bambu.genericFilament).
+    .{ "filament_ids", each(.bambu_filament_id) },
     .{ "filament_max_volumetric_speed", each(.max_flow) },
     .{ "filament_flush_volumetric_speed", each(.max_flow) },
     // o: the flow of the outer wall (mm³/s): its speed times its bead.
@@ -592,15 +640,31 @@ pub const names = std.StaticStringMap(Entry).initComptime(.{
     .{ "current_nozzle_id", just(.nozzle_now) },
     .{ "initial_nozzle_id", just(.nozzle_now) },
     .{ "initial_no_support_hotend", just(.hotend_now) },
+    .{ "first_non_support_hotend", each(.hotend_now) },
     .{ "first_non_support_filaments", each(.first_filament) },
     .{ "first_filaments", each(.first_filament) },
     .{ "nozzle_diameter_at_nozzle_id", each(.nozzle_diameter) },
     .{ "is_all_bbl_filament", just(.off) },
     .{ "cooling_filter_enabled", just(.off) },
     .{ "hold_chamber_temp_for_flat_print", just(.off) },
-    .{ "long_retraction_when_cut", just(.off) },
+    .{ "long_retraction_when_cut", just(.long_cut) },
     .{ "long_retraction_when_ec", just(.off) },
-    .{ "retraction_distances_when_cut", each(.no_value) },
+    .{ "long_retractions_when_cut", each(.long_cut) },
+    .{ "retraction_distances_when_cut", each(.cut_retract) },
+    .{ "retraction_distance_when_cut", just(.cut_retract) },
+    .{ "hotend_heating_rate", each(.heating_rate) },
+    .{ "hotend_cooling_rate", each(.cooling_rate) },
+    .{ "nozzle_volume_types", each(.volume_name) },
+    // b: a change with no cutter (the H2C): no cooling before it, and the
+    // retraction of the generic filaments.
+    .{ "filament_pre_cooling_temperature_nc", each(.zero) },
+    .{ "filament_retract_length_nc", each(.nc_retract) },
+    // b: Bambu Studio sets it false for a change (GCode::set_extruder).
+    .{ "wipe_avoid_perimeter", just(.off) },
+    // b: the lift of each filament: 0 is "Auto Lift", the value of the
+    // Bambu Lab presets.
+    .{ "z_hop_types", each(.zero) },
+    .{ "initial_layer_acceleration", just(.first_layer_accel) },
     .{ "retraction_distances_when_ec", each(.no_value) },
     .{ "wipe_tower_center_pos_valid", just(.off) },
     // b: the interface of the prime tower (zslice has none), and the
@@ -1105,6 +1169,16 @@ const Renderer = struct {
             .forty => num(40),
             .seventy => num(70),
             .vitrification => num(vitrificationOf(f.material)),
+            .bambu_vitrification => if (c.bambu()) num(vitrificationOf(f.material)) else .nil,
+            .toolchange_retract => if (c.facts()) |b| num(b.toolchange_retract[c.nozzleIndex(index, false)]) else num(round3(r.retract_length)),
+            .heating_rate => if (c.facts()) |b| nonzero(b.heating_rate[c.nozzleIndex(index, false)]) else .nil,
+            .cooling_rate => if (c.facts()) |b| nonzero(b.cooling_rate[c.nozzleIndex(index, false)]) else .nil,
+            .cut_retract => if (c.facts()) |b| nonzero(b.cut_retract[c.nozzleIndex(index, true)]) else .nil,
+            .long_cut => .{ .boolean = if (c.facts()) |b| b.long_cut[c.nozzleIndex(index, true)] else false },
+            .bambu_filament_id => if (c.bambu()) .{ .text = @import("bambu.zig").genericFilament(f.material) } else .nil,
+            .volume_name => .{ .text = if (m.nozzle_flow == .high_flow) "High Flow" else "Standard" },
+            .first_layer_accel => num(r.accel(.inner_wall, true)),
+            .nc_retract => num(14),
             .lagrange => .{ .text = "lagrange" },
             .no_value => .nil,
         };
@@ -1128,6 +1202,11 @@ fn vitrificationOf(material: []const u8) f64 {
 
 fn num(v: f64) Value {
     return .{ .num = v };
+}
+
+/// A value of the presets: 0 is no value.
+fn nonzero(v: f64) Value {
+    return if (v != 0) num(v) else .nil;
 }
 
 fn round3(v: f64) f64 {
@@ -2133,7 +2212,6 @@ test "numbers" {
 }
 
 test "each G-code of the printer library renders with no variable left" {
-    const printers = @import("printers.zig");
     if (printers.builtin_data.len == 0) return error.SkipZigTest;
     const profile = @import("profile.zig");
     const lib = try printers.Library.parse(testing.allocator, printers.builtin_data);

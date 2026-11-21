@@ -470,6 +470,16 @@ pub const Bambu = struct {
     types: []const u8 = "Direct Drive",
     volumes: []const u8 = "Standard",
     variants: []const u8 = "",
+    /// The values of the presets for each nozzle that the G-code
+    /// templates of the model use: the retraction of a filament change
+    /// (mm), the heating and the cooling rate of the hotend (°C/s), the
+    /// retraction before the cutter (mm), and a long retraction at the
+    /// cut. 0: not known.
+    toolchange_retract: [2]f64 = .{ 0, 0 },
+    heating_rate: [2]f64 = .{ 0, 0 },
+    cooling_rate: [2]f64 = .{ 0, 0 },
+    cut_retract: [2]f64 = .{ 0, 0 },
+    long_cut: [2]bool = .{ false, false },
 };
 
 const bambu_text = @embedFile("printers/bambu.txt");
@@ -498,6 +508,14 @@ pub fn bambu(id: []const u8) ?Bambu {
         b.types = f.next() orelse b.types;
         b.volumes = f.next() orelse b.volumes;
         b.variants = f.next() orelse "";
+        for ([_]*[2]f64{ &b.toolchange_retract, &b.heating_rate, &b.cooling_rate, &b.cut_retract }) |out| {
+            var it = std.mem.splitScalar(u8, f.next() orelse "", ';');
+            for (out) |*v| v.* = std.fmt.parseFloat(f64, it.next() orelse "") catch 0;
+            if (b.nozzles < 2) out[1] = out[0];
+        }
+        var it = std.mem.splitScalar(u8, f.next() orelse "", ';');
+        for (&b.long_cut) |*v| v.* = std.mem.eql(u8, it.next() orelse "", "1");
+        if (b.nozzles < 2) b.long_cut[1] = b.long_cut[0];
         return b;
     }
     return null;
@@ -512,11 +530,20 @@ test "printers: the facts of the Bambu Lab X2D and of a printer with one nozzle"
     try std.testing.expectEqual(@as(f64, 256), x2d.height[1]);
     try std.testing.expectEqualStrings("Direct Drive;Bowden", x2d.types);
     try std.testing.expect(std.mem.startsWith(u8, x2d.variants, "Direct Drive Standard,"));
+    try std.testing.expectEqual(@as(f64, 2), x2d.toolchange_retract[1]);
+    try std.testing.expectEqual(@as(f64, 1.5), x2d.heating_rate[0]);
+    try std.testing.expectEqual(@as(f64, 18), x2d.cut_retract[1]);
     const h2d = bambu("bambu-lab-h2d").?;
     try std.testing.expectEqual(@as(f64, 325), h2d.max_x[0]);
+    try std.testing.expectEqual(@as(f64, 10), h2d.cut_retract[0]);
+    const h2c = bambu("bambu-lab-h2c").?;
+    try std.testing.expectEqual(@as(f64, 13.3), h2c.heating_rate[1]);
+    try std.testing.expect(h2c.long_cut[0] and h2c.long_cut[1]);
     const p1s = bambu("bambu-lab-p1s").?;
     try std.testing.expectEqualStrings("C12", p1s.code);
     try std.testing.expectEqual(@as(u32, 1), p1s.nozzles);
+    try std.testing.expectEqual(@as(f64, 18), p1s.cut_retract[1]);
+    try std.testing.expect(!p1s.long_cut[0]);
     try std.testing.expect(bambu("creality-ender-3") == null);
 }
 

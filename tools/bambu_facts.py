@@ -22,8 +22,13 @@ Each row (tab separated): B, the model id of the printer library
 model name ("Bambu Lab X2D"), the number of nozzles, then for each nozzle
 the least x, the most x, and the height that it reaches (mm; empty for a
 printer with one nozzle: the bed), the extruder types, and the default
-nozzle volume types (";" between nozzles), and the extruder variant
-lists ("|" between nozzles).
+nozzle volume types (";" between nozzles), the extruder variant
+lists ("|" between nozzles), and for each nozzle (";" between nozzles):
+the retraction of a filament change (retract_length_toolchange, mm), the
+heating and the cooling rate of the hotend (hotend_heating_rate and
+hotend_cooling_rate, °C/s), the retraction before the cutter
+(retraction_distances_when_cut, mm), and a long retraction at the cut
+(long_retractions_when_cut, 0 or 1).
 
 SPDX-License-Identifier: AGPL-3.0-or-later
 """
@@ -107,7 +112,22 @@ def main():
         types = res(preset, "extruder_type") or ["Direct Drive"]
         volumes = res(preset, "default_nozzle_volume_type") or ["Standard"]
         variants = res(preset, "extruder_variant_list") or [t + " Standard" for t in types[:n]]
-        row = ["B", lib_id, j["model_id"], name, str(n)] + reach + [";".join(types[:n]), ";".join(volumes[:n]), "|".join(variants[:n])]
+        # The values of the extruder options: the presets have one for
+        # each extruder variant (printer_extruder_id); each nozzle gets the
+        # first variant of its extruder, the standard one.
+        ext_ids = res(preset, "printer_extruder_id") or []
+
+        def per_nozzle(key):
+            vals = res(preset, key) or []
+            vals = vals if isinstance(vals, list) else [vals]
+            out = []
+            for k in range(n):
+                i = next((i for i, e in enumerate(ext_ids) if str(e) == str(k + 1)), k)
+                out.append(str(vals[i]) if i < len(vals) else (str(vals[0]) if vals else ""))
+            return ";".join(out)
+
+        extra = [per_nozzle(k) for k in ("retract_length_toolchange", "hotend_heating_rate", "hotend_cooling_rate", "retraction_distances_when_cut", "long_retractions_when_cut")]
+        row = ["B", lib_id, j["model_id"], name, str(n)] + reach + [";".join(types[:n]), ";".join(volumes[:n]), "|".join(variants[:n])] + extra
         print("\t".join(row))
         if a.gcode:
             for key, path in TEMPLATES:
