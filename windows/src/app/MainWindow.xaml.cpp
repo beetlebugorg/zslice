@@ -117,7 +117,12 @@ namespace winrt::ZSlice::implementation
         WirePlates();
         WireSettings();
         WireTools();
-        Closed([this](auto &&, auto &&) { CloseView(); });
+        WireSession();
+        WireMenu();
+        Closed([this](auto &&, auto &&) {
+            SaveSession(true);
+            CloseView();
+        });
     }
 
     // ---- the view ----
@@ -183,10 +188,12 @@ namespace winrt::ZSlice::implementation
             if (!model->UsePrinter(zs::ToUtf8(printer), message))
                 ShowError(zs::ToWide(message));
         }
-        ShowPlate();
+        zs_view_set_dark(view, Root().ActualTheme() == ElementTheme::Dark ? 1 : 0);
+        std::wstring file = CommandLineFile();
+        if (!RestoreSession(!file.empty()))
+            ShowPlate();
         ViewPanel().Focus(FocusState::Programmatic);
 
-        std::wstring file = CommandLineFile();
         if (!file.empty())
             LoadPath(file);
     }
@@ -198,6 +205,8 @@ namespace winrt::ZSlice::implementation
         scene_timer.Stop();
         history_timer.Stop();
         fall_timer.Stop();
+        session_timer.Stop();
+        replay_timer.Stop();
         // The view reads the apps of the set, so it goes first.
         if (view != nullptr)
             zs_view_free(view);
@@ -280,6 +289,7 @@ namespace winrt::ZSlice::implementation
             zs_set_view_sync(model->Set(), view);
             RefreshPlates();
             RequestDraw();
+            SessionSoon();
             return;
         }
         // A slice of another plate shows only in its status.
@@ -305,6 +315,7 @@ namespace winrt::ZSlice::implementation
                 StopReplay();
                 replay_time = 0;
                 ShowSlice();
+                SessionSoon();
             }
             break;
         case ZS_EVENT_SIMULATED:

@@ -66,14 +66,8 @@ namespace winrt::ZSlice::implementation
             return;
         zs_app *app = model->Active();
         int state = zs_app_state(app);
-        zs_plate_info info{};
-        std::wstring name;
-        if (zs_set_plate_info(model->Set(), model->ActivePlate(), &info) == ZS_OK && info.name != nullptr)
-            name = zs::ToWide(info.name);
-        FileName().Text(name);
-        Title(name.empty() ? L"zslice" : name + L" - zslice");
-        // With more plates the hint would cover their beds.
-        EmptyHint().Visibility(zs_app_part_count(app) == 0 && model->PlateCount() == 1 ? Visibility::Visible : Visibility::Collapsed);
+        ShowPlateChrome();
+        SessionSoon();
         // The selection was of the plate before.
         StopReplay();
         replay_time = 0;
@@ -87,10 +81,6 @@ namespace winrt::ZSlice::implementation
         selected_parts.clear();
         HideCards();
         ApplySelection();
-        // The settings and the history are those of the new plate.
-        RefreshSettingValues();
-        RefreshHistoryButtons();
-        RefreshFilamentTools();
         // The slider of the new plate starts at its top.
         layer_count = 0;
         if (state == ZS_STATE_DONE)
@@ -109,6 +99,24 @@ namespace winrt::ZSlice::implementation
         StatusText().Text(state == ZS_STATE_SLICING ? L"Slicing" : L"");
         RefreshPlates();
         RequestDraw();
+    }
+
+    // The name, the hint, the settings, and the history of the active plate.
+    void MainWindow::ShowPlateChrome()
+    {
+        zs_app *app = model->Active();
+        zs_plate_info info{};
+        std::wstring name;
+        if (zs_set_plate_info(model->Set(), model->ActivePlate(), &info) == ZS_OK && info.name != nullptr)
+            name = zs::ToWide(info.name);
+        FileName().Text(name);
+        Title(name.empty() ? L"zslice" : name + L" - zslice");
+        // With more plates the hint would cover their beds.
+        EmptyHint().Visibility(zs_app_part_count(app) == 0 && model->PlateCount() == 1 ? Visibility::Visible : Visibility::Collapsed);
+        RefreshSettingValues();
+        RefreshHistoryButtons();
+        RefreshFilamentTools();
+        RefreshPlates();
     }
 
     void MainWindow::RefreshPlates()
