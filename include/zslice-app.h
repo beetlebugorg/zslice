@@ -764,7 +764,7 @@ int zs_app_measure(const zs_app *app, size_t path, size_t seg, zs_measure *out);
  * is too thin to print), and its text,
  * text[text_start .. text_start + text_len) of the text of the call. The
  * worst first. Valid until the next slice. */
-enum zs_issue_kind { ZS_ISSUE_FLOW = 0, ZS_ISSUE_COOLING = 1, ZS_ISSUE_OVERHANG = 2, ZS_ISSUE_ISLAND = 3, ZS_ISSUE_RETRACTIONS = 4, ZS_ISSUE_BRIDGE = 5, ZS_ISSUE_STAND = 6, ZS_ISSUE_COLOR = 7, ZS_ISSUE_CHANGES = 8, ZS_ISSUE_TOWER = 9, ZS_ISSUE_REACH = 10, ZS_ISSUE_LABEL = 11 };
+enum zs_issue_kind { ZS_ISSUE_FLOW = 0, ZS_ISSUE_COOLING = 1, ZS_ISSUE_OVERHANG = 2, ZS_ISSUE_ISLAND = 3, ZS_ISSUE_RETRACTIONS = 4, ZS_ISSUE_BRIDGE = 5, ZS_ISSUE_STAND = 6, ZS_ISSUE_COLOR = 7, ZS_ISSUE_CHANGES = 8, ZS_ISSUE_TOWER = 9, ZS_ISSUE_REACH = 10, ZS_ISSUE_LABEL = 11, ZS_ISSUE_SEQUENCE = 12 };
 #define ZS_NO_PATH 0xffffffffu
 typedef struct {
     uint8_t kind;
@@ -1334,6 +1334,11 @@ int zs_app_plate_remove(zs_app *app, size_t i);
 /* Smart placement of all parts, then an arrange. 1 if they all fit. */
 int zs_app_plate_smart_place(zs_app *app);
 int zs_app_part_remove(zs_app *app, size_t i);
+/* Moves part i to place `to` of the plate list; the parts between move
+ * one place. The list is the print order with project.print_sequence =
+ * by_object (one part at a time). ZS_OUT_OF_RANGE for a bad index. */
+int zs_app_part_reorder(zs_app *app, size_t i, size_t to);
+
 /* Packs all parts on the bed, the largest first. 1 if all fit. */
 int zs_app_plate_arrange(zs_app *app);
 int zs_app_plate_clear(zs_app *app);

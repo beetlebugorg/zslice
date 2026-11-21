@@ -48,8 +48,8 @@ machine_extruders_share_nozzle | not | Ultimaker hardware with two feeders on on
 machine_extruders_shared_nozzle_initial_retraction | not | Ultimaker hardware with two feeders on one nozzle
 machine_disallowed_areas | missing | areas of the bed where no part can go
 nozzle_disallowed_areas | missing | areas of the bed where a nozzle cannot go
-machine_head_with_fans_polygon | missing | the size of the head, for one-at-a-time print order
-gantry_height | missing | the height of the gantry, for one-at-a-time print order
+machine_head_with_fans_polygon | derived | machine.clearance_radius (a circle in place of the polygon)
+gantry_height | same | machine.clearance_height
 machine_time_estimation_factor | not | zslice plans each move with the motion limits for the time
 machine_nozzle_id | derived | machine.nozzle_diameter and machine.nozzle_type
 machine_nozzle_size | same | machine.nozzle_diameter
@@ -671,7 +671,7 @@ meshfix_fluid_motion_small_distance | missing | smooth the corners of short segm
 meshfix_fluid_motion_angle | missing | smooth the corners of short segments
 
 # blackmagic
-print_sequence | missing | one part at a time
+print_sequence | same | project.print_sequence (one_at_a_time is by_object)
 user_defined_print_order_enabled | missing | the order of the parts
 infill_mesh | same | a modifier volume of a plate (the importer reads it)
 infill_mesh_order | same | the order of the modifier volumes

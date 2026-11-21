@@ -931,7 +931,7 @@ pub const Emitter = struct {
         self.width = x.width;
         self.layer_start = x.layer_start;
         // The fan of the layer, as `coolingFan` sets it.
-        self.layer_fan = @intFromFloat(@round(255 * layerFan(self.r.settings.filament, f, lp.index, layer_time)));
+        self.layer_fan = @intFromFloat(@round(255 * layerFan(self.r.settings.filament, f, fanIndex(lp), layer_time)));
         self.fan = self.layer_fan;
         return true;
     }
@@ -2069,8 +2069,14 @@ pub const Emitter = struct {
     fn coolingFan(self: *Emitter, lp: *const LayerPlan, layer_time: f64) Error!void {
         const g = self.r.settings;
         const s = self.lr.settings;
-        self.layer_fan = @intFromFloat(@round(255 * layerFan(g.filament, s.filament, lp.index, layer_time)));
+        self.layer_fan = @intFromFloat(@round(255 * layerFan(g.filament, s.filament, fanIndex(lp), layer_time)));
         try self.setFan(self.layer_fan);
+    }
+
+    /// The layer index for the fan: the layer in its part with sequential
+    /// printing (each part starts with the fan off), else the layer.
+    fn fanIndex(lp: *const LayerPlan) usize {
+        return if (lp.part_layer != LayerPlan.no_part) lp.part_layer else lp.index;
     }
 
     /// The fan of layer `index` (0 to 1): `plate` gives the layers with the
@@ -2104,6 +2110,9 @@ pub const Emitter = struct {
         const s = lr.settings;
         const first = lp.index == 0;
 
+        // Sequential printing: up over the printed parts, and over to the
+        // first path of the next part (see plate_job.Level.lift).
+        if (lp.lift > 0) try self.liftOver(lp);
         // Go up to the new layer. The retraction has no z hop: the layer
         // change moves the nozzle up, and the travel to the first path
         // goes at the height of the new layer.
@@ -2756,6 +2765,30 @@ pub const Emitter = struct {
             try self.w.writeAll("\n");
             self.hopped = true;
             self.hop_len = hop_len;
+        }
+    }
+
+    /// The travel from one part to the next in sequential printing: a
+    /// retraction, up to `lp.lift` (over all the parts that printed
+    /// before), and over to the first path of the layer. The layer change
+    /// then goes down to the layer.
+    fn liftOver(self: *Emitter, lp: *const LayerPlan) Error!void {
+        try self.retractHop(false);
+        const up = @max(lp.lift, self.z);
+        if (up > self.z) {
+            try self.zMove(up - self.z);
+            self.z = up;
+            try self.w.writeAll("G0 Z");
+            try writeNum(self.w, self.z, 3);
+            try self.w.writeAll(" F");
+            try writeNum(self.w, self.r.settings.machine.max_z_speed * 60, 0);
+            try self.w.writeAll(" ; over the printed parts\n");
+        }
+        for (0..lp.paths.items.len) |i| {
+            const pts = lp.points.get(i);
+            if (pts.len == 0) continue;
+            try self.move(geom.toMm(pts[0].x), geom.toMm(pts[0].y));
+            break;
         }
     }
 

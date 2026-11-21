@@ -258,6 +258,18 @@ export class PartCard {
     moveB.onclick = () => this.moveToNewPlate();
     actions.append(moveB);
     action("Remove", "Delete", "Remove the part from the plate", "remove");
+    // One part at a time: the place of the part in the print order.
+    this.orderRow = el("div", "pc-cut-row pc-order");
+    this.orderRow.hidden = true;
+    this.orderText = el("span", "", "");
+    const earlier = el("button", "pc-action", "Print earlier");
+    earlier.title = "Print this part before the part before it in the plate list";
+    earlier.onclick = () => this.act("earlier");
+    const later = el("button", "pc-action", "Print later");
+    later.title = "Print this part after the part after it in the plate list";
+    later.onclick = () => this.act("later");
+    this.orderRow.append(this.orderText, earlier, later);
+    actions.append(this.orderRow);
     // Make n in all: copies on this plate, then on new plates.
     const make = el("div", "pc-cut-row pc-make");
     const makeN = Object.assign(document.createElement("input"), { type: "number", min: "2", max: "10000", step: "1", value: "10", className: "pc-cut-n" });
@@ -413,6 +425,20 @@ export class PartCard {
     const turn = Math.round(((p.rotation % 360) + 360) % 360);
     if (this.scaleIn && document.activeElement !== this.scaleIn && p.scale) this.scaleIn.value = String(Math.round(p.scale[0] * 10000) / 100);
     this.facts.textContent = `${p.sizeX.toFixed(1)} × ${p.sizeY.toFixed(1)} × ${p.sizeZ.toFixed(1)} mm${turn ? ` · turned ${turn}°` : ""}`;
+    this.updateOrder();
+  }
+
+  // The place of the part in the print order, with one part at a time.
+  async updateOrder() {
+    const p = this.part;
+    if (!p || !this.orderRow) return;
+    const r = await this.ctx.client.call("partOrder", { index: p.index });
+    if (this.part !== p || !this.orderRow) return;
+    this.orderRow.hidden = !r.sequential || r.count < 2;
+    this.orderText.textContent = `Prints ${r.index + 1} of ${r.count}`;
+    const [earlier, later] = this.orderRow.querySelectorAll("button");
+    earlier.disabled = r.index === 0;
+    later.disabled = r.index >= r.count - 1;
   }
 
   // The search scope of this part, or of all the selected parts.

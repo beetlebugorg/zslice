@@ -17,8 +17,8 @@ The lists come from Cura `resources/definitions/fdmprinter.def.json` and `fdmext
 
 | Slicer | Settings | Same | Covered | Missing | Not for zslice |
 |---|---|---|---|---|---|
-| Cura | 762 | 169 | 91 | 439 | 63 |
-| OrcaSlicer | 1013 | 161 | 122 | 498 | 232 |
+| Cura | 762 | 171 | 92 | 436 | 63 |
+| OrcaSlicer | 1013 | 164 | 122 | 495 | 232 |
 
 ## Cura
 
@@ -634,7 +634,7 @@ The lists come from Cura `resources/definitions/fdmprinter.def.json` and `fdmext
 
 | Cura setting | Status | zslice |
 |---|---|---|
-| `print_sequence` (Print Sequence) | Missing | one part at a time |
+| `print_sequence` (Print Sequence) | Same | `project.print_sequence` (one_at_a_time is by_object) |
 | `user_defined_print_order_enabled` (Set Print Sequence Manually) | Missing | the order of the parts |
 | `infill_mesh` (Infill Mesh) | Same | a modifier volume of a plate (the importer reads it) |
 | `infill_mesh_order` (Mesh Processing Rank) | Same | the order of the modifier volumes |
@@ -792,8 +792,8 @@ The lists come from Cura `resources/definitions/fdmprinter.def.json` and `fdmext
 | `machine_extruders_shared_nozzle_initial_retraction` (Shared Nozzle Initial Retraction) | Not for zslice | Ultimaker hardware with two feeders on one nozzle |
 | `machine_disallowed_areas` (Disallowed Areas) | Missing | areas of the bed where no part can go |
 | `nozzle_disallowed_areas` (Nozzle Disallowed Areas) | Missing | areas of the bed where a nozzle cannot go |
-| `machine_head_with_fans_polygon` (Machine Head & Fan Polygon) | Missing | the size of the head, for one-at-a-time print order |
-| `gantry_height` (Gantry Height) | Missing | the height of the gantry, for one-at-a-time print order |
+| `machine_head_with_fans_polygon` (Machine Head & Fan Polygon) | Covered | `machine.clearance_radius` (a circle in place of the polygon) |
+| `gantry_height` (Gantry Height) | Same | `machine.clearance_height` |
 | `machine_time_estimation_factor` (Print Time Estimation Factor) | Not for zslice | zslice plans each move with the motion limits for the time |
 | `machine_nozzle_id` (Nozzle ID) | Covered | `machine.nozzle_diameter` and `machine.nozzle_type` |
 | `machine_nozzle_size` (Nozzle Diameter) | Same | `machine.nozzle_diameter` |
@@ -899,6 +899,8 @@ The print, printer, and filament settings first, by status. The settings of resi
 | `elefant_foot_compensation` (Elephant foot compensation) | `project.first_layer_xy_offset` |
 | `enable_prime_tower` (Enable) | `project.prime_tower` |
 | `enable_support` (Enable support) | `project.support` |
+| `extruder_clearance_height_to_rod` (Height to rod) | `machine.clearance_height` |
+| `extruder_clearance_radius` (Radius) | `machine.clearance_radius` |
 | `extruder_printable_area` (Extruder printable area) | `machine.nozzle2_min_x` and `machine.nozzle1_max_x` |
 | `extruder_printable_height` (Extruder printable height) | `machine.nozzle1_max_height` and `machine.nozzle2_max_height` |
 | `fan_cooling_layer_time` (Layer time) | `filament.fan_boost_time` |
@@ -967,6 +969,7 @@ The print, printer, and filament settings first, by status. The settings of resi
 | `overhang_fan_speed` (Overhangs and external bridges fan speed) | `project.bridge_fan` |
 | `pressure_advance` (Pressure advance) | `filament.pressure_advance` |
 | `prime_tower_width` (Width) | `project.prime_tower_width` |
+| `print_sequence` (Print sequence) | `project.print_sequence` |
 | `printable_area` (Printable area) | `machine.bed_size_x` and `machine.bed_size_y` (the printer library has the shape) |
 | `printable_height` (Printable height) | `machine.max_height` |
 | `printer_model` (Printer type) | `machine.model` |
@@ -1219,8 +1222,6 @@ The print, printer, and filament settings first, by status. The settings of resi
 | `extruder_bed_exclude_volumes` (Extruder collision volumes) | volumes where a nozzle cannot go |
 | `extruder_clearance_dist_to_rod` (Distance to rod) | the size of the head, for one-at-a-time print order |
 | `extruder_clearance_height_to_lid` (Height to lid) | the size of the head, for one-at-a-time print order |
-| `extruder_clearance_height_to_rod` (Height to rod) | the size of the head, for one-at-a-time print order |
-| `extruder_clearance_radius` (Radius) | the size of the head, for one-at-a-time print order |
 | `extruder_max_nozzle_count` |  |
 | `extruder_nozzle_count` (extruder nozzle count) | extruder nozzle count |
 | `extruder_nozzle_stats` (Extruder nozzle stats) | Extruder nozzle stats |
@@ -1457,7 +1458,6 @@ The print, printer, and filament settings first, by status. The settings of resi
 | `print_extruder_variant` (Print's extruder variant) | Print's extruder variant |
 | `print_flow_ratio` (Flow ratio) | Flow ratio |
 | `print_order` (Intra-layer order) | Intra-layer order |
-| `print_sequence` (Print sequence) | one part at a time |
 | `printer_extruder_id` (Printer extruder id) | Printer extruder id |
 | `printer_extruder_variant` (Printer's extruder variant) | Printer's extruder variant |
 | `printing_by_object_gcode` (Between Object G-code) | G-code between the parts of one-at-a-time print order |

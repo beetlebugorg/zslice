@@ -168,3 +168,18 @@ summary: The import of a PrusaSlicer config file, a config bundle, and the confi
 ```
 
 PrusaSlicer saves its settings as `key = value` lines: an exported config (`.ini`), a config bundle with a section for each preset (`[print:Name]`) and a `[presets]` section, the end of a G-code file (`; key = value`), and `Metadata/Slic3r_PE.config` in a 3MF project. A text escapes a line break as `\n`. A value for each extruder is a list with commas. Some speeds are percentages of other speeds (`external_perimeter_speed` of `perimeter_speed`, `solid_infill_speed` of `infill_speed`), and a line width in percent is of the layer height. `support_material_threshold` is an angle from the horizontal plane. zslice reads these files and maps the keys to its settings. The format and the names only; no code is copied.
+
+### Complete individual objects and the extruder clearance
+
+```ref
+kind: setting
+source: PrusaSlicer, OrcaSlicer
+license: AGPL-3.0
+link: https://github.com/prusa3d/PrusaSlicer
+version: PrusaSlicer 2.9.2 (src/libslic3r/PrintConfig.cpp)
+files: src/settings.zig, src/plate_job.zig, src/gcode.zig, src/app/checks.zig, src/app.zig
+area: plate
+summary: `project.print_sequence`, `machine.clearance_radius`, and `machine.clearance_height` have the meaning of `complete_objects`, `extruder_clearance_radius`, and `extruder_clearance_height`.
+```
+
+PrusaSlicer prints one object at a time with `complete_objects`. Its head model is a cylinder around the nozzle (`extruder_clearance_radius`, default 20 mm) and a height to the gantry (`extruder_clearance_height`, default 20 mm): the objects keep the radius from each other, and only the last object can be higher. OrcaSlicer has the same model with `print_sequence = by object`, `extruder_clearance_radius` (default 40 mm), and `extruder_clearance_height_to_rod` (default 40 mm). zslice uses the same model, with the defaults of OrcaSlicer. Its levels, its lift over the printed parts, and its check are its own; no code is copied.

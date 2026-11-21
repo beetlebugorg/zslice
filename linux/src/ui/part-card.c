@@ -34,12 +34,31 @@ typedef struct {
     /* The scale in % of the file, and the filament of the part (its chips
      * are for one part: fil_part). */
     GtkWidget *scale, *fil_row;
+    /* One part at a time: the place of the part in the print order. */
+    GtkWidget *order_row, *order_text, *order_earlier, *order_later;
     gint64 fil_part;
     /* The widgets of one part, and of several parts. */
     GtkWidget *single, *many;
     gint64 part;
     char *names; /* the names of the listed settings, one a line */
 } PartCard;
+
+/* The place of the part in the print order, shown only with
+ * project.print_sequence = by_object. */
+static void update_order(PartCard *c) {
+    if (!c->order_row || c->part < 0) return;
+    size_t n = zs_app_part_count(zg_model_core(c->model));
+    char *seq = zg_model_get(c->model, "project.print_sequence");
+    gboolean on = seq && strcmp(seq, "by_object") == 0 && n > 1;
+    g_free(seq);
+    gtk_widget_set_visible(c->order_row, on);
+    if (!on) return;
+    char *text = g_strdup_printf("Prints %u of %u", (unsigned)c->part + 1, (unsigned)n);
+    gtk_label_set_text(GTK_LABEL(c->order_text), text);
+    g_free(text);
+    gtk_widget_set_sensitive(c->order_earlier, c->part > 0);
+    gtk_widget_set_sensitive(c->order_later, (size_t)c->part + 1 < n);
+}
 
 static void update_facts(PartCard *c, const zs_part *p) {
     gtk_label_set_text(GTK_LABEL(c->title), p->name && p->name[0] ? p->name : "Part");
@@ -329,6 +348,7 @@ static void refresh(PartCard *c) {
     if (n > 1) update_many(c, list, n);
     else {
         update_facts(c, &p);
+        update_order(c);
         fill_filament(c);
         update_scale(c, &p);
         fill_settings(c);
@@ -520,6 +540,10 @@ static void on_action(GSimpleAction *a, GVariant *v, gpointer data) {
         zg_model_part_reset(c->model, i);
     } else if (strcmp(name, "remove") == 0) {
         zg_model_part_remove(c->model, i);
+    } else if (strcmp(name, "earlier") == 0 || strcmp(name, "later") == 0) {
+        size_t to = strcmp(name, "earlier") == 0 ? i - 1 : i + 1;
+        if (strcmp(name, "earlier") == 0 && i == 0) return;
+        if (zg_model_part_reorder(c->model, i, to)) zg_model_select_part(c->model, (gint64)to);
     } else if (strcmp(name, "add-setting") == 0) {
         gtk_widget_activate_action_variant(c->card, "win.search-part", g_variant_new_int64(c->part));
     }
@@ -635,6 +659,8 @@ GtkWidget *zg_part_card_new(ZgModel *model, GtkWidget *preview) {
         {.name = "mirror-y", .activate = on_action},
         {.name = "reset", .activate = on_action},
         {.name = "remove", .activate = on_action},
+        {.name = "earlier", .activate = on_action},
+        {.name = "later", .activate = on_action},
         {.name = "add-setting", .activate = on_action},
     };
     GSimpleActionGroup *group = g_simple_action_group_new();
@@ -667,6 +693,24 @@ GtkWidget *zg_part_card_new(ZgModel *model, GtkWidget *preview) {
         if (strcmp(buttons[i].label, "Split to parts") == 0) gtk_flow_box_append(GTK_FLOW_BOX(flow), cut_button(c));
     }
     gtk_box_append(GTK_BOX(c->single), flow);
+    /* One part at a time: the place of the part in the print order. */
+    c->order_row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
+    c->order_text = gtk_label_new("");
+    gtk_widget_set_hexpand(c->order_text, TRUE);
+    gtk_label_set_xalign(GTK_LABEL(c->order_text), 0);
+    gtk_box_append(GTK_BOX(c->order_row), c->order_text);
+    c->order_earlier = gtk_button_new_with_label("Print earlier");
+    gtk_actionable_set_action_name(GTK_ACTIONABLE(c->order_earlier), "partcard.earlier");
+    gtk_widget_set_tooltip_text(c->order_earlier, "Print this part before the part before it in the plate list");
+    gtk_widget_add_css_class(c->order_earlier, "zg-card-action");
+    gtk_box_append(GTK_BOX(c->order_row), c->order_earlier);
+    c->order_later = gtk_button_new_with_label("Print later");
+    gtk_actionable_set_action_name(GTK_ACTIONABLE(c->order_later), "partcard.later");
+    gtk_widget_set_tooltip_text(c->order_later, "Print this part after the part after it in the plate list");
+    gtk_widget_add_css_class(c->order_later, "zg-card-action");
+    gtk_box_append(GTK_BOX(c->order_row), c->order_later);
+    gtk_widget_set_visible(c->order_row, FALSE);
+    gtk_box_append(GTK_BOX(c->single), c->order_row);
     /* The scale, in % of the file (Enter applies). */
     GtkWidget *scale_row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
     gtk_box_append(GTK_BOX(scale_row), gtk_label_new("Scale"));

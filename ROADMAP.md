@@ -112,7 +112,7 @@ The goal is the features that people use in PrusaSlicer and Cura. zslice designs
 - [x] Mirror along the X or Y axis of the bed (web and GTK)
 - [x] Modifiers (per-region settings), and settings for each object
 - [ ] Mesh repair
-- [ ] Sequential printing (one object at a time)
+- [x] Sequential printing (one object at a time): `project.print_sequence = by_object`, the head clearance (`machine.clearance_radius` and `machine.clearance_height`), the order of the plate list, a lift over the printed parts, Arrange with the clearance, and the Check of collisions
 - [x] Multi-material: a filament (and color) for each part, each layer range, the support, and each painted region (the Paint tool and painted 3MF files); filament changes with the change G-code of the printer; the order of the filaments of a layer for the least flush; flush into the hidden infill and support
 - [x] Prime towers: one for each family of materials that bond, sized from the purge of each layer, in the 3D view
 - [x] Printers with two nozzles (Bambu Lab H2D and X2D): a nozzle for each filament, and checks of the reach of each nozzle

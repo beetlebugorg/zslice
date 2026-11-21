@@ -1025,13 +1025,19 @@ const ops = {
     return {};
   },
 
+  // The place of part `index` in the print order, and if the plate prints
+  // one part at a time (project.print_sequence = by_object).
+  partOrder({ index }) {
+    return { index, count: core.w.x.zs_app_part_count(core.app), sequential: core.get("project.print_sequence") === "by_object" };
+  },
+
   partAction({ index, action }) {
     const r = core.partAction(index, action);
     // A split of one body changes nothing.
     if (action === "split" && r === 0) return { ok: false, part: core.part(index), message: "The part has one body: nothing to split." };
     if (r >= 0 && !clearIfEmpty()) wantSlice();
     const n = core.w.x.zs_app_part_count(core.app);
-    const at = action === "duplicate" && r >= 0 ? r : index;
+    const at = (action === "duplicate" || action === "earlier" || action === "later") && r >= 0 ? r : index;
     return { ok: r >= 0, count: action === "split" ? r : 0, part: action === "remove" || at >= n ? null : core.part(at) };
   },
 

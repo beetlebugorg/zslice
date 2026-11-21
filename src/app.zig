@@ -697,6 +697,13 @@ pub const App = struct {
         return out.toOwnedSlice();
     }
 
+    /// Adds a mesh as a part (the app owns it after the call). Returns its
+    /// index.
+    pub fn addMeshPart(app: *App, name: []const u8, m: zs.Mesh) zs.mesh.Error!usize {
+        app.stopWorker();
+        return app.addMesh(name, m);
+    }
+
     fn addMesh(app: *App, name: []const u8, m: zs.Mesh) zs.mesh.Error!usize {
         const s = app.settings;
         const i = try app.plate.add(app.gpa, name, m, app.bedSize(), app.partGap(), s.project.placement != .center);
@@ -713,7 +720,11 @@ pub const App = struct {
         const p = app.settings.project;
         const w = if (p.first_layer_line_width > 0) p.first_layer_line_width else 1.25 * app.settings.machine.nozzle_diameter;
         const skirt = if (p.skirt_loops > 0 and p.skirt_layers > 0) p.skirt_distance + @as(f64, @floatFromInt(p.skirt_loops)) * w else 0;
-        return @max(3, p.brim_width * 2 + skirt);
+        const gap = @max(3, p.brim_width * 2 + skirt);
+        // One part at a time: the head must not touch the parts that it
+        // printed before.
+        if (p.print_sequence == .by_object) return @max(gap, app.settings.machine.clearance_radius);
+        return gap;
     }
 
     pub const PlateSlot = struct {
@@ -793,7 +804,7 @@ pub const App = struct {
 
     /// After each change of the plate: a new name, and the next slice
     /// makes the mesh again (with no regions of the old one).
-    fn plateChanged(app: *App) Allocator.Error!void {
+    pub fn plateChanged(app: *App) Allocator.Error!void {
         app.plate_changed = true;
         app.dropPrevJob();
         const n = app.plate.count();
@@ -1015,6 +1026,15 @@ pub const App = struct {
         app.fallCancel();
         app.stopWorker();
         app.plate.remove(app.gpa, i);
+        try app.plateChanged();
+    }
+
+    /// Moves part i to place `to` of the plate list: the print order of
+    /// one part at a time (project.print_sequence = by_object).
+    pub fn reorderPart(app: *App, i: usize, to: usize) Allocator.Error!void {
+        app.fallCancel();
+        app.stopWorker();
+        app.plate.reorder(i, to);
         try app.plateChanged();
     }
 

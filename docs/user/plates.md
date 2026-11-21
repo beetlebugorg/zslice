@@ -23,6 +23,23 @@ All plates slice: the active plate first. With two plates or more, the print car
 
 **Make [10] in all** on the card of a part makes copies until there are that many: on its plate while they fit, then on new plates.
 
+## One part at a time
+
+Set `project.print_sequence` to `by_object` to print the parts of a plate one at a time. zslice prints one part from the bottom to the top, then the next part. A part that fails then stops only itself, and no strings go from one part to another.
+
+Between two parts, the head goes up over the parts that it printed, moves over the next part, and goes down to the bed. Each part starts with the fan off, as the first layer of a print.
+
+The parts print in the order of the plate list. The card of a part shows its place, for example **Prints 2 of 3**. Click **Print earlier** or **Print later** to move it in the list.
+
+The print head has a size. Two settings of the printer give it:
+
+- `machine.clearance_radius`: the radius around the nozzle that the head, its fans, and its probe fill. **Arrange the plate** keeps the parts this far apart.
+- `machine.clearance_height`: the height from the tip of the nozzle to the lowest part of the gantry. Only the last part can be higher.
+
+The defaults are 40 mm. Measure your printer, or take the values of its profile in PrusaSlicer or OrcaSlicer. The Check lists two parts that are too near, and a part that is too high and does not print last, with their names. The Check uses the box of each part from above, so a round part can be nearer than the Check says.
+
+One part at a time has no prime tower. The layer slider and the replay show the parts in their order.
+
 ## Save and open
 
 - **Save project…** (Ctrl+S, in the main menu) writes all plates into one 3MF file: the parts, their places, their settings, the support areas, and the edits of the lines.

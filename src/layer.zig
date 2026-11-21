@@ -170,6 +170,14 @@ pub const LayerPlan = struct {
     index: u32,
     /// The z of the nozzle, in mm.
     z: f64,
+    /// Sequential printing: the z that the head goes up to before this
+    /// layer, over the parts that printed before it (see
+    /// plate_job.Level.lift), or 0.
+    lift: f64 = 0,
+    /// Sequential printing: the index of this layer in its part, for the
+    /// fan of the first layers of each part; `no_part` for a plate that
+    /// prints by layer (then `index` counts).
+    part_layer: u32 = no_part,
     /// The layer height, in mm.
     height: f64,
     /// The line width, in mm.

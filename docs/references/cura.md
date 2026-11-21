@@ -454,3 +454,18 @@ summary: The import of a `.curaprofile` file: a zip of the `.inst.cfg` files of 
 ```
 
 Cura exports a custom profile as a `.curaprofile` file: a zip with one `.inst.cfg` file for the global stack and one for each extruder (`position` in `[metadata]`). zslice reads the `[values]` of each, the extruder after the global one, and maps the keys with the table of the Cura stack import (`src/import_cura.zig`). The format only; no code is copied.
+
+### One at a time and the gantry height
+
+```ref
+kind: setting
+source: Cura
+license: LGPL-3.0
+link: https://github.com/Ultimaker/Cura
+version: commit 1a221ec29a86960d16a412940becc1f63534c41f (resources/definitions/fdmprinter.def.json)
+files: src/settings.zig
+area: plate
+summary: `project.print_sequence = by_object` and `machine.clearance_height` have the meaning of `print_sequence = one_at_a_time` and `gantry_height`.
+```
+
+Cura prints one object at a time with `print_sequence = one_at_a_time`. It keeps the objects apart by the polygon of the head and its fans (`machine_head_with_fans_polygon`), and only the last object can be higher than `gantry_height`. zslice uses a circle (`machine.clearance_radius`) in place of the polygon.

@@ -2970,6 +2970,15 @@ export fn zs_app_plate_smart_place(a: ?*App) c_int {
     return @intFromBool(app.smartPlacePlate() catch return 0);
 }
 
+/// Moves part i to place `to` of the plate list (App.reorderPart).
+export fn zs_app_part_reorder(a: ?*App, i: usize, to: usize) c_int {
+    const app = a orelse return @intFromEnum(Status.invalid_argument);
+    if (i >= app.plate.count() or to >= app.plate.count()) return @intFromEnum(Status.out_of_range);
+    app.reorderPart(i, to) catch |e| return status(e);
+    noted(app, null, true);
+    return ok;
+}
+
 export fn zs_app_part_remove(a: ?*App, i: usize) c_int {
     const app = a orelse return @intFromEnum(Status.invalid_argument);
     if (i >= app.plate.count()) return @intFromEnum(Status.out_of_range);

@@ -27,6 +27,12 @@
 //!   changes make a long print; with a pause for each change, each one
 //!   waits for you.
 //! - tower: the prime tower is off the bed, or on a part.
+//! - sequence: with project.print_sequence = by_object, two parts closer
+//!   than machine.clearance_radius (the head hits the part that printed
+//!   first), or a part higher than machine.clearance_height that does not
+//!   print last (the gantry hits it). The boxes of the parts from above
+//!   give the distance. The model of the head is the clearance model of
+//!   PrusaSlicer and OrcaSlicer (see docs/references/prusaslicer.md).
 //! - label: a label (label.zig) with strokes thinner than the narrowest
 //!   line (they do not print), or with gaps narrower than it (they fill
 //!   with the color of the label), with the size of text that prints
@@ -45,7 +51,7 @@ const Allocator = std.mem.Allocator;
 const Toolpaths = @import("toolpaths.zig").Toolpaths;
 const geom = zs.geom;
 
-pub const Kind = enum(u8) { flow, cooling, overhang, island, retractions, bridge, stand, color, changes, tower, reach, label };
+pub const Kind = enum(u8) { flow, cooling, overhang, island, retractions, bridge, stand, color, changes, tower, reach, label, sequence };
 
 pub const Issue = extern struct {
     kind: Kind,
@@ -138,6 +144,7 @@ pub fn runWith(gpa: Allocator, job: *const zs.PlateJob, t: *const Toolpaths, s: 
     try colorIssues(&b, job);
     try changeIssues(&b, job, s, stats);
     try reachIssues(&b, job, s);
+    try sequenceIssues(&b, job, s);
     try labelIssues(&b, job, s, labels);
     // The worst first: problems, then warnings, then by layer.
     std.mem.sort(Issue, b.issues.items, {}, struct {
@@ -544,6 +551,55 @@ fn colorIssues(b: *Builder, job: *const zs.PlateJob) Allocator.Error!void {
 /// of machine.nozzle2_min_x or above nozzle2_max_height, the first right
 /// of nozzle1_max_x or above nozzle1_max_height. One issue for each part,
 /// nozzle, and limit.
+/// The problems of sequential printing (see `Kind.sequence`).
+fn sequenceIssues(b: *Builder, pj: *const zs.PlateJob, s: zs.Settings) Allocator.Error!void {
+    if (!pj.sequential) return;
+    const m = s.machine;
+    // Each part: its id, its name, its box from above (bed coordinates),
+    // its top, and its first level.
+    const Obj = struct { part: u32, name: []const u8, box: [4]f64, top: f64, first: usize };
+    var objs: std.ArrayList(Obj) = .empty;
+    defer objs.deinit(b.gpa);
+    const flat: zs.settings.Machine = .{};
+    for (pj.instances) |inst| {
+        const g = &pj.groups[inst.group];
+        const box = zs.engine.outlineBox(g.job.outlines, inst.dx, inst.dy, flat) orelse continue;
+        var top: f64 = 0;
+        for (g.job.layers, 0..) |l, i| if (!g.job.outlines[i].isEmpty()) {
+            top = @max(top, l.z);
+        };
+        const first: usize = if (g.layer_level.len > 0) g.layer_level[0] else 0;
+        for (objs.items) |*o| {
+            if (o.part != inst.part) continue;
+            o.box = .{ @min(o.box[0], box[0]), @min(o.box[1], box[1]), @max(o.box[2], box[2]), @max(o.box[3], box[3]) };
+            o.top = @max(o.top, top);
+            break;
+        } else try objs.append(b.gpa, .{ .part = inst.part, .name = inst.name, .box = box, .top = top, .first = first });
+    }
+    std.mem.sort(Obj, objs.items, {}, struct {
+        fn lt(_: void, x: Obj, y: Obj) bool {
+            return x.part < y.part;
+        }
+    }.lt);
+    const r = m.clearance_radius;
+    for (objs.items, 0..) |a, i| {
+        for (objs.items[i + 1 ..]) |c| {
+            // The gap between the two boxes.
+            const gx = @max(0, @max(a.box[0] - c.box[2], c.box[0] - a.box[2]));
+            const gy = @max(0, @max(a.box[1] - c.box[3], c.box[1] - a.box[3]));
+            const gap = @sqrt(gx * gx + gy * gy);
+            if (gap >= r) continue;
+            try b.add(.{ .kind = .sequence, .severity = 2, .layer = @intCast(c.first), .path = Issue.no_path, .x = (c.box[0] + c.box[2]) / 2, .y = (c.box[1] + c.box[3]) / 2, .value = gap, .text_start = 0, .text_len = 0 }, "One part at a time: {s} and {s} are {d:.0} mm apart, less than the clearance of the print head ({d:.0} mm, machine.clearance_radius). The head hits {s} when it prints {s}. Arrange the plate, or move the parts apart.", .{ a.name, c.name, gap, r, a.name, c.name });
+        }
+        if (i + 1 < objs.items.len and a.top > m.clearance_height) {
+            try b.add(.{ .kind = .sequence, .severity = 2, .layer = @intCast(a.first), .path = Issue.no_path, .x = (a.box[0] + a.box[2]) / 2, .y = (a.box[1] + a.box[3]) / 2, .value = a.top, .text_start = 0, .text_len = 0 }, "One part at a time: {s} is {d:.0} mm high, more than the height under the gantry ({d:.0} mm, machine.clearance_height), and it does not print last. The gantry hits it. Print it last: move it to the end of the plate list.", .{ a.name, a.top, m.clearance_height });
+        }
+    }
+    if (objs.items.len > 1) {
+        try b.add(.{ .kind = .sequence, .severity = 0, .layer = 0, .path = Issue.no_path, .x = 0, .y = 0, .value = @floatFromInt(objs.items.len), .text_start = 0, .text_len = 0 }, "One part at a time: {d} parts print in the order of the plate list. Between the parts, the head goes up over the parts that it printed.", .{objs.items.len});
+    }
+}
+
 fn reachIssues(b: *Builder, pj: *const zs.PlateJob, s: zs.Settings) Allocator.Error!void {
     const m = s.machine;
     if (m.nozzles < 2 or pj.slots.len < 1) return;
@@ -720,6 +776,41 @@ test "checks: a painted letter rests on the base of the other filament" {
     app.stopWorkerForTest();
     const r = try app.checks();
     for (r.issues) |i| try std.testing.expect(i.kind != .overhang and i.kind != .bridge);
+}
+
+test "checks: one part at a time, with parts too near and a high part first" {
+    const gpa = std.testing.allocator;
+    const app = try zs.app.App.create(gpa, null, null);
+    defer app.destroy();
+    try app.setSetting("project.print_sequence", "by_object");
+    var b: zs.mesh.Builder = .init(gpa);
+    try zs.mesh.shapes.addBox(&b, 0, 0, 0, 10, 10, 50);
+    _ = try app.addMeshPart("tall", try b.finish());
+    var b2: zs.mesh.Builder = .init(gpa);
+    try zs.mesh.shapes.addBox(&b2, 0, 0, 0, 10, 10, 5);
+    _ = try app.addMeshPart("short", try b2.finish());
+    // 20 mm apart, less than the clearance radius of 40 mm.
+    try app.movePart(0, 60, 100);
+    try app.movePart(1, 90, 100);
+    try app.startSlice();
+    app.stopWorkerForTest();
+    var r = try app.checks();
+    var near: usize = 0;
+    var high: usize = 0;
+    for (r.issues) |i| if (i.kind == .sequence and i.severity == 2) {
+        if (std.mem.indexOf(u8, r.textOf(i), "apart") != null) near += 1;
+        if (std.mem.indexOf(u8, r.textOf(i), "gantry") != null) high += 1;
+    };
+    try std.testing.expectEqual(@as(usize, 1), near);
+    try std.testing.expectEqual(@as(usize, 1), high);
+    // The high part last, and far apart: no problem.
+    try app.reorderPart(0, 1);
+    try app.movePart(0, 30, 100);
+    try app.movePart(1, 150, 100);
+    try app.startSlice();
+    app.stopWorkerForTest();
+    r = try app.checks();
+    for (r.issues) |i| try std.testing.expect(i.kind != .sequence or i.severity == 0);
 }
 
 test "checks: a part on the second nozzle past its reach" {

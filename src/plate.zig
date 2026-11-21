@@ -603,6 +603,16 @@ pub const Plate = struct {
         return self.parts.items.len - 1;
     }
 
+    /// Moves part i to place `to` in the list of the plate: the parts
+    /// between them move one place. The list is the print order of
+    /// sequential printing (see settings.Project.print_sequence).
+    pub fn reorder(self: *Plate, i: usize, to: usize) void {
+        const n = self.parts.items.len;
+        if (i >= n or to >= n or i == to) return;
+        const p = self.parts.orderedRemove(i);
+        self.parts.insertAssumeCapacity(to, p);
+    }
+
     pub fn remove(self: *Plate, gpa: Allocator, i: usize) void {
         if (i >= self.parts.items.len) return;
         var p = self.parts.orderedRemove(i);
