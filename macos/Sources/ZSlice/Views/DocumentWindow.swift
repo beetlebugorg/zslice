@@ -232,9 +232,12 @@ struct DocumentWindow: View {
                             .allowsHitTesting(false)
                     }
                     if let gap = workspace.gapCard {
-                        GapCard(workspace: workspace, gap: gap)
+                        // Its measured size: a gap with many steps makes a tall
+                        // card, and the card must keep clear of the gap.
+                        GapCard(workspace: workspace, gap: gap, maxHeight: max(160, geo.size.height - 60 - workspace.dockHeight - 24))
+                            .onGeometryChange(for: CGSize.self) { $0.size } action: { workspace.gapCardSize = $0 }
                             .position(cardPlace(avoiding: workspace.gapScreenBox() ?? CGRect(x: workspace.cardAt.x - 12, y: workspace.cardAt.y - 12, width: 24, height: 24),
-                                                near: workspace.cardAt, size: CGSize(width: 320, height: 220), in: geo.size,
+                                                near: workspace.cardAt, size: workspace.gapCardSize, in: geo.size,
                                                 bottom: workspace.dockHeight + 12, panels: workspace.panels))
                     }
                     if workspace.tool == .support, workspace.supportPaneOpen, workspace.page == .threeD {
