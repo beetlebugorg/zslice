@@ -323,11 +323,11 @@ namespace winrt::ZSlice::implementation
             ShowError(L"The 3D view did not load the slice: " + zs::ToWide(zs_status_message(rc)));
             return;
         }
-        SupportLoaded();
         // A large scene: the view draws the old one until the copy of its
         // beads to the GPU is done.
         if (zs_view_scene_pending(view))
         {
+            SupportLoaded();
             if (!scene_timer.IsRunning())
                 scene_timer.Start();
             StatusText().Text(model->Summary());
@@ -340,6 +340,7 @@ namespace winrt::ZSlice::implementation
     {
         model->UpdateBed(view);
         zs_set_view_sync(model->Set(), view);
+        SupportLoaded();
         RefreshPlates();
         FindLineAnchor();
         ApplySelection();

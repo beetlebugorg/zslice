@@ -297,11 +297,16 @@ namespace winrt::ZSlice::implementation
                 w.CheckFall();
         }
 
-        void BeginHold()
+        // A change before this edit is its own step of the history.
+        void Flush()
         {
-            // A change before the drag is its own step.
             if (zs_app_history_pending(App()))
                 Commit();
+        }
+
+        void BeginHold()
+        {
+            Flush();
             w.model->Hold(true);
         }
 
@@ -1031,6 +1036,7 @@ namespace winrt::ZSlice::implementation
             note = nullptr;
             if (sel >= 0)
             {
+                Flush();
                 if (zs_app_support_area_set_kind(App(), (size_t)sel, next) == ZS_OK)
                     ChangedMayFall();
                 Reload();
@@ -1065,6 +1071,7 @@ namespace winrt::ZSlice::implementation
                 return false;
             int i = sel;
             sel = -1;
+            Flush();
             if (zs_app_support_area_remove(App(), (size_t)i) == ZS_OK)
                 ChangedMayFall();
             Reload();
@@ -1073,6 +1080,7 @@ namespace winrt::ZSlice::implementation
 
         int64_t AddArea(int area_kind, double const *pts, size_t n, double lo, double hi)
         {
+            Flush();
             ptrdiff_t i = zs_app_support_area_add(App(), area_kind, pts, n, lo, hi);
             if (i < 0)
                 return -1;
@@ -1102,6 +1110,7 @@ namespace winrt::ZSlice::implementation
             if (!TselOk())
                 return false;
             size_t part = (size_t)tsel_part;
+            Flush();
             ptrdiff_t n = zs_app_support_tree_delete_branch(App(), part, tsel_node);
             tsel_part = -1;
             TreeDone(part, n >= 0, n, 0);
@@ -1117,6 +1126,7 @@ namespace winrt::ZSlice::implementation
                 return;
             size_t part = (size_t)reset_part;
             tsel_part = -1;
+            Flush();
             bool done = zs_app_support_tree_reset(App(), part) == 1;
             TreeDone(part, true, 0, 0);
             if (!done)
@@ -1153,6 +1163,7 @@ namespace winrt::ZSlice::implementation
                 return;
             }
             uint32_t clamp = 0;
+            Flush();
             ptrdiff_t tip = zs_app_support_tree_add_branch(app, (size_t)part, foot[0], foot[1], t[0], t[1], t[2], &clamp);
             TreeDone((size_t)part, tip >= 0, tip, clamp);
             if (tip >= 0)
@@ -1527,6 +1538,9 @@ namespace winrt::ZSlice::implementation
 
         bool Press(double x, double y)
         {
+            // The last edit of a drag can still wait for a slice.
+            if (Holding())
+                return false;
             if (!on && lite && lite_tree && w.view != nullptr)
                 return TreePress(x, y);
             if (!on || w.view == nullptr || !draft.empty() || adding)
@@ -1800,6 +1814,7 @@ namespace winrt::ZSlice::implementation
             if (lite_tree)
                 return DeleteBranch();
             zs_app *app = App();
+            Flush();
             bool changed = zs_app_mark_remove_near(app, lite_pt[0], lite_pt[1], lite_pt[2], 3) > 0;
             if (changed)
                 w.model->RequestSlice();
@@ -1903,7 +1918,9 @@ namespace winrt::ZSlice::implementation
                 w.ToolDrag(x0 + (x1 - x0) * k / 6, y0 + (y1 - y0) * k / 6, false);
                 ::Sleep(70);
             }
+            int before = zs_app_state(App());
             w.ToolRelease();
+            zs::Log("dev: support: state before the release %d, after it %d\n", before, zs_app_state(App()));
         }
 
         // Finds a pixel of the view where a test holds, on a grid of 8 points.
@@ -1932,6 +1949,15 @@ namespace winrt::ZSlice::implementation
             {
                 zs_view_orbit(w.view, (float)number(0), (float)number(1));
                 Show();
+            }
+            else if (verb == L"zoom")
+            {
+                // Toward the middle of part 0. Under 1 zooms in.
+                zs_part p{};
+                float cx = 0, cy = 0;
+                if (zs_app_part_get(App(), 0, &p) == ZS_OK && zs_view_pixel_of(w.view, p.x, p.y, p.size_z / 2, &cx, &cy))
+                    zs_view_zoom_at(w.view, (float)number(0), cx, cy);
+                w.StartAnimation();
             }
             else if (verb == L"alt")
             {
@@ -2009,6 +2035,18 @@ namespace winrt::ZSlice::implementation
                         DevDrag(x0, y0, x0 + number(1), y0 + number(2));
                 }
             }
+            else if (verb == L"tbig")
+            {
+                // Selects the widest node of the first tree.
+                if (!trees.empty())
+                {
+                    auto const &nodes = trees[0].nodes;
+                    auto widest = std::max_element(nodes.begin(), nodes.end(), [](auto const &a, auto const &b) { return a.r < b.r; });
+                    tsel_part = (int64_t)trees[0].part;
+                    tsel_node = (uint32_t)(widest - nodes.begin());
+                    Show();
+                }
+            }
             else if (verb == L"tring")
             {
                 double x0, y0;
@@ -2032,7 +2070,8 @@ namespace winrt::ZSlice::implementation
             }
             else if (verb == L"tmenu")
             {
-                zs_tree_node const *nd = first_node((size_t)number(0));
+                // A negative k: the selected node.
+                zs_tree_node const *nd = number(0) < 0 ? (TselOk() ? NodeOf((size_t)tsel_part, tsel_node) : nullptr) : first_node((size_t)number(0));
                 double x, y;
                 if (nd != nullptr && PixelOf(&nd->x, x, y))
                 {

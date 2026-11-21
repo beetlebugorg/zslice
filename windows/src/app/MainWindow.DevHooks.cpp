@@ -14,12 +14,14 @@
 //   log             writes the state
 // The Support tool adds, in MainWindow.Support.cpp:
 //   orbit dx dy     turns the view
+//   zoom f          zooms toward part 0 (under 1 zooms in)
 //   alt x y         a click with Alt
 //   findover [click]  the first overhang in the view, and a click on it
 //   sdrag i j dx dy   drags point j of area i
 //   sclick i        a click on the outline of area i
 //   dclick k        a click on point k of the draft
 //   tclick k, tdrag k dx dy, tseg k dx dy, tmenu k   node k of the first tree
+//   tbig            selects the widest node of the first tree
 //   tring dx        drags the ring of the selected node
 //   tadd fx fy tx ty  Add a branch: the foot, then the tip
 //   tdel, treset, kind k, see 0|1, undo, redo
