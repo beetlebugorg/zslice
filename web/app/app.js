@@ -3611,7 +3611,16 @@ $("plate-remove").onclick = () => removePlate(app.activePlate);
 let keepTimer = 0;
 let keepAgain = false;
 let keepBusy = false;
+// No write before the page has read the session of the last visit: the
+// first plate list of the worker (an empty plate) is a change, and its
+// write replaced the session before the read on some loads.
+let keepOpen = false;
+let keepWanted = false;
 function keepSoon(delay = 1500) {
+  if (!keepOpen) {
+    keepWanted = true;
+    return;
+  }
   if (keepTimer && delay > 0) return;
   clearTimeout(keepTimer);
   keepTimer = setTimeout(async () => {
@@ -4196,6 +4205,10 @@ if (!modelUrl && !restored) {
     }
   }
 }
+// The session of the last visit is back (or there was none): from now
+// on, changes write the session. A change during the read writes now.
+keepOpen = true;
+if (keepWanted && (restored || modelUrl)) keepSoon();
 
 // The first visit (no printer set up), and the test hook
 // ?printers&q=<search>&pick=<model id>&step=2: the printer picker.
