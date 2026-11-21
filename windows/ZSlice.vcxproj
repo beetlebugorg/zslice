@@ -80,7 +80,7 @@
       <LanguageStandard>stdcpp20</LanguageStandard>
       <!-- The markup passes write <Name>.xaml.g.h into $(IntDir), in the
            layout of the sources. -->
-      <AdditionalIncludeDirectories>$(IntDir);$(IntDir)src\app;$(MSBuildThisFileDirectory);$(MSBuildThisFileDirectory)src\app;$(MSBuildThisFileDirectory)src\model;$(ZsCoreDir)\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(IntDir);$(IntDir)src\app;$(MSBuildThisFileDirectory);$(MSBuildThisFileDirectory)src\app;$(MSBuildThisFileDirectory)src\model;$(MSBuildThisFileDirectory)src\net;$(MSBuildThisFileDirectory)src\prefs;$(ZsCoreDir)\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <WarningLevel>Level3</WarningLevel>
       <Optimization Condition="'$(Configuration)'=='Debug'">Disabled</Optimization>
       <Optimization Condition="'$(Configuration)'=='Release'">MaxSpeed</Optimization>
@@ -93,7 +93,7 @@
       <AdditionalLibraryDirectories>$(ZsCoreDir)\lib;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
       <!-- MinimalCoreWin trims the default libraries, so each Win32 library
            is named here. The core loads Direct3D at run time. -->
-      <AdditionalDependencies>zslice.lib;ntdll.lib;ws2_32.lib;advapi32.lib;bcrypt.lib;userenv.lib;shell32.lib;user32.lib;ole32.lib;gdiplus.lib;d2d1.lib;d3d11.lib;CoreMessaging.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>zslice.lib;ntdll.lib;ws2_32.lib;advapi32.lib;bcrypt.lib;userenv.lib;shell32.lib;user32.lib;ole32.lib;gdiplus.lib;d2d1.lib;d3d11.lib;CoreMessaging.lib;winhttp.lib;crypt32.lib;secur32.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
 
@@ -142,7 +142,15 @@
     <ClCompile Include="src\app\Layer2D.cpp" />
     <!-- The test hooks: -p:ZsDevHooks=true. A shipped build has none. -->
     <ClCompile Include="src\app\MainWindow.DevHooks.cpp" Condition="'$(ZsDevHooks)'=='true'" />
+    <ClCompile Include="src\app\MainWindow.Printers.cpp" />
+    <ClCompile Include="src\app\MainWindow.Picker.cpp" />
+    <ClCompile Include="src\app\MainWindow.Farm.cpp" />
+    <ClCompile Include="src\app\MainWindow.Send.cpp" />
     <ClCompile Include="src\app\winrt_glue.cpp" />
+    <!-- The printer connections have no WinRT either. -->
+    <ClCompile Include="src\net\*.cpp;src\prefs\*.cpp">
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+    </ClCompile>
     <!-- The model has no WinRT, so a test program can link it. -->
     <ClCompile Include="src\model\zs_model.cpp">
       <PrecompiledHeader>NotUsing</PrecompiledHeader>

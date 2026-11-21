@@ -117,6 +117,7 @@ namespace winrt::ZSlice::implementation
         RefreshSettingValues();
         RefreshHistoryButtons();
         RefreshFilamentTools();
+        PrintersOnPlate();
         RefreshPlates();
     }
 
