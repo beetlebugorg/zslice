@@ -204,6 +204,8 @@ namespace winrt::ZSlice::implementation
             return;
         auto position = e.GetCurrentPoint(ViewPanel()).Position();
         auto mods = e.KeyModifiers();
+        pointer_x = position.X;
+        pointer_y = position.Y;
         if (hand)
         {
             HandMove(position.X, position.Y, Has(mods, VirtualKeyModifiers::Menu), Has(mods, VirtualKeyModifiers::Shift));
@@ -258,11 +260,17 @@ namespace winrt::ZSlice::implementation
         if (view == nullptr || had_click)
             return;
         pointer_alt = Has(e.KeyModifiers(), VirtualKeyModifiers::Menu);
-        // A right click on a dot of a picked support tree has its own menu.
-        // In the Support tool a right click adds nothing.
-        if (press_right && std::abs(last_x - press_x) <= 4 && std::abs(last_y - press_y) <= 4 &&
-            (SupportMenu(press_x, press_y) || tool == Tool::Support))
+        // A right click, or a two-finger click that does not slide, opens
+        // the menu. A dot of a picked support tree has its own menu, and in
+        // the Support tool a right click adds nothing.
+        if (press_right)
+        {
+            press_right = false;
+            if (std::abs(last_x - press_x) <= 4 && std::abs(last_y - press_y) <= 4 && !SupportMenu(press_x, press_y) &&
+                tool != Tool::Support)
+                ShowContextMenu(last_x, last_y);
             return;
+        }
         // A press and a release at one place is a click.
         if (std::abs(last_x - press_x) <= 4 && std::abs(last_y - press_y) <= 4 && !was_tool)
         {
@@ -1157,7 +1165,22 @@ namespace winrt::ZSlice::implementation
         };
         bool shift = state(VirtualKey::Shift), ctrl = state(VirtualKey::Control);
         auto key = e.Key();
-        if (key == slash && shift)
+        if (ctrl && ClipKey(key, shift))
+        {
+        }
+        else if (key == VirtualKey::Application || (key == VirtualKey::F10 && shift))
+        {
+            ShowContextMenu(pointer_x, pointer_y);
+        }
+        else if (key == VirtualKey::C && !ctrl && shift)
+        {
+            ShowAllLayers();
+        }
+        else if (key == VirtualKey::C && !ctrl && selected_path >= 0)
+        {
+            PreviewToLine();
+        }
+        else if (key == slash && shift)
         {
             ShowShortcuts();
         }
