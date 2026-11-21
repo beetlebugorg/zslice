@@ -17,6 +17,10 @@
 //! An edge counts for a line at y if min_y <= y < max_y (half open). A
 //! line that goes through a vertex then crosses exactly one of the two
 //! edges at the vertex.
+//!
+//! References (see docs/references/): the solid fill of PrusaSlicer, which
+//! fills neighbor surfaces as one area, so that no two lines lie on a
+//! shared border (`fittedLines`, see docs/references/prusaslicer.md).
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
@@ -207,7 +211,10 @@ fn crossings(isl: Paths, c: f64, s: f64, y: f64, out: *std.ArrayList(f64), gpa: 
 /// each line is that spacing (within 0.8 and 1.25 of `width`). On one grid
 /// for the whole layer, a narrow strip along the lines can have a gap at a
 /// wall of up to one line width. Only the spacing changes: no narrow line
-/// fills a gap. The memory is in `gpa`, an arena.
+/// fills a gap. Two pieces that meet at a border across the lines (at a
+/// hole or a step in the outline) do not both put a line on it: the
+/// shorter of the two lines gives way (see the comment in the code). The
+/// memory is in `gpa`, an arena.
 pub fn fittedLines(gpa: Allocator, region: Paths, width: i64, angle_deg: f64, min_length: i64) Allocator.Error!Fitted {
     var out: Paths = .empty;
     var widths: std.ArrayList(f32) = .empty;
@@ -220,7 +227,12 @@ pub fn fittedLines(gpa: Allocator, region: Paths, width: i64, angle_deg: f64, mi
     const w: f64 = @floatFromInt(width);
     var xs: std.ArrayList(f64) = .empty;
     var ys: std.ArrayList(f64) = .empty;
+    // The lines of one island in the turned frame, before they go out.
+    const Cand = struct { y: f64, x0: f64, x1: f64, bead: f32, pid: u32 };
+    var cand: std.ArrayList(Cand) = .empty;
+    var order: std.ArrayList(u32) = .empty;
     for (islands, 0..) |isl, ii| {
+        cand.clearRetainingCapacity();
         // The heights of the vertices: the slabs are between them.
         ys.clearRetainingCapacity();
         for (isl.points.items) |p| try ys.append(gpa, @as(f64, @floatFromInt(p.x)) * -s + @as(f64, @floatFromInt(p.y)) * c);
@@ -319,13 +331,45 @@ pub fn fittedLines(gpa: Allocator, region: Paths, width: i64, angle_deg: f64, mi
                 const x0 = xs.items[2 * mi];
                 const x1 = xs.items[2 * mi + 1];
                 if (x1 - x0 < @as(f64, @floatFromInt(min_length))) continue;
-                // Back to the frame of the region.
-                const p0: Point = .{ .x = @intFromFloat(@round(x0 * c - y * s)), .y = @intFromFloat(@round(x0 * s + y * c)) };
-                const p1: Point = .{ .x = @intFromFloat(@round(x1 * c - y * s)), .y = @intFromFloat(@round(x1 * s + y * c)) };
-                try out.append(gpa, &.{ p0, p1 });
-                try widths.append(gpa, bead);
-                try piece_of.append(gpa, pid);
+                try cand.append(gpa, .{ .y = y, .x0 = x0, .x1 = x1, .bead = bead, .pid = pid });
             }
+        }
+        // The border of two pieces: each piece has a line on it, so two
+        // beads lie on top of each other there (a raised ridge on the
+        // skin). Of two lines of different pieces that lie on the same
+        // scan line (less than half a line apart) and overlap along it,
+        // the shorter line loses the overlap. The longer line covers the
+        // border, and the next line of the other piece is one spacing
+        // away, as in the middle of a piece.
+        try order.resize(gpa, cand.items.len);
+        for (order.items, 0..) |*o, k| o.* = @intCast(k);
+        std.mem.sort(u32, order.items, cand.items, struct {
+            fn lt(cs: []const Cand, l: u32, r: u32) bool {
+                return cs[l].y < cs[r].y;
+            }
+        }.lt);
+        for (order.items, 0..) |ki, oi| {
+            for (order.items[oi + 1 ..]) |kj| {
+                const li = &cand.items[ki];
+                const lj = &cand.items[kj];
+                if (lj.y - li.y >= w / 2) break;
+                if (li.pid == lj.pid or li.x1 <= li.x0 or lj.x1 <= lj.x0) continue;
+                if (@min(li.x1, lj.x1) <= @max(li.x0, lj.x0)) continue;
+                const long, const short = if (li.x1 - li.x0 >= lj.x1 - lj.x0) .{ li, lj } else .{ lj, li };
+                // The shorter line is not longer, so at most one part of
+                // it is outside the longer line.
+                if (short.x0 < long.x0) short.x1 = long.x0 else short.x0 = long.x1;
+                if (short.x1 - short.x0 < @max(w, @as(f64, @floatFromInt(min_length)))) short.x1 = short.x0;
+            }
+        }
+        for (cand.items) |l| {
+            if (l.x1 <= l.x0) continue;
+            // Back to the frame of the region.
+            const p0: Point = .{ .x = @intFromFloat(@round(l.x0 * c - l.y * s)), .y = @intFromFloat(@round(l.x0 * s + l.y * c)) };
+            const p1: Point = .{ .x = @intFromFloat(@round(l.x1 * c - l.y * s)), .y = @intFromFloat(@round(l.x1 * s + l.y * c)) };
+            try out.append(gpa, &.{ p0, p1 });
+            try widths.append(gpa, l.bead);
+            try piece_of.append(gpa, l.pid);
         }
     }
     return .{ .lines = out, .widths = widths.items, .piece = piece_of.items, .piece_island = piece_island.items, .islands = islands };
@@ -492,9 +536,10 @@ pub const Tour = struct { paths: Paths, widths: []f32 };
 /// fills both sides of the hole before it goes on over the hole. The way
 /// on picks the end where the path goes into a zigzag, so that the path
 /// does not stop at its other end. A
-/// walk over plastic that is printed already adds a little plastic along
-/// the wall: the user accepts it to save a retraction. The memory is in
-/// `gpa`, an arena.
+/// walk can go over the line ends of a zigzag that is printed already.
+/// The caller prints each walk at half the line width (see
+/// `layer.thinLinks`), so it adds no ridge along the wall. The memory is
+/// in `gpa`, an arena.
 pub fn tour(gpa: Allocator, region: Paths, set: Paths, set_w: []const f32, group: []const u32, n_groups: usize, spacing: i64, angle_deg: f64, max_link: i64) Allocator.Error!Tour {
     var out: Paths = .empty;
     var widths: std.ArrayList(f32) = .empty;
@@ -1435,4 +1480,55 @@ test "fittedLines: a narrow strip along the lines gets a line on each edge" {
     for (ys.items[1..], ys.items[0 .. ys.items.len - 1]) |b, a| try testing.expect(@abs(b - a - step) <= 2);
     // The widths stay near the line width.
     for (fit.widths) |wd| try testing.expect(wd >= 0.4 - 1e-6 and wd <= 0.625 + 1e-6);
+}
+
+/// The bead area of the lines of `fit` (lines along x, each as wide in y
+/// as its width) in the box x0..x1, y0..y1, over the area of the box.
+fn beadShare(fit: Fitted, x0: i64, x1: i64, y0: i64, y1: i64) f64 {
+    var sum: f64 = 0;
+    for (0..fit.lines.count()) |k| {
+        const l = fit.lines.get(k);
+        const half: f64 = fit.widths[k] * 500;
+        const y: f64 = @floatFromInt(l[0].y);
+        const oy = @min(y + half, @as(f64, @floatFromInt(y1))) - @max(y - half, @as(f64, @floatFromInt(y0)));
+        const ox = @min(@max(l[0].x, l[1].x), x1) - @max(@min(l[0].x, l[1].x), x0);
+        if (oy > 0 and ox > 0) sum += oy * @as(f64, @floatFromInt(ox));
+    }
+    return sum / @as(f64, @floatFromInt((x1 - x0) * (y1 - y0)));
+}
+
+test "fittedLines: two pieces that share a border have no line on top of a line there" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const gpa = arena_state.allocator();
+    // A square of 40 mm (the area of the line centers) with a hole of
+    // 10 mm in the middle. The lines go along x (angle 0). The strips to
+    // the left and the right of the hole are pieces of their own. They
+    // share a border at y = 15 mm and y = 25 mm with the pieces below and
+    // above the hole.
+    var region: Paths = .empty;
+    try region.append(gpa, &.{ .init(0, 0), .init(40_000, 0), .init(40_000, 40_000), .init(0, 40_000) });
+    try region.append(gpa, &.{ .init(15_000, 15_000), .init(15_000, 25_000), .init(25_000, 25_000), .init(25_000, 15_000) });
+    const w = 420;
+    const fit = try fittedLines(gpa, region, w, 0, w);
+    try testing.expect(fit.piece_island.len >= 4);
+    // No line lies on another line: two lines less than half a width
+    // apart do not overlap along x.
+    for (0..fit.lines.count()) |i| for (i + 1..fit.lines.count()) |j| {
+        const a = fit.lines.get(i);
+        const b = fit.lines.get(j);
+        if (@abs(a[0].y - b[0].y) >= w / 2) continue;
+        const lo = @max(@min(a[0].x, a[1].x), @min(b[0].x, b[1].x));
+        const hi = @min(@max(a[0].x, a[1].x), @max(b[0].x, b[1].x));
+        try testing.expect(hi <= lo);
+    };
+    // The bead area for each area in a band of one line width on each
+    // side of a border, beside the hole, is within 10 % of the inside of
+    // a piece.
+    const inside = beadShare(fit, 2_000, 13_000, 5_000, 10_000);
+    try testing.expect(inside > 0.9 and inside < 1.1);
+    for ([_]i64{ 15_000, 25_000 }) |y| for ([_][2]i64{ .{ 2_000, 13_000 }, .{ 27_000, 38_000 } }) |xr| {
+        const band = beadShare(fit, xr[0], xr[1], y - w, y + w);
+        try testing.expect(@abs(band - inside) < 0.1 * inside);
+    };
 }
