@@ -13,12 +13,17 @@
 //   layer n         the layer slider
 //   log             writes the state
 //   shot NAME, wait a line in the log for a script, and no step
+//   press NAME      the button with this name or text ('_' is a space)
+//   newplate, plate n   part 0 to a new plate, and the active plate
+//   fopen, fclose, fmaterial i NAME, fcoloropen i, fcolorset i #hex, flog
+//                   the list of the filaments
 //   undo, redo      the history
 //   look nx ny nz d the camera looks at the middle of part 0 from n
 //   orbit dx dy, zoom f
 // The Paint tool: pclick [shift] and pstroke dx dy (at the point of the mesh
 // nearest to the middle of the part), pmode smart|brush, psize mm,
-// pfilament n, paddfilament, pclear, phover x y, plog. The Label tool: lface dx dz (a click on the
+// pfilament n, paddfilament, pclear, phover x y, pselect n, plog. The Label
+// tool: lface dx dz (a click on the
 // front face of part 0), ltext T ('_' is a space), lset i field value,
 // lshape i kind, ladd kind, lremove i, lfilament n, laddfilament, ldepth mm,
 // lturn deg, lwheel n, lswheel n, ldrag dx dy, lsdrag dx dy, lscale k,
@@ -34,6 +39,9 @@
 
 #include <cmath>
 #include <sstream>
+
+#include <winrt/Microsoft.UI.Xaml.Automation.Peers.h>
+#include <winrt/Microsoft.UI.Xaml.Automation.Provider.h>
 
 using namespace winrt;
 using Windows::System::VirtualKey;
@@ -66,6 +74,45 @@ namespace winrt::ZSlice::implementation
             RunDevStep(dev_steps[dev_next++]);
         });
         dev_timer.Start();
+    }
+
+    // Presses the visible button with this automation name or text, also in
+    // an open flyout, through its automation peer. No real input moves.
+    bool MainWindow::PressNamed(std::wstring const &name)
+    {
+        namespace Peers = Microsoft::UI::Xaml::Automation::Peers;
+        namespace Provider = Microsoft::UI::Xaml::Automation::Provider;
+        using namespace Microsoft::UI::Xaml;
+        using namespace Microsoft::UI::Xaml::Controls;
+        std::function<bool(DependencyObject const &)> walk = [&](DependencyObject const &at) {
+            if (auto element = at.try_as<UIElement>(); element != nullptr && element.Visibility() != Visibility::Collapsed)
+            {
+                if (auto base = at.try_as<Primitives::ButtonBase>())
+                {
+                    std::wstring text{ Automation::AutomationProperties::GetName(base) };
+                    if (text.empty())
+                        text = std::wstring(unbox_value_or<hstring>(base.Content(), L""));
+                    if (text == name && base.IsEnabled())
+                    {
+                        if (auto toggle = at.try_as<Primitives::ToggleButton>())
+                            Peers::ToggleButtonAutomationPeer(toggle).as<Provider::IToggleProvider>().Toggle();
+                        else if (auto button = at.try_as<Button>())
+                            Peers::ButtonAutomationPeer(button).as<Provider::IInvokeProvider>().Invoke();
+                        return true;
+                    }
+                }
+                int n = Media::VisualTreeHelper::GetChildrenCount(at);
+                for (int k = 0; k < n; k++)
+                    if (walk(Media::VisualTreeHelper::GetChild(at, k)))
+                        return true;
+            }
+            return false;
+        };
+        auto popups = Media::VisualTreeHelper::GetOpenPopupsForXamlRoot(Content().XamlRoot());
+        for (uint32_t i = 0; i < popups.Size(); i++)
+            if (popups.GetAt(i).Child() != nullptr && walk(popups.GetAt(i).Child()))
+                return true;
+        return walk(Content());
     }
 
     void MainWindow::LogDevState(std::wstring const &step)
@@ -265,7 +312,27 @@ namespace winrt::ZSlice::implementation
                 RequestDraw();
             }
         }
-        else if (!RunPaintStep(verb, words) && !RunLabelStep(verb, words) && verb != L"log")
+        else if (verb == L"press" && !words.empty())
+        {
+            std::wstring name = words[0];
+            std::replace(name.begin(), name.end(), L'_', L' ');
+            if (!PressNamed(name))
+                zs::Log("dev: no button %s\n", zs::ToUtf8(name).c_str());
+        }
+        else if (verb == L"newplate")
+        {
+            // Part 0 goes to a new plate, and that plate becomes active.
+            if (zs_set_part_move(model->Set(), model->ActivePlate(), 0, -1) >= 0)
+            {
+                PlateEdited();
+                SelectPlate(model->PlateCount() - 1);
+            }
+        }
+        else if (verb == L"plate")
+        {
+            SelectPlate((size_t)number(0));
+        }
+        else if (!RunPaintStep(verb, words) && !RunLabelStep(verb, words) && !RunFilamentStep(verb, words) && verb != L"log")
         {
             zs::Log("dev: a bad step: %s\n", zs::ToUtf8(step).c_str());
         }

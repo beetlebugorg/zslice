@@ -51,10 +51,10 @@ namespace
           L"<Path Data='M6 9V4.2a1.2 1.2 0 0 1 2.4 0V8M8.4 7.5V3.2a1.2 1.2 0 0 1 2.4 0V8M10.8 7.6V4.2a1.2 1.2 0 0 1 2.4 0v6.3c0 3-2 5-4.8 5-2 0-3-.9-4.2-2.6L2.6 10a1.2 1.2 0 0 1 2-1.3L6 10.4' " ZS_STROKE L"/>", true },
         { L"Measure", L"T", L"Measure (T): click two points of the print. The ends of the lines snap. Shift: no snap.",
           L"<Path Data='M1 6H17V12H1ZM4 6v2.5M6.5 6v1.5M9 6v2.5M11.5 6v1.5M14 6v2.5' RenderTransformOrigin='0.5,0.5' " ZS_STROKE L"><Path.RenderTransform><RotateTransform Angle='-45' CenterX='9' CenterY='9'/></Path.RenderTransform></Path>", true },
-        { L"Paint", L"P", L"Paint (P): paint filaments on the surface of a part",
+        { L"Paint", L"P", L"Paint (P): paint filaments on the surface of a part. Smart select: click a raised letter, a logo, or a face; Shift adds more. Brush: drag over the surface.",
           L"<Path Data='M9 2.5a6.5 6.5 0 1 0 0 13c1 0 1.5-.6 1.5-1.3 0-1-.9-1.2-.9-2s.6-1.2 1.4-1.2h1.6a2.9 2.9 0 0 0 2.9-2.9C15.5 5 12.6 2.5 9 2.5z' " ZS_STROKE L"/>"
           L"<Path Data='M4.6 8.4a1 1 0 1 0 2 0a1 1 0 1 0-2 0ZM6.6 5.4a1 1 0 1 0 2 0a1 1 0 1 0-2 0ZM10 5.4a1 1 0 1 0 2 0a1 1 0 1 0-2 0Z' Fill='{ThemeResource TextFillColorPrimaryBrush}'/>", true },
-        { L"Label", L"E", L"Label (E): click a face of a part to put text or marks on it",
+        { L"Label", L"E", L"Label (E): click a face of a part to put text or marks on it, in another filament. Drag a label to move it (Shift: keep its plane), turn the wheel over it to turn it (Shift: 15°), and drag its corner to scale it.",
           L"<Path Data='M3.5 3.5H14.5A1.5 1.5 0 0 1 16 5V13A1.5 1.5 0 0 1 14.5 14.5H3.5A1.5 1.5 0 0 1 2 13V5A1.5 1.5 0 0 1 3.5 3.5ZM5.5 7h5M8 7v4.5M12 11.5h1.2' " ZS_STROKE L"/>", true },
     };
 
