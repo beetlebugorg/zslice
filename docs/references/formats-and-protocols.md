@@ -71,7 +71,7 @@ kind: format
 source: OctoPrint
 license: AGPL-3.0
 link: https://docs.octoprint.org/en/master/api/
-files: linux/src/net/printer-link.c, tools/farm_sim/farm_sim.py
+files: linux/src/net/printer-link.c, windows/src/net/zs_printer_link.cpp, tools/farm_sim/farm_sim.py
 area: network
 summary: Read the state of a printer, and send G-code to it.
 ```
@@ -80,9 +80,9 @@ OctoPrint REST API, https://docs.octoprint.org/en/master/api/ (`/api/printer`, `
 
 **License:** AGPL-3.0 (OctoPrint; the API, not code)
 
-**Used in:** `linux/src/net/printer-link.c`, `tools/farm_sim/farm_sim.py`
+**Used in:** `linux/src/net/printer-link.c`, `windows/src/net/zs_printer_link.cpp`, `tools/farm_sim/farm_sim.py`
 
-**How zslice uses it:** Read the state of a printer, and send G-code to it. printdeck has the same API.
+**How zslice uses it:** Read the state of a printer, and send G-code to it. printdeck has the same API. The Windows app also uses it for PrusaLink, as the GTK shell does for a PrusaLink printer that the search finds. The Windows app uploads with `print=false` only.
 
 ### OctoPrint App Keys
 
@@ -91,7 +91,7 @@ kind: format
 source: OctoPrint
 license: AGPL-3.0
 link: https://docs.octoprint.org/en/master/bundledplugins/appkeys.html
-files: linux/src/net/printer-link.c, web/app/link.js
+files: linux/src/net/printer-link.c, web/app/link.js, windows/src/net/zs_printer_link.cpp
 area: network
 summary: "Get a key": the printer asks its user to allow zslice, and gives zslice an API key of its own.
 ```
@@ -100,7 +100,7 @@ The App Keys plugin of OctoPrint, https://docs.octoprint.org/en/master/bundledpl
 
 **License:** AGPL-3.0 (OctoPrint; the API, not code)
 
-**Used in:** `linux/src/net/printer-link.c`, `web/app/link.js`
+**Used in:** `linux/src/net/printer-link.c`, `web/app/link.js`, `windows/src/net/zs_printer_link.cpp`
 
 **How zslice uses it:** "Get a key": the printer asks its user to allow zslice, and gives zslice an API key of its own. printdeck has the same flow.
 
@@ -151,7 +151,7 @@ kind: format
 source: Moonraker
 license: GPL-3.0
 link: https://moonraker.readthedocs.io/
-files: linux/src/net/printer-link.c, tools/farm_sim/farm_sim.py
+files: linux/src/net/printer-link.c, windows/src/net/zs_printer_link.cpp, tools/farm_sim/farm_sim.py
 area: network
 summary: The same, for Klipper printers.
 ```
@@ -160,7 +160,7 @@ Moonraker API, https://moonraker.readthedocs.io/ (`/printer/objects/query`, `/se
 
 **License:** GPL-3.0 (Moonraker; the API, not code)
 
-**Used in:** `linux/src/net/printer-link.c`, `tools/farm_sim/farm_sim.py`
+**Used in:** `linux/src/net/printer-link.c`, `windows/src/net/zs_printer_link.cpp`, `tools/farm_sim/farm_sim.py`
 
 **How zslice uses it:** The same, for Klipper printers.
 
