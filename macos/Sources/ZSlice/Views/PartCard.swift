@@ -87,6 +87,12 @@ struct PartCard: View {
                     .help("Remove the part (Delete)")
                 }
                 .controlSize(.small)
+                HStack {
+                    Button("Mirror X") { workspace.mirrorParts(axis: 0) }.help("Mirror the part from left to right")
+                    Button("Mirror Y") { workspace.mirrorParts(axis: 1) }.help("Mirror the part from front to back")
+                    Spacer()
+                }
+                .controlSize(.small)
                 let rest = own.filter { $0.info.name != "project.filament" }
                 if !rest.isEmpty {
                     Divider()

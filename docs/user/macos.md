@@ -13,7 +13,7 @@ ZIG=/path/to/zig-0.16/zig ./build-core.sh
 open build/zslice.app
 ```
 
-Open an STL or 3MF file in one of these ways:
+Open an STL, 3MF, STEP (.step, .stp), or OBJ file in one of these ways:
 
 - File > Open (Command-O), or File > Open Recent.
 - Drop the file on the icon of the app.
@@ -127,6 +127,7 @@ The keys of the other apps work in the 3D view. A key with Ctrl in the other app
 | The 2D view of one layer, and back to 3D | 2 (or View > 2D View, Command-2) |
 | The 3D view | 3 |
 | Fit the part | Command-0 |
+| Hide the bed, or show it again | B (or View > Hide the Bed) |
 | Gaps, Check | Shift-Command-G, Shift-Command-K |
 | The Printers page | Option-Command-P |
 | The history | Command-Y |
@@ -168,6 +169,7 @@ Each edit is a step of the history, so Command-Z takes it back, and a project fi
 
 ### Parts
 
+- **Mirror**: Mirror X and Mirror Y on the card of a part mirror it from left to right, or from front to back, in place. Each is one step of the history.
 - **Several parts**: Command-Shift and a click adds a part to the selection, or takes it out. In the Move and Turn tools, Shift and a click does it too. Each selected part gets a frame on the bed. The card of several parts has Duplicate, Arrange the Plate, To a New Plate, and Remove. A drag of one of them, or the arrow keys, moves them all. D and Delete act on all of them.
 - **Scale**: the part card has the scale of the part in %. When a part is under 3 mm (a file in inches or in meters), the details ask so, with Inches (×25.4) and Meters (×1000).
 - **Copies**: Make [n] in all on the part card makes copies of the part until there are n: on its plate while they fit, then on new plates. To a New Plate moves the part to a new plate with the settings of this one.

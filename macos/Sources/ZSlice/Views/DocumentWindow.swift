@@ -325,7 +325,7 @@ struct DocumentWindow: View {
         .navigationSubtitle(subtitle)
         // STL and 3MF files dropped on the window go on the active plate.
         .dropDestination(for: URL.self) { urls, _ in
-            let models = urls.filter { ["stl", "3mf"].contains($0.pathExtension.lowercased()) }
+            let models = urls.filter { ["stl", "3mf", "step", "stp", "obj"].contains($0.pathExtension.lowercased()) }
             for url in models { workspace.addModel(url) }
             return !models.isEmpty
         } isTargeted: { dropping = $0 }
