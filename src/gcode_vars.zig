@@ -101,6 +101,11 @@ pub const Context = struct {
     /// filament of the settings is the only one. A list variable of the
     /// filaments (`filament_type[1]`) reads the slot of its index.
     slots: []const settings_mod.Filament = &.{},
+    /// The first filament slot that the print uses on each nozzle, or null
+    /// for a nozzle with none; null as a whole: not known, and the first
+    /// slot of the plate on that nozzle stands in (a test, or a G-code
+    /// with no plate).
+    first_of_nozzles: ?[2]?u32 = null,
     /// The tool now (a slot, from 0). In a filament change, the old tool.
     tool: u32 = 0,
     /// The layer now, or null (the start and the end G-code).
@@ -136,6 +141,10 @@ pub const Context = struct {
     /// print may not use slot 0.
     fn firstOfNozzle(c: *const Context, n: f64) ?u32 {
         if (c.phase == .start and c.change == null and c.layer_index == null and @as(f64, @floatFromInt(c.nozzleOf(c.tool))) == n) return c.tool;
+        // The print's own first filament of the nozzle. A filament of the
+        // plate that the print does not use has no AMS tray: the X2D
+        // stopped 37 s into a print that named one for its idle nozzle.
+        if (c.first_of_nozzles) |f| return if (n >= 0 and n < 2) f[@intFromFloat(n)] else null;
         const count: u32 = @intCast(@max(c.slots.len, 1));
         for (0..count) |k| if (@as(f64, @floatFromInt(c.nozzleOf(@intCast(k)))) == n) return @intCast(k);
         return null;
@@ -2034,6 +2043,26 @@ test "gcode vars: two nozzles of the X2D: the extruder of each filament, and hot
     const one = try testRender(text, .{ .r = &r, .slots = &slots, .tool = 0, .change = .{ .next = 1 } });
     defer testing.allocator.free(one);
     try testing.expectEqualStrings("M1 M1 M1 N0 C0 T1 H-1 B-1 E1 U0 F-1", one);
+}
+
+test "gcode vars: the first filament of a nozzle is one that the print uses" {
+    var r = try testResolved();
+    r.settings.machine.model = "bambu-lab-x2d";
+    r.settings.machine.nozzles = 2;
+    // Four filaments of the plate, all on the main nozzle, and a print
+    // of filaments 3 and 4: the idle nozzle has no filament (-1, which
+    // the X2D start G-code turns into 0), not filament 5 or an unused one.
+    const f = r.settings.filament;
+    const slots = [_]settings_mod.Filament{ f, f, f, f, f };
+    const text = "L{first_filaments[0]} L{first_filaments[1]} N{first_non_support_filaments[1]}";
+    const out = try testRender(text, .{ .r = &r, .slots = &slots, .tool = 3, .layer_index = 4, .first_of_nozzles = .{ 3, null } });
+    defer testing.allocator.free(out);
+    try testing.expectEqualStrings("L3 L-1 N-1", out);
+    // The start G-code: the filament that it loads comes first on its
+    // nozzle.
+    const start = try testRender(text, .{ .r = &r, .slots = &slots, .tool = 3, .first_of_nozzles = .{ 3, null } });
+    defer testing.allocator.free(start);
+    try testing.expectEqualStrings("L3 L-1 N-1", start);
 }
 
 test "gcode vars: the change G-code of the Bambu Lab X2D" {

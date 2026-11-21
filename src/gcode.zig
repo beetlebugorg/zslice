@@ -711,6 +711,9 @@ pub const Emitter = struct {
     /// filament of the settings. Empty or one: the print has one
     /// filament, and the emitter makes no change.
     slots: []const settings_mod.Filament = &.{},
+    /// The first filament slot of each nozzle in the print, or null: not
+    /// known (see gcode_vars.Context.first_of_nozzles).
+    first_of_nozzles: ?[2]?u32 = null,
     /// The slot of the filament in the nozzle, from 0. The start G-code
     /// loads it: set it to the first filament of the print (`startTool`)
     /// before `begin`.
@@ -2052,6 +2055,7 @@ pub const Emitter = struct {
             .layer_z = self.z,
             .object_model = m.gcode_flavor == .reprap,
             .slots = self.slots,
+            .first_of_nozzles = self.first_of_nozzles,
             .tool = self.tool,
             .layer_index = self.layer_index,
             .change = .{ .next = next, .flush_mm = flush_mm, .count = self.stats.changes, .old_temp = old_temp, .new_temp = new_temp, .after = .{ x + m.origin_x, y + m.origin_y, self.z } },
@@ -3306,6 +3310,7 @@ pub const Emitter = struct {
             .layer_z = lp.z,
             .layer_index = lp.index,
             .slots = self.slots,
+            .first_of_nozzles = self.first_of_nozzles,
             .tool = self.tool,
             .first_layer_box = self.first_layer_box,
         };
@@ -3335,6 +3340,7 @@ pub const Emitter = struct {
             // The filaments of the plate, and the filament in the nozzle:
             // in the start G-code, the first filament of the print.
             .slots = self.slots,
+            .first_of_nozzles = self.first_of_nozzles,
             .tool = self.tool,
         };
         return gcode_vars.render(self.gpa, w, text, &ctx) catch |err| switch (err) {

@@ -773,6 +773,26 @@ pub const PlateJob = struct {
 
     /// The slot of the filament of layer `layer` of the job of group `g`
     /// (see filaments.zig).
+    /// The first filament slot that the print uses on each nozzle (0 the
+    /// first, 1 the second of a printer with two nozzles), in print order,
+    /// or null for a nozzle that prints nothing. Support filaments do not
+    /// count (Bambu Studio's first_non_support_filaments). The start
+    /// G-code of a two-nozzle printer prepares this filament for each
+    /// nozzle (M620.17): a filament that the print does not use has no
+    /// tray in the AMS mapping, and the print stops.
+    pub fn firstOfNozzles(self: *const PlateJob) [2]?u32 {
+        var out: [2]?u32 = .{ null, null };
+        if (self.slots.len < 2) return out;
+        const two = self.resolved.settings.machine.nozzles >= 2;
+        for (self.levels) |lv| for (self.entries[lv.first..lv.end]) |e| {
+            const t = self.toolAt(self.instances[e.instance].group, e.layer);
+            const n: usize = if (two and t < self.slots.len) @min(self.slots[t].nozzle, 1) else 0;
+            if (out[n] == null) out[n] = t;
+            if (out[0] != null and out[1] != null) return out;
+        };
+        return out;
+    }
+
     pub fn toolAt(self: *const PlateJob, g: usize, layer: usize) u32 {
         if (self.slots.len < 2) return 0;
         return filaments_mod.slotOf(self.groups[g].job.resolvedAt(layer).settings.project.filament, self.slots.len);
@@ -1092,6 +1112,7 @@ pub const PlateJob = struct {
             .slots = self.slots,
             .towers = if (lo == 0) self.towers() else .{},
             .objects = objects.items,
+            .first_of_nozzles = self.firstOfNozzles(),
         };
         return engine.emitAll(gpa, src, self.threads, self.monitor, out, sink);
     }

@@ -1109,6 +1109,9 @@ pub const PlanSource = struct {
     slots: []const settings_mod.Filament = &.{},
     /// The prime towers (see gcode.Towers).
     towers: gcode.Towers = .{},
+    /// The first filament slot of each nozzle in the print, or null: not
+    /// known (see PlateJob.firstOfNozzles).
+    first_of_nozzles: ?[2]?u32 = null,
     /// The parts of the print for the object labels (see gcode.Object).
     objects: []const gcode.Object = &.{},
 };
@@ -1174,6 +1177,7 @@ pub fn emitAll(gpa: Allocator, src: PlanSource, threads: usize, monitor: Monitor
     em.slots = src.slots;
     em.towers = src.towers;
     em.objects = src.objects;
+    em.first_of_nozzles = src.first_of_nozzles;
     var record: std.ArrayList(gcode.PathInfo) = .empty;
     defer record.deinit(gpa);
     if (sink != null) em.record = &record;
