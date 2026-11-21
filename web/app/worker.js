@@ -1151,6 +1151,53 @@ const ops = {
     return { ok: true, index: activeIndex(), count: wasm.x.zs_set_count(set), ...settingsState() };
   },
 
+  // A calibration print on a new plate (src/app/calibrate.zig): kind 0
+  // temperature, 1 retraction, 2 flow, 3 pressure advance. The new plate
+  // has the settings of the active plate, and becomes the active plate.
+  calibrate({ kind }) {
+    commitPending();
+    const from = activeIndex();
+    wasm.x.zs_set_add(set);
+    syncCore();
+    const error = core.calibrationAdd(kind);
+    if (error) {
+      wasm.x.zs_set_remove(set, activeIndex());
+      wasm.x.zs_set_select(set, from);
+      syncCore();
+      showActive();
+      return { ok: false, error };
+    }
+    const cal = core.calibration();
+    core.modelName = cal?.name ?? "";
+    if (cal?.name) wasm.withString(cal.name, (n) => wasm.x.zs_set_name(set, activeIndex(), n));
+    wantSlice();
+    historyCommit();
+    showActive();
+    return { ok: true, calibration: cal, index: activeIndex(), count: wasm.x.zs_set_count(set), ...settingsState() };
+  },
+
+  // The calibration of the active plate, or null.
+  calibration() {
+    return { calibration: core.calibration() };
+  },
+
+  // "Use this value" of a calibration: the setting gets the value on each
+  // plate, so the filament of each plate has it.
+  calibrationUse({ setting, value }) {
+    commitPending();
+    const n = wasm.x.zs_set_count(set);
+    let error = "";
+    for (let i = 0; i < n; i++) {
+      const c = coreAt(i);
+      const e = c.set(setting, value);
+      if (e) error = e;
+      else wasm.x.zs_set_changed(set, i);
+    }
+    historyCommit();
+    wantSlice();
+    return { error, ...settingsState() };
+  },
+
   // The clipboard: { parts, plate } (the count of parts, and 1 for a
   // copy of a whole plate).
   clipboardInfo() {

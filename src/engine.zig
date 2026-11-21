@@ -2539,6 +2539,26 @@ test "an override of slope smoothing and ironing changes only the layers in its 
     }
 }
 
+test "a layer range of pressure advance sets it at its first layer and back after it" {
+    const gpa = testing.allocator;
+    var s: Settings = .{};
+    s.machine.gcode_flavor = .klipper;
+    // No range: the value of the filament once, at the start.
+    s.filament.pressure_advance = 0.04;
+    const base = try demoGcodeWith(gpa, s, &.{});
+    defer gpa.free(base);
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, base, "SET_PRESSURE_ADVANCE"));
+    const o = [_]settings_mod.Override{.{ .z_min = 3, .z_max = 4, .name = "filament.pressure_advance", .value = "0" }};
+    const g = try demoGcodeWith(gpa, s, &o);
+    defer gpa.free(g);
+    const layers = try layerTexts(gpa, g);
+    defer gpa.free(layers);
+    // Layers 14 to 18 have their tops from 3 to 4 mm.
+    try testing.expect(std.mem.indexOf(u8, layers[14], "SET_PRESSURE_ADVANCE ADVANCE=0\n") != null);
+    try testing.expect(std.mem.indexOf(u8, layers[19], "SET_PRESSURE_ADVANCE ADVANCE=0.04\n") != null);
+    try testing.expectEqual(@as(usize, 3), std.mem.count(u8, g, "SET_PRESSURE_ADVANCE"));
+}
+
 test "a retraction and its push back have the same length at a change of the retraction" {
     const gpa = testing.allocator;
     const o = [_]settings_mod.Override{

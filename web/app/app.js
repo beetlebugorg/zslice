@@ -1789,6 +1789,7 @@ $("main-menu").onclick = () => openMenu($("main-menu"), [
   { label: "Arrange the plate", disabled: app.state === "empty", tip: "Pack the parts on the bed", action: () => client.call("plate", { action: "arrange" }) },
   { label: "Clear the plate", disabled: app.state === "empty", action: () => client.call("plate", { action: "clear" }) },
   { label: "Remove this plate", action: () => removePlate(app.activePlate) },
+  { label: "Calibrate", submenu: calibrateItems() },
   { sep: true },
   { label: "Hide the bed", checked: app.bedHidden, accel: "B", tip: "The bed and its grid do not draw, so the bottom of a part shows from below.", action: toggleBed },
   { label: "2D view", checked: app.page === "2d", accel: "2", tip: "One layer from the top. A drag pans, the wheel zooms, a double click fits the part.", action: toggle2d },
@@ -1798,6 +1799,82 @@ $("main-menu").onclick = () => openMenu($("main-menu"), [
   { label: "Licenses", action: showLicenses },
   { label: "About zslice", action: () => toast(`zslice ${wasm.cstr(wasm.x.zs_version())}: a slicer in Zig, in WebAssembly. AGPL-3.0-or-later.`) },
 ]);
+
+// ---- calibration prints (src/app/calibrate.zig) ----
+
+const CALIBRATIONS = [
+  { kind: 0, label: "Temperature tower", tip: "A block for each nozzle temperature of the material" },
+  { kind: 1, label: "Retraction test", tip: "Two pillars: a retraction length for each band" },
+  { kind: 2, label: "Flow test", tip: "A row of cubes, each with its own flow" },
+  { kind: 3, label: "Pressure advance tower", tip: "Thin walls with sharp corners: a pressure advance for each band" },
+];
+
+// The items of the Calibrate menu: a test on a new plate, and the values
+// of the test of this plate.
+function calibrateItems() {
+  return [
+    ...CALIBRATIONS.map((c) => ({ label: c.label, tip: `${c.tip}, on a new plate`, action: () => calibrate(c.kind) })),
+    { sep: true },
+    { label: "Use a value of this test…", tip: "How to read the test of this plate, and a button for each of its values", action: () => showCalibration() },
+  ];
+}
+
+// A calibration print on a new plate, then its card.
+async function calibrate(kind) {
+  app.framePlate = app.plates.length;
+  const r = await client.call("calibrate", { kind });
+  if (!r.ok) {
+    toast(r.error || "The test did not load.");
+    return;
+  }
+  applySettings(r);
+  $("empty").hidden = true;
+  if (app.state === "empty") app.state = "ready";
+  $("title").textContent = r.calibration?.name ?? "zslice";
+  history.refresh();
+  showCalibration(r.calibration);
+}
+
+// How to read the test of the active plate, and a button for each value:
+// the button sets the value on each plate.
+async function showCalibration(cal) {
+  const c = cal ?? (await client.call("calibration")).calibration;
+  if (!c) {
+    toast("This plate has no calibration test. Open the Calibrate menu to make one.");
+    return;
+  }
+  const d = document.createElement("dialog");
+  d.style.cssText = "background:var(--dialog);color:var(--fg);border:none;border-radius:12px;padding:12px;max-width:560px";
+  const head = document.createElement("h3");
+  head.textContent = c.name;
+  const note = document.createElement("p");
+  note.textContent = c.note;
+  const list = document.createElement("div");
+  list.style.cssText = "display:flex;flex-wrap:wrap;gap:6px;margin:8px 0";
+  for (const st of c.steps) {
+    const b = document.createElement("button");
+    b.textContent = `Use ${st.text}`;
+    b.title = `Set ${c.setting} to ${st.value} on each plate`;
+    b.onclick = async () => {
+      const r = await client.call("calibrationUse", { setting: c.setting, value: st.value });
+      if (r.error) {
+        toast(r.error);
+        return;
+      }
+      applySettings(r);
+      toast(`${c.setting} is ${st.value} now.`);
+      d.close();
+    };
+    list.append(b);
+  }
+  const close = document.createElement("button");
+  close.textContent = "Close";
+  close.onclick = () => d.close();
+  d.onclose = () => d.remove();
+  d.append(head, note, list, close);
+  document.body.append(d);
+  d.showModal();
+}
 
 // The theme: the system, light, or dark (theme.js keeps the choice in
 // this browser).
@@ -4129,6 +4206,8 @@ const search = new SearchOverlay({
     { label: "2D layer view", keys: "2", run: () => showPage("2d") },
     { label: "3D view", keys: "3", run: () => showPage("3d") },
     { label: "Import a profile…", hint: "PrusaSlicer, OrcaSlicer, Bambu Studio, or Cura settings", run: () => importProfile() },
+    ...CALIBRATIONS.map((c) => ({ label: `Calibrate: ${c.label}`, hint: `${c.tip}, on a new plate`, run: () => calibrate(c.kind) })),
+    { label: "Calibrate: use a value of this test…", hint: "how to read the test, and its values", run: () => showCalibration() },
     { label: "Manage printers…", run: () => managePrinters() },
     { label: project.openName() ? "The project" : "Open a project", hint: project.openName() ?? "printdeck.yml from GitHub or a folder", run: () => showTab("project") },
     ...(project.openName() ? [{ label: "Close the project", hint: `${project.openName()}: its plates stay`, run: () => closeProject() }] : []),

@@ -1881,6 +1881,7 @@ pub const layer_settings = [_][]const u8{
     "filament.nozzle_temp",
     "filament.bed_temp",
     "filament.flow_ratio",
+    "filament.pressure_advance",
     "filament.retract_ratio",
     "filament.fan_speed",
     "filament.fan_max_speed",

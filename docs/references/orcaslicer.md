@@ -150,3 +150,18 @@ summary: The import of an OrcaSlicer or Bambu Studio preset (.json) and of the s
 ```
 
 OrcaSlicer and Bambu Studio keep a preset as a JSON object: a text, or a list of texts for each extruder, for each key, and `inherits` for the parent preset. A 3MF project has the same object in `Metadata/project_settings.config`. The bed temperature is for each plate type (`hot_plate_temp`, `textured_plate_temp`). A line width in percent is of the nozzle. `support_threshold_angle` is from the horizontal plane. zslice reads these files and maps the keys to its settings. The format and the names only; no code is copied.
+
+### Calibration prints
+
+```ref
+kind: idea
+source: OrcaSlicer
+license: AGPL-3.0
+link: https://github.com/SoftFever/OrcaSlicer/wiki/Calibration
+version: the wiki of OrcaSlicer, read on 2026-11-21
+files: src/calib.zig, src/app/calibrate.zig, docs/user/calibrate.md
+area: ui
+summary: The idea of calibration prints in the slicer: a temperature tower, a flow test, a retraction test, and a pressure advance test, each on its own plate.
+```
+
+OrcaSlicer has a Calibration menu with a temperature tower (blocks at different temperatures, read for strings, layer bond, overhangs, and bridges), a flow ratio test, a pressure advance test, and a retraction test. zslice makes its own test parts (`calib.zig`) and uses the tools of any plate for the values: a named layer range for each step of a tower, and the settings of each part for the flow test. The ranges of the temperature tower (for example 190 to 230 °C for PLA) are the usual ranges of each material, in steps of 5 °C. No code and no model of OrcaSlicer is copied.

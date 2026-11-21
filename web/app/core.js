@@ -1043,6 +1043,31 @@ export class Core {
     return { error: "", rows: text.split("\n").filter(Boolean).map((l) => l.split("\t")) };
   }
 
+  // Puts the test of a calibration on this plate (zs_app_calibration_add:
+  // 0 temperature, 1 retraction, 2 flow, 3 pressure advance). Returns ""
+  // or the reason.
+  calibrationAdd(kind) {
+    const rc = this.w.x.zs_app_calibration_add(this.app, kind);
+    if (rc === 0) return "";
+    if (rc === 7) return "The printer has no retraction (machine.retract_length is 0).";
+    return `The test did not load (${statusText(rc)}).`;
+  }
+
+  // The calibration of this plate (zs_app_calibration_get): { kind, name,
+  // setting, note, steps: [{ text, value }] }, or null.
+  calibration() {
+    const w = this.w;
+    const text = w.readText((b, c, l) => w.x.zs_app_calibration_get(this.app, b, c, l));
+    if (!text) return null;
+    const out = { steps: [] };
+    for (const line of text.split("\n")) {
+      const [k, a, b] = line.split("\t");
+      if (k === "step") out.steps.push({ text: a, value: b });
+      else if (k) out[k] = a;
+    }
+    return out;
+  }
+
   addStl(name, bytes) {
     const w = this.w;
     const r = w.withString(name, (n) => w.withBytes(bytes, (p, len) => w.x.zs_app_add_stl(this.app, n, p, len)));

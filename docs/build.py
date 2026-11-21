@@ -49,6 +49,7 @@ SOURCES = [
     ("docs/user/filaments.md", "user/filaments/", "Everyday tasks", "Print in colors"),
     ("docs/user/labels.md", "user/labels/", "Everyday tasks", "Labels on a part"),
     ("docs/user/check.md", "user/check/", "Everyday tasks", "Check the print"),
+    ("docs/user/calibrate.md", "user/calibrate/", "Everyday tasks", "Calibrate the filament"),
     ("docs/user/plates.md", "user/plates/", "Everyday tasks", "Plates and files"),
     ("docs/user/printers.md", "user/printers/", "Everyday tasks", "Send to a printer"),
     ("docs/user/history.md", "user/history/", "Everyday tasks", "Undo and history"),

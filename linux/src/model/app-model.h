@@ -101,6 +101,17 @@ void zg_model_plate_select(ZgModel *self, size_t i);
  * state of the new plate. Its "plate-changed" came first. */
 gboolean zg_model_plate_switching(ZgModel *self);
 void zg_model_plate_add(ZgModel *self);
+/* A calibration print on a new plate (zs_app_calibration_add, enum
+ * zs_calibration). The new plate becomes the active plate, with the name
+ * of the test. On an error, the new plate goes, and error has the
+ * reason. */
+gboolean zg_model_calibrate(ZgModel *self, int kind, GError **error);
+/* The calibration of the active plate (zs_app_calibration_get), or NULL.
+ * Free with g_free. */
+char *zg_model_calibration(ZgModel *self);
+/* Sets `setting` to `value` on each plate (the "Use" of a calibration
+ * value), saves the filament, and slices again. */
+gboolean zg_model_calibration_use(ZgModel *self, const char *setting, const char *value);
 void zg_model_plate_remove(ZgModel *self, size_t i);
 void zg_model_part_remove(ZgModel *self, size_t i);
 /* Moves part i to place `to` of the plate list: the print order of one

@@ -417,6 +417,23 @@ check(Math.abs(c2.part(0).x - c0.part(0).x) < 1e-9 && Math.abs(c2.part(0).y - c0
 check(Number(x3.zs_app_plate_copy_to(c0.app, c2.app)) === 1 && x3.zs_clipboard_is_plate() === 1, "a duplicate keeps the clipboard");
 x3.zs_clipboard_clear();
 check(Number(x3.zs_app_parts_paste(c2.app, 0, 0, 0)) < 0, "an empty clipboard");
+// A calibration on a new plate (calibrate.zig): the plan, and a slice
+// of it with a temperature for each block.
+check(x3.zs_set_add(set) === 3, "a plate for the test");
+const cal = setCore(3);
+check(cal.calibrationAdd(0) === "", "a temperature tower");
+const plan = cal.calibration();
+check(plan && plan.setting === "filament.nozzle_temp" && plan.steps.length === 9 && plan.steps[0].value === "230", "the plan of the tower");
+check(cal.calibrationAdd(2) !== "", "no second test on a plate with parts");
+cal.slice();
+check(cal.state() === STATE.done && /M104 S200\n/.test(new TextDecoder().decode(cal.gcode() ?? new Uint8Array())), "the tower slices with its temperatures");
+// The order of the parts with one part at a time.
+check(c0.partAction(0, "earlier") < 0, "the first part has no place before it");
+// The import of a profile of another slicer.
+const imp = cal.importProfile("a.ini", new TextEncoder().encode("layer_height = 0.16\nperimeter_speed = 45\n"));
+check(imp.error === "" && imp.rows[0][0] === "format" && cal.get("project.layer_height") === "0.16", "a PrusaSlicer profile imports");
+check(cal.importProfile("b.stl", new TextEncoder().encode("solid x\n")).error !== "", "a file that is not a profile");
+console.log(`calibration: ${plan.name}, ${plan.steps.length} steps; profile import: ${imp.rows.length - 1} rows`);
 x3.zs_set_free(set);
 console.log(`plate set: slices ${sliced.join(", ")}, sync ${(sn / 1e6).toFixed(2)} MB; the clipboard`);
 // The text of a copy on the system clipboard (clipboard.js).

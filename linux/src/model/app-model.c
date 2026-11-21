@@ -2283,6 +2283,61 @@ void zg_model_plate_add(ZgModel *self) {
     plate_switched(self);
 }
 
+char *zg_model_calibration(ZgModel *self) {
+    size_t len = 0;
+    if (zs_app_calibration_get(self->core, NULL, 0, &len) != ZS_OK) return NULL;
+    char *text = g_malloc(len + 1);
+    zs_app_calibration_get(self->core, text, len + 1, NULL);
+    return text;
+}
+
+gboolean zg_model_calibrate(ZgModel *self, int kind, GError **error) {
+    size_t from = zs_set_active(self->set);
+    plate_leave(self);
+    if (zs_set_add(self->set) < 0) {
+        g_set_error(error, G_IO_ERROR, G_IO_ERROR_FAILED, "No new plate.");
+        return FALSE;
+    }
+    plate_switched(self);
+    int rc = zs_app_calibration_add(self->core, kind);
+    if (rc != ZS_OK) {
+        plate_leave(self);
+        zs_set_remove(self->set, zs_set_active(self->set));
+        zs_set_select(self->set, from);
+        plate_switched(self);
+        g_set_error(error, G_IO_ERROR, G_IO_ERROR_FAILED, "%s",
+                    rc == ZS_INVALID_SETTINGS ? "The printer has no retraction (machine.retract_length is 0)." : "The test did not load.");
+        return FALSE;
+    }
+    char *cal = zg_model_calibration(self);
+    if (cal) {
+        for (char *l = cal; l && *l; l = strchr(l, '\n') ? strchr(l, '\n') + 1 : NULL) {
+            if (!g_str_has_prefix(l, "name\t")) continue;
+            char *name = g_strndup(l + 5, strcspn(l + 5, "\n"));
+            zs_set_name(self->set, zs_set_active(self->set), name);
+            g_free(name);
+            break;
+        }
+        g_free(cal);
+    }
+    zs_app_history_commit(self->core, now_ms());
+    plate_changed(self);
+    return TRUE;
+}
+
+gboolean zg_model_calibration_use(ZgModel *self, const char *setting, const char *value) {
+    gboolean ok = TRUE;
+    for (size_t i = 0; i < zs_set_count(self->set); i++) {
+        if (zs_app_setting_set(zs_set_app(self->set, i), setting, value) != ZS_OK) ok = FALSE;
+        else if (i != zs_set_active(self->set)) zs_set_changed(self->set, i);
+    }
+    zs_app_history_commit(self->core, now_ms());
+    zg_model_announce(self, setting);
+    zg_model_save_soon(self, ZS_GROUP_FILAMENT);
+    slice_soon(self);
+    return ok;
+}
+
 void zg_model_plate_remove(ZgModel *self, size_t i) {
     plate_leave(self);
     if (zs_set_remove(self->set, i) != ZS_OK) return;
