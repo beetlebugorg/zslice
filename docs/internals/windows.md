@@ -2,7 +2,7 @@
 
 The Windows app is a native shell over the Zig core, in `windows/`: a WinUI 3 shell in C++/WinRT, and a Direct3D 12 backend in the core. Only the core is shared with the other apps.
 
-The port is in progress. The app opens a model, slices it, and draws it. It has the plates, the plate signs, the bed models, the settings pane with search and history, the Select, Move, Turn, Grab, and Measure tools, and the line and part cards. The other tools, the printers, and the session restore come in the next steps. This page describes the parts that exist.
+The port is in progress. The app opens a model, slices it, and draws it. It has the plates, the plate signs, the bed models, the settings pane with search and history, the Select, Move, Turn, Support, Grab, and Measure tools, and the line and part cards. The other tools, the printers, and the session restore come in the next steps. This page describes the parts that exist.
 
 ## Build the app
 
@@ -20,7 +20,7 @@ Use `-Platform ARM64` and `-p:Platform=ARM64` for ARM64. The project takes the d
 
 ### Test hooks
 
-A build with `-p:ZsDevHooks=true` reads `ZSLICE_DO`: steps with `;` between them, one each 600 ms after the first slice, on the same code that the pointer and the keys call. A test then needs no real input. Each step writes the state of the tools to the log. The steps are `tool V`, `click x y [shift] [ctrl]`, `drag x0 y0 x1 y1 [ctrl]`, `turnz degrees`, `hover x y`, `key NAME`, `layer n`, `probe x y`, and `log`. `part` in place of `x y` is the middle of part 0 on the screen. `ZSLICE_PRINTER=id` starts on a printer of the library. A shipped build has none of the `ZSLICE_DO` code.
+A build with `-p:ZsDevHooks=true` reads `ZSLICE_DO`: steps with `;` between them, one each 600 ms after the first slice, on the same code that the pointer and the keys call. A test then needs no real input. Each step writes the state of the tools to the log. The steps are `tool V`, `click x y [shift] [ctrl]`, `drag x0 y0 x1 y1 [ctrl]`, `turnz degrees`, `hover x y`, `key NAME`, `layer n`, `probe x y`, and `log`. `part` in place of `x y` is the middle of part 0 on the screen. The Support tool adds its own steps, listed at the top of `MainWindow.DevHooks.cpp`. `ZSLICE_PRINTER=id` starts on a printer of the library. A shipped build has none of the `ZSLICE_DO` code.
 
 ## The shell
 
@@ -33,6 +33,7 @@ A build with `-p:ZsDevHooks=true` reads `ZSLICE_DO`: steps with `;` between them
 | `src/app/MainWindow.Settings.cpp` | The settings pane from the descriptions of the core, the search, and the history. |
 | `src/app/MainWindow.Tools.cpp` | The tool strip, the pointer, the keys, the selection, Move, Turn, Grab, and Measure. |
 | `src/app/MainWindow.Cards.cpp` | The line card and the part card, placed beside what they describe. |
+| `src/app/MainWindow.Support.cpp` | The Support tool: the areas, the trees, its card, and the pick of a support line by the Select tool. |
 | `src/app/MainWindow.DevHooks.cpp` | The test hooks, in a build with `ZsDevHooks`. |
 | `src/app/App` | The start of the app, and `ZSLICE_LOG`. |
 | `src/app/winrt_glue.cpp` | Compiles the generated XAML files, which a command-line build does not register. |
@@ -41,6 +42,7 @@ A build with `-p:ZsDevHooks=true` reads `ZSLICE_DO`: steps with `;` between them
 - The view draws only after a change. `ZS_BUSY` means that the compositor holds the frame before, and a timer draws again 8 ms later.
 - The swapchain is in device pixels. The shell sets the inverse of the composition scale on it with `SetMatrixTransform`.
 - A left drag orbits. A right drag orbits with a mouse and pans with a two-finger click on a touchpad. The middle button and Shift pan. The wheel and a pinch zoom.
+- The Support tool keeps a copy of the areas and the trees. It reads them again after a load of the view, an undo, and a switch of the plate. During a drag the copy leads, and the slices wait for the release. A drag of a tree sends its edit at most each 60 ms, and slices at most each 150 ms.
 
 ## Build the core
 
