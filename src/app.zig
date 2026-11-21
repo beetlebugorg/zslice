@@ -66,6 +66,7 @@ pub const plate_set = @import("app/plate_set.zig");
 pub const filament_slots = @import("app/filament_slots.zig");
 /// The labels of the parts (see app/labels.zig).
 pub const labels = @import("app/labels.zig");
+pub const clipboard = @import("app/clipboard.zig");
 pub const measure = @import("app/measure.zig");
 /// The printability check (see app/checks.zig).
 pub const checks_mod = @import("app/checks.zig");
@@ -553,7 +554,15 @@ pub const App = struct {
         // The filaments of a project of Bambu Studio or PrusaSlicer: their
         // colors and materials.
         if (loaded.colors.len > 1) try filament_slots.fromProject(app, loaded.colors, loaded.materials);
-        var lines = std.mem.tokenizeAny(u8, loaded.overrides, "\r\n");
+        try app.readFileLines(first, loaded.overrides);
+    }
+
+    /// Reads the lines of Metadata/zslice_overrides.txt (writeFileLines):
+    /// the support areas, the filament slots, the support trees (of the
+    /// parts from index `first` on), the edits, the layer profiles, and
+    /// the overrides. A line that this version does not know is left out.
+    pub fn readFileLines(app: *App, first: usize, text: []const u8) Allocator.Error!void {
+        var lines = std.mem.tokenizeAny(u8, text, "\r\n");
         while (lines.next()) |line| {
             // A support area of the user (app/support_areas.zig).
             if (try app.areas.read3mfLine(app.gpa, line)) continue;
@@ -638,6 +647,26 @@ pub const App = struct {
         try support_trees.write3mfLines(app, w);
         for (app.edits.list.items) |e| try w.print("edit\t{x}\t{d}\t{d}\t{d}\t{d}\t{d}\t{d}\n", .{ e.key, @intFromEnum(e.kind), e.value, e.layer, e.x, e.y, e.z });
         for (app.overrides.items) |o| try w.print("{d}\t{d}\t{s}\t{s}\n", .{ o.z_min, o.z_max, o.name, o.value });
+    }
+
+    /// The lines of the plate that a copy of the whole plate keeps
+    /// (app/clipboard.zig): the layer profiles, the filament slots, the
+    /// edits, and the overrides. The parts keep their areas and trees.
+    pub fn writePlateLines(app: *const App, w: *std.Io.Writer) (Allocator.Error || error{WriteFailed})!void {
+        for (app.profiles.items) |p| try w.print("profile\t{d}\t{d}\t{s}\n", .{ p.z_min, p.z_max, p.name });
+        try filament_slots.write3mfLines(app, w);
+        for (app.edits.list.items) |e| try w.print("edit\t{x}\t{d}\t{d}\t{d}\t{d}\t{d}\t{d}\n", .{ e.key, @intFromEnum(e.kind), e.value, e.layer, e.x, e.y, e.z });
+        for (app.overrides.items) |o| try w.print("{d}\t{d}\t{s}\t{s}\n", .{ o.z_min, o.z_max, o.name, o.value });
+    }
+
+    /// Pastes the clipboard on the plate (app/clipboard.zig).
+    /// With `from`, a copy of clipboard.make in place of the clipboard.
+    pub fn pasteParts(app: *App, from: ?*const clipboard.Clip, at: clipboard.At) (Allocator.Error || error{NoResult})!clipboard.Paste {
+        app.fallCancel();
+        app.stopWorker();
+        const r = if (from) |c| try clipboard.pasteFrom(c, app, at) else try clipboard.paste(app, at);
+        try app.plateChanged();
+        return r;
     }
 
     fn writePlateAlloc(app: *const App, gpa: Allocator, snapshot: bool) (Allocator.Error || error{WriteFailed} || error{NoModel})![]u8 {
@@ -3280,6 +3309,7 @@ test {
     _ = support_areas;
     _ = filament_slots;
     _ = support_trees;
+    _ = clipboard;
     _ = @import("app/feature_settings.zig");
     _ = @import("app/farm.zig");
     _ = @import("app/session.zig");

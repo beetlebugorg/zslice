@@ -386,7 +386,13 @@ pub const Plate = struct {
     /// A copy of part i (its mesh, pose, scale, turn, settings, and
     /// modifier volumes) at a free place on the bed. Returns its index.
     pub fn duplicate(self: *Plate, gpa: Allocator, i: usize, bed: [2]f64, gap: f64) Allocator.Error!usize {
-        const src = &self.parts.items[i];
+        return self.put(gpa, try clonePart(gpa, &self.parts.items[i]), bed, gap);
+    }
+
+    /// A deep copy of a part: its mesh, pose, scale, settings, modifier
+    /// volumes, support trees, paint, and labels, at the same place. The
+    /// caller owns it.
+    pub fn clonePart(gpa: Allocator, src: *const Part) Allocator.Error!Part {
         var p: Part = src.*;
         p.name = try gpa.dupeZ(u8, src.name);
         errdefer gpa.free(p.name);
@@ -417,11 +423,12 @@ pub const Plate = struct {
             c.meta = try threemf.cloneMeta(gpa, v.meta);
             try p.volumes.append(gpa, c);
         }
-        const spot = self.freeSpot(&p, bed, gap);
-        p.x = spot[0];
-        p.y = spot[1];
-        try self.parts.append(gpa, p);
-        return self.parts.items.len - 1;
+        return p;
+    }
+
+    /// Frees a part that is on no plate (a copy of clonePart).
+    pub fn freePart(gpa: Allocator, p: *Part) void {
+        p.deinit(gpa);
     }
 
     /// A copy of the plate with what a 3MF file of it has (threemf.write):
@@ -578,6 +585,17 @@ pub const Plate = struct {
         const spot = self.freeSpot(&p, bed, gap);
         p.x = spot[0];
         p.y = spot[1];
+        self.parts.append(gpa, p) catch |e| {
+            p.deinit(gpa);
+            return e;
+        };
+        return self.parts.items.len - 1;
+    }
+
+    /// Puts a part on the plate at its place (x, y), with no check for a
+    /// free place. The plate owns it after the call, also on an error.
+    pub fn putAt(self: *Plate, gpa: Allocator, part: Part) Allocator.Error!usize {
+        var p = part;
         self.parts.append(gpa, p) catch |e| {
             p.deinit(gpa);
             return e;

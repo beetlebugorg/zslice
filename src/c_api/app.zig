@@ -2696,6 +2696,56 @@ export fn zs_app_part_duplicate(a: ?*App, i: usize) isize {
     return @intCast(j);
 }
 
+/// Copies parts `parts` (n indices) of the plate to the clipboard of the
+/// process (app/clipboard.zig), with the support areas and marks over
+/// them. whole != 0: the whole plate (parts can be NULL).
+export fn zs_app_parts_copy(a: ?*const App, parts: ?[*]const usize, n: usize, whole: c_int) c_int {
+    const app = a orelse return @intFromEnum(Status.invalid_argument);
+    const list: []const usize = if (parts) |p| p[0..n] else &.{};
+    app_mod.clipboard.copy(app, list, whole != 0) catch |e| return status(e);
+    return ok;
+}
+
+/// Pastes the clipboard on the plate. at_point != 0: the center of the
+/// group at (x, y) mm on the bed. Returns the index of the first new
+/// part, or -status (ZS_NO_RESULT: the clipboard is empty).
+export fn zs_app_parts_paste(a: ?*App, at_point: c_int, x: f64, y: f64) isize {
+    const app = a orelse return -@as(isize, @intFromEnum(Status.invalid_argument));
+    if (at_point != 0 and !(std.math.isFinite(x) and std.math.isFinite(y))) return -@as(isize, @intFromEnum(Status.invalid_value));
+    const at: app_mod.clipboard.At = if (at_point != 0) .{ .point = .{ x, y } } else .free;
+    const r = app.pasteParts(null, at) catch |e| return -@as(isize, status(e));
+    noted(app, null, true);
+    return @intCast(r.first);
+}
+
+/// A copy of the whole plate of `from` on the plate of `to` (as a copy
+/// and a paste), with no change of the clipboard. Returns the index of
+/// the first new part, or -status.
+export fn zs_app_plate_copy_to(f: ?*const App, t: ?*App) isize {
+    const from = f orelse return -@as(isize, @intFromEnum(Status.invalid_argument));
+    const to = t orelse return -@as(isize, @intFromEnum(Status.invalid_argument));
+    if (from == to) return -@as(isize, @intFromEnum(Status.invalid_argument));
+    var copy = app_mod.clipboard.make(from, &.{}, true) catch |e| return -@as(isize, status(e));
+    defer app_mod.clipboard.free(&copy);
+    const r = to.pasteParts(&copy, .free) catch |e| return -@as(isize, status(e));
+    noted(to, null, true);
+    return @intCast(r.first);
+}
+
+/// The count of parts on the clipboard (0: empty).
+export fn zs_clipboard_parts() usize {
+    return app_mod.clipboard.count();
+}
+
+/// 1 if the clipboard has a whole plate.
+export fn zs_clipboard_is_plate() c_int {
+    return @intFromBool(app_mod.clipboard.isPlate());
+}
+
+export fn zs_clipboard_clear() void {
+    app_mod.clipboard.clear();
+}
+
 export fn zs_app_part_reset(a: ?*App, i: usize) c_int {
     const app = a orelse return @intFromEnum(Status.invalid_argument);
     if (i >= app.plate.count()) return @intFromEnum(Status.out_of_range);

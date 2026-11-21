@@ -938,6 +938,32 @@ typedef struct zs_part {
  * volumes) at a free place on the bed. Returns its index, or a negative
  * status. */
 ptrdiff_t zs_app_part_duplicate(zs_app *app, size_t i);
+/* The clipboard of parts: one for the process, so a paste works on each
+ * plate, also after the parts of the copy go. A copy holds copies of the
+ * parts (as zs_app_part_duplicate: the mesh, pose, scale, settings,
+ * volumes, support trees, paint, and labels) and the support areas and
+ * marks over each part. whole != 0 copies the whole plate: all parts,
+ * areas, and marks, and its layer profiles, filaments, edits, and
+ * overrides (parts can be NULL). A failed copy keeps the clipboard.
+ *
+ * A paste adds new copies to the plate, one history step:
+ * - on an empty plate, each part at its place of the copy (a copy of a
+ *   plate brings its profiles, filaments, edits, and overrides too);
+ * - at_point != 0: the center of the group at (x, y) mm on the bed;
+ * - else each part at a free place, as zs_app_part_duplicate.
+ * The areas and marks of a part move with it. Returns the index of the
+ * first new part (zs_clipboard_parts of them follow), or -status:
+ * ZS_NO_RESULT for an empty clipboard. Cut is a copy and a remove. Call
+ * these from one thread. */
+int zs_app_parts_copy(const zs_app *app, const size_t *parts, size_t n, int whole);
+ptrdiff_t zs_app_parts_paste(zs_app *app, int at_point, double x, double y);
+/* A copy of the whole plate of `from` on the plate of `to` (another
+ * app, for example a new plate of zs_set_add), as a copy and a paste,
+ * with no change of the clipboard: "Duplicate the plate". */
+ptrdiff_t zs_app_plate_copy_to(const zs_app *from, zs_app *to);
+size_t zs_clipboard_parts(void);
+int zs_clipboard_is_plate(void);
+void zs_clipboard_clear(void);
 /* Splits part i into its separate bodies (the sets of faces that share no
  * vertex), each a part at its place, with the settings of part i. The new
  * parts are at index i on. Returns their count, 0 for a part of one body,
