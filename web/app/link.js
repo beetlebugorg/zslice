@@ -295,11 +295,15 @@ export async function requestKey(printer, wait = () => {}, signal = null) {
   if (printer.kind === "moonraker") return { ok: false, message: "Moonraker gives no API keys this way: it needs none, or the key of its config." };
   const base = "/plugin/appkeys/request";
   let token;
+  // A Printdeck pairs at its root: the key is of the deck ("scope":
+  // "deck"), good for all its printers and their list. At the address of
+  // one printer the key is of that printer only.
+  const at = printer.kind === "printdeck" ? rootOf(printer) : printer;
   try {
     // printdeck: the public key of the signatures too. The deck trusts it
     // after "Allow".
     const pub = printer.kind === "printdeck" ? await publicKey() : "";
-    const r = await request(printer, base, {
+    const r = await request(at, base, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(pub ? { app: "zslice", public_key: pub } : { app: "zslice" }),
@@ -320,7 +324,7 @@ export async function requestKey(printer, wait = () => {}, signal = null) {
     if (signal?.aborted) return { ok: false, cancelled: true, message: "Cancelled." };
     let r;
     try {
-      r = await request(printer, `${base}/${encodeURIComponent(token)}`);
+      r = await request(at, `${base}/${encodeURIComponent(token)}`);
     } catch (e) {
       return { ok: false, message: explain(e, printer) };
     }
@@ -511,9 +515,24 @@ export function nozzleOfCode(code) {
   return { type, flow };
 }
 
+// The address of the deck itself for an address of one of its printers
+// (".../printers/<id>/" goes): the list of the printers is at the root.
+export function deckRoot(url) {
+  if (!url) return url;
+  return url.replace(/\/printers\/[^/]+\/?$/, "/").replace(/\/printers\/[^/]+\/.*$/, "/");
+}
+
+// The deck of a printer of a deck, as a printer of its own for request():
+// another name, so the address that worked for the deck is not taken for
+// the printer.
+function rootOf(printer) {
+  return { ...printer, name: `${printer.name ?? ""} (deck)`, url: deckRoot(printer.url), https: deckRoot(printer.https) };
+}
+
 export async function deckPrinters(printer) {
   try {
-    const r = await request(printer, "/slicer/printer.json", { headers: headers(printer) });
+    const root = rootOf(printer);
+    const r = await request(root, "/slicer/printer.json", { headers: headers(printer) });
     if (r.status === 401 || r.status === 403) return { ok: false, message: "The deck refused the key." };
     if (!r.ok) return { ok: false, message: `The deck answered ${r.status}.` };
     const j = await r.json();
