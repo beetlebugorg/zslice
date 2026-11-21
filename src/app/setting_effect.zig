@@ -229,6 +229,7 @@ pub fn ratioSpeed(settings: Settings, name: []const u8, value: []const u8) ?f64 
         .{ .n = "project.ironing_speed", .f = .ironing, .first = false },
         .{ .n = "project.slope_smoothing_speed", .f = .slope_smoothing, .first = false },
         .{ .n = "project.slope_ironing_speed", .f = .slope_ironing, .first = false },
+        .{ .n = "project.bridge_speed", .f = .bridge, .first = false },
     };
     for (cases) |c| if (std.mem.eql(u8, c.n, name)) {
         var s = settings;

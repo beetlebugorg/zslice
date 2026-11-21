@@ -23,6 +23,13 @@ function openError(rc, w) {
 // The values of a node of the support trees in core.supportTrees.
 export const TREE_STRIDE = 9;
 
+// The speed ratios that give a speed in mm/s (setting_effect.ratioSpeed).
+const RATIO_SPEEDS = [
+  "project.outer_wall_speed", "project.inner_wall_speed", "project.skin_speed", "project.infill_speed",
+  "project.first_layer_speed", "project.ironing_speed", "project.slope_smoothing_speed",
+  "project.slope_ironing_speed", "project.bridge_speed",
+];
+
 export class Core {
   // wasm: a Wasm (wasm.js) whose onEvent goes to this.onEvent. infos: the
   // setting infos of another Core of the same Wasm, to share. app: an app
@@ -227,6 +234,14 @@ export class Core {
         base: this.base(info.name),
         formula: this.formula(info.name),
       };
+    }
+    // The speed in mm/s of each speed ratio (zs_app_ratio_speed): the
+    // editors show it next to the ratio.
+    const w = this.w;
+    for (const name of RATIO_SPEEDS) {
+      if (!values[name]) continue;
+      const rc = w.withStrings([name, values[name].value], (n, v) => w.x.zs_app_ratio_speed(this.app, n, v, w.cell));
+      if (rc === 0) values[name].speed = w.f64(w.cell);
     }
     return { values, quality: this.qualityName() };
   }

@@ -451,10 +451,17 @@ export class SettingsBrowser {
     input.addEventListener("click", (e) => e.stopPropagation());
     box.append(input);
     if (info.unit) box.append(el("span", "unit", info.unit));
+    // A speed ratio: the speed in mm/s it gives on this printer.
+    const mmS = el("span", "unit speed-hint");
+    mmS.hidden = true;
+    mmS.title = "The speed of this ratio on this printer, for a line of the line width at the layer height (the flow limit can make it lower).";
+    box.append(mmS);
     return {
       node: box,
       update: (entry) => {
         if (!entry) return;
+        mmS.hidden = !(entry.speed > 0);
+        if (entry.speed > 0) mmS.textContent = `≈ ${Math.round(entry.speed)} mm/s`;
         sent = entry.value;
         shown = entry.value;
         if (document.activeElement !== input) {

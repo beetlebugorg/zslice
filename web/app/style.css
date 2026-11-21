@@ -244,6 +244,7 @@ input[type=range] { accent-color: var(--accent-bg); }
 .owner.filament { background: rgba(217, 72, 15, 0.14); color: #d9480f; }
 .owner-note { margin: 8px 0 0; font-size: 0.9em; opacity: 0.85; }
 .owner-note.banner { margin: 4px 10px 8px; }
+.editor .speed-hint { opacity: 0.75; white-space: nowrap; }
 .owner-note .owner { margin-left: 0; margin-right: 4px; }
 .chevron { width: 7px; height: 7px; border-right: 1.3px solid currentColor; border-top: 1.3px solid currentColor; transform: rotate(45deg); opacity: 0.7; margin: 0 6px 0 4px; flex: none; }
 .setting-row { min-height: 48px; padding-right: 6px; }
