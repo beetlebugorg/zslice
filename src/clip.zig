@@ -1090,21 +1090,35 @@ const SlabIndex = struct {
 /// a point just left of v and just above the ray.
 noinline fn windingLeftOf(comptime narrow: bool, edges: []const Merged, index: *const SlabIndex, v: Point) [2]i32 {
     var sum: [2]i32 = .{ 0, 0 };
-    for (index.get(v.y)) |fi| {
-        const f = &edges[fi];
-        const up = f.lo.y < f.hi.y;
-        const u = if (up) f.lo else f.hi;
-        const w = if (up) f.hi else f.lo;
-        if (!(u.y <= v.y and v.y < w.y)) continue;
-        if (Arith(narrow).cross(u, w, v) < 0) {
-            // An edge that goes down, on the left of the point, adds +1
-            // (the left side of a counterclockwise square).
-            const s: i32 = if (up) 1 else -1;
-            sum[0] -= f.d[0] * s;
-            sum[1] -= f.d[1] * s;
-        }
-    }
+    for (index.get(v.y)) |fi| addCrossing(narrow, &edges[fi], v, &sum);
     return sum;
+}
+
+/// `windingLeftOf` for the leftmost vertex v of edges[first], with no
+/// index. An edge after `first` has its lo at x >= v.x (the edges are in
+/// (lo, hi) order), so v is not right of it. The ray crosses only edges
+/// before `first`.
+noinline fn windingLeftOfFirst(comptime narrow: bool, edges: []const Merged, first: usize) [2]i32 {
+    var sum: [2]i32 = .{ 0, 0 };
+    const v = edges[first].lo;
+    for (edges[0..first]) |*f| addCrossing(narrow, f, v, &sum);
+    return sum;
+}
+
+/// Adds the winding delta of edge f to `sum` if the ray from v to the
+/// left crosses it (see `windingLeftOf`).
+inline fn addCrossing(comptime narrow: bool, f: *const Merged, v: Point, sum: *[2]i32) void {
+    const up = f.lo.y < f.hi.y;
+    const u = if (up) f.lo else f.hi;
+    const w = if (up) f.hi else f.lo;
+    if (!(u.y <= v.y and v.y < w.y)) return;
+    if (Arith(narrow).cross(u, w, v) < 0) {
+        // An edge that goes down, on the left of the point, adds +1
+        // (the left side of a counterclockwise square).
+        const s: i32 = if (up) 1 else -1;
+        sum[0] -= f.d[0] * s;
+        sum[1] -= f.d[1] * s;
+    }
 }
 
 /// Finds the winding numbers on the left of each edge, from the faces of
@@ -1194,6 +1208,7 @@ fn computeWinding(comptime narrow: bool, arena: Allocator, edges: []Merged) !voi
     const known = try arena.alloc(bool, nf);
     @memset(known, false);
     var index: ?SlabIndex = null;
+    var scanned: usize = 0;
     var queue: std.ArrayList(u32) = .empty;
     var comp: std.ArrayList(u32) = .empty;
     for (0..nf) |seed| {
@@ -1203,17 +1218,16 @@ fn computeWinding(comptime narrow: bool, arena: Allocator, edges: []Merged) !voi
         known[seed] = true;
         wind[seed] = .{ 0, 0 };
         try queue.append(arena, @intCast(seed));
-        // The leftmost vertex of the component, and its most
-        // counterclockwise outgoing half-edge.
-        var lead: u32 = face_first.items[seed];
+        // The first edge of the component. The edges are in (lo, hi)
+        // order, so its lo is the leftmost vertex of the component.
+        var first: u32 = face_first.items[seed] >> 1;
         var qi: usize = 0;
         while (qi < queue.items.len) : (qi += 1) {
             const f = queue.items[qi];
             try comp.append(arena, f);
             var h = face_first.items[f];
             while (true) {
-                if (ctx.origin(h).lessThan(ctx.origin(lead)) or
-                    (ctx.origin(h).eql(ctx.origin(lead)) and A.crossDir(ctx.dir(lead), ctx.dir(h)) > 0)) lead = h;
+                first = @min(first, h >> 1);
                 // The face on the other side of h is the face of its twin.
                 // The left of lo -> hi has the winding of its right plus d.
                 const g = face[h ^ 1];
@@ -1234,11 +1248,30 @@ fn computeWinding(comptime narrow: bool, arena: Allocator, edges: []Merged) !voi
         // (lo, hi) order, so the first one starts at the leftmost vertex of
         // all. No edge is on the left of that vertex, so its component
         // needs no ray.
-        const v = ctx.origin(lead);
+        // The most counterclockwise half-edge out of the leftmost vertex:
+        // the face on its left is the face just left of the vertex. All
+        // half-edges out of that vertex point to the right or up, so the
+        // cross product orders them. next[g ^ 1] is the half-edge before g
+        // (clockwise) around the origin of g.
+        var lead: u32 = 2 * first;
+        var g = next[lead ^ 1];
+        while (g != 2 * first) : (g = next[g ^ 1]) {
+            if (A.crossDir(ctx.dir(lead), ctx.dir(g)) > 0) lead = g;
+        }
+        const v = edges[first].lo;
         var outside: [2]i32 = .{ 0, 0 };
         if (!v.eql(edges[0].lo)) {
-            if (index == null) index = try SlabIndex.build(arena, edges);
-            outside = windingLeftOf(narrow, edges, &index.?, v);
+            // A scan of the edges before the first edge of the component
+            // is cheaper than the index for a few components. The code
+            // builds the index when the scans reach four times the edge
+            // count, so the scans stay linear in the edge count.
+            if (index == null and scanned + first <= 4 * m) {
+                scanned += first;
+                outside = windingLeftOfFirst(narrow, edges, first);
+            } else {
+                if (index == null) index = try SlabIndex.build(arena, edges);
+                outside = windingLeftOf(narrow, edges, &index.?, v);
+            }
         }
         const rel = wind[face[lead]];
         const shift = [2]i32{ outside[0] - rel[0], outside[1] - rel[1] };
