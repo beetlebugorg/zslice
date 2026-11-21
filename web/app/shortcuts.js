@@ -28,6 +28,16 @@ export const SHORTCUTS = [
     ],
   },
   {
+    group: "Copy and paste",
+    keys: [
+      ["Ctrl+C", "Copy the selection: parts, a label, a support area, the changes of the selected layers, a setting value, or the report of a line"],
+      ["Ctrl+X", "Cut the selection: a copy, then it goes"],
+      ["Ctrl+V", "Paste: parts next to the selected parts, else at the pointer; a label or a support area on the part under the pointer; layer changes on the selected layers; a value into the setting"],
+      ["Ctrl+Shift+V", "Paste the copied parts or plate as a new plate"],
+      ["Ctrl+D", "Duplicate the selected parts or the selected label"],
+    ],
+  },
+  {
     group: "Plates",
     keys: [
       ["]", "The next plate: make it active, and show it"],

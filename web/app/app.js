@@ -80,6 +80,7 @@ import { KINDS, send as sendToPrinter, test as testPrinter, requestKey, trustTex
 import { CameraView } from "./camera.js";
 import { signGcode, keyId as signingKeyId, supported as canSign, UNSUPPORTED as NO_SIGNATURES } from "./signing.js";
 import { contextItems } from "./context-menu.js";
+import { Clipboard } from "./clipboard.js";
 import { openMenu, openMenuAt, menuOpen, openPopover, closeMenu } from "./menus.js";
 import { formatClock, formatTime, useCore } from "./format.js";
 import { drawSigns, signLines } from "./signs.js";
@@ -2370,6 +2371,8 @@ async function showContextMenu(x, y) {
     on,
     marks: app.marks > 0,
     cut: isCut(),
+    clip: clipboard.full,
+    clipParts: clipboard.hasParts,
     run: runMenu,
   });
   openMenuAt(x, y, items, () => canvas.focus({ preventScroll: true }));
@@ -2392,6 +2395,24 @@ async function runMenu(act, arg) {
       break;
     }
     case "copyForAi": await copyForAi(); break;
+    case "pasteHere": await clipboard.pasteAt(app.menuAt[0], app.menuAt[1]); break;
+    case "copyPart":
+    case "cutPart":
+    case "duplicatePart": {
+      const r = await client.call("partAt", { path, bed: false, x: 0, y: 0 });
+      if (!r.part) break;
+      const sel = { kind: "parts", indices: [r.part.index] };
+      if (act === "copyPart") await clipboard.copy(sel);
+      else if (act === "cutPart") await clipboard.cut(sel);
+      else {
+        const d = await client.call("partsAction", { indices: sel.indices, action: "duplicate" });
+        if (d.ok) tools.setParts(d.parts);
+      }
+      break;
+    }
+    case "copyPlate": await clipboard.copyPlate(); break;
+    case "duplicatePlate": await clipboard.duplicatePlate(); break;
+    case "pastePlate": await clipboard.pasteAsPlate(); break;
     case "putDown": await client.call("putDown", { path, seg }); break;
     case "place": await client.call("place", { path, code: arg }); break;
     case "plate": await client.call("plate", { action: arg }); break;
@@ -3405,6 +3426,30 @@ async function addPlate() {
   history.refresh();
 }
 
+// ---- copy and paste (clipboard.js) ----
+
+var clipboard = new Clipboard({ // var: the menus can call it before this line
+  client, canvas, tools, labelTool, supportTool, rangeCard, partCard, app, toast,
+  menuOpen: () => menuOpen(),
+  report: async () => (app.sel >= 0 ? (await client.call("report", { path: app.sel })).text ?? null : null),
+  applySettings: (r) => applySettings(r),
+  // Parts came onto the plate: an empty plate has a model now.
+  pasted: () => {
+    $("empty").hidden = true;
+    if (app.state === "empty") app.state = "ready";
+    history.refresh();
+  },
+  // A paste or a duplicate made a new plate, and it is the active plate.
+  plateAdded: (r) => {
+    applySettings(r);
+    $("empty").hidden = true;
+    if (app.state === "empty") app.state = "ready";
+    $("title").textContent = app.plates[r.index]?.name ?? "zslice";
+    history.refresh();
+    toast(`Plate ${r.index + 1} is a copy.`);
+  },
+});
+
 // Removes plate i, after a question if it has parts. The plates are not
 // in the undo list, so a removal cannot be undone.
 async function removePlate(i) {
@@ -4196,6 +4241,7 @@ function benchPick(step = 40) {
 // For tests: the state of the page.
 window.zslice = {
   project,
+  clipboard,
   labelTool,
   camera: () => cameraNow(),
   rangeCard,

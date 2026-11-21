@@ -605,6 +605,69 @@ export class LabelTool {
     this.select(-1);
   }
 
+  // ---- copy and paste (clipboard.js) ----
+
+  // A copy of the selected label for the clipboard (no id), or null.
+  copyLabel() {
+    const l = this.label;
+    if (!l) return null;
+    const out = JSON.parse(JSON.stringify(l));
+    delete out.id;
+    return out;
+  }
+
+  // Pastes a copy of label `src`. With a pixel (px, py, CSS pixels) on a
+  // face of a part: there, with the same turn. Else on the part of the
+  // tool (or `part`), under the label of the copy on the same face. One
+  // call to the worker: one step of the history. Returns true for a new
+  // label.
+  async pasteLabel(src, px = null, py = null, part = -1) {
+    if (!this.on) await this.open(-1, 0);
+    const dpr = window.devicePixelRatio || 1;
+    let at = null;
+    let index = this.index >= 0 ? this.index : part;
+    if (px != null) {
+      const hit = await this.ctx.partAt(px * dpr, py * dpr);
+      if (hit) {
+        if (hit.index !== this.index) await this.load(hit.index);
+        index = hit.index;
+        const s = await this.session(hit.index);
+        const r = this.ray(px, py);
+        at = s && r ? placeAt(this.w, s, [...r[0], ...r[1]]) : null;
+      }
+    }
+    if (index < 0) {
+      this.ctx.toast("Point at a part to paste the label there.");
+      return false;
+    }
+    if (index !== this.index) await this.load(index);
+    let label;
+    if (at) {
+      label = withAngle({ ...src, origin: at.origin, normal: at.normal, right: at.right }, angleOf(src));
+      this.curve = at.curve;
+    } else {
+      // Under the label of the copy: its height and 1 mm lower, on the
+      // surface again (a ray in along the normal).
+      const o = this.outline(src);
+      const h = o ? o.box[3] - o.box[1] : 5;
+      const down = add(src.origin, upOf(src), -(h + 1));
+      label = { ...src, origin: down };
+      const s = await this.session(index);
+      const from = add(down, src.normal, 5);
+      const p = s ? placeAt(this.w, s, [...from, ...src.normal.map((v) => -v)]) : null;
+      if (p) label = moved(label, p.origin, p.normal);
+    }
+    const res = await this.ctx.client.call("labelAdd", { index, label });
+    if (!(res.id >= 0)) {
+      this.ctx.toast("The label does not fit here.");
+      return false;
+    }
+    this.labels = res.labels;
+    this.select(res.id);
+    this.redraw();
+    return true;
+  }
+
   // A click on no label of the loaded part: first the labels of the part
   // under the pointer (it can be another part, or the labels came after
   // the tool opened), then a label there is selected; else a new one.

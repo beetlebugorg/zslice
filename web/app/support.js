@@ -82,6 +82,18 @@ const CLAMP_TEXT = [
   [16, "the foot moved nearer, so the branch can reach the tip"],
 ];
 
+// The mean of the points of an area on the bed: [x, y].
+function center(pts) {
+  let x = 0;
+  let y = 0;
+  for (const p of pts) {
+    x += p[0];
+    y += p[1];
+  }
+  const n = Math.max(1, pts.length);
+  return [x / n, y / n];
+}
+
 function loadPaneOpen() {
   try {
     return localStorage.getItem("zslice-support-pane") !== "0";
@@ -701,6 +713,57 @@ export class SupportTool {
     this.sel = -1;
     const r = await this.ctx.client.call("supportAreaRemove", { index: i });
     this.setAreas(r.areas);
+    return true;
+  }
+
+  // ---- copy and paste (clipboard.js) ----
+
+  // A copy of the selected area, with the part under its center (from
+  // the worker): { kind, zLo, zHi, pts, part }, or null.
+  async copyArea() {
+    const a = this.areas[this.sel];
+    if (!a) return null;
+    const c = center(a.pts);
+    const r = await this.ctx.client.call("partAt", { path: -1, bed: true, x: c[0], y: c[1] });
+    return { kind: a.kind, zLo: a.zLo, zHi: a.zHi, pts: a.pts.map((p) => p.slice()), part: r.part };
+  }
+
+  // Pastes area `src` on the part under the pixel (px, py, device
+  // pixels; `part` is that part, from tools.partAt): at the same place on
+  // that part (a copy of the part of the area gets the same support).
+  // On the part of the copy itself, the center of the area goes to the
+  // point under the pointer. One call: one step of the history.
+  async pasteArea(src, part, px, py) {
+    if (!part) {
+      this.ctx.toast?.("Point at a part to paste the support area there.");
+      return false;
+    }
+    const c = center(src.pts);
+    let move;
+    const from = src.part;
+    if (!from || (from.index === part.index && Math.abs(from.x - part.x) < 1e-6 && Math.abs(from.y - part.y) < 1e-6)) {
+      const p = this.surfacePoint(px, py, false);
+      if (!p) return false;
+      move = (q) => [q[0] + p[0] - c[0], q[1] + p[1] - c[1], q[2]];
+    } else {
+      // The turn of the part around the vertical axis, from the copy.
+      const a = (((part.rotation ?? 0) - (from.rotation ?? 0)) * Math.PI) / 180;
+      const cos = Math.cos(a);
+      const sin = Math.sin(a);
+      move = (q) => {
+        const dx = q[0] - from.x;
+        const dy = q[1] - from.y;
+        return [part.x + dx * cos - dy * sin, part.y + dx * sin + dy * cos, q[2]];
+      };
+    }
+    const r = await this.ctx.client.call("supportAreaAdd", { kind: src.kind, pts: src.pts.map(move), zLo: src.zLo, zHi: src.zHi });
+    if (!(r.index >= 0)) {
+      this.ctx.toast?.("The support area did not paste.");
+      return false;
+    }
+    this.setAreas(r.areas);
+    if (this.on) this.sel = r.index;
+    this.show();
     return true;
   }
 

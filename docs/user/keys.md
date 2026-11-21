@@ -21,6 +21,28 @@ Press `?` in the app to see all keys. The main menu has the sheet too: **Keyboar
 | Esc | Close a menu, the search, or the sheet. Then clear the measure, then the selection. |
 | Menu key, Shift+F10 | The menu of the view |
 
+## Copy and paste
+
+| Keys | What they do |
+|---|---|
+| Ctrl+C | Copy the selection |
+| Ctrl+X | Cut the selection: a copy, then it goes |
+| Ctrl+V | Paste the last copy |
+| Ctrl+Shift+V | Paste the copied parts or plate as a new plate |
+| Ctrl+D | Duplicate the selected parts or the selected label |
+
+What a copy takes, and where a paste puts it:
+
+- **Parts.** A copy keeps the settings, the paint, the labels, the support trees, and the support areas and marks on each part. With parts selected, each copy goes to a free place on the bed. With no selection, the copies go to the pointer. On an empty plate, they go to the places of the copy. A paste works on each plate.
+- **A plate.** Right-click the bed and click **Copy the plate**. A paste on an empty plate makes the same plate, with its layer changes and support. **Paste as a new plate** and **Duplicate the plate** make a new plate.
+- **A label** (Label tool). A paste puts the label on the face under the pointer, with the same turn. With the pointer off the part, the copy goes under the label on the same face.
+- **A support area** (Support tool). A paste puts the area on the part under the pointer, at the same place on that part. A copy of the part thus gets the same support.
+- **Layer changes.** Select layers, then copy their changes. Select other layers, then paste.
+- **A setting value.** Click a list or a switch of a setting, then copy. Click another setting, then paste. A text field uses the copy and paste of the browser.
+- **A line.** A copy takes the report of the line, for a chat or a note.
+
+Each paste is one step: Ctrl+Z undoes it. A label, a support area, layer changes, and a setting value also paste into another window of zslice. The right-click menu has **Copy the part**, **Cut the part**, **Duplicate the part**, and **Paste here**.
+
 ## Tools
 
 | Keys | What they do |
@@ -45,7 +67,7 @@ Press `?` in the app to see all keys. The main menu has the sheet too: **Keyboar
 | ←, → (Turn tool) | Turn the part on the bed, 15° (Shift: 5°) |
 | ↑, ↓ (Turn tool) | Tilt the part about X |
 | Page Up, Page Down (Turn tool) | Tilt the part about Y |
-| D | Duplicate the selected parts |
+| D, Ctrl+D | Duplicate the selected parts |
 | Delete | Remove the selected parts or the selected support, or take the selected line out of the print |
 | Shift (Measure, Support) | No snap |
 | Enter, Backspace, Esc (Support tool) | Close the area, remove its last point, stop it |

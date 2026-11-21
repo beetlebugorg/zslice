@@ -449,7 +449,7 @@ function historyList() {
 // The ops after which a part can lose what held it (see the fall check).
 // An op with hold (a drag) checks at its end.
 const FALL_CHECK_OPS = new Set(["partSettingSet", "supportAreaKind", "supportAreaRemove", "projectLoad", "plateActivate", "treeMoveNode", "treeMoveBranch", "treeDelete", "treeReset"]);
-const SETTING_OPS = new Set(["refineApply", "set", "reset", "quality", "profile", "setScoped", "resetScoped"]);
+const SETTING_OPS = new Set(["refineApply", "set", "reset", "quality", "profile", "setScoped", "resetScoped", "rangePaste", "rangeReset"]);
 // The parts whose largest side is under 3 mm: a file in inches or in
 // meters loads that small. The print card offers a scale.
 function tinyParts(c) {
@@ -462,7 +462,7 @@ function tinyParts(c) {
   return out;
 }
 
-const PLATE_OPS = new Set(["fallStep", "load", "add", "plate", "projectLoad", "partAction", "partsAction", "partsMove", "partsSettingSet", "partsToPlate", "partCut", "partMove", "partFill", "partToPlate", "editAdd", "editDot", "editRemove", "partSettingSet", "paintSet", "labelAdd", "labelUpdate", "labelRemove", "filamentAdd", "filamentRemove", "filamentSet", "partPutDown", "partTurn", "putDown", "place", "partMove", "partRotate", "partScale", "partSettle", "markAdd", "supportRemoveAt", "supportKindAt", "markRemoveNear", "markSet", "markRemove", "marksClear", "supportAreaAdd", "supportAreaSet", "supportAreaKind", "supportAreaRemove", "treeMoveNode", "treeRadius", "treeMoveBranch", "treeDelete", "treeAdd", "treeReset"]);
+const PLATE_OPS = new Set(["fallStep", "load", "add", "plate", "projectLoad", "partAction", "partsAction", "partsMove", "partsSettingSet", "partsToPlate", "partsPaste", "partsCut", "platePaste", "plateDuplicate", "partCut", "partMove", "partFill", "partToPlate", "editAdd", "editDot", "editRemove", "partSettingSet", "paintSet", "labelAdd", "labelUpdate", "labelRemove", "filamentAdd", "filamentRemove", "filamentSet", "partPutDown", "partTurn", "putDown", "place", "partMove", "partRotate", "partScale", "partSettle", "markAdd", "supportRemoveAt", "supportKindAt", "markRemoveNear", "markSet", "markRemove", "marksClear", "supportAreaAdd", "supportAreaSet", "supportAreaKind", "supportAreaRemove", "treeMoveNode", "treeRadius", "treeMoveBranch", "treeDelete", "treeAdd", "treeReset"]);
 
 // The values of settings at z (core.valueAt): { name: entry }.
 function valuesAt({ z, names }) {
@@ -1057,6 +1057,123 @@ const ops = {
     if (ok && !clearIfEmpty()) wantSlice();
     const n = x.zs_app_part_count(core.app);
     return { ok, parts: keep.filter((i) => i < n).map((i) => core.part(i)) };
+  },
+
+  // ---- the clipboard of parts (clipboard.js, zs_app_parts_copy) ----
+
+  // Copies parts `indices` of the active plate to the clipboard of the
+  // core; whole: the whole plate. Returns { ok, count }.
+  partsCopy({ indices, whole }) {
+    const x = core.w.x;
+    const n = x.zs_app_part_count(core.app);
+    const list = [...new Set(indices ?? [])].filter((i) => i >= 0 && i < n);
+    if (!whole && list.length === 0) return { ok: false, count: 0 };
+    const p = core.w.alloc(4 * Math.max(1, list.length));
+    try {
+      new Uint32Array(core.w.x.memory.buffer, p, list.length).set(list);
+      const rc = x.zs_app_parts_copy(core.app, p, list.length, whole ? 1 : 0);
+      return { ok: rc === 0, count: x.zs_clipboard_parts() };
+    } finally {
+      core.w.free(p, 4 * Math.max(1, list.length));
+    }
+  },
+
+  // Cut: a copy, then the parts go, in one step. Returns { ok, count }.
+  partsCut({ indices }) {
+    const r = this.partsCopy({ indices });
+    if (!r.ok) return r;
+    for (const i of [...new Set(indices)].sort((a, b) => b - a)) core.partAction(i, "remove");
+    if (!clearIfEmpty()) wantSlice();
+    return r;
+  },
+
+  // Pastes the clipboard on the active plate: at [x, y] mm on the bed
+  // (the center of the group), or null (free places; on an empty plate,
+  // the places of the copy). Returns { ok, parts } (the new parts).
+  partsPaste({ at }) {
+    const x = core.w.x;
+    if (x.zs_clipboard_parts() === 0) return { ok: false, empty: true, parts: [] };
+    const point = Array.isArray(at) && at.every(Number.isFinite);
+    const first = Number(x.zs_app_parts_paste(core.app, point ? 1 : 0, point ? at[0] : 0, point ? at[1] : 0));
+    if (first < 0) return { ok: false, parts: [] };
+    const n = x.zs_app_part_count(core.app);
+    const parts = [];
+    for (let i = first; i < n; i++) parts.push(core.part(i));
+    core.modelName = core.modelName || parts[0]?.name || "";
+    wantSlice();
+    postPlates();
+    return { ok: true, parts, fits: x.zs_app_plate_fits(core.app) === 1, info: core.modelInfo() };
+  },
+
+  // A new plate after the others (the settings of the active plate) with
+  // the clipboard on it at the places of the copy. It becomes the active
+  // plate. Returns { ok, index, parts }.
+  platePaste() {
+    commitPending();
+    if (wasm.x.zs_clipboard_parts() === 0) return { ok: false, empty: true };
+    wasm.x.zs_set_add(set);
+    syncCore();
+    const r = this.partsPaste({ at: null });
+    historyCommit();
+    showActive();
+    return { ...r, index: activeIndex(), count: wasm.x.zs_set_count(set), ...settingsState() };
+  },
+
+  // A new plate after the others with a copy of the active plate (its
+  // settings, parts, support, and layer changes), with no change of the
+  // clipboard. It becomes the active plate.
+  plateDuplicate() {
+    commitPending();
+    const from = core.app;
+    if (core.w.x.zs_app_part_count(from) === 0) return { ok: false };
+    wasm.x.zs_set_add(set);
+    syncCore();
+    const first = Number(wasm.x.zs_app_plate_copy_to(from, core.app));
+    if (first < 0) return { ok: false };
+    core.modelName = core.part(0)?.name ?? "";
+    wantSlice();
+    historyCommit();
+    showActive();
+    return { ok: true, index: activeIndex(), count: wasm.x.zs_set_count(set), ...settingsState() };
+  },
+
+  // The clipboard: { parts, plate } (the count of parts, and 1 for a
+  // copy of a whole plate).
+  clipboardInfo() {
+    return { parts: wasm.x.zs_clipboard_parts(), plate: wasm.x.zs_clipboard_is_plate() === 1 };
+  },
+
+  // The changes for a range of layers (the overrides that cover the
+  // range zmin to zmax): [[name, value]].
+  rangeChanges({ zmin, zmax }) {
+    return { list: core?.app ? core.rangeChanges(zmin, zmax) : [] };
+  },
+
+  // Sets several changes for a range of layers in one step of the
+  // history: list [[name, value]].
+  rangePaste({ list, zmin, zmax, at }) {
+    let error = "";
+    let ok = 0;
+    for (const [name, value] of list ?? []) {
+      const e = core.setScoped(name, value, zmin, zmax, true);
+      if (e) error = e;
+      else ok++;
+    }
+    if (ok > 0) wantSlice();
+    return { error, ok, ...settingsState(), at: at ? valuesAt(at) : undefined };
+  },
+
+  // Removes the changes of settings `names` for a range of layers in one
+  // step of the history (a cut of the range card).
+  rangeReset({ names, zmin, zmax, at }) {
+    let ok = 0;
+    const w = core.w;
+    for (const name of names ?? []) {
+      // Only the changes of the layers: the value of the print stays.
+      if (w.withString(name, (n) => w.x.zs_app_override_remove(core.app, zmin, zmax, n)) === 1 || w.withString(name, (n) => w.x.zs_app_override_clear_at(core.app, zmin, n)) > 0) ok++;
+    }
+    if (ok > 0) wantSlice();
+    return { ok, ...settingsState(), at: at ? valuesAt(at) : undefined };
   },
 
   // Moves several parts at once (a drag of a selection): moves is

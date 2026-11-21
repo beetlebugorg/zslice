@@ -13,6 +13,12 @@
 // (the bed or the air); "always": each time.
 export const CONTEXT_MENU = [
   {
+    on: "always",
+    items: [
+      { label: "Paste here", accel: "Ctrl+V", gtk: "view3d.paste-here", act: "pasteHere", when: "clip" },
+    ],
+  },
+  {
     on: "support",
     items: [
       { label: "Remove this support", act: "removeSupport" },
@@ -53,6 +59,14 @@ export const CONTEXT_MENU = [
   {
     on: "part",
     items: [
+      { label: "Copy the part", accel: "Ctrl+C", gtk: "view3d.copy-part", act: "copyPart" },
+      { label: "Cut the part", accel: "Ctrl+X", gtk: "view3d.cut-part", act: "cutPart" },
+      { label: "Duplicate the part", accel: "Ctrl+D", gtk: "view3d.duplicate-part", act: "duplicatePart" },
+    ],
+  },
+  {
+    on: "part",
+    items: [
       { label: "Put this side on the bed", gtk: "view3d.put-down", act: "putDown" },
       {
         label: "Placement",
@@ -78,6 +92,14 @@ export const CONTEXT_MENU = [
     ],
   },
   {
+    on: "empty",
+    items: [
+      { label: "Copy the plate", gtk: "view3d.copy-plate", act: "copyPlate" },
+      { label: "Duplicate the plate", gtk: "view3d.duplicate-plate", act: "duplicatePlate" },
+      { label: "Paste as a new plate", accel: "Ctrl+Shift+V", gtk: "view3d.paste-plate", act: "pastePlate", when: "clipParts" },
+    ],
+  },
+  {
     on: "always",
     items: [
       { label: "Clear all support marks", gtk: "view3d.clear-marks", act: "clearMarks", when: "marks" },
@@ -90,13 +112,16 @@ export const CONTEXT_MENU = [
 ];
 
 // The items for menus.js. ctx: { on ("part", "support", or "empty"),
-// marks, cut, run(act, arg) }.
+// marks, cut, clip (the clipboard has a copy), clipParts (it has parts
+// or a plate), run(act, arg) }.
 export function contextItems(ctx) {
   const out = [];
   const make = (e) => {
     if (e.missing) return null;
     if (e.when === "marks" && !ctx.marks) return null;
     if (e.when === "cut" && !ctx.cut) return null;
+    if (e.when === "clip" && !ctx.clip) return null;
+    if (e.when === "clipParts" && !ctx.clipParts) return null;
     if (e.submenu) return { label: e.label, submenu: e.submenu.map(make).filter(Boolean) };
     return { label: e.label, accel: e.accel, action: () => ctx.run(e.act, e.arg) };
   };

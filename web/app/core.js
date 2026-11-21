@@ -1042,6 +1042,29 @@ export class Core {
 
   partOfPath(path) { return this.w.x.zs_app_part_of_path(this.app, path); }
 
+  // The changes for the layers from zmin up (zs_app_override_get): the
+  // overrides that cover the first layer of the range, the last one of
+  // each setting. [[name, value]].
+  rangeChanges(zmin) {
+    const w = this.w;
+    const n = w.x.zs_app_override_count(this.app);
+    const size = 32; // zs_override on wasm32
+    const p = w.alloc(size);
+    const out = new Map();
+    try {
+      for (let i = 0; i < n; i++) {
+        if (w.x.zs_app_override_get(this.app, i, p) !== 0) continue;
+        const lo = w.f64(p);
+        const hi = w.f64(p + 8);
+        if (lo > zmin + 1e-4 || hi < zmin - 1e-4) continue;
+        out.set(w.text(w.u32(p + 16), w.u32(p + 20)), w.text(w.u32(p + 24), w.u32(p + 28)));
+      }
+    } finally {
+      w.free(p, size);
+    }
+    return [...out];
+  }
+
   // Part i (zs_app_part_get): its center on the bed, its turn, and its
   // size, or null.
   part(i) {

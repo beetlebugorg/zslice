@@ -9,6 +9,7 @@ import { readFile } from "node:fs/promises";
 import { Wasm } from "./wasm.js";
 import { Core, STATE } from "./core.js";
 import { View3D } from "./view.js";
+import { clipText, parseClipText } from "./clipboard.js";
 import { outlineOf, placeAt, newItem, scaleLabel, withAngle, angleOf, turned, nextFilament, changeShape, labelName } from "./label.js";
 
 const [wasmPath, stlPath] = process.argv.slice(2);
@@ -345,6 +346,34 @@ const syncBytes = wasm3.u8.slice(sp, sp + sn).buffer;
 x3.zs_buffer_free(sp, sn);
 view.syncPlates(syncBytes);
 check(Math.abs(view.plateOrigin(0)[0]) > 100, "plate 1 is the active plate of the view");
+// The clipboard of parts (clipboard.js, zs_app_parts_copy): a copy of
+// part 0 of plate 0 pastes on plate 1 at a point, and a copy of plate 0
+// pastes on a new empty plate at the same place.
+const c0 = setCore(0);
+const one = wasm3.alloc(4);
+new Uint32Array(x3.memory.buffer, one, 1)[0] = 0;
+check(x3.zs_app_parts_copy(c0.app, one, 1, 0) === 0 && x3.zs_clipboard_parts() === 1, "a copy of a part");
+wasm3.free(one, 4);
+const c1 = setCore(1);
+const before = x3.zs_app_part_count(c1.app);
+const first = Number(x3.zs_app_parts_paste(c1.app, 1, 60, 70));
+check(first === before && x3.zs_app_part_count(c1.app) === before + 1, "a paste on another plate");
+const pasted = c1.part(first);
+check(Math.abs(pasted.x - 60) < 1e-6 && Math.abs(pasted.y - 70) < 1e-6, "the paste at the point");
+check(x3.zs_app_parts_copy(c0.app, 0, 0, 1) === 0 && x3.zs_clipboard_is_plate() === 1, "a copy of the plate");
+check(x3.zs_set_add(set) === 2, "a third plate");
+const c2 = setCore(2);
+check(Number(x3.zs_app_parts_paste(c2.app, 0, 0, 0)) === 0, "a paste on the empty plate");
+check(Math.abs(c2.part(0).x - c0.part(0).x) < 1e-9 && Math.abs(c2.part(0).y - c0.part(0).y) < 1e-9, "the plate keeps its places");
+check(Number(x3.zs_app_plate_copy_to(c0.app, c2.app)) === 1 && x3.zs_clipboard_is_plate() === 1, "a duplicate keeps the clipboard");
+x3.zs_clipboard_clear();
+check(Number(x3.zs_app_parts_paste(c2.app, 0, 0, 0)) < 0, "an empty clipboard");
 x3.zs_set_free(set);
-console.log(`plate set: slices ${sliced.join(", ")}, sync ${(sn / 1e6).toFixed(2)} MB`);
+console.log(`plate set: slices ${sliced.join(", ")}, sync ${(sn / 1e6).toFixed(2)} MB; the clipboard`);
+// The text of a copy on the system clipboard (clipboard.js).
+const lc = parseClipText(clipText({ kind: "label", id: "a1", data: { label: { filament: 2 } } }));
+check(lc.kind === "label" && lc.id === "a1" && lc.data.label.filament === 2, "a label through the system clipboard");
+check(parseClipText(clipText({ kind: "parts", id: "p", count: 3 })).count === 3, "a mark of parts");
+check(parseClipText("grid").kind === "text" && parseClipText("{oops").kind === "text", "plain text");
+check(clipText({ kind: "setting", id: "s", data: { value: "0.2" } }) === "0.2", "a value is plain text");
 console.log("ok");
