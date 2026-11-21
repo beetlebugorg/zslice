@@ -338,7 +338,7 @@ fn coolingIssues(b: *Builder, job: *const zs.PlateJob, t: *const Toolpaths) Allo
 /// One piece of a layer that hangs out past the layer below: its area,
 /// its center, and, for a bridge, the number of solid areas that hold its
 /// edge (2 or more) and its span across the air.
-const Hang = struct { layer: u32, area: f64, x: f64, y: f64, anchors: u32, held: f64, span: f64 };
+const Hang = struct { layer: u32, area: f64, x: f64, y: f64, anchors: u32, held: f64, span: f64, support: zs.settings.SupportMode = .off };
 
 /// The pieces of layer i (i >= 1) that hang out past layer i - 1 farther
 /// than height × tan(support_angle), wider than a line. A piece whose edge
@@ -406,13 +406,15 @@ fn hangsOf(gpa: Allocator, job: *const zs.engine.Job, i: usize, under: ?geom.Pat
 }
 
 fn overhangIssues(b: *Builder, pj: *const zs.PlateJob, s: zs.Settings) Allocator.Error!void {
-    // The layers of the jobs of all parts with support off, on all threads,
-    // each into its own list. The copies of a part share the job.
+    // The layers of the jobs of all parts, on all threads, each into its
+    // own list. The copies of a part share the job. With support on, the
+    // support under a layer holds it too: what still hangs over air is an
+    // overhang that the support does not reach (build plate support stops
+    // where the part is under the overhang).
     const Item = struct { group: u32, layer: u32 };
     var items: std.ArrayList(Item) = .empty;
     defer items.deinit(b.gpa);
     for (pj.groups, 0..) |g, gi| {
-        if (g.job.resolved.settings.project.support != .off) continue;
         for (1..g.job.outlines.len) |i| try items.append(b.gpa, .{ .group = @intCast(gi), .layer = @intCast(i) });
     }
     if (items.items.len == 0) return;
@@ -435,7 +437,33 @@ fn overhangIssues(b: *Builder, pj: *const zs.PlateJob, s: zs.Settings) Allocator
             const g = &c.pj.groups[c.items[k].group];
             const job = &g.job;
             const i = c.items[k].layer;
-            const angle = std.math.degreesToRadians(job.resolved.settings.project.support_angle);
+            const p = job.resolved.settings.project;
+            const angle = std.math.degreesToRadians(p.support_angle);
+            const first = c.lists[k].items.len;
+            defer for (c.lists[k].items[first..]) |*h| {
+                h.support = p.support;
+            };
+            if (p.support != .off and job.support.len == job.outlines.len) {
+                // The layer below and the support under layer i: the support
+                // stops `support_z_gap_layers` under the part, and
+                // `support_xy_gap` from its side.
+                var arena_state = std.heap.ArenaAllocator.init(c.gpa);
+                defer arena_state.deinit();
+                const arena = arena_state.allocator();
+                var under: geom.Paths = try job.outlines[i - 1].clone(arena);
+                const gap: usize = p.support_z_gap_layers;
+                const lo = (i - 1) -| (gap + 1);
+                var held: geom.Paths = .empty;
+                for (lo..i) |j| {
+                    held = try zs.clip.unite(arena, held, job.support[j].body);
+                    held = try zs.clip.unite(arena, held, job.support[j].interface);
+                }
+                if (!held.isEmpty()) {
+                    held = try zs.offset.offset(arena, held, geom.fromMm(p.support_xy_gap), .{});
+                    under = try zs.clip.unite(arena, under, held);
+                }
+                return hangsOf(c.gpa, job, i, under, angle, &c.lists[k]);
+            }
             if (!g.painted) return hangsOf(c.gpa, job, i, null, angle, &c.lists[k]);
             // A painted part: the layer below of all jobs of the part, at
             // the level of the layer below of this job.
@@ -496,6 +524,10 @@ fn overhangIssues(b: *Builder, pj: *const zs.PlateJob, s: zs.Settings) Allocator
             } else {
                 try b.add(.{ .kind = .bridge, .severity = if (hh.span > 15) 2 else 1, .layer = hh.layer, .path = Issue.no_path, .x = hh.x, .y = hh.y, .value = hh.span, .text_start = 0, .text_len = 0 }, "Layer {d}: a bridge of about {d:.1} mm over air ({d:.1} mm²), printed as normal skin. Turn on project.bridges: it prints the bridge across the air, slow, with the fan on.", .{ hh.layer + 1, hh.span, hh.area });
             }
+        } else if (hh.support == .buildplate) {
+            try b.add(.{ .kind = .overhang, .severity = if (hh.area > 10) 2 else 1, .layer = hh.layer, .path = Issue.no_path, .x = hh.x, .y = hh.y, .value = hh.area, .text_start = 0, .text_len = 0 }, "Layer {d}: {d:.1} mm² hang out past the layer below with no support under them. Build plate support cannot reach this overhang: the part is under it. Use support everywhere, or tree support, or add support there (right click).", .{ hh.layer + 1, hh.area });
+        } else if (hh.support != .off) {
+            try b.add(.{ .kind = .overhang, .severity = if (hh.area > 10) 2 else 1, .layer = hh.layer, .path = Issue.no_path, .x = hh.x, .y = hh.y, .value = hh.area, .text_start = 0, .text_len = 0 }, "Layer {d}: {d:.1} mm² hang out past the layer below with no support under them. The support does not reach this overhang. Add support there (right click), or lower project.support_angle.", .{ hh.layer + 1, hh.area });
         } else {
             try b.add(.{ .kind = .overhang, .severity = if (hh.area > 10) 2 else 1, .layer = hh.layer, .path = Issue.no_path, .x = hh.x, .y = hh.y, .value = hh.area, .text_start = 0, .text_len = 0 }, "Layer {d}: {d:.1} mm² hang out past the layer below, flatter than {d:.0}° (project.support_angle), with support off. It can sag or curl. Turn on support, or add support there (right click).", .{ hh.layer + 1, hh.area, s.project.support_angle });
         }
