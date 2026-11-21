@@ -3047,7 +3047,7 @@ async function exportGcode() {
 // model, the plate, the layer height, the material, the printer, and the
 // time, for example "3DBenchy_0.2mm_PLA_MK4_50m".
 function gcodeFileName(r) {
-  return r.fileName || (r.name || "part").replace(/.(stl|3mf|obj)$/i, "");
+  return r.fileName || (r.name || "part").replace(/.(stl|3mf|obj|step|stp)$/i, "");
 }
 $("export").onclick = exportGcode;
 
@@ -3081,7 +3081,7 @@ async function debugPrint(topOnly) {
     toast("No G-code: slice first.");
     return;
   }
-  const base = (r.name || "part").replace(/.(stl|3mf|obj)$/i, "");
+  const base = (r.name || "part").replace(/.(stl|3mf|obj|step|stp)$/i, "");
   const what = lo === hi ? `layer-${hi + 1}` : `layers-${lo + 1}-${hi + 1}`;
   download(await signGcode(new Uint8Array(r.bytes)), `${base}-test-${what}.gcode`, "text/x-gcode");
   toast(lo === hi ? `A test print of layer ${hi + 1}, on the bed.` : `A test print of layers ${lo + 1} to ${hi + 1}, on the bed.`);
@@ -3152,7 +3152,7 @@ var farm = new FarmPage({
   sendPlate: async (i, pr) => {
     const r = await client.call("plateGcode", { index: i });
     if (!r.bytes) return { ok: false, message: "No G-code: the plate has no slice yet." };
-    const base = r.fileName || (r.name || `plate-${i + 1}`).replace(/.(stl|3mf|obj)$/i, "");
+    const base = r.fileName || (r.name || `plate-${i + 1}`).replace(/.(stl|3mf|obj|step|stp)$/i, "");
     return sendToPrinter(pr, `${base}.gcode`, new Uint8Array(r.bytes), true, bambuWrap(pr, base));
   },
   toast: (t) => toast(t),
@@ -3896,7 +3896,7 @@ function loadUi() {
 // that zslice opens with its plates, and other slicers as its first plate.
 async function saveProject() {
   try {
-    const name = (app.plates[0]?.name || app.modelName || "project").replace(/.(stl|3mf|obj)$/i, "");
+    const name = (app.plates[0]?.name || app.modelName || "project").replace(/.(stl|3mf|obj|step|stp)$/i, "");
     const r = await client.call("projectSave", { name });
     download(new Uint8Array(r.bytes), `${name}.3mf`, "model/3mf");
     toast(app.plates.length > 1 ? `Saved ${app.plates.length} plates in ${name}.3mf.` : `Saved ${name}.3mf.`);

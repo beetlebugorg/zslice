@@ -931,10 +931,12 @@ void zg_window_open_dialog(GtkWindow *window) {
     GtkFileDialog *dialog = gtk_file_dialog_new();
     gtk_file_dialog_set_title(dialog, "Add models to the plate");
     GtkFileFilter *stl = gtk_file_filter_new();
-    gtk_file_filter_set_name(stl, "Models (STL, 3MF, OBJ)");
+    gtk_file_filter_set_name(stl, "Models (STL, 3MF, OBJ, STEP)");
     gtk_file_filter_add_suffix(stl, "stl");
     gtk_file_filter_add_suffix(stl, "3mf");
     gtk_file_filter_add_suffix(stl, "obj");
+    gtk_file_filter_add_suffix(stl, "step");
+    gtk_file_filter_add_suffix(stl, "stp");
     gtk_file_filter_add_mime_type(stl, "model/stl");
     gtk_file_filter_add_mime_type(stl, "model/3mf");
     GListStore *filters = g_list_store_new(GTK_TYPE_FILE_FILTER);

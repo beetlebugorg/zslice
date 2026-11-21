@@ -104,7 +104,8 @@ The goal is the features that people use in PrusaSlicer and Cura. zslice designs
 - [x] More than one object on the plate, with automatic arrangement
 - [x] 3MF load (parts at their places, components, units, zip64; items that overlap stay one part) and 3MF plate save (Ctrl+S)
 - [x] OBJ load (the vertices and the faces, in mm)
-- [ ] STEP load
+- [x] STEP load (AP203, AP214, AP242 B-rep solids: planes, cylinders, cones, spheres, tori, B-spline, extrusion, and revolution faces, made into a mesh within 0.01 mm)
+- [ ] STEP: the placements of the parts of an assembly
 - [x] Rotate, scale, place on face ("Put this side on the bed")
 - [x] Cut: a level plane, with closed caps, and pegs to join the two parts
 - [x] Split a part into its separate bodies

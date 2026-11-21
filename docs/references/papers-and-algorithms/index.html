@@ -47,7 +47,6 @@
 <a href="../../user/command-line/">The command line</a>
 <a href="../../user/apps/">Web, Linux, and Mac</a>
 <a href="../../user/macos/">The macOS app</a>
-<a href="../../user/windows/">The Windows app</a>
 <a href="../../user/troubleshooting/">Problems and errors</a>
 <div class="group">Embedding</div>
 <a href="../../embedding/">Overview</a>
@@ -69,7 +68,6 @@
 <a href="../../internals/code-quality/">Code quality</a>
 <a href="../../internals/macos/">The macOS app</a>
 <a href="../../internals/windows/">The Windows app</a>
-<a href="../../internals/release/">CI and releases</a>
 <div class="group">Project</div>
 <a href="../../app/">App</a>
 <a href="../../roadmap/">Roadmap</a>
@@ -328,24 +326,24 @@
 <p><strong>License:</strong> Published methods</p>
 <p><strong>Used in:</strong> <code>src/paint.zig</code></p>
 <p><strong>How zslice uses it:</strong> The brush (which triangles a sphere touches), and the pick of a triangle under the pointer for the paint tool.</p>
-<h3 id="marching-squares-and-the-regions-of-many-labels">Marching squares and the regions of many labels</h3>
-<div class="ref"><span class="kind k-paper">paper</span><span class="area">slicing</span><dl><dt>Source</dt><dd>Lorensen and Cline, Wu and Sullivan</dd><dt>What zslice uses</dt><dd>The borders between the labels of a grid: a point on each grid edge between two labels, a straight piece in a cell with two labels, and pieces to the center of a cell with more labels.</dd><dt>License</dt><dd>Published methods</dd><dt>Used in</dt><dd><a href="https://github.com/beetlebugorg/zslice/blob/main/src/field.zig"><code>src/field.zig</code></a>, <a href="https://github.com/beetlebugorg/zslice/blob/main/src/paint_split.zig"><code>src/paint_split.zig</code></a></dd></dl></div>
-<p>William E. Lorensen and Harvey E. Cline, "Marching Cubes: A High Resolution 3D Surface Construction Algorithm", SIGGRAPH 1987 (the patent US 4,710,876 ended in 2005); the 2D form is known as marching squares. For cells with more than two materials: Ziji Wu and John M. Sullivan, "Multiple material marching cubes algorithm", International Journal for Numerical Methods in Engineering 58 (2003), the idea of a point in the middle of a cell that all its materials share</p>
-<p><strong>License:</strong> Published methods</p>
-<p><strong>Used in:</strong> <code>src/field.zig</code>, <code>src/paint_split.zig</code></p>
-<p><strong>How zslice uses it:</strong> The regions of the filaments of a painted layer come from the labels of a grid: a border point on each grid edge where the two states are at the same distance, a straight piece in a cell with two labels, and pieces to the center of a cell with three or four labels. The regions of two labels then have no gap between them.</p>
-<h3 id="distance-fields-exact-stamps-the-chamfer-distance-and-the-jump-flood">Distance fields: exact stamps, the chamfer distance, and the jump flood</h3>
-<div class="ref"><span class="kind k-paper">paper</span><span class="area">slicing</span><dl><dt>Source</dt><dd>Borgefors, Rong and Tan, Hoff et al.</dd><dt>What zslice uses</dt><dd>The distance from each node of a grid to the nearest source: each source writes its exact distance to the nodes around it; a two-pass chamfer distance for a coarse test; the jump flood as the GPU form.</dd><dt>License</dt><dd>Published methods</dd><dt>Used in</dt><dd><a href="https://github.com/beetlebugorg/zslice/blob/main/src/field.zig"><code>src/field.zig</code></a></dd></dl></div>
-<p>Gunilla Borgefors, "Distance transformations in digital images", Computer Vision, Graphics, and Image Processing 34 (1986): the two-pass chamfer distance. Kenneth E. Hoff III, Tim Culver, John Keyser, Ming Lin, and Dinesh Manocha, "Fast Computation of Generalized Voronoi Diagrams Using Graphics Hardware", SIGGRAPH 1999: each source draws its distance into a buffer, and the least value wins. Guodong Rong and Tiow-Seng Tan, "Jump Flooding in GPU with Applications to Voronoi Diagram and Distance Transform", I3D 2006: the same field in log n passes on a GPU</p>
-<p><strong>License:</strong> Published methods</p>
-<p><strong>Used in:</strong> <code>src/field.zig</code></p>
-<p><strong>How zslice uses it:</strong> <code>Field.stampSegment</code> writes the exact distance of each source to the nodes within a radius, and each node keeps the least value (the method of Hoff et al., on the CPU, a vector of nodes a step). <code>Field.chamfer</code> is the two-pass distance of Borgefors, for the test "is paint near this core". The jump flood is the plan for the same field on a GPU; zslice has no code of it.</p>
-<h3 id="dexels-a-solid-as-intervals-on-lines">Dexels: a solid as intervals on lines</h3>
-<div class="ref"><span class="kind k-paper">paper</span><span class="area">infill</span><dl><dt>Source</dt><dd>Van Hook, Menon and Voelcker</dd><dt>What zslice uses</dt><dd>A layer as the intervals of a family of lines, so the boolean of two layers is a merge of sorted lists.</dd><dt>License</dt><dd>Published methods</dd><dt>Used in</dt><dd><a href="https://github.com/beetlebugorg/zslice/blob/main/src/dexel.zig"><code>src/dexel.zig</code></a></dd></dl></div>
-<p>Tim Van Hook, "Real-Time Shaded NC Milling Display", SIGGRAPH 1986 (the dexel: a depth element, the intervals of a solid along a ray); Jai Menon and Herbert Voelcker, "On the completeness and conversion of ray representations of arbitrary solids", ACM Symposium on Solid Modeling 1995 (the ray representation). The idea to cut the part in two directions and to use the intersection as the fill lines is of the user of zslice</p>
-<p><strong>License:</strong> Published methods</p>
-<p><strong>Used in:</strong> <code>src/dexel.zig</code></p>
-<p><strong>How zslice uses it:</strong> <code>dexel.cut</code> cuts the outline of a layer with a family of lines one line width apart, and <code>dexel.boolean</code> merges the intervals of two layers line by line. <code>zslice bench --only dexel</code> measures the skin of all layers this way against the polygon booleans. The planner does not use it yet.</p><nav class="pager"><a class="prev" href="../../references/fonts/"><span>Previous</span><b>Fonts</b></a><a class="next" href="../../references/physics-and-materials/"><span>Next</span><b>Physics and materials</b></a></nav>
+<h3 id="b-spline-basis-functions-cox-and-de-boor">B-spline basis functions (Cox and de Boor)</h3>
+<div class="ref"><span class="kind k-paper">paper</span><span class="area">files</span><dl><dt>Source</dt><dd>Carl de Boor, Maurice Cox, Les Piegl, Wayne Tiller</dd><dt>What zslice uses</dt><dd>The basis functions of a B-spline by the recurrence of Cox and de Boor, for the curves and the surfaces of a STEP file, with weights for rational splines.</dd><dt>License</dt><dd>Paper</dd><dt>Link</dt><dd><a href="https://doi.org/10.1016/0021-9045(72)90080-9">https://doi.org/10.1016/0021-9045(72)90080-9</a></dd><dt>Version</dt><dd>C. de Boor, "On calculating with B-splines", J. Approx. Theory 6 (1972); L. Piegl and W. Tiller, The NURBS Book, 2nd ed. (1997)</dd><dt>Used in</dt><dd><a href="https://github.com/beetlebugorg/zslice/blob/main/src/step.zig"><code>src/step.zig</code></a></dd></dl></div>
+<p>The recurrence of Cox and de Boor gives the deg + 1 basis functions of a knot span. The NURBS Book (algorithms A2.1 and A2.2) gives the span search and the evaluation. zslice has its own implementation of the published algorithms.</p>
+<p><strong>License:</strong> Paper</p>
+<p><strong>Used in:</strong> <code>src/step.zig</code></p>
+<p><strong>How zslice uses it:</strong> <code>BSpline.basis</code>, <code>curvePoint</code>, and <code>surfacePoint</code> evaluate the B-spline curves and surfaces of a STEP file.</p>
+<h3 id="ear-clipping-with-hole-bridges">Ear clipping with hole bridges</h3>
+<div class="ref"><span class="kind k-paper">paper</span><span class="area">files</span><dl><dt>Source</dt><dd>David Eberly</dd><dt>What zslice uses</dt><dd>A polygon with holes becomes one polygon by a bridge from the rightmost point of each hole, then ear clipping makes its triangles.</dd><dt>License</dt><dd>Paper</dd><dt>Link</dt><dd><a href="https://www.geometrictools.com/Documentation/TriangulationByEarClipping.pdf">https://www.geometrictools.com/Documentation/TriangulationByEarClipping.pdf</a></dd><dt>Version</dt><dd>2002, updated 2015</dd><dt>Used in</dt><dd><a href="https://github.com/beetlebugorg/zslice/blob/main/src/step.zig"><code>src/step.zig</code></a>, <a href="https://github.com/beetlebugorg/zslice/blob/main/src/cut.zig"><code>src/cut.zig</code></a></dd></dl></div>
+<p>David Eberly, "Triangulation by Ear Clipping". The method of the earcut libraries too.</p>
+<p><strong>License:</strong> Paper</p>
+<p><strong>Used in:</strong> <code>src/step.zig</code>, <code>src/cut.zig</code></p>
+<p><strong>How zslice uses it:</strong> The caps of a cut, and the faces of a STEP file in their 2D charts. zslice has its own implementation.</p>
+<h3 id="delaunay-edge-flips-lawson">Delaunay edge flips (Lawson)</h3>
+<div class="ref"><span class="kind k-paper">paper</span><span class="area">files</span><dl><dt>Source</dt><dd>Charles L. Lawson</dd><dt>What zslice uses</dt><dd>An edge of two triangles flips to the other diagonal of their quad when the fourth point is inside the circle of a triangle, until no edge flips.</dd><dt>License</dt><dd>Paper</dd><dt>Link</dt><dd><a href="https://doi.org/10.1016/B978-0-12-587260-7.50011-X">https://doi.org/10.1016/B978-0-12-587260-7.50011-X</a></dd><dt>Version</dt><dd>C. L. Lawson, "Software for C1 surface interpolation", Mathematical Software III (1977)</dd><dt>Used in</dt><dd><a href="https://github.com/beetlebugorg/zslice/blob/main/src/step.zig"><code>src/step.zig</code></a></dd></dl></div>
+<p>The flip algorithm of Lawson makes a triangulation Delaunay. zslice keeps the edges of the face loops fixed (a constrained triangulation) and tests the flips from a stack of edges.</p>
+<p><strong>License:</strong> Paper</p>
+<p><strong>Used in:</strong> <code>src/step.zig</code></p>
+<p><strong>How zslice uses it:</strong> <code>flips</code> makes the triangles of a face of a STEP file Delaunay in its chart before and after each refinement round.</p><nav class="pager"><a class="prev" href="../../references/fonts/"><span>Previous</span><b>Fonts</b></a><a class="next" href="../../references/physics-and-materials/"><span>Next</span><b>Physics and materials</b></a></nav>
 </main>
 </div>
 <footer>zslice is free software (AGPL-3.0-or-later). <a href="../../privacy/">Privacy</a>: no analytics, no cookies, nothing from other sites. <a href="https://github.com/beetlebugorg/zslice/blob/main/docs/build.py">docs/build.py</a> writes this site from <a href="https://github.com/beetlebugorg/zslice/blob/main/docs/references/papers-and-algorithms.md">docs/references/papers-and-algorithms.md</a>.</footer>

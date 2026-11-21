@@ -172,6 +172,12 @@
 <p><strong>License:</strong> File format</p>
 <p><strong>Used in:</strong> <code>src/mesh.zig</code></p>
 <p><strong>How zslice uses it:</strong> The binary and ASCII STL loader and the binary STL writer.</p>
+<h3 id="step-iso-10303-21-and-the-b-rep-entities">STEP (ISO 10303-21 and the B-rep entities)</h3>
+<div class="ref"><span class="kind k-format">format</span><span class="area">files</span><dl><dt>Source</dt><dd>ISO</dd><dt>What zslice uses</dt><dd>The STEP reader: the clear text encoding of the exchange structure, and the B-rep entities of a solid (faces, loops, edges, vertices, curves, surfaces, and units).</dd><dt>License</dt><dd>File format</dd><dt>Link</dt><dd><a href="https://www.iso.org/standard/63141.html">https://www.iso.org/standard/63141.html</a></dd><dt>Version</dt><dd>ISO 10303-21:2016; the entities of ISO 10303-42 in AP203, AP214, and AP242</dd><dt>Used in</dt><dd><a href="https://github.com/beetlebugorg/zslice/blob/main/src/step.zig"><code>src/step.zig</code></a></dd></dl></div>
+<p>ISO 10303-21 gives the text form of a STEP file. ISO 10303-42 gives the geometry and the topology of a B-rep solid. The NIST STEP File Analyzer documentation and the public EXPRESS schemas of AP203, AP214, and AP242 list the attributes of each entity. zslice reads the files with its own parser; no code is copied.</p>
+<p><strong>License:</strong> File format (a published ISO standard)</p>
+<p><strong>Used in:</strong> <code>src/step.zig</code></p>
+<p><strong>How zslice uses it:</strong> <code>step.read</code> parses the DATA section, reads the units, samples the edges, and makes a mesh of each ADVANCED_FACE.</p>
 <h3 id="wavefront-obj-file-format">Wavefront OBJ file format</h3>
 <div class="ref"><span class="kind k-format">format</span><span class="area">files</span><dl><dt>Source</dt><dd>Wavefront Technologies</dd><dt>What zslice uses</dt><dd>The OBJ loader reads the vertices and the faces, and makes a fan of triangles from each face.</dd><dt>License</dt><dd>File format</dd><dt>Link</dt><dd><a href="https://paulbourke.net/dataformats/obj/">https://paulbourke.net/dataformats/obj/</a></dd><dt>Used in</dt><dd><a href="https://github.com/beetlebugorg/zslice/blob/main/src/mesh.zig"><code>src/mesh.zig</code></a></dd></dl></div>
 <p>The OBJ format of Wavefront Technologies. Description: <a href="https://paulbourke.net/dataformats/obj/">https://paulbourke.net/dataformats/obj/</a></p>

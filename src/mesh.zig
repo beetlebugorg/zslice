@@ -17,10 +17,13 @@
 //! texture coordinates, the normals, the groups, and the materials. An
 //! OBJ file has no unit: zslice reads it in mm.
 //!
+//! A STEP file (a CAD solid) becomes a mesh in step.zig.
+//!
 //! STL and OBJ formats: see docs/references/formats-and-protocols.md.
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
+const step = @import("step.zig");
 
 pub const Vec3 = struct {
     x: f32,
@@ -159,6 +162,11 @@ pub const Mesh = struct {
     pub fn fromStl(gpa: Allocator, bytes: []const u8) Error!Mesh {
         if (isBinaryStl(bytes)) return parseBinaryStl(gpa, bytes);
         if (isObj(bytes)) return parseObj(gpa, bytes);
+        if (step.isStep(bytes)) return step.read(gpa, bytes) catch |e| switch (e) {
+            error.OutOfMemory => error.OutOfMemory,
+            error.InvalidStep => error.InvalidStl,
+            error.NoSolid => error.EmptyMesh,
+        };
         return parseAsciiStl(gpa, bytes);
     }
 
