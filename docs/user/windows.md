@@ -49,3 +49,9 @@ Ctrl and a click selects a part, and Shift and a click adds a part to the select
 ## Lines
 
 The card of a line shows its planned speed, its real speed, and its flow, and the settings that matter most for it. **Fade the others** shows the line alone. **Don't print this line** and **±10 % plastic** change this line only, and the change stays through new slices.
+
+## When you come back
+
+The app keeps your session. After a quit it opens with the same plates, the same view, and the same window size. A file that you open from the command line opens in place of the session.
+
+The theme follows Windows. The menu at the top right has the plate actions, **Hide the bed**, **Keyboard shortcuts** (also the key ?), **Licenses**, and **About**.
