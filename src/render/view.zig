@@ -77,6 +77,7 @@ const vk = if (frame_backend) @import("web.zig") else if (builtin.os.tag == .win
 const app_mod = @import("../app.zig");
 const zs_filaments = @import("../filaments.zig");
 const zs_gcode = @import("../gcode.zig");
+const zs_flow = @import("../flow.zig");
 const Draw = @import("frame.zig").Draw;
 const PlateFrame = @import("frame.zig").PlateFrame;
 const Push = @import("frame.zig").Push;
@@ -228,8 +229,8 @@ pub const View = struct {
     gap_beads: std.ArrayList(vk.Instance) = .empty,
     /// The prime tower of a print with tool changes (PlateJob.tower): its
     /// beads, and the layer of each. The G-code writes the tower as it
-    /// writes the print, so it is in no layer plan: the view draws it as
-    /// its loop and its diagonal on each layer, among the extras.
+    /// writes the print, so it is in no layer plan: the view draws its
+    /// rows, its loop, and its grid on each layer, among the extras.
     /// The camera framed the beads of a load once. A later load keeps the
     /// camera where the user put it, also after a load with no beads (a
     /// plate that slices again has no result for a moment).
@@ -1224,7 +1225,7 @@ pub const View = struct {
         v.path_start.append(gpa, @intCast(boxes.items.len)) catch return error.OutOfMemory;
         try v.loadSimMotion(tp, center, sxy, sz);
         if (v.canceled()) return error.Canceled;
-        try v.loadTower(src.job, s.project.first_layer_height, tp, filament, center, sxy, sz);
+        try v.loadTower(src.job, tp, filament, center, sxy, sz);
         v.layer_path_end.clearRetainingCapacity();
         v.layer_path_end.appendSlice(gpa, tp.layer_ends.items) catch return error.OutOfMemory;
         v.path_part.clearRetainingCapacity();
@@ -3211,14 +3212,13 @@ pub const View = struct {
         return .{ cam.eye[0] + dir[0] * t, cam.eye[1] + dir[1] * t };
     }
 
-    /// The beads of the prime towers (see `tower_beads`): each tower
-    /// layer as its square loop and a diagonal. One tower with light
-    /// layers: a layer on each print layer up to its last one. Stacked
-    /// towers (gcode.Towers.stacked): the rule of the G-code again, from
-    /// the filament of each path. A change into a filament gives its
-    /// tower a layer on that print layer, on top of the tower (the first
-    /// one as high as the first layer, none higher than the print layer).
-    fn loadTower(v: *View, job_in: ?*const PlateJob, first_layer_height: f64, tp: *const app_mod.Toolpaths, filament: [3]u8, center: [2]f32, sxy: f32, sz: f32) Error!void {
+    /// The beads of the prime towers (see `tower_beads`), as the G-code
+    /// prints them (see gcode.Tower): each tower has a layer on each print
+    /// layer up to its last one. A layer with a change into a filament of
+    /// the tower has the rows of its purge (the flush into the tower, or
+    /// the prime after a change G-code), then the loop and the grid on the
+    /// rest; the other layers have the loop and the grid.
+    fn loadTower(v: *View, job_in: ?*const PlateJob, tp: *const app_mod.Toolpaths, filament: [3]u8, center: [2]f32, sxy: f32, sz: f32) Error!void {
         v.tower_beads.clearRetainingCapacity();
         v.tower_layer.clearRetainingCapacity();
         const job = job_in orelse return;
@@ -3234,62 +3234,72 @@ pub const View = struct {
             seen[k] = true;
             if (zs_filaments.parseColor(f.color)) |c| colors[k] = .{ c[0] / 4 * 3, c[1] / 4 * 3, c[2] / 4 * 3 };
         }
+        const m = job.resolved.settings.machine;
+        const into_tower = m.change_gcode.len == 0;
         const n_layers = tp.layer_z.items.len;
-        if (!towers.stacked()) {
-            const t = towers.list[0];
-            for (0..@min(t.last_layer + 1, n_layers)) |l| try v.towerLayerBeads(t, l, tp.layer_z.items[l], tp.layer_height.items[l], tp, colors[0], center, sxy, sz);
-            return;
-        }
-        const first_h = first_layer_height;
-        var top = [_]f64{0} ** zs_gcode.Towers.max;
-        var count = [_]usize{0} ** zs_gcode.Towers.max;
-        var last_layer = [_]usize{std.math.maxInt(usize)} ** zs_gcode.Towers.max;
-        var tool: u8 = 0;
+        // The start G-code loads the filament of the first path.
+        var tool: u8 = if (tp.path_tool.items.len > 0) tp.path_tool.items[0] else 0;
         var path: usize = 0;
         for (0..n_layers) |l| {
             const end = tp.layer_ends.items[l];
             const lz: f64 = tp.layer_z.items[l];
             const lh: f64 = tp.layer_height.items[l];
+            const lw: f64 = if (l < tp.layer_width.items.len) tp.layer_width.items[l] else 0.45;
+            // The purge into each tower on this layer (mm³).
+            var purge = [_]f64{0} ** zs_gcode.Towers.max;
             while (path < end) : (path += 1) {
                 const t = if (path < tp.path_tool.items.len) tp.path_tool.items[path] else tool;
                 if (t == tool) continue;
-                tool = t;
                 const k = towers.of_slot[@min(t, zs_filaments.max_slots - 1)];
-                if (last_layer[k] == l) continue;
-                last_layer[k] = l;
-                const z_top = if (count[k] == 0) @min(lz, first_h) else @min(lz, top[k] + lh);
-                const h = z_top - top[k];
-                top[k] = z_top;
-                count[k] += 1;
-                try v.towerLayerBeads(towers.list[k], l, @floatCast(z_top), @floatCast(h), tp, colors[k], center, sxy, sz);
+                purge[k] += if (into_tower and t < job.slots.len and tool < job.slots.len)
+                    zs_filaments.flushVolume(job.slots[tool].color, job.slots[t].color, m.flush_volume, job.resolved.settings.project.flush_multiplier)
+                else
+                    zs_gcode.tower_prime_mm3;
+                tool = t;
+            }
+            for (towers.items(), 0..) |t, k| {
+                if (l > t.last_layer and purge[k] == 0) continue;
+                // The rows of the purge, as gcode.Emitter.towerPurge makes
+                // them.
+                const area = zs_flow.beadArea(lw, @max(lh, 0.01));
+                var len = purge[k] / area;
+                var rows: u32 = 0;
+                const rows_max = t.rowsMax(lw);
+                while (len > 1e-9 and rows < rows_max) : (rows += 1) {
+                    const row = t.towerRow(lw, rows);
+                    const run = @min(len, row.x1 - row.x0);
+                    try v.towerBead(.{ row.x0, row.y }, .{ row.x0 + run, row.y }, l, @floatCast(lz), @floatCast(lh), @floatCast(lw), colors[k], center, sxy, sz);
+                    len -= run;
+                }
+                var pts: [zs_gcode.finish_points_max][2]f64 = undefined;
+                const n = t.finishLines(lw, rows, &pts);
+                // The loop is pts[0..5]; the nozzle travels to the grid.
+                for (pts[0 .. n - 1], pts[1..n], 1..) |a, b, j| {
+                    if (j != 5) try v.towerBead(a, b, l, @floatCast(lz), @floatCast(lh), @floatCast(lw), colors[k], center, sxy, sz);
+                }
             }
         }
     }
 
-    /// The beads of one layer of tower `t`: its loop and a diagonal, with
-    /// its top at `z` and `h` high, shown with print layer `l`.
-    fn towerLayerBeads(v: *View, t: zs_gcode.Tower, l: usize, z: f32, h: f32, tp: *const app_mod.Toolpaths, rgb: [3]u8, center: [2]f32, sxy: f32, sz: f32) Error!void {
-        const half: f32 = @floatCast(t.size / 2);
-        const hd: f32 = @floatCast(t.ySize() / 2);
-        const tx: f32 = @floatCast(t.x);
-        const ty: f32 = @floatCast(t.y);
-        const corners = [4][2]f32{ .{ tx - half, ty - hd }, .{ tx + half, ty - hd }, .{ tx + half, ty + hd }, .{ tx - half, ty + hd } };
-        const w = (if (l < tp.layer_width.items.len) tp.layer_width.items[l] else 0.45) * sxy;
-        const segs = [5][2][2]f32{ .{ corners[0], corners[1] }, .{ corners[1], corners[2] }, .{ corners[2], corners[3] }, .{ corners[3], corners[0] }, .{ corners[0], corners[2] } };
-        for (segs) |sg| {
-            try v.tower_beads.append(gpa, .{
-                .ax = center[0] + (sg[0][0] - center[0]) * sxy,
-                .ay = center[1] + (sg[0][1] - center[1]) * sxy,
-                .bx = center[0] + (sg[1][0] - center[0]) * sxy,
-                .by = center[1] + (sg[1][1] - center[1]) * sxy,
-                .z = z * sz,
-                .h = h * sz,
-                .w = w,
-                // The skirt feature (5): drawn as a bead of the print.
-                .rgba = .{ rgb[0], rgb[1], rgb[2], 5 },
-            });
-            try v.tower_layer.append(gpa, @intCast(l));
-        }
+    /// One bead of a tower from `a` to `b` (mm on the bed), with its top
+    /// at `z` and `h` high, shown with print layer `l`.
+    fn towerBead(v: *View, a: [2]f64, b: [2]f64, l: usize, z: f32, h: f32, w: f32, rgb: [3]u8, center: [2]f32, sxy: f32, sz: f32) Error!void {
+        const ax: f32 = @floatCast(a[0]);
+        const ay: f32 = @floatCast(a[1]);
+        const bx: f32 = @floatCast(b[0]);
+        const by: f32 = @floatCast(b[1]);
+        try v.tower_beads.append(gpa, .{
+            .ax = center[0] + (ax - center[0]) * sxy,
+            .ay = center[1] + (ay - center[1]) * sxy,
+            .bx = center[0] + (bx - center[0]) * sxy,
+            .by = center[1] + (by - center[1]) * sxy,
+            .z = z * sz,
+            .h = h * sz,
+            .w = w * sxy,
+            // The skirt feature (5): drawn as a bead of the print.
+            .rgba = .{ rgb[0], rgb[1], rgb[2], 5 },
+        });
+        try v.tower_layer.append(gpa, @intCast(l));
     }
 
     /// Shows the gaps of layer `layer` of the last slice of `app` (see

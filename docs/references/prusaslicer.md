@@ -124,6 +124,27 @@ The text and SVG emboss tools of PrusaSlicer 2.6 and later (https://help.prusa3d
 
 **How zslice uses it:** A label of zslice stays a 2D shape (text, ticks, bars, an SVG picture) in the project. Each layer gets the prism of the shape along its normal, cut to the band of the depth of the label from the outline of the layer, with a clean-up of strokes and gaps narrower than the narrowest line. The tools of PrusaSlicer make a text or an SVG a part (raised) or a negative volume (cut) as well as a modifier. zslice has the same three choices as a mode of the label: ink, raised, and cut. A raised or cut label changes the outlines of the layers in the band of its relief, with no new mesh (a raised label on a top face adds walls to the mesh).
 
+### Wipe tower
+
+```ref
+kind: idea
+source: PrusaSlicer
+license: AGPL-3.0
+link: https://github.com/prusa3d/PrusaSlicer
+version: tag version_2.9.7
+files: src/gcode.zig, src/plate_job.zig
+area: gcode
+summary: The purge of a tool change in rows inside the perimeter of the tower, a sparse layer on each layer with no change so the tower is at the z of the nozzle, and the depth of the tower from the most purge of one layer.
+```
+
+The wipe tower of PrusaSlicer (`src/libslic3r/GCode/WipeTower.cpp`, tag `version_2.9.7`): each tool change purges in rows of lines (a zigzag) inside the perimeter of the tower, at the z of the layer; each layer up to the last change gets the perimeter and a sparse infill ("finish_layer"), so the tower is as high as the nozzle at each change; the depth of the tower comes from the most purge of one layer. With "no sparse layers", the nozzle goes down to the top of the tower instead.
+
+**License:** AGPL-3.0 (the method, no code)
+
+**Used in:** `src/gcode.zig` (`Emitter.towerPurge`, `Emitter.towerFinish`, `Tower`), `src/plate_job.zig` (`PlateJob.towers`)
+
+**How zslice uses it:** The rows inside the loop, a layer of the tower on each layer up to its last change, and the size of the tower from the most purge of one layer. zslice lowers the nozzle to the top of the tower only as a fallback, for a tower that missed a layer.
+
 ## G-code and settings
 
 ### G-code thumbnails
