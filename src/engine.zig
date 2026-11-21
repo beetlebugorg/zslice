@@ -1132,8 +1132,13 @@ pub fn emitAll(gpa: Allocator, src: PlanSource, threads: usize, monitor: Monitor
         em.first_layer_box = try firstLayerBox(gpa, src);
     }
     // The start G-code loads the first filament of the print, not slot 0.
+    // The stored stream of layer 0 has its paths in print order, and
+    // needs no plan.
     if (src.layers > 0 and src.slots.len >= 2) {
-        var lp = try src.plan(src.ctx, gpa, 0);
+        const stored: ?*const stream_mod.Stream = if (src.streams) |st| (if (st.len > 0 and st[0].valid) &st[0] else null) else null;
+        var prep: gcode.Prepared = .{};
+        defer prep.deinit(gpa);
+        var lp = if (stored) |st| try st.decode(gpa, &prep, src.bind.?, src.ctx, 0) else try src.plan(src.ctx, gpa, 0);
         defer lp.deinit();
         em.tool = gcode.startTool(&lp, src.resolved, src.slots);
     }
