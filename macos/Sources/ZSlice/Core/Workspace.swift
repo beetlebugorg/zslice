@@ -159,6 +159,10 @@ final class Workspace {
     /// The start line of the range of the keys, and of the open range.
     @ObservationIgnored var keyLine: RangeLine?
     @ObservationIgnored var rangeLine: RangeLine?
+    /// The filament that painted the lit body of the range (0: none yet),
+    /// and its color for the light of the body (-1: the yellow of a pick).
+    var rangeBodyFilament = 0
+    @ObservationIgnored var rangeBodyColor: Int32 = -1
     @ObservationIgnored var partDrag: PartDrag?
     @ObservationIgnored var tapeDrag: Int?
     /// A drag of a ring of the Turn tool: its axis, and the degrees sent.
@@ -1279,6 +1283,13 @@ final class Workspace {
                     case "dupplate": self.duplicatePlate()
                     case "pasteplate": self.pasteAsPlate()
                     case "undo": self.model.history.undoManager.undo()
+                    case "fil": _ = self.model.addFilament()
+                    // body:f paints the lit body of the range with filament f.
+                    case "body":
+                        let why = self.paintBody(Int(f[1]) ?? 2)
+                        var used: UInt32 = 0
+                        _ = zs_app_part_paint_used(self.model.core, 0, &used)
+                        NSLog("zslice clip body: %@, card %@, paint used %u", why ?? "painted", self.rangeCard.map { "\($0.lo)-\($0.hi)" } ?? "none", used)
                     case "mirrorx", "mirrory":
                         self.mirrorParts(axis: f[0] == "mirrorx" ? 0 : 1)
                         if let q = self.part(0) { NSLog("zslice clip %@: scale %.2f %.2f %.2f, at %.2f %.2f", String(step), q.scale_x, q.scale_y, q.scale_z, q.x, q.y) }

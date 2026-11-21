@@ -191,6 +191,8 @@ With the Select tool, a drag that starts on a line lights the layers from that l
 
 The card has the settings that can change for some layers: the filament, infill, walls, top thickness, speeds, fan, and nozzle temperature. A change there is for those layers only. Esc, a click elsewhere, or × closes it.
 
+When the range lights one body, the card has a row "This body" first. A filament there paints that body only, on those layers: the paint goes on the part under its lines, so it follows later changes of the walls and the layer height. The body shows in the color of the filament at once, and the plate slices again. The filament of the part takes the paint away.
+
 ### Support
 
 **Select a support.** With the Select tool, a click on a support line selects that support:

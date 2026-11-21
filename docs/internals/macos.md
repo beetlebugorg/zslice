@@ -91,7 +91,7 @@ The package is `Package.swift`. `Sources/CZslice/module.modulemap` makes the C A
 | `Core/Support.swift` | The Support tool: areas, one click, and the hover. |
 | `Core/SupportTrees.swift` | The tree editor of the Support tool. |
 | `Core/PaintTool.swift` | The Paint tool, over the paint session of the core. |
-| `Core/Filaments.swift` | The filaments of the plate, and the spools of the printer (`fromPrinter`, `followSpools`: `zs_app_filaments_from_printer`, flags 1 for "Use the Filaments", 2 for the follow each 10 s in `startStatus` and after `usePrinter`). `ZSLICE_BAMBU_OUT=folder` writes the .gcode.3mf of each slice of a Bambu Lab plate there, as a send builds it. `ZSLICE_SPOOLS_TEST=url` follows a printdeck at url, sets a filament by hand, follows again, and uses the filaments, with a log after each. |
+| `Core/Filaments.swift` | The filaments of the plate, and the spools of the printer (`fromPrinter`, `followSpools`: `zs_app_filaments_from_printer`, flags 1 for "Use the Filaments", 2 for the follow each 10 s in `startStatus` and after `usePrinter`). `ZSLICE_BAMBU_OUT=folder` writes the .gcode.3mf of each slice of a Bambu Lab plate there, as a send builds it. `ZSLICE_CLIP` also takes `fil` (a new filament), `body:f` (paint the lit body of the range with filament f: `paintBody`, `zs_view_connected_beads`, `zs_app_paint_body`, `zs_view_light_color`), and `mirrorx` and `mirrory`. `ZSLICE_SPOOLS_TEST=url` follows a printdeck at url, sets a filament by hand, follows again, and uses the filaments, with a log after each. |
 
 **Printers**
 
