@@ -494,6 +494,21 @@ pub fn endTool(lp: *const LayerPlan, r: *const Resolved, slots: []const settings
     return 0;
 }
 
+/// The slot of the filament of the first path of a layer plan: the
+/// filament that the start G-code loads. A plate that does not use slot 0
+/// must not load it: a Bambu Lab printer maps each filament of the print
+/// to a tray of its AMS, and a load of a filament with no tray stops the
+/// print ("Failed to get AMS mapping table").
+pub fn startTool(lp: *const LayerPlan, r: *const Resolved, slots: []const settings_mod.Filament) u32 {
+    if (slots.len < 2) return 0;
+    for (lp.paths.items, 0..) |path, i| {
+        if (lp.points.get(i).len == 0) continue;
+        const pr = lp.pathResolved(path) orelse lp.resolved orelse r;
+        return filaments.pathSlot(path.feature, pr.settings.project, slots.len);
+    }
+    return 0;
+}
+
 /// The emitter state that a layer run reads from the layer before it.
 /// A planning thread runs a layer early from a guess of this state (see
 /// engine.zig). The link pass then compares the guess with the real state.
@@ -678,7 +693,8 @@ pub const Emitter = struct {
     /// filament, and the emitter makes no change.
     slots: []const settings_mod.Filament = &.{},
     /// The slot of the filament in the nozzle, from 0. The start G-code
-    /// loads slot 0.
+    /// loads it: set it to the first filament of the print (`startTool`)
+    /// before `begin`.
     tool: u32 = 0,
     /// The layer that `layer` writes, for the change G-code.
     layer_index: usize = 0,
@@ -3167,6 +3183,10 @@ pub const Emitter = struct {
             .filament_mm = self.stats.filament_mm,
             .filament_g = self.stats.filament_g,
             .print_time_s = self.stats.print_time_s,
+            // The filaments of the plate, and the filament in the nozzle:
+            // in the start G-code, the first filament of the print.
+            .slots = self.slots,
+            .tool = self.tool,
         };
         return gcode_vars.render(self.gpa, w, text, &ctx) catch |err| switch (err) {
             error.OutOfMemory => return error.WriteFailed,

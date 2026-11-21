@@ -1253,6 +1253,50 @@ test "plate job: two filaments, a tool change for each change of the filament" {
     try testing.expectEqual(@as(u32, 2), st3.changes);
 }
 
+test "plate job: the start G-code loads the first filament of the print, not filament 1" {
+    // A plate of filament 4 only on a Bambu Lab X2D: Bambu Studio loads
+    // filament 4 in the start G-code (M620 S3A, T3). A load of filament 1
+    // (T0) stopped the X2D in PREPARE ("Failed to get AMS mapping
+    // table"): the print command maps filament 4 only.
+    const gpa = testing.allocator;
+    const bambu = @import("bambu.zig");
+    var m = try testBox(0, 0, 6, 6, 1);
+    defer m.deinit(gpa);
+    var s: Settings = .{};
+    s.engine.threads = 1;
+    s.machine.model = "bambu-lab-x2d";
+    s.machine.filament_change = .tool;
+    s.project.filament = 4;
+    // The load of the start G-code of the X2D (BambuStudio resources).
+    s.machine.start_gcode = "  M620 S[initial_no_support_filament_id]A H[initial_no_support_hotend] B\n  T[initial_no_support_filament_id] H[initial_no_support_hotend]\nM620.17 T0 L{first_filaments[0]}";
+    var more: [3]settings_mod.Filament = .{ s.filament, s.filament, s.filament };
+    more[2].color = "#ffff00";
+    const parts = [_]PartInput{.{ .mesh = &m, .part = 0 }};
+    var pj = try PlateJob.init(gpa, s, &parts, .{ .filaments = &more });
+    defer pj.deinit();
+    var out: Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    const st = try pj.writeGcode(&out.writer);
+    const g = out.written();
+    try testing.expectEqual(@as(u32, 0), st.changes);
+    try testing.expect(st.slot_g[3] > 0 and st.slot_g[0] == 0);
+    try testing.expect(std.mem.indexOf(u8, g, "M620 S3A") != null);
+    try testing.expect(std.mem.indexOf(u8, g, "M620 S0A") == null);
+    try testing.expect(std.mem.indexOf(u8, g, "\n  T3 H") != null);
+    try testing.expect(std.mem.indexOf(u8, g, "M620.17 T0 L3") != null);
+    var it = std.mem.splitScalar(u8, g, '\n');
+    while (it.next()) |line| {
+        const t = std.mem.trimStart(u8, line, " ");
+        try testing.expect(!std.mem.startsWith(u8, t, "T0 ") and !std.mem.eql(u8, t, "T0"));
+    }
+    // The 3MF lists filament 4 in the layers.
+    var arena = std.heap.ArenaAllocator.init(gpa);
+    defer arena.deinit();
+    const lists = try bambu.layerFilamentLists(arena.allocator(), g);
+    try testing.expect(std.mem.indexOf(u8, lists, "filament_list=\"3\"") != null);
+    try testing.expect(std.mem.indexOf(u8, lists, "filament_list=\"0") == null);
+}
+
 test "plate job: support with its own filament, one change on each layer" {
     const gpa = testing.allocator;
     // A post with a shelf on one side, 4 mm over the bed: support under
