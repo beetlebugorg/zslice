@@ -2,7 +2,7 @@
 
 The Windows app is a native shell over the Zig core, in `windows/`: a WinUI 3 shell in C++/WinRT, and a Direct3D 12 backend in the core. Only the core is shared with the other apps.
 
-The port is in progress. The app opens a model, slices it, and draws it. It has the plates, the plate signs, the bed models, the settings pane with search and history, the Select, Move, Turn, Grab, Measure, Paint, and Label tools, the filaments of the plate, and the line and part cards. The other tools, the printers, and the session restore come in the next steps. This page describes the parts that exist.
+The port is in progress. The app opens a model, slices it, and draws it. It has the plates, the plate signs, the bed models, the settings pane with search and history, the Select, Move, Turn, Support, Grab, Measure, Paint, and Label tools, the filaments of the plate, and the line and part cards. The other tools, the printers, and the session restore come in the next steps. This page describes the parts that exist.
 
 ## Build the app
 
@@ -20,7 +20,7 @@ Use `-Platform ARM64` and `-p:Platform=ARM64` for ARM64. The project takes the d
 
 ### Test hooks
 
-A build with `-p:ZsDevHooks=true` reads `ZSLICE_DO`: steps with `;` between them, one each 600 ms after the first slice, on the same code that the pointer and the keys call. A test then needs no real input. Each step writes the state of the tools to the log. The steps are `tool V`, `click x y [shift] [ctrl]`, `drag x0 y0 x1 y1 [ctrl]`, `turnz degrees`, `hover x y`, `key NAME`, `layer n`, `colors n`, `sim`, `gaps 0|1`, `play`, `scrub f`, `check`, `bed`, `probe x y`, `undo`, `redo`, `orbit dx dy`, `zoom f`, `look nx ny nz d`, `press NAME`, `newplate`, `plate n`, `shot NAME`, `wait`, and `log`. `part` in place of `x y` is the middle of part 0 on the screen. `press` invokes a button by its automation name or text through its automation peer, with `_` for a space. `shot` only writes a line, so a script outside can take a picture. The header of `MainWindow.DevHooks.cpp` lists the steps of the Paint tool (`p...`), the Label tool (`l...`), and the filament list (`f...`). `ZSLICE_PRINTER=id` starts on a printer of the library. A shipped build has none of the `ZSLICE_DO` code.
+A build with `-p:ZsDevHooks=true` reads `ZSLICE_DO`: steps with `;` between them, one each 600 ms after the first slice, on the same code that the pointer and the keys call. A test then needs no real input. Each step writes the state of the tools to the log. The steps are `tool V`, `click x y [shift] [ctrl]`, `drag x0 y0 x1 y1 [ctrl]`, `turnz degrees`, `hover x y`, `key NAME`, `layer n`, `colors n`, `sim`, `gaps 0|1`, `play`, `scrub f`, `check`, `bed`, `probe x y`, `undo`, `redo`, `orbit dx dy`, `zoom f`, `look nx ny nz d`, `press NAME`, `newplate`, `plate n`, `shot NAME`, `wait`, and `log`. `part` in place of `x y` is the middle of part 0 on the screen. `press` invokes a button by its automation name or text through its automation peer, with `_` for a space. `shot` only writes a line, so a script outside can take a picture. The header of `MainWindow.DevHooks.cpp` lists the steps of the Paint tool (`p...`), the Label tool (`l...`), and the filament list (`f...`). The Support tool adds its own steps, listed there too. `ZSLICE_PRINTER=id` starts on a printer of the library. A shipped build has none of the `ZSLICE_DO` code.
 
 ## The shell
 
@@ -39,6 +39,7 @@ A build with `-p:ZsDevHooks=true` reads `ZSLICE_DO`: steps with `;` between them
 | `src/app/MainWindow.Filaments.cpp` | The filament button and its list, the round chips, and the filament, label, and paint rows of the part card. |
 | `src/app/MainWindow.Paint.cpp` | The Paint tool and its card. |
 | `src/app/MainWindow.Label.cpp` | The Label tool, its card, and the handle that scales a label. |
+| `src/app/MainWindow.Support.cpp` | The Support tool: the areas, the trees, its card, and the pick of a support line by the Select tool. |
 | `src/app/MainWindow.DevHooks.cpp` | The test hooks, in a build with `ZsDevHooks`. |
 | `src/app/App` | The start of the app, and `ZSLICE_LOG`. |
 | `src/app/winrt_glue.cpp` | Compiles the generated XAML files, which a command-line build does not register. |
@@ -50,6 +51,7 @@ A build with `-p:ZsDevHooks=true` reads `ZSLICE_DO`: steps with `;` between them
 - The Paint tool gives the view the mesh of the part (`zs_view_paint_mesh`), and the view draws it in place of the beads. A stroke changes the paint session at once. Its end gives the paint to the part: one step of the history, and a slice. A reload after a slice or an undo compares the text of the paint, so the session follows an undo.
 - The Label tool keeps a copy of the labels of one part. An edit shows at once, and goes to the core 400 ms after the last change or at the end of a drag, so it is one step of the history.
 - The state of Paint, Label, and the filaments is in structs inside their `.cpp` files. `MainWindow.xaml.h` has only a pointer to each and the calls that other files need. Their cards are built in code, so `MainWindow.xaml` has only the filament button.
+- The Support tool keeps a copy of the areas and the trees. It reads them again after a load of the view, an undo, and a switch of the plate. During a drag the copy leads, and the slices wait for the release. A drag of a tree sends its edit at most each 60 ms, and slices at most each 150 ms.
 
 ## Build the core
 

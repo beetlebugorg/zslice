@@ -27,12 +27,15 @@ The strip at the left has the tools. Press the key of a tool to pick it.
 | V | Select | Click a line to see what it is, its numbers, and the settings that change it. Keys h and l step along the line, and Shift-H and Shift-L step a whole line. |
 | M | Move | Drag a part. The arrow keys move a selected part by 1 mm, and with Shift by 10 mm. |
 | R | Turn | Click a part, then drag one of its rings. Hold Shift for steps of 5 degrees. |
+| S | Support | Point at an overhang and click to put support under it. Hold Alt and click to draw an area. See [Add support](support.md). |
 | G | Grab | Click a part to pick it up, move the pointer to carry it, and click to let go. It falls and rests on the plate. Hold Alt and move to turn it. |
 | T | Measure | Click two points. The ends of the lines snap, and a click on a circle measures from its center. Hold Shift for no snap. |
 | P | Paint | Paint filaments on a part. See [Paint](#paint). |
 | E | Label | Put text or marks on a face of a part. See [Labels](#labels). |
 
-Support (S) is in the strip, and does not work yet.
+The card of the Support tool is at the top left of the view. It has the kind of the area (**Support grid**, **Support tree**, or **Block**) and **See through the support**. With tree support, drag a dot, a ring, or a segment. The card has **Add a branch**, **Reset support**, and **Delete branch**, and it says when a rule limits an edit.
+
+With the Select tool, a click on a support line shows that support. **Remove this support** takes a grid support away. For a tree, drag its dots, or right-click a dot for **Delete branch**.
 
 ## Filaments
 
