@@ -60,6 +60,8 @@ typedef struct {
      * load applies it. */
     float pending_camera[8];
     gboolean has_pending_camera;
+    /* The bed and its grids do not draw (key B). */
+    gboolean bed_hidden;
     char *error;
     size_t layer, layer_lo;
     int mode; /* enum zs_view_mode */
@@ -684,6 +686,7 @@ static void on_map(GtkWidget *w, gpointer data) {
         zs_view_set_camera(v->view, v->pending_camera);
         v->has_pending_camera = FALSE;
     }
+    zs_view_set_bed_hidden(v->view, v->bed_hidden);
 }
 
 /* The camera of the view, for a session: 8 floats. FALSE with no view. */
@@ -700,6 +703,18 @@ gboolean zg_view3d_get_camera(GtkWidget *view, float out[8]) {
 }
 
 /* Sets the camera of a session: at once, or when the view starts. */
+/* Hides the bed and its grids (TRUE), so the bottom of a part shows from
+ * below, or shows them again. */
+void zg_view3d_set_bed_hidden(GtkWidget *view, gboolean hidden) {
+    View3d *v = g_object_get_data(G_OBJECT(view), "zg-view3d");
+    if (!v) return;
+    v->bed_hidden = hidden;
+    if (v->view) {
+        zs_view_set_bed_hidden(v->view, hidden);
+        gtk_widget_queue_draw(v->area);
+    }
+}
+
 void zg_view3d_set_camera(GtkWidget *view, const float in[8]) {
     View3d *v = g_object_get_data(G_OBJECT(view), "zg-view3d");
     if (!v) return;

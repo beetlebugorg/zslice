@@ -689,6 +689,14 @@ export fn zs_view_set_ribbons(view: ?*View, on: c_int) void {
     v.ribbons = on != 0;
 }
 
+/// Hides the bed model and the grids of the plates (hidden != 0), so the
+/// bottom of a part shows from below. See View.bed_hidden.
+export fn zs_view_set_bed_hidden(view: ?*View, hidden: c_int) void {
+    if (!render_on) return;
+    const v = view orelse return;
+    v.bed_hidden = hidden != 0;
+}
+
 export fn zs_view_set_mode(view: ?*View, mode: c_int) void {
     if (!render_on) return;
     const v = view orelse return;

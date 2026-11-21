@@ -1909,6 +1909,15 @@ static void on_search_part_action(GSimpleAction *a, GVariant *v, gpointer data) 
     zg_search_show(w->search, "", g_variant_get_int64(v));
 }
 
+/* "win.hide-bed": the bed and its grids do not draw, so the bottom of a
+ * part shows from below. The main menu shows it as the check "Hide the
+ * bed", and the key B turns it. */
+static void on_hide_bed_change(GSimpleAction *a, GVariant *v, gpointer data) {
+    Window *w = get(data);
+    g_simple_action_set_state(a, v);
+    zg_view3d_set_bed_hidden(zg_preview_view3d(w->preview), g_variant_get_boolean(v));
+}
+
 /* "win.view-2d": the 2D layer view (TRUE) or the 3D view (FALSE). The
  * main menu shows it as the check "2D view", and the key 2 turns it. */
 static void on_view_2d_change(GSimpleAction *a, GVariant *v, gpointer data) {
@@ -2004,6 +2013,17 @@ static gboolean on_window_key(GtkEventControllerKey *c, guint key, guint code, G
         /* 2: the 2D view, or the 3D view again. */
         GtkStack *stack = GTK_STACK(zg_preview_stack(w->preview));
         gtk_stack_set_visible_child_name(stack, strcmp(gtk_stack_get_visible_child_name(stack), "2d") == 0 ? "3d" : "2d");
+        return TRUE;
+    }
+    case GDK_KEY_b:
+    case GDK_KEY_B: {
+        /* B: hide the bed, or show it again. */
+        GAction *a = g_action_map_lookup_action(G_ACTION_MAP(w->window), "hide-bed");
+        GVariant *s = a ? g_action_get_state(a) : NULL;
+        if (s) {
+            g_action_change_state(a, g_variant_new_boolean(!g_variant_get_boolean(s)));
+            g_variant_unref(s);
+        }
         return TRUE;
     }
     case GDK_KEY_3:
@@ -2315,6 +2335,7 @@ GtkWindow *zg_window_new(GtkApplication *app, ZgModel *model) {
         {.name = "support-on", .activate = on_support_on_action},
         {.name = "print-details", .activate = on_print_details_action},
         {.name = "view-2d", .state = "false", .change_state = on_view_2d_change},
+        {.name = "hide-bed", .state = "false", .change_state = on_hide_bed_change},
     };
     g_action_map_add_action_entries(G_ACTION_MAP(w->window), win_actions, G_N_ELEMENTS(win_actions), w->window);
     g_signal_connect(model, "undo-changed", G_CALLBACK(on_undo_changed), w);
@@ -2346,6 +2367,10 @@ GtkWindow *zg_window_new(GtkApplication *app, ZgModel *model) {
     g_menu_append_section(menu, NULL, G_MENU_MODEL(places));
     g_object_unref(places);
     GMenu *view = g_menu_new();
+    GMenuItem *hide_bed = g_menu_item_new("Hide the bed", "win.hide-bed");
+    g_menu_item_set_attribute(hide_bed, "accel", "s", "b");
+    g_menu_append_item(view, hide_bed);
+    g_object_unref(hide_bed);
     GMenuItem *view_2d = g_menu_item_new("2D view", "win.view-2d");
     g_menu_item_set_attribute(view_2d, "accel", "s", "2");
     g_menu_append_item(view, view_2d);

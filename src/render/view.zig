@@ -377,6 +377,9 @@ pub const View = struct {
     /// default: the ribbons changed the look of the beads (a far part
     /// looked flat and hatched). zs_view_set_ribbons turns it on.
     ribbons: bool = false,
+    /// The bed model and the grids of the plates do not draw: the bottom
+    /// of a part shows from below (zs_view_set_bed_hidden; key B).
+    bed_hidden: bool = false,
     /// The fingers on a touch screen (see `touch`): an id (-1: none) and
     /// the last point of each.
     touches: [2]Touch = .{ .{}, .{} },
@@ -672,7 +675,12 @@ pub const View = struct {
             for (0..n_loop) |i| {
                 const a: u16 = @intCast(i * (prof + 1) + row);
                 const b: u16 = @intCast(((i + 1) % n_loop) * (prof + 1) + row);
-                idx.appendSlice(gpa, &.{ center, a, b }) catch return error.OutOfMemory;
+                // The bottom fan goes the other way round: it faces down.
+                // In the order of the top, it faced up too, and the cull
+                // of the back faces took the bottom of each bead away from
+                // below (the infill showed through the first layer).
+                const tri: [3]u16 = if (face > 0) .{ center, a, b } else .{ center, b, a };
+                idx.appendSlice(gpa, &tri) catch return error.OutOfMemory;
             }
         }
     }
@@ -5389,7 +5397,7 @@ pub const View = struct {
             .grid = .{ .mvp = mvp, .vec = if (v.dark)
                 (if (v.bed_vertices > 0) [4]f32{ 0.40, 0.41, 0.44, 1 } else [4]f32{ 0.24, 0.25, 0.27, 1 })
             else if (v.bed_vertices > 0) [4]f32{ 0.62, 0.64, 0.67, 1 } else [4]f32{ 0.80, 0.82, 0.85, 1 } },
-            .grid_vertices = v.grid_vertices,
+            .grid_vertices = if (v.bed_hidden) 0 else v.grid_vertices,
             // The bed model: its center goes to the middle of the bed.
             .bed = .{
                 .mvp = mul(mvp, translation(v.bed[0] / 2, v.bed[1] / 2, 0)),
@@ -5397,11 +5405,11 @@ pub const View = struct {
                 .eye = .{ 0.35, -0.45, 0.82, 0 },
                 .params = .{ if (v.bed_textured) 1 else 0, bed_clear_z, if (eye[2] < 0) 1 else 0, 0 },
             },
-            .bed_vertices = v.bed_vertices,
+            .bed_vertices = if (v.bed_hidden) 0 else v.bed_vertices,
             .plates = v.plate_frames.items,
             .plate_draws = v.plate_draws.items,
-            .plate_grid = v.plate_grid.items,
-            .plate_grid_dim = v.plate_grid_dim,
+            .plate_grid = if (v.bed_hidden) &.{} else v.plate_grid.items,
+            .plate_grid_dim = if (v.bed_hidden) 0 else v.plate_grid_dim,
             .plate_grid_gen = v.plate_grid_gen,
             .cached = cached,
             .base_end = base_end,

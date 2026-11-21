@@ -12,6 +12,7 @@ Press `?` in the app to see all keys. The main menu has the sheet too: **Keyboar
 | `/` | Search the settings and the actions |
 | N | Show or hide the settings panel |
 | 2 | The 2D layer view. Press 2 again for the 3D view. The main menu has the same switch: **2D view**. |
+| B | Hide the bed and its grid. The bottom of a part then shows from below, for a look or a label. Press B again to show the bed. The main menu has the same switch: **Hide the bed**. |
 | 3 | The 3D view |
 | Ctrl+O | Open a model or a project |
 | Ctrl+S | Save the project: all plates in one 3MF file |

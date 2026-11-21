@@ -23,6 +23,7 @@ static const Group SHORTCUTS[] = {
         {"/", "Search the settings and the actions, and change a setting in the results"},
         {"N", "Show or hide the panel: all settings, the selected line, the history, and the project"},
         {"2", "The 2D layer view, or the 3D view again (also in the main menu: 2D view)"},
+        {"B", "Hide the bed and its grid, or show them again: the bottom of a part shows from below (also in the main menu)"},
         {"3", "The 3D view"},
         {"Ctrl+O", "Add models to the plate"},
         {"Ctrl+E", "Export the G-code"},

@@ -1723,6 +1723,7 @@ $("main-menu").onclick = () => openMenu($("main-menu"), [
   { label: "Clear the plate", disabled: app.state === "empty", action: () => client.call("plate", { action: "clear" }) },
   { label: "Remove this plate", action: () => removePlate(app.activePlate) },
   { sep: true },
+  { label: "Hide the bed", checked: app.bedHidden, accel: "B", tip: "The bed and its grid do not draw, so the bottom of a part shows from below.", action: toggleBed },
   { label: "2D view", checked: app.page === "2d", accel: "2", tip: "One layer from the top. A drag pans, the wheel zooms, a double click fits the part.", action: toggle2d },
   { label: "Theme", submenu: themeItems() },
   { sep: true },
@@ -1852,6 +1853,16 @@ $("farm-back").onclick = () => showFarm(false);
 $("project-close").onclick = () => $("project-dialog").close();
 
 // ---- the 2D and the 3D view ----
+
+// Key B and the item "Hide the bed" of the main menu: the bed model and
+// the grids do not draw, so the bottom of a part shows from below (for a
+// look, or a label on the bottom, with no turn of the part).
+function toggleBed() {
+  app.bedHidden = !app.bedHidden;
+  view.x.zs_view_set_bed_hidden(view.v, app.bedHidden ? 1 : 0);
+  toast(app.bedHidden ? "The bed is hidden. Press B to show it." : "The bed shows again.");
+  requestFrame();
+}
 
 // Shows the 2D layer view or the 3D view (the toggle of preview.c). The
 // key 2 and the item "2D view" of the main menu switch between them. In
@@ -2375,12 +2386,14 @@ document.addEventListener("keydown", (e) => {
     if (lineCard.info) lineCard.ctx.edit(lineCard.info, 0, 1);
     return;
   }
-  if (!["/", "?", "n", "N", "d", "D", "2", "3"].includes(e.key) || e.ctrlKey || e.metaKey || e.altKey) return;
+  if (!["/", "?", "n", "N", "d", "D", "2", "3", "b", "B"].includes(e.key) || e.ctrlKey || e.metaKey || e.altKey) return;
   if ((e.key === "d" || e.key === "D") && !partCard.open) return;
   if (e.target.closest?.("input, textarea, select, [contenteditable]")) return;
   e.preventDefault();
   if (e.key === "2") {
     toggle2d();
+  } else if (e.key === "b" || e.key === "B") {
+    toggleBed();
   } else if (e.key === "3") {
     showPage("3d");
   } else if (e.key === "n" || e.key === "N") {

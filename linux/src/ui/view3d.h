@@ -40,6 +40,8 @@ gboolean zg_view3d_moving(GtkWidget *view);
  * zs_view_get_camera). Set: at once, or when the view starts. */
 gboolean zg_view3d_get_camera(GtkWidget *view, float out[8]);
 void zg_view3d_set_camera(GtkWidget *view, const float in[8]);
+/* Hides the bed and its grids (TRUE), or shows them again. */
+void zg_view3d_set_bed_hidden(GtkWidget *view, gboolean hidden);
 
 /* Ends the light of a range of layers (the card of the range closed): no
  * lit layers, and no lit body (zs_view_light_connected). */

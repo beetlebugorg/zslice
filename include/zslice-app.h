@@ -1771,6 +1771,9 @@ void zs_view_set_dark(zs_view *view, int on);
  * wide with it. Off at the start for a frame shell; the Vulkan backend
  * always has it. */
 void zs_view_set_ribbons(zs_view *view, int on);
+/* Hides the bed model and the grids of the plates (hidden != 0), so the
+ * bottom of a part shows from below. */
+void zs_view_set_bed_hidden(zs_view *view, int hidden);
 /* Shows part `part` of the plate (the part index of zs_app) turned and
  * moved in the view only: the turn is the unit quaternion (qx, qy, qz,
  * qw) about the point (px, py, pz), then the part moves by (mx, my, mz)
