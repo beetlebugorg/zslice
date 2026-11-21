@@ -239,8 +239,11 @@ namespace winrt::ZSlice::implementation
                 if (filling || i >= rows.size())
                     return;
                 auto item = rows[i].material.SelectedItem();
-                if (item != nullptr)
-                    Set(i, "filament.material", zs::ToUtf8(std::wstring(unbox_value<hstring>(item))));
+                if (item == nullptr)
+                    return;
+                std::string value = zs::ToUtf8(std::wstring(unbox_value<hstring>(item)));
+                if (value != w.FilamentValue(i, "filament.material"))
+                    Set(i, "filament.material", value);
             });
             line.Children().Append(material);
             row.material = material;
@@ -256,8 +259,12 @@ namespace winrt::ZSlice::implementation
                 ToolTipService::SetToolTip(nozzle, box_value(L"The nozzle of filament " + number +
                                                              L": the main nozzle (fed by the AMS on the X2D), or the second nozzle (fed by the external spool)"));
                 nozzle.SelectionChanged([this, i](auto &&, auto &&) {
-                    if (!filling && i < rows.size())
-                        Set(i, "filament.nozzle", rows[i].nozzle.SelectedIndex() == 1 ? "1" : "0");
+                    if (filling || i >= rows.size())
+                        return;
+                    int want = rows[i].nozzle.SelectedIndex() == 1 ? 1 : 0;
+                    int have = atof(w.FilamentValue(i, "filament.nozzle").c_str()) >= 1 ? 1 : 0;
+                    if (want != have)
+                        Set(i, "filament.nozzle", want == 1 ? "1" : "0");
                 });
                 line.Children().Append(nozzle);
                 row.nozzle = nozzle;
@@ -769,4 +776,37 @@ namespace winrt::ZSlice::implementation
         filaments->FillLabels(part);
         filaments->FillPaint(part);
     }
+
+#ifdef ZS_DEV_HOOKS
+    // The steps of the filament list. See MainWindow.DevHooks.cpp.
+    bool MainWindow::RunFilamentStep(std::wstring const &verb, std::vector<std::wstring> const &words)
+    {
+        auto &f = *filaments;
+        size_t i = !words.empty() ? (size_t)_wtoi(words[0].c_str()) : 0;
+        if (verb == L"fopen")
+            FilamentFlyout().ShowAt(FilamentButton());
+        else if (verb == L"fclose")
+            FilamentFlyout().Hide();
+        else if (verb == L"fmaterial" && words.size() >= 2 && i < f.rows.size())
+            f.rows[i].material.SelectedItem(box_value(words[1]));
+        else if (verb == L"fcoloropen" && i < f.rows.size())
+            f.rows[i].color_flyout.ShowAt(f.rows[i].swatch);
+        else if (verb == L"fcolorset" && words.size() >= 2 && i < f.rows.size())
+        {
+            f.rows[i].picker.Color(ColorOf(zs::ToUtf8(words[1])));
+            f.rows[i].color_flyout.Hide();
+        }
+        else if (verb != L"flog")
+            return false;
+        zs_app *app = model->Active();
+        size_t n = zs_app_filament_count(app);
+        zs::Log("dev: filaments: %zu, list open %d, rows %zu:", n, FilamentFlyout().IsOpen() ? 1 : 0, f.rows.size());
+        for (size_t k = 0; k < n; k++)
+            zs::Log(" [%zu %s %s]", k + 1, FilamentValue(k, "filament.color").c_str(), FilamentValue(k, "filament.material").c_str());
+        if (!selected_parts.empty())
+            zs::Log(" part filament %d", PartFilament(selected_parts[0]));
+        zs::Log("\n");
+        return true;
+    }
+#endif
 }

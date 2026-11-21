@@ -814,6 +814,12 @@ namespace winrt::ZSlice::implementation
 
         void SetFilament(int value)
         {
+            zs::Label *now = Selected();
+            if (now != nullptr && now->filament == value)
+            {
+                ShowCard();
+                return;
+            }
             auto c = EditCopy();
             if (!c.has_value())
                 return;
@@ -831,6 +837,14 @@ namespace winrt::ZSlice::implementation
 
         void SetDepth(double mm)
         {
+            // A click on the depth that the label has only sets the buttons
+            // again.
+            zs::Label *now = Selected();
+            if (now != nullptr && now->depth == std::clamp(mm, 0.0, 10.0))
+            {
+                ShowCard();
+                return;
+            }
             auto c = EditCopy();
             if (!c.has_value())
                 return;
@@ -1244,9 +1258,29 @@ namespace winrt::ZSlice::implementation
             inputs.push_back(std::move(in));
         }
 
-        void OnNumber(int item, std::string const &field, double v)
+        // The value of a number field in label l, as the field shows it.
+        double InputValue(zs::Label const &l, int item, std::string const &field)
+        {
+            if (field == "turn")
+                return std::round(zs::LabelAngle(l) * 10) / 10;
+            if (field == "depth")
+                return l.depth;
+            auto it = zs::LabelItem(l, (size_t)std::max(item, 0));
+            if (field == "at:0")
+                return zs::LabelItemAt(it, 0);
+            if (field == "at:1")
+                return zs::LabelItemAt(it, 1);
+            return zs::LabelItemNumber(it, field.c_str(), 0);
+        }
+
+        // tolerance: a field rounds what it shows, so a value within half
+        // of its last digit is no edit.
+        void OnNumber(int item, std::string const &field, double v, double tolerance)
         {
             if (updating || std::isnan(v))
+                return;
+            zs::Label *current = Selected();
+            if (current == nullptr || std::abs(InputValue(*current, item, field) - v) <= tolerance)
                 return;
             if (field == "turn")
                 SetAngle(v);
@@ -1269,8 +1303,9 @@ namespace winrt::ZSlice::implementation
             if (!tip.empty())
                 ToolTipService::SetToolTip(box, box_value(tip));
             AddInput(box, item, field);
-            box.ValueChanged([this, item, field](NumberBox const &, NumberBoxValueChangedEventArgs const &e) {
-                OnNumber(item, field, e.NewValue());
+            double tolerance = (step >= 1 ? 0.1 : step >= 0.1 ? 0.01 : 0.001) / 2;
+            box.ValueChanged([this, item, field, tolerance](NumberBox const &, NumberBoxValueChangedEventArgs const &e) {
+                OnNumber(item, field, e.NewValue(), tolerance);
             });
             return box;
         }
@@ -1309,7 +1344,13 @@ namespace winrt::ZSlice::implementation
                 ToolTipService::SetToolTip(b, box_value(tip));
                 Automation::AutomationProperties::SetName(b, zs::label_kind_names[k]);
                 std::string to = zs::label_kinds[k];
-                b.Click([this, i, to](auto &&, auto &&) {
+                b.Click([this, i, to](IInspectable const &sender, auto &&) {
+                    // The chips act as a radio group: the chip of the shape
+                    // stays on.
+                    sender.as<Primitives::ToggleButton>().IsChecked(true);
+                    zs::Label *now = Selected();
+                    if (now == nullptr || zs::LabelItemKind(zs::LabelItem(*now, i)) == to)
+                        return;
                     auto weak = w.get_weak();
                     w.queue.TryEnqueue([weak, this, i, to] {
                         if (auto self = weak.get())
@@ -1355,9 +1396,13 @@ namespace winrt::ZSlice::implementation
                 Automation::AutomationProperties::SetName(t, L"The text of the label");
                 ToolTipService::SetToolTip(t, box_value(L"The text of the label"));
                 AddInput(t, (int)i, "text");
+                // TextChanged comes after the turn that set the text, so the
+                // text of the label tells whether this is an edit.
                 t.TextChanged([this, i](IInspectable const &sender, auto &&) {
-                    if (!updating)
-                        EditText(i, std::wstring(sender.as<TextBox>().Text()));
+                    zs::Label *now = Selected();
+                    std::wstring value{ sender.as<TextBox>().Text() };
+                    if (!updating && now != nullptr && zs::LabelItemText(zs::LabelItem(*now, i)) != value)
+                        EditText(i, value);
                 });
                 box.Children().Append(t);
             }
@@ -1546,21 +1591,7 @@ namespace winrt::ZSlice::implementation
                     continue;
                 if (auto number = in.widget.try_as<NumberBox>())
                 {
-                    double v;
-                    if (in.field == "turn")
-                        v = std::round(zs::LabelAngle(l) * 10) / 10;
-                    else if (in.field == "depth")
-                        v = l.depth;
-                    else
-                    {
-                        auto it = zs::LabelItem(l, (size_t)std::max(in.item, 0));
-                        if (in.field == "at:0")
-                            v = zs::LabelItemAt(it, 0);
-                        else if (in.field == "at:1")
-                            v = zs::LabelItemAt(it, 1);
-                        else
-                            v = zs::LabelItemNumber(it, in.field.c_str(), 0);
-                    }
+                    double v = InputValue(l, in.item, in.field);
                     if (!(std::abs(number.Value() - v) <= 1e-9))
                         number.Value(v);
                 }
@@ -1676,8 +1707,8 @@ namespace winrt::ZSlice::implementation
         // The turn and the depth are the first two inputs.
         l.AddInput(l.turn, -1, "turn");
         l.AddInput(l.depth_mm, -1, "depth");
-        l.turn.ValueChanged([this](NumberBox const &, NumberBoxValueChangedEventArgs const &e) { label->OnNumber(-1, "turn", e.NewValue()); });
-        l.depth_mm.ValueChanged([this](NumberBox const &, NumberBoxValueChangedEventArgs const &e) { label->OnNumber(-1, "depth", e.NewValue()); });
+        l.turn.ValueChanged([this](NumberBox const &, NumberBoxValueChangedEventArgs const &e) { label->OnNumber(-1, "turn", e.NewValue(), 0.05); });
+        l.depth_mm.ValueChanged([this](NumberBox const &, NumberBoxValueChangedEventArgs const &e) { label->OnNumber(-1, "depth", e.NewValue(), 0.0005); });
 
         auto on_depth = [this](bool two) {
             auto &s = *label;
@@ -1928,9 +1959,10 @@ namespace winrt::ZSlice::implementation
             l.Flush();
         else if (verb != L"llog")
             return false;
-        zs::Log("dev: label: tool %s, part %lld, %zu labels, sel %lld, pending %lld, drawing %d, curve %.0f, card %s, handle %s\n", l.on ? "on" : "off",
+        zs::Log("dev: label: tool %s, part %lld, %zu labels, sel %lld, pending %lld, drawing %d, curve %.0f, card %s, handle %s, history %zu of %zu\n", l.on ? "on" : "off",
                 (long long)l.index, l.labels.size(), (long long)l.sel, (long long)l.pending, l.drawing, l.curve,
-                l.card.Visibility() == Visibility::Visible ? "shown" : "hidden", l.handle.Visibility() == Visibility::Visible ? "shown" : "hidden");
+                l.card.Visibility() == Visibility::Visible ? "shown" : "hidden", l.handle.Visibility() == Visibility::Visible ? "shown" : "hidden",
+                zs_app_history_current(model->Active()) + 1, zs_app_history_count(model->Active()));
         for (auto const &x : l.labels)
         {
             zs::Log("dev: label %u %s: %zu items, filament %d, depth %.2f, at %.2f %.2f %.2f, normal %.2f %.2f %.2f, turn %.1f, size %.2f%s\n", x.id,
