@@ -59,6 +59,10 @@ struct Issue: Identifiable {
         // A prime tower off the bed or on a part.
         case Int32(ZS_ISSUE_TOWER.rawValue): "square.stack.3d.up"
         case Int32(ZS_ISSUE_LABEL.rawValue): "character.textbox"
+        // Parts that print one at a time, and the head that can hit a part.
+        case Int32(ZS_ISSUE_SEQUENCE.rawValue): "list.number"
+        // The infill in a filament of its own, or tall infill beads.
+        case Int32(ZS_ISSUE_INFILL.rawValue): "square.grid.3x3"
         default: "rectangle.split.3x1"
         }
     }

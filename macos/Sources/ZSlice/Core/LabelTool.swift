@@ -113,6 +113,9 @@ struct LabelDrag {
     /// angle of the press, the sense of a turn on the screen, and the turn
     /// of the label at the press.
     var turnC = CGPoint.zero
+    /// A resize: the pointer in the plane less the corner of the outline
+    /// box under the handle, at the press, so the first move scales by 1.
+    var grab = (0.0, 0.0)
     var center = (0.0, 0.0)
     var a0 = 0.0, sign = 1.0, base = 0.0
 }
@@ -566,6 +569,13 @@ extension Workspace {
             var d = LabelDrag(mode: h.turn ? .turn : .resize, id: l.id, start: l, at: p)
             d.box0 = [ol.box.x0, ol.box.y0, ol.box.x1, ol.box.y1]
             d.corner = h.corner
+            if !h.turn, let r = labelRay(p) {
+                let (o, dir) = rayVectors(r)
+                if let hit = l.planeHit(o, dir) {
+                    let cx = h.corner[0] > 0 ? ol.box.x1 : ol.box.x0, cy = h.corner[1] > 0 ? ol.box.y1 : ol.box.y0
+                    d.grab = (hit.x - cx, hit.y - cy)
+                }
+            }
             if h.turn {
                 let cx = (ol.box.x0 + ol.box.x1) / 2, cy = (ol.box.y0 + ol.box.y1) / 2
                 guard let c = labelScreen(l, cx, cy) else { return true }
@@ -647,7 +657,7 @@ extension Workspace {
         let anchor = [c[0] > 0 ? b0[0] : b0[2], c[1] > 0 ? b0[1] : b0[3]]
         let c0 = [c[0] > 0 ? b0[2] : b0[0], c[1] > 0 ? b0[3] : b0[1]]
         let v = [c0[0] - anchor[0], c0[1] - anchor[1]]
-        let hp = [h.x, h.y]
+        let hp = [h.x - d.grab.0, h.y - d.grab.1]
         var k = [1.0, 1.0]
         if freeAspect {
             for a in 0 ..< 2 { k[a] = abs(v[a]) > 1e-9 ? (hp[a] - anchor[a]) / v[a] : 1 }

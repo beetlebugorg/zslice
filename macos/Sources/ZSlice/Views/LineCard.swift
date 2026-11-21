@@ -164,6 +164,7 @@ struct LineCard: View {
     /// support line holds up, and the warnings of the check at the line.
     private var notes: [(text: String, symbol: String, warn: Bool)] {
         var out: [(text: String, symbol: String, warn: Bool)] = []
+        if !info.nozzleText.isEmpty { out.append((info.nozzleText, "circle.circle", false)) }
         if !info.slowText.isEmpty { out.append((info.slowText, "tortoise", true)) }
         if info.flowLimited, info.maxFlow > 0 {
             out.append((String(format: "The flow limit (%.0f mm³/s) sets the speed of this line, not the printer.", info.maxFlow), "gauge.with.dots.needle.100percent", true))

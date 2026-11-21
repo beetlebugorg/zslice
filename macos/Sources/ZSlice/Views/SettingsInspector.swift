@@ -151,9 +151,13 @@ struct SettingsInspector: View {
         .navigationTitle("Settings")
     }
 
+    /// The sections of a group. The Second nozzle section shows only for a
+    /// printer with two nozzles (machine.nozzles ≥ 2).
     private func sectionNames(_ group: String) -> [String] {
         var seen = Set<String>()
-        return SettingInfo.all.filter { $0.group == group }.compactMap { seen.insert($0.section).inserted ? $0.section : nil }
+        let two = workspace.model.nozzleCount >= 2
+        return SettingInfo.all.filter { $0.group == group && (two || $0.section != "Second nozzle") }
+            .compactMap { seen.insert($0.section).inserted ? $0.section : nil }
     }
 
     private func sectionFocus(_ group: String, _ section: String) -> UInt32 {
@@ -429,8 +433,8 @@ struct SettingEditor: View {
         // The filament of a part or of layers: a chip for each filament.
         if info.name == "project.filament" {
             FilamentChips(model: model, value: entry.value) { model.set(info.name, $0) }
-        } else if info.name == "project.support_filament" || info.name == "project.support_interface_filament" {
-            FilamentChips(model: model, value: entry.value, zero: info.name == "project.support_filament" ? "Part" : "Support") { model.set(info.name, $0) }
+        } else if info.name == "project.support_filament" || info.name == "project.support_interface_filament" || info.name == "project.infill_filament" {
+            FilamentChips(model: model, value: entry.value, zero: info.name == "project.support_interface_filament" ? "Support" : "Part") { model.set(info.name, $0) }
         } else {
             editor
         }
