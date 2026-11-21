@@ -313,6 +313,25 @@ charttable, `src/gpu/gpu_vk.zig` (same author, MIT license)
 
 **How zslice uses it:** The structure of the Vulkan backend: run-time loading of the loader, a surface from the shell, a swapchain sized by the host, a UNORM swapchain format, and SPIR-V words copied at comptime. The code is new.
 
+### Lookout Marine Windows build
+
+```ref
+kind: idea
+source: Lookout Marine
+license: MIT
+files: windows/build-core.ps1
+area: build
+summary: The layout of the Windows core build.
+```
+
+Lookout Marine, `windows/build-core.ps1` at commit 221df217 (same author, MIT license)
+
+**License:** MIT
+
+**Used in:** `windows/build-core.ps1`
+
+**How zslice uses it:** The form of the script: one PowerShell step that runs `zig build lib` for the MSVC target of the platform. The code is new.
+
 ### Core and native shells
 
 ```ref
