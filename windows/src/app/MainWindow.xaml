@@ -275,7 +275,7 @@
                             <TextBlock x:Name="SummaryTime" FontSize="18.5" FontWeight="Bold" />
                             <Border x:Name="SummaryBadge" Grid.Column="1" VerticalAlignment="Center" HorizontalAlignment="Left" Padding="7,1"
                                     CornerRadius="9" Background="#B42318" Visibility="Collapsed">
-                                <TextBlock Text="Check" FontSize="11" Foreground="#FFFFFF" />
+                                <TextBlock x:Name="SummaryBadgeText" Text="Check" FontSize="11" Foreground="#FFFFFF" />
                             </Border>
                             <TextBlock x:Name="SummaryDetail" Grid.Row="1" Grid.ColumnSpan="2" FontSize="11.5" Foreground="{ThemeResource ZsDim}" />
                         </Grid>
