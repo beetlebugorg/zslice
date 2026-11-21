@@ -213,6 +213,8 @@ namespace winrt::ZSlice::implementation
 #ifdef ZS_DEV_HOOKS
         bool RunPaintStep(std::wstring const &verb, std::vector<std::wstring> const &words);
         bool RunLabelStep(std::wstring const &verb, std::vector<std::wstring> const &words);
+        bool RunFilamentStep(std::wstring const &verb, std::vector<std::wstring> const &words);
+        bool PressNamed(std::wstring const &name);
 #endif
         std::shared_ptr<FilamentState> filaments;
         std::shared_ptr<PaintState> paint;
