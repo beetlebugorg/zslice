@@ -14,9 +14,13 @@ out_app_h=$5
 
 prefix=$(dirname "$out_a")/core-prefix
 
+# The core is for the CPU of this machine. ZSLICE_CORE_CPU sets another
+# CPU model: the release sets "baseline", so the app runs on any x86_64 or
+# aarch64 CPU.
 zig build lib \
   --build-file "$core_root/build.zig" \
   -Doptimize="$optimize" \
+  ${ZSLICE_CORE_CPU:+-Dcpu="$ZSLICE_CORE_CPU"} \
   --prefix "$prefix"
 
 cp -f "$prefix/lib/libzslice.a" "$out_a"

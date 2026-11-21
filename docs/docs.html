@@ -68,6 +68,7 @@
 <a href="internals/code-quality/">Code quality</a>
 <a href="internals/macos/">The macOS app</a>
 <a href="internals/windows/">The Windows app</a>
+<a href="internals/release/">CI and releases</a>
 <div class="group">Project</div>
 <a href="app/">App</a>
 <a href="roadmap/">Roadmap</a>
@@ -131,12 +132,24 @@
 <h2 id="docs">The guide</h2>
 <div class="map"><div class="card"><b>Start</b><ul><li><a href="user/getting-started/"><span class=n>1</span>Your first print</a></li></ul></div><div class="card"><b>Everyday tasks</b><ul><li><a href="user/look/"><span class=n>2</span>Look at the print</a></li><li><a href="user/lines/"><span class=n>3</span>Click a line</a></li><li><a href="user/change-settings/"><span class=n>4</span>Change a setting</a></li><li><a href="user/parts/"><span class=n>5</span>Place the parts</a></li><li><a href="user/support/"><span class=n>6</span>Add support</a></li><li><a href="user/filaments/"><span class=n>7</span>Print in colors</a></li><li><a href="user/labels/"><span class=n>8</span>Labels on a part</a></li><li><a href="user/check/"><span class=n>9</span>Check the print</a></li><li><a href="user/plates/"><span class=n>10</span>Plates and files</a></li><li><a href="user/printers/"><span class=n>11</span>Send to a printer</a></li><li><a href="user/history/"><span class=n>12</span>Undo and history</a></li></ul></div><div class="card"><b>Features</b><ul><li><a href="user/features/"><span class=n>13</span>The best features</a></li><li><a href="user/print-as-it-forms/"><span class=n>14</span>The print as it forms</a></li><li><a href="user/projects/"><span class=n>15</span>printdeck projects</a></li><li><a href="user/farm/"><span class=n>16</span>A print farm</a></li></ul></div><div class="card"><b>Reference</b><ul><li><a href="user/keys/">Keys and mouse</a></li><li><a href="user/settings/">Settings</a></li><li><a href="user/expert/">Formulas and rules</a></li><li><a href="user/profiles/">Profiles</a></li><li><a href="user/setting-coverage/">Cura and OrcaSlicer settings</a></li><li><a href="user/command-line/">The command line</a></li><li><a href="user/apps/">Web, Linux, and Mac</a></li><li><a href="user/macos/">The macOS app</a></li><li><a href="user/troubleshooting/">Problems and errors</a></li></ul></div></div>
 <h2 id="start">Start</h2>
-<ul><li><strong>In your browser:</strong> open <a href="https://zslice.beetlebug.org/">zslice.beetlebug.org</a>, and read <a href="user/getting-started/">Your first print</a>.</li><li><strong>From the source:</strong> zslice needs Zig 0.16.</li></ul>
+<ul><li><strong>In your browser:</strong> open <a href="https://zslice.beetlebug.org/">zslice.beetlebug.org</a>, and read <a href="user/getting-started/">Your first print</a>.</li><li><strong>On your computer:</strong> see <a href="#install">Install</a>.</li><li><strong>From the source:</strong> zslice needs Zig 0.16.</li></ul>
 <pre><code>zig build test                          # run the tests
 zig build -Doptimize=ReleaseFast        # the command line tool: zig-out/bin/zslice
 zig build web                           # the web app: zig-out/web/app
 zslice slice part.stl -o part.gcode     # slice a part</code></pre>
 <p>The Linux app (GTK 4) and the macOS app (SwiftUI and Metal) are in <code>linux/</code> and <code>macos/</code>. See <a href="user/apps/">Web, Linux, and Mac</a>.</p>
+<h2 id="install">Install</h2>
+<h3 id="homebrew-macos-and-linux">Homebrew (macOS and Linux)</h3>
+<p>Add the tap one time:</p>
+<pre><code>brew tap beetlebugorg/tap</code></pre>
+<p>Then install the parts that you want:</p>
+<pre><code>brew install --cask zslice   # the Mac app
+brew install zslice          # the command line tool (macOS and Linux)
+brew install zslice-gtk      # the Linux app (GTK 4)</code></pre>
+<p><code>brew upgrade</code> gets each new release.</p>
+<h3 id="downloads">Downloads</h3>
+<p>The <a href="https://github.com/beetlebugorg/zslice/releases">releases page</a> has the files of each release:</p>
+<ul><li>The Mac app: <code>zslice-VERSION-macos-universal.dmg</code>, for Apple silicon and Intel. Open the dmg, and drag zslice to Applications.</li><li>The Linux app: <code>zslice-gtk-VERSION-linux-x86_64.tar.gz</code> (or <code>aarch64</code>). It needs GTK 4.14 or later. Extract it, and run <code>bin/zslice-gtk</code>.</li><li>The command line tool: <code>zslice-VERSION-&lt;cpu&gt;-linux-musl.tar.gz</code> and <code>zslice-VERSION-&lt;cpu&gt;-macos.tar.gz</code>.</li><li>The web app: <code>zslice-VERSION-web.zip</code>, to serve from your own web server. The app slices with threads only when the server sends the headers <code>Cross-Origin-Opener-Policy: same-origin</code> and <code>Cross-Origin-Embedder-Policy: require-corp</code>.</li><li><code>SHA256SUMS</code> has the SHA-256 of each file.</li></ul>
 <h2 id="links">Links</h2>
 <ul><li><a href="docs.html">The documentation</a>: the guide, the settings, and the internals.</li><li><a href="embedding/">Embedding</a>: the library from Zig, C, and JavaScript.</li><li><a href="internals/how-slicing-works/">How a slicer works</a>, <a href="internals/architecture/">Architecture</a>, and <a href="internals/contributing/">Contributing</a>.</li><li><a href="roadmap/">The roadmap</a>, and <a href="privacy/">Privacy</a>: no analytics, no cookies.</li></ul>
 <h2 id="license">License</h2>

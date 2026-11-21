@@ -58,6 +58,7 @@
 - [Contributing](internals/contributing.md): the rules, the tests, and step-by-step guides to add a setting, a feature, or an infill pattern.
 - [Code quality](internals/code-quality.md): the plan to make the code clearer, ranked by value.
 - [The macOS app](internals/macos.md): the SwiftUI shell, its build, and the Metal renderer of the 3D view.
+- [CI and releases](internals/release.md): the CI jobs, how to cut a release, and the secrets of the release.
 
 ## Documentation
 

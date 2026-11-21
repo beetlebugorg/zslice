@@ -65,6 +65,7 @@ All features: [The best features](https://zslice.beetlebug.org/user/features/).
 ## Start
 
 - **In your browser:** open [zslice.beetlebug.org](https://zslice.beetlebug.org/), and read [Your first print](https://zslice.beetlebug.org/user/getting-started/).
+- **On your computer:** see [Install](#install).
 - **From the source:** zslice needs Zig 0.16.
 
 ```sh
@@ -75,6 +76,36 @@ zslice slice part.stl -o part.gcode     # slice a part
 ```
 
 The Linux app (GTK 4) and the macOS app (SwiftUI and Metal) are in `linux/` and `macos/`. See [Web, Linux, and Mac](https://zslice.beetlebug.org/user/apps/).
+
+## Install
+
+### Homebrew (macOS and Linux)
+
+Add the tap one time:
+
+```sh
+brew tap beetlebugorg/tap
+```
+
+Then install the parts that you want:
+
+```sh
+brew install --cask zslice   # the Mac app
+brew install zslice          # the command line tool (macOS and Linux)
+brew install zslice-gtk      # the Linux app (GTK 4)
+```
+
+`brew upgrade` gets each new release.
+
+### Downloads
+
+The [releases page](https://github.com/beetlebugorg/zslice/releases) has the files of each release:
+
+- The Mac app: `zslice-VERSION-macos-universal.dmg`, for Apple silicon and Intel. Open the dmg, and drag zslice to Applications.
+- The Linux app: `zslice-gtk-VERSION-linux-x86_64.tar.gz` (or `aarch64`). It needs GTK 4.14 or later. Extract it, and run `bin/zslice-gtk`.
+- The command line tool: `zslice-VERSION-<cpu>-linux-musl.tar.gz` and `zslice-VERSION-<cpu>-macos.tar.gz`.
+- The web app: `zslice-VERSION-web.zip`, to serve from your own web server. The app slices with threads only when the server sends the headers `Cross-Origin-Opener-Policy: same-origin` and `Cross-Origin-Embedder-Policy: require-corp`.
+- `SHA256SUMS` has the SHA-256 of each file.
 
 ## Links
 
