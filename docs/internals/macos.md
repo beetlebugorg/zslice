@@ -70,6 +70,7 @@ The package is `Package.swift`. `Sources/CZslice/module.modulemap` makes the C A
 | `Core/Refinements.swift` | Your usual refinements. |
 | `Core/Simulation.swift` | The print as it forms. |
 | `Core/Checks.swift` | Gaps and Check. |
+| `Core/Calibration.swift` | Calibration prints (`calibrate`, `zs_app_calibration_add`, `zs_app_calibration_get`, `CalibrationSheet`), the import of a profile of another slicer (`importProfile`, `zs_app_profile_import`, `ImportReportSheet`), and the print order of one part at a time (`printOrder`, `reorderPart`, `zs_app_part_reorder`). `ZSLICE_CLIP` takes `calib:k`, `use:i`, `import:path`, `seq`, and `later` for them. |
 | `Core/Clipboard.swift` | Copy, cut, paste, and duplicate (`Clip`, `clipCopy`, `clipPaste`), and the plate items (`copyPlate`, `duplicatePlate`, `pasteAsPlate`). |
 | `Core/ContextMenu.swift` | The context menu of the view. |
 | `Core/Project.swift` | printdeck.yml projects, and projects from GitHub. |
