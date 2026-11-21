@@ -150,11 +150,15 @@ typedef struct {
      * the drag (press_on: there was one). */
     gboolean base_on;
     double base_q[4], base_c[3], base_m[3];
-    /* The change of the plate (zg_model_edit_gen) that the base leads
-     * to: a slice of it ends the base. */
-    gint64 base_gen;
+    /* The change of the plate (zg_model_edit_gen) that the base and the
+     * fall lead to: a slice of it ends them. */
+    gint64 base_gen, fall_gen;
     gboolean press_on;
     double press_q[4], press_c[3], press_m[3];
+    /* The last frame of a fall (zg_model_fall_step): the view shows it
+     * until the slice of the new place. */
+    gboolean fall_shown;
+    double fall_f[10];
     /* The Support tool, and the cursor that it set last. */
     ZgSupport *support;
     const char *cursor;
@@ -438,11 +442,17 @@ static void load_data(View3d *v) {
      * beads into the GPU is done (poll_scene). */
     if (zs_view_scene_pending(v->view) && !v->scene_poll) v->scene_poll = g_timeout_add(4, poll_scene, v);
     /* A load ends the preview of a part. The beads of the slice of the
-     * part as it is now end the turn; else the view turns the old beads
-     * again. */
-    if (zg_model_plate_switching(v->model)) v->base_on = FALSE;
-    else if (!zs_view_scene_pending(v->view) && zg_model_shown_gen(v->model) >= v->base_gen) v->base_on = FALSE;
-    if (v->base_on) show_preview(v);
+     * part as it is now end the turn and the fall; else the view moves
+     * the old beads again. */
+    if (zg_model_plate_switching(v->model)) {
+        v->base_on = FALSE;
+        v->fall_shown = FALSE;
+    } else if (!zs_view_scene_pending(v->view)) {
+        gint64 shown = zg_model_shown_gen(v->model);
+        if (shown >= v->base_gen) v->base_on = FALSE;
+        if (shown >= v->fall_gen) v->fall_shown = FALSE;
+    }
+    if (v->base_on || v->fall_shown) show_preview(v);
     zg_bed_model_update(v->view, zg_model_core(v->model));
     /* The other plates of the set, in a row beside the active plate. */
     zs_set_view_sync(zg_model_plate_set(v->model), v->view);
@@ -908,9 +918,23 @@ static void turn_compose(const double q1[4], const double c1[3], const double m1
 }
 
 /* The part in the view: the beads of the last slice turned by the base
- * (a ring drag, or a turn that waits for its slice). */
+ * (a ring drag, or a turn that waits for its slice), and by the fall on
+ * top of it. */
 static void show_preview(View3d *v) {
     if (!v->view) return;
+    if (v->fall_shown) {
+        const double *f = v->fall_f;
+        if (!v->base_on || v->fall_part != v->turn_part) {
+            zs_view_part_preview(v->view, (int)v->fall_part, (float)f[0], (float)f[1], (float)f[2], (float)f[3], (float)f[4], (float)f[5],
+                                 (float)f[6], (float)f[7], (float)f[8], (float)f[9], 0);
+            return;
+        }
+        double q[4], m[3];
+        turn_compose(f, f + 4, f + 7, v->base_q, v->base_c, v->base_m, q, m);
+        zs_view_part_preview(v->view, (int)v->fall_part, (float)q[0], (float)q[1], (float)q[2], (float)q[3], (float)v->base_c[0],
+                             (float)v->base_c[1], (float)v->base_c[2], (float)m[0], (float)m[1], (float)m[2], 0);
+        return;
+    }
     if (v->base_on) {
         zs_view_part_preview(v->view, (int)v->turn_part, (float)v->base_q[0], (float)v->base_q[1], (float)v->base_q[2], (float)v->base_q[3],
                              (float)v->base_c[0], (float)v->base_c[1], (float)v->base_c[2], (float)v->base_m[0], (float)v->base_m[1],
@@ -1077,16 +1101,27 @@ static gboolean on_fall_tick(GtkWidget *w, GdkFrameClock *clock, gpointer data) 
     gint64 now = gdk_frame_clock_get_frame_time(clock);
     double dt = v->fall_last ? (now - v->fall_last) / 1e6 : 1.0 / 60;
     v->fall_last = now;
+    /* For screenshots of a fall: ZSLICE_FALL_SLOW=8 runs it 8 times
+     * slower. */
+    const char *slow = g_getenv("ZSLICE_FALL_SLOW");
+    if (slow && atof(slow) > 1) dt /= atof(slow);
     double f[10];
+    /* At rest, the model slices the new place, and the view loads again
+     * in the step: the turn and the last frame stay until that slice
+     * comes. */
+    v->fall_gen = G_MAXINT64;
     int rc = zg_model_fall_step(v->model, MIN(dt, 0.05), f);
-    /* The frame at rest sets no preview: the slice of the new place ends
-     * the preview, and a preview after it moves the new beads again. */
-    if (rc == 1 && v->view)
-        zs_view_part_preview(v->view, (int)v->fall_part, (float)f[0], (float)f[1], (float)f[2], (float)f[3], (float)f[4], (float)f[5],
-                             (float)f[6], (float)f[7], (float)f[8], (float)f[9], 0);
+    if (rc == 1) {
+        memcpy(v->fall_f, f, sizeof v->fall_f);
+        v->fall_shown = TRUE;
+    } else if (rc == 0) {
+        v->fall_gen = zg_model_edit_gen(v->model);
+    } else {
+        v->fall_shown = FALSE;
+    }
+    show_preview(v);
     queue_frame(v);
     if (rc == 1) return G_SOURCE_CONTINUE;
-    if (rc < 0 && v->view) zs_view_part_preview(v->view, -1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0);
     v->fall_tick = 0;
     v->hand = FALSE;
     return G_SOURCE_REMOVE;
@@ -1107,6 +1142,7 @@ static void fall_finish(View3d *v) {
     double f[10];
     for (int k = 0; k < 6000 && zg_model_fall_step(v->model, 1.0 / 60, f) == 1; k++) {}
     if (zg_model_falling(v->model)) zg_model_fall_cancel(v->model);
+    v->fall_shown = FALSE;
 }
 
 /* A part that lost what held it (the model's "fall"). */
