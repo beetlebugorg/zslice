@@ -165,7 +165,7 @@ namespace winrt::ZSlice::implementation
             synced = std::string(text != nullptr ? text : "", len);
             if (zs_app_part_paint_set(w.model->Active(), (size_t)index, synced->c_str(), len) != ZS_OK)
             {
-                w.StatusText().Text(L"The paint did not go to the part.");
+                w.ShowToast(L"The paint did not go to the part.");
                 return;
             }
             w.model->RequestSlice();
@@ -251,7 +251,7 @@ namespace winrt::ZSlice::implementation
             zs_app *app = w.model->Active();
             if (part < 0 || (size_t)part >= zs_app_part_count(app))
             {
-                w.StatusText().Text(L"Open a model to paint it.");
+                w.ShowToast(L"Open a model to paint it.");
                 return;
             }
             index = part;
@@ -261,7 +261,7 @@ namespace winrt::ZSlice::implementation
             {
                 gen = 0;
                 zs_view_paint_mesh(w.view, nullptr, 0, nullptr, 0);
-                w.StatusText().Text(L"The paint tool cannot open this part.");
+                w.ShowToast(L"The paint tool cannot open this part.");
                 return;
             }
             // Paint with another filament than the part's at first.

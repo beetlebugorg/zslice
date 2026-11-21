@@ -1088,8 +1088,29 @@ namespace winrt::ZSlice::implementation
                 PlateEdited();
                 return true;
             }
+            if (key == VirtualKey::D)
+            {
+                DuplicateParts();
+                return true;
+            }
             int mx = key == VirtualKey::Left ? -1 : key == VirtualKey::Right ? 1 : 0;
             int my = key == VirtualKey::Down ? -1 : key == VirtualKey::Up ? 1 : 0;
+            // The Turn tool: the arrows and Page Up and Down turn the part.
+            if (tool == Tool::Turn && (mx != 0 || my != 0 || key == VirtualKey::PageUp || key == VirtualKey::PageDown))
+            {
+                size_t part = (size_t)selected_parts[0];
+                double degrees = shift ? 5 : 15;
+                zs_part p{};
+                if (key == VirtualKey::PageUp || key == VirtualKey::PageDown)
+                    zs_app_part_turn(app, part, 1, key == VirtualKey::PageUp ? degrees : -degrees);
+                else if (my != 0)
+                    zs_app_part_turn(app, part, 0, my * degrees);
+                else if (zs_app_part_get(app, part, &p) == ZS_OK)
+                    zs_app_part_rotate(app, part, p.rotation - mx * degrees);
+                PlateEdited();
+                UpdateRings();
+                return true;
+            }
             if (mx != 0 || my != 0)
             {
                 double step = shift ? 10 : 1;
@@ -1121,8 +1142,12 @@ namespace winrt::ZSlice::implementation
         case VirtualKey::G: SetTool(Tool::Grab); return true;
         case VirtualKey::T: SetTool(Tool::Measure); return true;
         case VirtualKey::B: ToggleBed(); return true;
-        case VirtualKey::P: SetTool(Tool::Paint); return true;
-        case VirtualKey::E: SetTool(Tool::Label); return true;
+        // P and E close their tool when it is open.
+        case VirtualKey::P: SetTool(tool == Tool::Paint ? Tool::Select : Tool::Paint); return true;
+        case VirtualKey::E: SetTool(tool == Tool::Label ? Tool::Select : Tool::Label); return true;
+        case VirtualKey::N: ShowSettingsPane(SettingsPane().Visibility() != Visibility::Visible); return true;
+        case VirtualKey::PageUp: StepLayer(10); return true;
+        case VirtualKey::PageDown: StepLayer(-10); return true;
         case VirtualKey::H:
         case VirtualKey::Left: StepLine(-1, shift); return true;
         case VirtualKey::L:
@@ -1149,6 +1174,24 @@ namespace winrt::ZSlice::implementation
         default:
             return false;
         }
+    }
+
+    // Tab goes through the parts only from the view. In the chrome it moves
+    // the focus, as it should.
+    bool MainWindow::InViewFocus(Windows::Foundation::IInspectable const &focused)
+    {
+        return focused == ViewPanel() || focused == Layer2DPanel();
+    }
+
+    void MainWindow::StepPart(int direction)
+    {
+        int64_t count = (int64_t)zs_app_part_count(model->Active());
+        int64_t now = selected_parts.empty() ? -1 : selected_parts[0];
+        int64_t next = now < 0 ? (direction > 0 ? 0 : count - 1) : ((now + direction) % count + count) % count;
+        if (tool != Tool::Move && tool != Tool::Turn)
+            SetTool(Tool::Move);
+        SelectPart(next);
+        RequestDraw();
     }
 
     void MainWindow::OnKeyDown(Input::KeyRoutedEventArgs const &e)
@@ -1202,11 +1245,27 @@ namespace winrt::ZSlice::implementation
             ShowSettingsPane(true);
             SettingsSearch().Focus(FocusState::Keyboard);
         }
+        else if (key == VirtualKey::Tab && !ctrl && InViewFocus(focused) && zs_app_part_count(model->Active()) > 0)
+        {
+            StepPart(shift ? -1 : 1);
+        }
+        // With a selected part, [ and ] turn it. Else they change the plate.
+        else if ((key == bracket_left || key == bracket_right) && !selected_parts.empty())
+        {
+            zs_part p{};
+            double step = (shift ? 1.0 : 15.0) * (key == bracket_left ? -1 : 1);
+            if (zs_app_part_get(model->Active(), (size_t)selected_parts[0], &p) == ZS_OK &&
+                zs_app_part_rotate(model->Active(), (size_t)selected_parts[0], p.rotation + step) == ZS_OK)
+            {
+                PlateEdited();
+                UpdateRings();
+            }
+        }
         else if (key == bracket_left || key == bracket_right)
             StepPlate(key == bracket_left ? -1 : 1);
         else if (key == VirtualKey::Home && model->PlateCount() > 1)
             FramePlate((size_t)-1);
-        else if (key == VirtualKey::F)
+        else if (key == VirtualKey::F || key == VirtualKey::Home)
             FramePlate(model->ActivePlate());
         else if (!OnToolKey(key, shift, ctrl))
             return;

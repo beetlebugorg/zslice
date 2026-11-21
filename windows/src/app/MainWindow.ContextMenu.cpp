@@ -77,7 +77,7 @@ namespace winrt::ZSlice::implementation
         if (changed)
             SupportEdited();
         else
-            StatusText().Text(L"Found no overhang over this support.");
+            ShowToast(L"Found no overhang over this support.");
     }
 
     // The G-code to a file, and a report of the line to the clipboard, to
@@ -104,7 +104,7 @@ namespace winrt::ZSlice::implementation
         Windows::ApplicationModel::DataTransfer::DataPackage package;
         package.SetText(zs::ToWide(std::string(report, report_len)));
         Windows::ApplicationModel::DataTransfer::Clipboard::SetContent(package);
-        StatusText().Text(L"Copied a report of this line.");
+        ShowToast(L"Copied a report of this line.");
     }
 
     void MainWindow::NewProfile(int direction)
@@ -116,7 +116,7 @@ namespace winrt::ZSlice::implementation
         char name[64];
         snprintf(name, sizeof name, direction > 0 ? "Layers %zu and up" : "Layers 1 to %zu", (size_t)info.layer + 1);
         if (zs_app_profile_set(model->Active(), z_min, z_max, name) == ZS_OK)
-            StatusText().Text(zs::ToWide(std::string("New profile: ") + name));
+            ShowToast(zs::ToWide(std::string("New profile: ") + name));
     }
 
     // ---- copy and paste ----
@@ -137,19 +137,19 @@ namespace winrt::ZSlice::implementation
     {
         if (!SelectLinePart())
         {
-            StatusText().Text(L"Select a part first.");
+            ShowToast(L"Select a part first.");
             return;
         }
         std::vector<size_t> parts(selected_parts.begin(), selected_parts.end());
         if (zs_app_parts_copy(model->Active(), parts.data(), parts.size(), 0) == ZS_OK)
-            StatusText().Text(parts.size() == 1 ? hstring(L"Copied the part.") : hstring(L"Copied the parts."));
+            ShowToast(parts.size() == 1 ? hstring(L"Copied the part.") : hstring(L"Copied the parts."));
     }
 
     void MainWindow::CutParts()
     {
         if (!SelectLinePart())
         {
-            StatusText().Text(L"Select a part first.");
+            ShowToast(L"Select a part first.");
             return;
         }
         zs_app *app = model->Active();
@@ -169,7 +169,7 @@ namespace winrt::ZSlice::implementation
     {
         if (!SelectLinePart())
         {
-            StatusText().Text(L"Select a part first.");
+            ShowToast(L"Select a part first.");
             return;
         }
         zs_app *app = model->Active();
@@ -191,7 +191,7 @@ namespace winrt::ZSlice::implementation
     {
         if (zs_clipboard_parts() == 0)
         {
-            StatusText().Text(L"The clipboard is empty: copy a part first.");
+            ShowToast(L"The clipboard is empty: copy a part first.");
             return;
         }
         zs_app *app = model->Active();
@@ -201,7 +201,7 @@ namespace winrt::ZSlice::implementation
         ptrdiff_t first = zs_app_parts_paste(app, point ? 1 : 0, bed_x, bed_y);
         if (first < 0)
         {
-            StatusText().Text(L"The parts did not paste.");
+            ShowToast(L"The parts did not paste.");
             return;
         }
         selected_path = selected_segment = -1;
@@ -210,7 +210,7 @@ namespace winrt::ZSlice::implementation
             selected_parts.push_back(first + (int64_t)k);
         PlateEdited();
         if (zs_app_plate_fits(app) != 1)
-            StatusText().Text(L"The parts do not all fit on the bed. Move some to another plate.");
+            ShowToast(L"The parts do not all fit on the bed. Move some to another plate.");
     }
 
     // A new plate with a copy of `from`, or with the clipboard.
@@ -236,7 +236,7 @@ namespace winrt::ZSlice::implementation
             if (shift)
             {
                 if (!NewPlateFrom(nullptr))
-                    StatusText().Text(L"The plate did not paste.");
+                    ShowToast(L"The plate did not paste.");
             }
             else
             {
@@ -391,14 +391,14 @@ namespace winrt::ZSlice::implementation
                 if (zs_app_part_count(model->Active()) == 0)
                     return;
                 if (!zs_app_plate_smart_place(model->Active()))
-                    StatusText().Text(L"Not all parts fit on the bed.");
+                    ShowToast(L"Not all parts fit on the bed.");
                 PlateEdited();
             });
             add(menu.Items(), L"Arrange the plate", [this] {
                 if (zs_app_part_count(model->Active()) == 0)
                     return;
                 if (!zs_app_plate_arrange(model->Active()))
-                    StatusText().Text(L"Not all parts fit on the bed.");
+                    ShowToast(L"Not all parts fit on the bed.");
                 PlateEdited();
             });
             add(menu.Items(), L"Add models…", [this] { PickFile(); });
@@ -414,18 +414,18 @@ namespace winrt::ZSlice::implementation
             section();
             add(menu.Items(), L"Copy the plate", [this] {
                 if (zs_app_part_count(model->Active()) == 0)
-                    StatusText().Text(L"The plate has no parts to copy.");
+                    ShowToast(L"The plate has no parts to copy.");
                 else if (zs_app_parts_copy(model->Active(), nullptr, 0, 1) == ZS_OK)
-                    StatusText().Text(L"Copied the plate.");
+                    ShowToast(L"Copied the plate.");
             });
             add(menu.Items(), L"Duplicate the plate", [this] {
                 if (!NewPlateFrom(model->Active()))
-                    StatusText().Text(L"The plate has no parts to duplicate.");
+                    ShowToast(L"The plate has no parts to duplicate.");
             });
             if (clip > 0)
                 add(menu.Items(), L"Paste as a new plate", [this] {
                     if (!NewPlateFrom(nullptr))
-                        StatusText().Text(L"The plate did not paste.");
+                        ShowToast(L"The plate did not paste.");
                 }, L"Ctrl+Shift+V");
         }
         section();

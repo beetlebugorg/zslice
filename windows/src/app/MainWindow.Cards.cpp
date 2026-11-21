@@ -100,7 +100,7 @@ namespace winrt::ZSlice::implementation
                 }
                 else
                 {
-                    StatusText().Text(L"This part is one piece.");
+                    ShowToast(L"This part is one piece.");
                 }
             });
         });
@@ -155,11 +155,11 @@ namespace winrt::ZSlice::implementation
             size_t plates = 0;
             ptrdiff_t made = zs_set_fill(model->Set(), model->ActivePlate(), (size_t)selected_parts[0], want, &plates);
             if (made < 0)
-                StatusText().Text(L"No copies were made.");
+                ShowToast(L"No copies were made.");
             else if ((size_t)made < want)
-                StatusText().Text(to_hstring(made) + L" of " + to_hstring(want) + L" fit: the part is too big for more plates.");
+                ShowToast(to_hstring(made) + L" of " + to_hstring(want) + L" fit: the part is too big for more plates.");
             else
-                StatusText().Text(to_hstring(made) + L" in all, on " + to_hstring(plates) + L" plates.");
+                ShowToast(to_hstring(made) + L" in all, on " + to_hstring(plates) + L" plates.");
             ClearSelection();
             for (size_t i = 0; i < model->PlateCount(); i++)
                 zs_set_changed(model->Set(), i);
@@ -244,7 +244,7 @@ namespace winrt::ZSlice::implementation
             }
             else
             {
-                StatusText().Text(L"The cut did not make two parts.");
+                ShowToast(L"The cut did not make two parts.");
             }
         });
     }

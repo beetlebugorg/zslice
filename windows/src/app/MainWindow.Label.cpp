@@ -675,7 +675,7 @@ namespace winrt::ZSlice::implementation
                 return;
             std::string json = zs::LabelJson(*l, false);
             if (zs_app_label_update(w.model->Active(), (size_t)index, l->id, json.data(), json.size()) != ZS_OK)
-                w.StatusText().Text(L"The label did not change: a value is out of range.");
+                w.ShowToast(L"The label did not change: a value is out of range.");
             else
                 LabelsChanged();
             LoadInfo();
@@ -912,7 +912,7 @@ namespace winrt::ZSlice::implementation
             double at[10];
             if (!PlaceAt(part, x, y, at))
             {
-                w.StatusText().Text(L"Click a face of the part to put a label there.");
+                w.ShowToast(L"Click a face of the part to put a label there.");
                 return;
             }
             zs::Label l;
@@ -926,7 +926,7 @@ namespace winrt::ZSlice::implementation
             uint32_t id = 0;
             if (zs_app_label_add(w.model->Active(), (size_t)part, json.data(), json.size(), &id) != ZS_OK)
             {
-                w.StatusText().Text(L"The label does not fit here.");
+                w.ShowToast(L"The label does not fit here.");
                 return;
             }
             LabelsChanged();
