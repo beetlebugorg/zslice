@@ -153,6 +153,8 @@ pub const all = [_]Meta{
     .{ .name = "project.inner_wall_speed", .section = "Speed ratios", .doc = "The inner wall speed, as a ratio of the allowed speed." },
     .{ .name = "project.skin_speed", .section = "Speed ratios", .doc = "The skin speed, as a ratio of the allowed speed." },
     .{ .name = "project.infill_speed", .section = "Speed ratios", .doc = "The sparse infill speed, as a ratio of the allowed speed." },
+    .{ .name = "project.support_speed", .section = "Speed ratios", .doc = "The speed of the support lines, as a ratio of the allowed speed. 0: `infill_speed`. As \"Support Infill Speed\" in Cura and \"Support\" speed in OrcaSlicer." },
+    .{ .name = "project.support_interface_speed", .section = "Speed ratios", .doc = "The speed of the support interface, as a ratio of the allowed speed. 0: `skin_speed`. As \"Support Interface Speed\" in Cura and \"Support interface\" speed in OrcaSlicer." },
     .{ .name = "project.first_layer_speed", .section = "Speed ratios", .doc = "The speed of all lines on the first layer, as a ratio of the allowed speed." },
     .{ .name = "project.slow_layers", .section = "Speed ratios", .doc = "The layers after the first that print slower: their speed goes up in even steps from the first layer speed to the full speed, so that the part bonds to the bed. 0: the second layer prints at full speed." },
     .{ .name = "project.retract_min_travel", .section = "Travel", .doc = "Travel moves shorter than this do not retract." },

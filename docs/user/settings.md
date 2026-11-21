@@ -654,6 +654,14 @@ The skin speed, as a ratio of the allowed speed.
 
 The sparse infill speed, as a ratio of the allowed speed.
 
+**`project.support_speed`** (number; per layer). Default: `0`
+
+The speed of the support lines, as a ratio of the allowed speed. 0: `infill_speed`. As "Support Infill Speed" in Cura and "Support" speed in OrcaSlicer.
+
+**`project.support_interface_speed`** (number; per layer). Default: `0`
+
+The speed of the support interface, as a ratio of the allowed speed. 0: `skin_speed`. As "Support Interface Speed" in Cura and "Support interface" speed in OrcaSlicer.
+
 **`project.first_layer_speed`** (number). Default: `0.3`
 
 The speed of all lines on the first layer, as a ratio of the allowed speed.

@@ -364,3 +364,18 @@ summary: The Cura keys of the BLTouch mount profile and their zslice settings: t
 ```
 
 The Printdeck BLTouch mount is sliced with CuraEngine from a quality_changes profile (`lulzbot/bltouch/mount/cura/make_profiles.py` of Printdeck). zslice imports each of its keys: `material_bed_temperature_layer_0` (`filament.first_layer_bed_temp`, new; CuraEngine `GCodeExport` heats the bed to it and sets `material_bed_temperature` on layer 1), `speed_travel_layer_0` (`machine.first_layer_travel_speed`, new; `PathConfigStorage`), `material_shrinkage_percentage_xy` and `_z` (`filament.shrinkage_xy` and `shrinkage_z`; CuraEngine `MeshGroup::scaleFromBottom`), `cool_fan_speed_min` and `cool_fan_full_layer` (see "First layer fan ramp"), `retract_at_layer_change`, `skin_monotonic` (`project.skin_pattern = monotonic`), `z_seam_corner` (`project.seam_corner`, new; see "CuraEngine seam corner preference"), `speed_wall` (the importer gives it to `speed_wall_0` and `speed_wall_x`, as the Cura formulas do), and `material_standby_temperature`. `layer_0_z_overlap` and `raft_airgap` have an effect only with a raft, which zslice does not have.
+
+### Support speeds
+
+```ref
+kind: setting
+source: Cura
+license: LGPL-3.0
+link: https://github.com/Ultimaker/Cura
+version: fdmprinter.def.json at commit 1a221ec29a86960d16a412940becc1f63534c41f
+files: src/settings.zig, src/import_cura.zig
+area: support
+summary: `project.support_speed` and `project.support_interface_speed` have the meaning of `speed_support_infill` and `speed_support_interface`; the importer fills them in with the Cura formulas.
+```
+
+In `fdmprinter.def.json`, `speed_support` is `speed_print`, `speed_support_infill` is `speed_support`, and `speed_support_interface` is `speed_support / 1.5`. The importer gives a profile these values when it does not set them (`prepareProfile` in `src/import_cura.zig`). In zslice, 0 keeps the infill speed and the skin speed, the speeds of the support before these settings.

@@ -4021,6 +4021,7 @@ pub const patch_values = [_][2][]const u8{
     .{ "machine.skin_accel", "800" },         .{ "machine.infill_accel", "1100" },
     .{ "machine.first_layer_accel", "400" },  .{ "project.path_rules", "speed = {speed} * 0.9" },
     .{ "filament.first_layer_bed_temp", "68" },
+    .{ "project.support_speed", "0.5" },      .{ "project.support_interface_speed", "0.35" },
 };
 
 /// Slices `stl` with `base`, then changes the patch settings in groups of

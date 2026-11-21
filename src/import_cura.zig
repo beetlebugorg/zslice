@@ -188,6 +188,12 @@ const project_map = [_]Map{
     .{ .cura = "speed_topbottom", .group = "project", .key = "skin_speed", .conv = .speed },
     .{ .cura = "speed_infill", .group = "project", .key = "infill_speed", .conv = .speed },
     .{ .cura = "speed_layer_0", .group = "project", .key = "first_layer_speed", .conv = .speed },
+    // The support speeds: the parent first, then the more exact keys
+    // (prepareProfile fills them in as the Cura formulas do).
+    .{ .cura = "speed_support", .group = "project", .key = "support_speed", .conv = .speed },
+    .{ .cura = "speed_support_infill", .group = "project", .key = "support_speed", .conv = .speed },
+    .{ .cura = "speed_support_interface", .group = "project", .key = "support_interface_speed", .conv = .speed },
+    .{ .cura = "speed_support_roof", .group = "project", .key = "support_interface_speed", .conv = .speed },
     .{ .cura = "speed_travel", .group = "machine", .key = "travel_speed" },
     .{ .cura = "speed_travel_layer_0", .group = "machine", .key = "first_layer_travel_speed" },
     .{ .cura = "retraction_amount", .group = "machine", .key = "retract_length" },
@@ -364,6 +370,14 @@ fn prepareProfile(arena: Allocator, values: *Values, machine: *const Values) Err
     // Speeds that Cura derives from speed_print.
     if (values.get("speed_print")) |sp| {
         for (speed_keys[1..]) |k| if (values.get(k) == null) try values.put(arena, k, sp);
+    }
+    // The support speeds of the Cura formulas: speed_support is
+    // speed_print, and speed_support_interface is speed_support / 1.5.
+    if (values.get("speed_support") == null) if (values.get("speed_print")) |sp| try values.put(arena, "speed_support", sp);
+    if (values.get("speed_support_interface") == null and values.get("speed_support_roof") == null) {
+        if (values.get("speed_support")) |ss| if (number(ss.text)) |n| {
+            try values.put(arena, "speed_support_interface", .{ .text = try std.fmt.allocPrint(arena, "{d}", .{n / 1.5}), .from = ss.from });
+        };
     }
     // The fan of the first layers (CuraEngine
     // `ExtruderPlan::processFanSpeedForFirstLayers`): cool_fan_speed_0 on
@@ -644,7 +658,7 @@ fn writeMapped(arena: Allocator, w: *Writer, values: *const Values, map: []const
 /// speed_wall give the speeds that a profile does not set
 /// (prepareProfile), and the machine profile has material_diameter.
 fn isDerivedKey(key: []const u8) bool {
-    for ([_][]const u8{ "speed_print", "speed_wall", "material_diameter" }) |k| if (std.mem.eql(u8, k, key)) return true;
+    for ([_][]const u8{ "speed_print", "speed_wall", "speed_support", "material_diameter" }) |k| if (std.mem.eql(u8, k, key)) return true;
     return false;
 }
 

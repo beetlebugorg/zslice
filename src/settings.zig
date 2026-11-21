@@ -710,6 +710,14 @@ pub const Project = struct {
     skin_speed: f64 = 0.7,
     /// The sparse infill speed, as a ratio of the allowed speed.
     infill_speed: f64 = 1.0,
+    /// The speed of the support lines, as a ratio of the allowed speed. 0:
+    /// `infill_speed`. As "Support Infill Speed" in Cura and "Support"
+    /// speed in OrcaSlicer.
+    support_speed: f64 = 0,
+    /// The speed of the support interface, as a ratio of the allowed speed.
+    /// 0: `skin_speed`. As "Support Interface Speed" in Cura and "Support
+    /// interface" speed in OrcaSlicer.
+    support_interface_speed: f64 = 0,
     /// The speed of all lines on the first layer, as a ratio of the allowed speed.
     first_layer_speed: f64 = 0.3,
     /// The layers after the first that print slower: their speed goes up in
@@ -972,6 +980,7 @@ pub const Settings = struct {
             p.skin_speed,    p.infill_speed,   p.first_layer_speed, p.ironing_flow,
             p.ironing_speed, f.fan_max_speed,  p.support_density,   p.support_interface_density,
             p.slope_smoothing_speed, p.slope_ironing_flow, p.slope_ironing_speed,
+            p.support_speed, p.support_interface_speed,
         };
         for (ratios) |v| if (!(v >= 0 and v <= 1)) return error.InvalidValue;
         if (p.outer_wall_speed == 0 or p.inner_wall_speed == 0 or p.skin_speed == 0 or p.infill_speed == 0 or p.first_layer_speed == 0) return error.InvalidValue;
@@ -1079,8 +1088,8 @@ pub const Resolved = struct {
             .skin => p.skin_speed,
             .infill => p.infill_speed,
             .skirt => p.inner_wall_speed,
-            .support => p.infill_speed,
-            .support_interface => p.skin_speed,
+            .support => if (p.support_speed > 0) p.support_speed else p.infill_speed,
+            .support_interface => if (p.support_interface_speed > 0) p.support_interface_speed else p.skin_speed,
             .slope_smoothing => p.slope_smoothing_speed,
             .bridge => p.bridge_speed,
             .ironing, .slope_ironing => unreachable,
@@ -1091,6 +1100,25 @@ pub const Resolved = struct {
 
 /// The most angles in `Project.infill_angles`.
 pub const max_infill_angles = 64;
+
+test "support speeds: their own ratio, or the infill and skin speeds" {
+    var s: Settings = .{};
+    s.filament.max_flow = 1000;
+    var r = try s.resolve();
+    // 0: the support prints at the infill speed, the interface at the skin
+    // speed (the zslice speeds before these settings).
+    try std.testing.expectEqual(r.speed(.infill, 0.4, 0.2, false), r.speed(.support, 0.4, 0.2, false));
+    try std.testing.expectEqual(r.speed(.skin, 0.4, 0.2, false), r.speed(.support_interface, 0.4, 0.2, false));
+    // Cura speed_support 60 and speed_support_interface 40 with a 150 mm/s
+    // limit: the ratios 0.4 and 0.2667.
+    s.project.support_speed = 0.4;
+    s.project.support_interface_speed = 40.0 / 150.0;
+    r = try s.resolve();
+    try std.testing.expectApproxEqAbs(@as(f64, 60), r.speed(.support, 0.4, 0.2, false), 1e-9);
+    try std.testing.expectApproxEqAbs(@as(f64, 40), r.speed(.support_interface, 0.4, 0.2, false), 1e-9);
+    // The first layer keeps the first layer speed.
+    try std.testing.expectEqual(r.speed(.infill, 0.4, 0.2, true), r.speed(.support, 0.4, 0.2, true));
+}
 
 /// The angles of `Project.infill_angles` in `buf`: numbers with commas or
 /// spaces between them. Brackets around the list are allowed, as in Cura
@@ -1373,6 +1401,8 @@ pub const limits = [_]struct { []const u8, f64, f64 }{
     .{ "project.inner_wall_speed", 0.01, 1 },
     .{ "project.skin_speed", 0.01, 1 },
     .{ "project.infill_speed", 0.01, 1 },
+    .{ "project.support_speed", 0, 1 },
+    .{ "project.support_interface_speed", 0, 1 },
     .{ "project.first_layer_speed", 0.01, 1 },
     .{ "project.slow_layers", 0, 50 },
     .{ "project.retract_min_travel", 0, 100 },
@@ -1466,6 +1496,7 @@ pub const patch_settings = [_][]const u8{
     "project.bridge_fan",        "project.infill_flow",              "project.ironing_flow",
     "project.ironing_speed",     "project.outer_wall_speed",         "project.inner_wall_speed",
     "project.skin_speed",        "project.infill_speed",             "project.first_layer_speed",
+    "project.support_speed",     "project.support_interface_speed",
     "project.slow_layers",       "machine.outer_wall_accel",         "machine.inner_wall_accel",
     "machine.skin_accel",        "machine.infill_accel",             "machine.first_layer_accel",
     "project.path_rules",
@@ -1679,6 +1710,8 @@ pub const layer_settings = [_][]const u8{
     "project.inner_wall_speed",
     "project.skin_speed",
     "project.infill_speed",
+    "project.support_speed",
+    "project.support_interface_speed",
     "project.slope_smoothing",
     "project.slope_smoothing_min_width",
     "project.slope_smoothing_max_width",
