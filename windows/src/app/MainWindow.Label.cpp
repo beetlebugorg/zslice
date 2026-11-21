@@ -1219,9 +1219,14 @@ namespace winrt::ZSlice::implementation
             if (next != key)
             {
                 key = next;
+                // A field with the focus goes away: the keys go to the view,
+                // not to the next button of the card.
+                bool had_focus = FocusWithin(items);
                 updating = true;
                 BuildItems(*l);
                 updating = false;
+                if (had_focus)
+                    w.ViewPanel().Focus(FocusState::Programmatic);
             }
             UpdateValues(*l);
             curve_note.Visibility(curve > zs::label_curve_limit ? Visibility::Visible : Visibility::Collapsed);
