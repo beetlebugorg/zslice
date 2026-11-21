@@ -87,6 +87,7 @@ executable('zslice-gtk',
   'src/ui/cura-compare.c',
   'src/ui/view3d.c',
   'src/ui/support-tool.c',
+  'src/ui/label-model.c',
   'src/ui/bed-model.c',
   'src/ui/native-surface.c',
   'src/prefs/printers.c',
@@ -120,6 +121,10 @@ test('deck target', executable('deck-target-test', 'tests/deck-target-test.c', '
 # logic, with no network and no core.
 test('deck filaments', executable('deck-filaments-test', 'tests/deck-filaments-test.c', 'src/net/deck-filaments.c',
                                   dependencies: [json_dep]))
+# The model of a label of the Label tool: JSON, frame, and shapes, with no
+# core and no display.
+test('label model', executable('label-model-test', 'tests/label-model-test.c', 'src/ui/label-model.c',
+                               dependencies: [json_dep, m_dep]))
 test('bambu pin', executable('bambu-pin-test', 'tests/bambu-pin-test.c', 'src/net/bambu-link.c', 'src/prefs/printers.c',
                              core[1], core[2], link_with: core[0],
                              dependencies: [gtk_dep, thread_dep, m_dep]))
