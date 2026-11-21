@@ -29,8 +29,42 @@ The strip at the left has the tools. Press the key of a tool to pick it.
 | R | Turn | Click a part, then drag one of its rings. Hold Shift for steps of 5 degrees. |
 | G | Grab | Click a part to pick it up, move the pointer to carry it, and click to let go. It falls and rests on the plate. Hold Alt and move to turn it. |
 | T | Measure | Click two points. The ends of the lines snap, and a click on a circle measures from its center. Hold Shift for no snap. |
+| P | Paint | Paint filaments on a part. See [Paint](#paint). |
+| E | Label | Put text or marks on a face of a part. See [Labels](#labels). |
 
-Support (S), Paint (P), and Label (E) are in the strip, and do not work yet.
+Support (S) is in the strip, and does not work yet.
+
+## Filaments
+
+The button in the top bar has a dot for each filament of the plate. Click it to see the list.
+
+- **+ Add a filament** adds one. × removes one, and its parts and layers go to filament 1.
+- Click a color to change it. The change applies when the color picker closes.
+- Pick the material of each filament. A printer with two nozzles also has a nozzle for each filament.
+- The grams of each filament show after the slice.
+
+The list does not read the spools of a printer yet.
+
+## Paint
+
+Press **P**. The view shows the mesh of the selected part, or of the first part. Ctrl and a click paints another part. A right drag turns the view.
+
+- **Smart select**: click a raised letter, a logo, or a face to paint it. Shift and a click add more. A click on another filament chip repaints what you selected.
+- **Brush**: drag over the surface. **Size** is the radius of the brush.
+- **Remove all paint**: the whole part prints with its own filament again.
+
+Each click or stroke is one step of the history. Esc closes the tool.
+
+## Labels
+
+Press **E**, and click a face of a part. A label "LABEL" goes there, and its card opens. Type the text. The view shows each key at once. See [Labels on a part](labels.md) for sizes and costs.
+
+- **Move**: drag the label. It follows the surface. Hold Shift to keep it in its plane.
+- **Turn**: turn the wheel over the label, 1° a step. Hold Shift for 15° steps.
+- **Scale**: drag the yellow handle at its corner.
+- **Delete**: press Delete, or click **Delete the label**.
+
+The card has the shapes (text, line, bar, ring, ticks, or a free line), the turn, the filament, the depth, and what the label costs in filament changes. Esc closes the card. Esc again closes the tool.
 
 ## See the print
 
@@ -44,7 +78,7 @@ The bar under the view replays the print at a speed of 1× to 100×. Its slider 
 
 ## Parts
 
-Ctrl and a click selects a part, and Shift and a click adds a part to the selection. The card of a part has its size, its scale, Duplicate, Split, Cut, Best orientation, Less support, Reset, Make N in all, To a new plate, and Remove. Delete removes the selected parts.
+Ctrl and a click selects a part, and Shift and a click adds a part to the selection. The card of a part has its size, its filament, its scale, Duplicate, Split, Cut, Best orientation, Less support, Reset, Make N in all, To a new plate, and Remove. It also lists the labels and the paint of the part. Delete removes the selected parts.
 
 ## Lines
 

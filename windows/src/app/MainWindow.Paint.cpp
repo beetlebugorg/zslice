@@ -684,6 +684,10 @@ namespace winrt::ZSlice::implementation
         if (!p.on)
             return;
         p.base = PartFilament(p.index);
+        // The chosen filament can be gone from the list.
+        int count = (int)zs_app_filament_count(model->Active());
+        if (p.filament > count)
+            p.filament = count > 1 ? (p.base == 1 ? 2 : 1) : 1;
         p.Colors();
         p.Upload();
         p.UpdateCard();
@@ -752,6 +756,8 @@ namespace winrt::ZSlice::implementation
             p.ClearPaint();
         else if (verb == L"phover")
             p.Hover(number(0), number(1));
+        else if (verb == L"pselect")
+            SelectPart((int64_t)number(0));
         else if (verb != L"plog")
             return false;
         size_t painted = 0, split = 0, n = 0, nl = 0;
