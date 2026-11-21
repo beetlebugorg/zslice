@@ -1,0 +1,806 @@
+# The Cura settings (fdmprinter.def.json and fdmextruder.def.json) and
+# zslice. tools/setting_coverage.py reads this file.
+#
+# One line for each key: key | status | text
+#   same     zslice has the setting: the text names it.
+#   derived  zslice does the same with no setting of its own, or another
+#            zslice setting covers it: the text says how.
+#   missing  zslice does not have it yet: the text says what it does.
+#   not      not for zslice: the text says why.
+# A key with no line here is "missing" in the table.
+
+# machine_settings
+build_volume_fan_nr | not | a fan number of the Ultimaker S-line build volume fan
+machine_name | same | machine.name
+machine_show_variants | not | a Cura UI switch for the variants list
+machine_start_gcode | same | machine.start_gcode (the importer converts the variables)
+machine_end_gcode | same | machine.end_gcode
+material_guid | not | a Cura material database id
+material_type | same | filament.material
+material_brand | derived | filament.name has the brand
+material_diameter | same | filament.diameter
+material_bed_temp_wait | derived | zslice waits for the bed (M190) before the first layer
+material_print_temp_wait | derived | zslice waits for the nozzle (M109) before the first layer
+material_print_temp_prepend | derived | zslice heats before a start G-code that does not heat
+material_bed_temp_prepend | derived | zslice heats before a start G-code that does not heat
+machine_width | same | machine.bed_size_x
+machine_depth | same | machine.bed_size_y
+machine_height | same | machine.max_height
+machine_shape | derived | the printer library has the shape of the bed (round beds)
+machine_buildplate_type | same | machine.bed_type
+machine_heated_bed | derived | filament.bed_temp 0 is no heat
+machine_heated_build_volume | missing | a heated chamber: zslice has machine.chamber_temp for the simulation only
+machine_always_write_active_tool | missing | write T0 on a printer with one extruder
+machine_center_is_zero | same | machine.origin_x and machine.origin_y (the importer sets them)
+machine_extruder_count | same | machine.nozzles (1 or 2)
+extruders_enabled_count | derived | the filaments of the plate
+machine_nozzle_tip_outer_diameter | same | machine.nozzle_tip_radius
+machine_nozzle_expansion_angle | same | machine.nozzle_cone_angle
+machine_heat_zone_length | not | for the Cura model of the oozing of a nozzle that waits
+machine_nozzle_temp_enabled | derived | filament.nozzle_temp 0 is no heat
+machine_nozzle_heat_up_speed | missing | the time to heat a nozzle, for the warm up of the next tool
+machine_nozzle_cool_down_speed | missing | the time to cool a nozzle, for the cool down of a tool that waits
+machine_min_cool_heat_time_window | missing | the least time to cool a tool that waits
+machine_gcode_flavor | same | machine.gcode_flavor
+machine_firmware_retract | missing | G10 and G11 for the retraction
+machine_extruders_share_heater | not | Ultimaker hardware with two feeders on one heater
+machine_extruders_share_nozzle | not | Ultimaker hardware with two feeders on one nozzle
+machine_extruders_shared_nozzle_initial_retraction | not | Ultimaker hardware with two feeders on one nozzle
+machine_disallowed_areas | missing | areas of the bed where no part can go
+nozzle_disallowed_areas | missing | areas of the bed where a nozzle cannot go
+machine_head_with_fans_polygon | missing | the size of the head, for one-at-a-time print order
+gantry_height | missing | the height of the gantry, for one-at-a-time print order
+machine_time_estimation_factor | not | zslice plans each move with the motion limits for the time
+machine_nozzle_id | derived | machine.nozzle_diameter and machine.nozzle_type
+machine_nozzle_size | same | machine.nozzle_diameter
+machine_use_extruder_offset_to_offset_coords | derived | zslice moves the second nozzle in the G-code of the printer (machine.nozzles)
+machine_start_gcode_first | missing | the start G-code before the heat commands
+extruder_prime_pos_z | not | the prime blob of Ultimaker printers
+extruder_prime_pos_abs | not | the prime blob of Ultimaker printers
+machine_max_feedrate_x | same | machine.max_speed_x
+machine_max_feedrate_y | same | machine.max_speed_y
+machine_max_feedrate_z | same | machine.max_z_speed
+machine_max_feedrate_e | missing | the speed limit of the extruder, for the time estimate
+machine_max_acceleration_x | same | machine.max_accel_x
+machine_max_acceleration_y | same | machine.max_accel_y
+machine_max_acceleration_z | same | machine.max_z_accel
+machine_max_acceleration_e | missing | the acceleration limit of the extruder, for the time estimate
+machine_acceleration | same | machine.max_accel
+machine_max_jerk_xy | same | machine.corner_speed
+machine_max_jerk_z | missing | the jerk of Z, for the time estimate
+machine_max_jerk_e | missing | the jerk of the extruder, for the time estimate
+machine_steps_per_mm_x | not | firmware facts that CuraEngine does not use
+machine_steps_per_mm_y | not | firmware facts that CuraEngine does not use
+machine_steps_per_mm_z | not | firmware facts that CuraEngine does not use
+machine_steps_per_mm_e | not | firmware facts that CuraEngine does not use
+machine_endstop_positive_direction_x | not | firmware facts that CuraEngine does not use
+machine_endstop_positive_direction_y | not | firmware facts that CuraEngine does not use
+machine_endstop_positive_direction_z | not | firmware facts that CuraEngine does not use
+machine_minimum_feedrate | missing | the lowest speed of the firmware, for the time estimate
+machine_feeder_wheel_diameter | not | firmware facts that CuraEngine does not use
+machine_scale_fan_speed_zero_to_one | missing | write the fan speed from 0 to 1 (M106 S0.5) for some firmware
+reset_flow_duration | not | a Cura setting of the flow sensor of Ultimaker printers
+extruder_nr | derived | filament.nozzle (the nozzle of a filament)
+machine_extruder_change_duration | same | machine.change_time
+machine_extruder_cooling_fan_number | missing | the fan of each extruder
+machine_extruder_end_code | same | machine.change_gcode (one text for all changes)
+machine_extruder_end_code_duration | derived | machine.change_time
+machine_extruder_end_pos_abs | not | the park place of an extruder of an Ultimaker printer
+machine_extruder_end_pos_x | not | the park place of an extruder of an Ultimaker printer
+machine_extruder_end_pos_y | not | the park place of an extruder of an Ultimaker printer
+machine_extruder_prestart_code | missing | G-code before a tool heats
+machine_extruder_start_code | same | machine.change_gcode (one text for all changes)
+machine_extruder_start_code_duration | derived | machine.change_time
+machine_extruder_start_pos_abs | not | the park place of an extruder of an Ultimaker printer
+machine_extruder_start_pos_x | not | the park place of an extruder of an Ultimaker printer
+machine_extruder_start_pos_y | not | the park place of an extruder of an Ultimaker printer
+machine_nozzle_head_distance | not | the height of a nozzle under the head of an Ultimaker printer
+machine_nozzle_offset_x | missing | the X offset of a second nozzle
+machine_nozzle_offset_y | missing | the Y offset of a second nozzle
+
+# resolution
+layer_height | same | project.layer_height
+layer_height_0 | same | project.first_layer_height
+line_width | same | project.line_width
+wall_line_width | missing | a line width of the walls
+wall_line_width_0 | missing | a line width of the outer wall
+wall_line_width_x | missing | a line width of the inner walls
+skin_line_width | missing | a line width of the skin
+infill_line_width | missing | a line width of the infill
+skirt_brim_line_width | derived | the skirt and the brim use project.first_layer_line_width
+support_line_width | missing | a line width of the support
+support_interface_line_width | missing | a line width of the support interface
+support_roof_line_width | missing | a line width of the support roof
+support_bottom_line_width | missing | a line width of the support floor
+prime_tower_line_width | missing | a line width of the prime tower
+initial_layer_line_width_factor | same | project.first_layer_line_width (a width in mm)
+
+# shell
+wall_extruder_nr | derived | painted filaments, and project.filament for a part
+wall_0_extruder_nr | missing | another filament for the outer wall
+wall_x_extruder_nr | missing | another filament for the inner walls
+wall_thickness | same | project.wall_thickness
+wall_line_count | same | project.wall_count
+wall_transition_length | same | project.wall_transition_length
+wall_distribution_count | same | project.wall_distribution_count
+wall_transition_angle | same | project.wall_transition_angle
+wall_transition_filter_distance | same | project.wall_transition_filter_distance
+wall_transition_filter_deviation | derived | zslice uses the Cura default (a quarter of the nozzle)
+wall_0_wipe_dist | same | project.outer_wall_wipe
+wall_0_inset | missing | move the outer wall in
+wall_x_inset | missing | move the inner walls in
+optimize_wall_printing_order | derived | zslice prints the walls of an island in the nearest order
+inset_direction | missing | outer wall first, or inner walls first (zslice prints the inner walls first)
+initial_layer_inset_direction | missing | the wall order of the first layer
+alternate_extra_perimeter | missing | an extra wall on every other layer
+min_wall_line_width | same | project.min_wall_line_width
+min_even_wall_line_width | derived | project.min_wall_line_width
+min_odd_wall_line_width | derived | project.min_wall_line_width
+fill_outline_gaps | same | project.thin_walls
+min_feature_size | same | project.min_feature_size
+min_bead_width | same | project.min_bead_width
+xy_offset | same | filament.xy_offset
+xy_offset_layer_0 | same | project.first_layer_xy_offset
+hole_xy_offset | same | filament.hole_xy_offset
+hole_xy_offset_max_diameter | missing | the hole offset only for holes up to a size
+z_seam_type | same | project.seam
+z_seam_on_vertex | derived | the zslice seams are on a vertex
+z_seam_position | missing | a seam at a side of the bed (back left, front, and others)
+z_seam_x | missing | a seam near a point
+z_seam_y | missing | a seam near a point
+z_seam_corner | same | project.seam_corner
+z_seam_relative | missing | a seam point relative to the part
+
+# top_bottom
+roofing_extruder_nr | missing | another filament for the top surface
+roofing_layer_count | missing | top surface skin layers with their own settings
+roofing_line_width | missing | the line width of the top surface skin
+roofing_pattern | missing | the pattern of the top surface skin
+roofing_monotonic | missing | monotonic order on the top surface skin
+roofing_angles | missing | the angles of the top surface skin
+roofing_expansion | missing | the width of the top surface skin
+flooring_extruder_nr | missing | another filament for the bottom surface
+flooring_layer_count | missing | bottom surface skin layers with their own settings
+flooring_line_width | missing | the line width of the bottom surface skin
+flooring_pattern | missing | the pattern of the bottom surface skin
+flooring_monotonic | missing | monotonic order on the bottom surface skin
+flooring_angles | missing | the angles of the bottom surface skin
+top_bottom_extruder_nr | missing | another filament for the skin
+top_bottom_thickness | same | project.top_thickness and project.bottom_thickness
+top_thickness | same | project.top_thickness
+top_layers | same | project.top_thickness (the importer multiplies by the layer height)
+bottom_thickness | same | project.bottom_thickness
+bottom_layers | same | project.bottom_thickness (the importer multiplies by the layer height)
+initial_bottom_layers | missing | a bottom layer count on the bed
+top_bottom_pattern | same | project.skin_pattern
+top_bottom_pattern_0 | missing | the skin pattern of the first layer
+top_bottom_skin_merge_distance | missing | join skin areas that are near each other
+connect_skin_polygons | missing | join the skin lines of a concentric skin
+skin_monotonic | same | project.skin_pattern = monotonic
+skin_angles | same | project.skin_angle and project.skin_angle_step
+small_skin_width | missing | small skin areas print as walls
+small_skin_on_surface | missing | small skin areas on the surface print as walls
+skin_no_small_gaps_heuristic | derived | project.gap_fill
+skin_outline_count | missing | walls around the skin
+ironing_enabled | same | project.ironing
+ironing_only_highest_layer | missing | iron the top layer of the part only
+ironing_pattern | missing | the pattern of the ironing
+ironing_monotonic | missing | monotonic order of the ironing
+ironing_line_spacing | same | project.ironing_spacing
+ironing_flow | same | project.ironing_flow
+ironing_inset | same | project.ironing_inset
+speed_ironing | same | project.ironing_speed
+acceleration_ironing | missing | the acceleration of the ironing
+jerk_ironing | missing | the jerk of the ironing
+skin_overlap | same | project.skin_overlap
+skin_overlap_mm | same | project.skin_overlap (a ratio of the line width)
+skin_preshrink | same | project.skin_removal_width
+top_skin_preshrink | derived | project.skin_removal_width
+bottom_skin_preshrink | derived | project.skin_removal_width
+expand_skins_expand_distance | same | project.skin_expand_distance
+top_skin_expand_distance | derived | project.skin_expand_distance
+bottom_skin_expand_distance | derived | project.skin_expand_distance
+max_skin_angle_for_expansion | missing | expand only the skin of flat surfaces
+min_skin_width_for_expansion | missing | expand only wide skin areas
+
+# infill
+infill_extruder_nr | missing | another filament for the infill
+infill_sparse_density | same | project.infill_density
+infill_line_distance | same | project.infill_density (the importer computes the density)
+infill_pattern | same | project.infill_pattern
+zig_zaggify_infill | same | project.infill_connect
+connect_infill_polygons | missing | join the loops of concentric infill
+infill_angles | same | project.infill_angles
+infill_offset_x | missing | move the infill grid
+infill_offset_y | missing | move the infill grid
+infill_multiplier | missing | more infill lines next to each other
+infill_wall_line_count | missing | walls around the infill
+sub_div_rad_add | missing | the cubic subdivision infill
+infill_overlap | same | project.infill_overlap
+infill_overlap_mm | same | project.infill_overlap (a ratio)
+infill_wipe_dist | missing | a travel after each infill line
+infill_sparse_thickness | same | project.infill_layers
+gradual_infill_steps | missing | denser infill under the top
+gradual_infill_step_height | missing | denser infill under the top
+infill_before_walls | missing | print the infill before the walls (zslice prints the walls first: the Cura value False)
+min_infill_area | missing | no infill in small areas
+infill_support_enabled | missing | infill only where a top needs it
+infill_support_angle | missing | infill only where a top needs it
+skin_support | missing | lines under the skin
+skin_support_speed | missing | lines under the skin
+skin_support_material_flow | missing | lines under the skin
+skin_support_density | missing | lines under the skin
+skin_support_fan_speed | missing | lines under the skin
+skin_support_interlace_lines | missing | lines under the skin
+lightning_infill_support_angle | same | project.lightning_angle
+lightning_infill_overhang_angle | derived | project.lightning_angle
+lightning_infill_prune_angle | derived | project.lightning_angle
+lightning_infill_straightening_angle | derived | project.lightning_angle
+infill_move_inwards_length | missing | a short move into the infill at the end of a line
+infill_start_move_inwards_length | missing | a short move into the infill at the start of a line
+infill_end_move_inwards_length | missing | a short move into the infill at the end of a line
+infill_start_end_preference | missing | where the infill lines start and end
+
+# material
+default_material_print_temperature | derived | filament.nozzle_temp
+build_volume_temperature | same | machine.chamber_temp
+material_print_temperature | same | filament.nozzle_temp
+material_print_temperature_layer_0 | same | filament.first_layer_nozzle_temp
+material_initial_print_temperature | missing | the temperature of a tool that starts after a wait
+material_final_print_temperature | missing | the temperature of a tool before it waits
+material_extrusion_cool_down_speed | missing | the cool down of a nozzle while it prints
+default_material_bed_temperature | derived | filament.bed_temp
+material_bed_temperature | same | filament.bed_temp
+material_bed_temperature_layer_0 | same | filament.first_layer_bed_temp
+material_adhesion_tendency | not | a material fact of the Cura Marketplace
+material_surface_energy | not | a material fact of the Cura Marketplace
+material_shrinkage_percentage | same | filament.shrinkage_xy and filament.shrinkage_z
+material_shrinkage_percentage_xy | same | filament.shrinkage_xy
+material_shrinkage_percentage_z | same | filament.shrinkage_z
+material_crystallinity | not | a material fact of Ultimaker printers
+material_anti_ooze_retracted_position | not | the material station of Ultimaker printers
+material_anti_ooze_retraction_speed | not | the material station of Ultimaker printers
+material_break_preparation_retracted_position | not | the material station of Ultimaker printers
+material_break_preparation_speed | not | the material station of Ultimaker printers
+material_break_preparation_temperature | not | the material station of Ultimaker printers
+material_break_retracted_position | not | the material station of Ultimaker printers
+material_break_speed | not | the material station of Ultimaker printers
+material_break_temperature | not | the material station of Ultimaker printers
+material_flush_purge_speed | not | the material station of Ultimaker printers
+material_flush_purge_length | derived | machine.flush_volume
+material_end_of_filament_purge_speed | not | the material station of Ultimaker printers
+material_end_of_filament_purge_length | not | the material station of Ultimaker printers
+material_maximum_park_duration | not | the material station of Ultimaker printers
+material_no_load_move_factor | not | the material station of Ultimaker printers
+material_flow | same | filament.flow_ratio
+wall_material_flow | missing | a flow of the walls
+wall_0_material_flow | missing | a flow of the outer wall
+wall_x_material_flow | missing | a flow of the inner walls
+wall_0_material_flow_roofing | missing | a flow of the outer wall of the top surface
+wall_x_material_flow_roofing | missing | a flow of the inner walls of the top surface
+wall_0_material_flow_flooring | missing | a flow of the outer wall of the bottom surface
+wall_x_material_flow_flooring | missing | a flow of the inner walls of the bottom surface
+skin_material_flow | missing | a flow of the skin
+roofing_material_flow | missing | a flow of the top surface skin
+flooring_material_flow | missing | a flow of the bottom surface skin
+infill_material_flow | same | project.infill_flow
+skirt_brim_material_flow | missing | a flow of the skirt and the brim
+support_material_flow | missing | a flow of the support
+support_interface_material_flow | missing | a flow of the support interface
+support_roof_material_flow | missing | a flow of the support roof
+support_bottom_material_flow | missing | a flow of the support floor
+prime_tower_flow | missing | a flow of the prime tower
+material_flow_layer_0 | missing | a flow of the first layer
+wall_x_material_flow_layer_0 | missing | a flow of the inner walls of the first layer
+wall_0_material_flow_layer_0 | missing | a flow of the outer wall of the first layer
+skin_material_flow_layer_0 | missing | a flow of the skin of the first layer
+material_standby_temperature | same | filament.standby_temp
+material_is_support_material | derived | project.support_filament
+gradual_flow_enabled | missing | limit the change of the flow over time
+max_flow_acceleration | missing | limit the change of the flow over time
+layer_0_max_flow_acceleration | missing | limit the change of the flow over time
+gradual_flow_discretisation_step_size | missing | limit the change of the flow over time
+material_pressure_advance_factor | derived | filament.pressure_advance (Cura hides it and uses it in the start G-code of some printers)
+material_max_flowrate | same | filament.max_flow
+
+# speed
+speed_print | derived | the importer gives its value to the speeds that a profile does not set
+speed_infill | same | project.infill_speed
+speed_wall | derived | the importer gives its value to speed_wall_0 and speed_wall_x
+speed_wall_0 | same | project.outer_wall_speed
+speed_wall_x | same | project.inner_wall_speed
+speed_wall_0_roofing | missing | the speed of the outer wall of the top surface
+speed_wall_x_roofing | missing | the speed of the inner walls of the top surface
+speed_wall_0_flooring | missing | the speed of the outer wall of the bottom surface
+speed_wall_x_flooring | missing | the speed of the inner walls of the bottom surface
+speed_roofing | missing | the speed of the top surface skin
+speed_flooring | missing | the speed of the bottom surface skin
+speed_topbottom | same | project.skin_speed
+speed_support | same | project.support_speed and project.support_interface_speed (the importer gives the Cura formulas)
+speed_support_infill | same | project.support_speed
+speed_support_interface | same | project.support_interface_speed
+speed_support_roof | same | project.support_interface_speed
+speed_support_bottom | missing | the speed of the support floor
+speed_prime_tower | missing | the speed of the prime tower
+speed_travel | same | machine.travel_speed
+speed_layer_0 | same | project.first_layer_speed
+speed_print_layer_0 | derived | project.first_layer_speed
+speed_travel_layer_0 | same | machine.first_layer_travel_speed
+skirt_brim_speed | missing | the speed of the skirt and the brim
+speed_z_hop | missing | the speed of the z hop (zslice uses machine.max_z_speed)
+speed_slowdown_layers | same | project.slow_layers
+speed_equalize_flow_width_factor | missing | a faster speed for a thinner line
+acceleration_enabled | same | machine.accel_control
+acceleration_travel_enabled | derived | machine.travel_accel
+acceleration_print | derived | the feature accelerations (machine.outer_wall_accel and the others)
+acceleration_infill | same | machine.infill_accel
+acceleration_wall | derived | machine.outer_wall_accel and machine.inner_wall_accel
+acceleration_wall_0 | same | machine.outer_wall_accel
+acceleration_wall_x | same | machine.inner_wall_accel
+acceleration_wall_0_roofing | missing | the acceleration of the outer wall of the top surface
+acceleration_wall_x_roofing | missing | the acceleration of the inner walls of the top surface
+acceleration_wall_0_flooring | missing | the acceleration of the outer wall of the bottom surface
+acceleration_wall_x_flooring | missing | the acceleration of the inner walls of the bottom surface
+acceleration_roofing | missing | the acceleration of the top surface skin
+acceleration_flooring | missing | the acceleration of the bottom surface skin
+acceleration_topbottom | same | machine.skin_accel
+acceleration_support | missing | the acceleration of the support
+acceleration_support_infill | missing | the acceleration of the support lines
+acceleration_support_interface | missing | the acceleration of the support interface
+acceleration_support_roof | missing | the acceleration of the support roof
+acceleration_support_bottom | missing | the acceleration of the support floor
+acceleration_prime_tower | missing | the acceleration of the prime tower
+acceleration_travel | same | machine.travel_accel
+acceleration_layer_0 | same | machine.first_layer_accel
+acceleration_print_layer_0 | derived | machine.first_layer_accel
+acceleration_travel_layer_0 | missing | the acceleration of the travel of the first layer
+acceleration_skirt_brim | missing | the acceleration of the skirt and the brim
+jerk_enabled | missing | jerk commands (M205) for each feature
+jerk_travel_enabled | missing | jerk commands (M205) for the travel
+jerk_print | missing | the jerk of each feature
+jerk_infill | missing | the jerk of each feature
+jerk_wall | missing | the jerk of each feature
+jerk_wall_0 | missing | the jerk of each feature
+jerk_wall_x | missing | the jerk of each feature
+jerk_wall_0_roofing | missing | the jerk of each feature
+jerk_wall_x_roofing | missing | the jerk of each feature
+jerk_wall_0_flooring | missing | the jerk of each feature
+jerk_wall_x_flooring | missing | the jerk of each feature
+jerk_roofing | missing | the jerk of each feature
+jerk_flooring | missing | the jerk of each feature
+jerk_topbottom | missing | the jerk of each feature
+jerk_support | missing | the jerk of each feature
+jerk_support_infill | missing | the jerk of each feature
+jerk_support_interface | missing | the jerk of each feature
+jerk_support_roof | missing | the jerk of each feature
+jerk_support_bottom | missing | the jerk of each feature
+jerk_prime_tower | missing | the jerk of each feature
+jerk_travel | missing | the jerk of each feature
+jerk_layer_0 | missing | the jerk of each feature
+jerk_print_layer_0 | missing | the jerk of each feature
+jerk_travel_layer_0 | missing | the jerk of each feature
+jerk_skirt_brim | missing | the jerk of each feature
+
+# travel
+retraction_enable | derived | machine.retract_length 0 is no retraction
+retract_at_layer_change | same | project.retract_layer_change
+retraction_amount | same | machine.retract_length
+retraction_speed | same | machine.retract_speed
+retraction_min_travel | same | project.retract_min_travel
+retraction_retract_speed | derived | machine.retract_speed
+retraction_prime_speed | derived | machine.retract_speed
+retraction_extra_prime_amount | missing | more plastic after a retraction
+retraction_count_max | missing | a limit of retractions on one spot of filament
+retraction_extrusion_window | missing | a limit of retractions on one spot of filament
+retraction_combing | same | project.combing
+retraction_combing_max_distance | same | project.combing_max_distance
+retraction_combing_avoid_distance | missing | the distance of a combing way from the walls
+travel_retract_before_outer_wall | missing | retract before the outer wall
+travel_avoid_other_parts | missing | go around the other parts on a travel
+travel_avoid_supports | missing | go around the support on a travel
+travel_avoid_distance | missing | the distance of a travel from the parts
+layer_start_at_z_seam | missing | start each layer at the seam
+layer_start_x | missing | the start point of each layer
+layer_start_y | missing | the start point of each layer
+retraction_hop_enabled | derived | project.z_hop 0 is no hop
+retraction_hop_only_when_collides | same | project.z_hop_only_crossing
+retraction_hop | same | project.z_hop
+retraction_hop_after_extruder_switch | missing | a z hop after a tool change
+retraction_hop_after_extruder_switch_height | missing | a z hop after a tool change
+
+# cooling
+cool_fan_enabled | derived | filament.fan_speed 0 is no fan
+build_fan_full_at_height | not | the build volume fan of Ultimaker printers
+build_fan_full_layer | not | the build volume fan of Ultimaker printers
+build_volume_fan_speed_0 | not | the build volume fan of Ultimaker printers
+build_volume_fan_speed | not | the build volume fan of Ultimaker printers
+cool_fan_speed | same | filament.fan_speed
+cool_fan_speed_min | same | filament.fan_speed
+cool_fan_speed_max | same | filament.fan_max_speed
+cool_min_layer_time_fan_speed_max | same | filament.fan_boost_time
+cool_fan_speed_0 | missing | a fan speed on the first layer other than 0 (zslice: 0, as the Cura default)
+cool_fan_full_at_height | derived | filament.fan_off_layers and filament.fan_ramp_layers
+cool_fan_full_layer | derived | filament.fan_off_layers and filament.fan_ramp_layers (the importer converts it)
+cool_min_layer_time | same | filament.min_layer_time
+cool_min_speed | same | filament.min_speed
+cool_lift_head | same | filament.cooling_mode = lap
+cool_min_temperature | missing | the lowest temperature of a nozzle that prints slower
+cool_during_extruder_switch | missing | the fan during a tool change
+
+# support
+support_enable | same | project.support
+support_extruder_nr | same | project.support_filament
+support_infill_extruder_nr | same | project.support_filament
+support_extruder_nr_layer_0 | missing | another filament for the first layer of the support
+support_interface_extruder_nr | same | project.support_interface_filament
+support_roof_extruder_nr | same | project.support_interface_filament
+support_bottom_extruder_nr | same | project.support_interface_filament
+support_structure | same | project.support_style
+support_tree_angle | same | project.support_tree_angle
+support_tree_branch_diameter | missing | the diameter of a tree branch (zslice computes it from the load)
+support_tree_max_diameter | missing | the largest diameter of a tree branch
+support_tree_branch_diameter_angle | missing | the growth of a tree branch (zslice computes it from the load)
+support_tree_smooth_layers | missing | smooth the tree branches
+support_z_seam_away_from_model | missing | the seams of the support away from the part
+support_z_seam_min_distance | missing | the seams of the support away from the part
+support_type | same | project.support
+support_tree_angle_slow | missing | the angle of a tree branch that does not need to move
+support_tree_max_diameter_increase_by_merges_when_support_to_model | missing | the growth of a tree branch that joins
+support_tree_min_height_to_model | missing | a tree branch on the part
+support_tree_bp_diameter | derived | zslice gives a tree a foot from the load
+support_tree_top_rate | missing | the number of tips of a tree
+support_tree_tip_diameter | same | project.support_tree_tip
+support_tree_limit_branch_reach | missing | the reach of a tree branch
+support_tree_branch_reach_limit | missing | the reach of a tree branch
+support_tree_rest_preference | missing | a tree on the bed only, or on the part too
+support_angle | same | project.support_angle
+support_pattern | missing | the pattern of the support
+support_wall_count | missing | walls around the support
+support_wall_thickness | missing | walls around the support
+support_enlarged_wall_thickness | missing | walls around the support
+support_wall_thickness_bottom_layers | missing | walls around the support
+support_wall_thickness_top_layers | missing | walls around the support
+support_wall_thickness_layer_smooth | missing | walls around the support
+support_infill_multiplier | missing | more support lines next to each other
+support_interface_wall_count | missing | walls around the support interface
+support_roof_wall_count | missing | walls around the support roof
+support_bottom_wall_count | missing | walls around the support floor
+support_lightning_angle | not | lightning support of a Cura beta
+support_lightning_overhang_angle | not | lightning support of a Cura beta
+support_lightning_prune_angle | not | lightning support of a Cura beta
+support_lightning_straightening_angle | not | lightning support of a Cura beta
+zig_zaggify_support | missing | join the support lines
+support_connect_zigzags | missing | join the zigzags of the support
+support_infill_rate | same | project.support_density
+support_line_distance | same | project.support_density (a distance of the lines)
+support_initial_layer_line_distance | missing | the support lines of the first layer
+support_infill_density_multiplier_initial_layer | missing | the support lines of the first layer
+support_infill_angles | missing | the angles of the support lines
+support_brim_enable | missing | a brim around the support
+support_outer_brim_enable | missing | a brim around the support
+support_brim_width | missing | a brim around the support
+support_brim_line_count | missing | a brim around the support
+support_brim_minimum_hole_area | missing | a brim around the support
+support_base_height | missing | a base of the support
+support_inside_base_height | missing | a base of the support
+support_outside_base_height | missing | a base of the support
+support_base_width | missing | a base of the support
+support_base_inside_width | missing | a base of the support
+support_base_outside_width | missing | a base of the support
+support_base_curve_magnitude | missing | a base of the support
+support_inside_base_curve_magnitude | missing | a base of the support
+support_outside_base_curve_magnitude | missing | a base of the support
+support_z_distance | same | project.support_z_gap_layers (a count of layers)
+support_top_distance | derived | project.support_z_gap_layers
+support_bottom_distance | derived | project.support_z_gap_layers
+support_xy_distance | same | project.support_xy_gap
+support_xy_overrides_z | missing | the XY gap or the Z gap first
+support_xy_distance_overhang | missing | the XY gap at an overhang
+support_bottom_stair_step_height | missing | the stairs of a support on the part
+support_bottom_stair_step_width | missing | the stairs of a support on the part
+support_bottom_stair_step_min_slope | missing | the stairs of a support on the part
+support_join_distance | missing | join support areas that are near each other
+support_offset | missing | make the support areas larger
+support_infill_sparse_thickness | missing | support lines of more than one layer
+gradual_support_infill_steps | missing | denser support under the part
+gradual_support_infill_step_height | missing | denser support under the part
+minimum_support_area | derived | project.support_min_ledge (a width in place of an area)
+support_interface_enable | same | project.support_interface_layers 0 is no interface
+support_roof_enable | derived | project.support_interface_layers
+support_bottom_enable | missing | an interface on the part under the support
+support_interface_height | same | project.support_interface_layers (a count of layers)
+support_roof_height | derived | project.support_interface_layers
+support_bottom_height | missing | an interface on the part under the support
+support_interface_density | same | project.support_interface_density
+support_roof_density | derived | project.support_interface_density
+support_roof_line_distance | derived | project.support_interface_density
+support_bottom_density | missing | an interface on the part under the support
+support_bottom_line_distance | missing | an interface on the part under the support
+support_interface_pattern | same | project.support_interface_pattern
+support_roof_pattern | derived | project.support_interface_pattern
+support_bottom_pattern | missing | an interface on the part under the support
+minimum_interface_area | missing | no interface in small areas
+minimum_roof_area | missing | no interface in small areas
+minimum_bottom_area | missing | no interface in small areas
+support_interface_offset | missing | make the interface larger
+support_roof_offset | missing | make the interface larger
+support_bottom_offset | missing | make the interface larger
+support_interface_priority | missing | the interface or the part first where they touch
+support_interface_angles | missing | the angles of the interface lines
+support_roof_angles | missing | the angles of the interface lines
+support_bottom_angles | missing | the angles of the interface lines
+support_fan_enable | missing | a fan speed of the support
+support_supported_skin_fan_speed | missing | the fan over the support
+support_use_towers | missing | towers under small overhangs
+support_tower_diameter | missing | towers under small overhangs
+support_tower_maximum_supported_diameter | missing | towers under small overhangs
+support_tower_roof_angle | missing | towers under small overhangs
+support_mesh_drop_down | missing | a support mesh down to the bed
+support_meshes_present | not | a Cura flag of the scene
+support_paint_resolution | derived | zslice paints support areas as polygons
+
+# platform_adhesion
+prime_blob_enable | not | the prime blob of Ultimaker printers
+extruder_prime_pos_x | not | the prime blob of Ultimaker printers
+extruder_prime_pos_y | not | the prime blob of Ultimaker printers
+adhesion_type | same | project.skirt_loops and project.brim_width (zslice has no raft)
+adhesion_extruder_nr | missing | another filament for the skirt and the brim
+skirt_brim_extruder_nr | missing | another filament for the skirt and the brim
+raft_base_extruder_nr | missing | a raft
+raft_interface_extruder_nr | missing | a raft
+raft_surface_extruder_nr | missing | a raft
+skirt_line_count | same | project.skirt_loops
+skirt_height | same | project.skirt_layers
+skirt_gap | same | project.skirt_distance
+skirt_brim_minimal_length | missing | more skirt loops until the skirt has this length
+brim_width | same | project.brim_width
+brim_line_count | same | project.brim_width (the importer multiplies by the line width)
+brim_gap | missing | a gap between the brim and the part
+brim_replaces_support | missing | the brim under the support
+brim_location | same | project.brim_location
+brim_inside_margin | missing | a brim inside a hole only near the edge
+brim_smart_ordering | missing | the order of the brim loops
+raft_margin | missing | a raft
+raft_base_margin | missing | a raft
+raft_interface_margin | missing | a raft
+raft_surface_margin | missing | a raft
+raft_remove_inside_corners | missing | a raft
+raft_base_remove_inside_corners | missing | a raft
+raft_interface_remove_inside_corners | missing | a raft
+raft_surface_remove_inside_corners | missing | a raft
+raft_smoothing | missing | a raft
+raft_base_smoothing | missing | a raft
+raft_interface_smoothing | missing | a raft
+raft_surface_smoothing | missing | a raft
+raft_airgap | missing | a raft
+layer_0_z_overlap | missing | a raft
+raft_base_thickness | missing | a raft
+raft_base_line_width | missing | a raft
+raft_base_line_spacing | missing | a raft
+raft_base_infill_overlap | missing | a raft
+raft_base_infill_overlap_mm | missing | a raft
+raft_interface_layers | missing | a raft
+raft_interface_thickness | missing | a raft
+raft_interface_line_width | missing | a raft
+raft_interface_line_spacing | missing | a raft
+raft_interface_z_offset | missing | a raft
+raft_interface_infill_overlap | missing | a raft
+raft_interface_infill_overlap_mm | missing | a raft
+raft_surface_layers | missing | a raft
+raft_surface_thickness | missing | a raft
+raft_surface_line_width | missing | a raft
+raft_surface_line_spacing | missing | a raft
+raft_surface_z_offset | missing | a raft
+raft_surface_monotonic | missing | a raft
+raft_surface_infill_overlap | missing | a raft
+raft_surface_infill_overlap_mm | missing | a raft
+raft_wall_count | missing | a raft
+raft_base_wall_count | missing | a raft
+raft_interface_wall_count | missing | a raft
+raft_surface_wall_count | missing | a raft
+raft_speed | missing | a raft
+raft_base_speed | missing | a raft
+raft_interface_speed | missing | a raft
+raft_surface_speed | missing | a raft
+raft_acceleration | missing | a raft
+raft_base_acceleration | missing | a raft
+raft_interface_acceleration | missing | a raft
+raft_surface_acceleration | missing | a raft
+raft_jerk | missing | a raft
+raft_base_jerk | missing | a raft
+raft_interface_jerk | missing | a raft
+raft_surface_jerk | missing | a raft
+raft_fan_speed | missing | a raft
+raft_base_fan_speed | missing | a raft
+raft_interface_fan_speed | missing | a raft
+raft_surface_fan_speed | missing | a raft
+raft_flow | missing | a raft
+raft_base_flow | missing | a raft
+raft_interface_flow | missing | a raft
+raft_surface_flow | missing | a raft
+machine_scan_first_layer | not | the first layer scan of Ultimaker printers
+
+# dual
+prime_tower_enable | same | project.prime_tower
+prime_tower_mode | missing | the kind of prime tower (normal or interleaved)
+prime_tower_size | same | project.prime_tower_width
+prime_tower_min_volume | derived | machine.flush_volume and project.flush_multiplier
+prime_tower_max_bridging_distance | missing | the bridges of an interleaved prime tower
+prime_tower_min_shell_thickness | missing | the wall of the prime tower
+prime_tower_position_x | same | project.prime_tower_x
+prime_tower_position_y | same | project.prime_tower_y
+prime_tower_wipe_enabled | derived | zslice wipes on the prime tower
+prime_tower_brim_enable | missing | a brim around the prime tower
+prime_tower_base_size | missing | a base of the prime tower
+prime_tower_base_height | missing | a base of the prime tower
+prime_tower_base_curve_magnitude | missing | a base of the prime tower
+prime_tower_raft_base_line_spacing | missing | a raft
+ooze_shield_enabled | missing | a shield around the part for the oozing of the other nozzle
+ooze_shield_angle | missing | a shield around the part for the oozing of the other nozzle
+ooze_shield_dist | missing | a shield around the part for the oozing of the other nozzle
+switch_extruder_retraction_amount | missing | the retraction of a tool change
+switch_extruder_retraction_speeds | missing | the retraction of a tool change
+switch_extruder_retraction_speed | missing | the retraction of a tool change
+switch_extruder_prime_speed | missing | the retraction of a tool change
+switch_extruder_extra_prime_amount | missing | the retraction of a tool change
+interlocking_enable | derived | project.paint_anchor_depth (zslice roots a painted feature in the part)
+interlocking_beam_width | derived | project.paint_anchor_depth
+interlocking_orientation | derived | project.paint_anchor_depth
+interlocking_beam_layer_count | derived | project.paint_anchor_depth
+interlocking_depth | derived | project.paint_anchor_depth
+interlocking_boundary_avoidance | derived | project.paint_anchor_depth
+multi_material_paint_resolution | derived | zslice splits the paint at the triangles of the paint
+multi_material_paint_depth | derived | zslice colors a painted top or bottom within the shell thickness
+
+# meshfix
+meshfix_union_all | missing | union of the overlapping volumes of a mesh
+meshfix_union_all_remove_holes | missing | remove the holes of each layer
+meshfix_extensive_stitching | derived | zslice joins the cut segments by the mesh edges
+meshfix_keep_open_polygons | missing | keep open outlines
+multiple_mesh_overlap | missing | an overlap of the meshes of a plate
+carve_multiple_volumes | derived | the parts of a plate slice as their own jobs
+alternate_carve_order | derived | the parts of a plate slice as their own jobs
+remove_empty_first_layers | derived | zslice starts at the bottom of the part
+meshfix_maximum_resolution | same | engine.resolution
+meshfix_maximum_travel_resolution | derived | engine.resolution
+meshfix_maximum_deviation | derived | engine.resolution
+meshfix_maximum_extrusion_area_deviation | derived | engine.resolution
+meshfix_fluid_motion_enabled | missing | smooth the corners of short segments
+meshfix_fluid_motion_shift_distance | missing | smooth the corners of short segments
+meshfix_fluid_motion_small_distance | missing | smooth the corners of short segments
+meshfix_fluid_motion_angle | missing | smooth the corners of short segments
+
+# blackmagic
+print_sequence | missing | one part at a time
+user_defined_print_order_enabled | missing | the order of the parts
+infill_mesh | same | a modifier volume of a plate (the importer reads it)
+infill_mesh_order | same | the order of the modifier volumes
+cutting_mesh | missing | a cutting mesh
+mold_enabled | missing | a mold around the part
+mold_width | missing | a mold around the part
+mold_roof_height | missing | a mold around the part
+mold_angle | missing | a mold around the part
+support_mesh | derived | the support areas of zslice
+anti_overhang_mesh | derived | the support areas of zslice (an area that blocks support)
+magic_mesh_surface_mode | missing | print the surface of a mesh only
+magic_spiralize | missing | spiral vase mode
+smooth_spiralized_contours | missing | spiral vase mode
+relative_extrusion | derived | zslice writes relative extrusion (M83)
+
+# experimental
+slicing_tolerance | derived | zslice cuts each layer at its middle
+infill_enable_travel_optimization | derived | zslice orders the infill lines in the nearest order
+material_flow_temp_graph | missing | a temperature for each flow
+minimum_polygon_circumference | missing | drop small outlines
+support_skip_some_zags | missing | break points in the support
+support_skip_zag_per_mm | missing | break points in the support
+support_zag_skip_count | missing | break points in the support
+draft_shield_enabled | missing | a draft shield around the part
+draft_shield_dist | missing | a draft shield around the part
+draft_shield_height_limitation | missing | a draft shield around the part
+draft_shield_height | missing | a draft shield around the part
+conical_overhang_enabled | missing | make an overhang printable
+conical_overhang_angle | missing | make an overhang printable
+conical_overhang_hole_size | missing | make an overhang printable
+coasting_enable | missing | stop the extrusion before the end of a loop
+coasting_volume | missing | stop the extrusion before the end of a loop
+coasting_min_volume | missing | stop the extrusion before the end of a loop
+coasting_speed | missing | stop the extrusion before the end of a loop
+cross_infill_pocket_size | missing | the cross infill pattern
+cross_infill_density_image | missing | an image of the infill density
+cross_support_density_image | missing | an image of the support density
+support_conical_enabled | missing | conical support
+support_conical_angle | missing | conical support
+support_conical_min_width | missing | conical support
+magic_fuzzy_skin_enabled | missing | fuzzy skin
+magic_fuzzy_skin_outside_only | missing | fuzzy skin
+magic_fuzzy_skin_thickness | missing | fuzzy skin
+magic_fuzzy_skin_point_density | missing | fuzzy skin
+magic_fuzzy_skin_point_dist | missing | fuzzy skin
+flow_rate_max_extrusion_offset | missing | a flow offset for fast lines
+flow_rate_extrusion_offset_factor | missing | a flow offset for fast lines
+adaptive_layer_height_enabled | missing | adaptive layers (zslice has layer height overrides for ranges)
+adaptive_layer_height_variation | missing | adaptive layers
+adaptive_layer_height_variation_step | missing | adaptive layers
+adaptive_layer_height_threshold | missing | adaptive layers
+wall_overhang_angle | missing | slower walls over an overhang
+cool_min_layer_time_overhang | missing | a minimum layer time for overhangs
+cool_min_layer_time_overhang_min_segment_length | missing | a minimum layer time for overhangs
+seam_overhang_angle | missing | no seam over an overhang (the zslice hidden seam avoids overhangs)
+wall_overhang_speed_factors | missing | slower walls over an overhang
+bridge_settings_enabled | same | project.bridges
+bridge_wall_max_deviation | missing | the bridge walls
+bridge_wall_min_length | missing | the bridge walls
+bridge_skin_support_threshold | missing | the bridge skin
+bridge_wall_coast | missing | the bridge walls
+bridge_wall_speed | missing | the speed of the bridge walls
+bridge_wall_material_flow | missing | the flow of the bridge walls
+bridge_skin_speed | same | project.bridge_speed
+bridge_skin_material_flow | same | project.bridge_flow
+bridge_skin_density | missing | the density of the bridge skin
+bridge_fan_speed | same | project.bridge_fan
+bridge_interlace_lines | missing | the bridge skin
+bridge_enable_more_layers | missing | the layers over a bridge
+bridge_skin_speed_2 | missing | the layers over a bridge
+bridge_skin_material_flow_2 | missing | the layers over a bridge
+bridge_skin_density_2 | missing | the layers over a bridge
+bridge_fan_speed_2 | missing | the layers over a bridge
+bridge_skin_speed_3 | missing | the layers over a bridge
+bridge_skin_material_flow_3 | missing | the layers over a bridge
+bridge_skin_density_3 | missing | the layers over a bridge
+bridge_fan_speed_3 | missing | the layers over a bridge
+clean_between_layers | missing | a wipe on a brush between the layers
+max_extrusion_before_wipe | missing | a wipe on a brush between the layers
+wipe_retraction_enable | missing | a wipe on a brush between the layers
+wipe_retraction_amount | missing | a wipe on a brush between the layers
+wipe_retraction_extra_prime_amount | missing | a wipe on a brush between the layers
+wipe_retraction_speed | missing | a wipe on a brush between the layers
+wipe_retraction_retract_speed | missing | a wipe on a brush between the layers
+wipe_retraction_prime_speed | missing | a wipe on a brush between the layers
+wipe_pause | missing | a wipe on a brush between the layers
+wipe_hop_enable | missing | a wipe on a brush between the layers
+wipe_hop_amount | missing | a wipe on a brush between the layers
+wipe_hop_speed | missing | a wipe on a brush between the layers
+wipe_brush_pos_x | missing | a wipe on a brush between the layers
+wipe_repeat_count | missing | a wipe on a brush between the layers
+wipe_move_distance | missing | a wipe on a brush between the layers
+small_hole_max_size | missing | slower walls in small holes
+small_feature_max_length | missing | slower walls in small features
+small_feature_speed_factor | missing | slower walls in small features
+small_feature_speed_factor_0 | missing | slower walls in small features
+material_alternate_walls | missing | the walls of two filaments in turn
+group_outer_walls | missing | print the outer walls of a layer together
+retraction_during_travel_ratio | derived | project.retract_wipe
+keep_retracting_during_travel | derived | project.retract_wipe
+prime_during_travel_ratio | missing | a push back during the travel
+scarf_joint_seam_length | missing | a scarf seam
+scarf_joint_seam_start_height_ratio | missing | a scarf seam
+scarf_split_distance | missing | a scarf seam
+wall_0_start_speed_ratio | missing | a slow start of the outer wall
+wall_0_acceleration | missing | a slow start of the outer wall
+wall_0_end_speed_ratio | missing | a slow end of the outer wall
+wall_0_deceleration | missing | a slow end of the outer wall
+wall_0_speed_split_distance | missing | a slow start and end of the outer wall
+minimum_infill_line_length | missing | drop short infill lines
+material_delta_temperature_roofing | missing | another temperature for the top surface
+
+# ppr
+ppr_enable | not | the print process reports of Ultimaker printers
+flow_warn_limit | not | the print process reports of Ultimaker printers
+flow_anomaly_limit | not | the print process reports of Ultimaker printers
+print_temp_warn_limit | not | the print process reports of Ultimaker printers
+print_temp_anomaly_limit | not | the print process reports of Ultimaker printers
+bv_temp_warn_limit | not | the print process reports of Ultimaker printers
+bv_temp_anomaly_limit | not | the print process reports of Ultimaker printers
+
+# command_line_settings
+center_object | same | project.placement
+mesh_position_x | same | project.placement = file
+mesh_position_y | same | project.placement = file
+mesh_position_z | same | project.placement = file
+mesh_rotation_matrix | derived | the rotation of a part on the plate
+material_density | same | filament.density
+material_id | not | a Cura material database id
+material_name | same | filament.name
+material_spool_cost | same | filament.price_per_kg
+material_spool_weight | derived | filament.price_per_kg

@@ -41,7 +41,7 @@ The docs have three parts. Keep each part current with the code.
 - `docs/embedding/`: for developers who use the library.
 - `docs/internals/`: for developers who change or extend the library.
 
-After a change to `src/settings.zig`, run `python3 -I tools/settings_doc.py > docs/user/settings.md`. Each setting needs a `///` doc comment.
+After a change to `src/settings.zig`, run `python3 -I tools/settings_doc.py > docs/user/settings.md`. Each setting needs a `///` doc comment. A setting with the meaning of a Cura or OrcaSlicer setting gets a line in `tools/setting_coverage_cura.txt` or `tools/setting_coverage_orca.txt`. Then make `docs/user/setting-coverage.md` again with `tools/setting_coverage.py` (its header says how).
 
 Each source file starts with a `//!` comment that explains its algorithm in plain words.
 

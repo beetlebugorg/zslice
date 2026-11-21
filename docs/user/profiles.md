@@ -155,7 +155,7 @@ What the import does:
 | `z_seam_type` and `z_seam_corner` | `project.seam` and `project.seam_corner` |
 | `material_shrinkage_percentage_xy` and `_z` (100.3) | `filament.shrinkage_xy` and `shrinkage_z` (1.003) |
 
-Each Cura setting that has no zslice setting yet is in a comment at the end of the profile. Read these comments: they show what the import did not keep.
+Each Cura setting that has no zslice setting yet is in a comment at the end of the profile. Read these comments: they show what the import did not keep. [Cura and OrcaSlicer settings](setting-coverage.md) lists each Cura setting and each OrcaSlicer setting, and the zslice setting that does the same.
 
 ## Errors
 

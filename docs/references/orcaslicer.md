@@ -85,3 +85,18 @@ summary: `filament.start_gcode` and `filament.end_gcode` have the meaning of `fi
 ```
 
 OrcaSlicer writes `filament_start_gcode` after the machine start G-code and at each change to the filament, and `filament_end_gcode` before the machine end G-code and at each change from it (`src/libslic3r/GCode.cpp`). zslice writes them after the start G-code and before the end G-code of the print, for the filament of the print. A filament change does not write them yet.
+
+### Setting lists of Cura and OrcaSlicer
+
+```ref
+kind: data
+source: Cura, OrcaSlicer
+license: LGPL-3.0 (Cura), AGPL-3.0 (OrcaSlicer)
+link: https://github.com/SoftFever/OrcaSlicer
+version: Cura commit 1a221ec29a86960d16a412940becc1f63534c41f, OrcaSlicer commit 5a1ffc6a631ead5886f1c22920deb341fc1a0106
+files: tools/setting_coverage.py, tools/setting_coverage_cura.txt, tools/setting_coverage_orca.txt, docs/user/setting-coverage.md
+area: files
+summary: The keys and the labels of all Cura and OrcaSlicer settings, for the coverage table of the user guide.
+```
+
+`tools/setting_coverage.py` reads the keys, the labels, and the categories of `resources/definitions/fdmprinter.def.json` and `fdmextruder.def.json` of Cura (https://github.com/Ultimaker/Cura), and the keys, the labels, and the config blocks of `src/libslic3r/PrintConfig.cpp` of OrcaSlicer. It writes `docs/user/setting-coverage.md`, with the zslice setting of each key from `tools/setting_coverage_cura.txt` and `tools/setting_coverage_orca.txt`. The page has the names and the labels as data; no code is copied.

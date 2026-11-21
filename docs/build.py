@@ -60,6 +60,7 @@ SOURCES = [
     ("docs/user/settings.md", "user/settings/", "Reference", "Settings"),
     ("docs/user/expert.md", "user/expert/", "Reference", "Formulas and rules"),
     ("docs/user/profiles.md", "user/profiles/", "Reference", "Profiles"),
+    ("docs/user/setting-coverage.md", "user/setting-coverage/", "Reference", "Cura and OrcaSlicer settings"),
     ("docs/user/command-line.md", "user/command-line/", "Reference", "The command line"),
     ("docs/user/apps.md", "user/apps/", "Reference", "Web, Linux, and Mac"),
     ("docs/user/macos.md", "user/macos/", "Reference", "The macOS app"),

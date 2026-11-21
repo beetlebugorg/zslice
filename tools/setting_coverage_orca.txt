@@ -1,0 +1,378 @@
+# The OrcaSlicer settings (src/libslic3r/PrintConfig.cpp) and zslice.
+# tools/setting_coverage.py reads this file. The form is the form of
+# setting_coverage_cura.txt. A print, printer, or filament key with no
+# line here is "missing", with the label of OrcaSlicer as its text. The
+# tool sorts the keys of the other blocks of PrintConfig.cpp (resin
+# printers, the command line, the G-code variables) by their block.
+
+# Printer: the bed and the machine
+printer_technology | not | FDM or SLA: zslice is for FDM printers
+printable_area | same | machine.bed_size_x and machine.bed_size_y (the printer library has the shape)
+extruder_printable_area | same | machine.nozzle2_min_x and machine.nozzle1_max_x
+support_parallel_printheads | not | printers with many heads that print copies at once
+parallel_printheads_count | not | printers with many heads that print copies at once
+parallel_printheads_bed_exclude_areas | not | printers with many heads that print copies at once
+bed_exclude_area | missing | areas of the bed where no part can go
+bed_exclude_volumes | missing | volumes where no part can go
+bed_exclude_volume_mode | missing | volumes where no part can go
+extruder_bed_exclude_volumes | missing | volumes where a nozzle cannot go
+bed_custom_texture | derived | the printer library has the bed textures
+bed_custom_model | derived | the printer library has the bed models
+printable_height | same | machine.max_height
+extruder_printable_height | same | machine.nozzle1_max_height and machine.nozzle2_max_height
+preferred_orientation | not | the angle of the bed in the 3D view of the app
+preset_names | not | preset metadata of the OrcaSlicer app
+bbl_use_printhost | not | a printer connection of the OrcaSlicer app (zslice has its own printer links)
+use_3mf | not | a printer connection of the OrcaSlicer app
+printer_agent | not | a printer connection of the OrcaSlicer app
+print_host | not | a printer connection of the OrcaSlicer app (zslice has its own printer links)
+print_host_webui | not | a printer connection of the OrcaSlicer app
+printhost_apikey | not | a printer connection of the OrcaSlicer app
+flashforge_serial_number | not | a printer connection of the OrcaSlicer app
+printhost_port | not | a printer connection of the OrcaSlicer app
+printhost_cafile | not | a printer connection of the OrcaSlicer app
+printhost_user | not | a printer connection of the OrcaSlicer app
+printhost_password | not | a printer connection of the OrcaSlicer app
+printhost_ssl_ignore_revoke | not | a printer connection of the OrcaSlicer app
+printhost_authorization_type | not | a printer connection of the OrcaSlicer app
+preset_name | not | preset metadata of the OrcaSlicer app
+host_type | not | a printer connection of the OrcaSlicer app
+printer_model | same | machine.model
+printer_notes | not | preset metadata of the OrcaSlicer app
+printer_variant | derived | machine.nozzle_diameter
+print_settings_id | not | preset metadata of the OrcaSlicer app
+printer_settings_id | not | preset metadata of the OrcaSlicer app
+filament_settings_id | not | preset metadata of the OrcaSlicer app
+inherits | derived | the profiles of the printer library resolve the inherits chain
+inherits_group | not | preset metadata of the OrcaSlicer app
+compatible_printers | not | preset metadata of the OrcaSlicer app
+upward_compatible_machine | not | preset metadata of the OrcaSlicer app
+compatible_printers_condition | not | preset metadata of the OrcaSlicer app
+compatible_prints | not | preset metadata of the OrcaSlicer app
+compatible_prints_condition | not | preset metadata of the OrcaSlicer app
+compatible_machine_expression_group | not | preset metadata of the OrcaSlicer app
+compatible_process_expression_group | not | preset metadata of the OrcaSlicer app
+different_settings_to_system | not | preset metadata of the OrcaSlicer app
+print_compatible_printers | not | preset metadata of the OrcaSlicer app
+default_filament_profile | not | preset metadata of the OrcaSlicer app
+default_print_profile | not | preset metadata of the OrcaSlicer app
+notes | not | preset metadata of the OrcaSlicer app
+filament_notes | not | preset metadata of the OrcaSlicer app
+filament_vendor | derived | filament.name has the brand
+filament_ids | not | preset metadata of the OrcaSlicer app
+filament_settings_id | not | preset metadata of the OrcaSlicer app
+nozzle_diameter | same | machine.nozzle_diameter
+nozzle_type | same | machine.nozzle_type
+nozzle_hrc | derived | machine.nozzle_type
+required_nozzle_HRC | derived | machine.nozzle_type (a filament with fiber needs a hard nozzle)
+nozzle_volume | missing | the volume of the nozzle, for the flush of a filament change
+nozzle_height | missing | the height of the nozzle under the head, for one-at-a-time print order
+extruder_clearance_dist_to_rod | missing | the size of the head, for one-at-a-time print order
+extruder_clearance_height_to_rod | missing | the size of the head, for one-at-a-time print order
+extruder_clearance_height_to_lid | missing | the size of the head, for one-at-a-time print order
+extruder_clearance_radius | missing | the size of the head, for one-at-a-time print order
+printer_structure | same | machine.kinematics
+gcode_flavor | same | machine.gcode_flavor
+auxiliary_fan | same | machine.part_fan_air (the simulation counts the air of all fans)
+support_chamber_temp_control | derived | machine.chamber_temp
+support_air_filtration | not | the air filter of Bambu Lab printers
+z_offset | missing | a Z offset of the whole print
+thumbnails | same | machine.thumbnails
+thumbnails_format | derived | machine.thumbnails (PNG)
+machine_start_gcode | same | machine.start_gcode
+machine_end_gcode | same | machine.end_gcode
+before_layer_change_gcode | missing | G-code before each layer change
+layer_change_gcode | missing | G-code at each layer change (zslice writes the layer G-code of the Bambu Lab templates only)
+change_filament_gcode | same | machine.change_gcode
+machine_pause_gcode | derived | M600 or PAUSE (machine.filament_change)
+template_custom_gcode | missing | a custom G-code at a layer
+time_lapse_gcode | missing | G-code for a time-lapse at each layer
+printing_by_object_gcode | missing | G-code between the parts of one-at-a-time print order
+filament_start_gcode | same | filament.start_gcode (at the start of the print)
+filament_end_gcode | same | filament.end_gcode (at the end of the print)
+emit_machine_limits_to_gcode | missing | write the motion limits (M201, M203) at the start
+machine_max_acceleration_extruding | same | machine.max_accel
+machine_max_acceleration_retracting | missing | the acceleration limit of a retraction
+machine_max_acceleration_travel | same | machine.travel_accel
+machine_max_junction_deviation | same | machine.corner_speed (as a corner speed)
+machine_min_extruding_rate | missing | the lowest speed of the firmware, for the time estimate
+machine_min_travel_rate | missing | the lowest speed of the firmware, for the time estimate
+use_relative_e_distances | derived | zslice writes relative extrusion (M83)
+use_firmware_retraction | missing | G10 and G11 for the retraction
+gcode_comments | missing | comments on each G-code line
+gcode_label_objects | missing | the object labels for the firmware (EXCLUDE_OBJECT, M486)
+exclude_object | missing | the object labels for the firmware (EXCLUDE_OBJECT, M486)
+gcode_add_line_number | missing | line numbers in the G-code
+enable_arc_fitting | missing | arcs (G2, G3) in the G-code
+disable_m73 | missing | no M73 progress lines
+bed_mesh_min | derived | the start G-code variable of the first layer box (first_layer_print_min)
+bed_mesh_max | derived | the start G-code variable of the first layer box (first_layer_print_max)
+bed_mesh_probe_distance | derived | the start G-code variables of the first layer box
+adaptive_bed_mesh_margin | derived | the start G-code variables of the first layer box
+time_cost | same | machine.hour_rate
+scan_first_layer | not | the first layer scan of Bambu Lab printers
+spaghetti_detector | derived | zslice turns the spaghetti detector of a Bambu Lab printer on (M981)
+enable_power_loss_recovery | missing | power loss recovery (M413)
+best_object_pos | derived | project.placement
+curr_bed_type | same | machine.bed_type
+default_bed_type | same | machine.bed_type
+supertack_plate_temp | derived | filament.bed_temp (one bed temperature for the plate of the printer)
+cool_plate_temp | derived | filament.bed_temp
+textured_cool_plate_temp | derived | filament.bed_temp
+eng_plate_temp | derived | filament.bed_temp
+hot_plate_temp | derived | filament.bed_temp
+textured_plate_temp | derived | filament.bed_temp
+supertack_plate_temp_initial_layer | derived | filament.first_layer_bed_temp
+cool_plate_temp_initial_layer | derived | filament.first_layer_bed_temp
+textured_cool_plate_temp_initial_layer | derived | filament.first_layer_bed_temp
+eng_plate_temp_initial_layer | derived | filament.first_layer_bed_temp
+hot_plate_temp_initial_layer | derived | filament.first_layer_bed_temp
+textured_plate_temp_initial_layer | derived | filament.first_layer_bed_temp
+support_multi_bed_types | derived | machine.bed_type
+pellet_modded_printer | not | pellet printers
+pellet_flow_coefficient | not | pellet printers
+extruder_offset | missing | the X and Y offset of a second nozzle
+extruder_colour | derived | filament.color
+extruder | derived | filament.nozzle
+extruder_type | missing | direct drive or Bowden, for the retraction
+manual_filament_change | same | machine.filament_change = pause
+single_extruder_multi_material | same | machine.filament_change = tool (one nozzle, many filaments)
+machine_load_filament_time | derived | machine.change_time
+machine_unload_filament_time | derived | machine.change_time
+machine_tool_change_time | same | machine.change_time
+belt_printer | not | belt printers
+belt_printer_infinite_y | not | belt printers
+belt_slice_rotation | not | belt printers
+belt_slice_rotation_angle | not | belt printers
+belt_frame_tilt_decouple | not | belt printers
+belt_frame_tilt_angle | not | belt printers
+belt_support_floor_offset | not | belt printers
+enable_belt_purge_tower | not | belt printers
+belt_purge_tower_width | not | belt printers
+belt_purge_tower_object | not | belt printers
+build_plate_tilt_x | not | printers with a tilted bed
+build_plate_tilt_y | not | printers with a tilted bed
+is_imex | missing | IDEX printers
+imex_firmware_managed_zones | missing | IDEX printers
+imex_gantry_count | missing | IDEX printers
+imex_tools_per_gantry | missing | IDEX printers
+imex_tool_layout | missing | IDEX printers
+imex_nozzle_clearance_x | missing | IDEX printers
+imex_nozzle_clearance_y | missing | IDEX printers
+imex_carriage_margin | missing | IDEX printers
+imex_viz_theme | not | a color theme of the OrcaSlicer app
+imex_parallel_mode | missing | IDEX printers
+imex_head_filament_map | missing | IDEX printers
+imex_mode_names | missing | IDEX printers
+imex_mode_active_tools | missing | IDEX printers
+imex_mode_gcodes | missing | IDEX printers
+filename_format | missing | the name of the G-code file
+post_process | not | scripts that change the G-code after the slice
+plugins | not | plugins of the OrcaSlicer app
+slicing_pipeline_plugin | not | plugins of the OrcaSlicer app
+calib_flowrate_topinfill_special_order | not | a calibration of the OrcaSlicer app
+bbl_calib_mark_logo | not | a calibration mark of Bambu Lab printers
+head_wrap_detect_zone | not | the clog detection of Bambu Lab printers
+enable_wrapping_detection | not | the clog detection of Bambu Lab printers
+wrapping_detection_layers | not | the clog detection of Bambu Lab printers
+wrapping_exclude_area | not | the clog detection of Bambu Lab printers
+wrapping_detection_gcode | not | the clog detection of Bambu Lab printers
+input_shaping_emit | missing | write the input shaper of the firmware
+input_shaping_type | missing | write the input shaper of the firmware
+input_shaping_freq_x | missing | write the input shaper of the firmware
+input_shaping_freq_y | missing | write the input shaper of the firmware
+input_shaping_damp_x | missing | write the input shaper of the firmware
+input_shaping_damp_y | missing | write the input shaper of the firmware
+
+# Layers, walls, seam
+layer_height | same | project.layer_height
+initial_layer_print_height | same | project.first_layer_height
+min_layer_height | not | the limits of adaptive layers in the OrcaSlicer app
+max_layer_height | not | the limits of adaptive layers in the OrcaSlicer app
+adaptive_layer_height | missing | adaptive layers
+line_width | same | project.line_width
+initial_layer_line_width | same | project.first_layer_line_width
+wall_loops | same | project.wall_count
+wall_generator | same | project.wall_generator
+wall_transition_length | same | project.wall_transition_length
+wall_transition_filter_deviation | derived | zslice uses the default (a quarter of the nozzle)
+wall_transition_angle | same | project.wall_transition_angle
+wall_distribution_count | same | project.wall_distribution_count
+min_feature_size | same | project.min_feature_size
+min_bead_width | same | project.min_bead_width
+initial_layer_min_bead_width | derived | project.min_bead_width
+detect_thin_wall | same | project.thin_walls
+seam_position | same | project.seam
+xy_hole_compensation | same | filament.hole_xy_offset
+xy_contour_compensation | same | filament.xy_offset
+elefant_foot_compensation | same | project.first_layer_xy_offset
+gap_fill_target | derived | project.gap_fill
+filter_out_gap_fill | derived | project.gap_fill
+resolution | same | engine.resolution
+slice_closing_radius | same | engine.gap_closing
+slicing_mode | missing | the fill rule of the outlines (regular, even-odd, close holes)
+bottom_shell_layers | same | project.bottom_thickness (a count of layers)
+bottom_shell_thickness | same | project.bottom_thickness
+top_shell_layers | same | project.top_thickness (a count of layers)
+top_shell_thickness | same | project.top_thickness
+top_surface_pattern | same | project.skin_pattern
+bottom_surface_pattern | same | project.skin_pattern
+internal_solid_infill_pattern | same | project.skin_pattern
+infill_wall_overlap | same | project.infill_overlap
+top_bottom_infill_wall_overlap | same | project.skin_overlap
+minimum_sparse_infill_area | same | project.solid_infill_width (a width in place of an area)
+sparse_infill_density | same | project.infill_density
+sparse_infill_pattern | same | project.infill_pattern
+infill_direction | same | project.infill_angle
+solid_infill_direction | same | project.skin_angle
+infill_combination | same | project.infill_layers
+infill_anchor | derived | project.infill_connect
+infill_anchor_max | derived | project.infill_connect
+lightning_overhang_angle | same | project.lightning_angle
+lightning_prune_angle | derived | project.lightning_angle
+lightning_straightening_angle | derived | project.lightning_angle
+ironing_type | same | project.ironing
+ironing_flow | same | project.ironing_flow
+ironing_spacing | same | project.ironing_spacing
+ironing_inset | same | project.ironing_inset
+ironing_speed | same | project.ironing_speed
+bridge_flow | same | project.bridge_flow
+bridge_speed | same | project.bridge_speed
+interface_shells | derived | the parts of a plate slice as their own jobs
+mmu_segmented_region_max_width | derived | the label depth (src/label.zig)
+mmu_segmented_region_interlocking_depth | same | project.paint_anchor_depth
+interlocking_beam | derived | project.paint_anchor_depth
+interlocking_beam_width | derived | project.paint_anchor_depth
+interlocking_orientation | derived | project.paint_anchor_depth
+interlocking_beam_layer_count | derived | project.paint_anchor_depth
+interlocking_depth | derived | project.paint_anchor_depth
+interlocking_boundary_avoidance | derived | project.paint_anchor_depth
+zaa_enabled | same | project.slope_smoothing
+zaa_minimize_perimeter_height | derived | project.slope_smoothing
+zaa_dont_alternate_fill_direction | derived | project.slope_smoothing
+zaa_min_z | derived | project.slope_smoothing_min_width
+
+# Speed and acceleration
+outer_wall_speed | same | project.outer_wall_speed (a ratio of machine.max_speed)
+inner_wall_speed | same | project.inner_wall_speed
+sparse_infill_speed | same | project.infill_speed
+internal_solid_infill_speed | same | project.skin_speed
+top_surface_speed | same | project.skin_speed
+initial_layer_speed | same | project.first_layer_speed
+initial_layer_infill_speed | derived | project.first_layer_speed
+initial_layer_travel_speed | same | machine.first_layer_travel_speed
+travel_speed | same | machine.travel_speed
+travel_speed_z | same | machine.max_z_speed
+slow_down_layers | same | project.slow_layers
+default_acceleration | same | machine.max_accel
+outer_wall_acceleration | same | machine.outer_wall_accel
+inner_wall_acceleration | same | machine.inner_wall_accel
+top_surface_acceleration | same | machine.skin_accel
+internal_solid_infill_acceleration | same | machine.skin_accel
+sparse_infill_acceleration | same | machine.infill_accel
+travel_acceleration | same | machine.travel_accel
+initial_layer_acceleration | same | machine.first_layer_accel
+default_jerk | same | machine.corner_speed
+default_junction_deviation | same | machine.corner_speed (as a corner speed)
+accel_to_decel_enable | missing | the accel to decel limit of Klipper
+accel_to_decel_factor | missing | the accel to decel limit of Klipper
+filament_max_volumetric_speed | same | filament.max_flow
+
+# Travel and retraction
+retraction_length | same | machine.retract_length
+retraction_speed | same | machine.retract_speed
+deretraction_speed | derived | machine.retract_speed
+retraction_minimum_travel | same | project.retract_min_travel
+retract_when_changing_layer | same | project.retract_layer_change
+wipe | same | project.retract_wipe
+wipe_distance | derived | project.retract_wipe
+z_hop | same | project.z_hop
+z_hop_types | derived | project.z_hop (a straight lift)
+reduce_crossing_wall | same | project.combing
+max_travel_detour_distance | same | project.combing_max_distance
+reduce_infill_retraction | same | project.combing (no retraction inside the part)
+retract_lift_enforce | same | project.z_hop_only_crossing
+retract_length_toolchange | derived | machine.change_gcode and the Bambu Lab presets
+
+# Cooling
+fan_max_speed | same | filament.fan_max_speed
+fan_min_speed | same | filament.fan_speed
+fan_cooling_layer_time | same | filament.fan_boost_time
+slow_down_layer_time | same | filament.min_layer_time
+slow_down_min_speed | same | filament.min_speed
+slow_down_for_layer_cooling | derived | filament.min_layer_time 0 is no slow down
+close_fan_the_first_x_layers | same | filament.fan_off_layers
+full_fan_speed_layer | same | filament.fan_ramp_layers (the importer converts it)
+overhang_fan_speed | same | project.bridge_fan
+enable_overhang_bridge_fan | derived | project.bridges
+
+# Filament
+filament_diameter | same | filament.diameter
+filament_density | same | filament.density
+filament_cost | same | filament.price_per_kg
+filament_type | same | filament.material
+filament_colour | same | filament.color
+default_filament_colour | same | filament.color
+filament_flow_ratio | same | filament.flow_ratio
+nozzle_temperature | same | filament.nozzle_temp
+nozzle_temperature_initial_layer | same | filament.first_layer_nozzle_temp
+nozzle_temperature_range_low | derived | the G-code variable nozzle_temperature_range_low
+nozzle_temperature_range_high | derived | the G-code variable nozzle_temperature_range_high
+idle_temperature | same | filament.standby_temp
+standby_temperature_delta | derived | the G-code variable standby_temperature_delta
+chamber_temperature | same | machine.chamber_temp
+filament_shrink | same | filament.shrinkage_xy
+filament_shrinkage_compensation_z | same | filament.shrinkage_z
+filament_is_support | same | project.support_filament
+filament_soluble | derived | project.support_filament
+flush_multiplier | same | project.flush_multiplier
+flush_volumes_matrix | derived | machine.flush_volume and the colors of the filaments
+flush_volumes_vector | derived | machine.flush_volume
+flush_into_objects | same | project.flush_into_hidden
+enable_prime_tower | same | project.prime_tower
+prime_tower_width | same | project.prime_tower_width
+wipe_tower_x | same | project.prime_tower_x
+wipe_tower_y | same | project.prime_tower_y
+temperature_vitrification | derived | the glass points of the simulation (src/print_sim.zig)
+
+# Support
+enable_support | same | project.support
+support_type | same | project.support_style
+support_style | same | project.support_style
+support_angle | same | project.support_angle
+support_threshold_angle | same | project.support_angle
+support_on_build_plate_only | same | project.support = buildplate
+support_remove_small_overhang | same | project.support_min_ledge
+support_object_xy_distance | same | project.support_xy_gap
+support_top_z_distance | same | project.support_z_gap_layers (a count of layers)
+support_bottom_z_distance | derived | project.support_z_gap_layers
+support_interface_top_layers | same | project.support_interface_layers
+support_interface_pattern | same | project.support_interface_pattern
+support_interface_spacing | same | project.support_interface_density (a density in place of a spacing)
+support_base_pattern_spacing | same | project.support_density (a density in place of a spacing)
+support_filament | same | project.support_filament
+support_interface_filament | same | project.support_interface_filament
+tree_support_branch_angle | same | project.support_tree_angle
+tree_support_branch_angle_organic | same | project.support_tree_angle
+tree_support_branch_distance | same | project.support_tree_spacing
+tree_support_branch_distance_organic | same | project.support_tree_spacing
+tree_support_tip_diameter | same | project.support_tree_tip
+tree_support_branch_diameter | derived | zslice computes the branch diameter from the load
+tree_support_branch_diameter_organic | derived | zslice computes the branch diameter from the load
+tree_support_branch_diameter_angle | derived | zslice computes the branch diameter from the load
+tree_support_auto_brim | derived | zslice gives a tree a foot from the load
+
+# Skirt and brim
+skirt_loops | same | project.skirt_loops
+skirt_distance | same | project.skirt_distance
+skirt_height | same | project.skirt_layers
+brim_width | same | project.brim_width
+brim_type | same | project.brim_location
+spiral_mode | missing | spiral vase mode
+fuzzy_skin | missing | fuzzy skin
+print_sequence | missing | one part at a time
+precise_z_height | derived | zslice cuts each layer at its middle and ends at the height of the part
+support_speed | same | project.support_speed
+support_interface_speed | same | project.support_interface_speed
+pressure_advance | same | filament.pressure_advance
+enable_pressure_advance | derived | filament.pressure_advance 0 is off
