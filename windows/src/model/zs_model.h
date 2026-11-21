@@ -77,6 +77,8 @@ namespace zs
         void RequestSlice();
         // True once after a slice if a change came during it.
         bool TakeSlicePending();
+        // During a drag the changes wait. The release slices once.
+        void Hold(bool on);
 
         // The undo list of the active plate (see zs_app_history_commit).
         // The undo calls return the bits of enum zs_history_restored.
@@ -97,7 +99,11 @@ namespace zs
         zs_view *bed_view_ = nullptr;
         ptrdiff_t bed_shown_ = -2;
         bool slice_pending_ = false;
+        bool held_ = false;
     };
+
+    // One line for the log: stderr, or the file of ZSLICE_LOG.
+    void Log(char const *format, ...);
 
     std::string ToUtf8(std::wstring const &text);
     std::wstring ToWide(std::string const &text);

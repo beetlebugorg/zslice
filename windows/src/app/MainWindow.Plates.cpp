@@ -74,6 +74,13 @@ namespace winrt::ZSlice::implementation
         Title(name.empty() ? L"zslice" : name + L" - zslice");
         // With more plates the hint would cover their beds.
         EmptyHint().Visibility(zs_app_part_count(app) == 0 && model->PlateCount() == 1 ? Visibility::Visible : Visibility::Collapsed);
+        // The selection was of the plate before.
+        HandRelease();
+        selected_path = selected_segment = -1;
+        line_anchored = false;
+        selected_parts.clear();
+        HideCards();
+        ApplySelection();
         // The settings and the history are those of the new plate.
         RefreshSettingValues();
         RefreshHistoryButtons();
@@ -133,7 +140,7 @@ namespace winrt::ZSlice::implementation
         int rc = zs_view_set_signs(view, model->PlateCount(), image.rects.data(), image.width, image.height,
                                    image.rgba.data(), image.scale);
         if (rc != ZS_OK)
-            fprintf(stderr, "shell: the signs of the plates did not load: %s\n", zs_status_string(rc));
+            zs::Log("shell: the signs of the plates did not load: %s\n", zs_status_string(rc));
         RequestDraw();
     }
 }
