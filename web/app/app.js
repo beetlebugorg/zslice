@@ -4191,6 +4191,7 @@ function benchPick(step = 40) {
 // For tests: the state of the page.
 window.zslice = {
   project,
+  labelTool,
   rangeCard,
   search,
   shortcuts,
