@@ -261,7 +261,7 @@ The support can print with a filament of its own (one that breaks away, or that 
 
 The filaments also follow the printer of the plate by themselves, on a printer that changes the filament by itself (an AMS): each 10 s, and at once when the plate gets another printer. A note says what changed. The filament menu then says "From the printer", and each filament shows the holder of its spool ("A1"). A filament that you set by hand shows a hand, and it stays when the printer has other spools; Use the Filaments of the printer makes it follow again. A print on a Bambu Lab printer tells it the tray of each filament (see filaments.md).
 
-On a printer with two nozzles (the X2D), each filament has its nozzle: Main or 2nd. The external spool feeds the second nozzle, so Use the Filaments puts its filament there. With a printer profile of one nozzle, that spool stays out.
+On a printer with two nozzles (the X2D), each filament has its nozzle: Main or 2nd. The settings show a Second nozzle section (its diameter, line width, and speeds), and the card of a line says which nozzle prints it. Infill filament (Part > Filaments) prints the infill in a filament of its own. The external spool feeds the second nozzle, so Use the Filaments puts its filament there. With a printer profile of one nozzle, that spool stays out.
 
 A Bambu Lab printer gets a .gcode.3mf on Export, with the filaments of the print in it.
 

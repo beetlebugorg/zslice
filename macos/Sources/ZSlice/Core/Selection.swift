@@ -51,6 +51,9 @@ struct LineInfo {
     /// For a support line: the layer and the feature of the part line that
     /// it holds up.
     var holds: (layer: Int, feature: Int)?
+    /// The nozzle of the line on a printer with two nozzles, and the limits
+    /// of the second nozzle, in words ("" with one nozzle).
+    var nozzleText = ""
     /// The warnings of the check at the line (a bridge, an overhang).
     var issues: [Issue] = []
 }
@@ -189,6 +192,7 @@ extension Workspace {
             fan: info.fan, layerTime: info.layer_time, maxFlow: info.max_flow, flowLimited: info.flow_limited != 0,
             holds: info.holds_layer == ZS_NO_PATH ? nil : (Int(info.holds_layer), Int(info.holds_feature)),
             issues: lineIssues(ofPath: s.path, layer: Int(info.layer)))
+        lineInfo?.nozzleText = coreText(info.nozzle_text)
         refindKey = middle(of: s.path).map { RefindKey(layer: info.layer, feature: info.feature, x: $0.x, y: $0.y) }
     }
 
