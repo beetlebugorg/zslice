@@ -92,3 +92,11 @@ The card of a line shows its planned speed, its real speed, and its flow, and th
 The app keeps your session. After a quit it opens with the same plates, the same view, and the same window size. A file that you open from the command line opens in place of the session.
 
 The theme follows Windows. The menu at the top right has the plate actions, **Hide the bed**, **Keyboard shortcuts** (also the key ?), **Licenses**, and **About**.
+
+## The menu of the view
+
+A right click opens a menu for what is under the pointer. On a touchpad, a two-finger click that does not slide opens it too. The Menu key and Shift+F10 open it at the pointer.
+
+On a part, the menu adds support, blocks support, makes a layer profile, and places the part. On the bed, it arranges, clears, copies, and duplicates the plate.
+
+Ctrl+C, Ctrl+X, Ctrl+V, and Ctrl+D copy, cut, paste, and duplicate the selected parts. Ctrl+Shift+V pastes them as a new plate. C shows the layers up to the selected line, and Shift+C shows all layers.
