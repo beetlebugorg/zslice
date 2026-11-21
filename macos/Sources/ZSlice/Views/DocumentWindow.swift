@@ -210,6 +210,20 @@ struct DocumentWindow: View {
                 GeometryReader { geo in
                     TapeOverlay(workspace: workspace, area: geo.size)
                     PlateLabels(workspace: workspace)
+                    // The 2D view says so at the top; a click goes back to 3D.
+                    if workspace.page == .twoD {
+                        Button { workspace.page = .threeD } label: {
+                            Text("2D View")
+                                .font(.callout.weight(.semibold))
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 4)
+                                .background(.regularMaterial, in: Capsule())
+                                .overlay(Capsule().strokeBorder(.separator))
+                        }
+                        .buttonStyle(.plain)
+                        .help("The 2D view of one layer. Click, or press 3, for the 3D view (2 switches between them).")
+                        .position(x: geo.size.width / 2, y: 66)
+                    }
                     if let l = workspace.ringLabel {
                         Text(l.text)
                             .font(.callout.weight(.semibold).monospacedDigit())
@@ -276,15 +290,19 @@ struct DocumentWindow: View {
             .onPreferenceChange(PanelFramesKey.self) { frames in
                 if workspace.panelFrames != frames { workspace.panelFrames = frames }
             }
-            // The search last, over the other controls.
+            // The search last, over the other controls: the results under
+            // the field of the toolbar, or the card of the search.
             .overlay(alignment: .topLeading) {
-                if workspace.searchOpen {
-                    // Centered under the Search button of the toolbar, in the
-                    // window (web/app/search.js).
+                let search = workspace.search
+                if search.open, !search.docked || !search.query.isEmpty {
                     GeometryReader { geo in
-                        SearchOverlay(workspace: workspace)
-                            .padding(.leading, max(8, min(geo.size.width - SearchOverlay.width - 8, workspace.searchButtonX - SearchOverlay.width / 2)))
-                            .padding(.top, 6)
+                        if search.docked {
+                            SearchOverlay(workspace: workspace, area: geo.size)
+                                .padding(.leading, max(8, min(geo.size.width - SearchOverlay.width - 8, search.fieldMinX - 8)))
+                                .padding(.top, 6)
+                        } else {
+                            SearchOverlay(workspace: workspace, area: geo.size)
+                        }
                     }
                 }
             }
@@ -359,20 +377,11 @@ struct DocumentWindow: View {
             ToolbarItem(placement: .navigation) {
                 FileButton(workspace: workspace)
             }
+            // The search is always in the toolbar (or a Search button while
+            // it is a card). The 2D view has no button: the keys 2 and 3,
+            // and View > 2D View.
             ToolbarItem(placement: .navigation) {
-                HStack(spacing: 8) {
-                    Picker("View", selection: Bindable(workspace).page) {
-                        Text("3D").tag(MetalSliceView.Page.threeD)
-                        Text("2D").tag(MetalSliceView.Page.twoD)
-                    }
-                    .pickerStyle(.segmented)
-                    .fixedSize()
-                    .help("3D: the layers up to the slider. 2D: one layer from the top. A drag pans, the wheel zooms, a double click fits the part.")
-                    Button { workspace.searchOpen = true } label: { Label("Search", systemImage: "magnifyingglass") }
-                        .help("Search the settings and the actions (/ or ⌘F)")
-                        // The search opens centered under this button.
-                        .onGeometryChange(for: CGFloat.self) { $0.frame(in: .global).midX } action: { workspace.searchButtonX = $0 }
-                }
+                SearchToolbarItem(workspace: workspace)
             }
             ToolbarItemGroup(placement: .primaryAction) {
                 PrinterMenu(workspace: workspace)

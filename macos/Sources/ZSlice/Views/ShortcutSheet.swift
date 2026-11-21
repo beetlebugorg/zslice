@@ -23,7 +23,8 @@ struct ShortcutSheet: View {
             ("Click a support line (Select)", "Select that support: drag a tree, or Delete"),
             ("Two-finger scroll, wheel, pinch", "Zoom toward the pointer"),
             ("Double-click a side", "Face that side (on no side: the start view)"),
-            ("⌘1, ⌘2", "The 3D view, the 2D layer view"),
+            ("2", "The 2D view of one layer, and 2 again the 3D view (also View > 2D View, ⌘2)"),
+            ("3", "The 3D view"),
             ("⌘0", "Fit the part"),
         ]),
         ("Tools", [
@@ -55,7 +56,7 @@ struct ShortcutSheet: View {
             ("Esc", "Clear the selection"),
         ]),
         ("Settings", [
-            ("/ or ⌘F", "Search the settings and the actions"),
+            ("/ or ⌘F", "Search the settings and the actions: the field of the toolbar (or the card of an undocked search)"),
             ("N or ⌥⌘I", "Show or hide the settings"),
             ("⌘[", "Back in the settings"),
             ("↑ ↓ in a field", "A step of the value"),

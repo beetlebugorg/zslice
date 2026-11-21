@@ -220,8 +220,6 @@ final class Workspace {
     @ObservationIgnored var cardCorner: Int?
     /// The height of the bottom bar, for the cards to keep clear of it.
     var dockHeight: CGFloat = 70
-    /// The middle of the Search button of the toolbar, in the window.
-    var searchButtonX: CGFloat = 260
     /// "Fade the others": the app keeps the choice.
     var isolate = prefs.bool(forKey: "isolate") {
         didSet { prefs.set(isolate, forKey: "isolate") }
@@ -247,7 +245,12 @@ final class Workspace {
         startStatus()
         if ProcessInfo.processInfo.environment["ZSLICE_PANEL"] != nil { showSettings = true }
         // ZSLICE_SEARCH=text opens the search with that text (the field reads it).
-        if ProcessInfo.processInfo.environment["ZSLICE_SEARCH"] != nil { searchOpen = true }
+        if let t = ProcessInfo.processInfo.environment["ZSLICE_SEARCH"] {
+            // ZSLICE_SEARCH_UNDOCK=1: the search as a card.
+            if ProcessInfo.processInfo.environment["ZSLICE_SEARCH_UNDOCK"] != nil { search.docked = false }
+            search.query = t
+            search.show()
+        }
         // ZSLICE_SEARCH_ENTER=name=value: Return on the first result, the
         // value typed in its field, and Return again; it logs where the
         // focus is after each step, and the value of the setting.
@@ -939,7 +942,7 @@ final class Workspace {
                     _ = sliceViewKey(e)
                 }
                 let range = rangeCard.map { " range \($0.lo)-\($0.hi)" } ?? ""
-                log.append("\(flags.contains(.control) ? "^" : "")\(s)→\(tool.rawValue) \(lo)-\(hi)\(range) line \(selection.map { String($0.path) } ?? "-")")
+                log.append("\(flags.contains(.control) ? "^" : "")\(s)→\(tool.rawValue) \(lo)-\(hi)\(range) line \(selection.map { String($0.path) } ?? "-")\(page == .twoD ? " 2D" : "")")
             }
             NSLog("zslice keys: selection %d, %@", selection == nil ? 0 : 1, log.joined(separator: " | "))
         }
@@ -1701,8 +1704,43 @@ final class Workspace {
     /// The sheet of the keyboard shortcuts shows.
     var shortcutsOpen = false
 
-    var searchOpen = false {
-        didSet { if !searchOpen { searchEye = nil } }
+    /// The search of settings and actions (SearchOverlay.swift): the same
+    /// text in the toolbar and in the card.
+    let search = SearchState()
+    /// The results of the search show (docked), or its card (undocked).
+    var searchOpen: Bool {
+        get { search.open }
+        set {
+            search.open = newValue
+            if !newValue { searchEye = nil }
+        }
+    }
+
+    /// `/` and Command-F: the field of the toolbar takes the focus, or the
+    /// card of the search opens and closes.
+    func openSearch() {
+        if search.docked || !search.open { search.show() } else { closeSearch() }
+        if search.docked { focusSearchField() }
+    }
+
+    /// The field of the search in the toolbar takes the focus. It is in the
+    /// frame view of the window, over the content view, where a focus of
+    /// SwiftUI from the content does not reach: AppKit moves the focus.
+    func focusSearchField() {
+        guard let w = canvas.window, let root = w.contentView?.superview else { search.focusTick += 1; return }
+        func find(_ v: NSView) -> NSTextField? {
+            if let f = v as? NSTextField, f.isEditable, f.placeholderString == "Search settings and actions" { return f }
+            for c in v.subviews { if let f = find(c) { return f } }
+            return nil
+        }
+        if let f = find(root) { w.makeFirstResponder(f) } else { search.focusTick += 1 }
+    }
+
+    /// Esc, `/` again, or the close button: the results (or the card) go,
+    /// and the view takes the keys again.
+    func closeSearch() {
+        searchOpen = false
+        canvas.window?.makeFirstResponder(canvas)
     }
     var searchEye: String? {
         didSet {
@@ -2261,7 +2299,10 @@ extension Workspace: SliceViewDelegate {
             case "n" where !shift: showSettings.toggle()
             // Esc with nothing else to close: the settings pane.
             case "\u{1b}" where showSettings: showSettings = false
-            case "/": searchOpen.toggle()
+            case "/": if searchOpen { closeSearch() } else { openSearch() }
+            // 2 shows the 2D view, and 2 again the 3D view; 3 the 3D view.
+            case "2" where !shift: page = page == .twoD ? .threeD : .twoD
+            case "3" where !shift: page = .threeD
             case "?": shortcutsOpen = true
             case "g" where !shift: toggleGaps()
             case "[": selectPlate(max(0, model.active - 1))
@@ -2301,7 +2342,9 @@ extension Workspace {
                 for c in v.subviews { if let f = find(c) { return f } }
                 return nil
             }
-            if let root = w.contentView, let f = find(root) { w.makeFirstResponder(f) }
+            // The field of the toolbar is in the frame view of the window,
+            // over the content view.
+            if let root = w.contentView?.superview ?? w.contentView, let f = find(root) { w.makeFirstResponder(f) }
         }
         NSLog("zslice search enter: start, focus %@", focus())
         returnKey()

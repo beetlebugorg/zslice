@@ -29,8 +29,7 @@ The 3D view fills the window. The controls float over it, so the slice has the r
 From left to right:
 
 - **The file button**, with the name of the document. Its menu opens files, adds models, saves, renames, and exports.
-- **3D and 2D**: the 3D view and the 2D layer view.
-- **Search** (`/` or Command-F): the settings and the actions.
+- **The search field** (`/` or Command-F): the settings and the actions. Its button at the right undocks it. While it is undocked, a Search button takes its place.
 - **The printer menu**: your printers, Add a Printer, Connect a Printdeck, and Manage Printers. With a connected printer, it can also take the bed, the nozzle, the motion, or the filament that the printer reports.
 - **The Filament button**: a dot in the color of each filament of the plate. See [Filaments](#filaments).
 - **The Quality menu**: the built-in qualities and yours, and Save as Profile. A dot means that this print has changes on top of the quality.
@@ -119,7 +118,8 @@ The keys of the other apps work in the 3D view. A key with Ctrl in the other app
 | Print | Command-P |
 | Search the settings and the actions | `/` or Command-F |
 | The settings drawer | N or Option-Command-I |
-| The 3D view, the 2D layer view | Command-1, Command-2 |
+| The 2D view of one layer, and back to 3D | 2 (or View > 2D View, Command-2) |
+| The 3D view | 3 |
 | Fit the part | Command-0 |
 | Gaps, Check | G or Shift-Command-G, Shift-Command-K |
 | The Printers page | Option-Command-P |
@@ -133,7 +133,9 @@ The keys of the other apps work in the 3D view. A key with Ctrl in the other app
 
 ### The search
 
-Type `/` and the words of a setting or an action. Up and Down go through the results. Return runs an action or turns a switch on or off.
+The search field is always in the toolbar. Type `/`, or click in it, and type the words of a setting or an action; the results show under it. Up and Down go through the results. Return runs an action or turns a switch on or off. Esc, or `/` again, hides the results.
+
+The button at the right end of the field undocks the search: it becomes a card over the view, with its own field. Drag its head to move it, and its corner to resize it. It opens at the same place and size next time, and zslice keeps the choice to undock. While it is undocked, the toolbar has a Search button that opens the card. The dock button of the card puts the search back in the toolbar.
 
 Return on a number or a text goes into its field with the value selected. Type a new value, or step it with Up and Down. Return sends it and goes back to the search, for the next Up or Down. Esc goes back with no change.
 

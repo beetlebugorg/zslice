@@ -216,7 +216,7 @@ The 2D page shows one layer from the top: the top layer of the layer slider.
 
 - It uses the same bead buffer on the GPU as the 3D page, so a new layer only changes the range of a draw.
 - The outlines of all layers (`zs_view_outlines`) go to the GPU once for each slice, as fans of triangles. The stencil buffer fills them by the nonzero rule.
-- The toolbar switches the page, and so do View > 3D View (Command-1) and View > 2D Layer View (Command-2). The app keeps the choice for the next window.
+- The key 2 switches between the pages and 3 goes to the 3D page, as does the check item View > 2D View (Command-2). The 2D page shows a "2D View" sign at the top; a click on it goes to the 3D page. The app keeps the choice for the next window.
 - On the 2D page, a drag pans, the wheel and a pinch zoom toward the pointer, and a double click fits the part (View > Fit the Part, Command-0).
 
 ## The window
@@ -225,7 +225,7 @@ The slice is the UI, so the chrome is small. The controls of the window are over
 
 ### The bars
 
-- **The toolbar**: the file button (`FileButton`: the name of the document, a dot for unsaved changes, and a menu of the file), then 3D and 2D and Search at the left with it. At the right: the printer menu, the Filament button, and the Quality menu as one group, then Printers, Settings, and `MoreMenu`.
+- **The toolbar**: the file button (`FileButton`: the name of the document, a dot for unsaved changes, and a menu of the file), then the search field (`SearchToolbarItem`) at the left with it. At the right: the printer menu, the Filament button, and the Quality menu as one group, then Printers, Settings, and `MoreMenu`.
   - The window title is hidden from the toolbar on macOS 15 and later.
   - No item is in the center: AppKit keeps a center item in the center, and a long printer name drew over it.
   - The labels of the menus keep their full size: at a narrow width, AppKit moves whole items to the » menu, and no label is cut with "…".
@@ -260,7 +260,7 @@ The drawer of the other apps is a SwiftUI inspector at the right of the window. 
 
 ### The search, the keys, Gaps, Check, and the context menu
 
-- `/` (or Command-F) opens the search of the settings and the actions over the view, with a live control for each setting, a slider for a number, and an eye that shows only the lines of a setting. Return on a number or a text focuses its field (the `focusRequest` of `ValueField`); Return or Esc there gives the focus back to the search.
+- The search of the settings and the actions (`SearchOverlay.swift`): its field is always in the toolbar, and `/` (or Command-F) gives it the focus. The results show under it, with a live control for each setting, a slider for a number, and an eye that shows only the lines of a setting. Return on a number or a text focuses its field (the `focusRequest` of `ValueField`); Return or Esc there gives the focus back to the search. The undock button makes the search a card with its own field (the spatial kind "search"); the app keeps the choice (`search.docked`). `SearchState` keeps the text, the selected row, and the place, for both fields.
 - `?` (or Help > Keyboard Shortcuts) opens the sheet of all the keys of the Mac app. The Mac app owns its table.
 - Gaps (G) shows the gaps of the top layer, and a click on a gap opens the settings that can close it. Check lists the issues of the print, and a click goes to an issue.
 - A right click with no drag, or Control and a click, opens the context menu. It fits what is under the pointer, as `web/app/context-menu.js` does: the support items on a support line, the part items on a line of a part, the plate items on the bed, and the view items each time. Remove This Support runs `zs_app_support_pick` up from the line in steps of 0.5 mm, puts a Block area on that overhang, runs `zs_app_mark_remove_near`, and ends the pick of the Select tool.
@@ -425,7 +425,7 @@ Like the GTK shell, the app reads environment variables for tests and screenshot
 - `ZSLICE_SNAPSHOT=path.png` writes the window to that PNG file 1.5 s after the first load of a slice, so the camera and the other hooks are done. The 3D view comes from Metal and the controls from AppKit (`cacheDisplay`), so it needs no permission to record the screen. `ZSLICE_SNAPSHOT_DELAY=s` waits s more seconds, for pages that wait on the network.
 - `ZSLICE_VIEW=2d` (or `3d`) opens the window on that page. `ZSLICE_PAGE=history`, `project`, or `printers` opens that page. `ZSLICE_PAGE_CLOSE=s` closes the Printers page after s seconds, to check that its cameras stop.
 - `ZSLICE_PANEL=1` shows the settings drawer, and `ZSLICE_SETTING=name` opens the page of that setting (`@name`: only its section). `ZSLICE_DETAILS=1` opens the details.
-- `ZSLICE_SEARCH=text` opens the search. `ZSLICE_SEARCH_ENTER=name=value` then presses Return on the first result, types the value in its field, and presses Return again; it logs where the focus is after each step, and the value of the setting.
+- `ZSLICE_SEARCH=text` opens the search with that text (`ZSLICE_SEARCH_UNDOCK=1`: as a card). `ZSLICE_SEARCH_ENTER=name=value` then presses Return on the first result, types the value in its field, and presses Return again; it logs where the focus is after each step, and the value of the setting.
 - `ZSLICE_GAPS=1` and `ZSLICE_CHECK=1` turn on Gaps and Check. `ZSLICE_MENU="x,y;Title"` (or `center;Title`) runs an item of the context menu. `ZSLICE_DARK=1` sets the dark look.
 - `ZSLICE_PRINTER_LABEL=text` sets the label of the printer menu, and `ZSLICE_WIDTH=points` the width of the window (0: its narrowest), for tests of the toolbar.
 - `ZSLICE_OPEN_AFTER=path` opens a file 3 s after the start, as File > Open does, and logs the windows (the empty window must give its place to the file).

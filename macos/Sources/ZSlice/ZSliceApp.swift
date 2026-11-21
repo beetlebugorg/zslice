@@ -234,10 +234,9 @@ struct ViewCommands: Commands {
 
     var body: some Commands {
         CommandGroup(before: .toolbar) {
-            Button("3D View") { workspace?.page = .threeD }
-                .keyboardShortcut("1", modifiers: .command)
-                .disabled(workspace == nil)
-            Button("2D Layer View") { workspace?.page = .twoD }
+            // A check item: the 2D view of one layer, or the 3D view (the
+            // keys 2 and 3 in the view too).
+            Toggle("2D View", isOn: Binding(get: { workspace?.page == .twoD }, set: { workspace?.page = $0 ? .twoD : .threeD }))
                 .keyboardShortcut("2", modifiers: .command)
                 .disabled(workspace == nil)
             Button("Fit the Part") { workspace?.fit() }
@@ -257,7 +256,7 @@ struct ViewCommands: Commands {
             Button("Printers") { workspace?.farmOpen.toggle() }
                 .keyboardShortcut("p", modifiers: [.command, .option])
                 .disabled(workspace == nil)
-            Button("Search Settings and Actions…") { workspace?.searchOpen = true }
+            Button("Search Settings and Actions…") { workspace?.openSearch() }
                 .keyboardShortcut("f", modifiers: .command)
                 .disabled(workspace == nil)
             Button(workspace?.showSettings == true ? "Hide Settings" : "Show Settings") { workspace?.showSettings.toggle() }

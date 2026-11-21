@@ -1,5 +1,15 @@
 //! The search of settings and actions (docs/internals/one-view.md,
-//! web/app/search.js, linux/src/ui/search.c). `/` opens it over the view.
+//! web/app/search.js, linux/src/ui/search.c).
+//!
+//! The search field is always in the toolbar. Text in it, a click in it,
+//! `/`, or Command-F shows the results under it. Esc, `/`, or the close
+//! button of the results hides them. The undock button of the field makes
+//! the search a card over the view, with its own field: a drag of its head
+//! moves it, its corner changes its size, and it opens at the same place
+//! and size next time (SpatialCards.swift, the kind "search"). The app
+//! keeps the choice to undock. While the search is undocked, the toolbar
+//! has a Search button that opens the card, and the dock button of the
+//! card puts the search back in the toolbar.
 //!
 //! The results are live controls: a number has its field and a slider, a
 //! choice its menu, a switch its switch. A change goes to the core at once
@@ -12,13 +22,15 @@
 //! while the search is open. An action runs with a click or Return.
 //!
 //! The search does not block the view: a drag in the view turns it, the
-//! wheel zooms, and a click picks a line, while the search stays open.
-//! Up and Down go through the results, Return runs an action or turns a
-//! switch, and Esc closes. Return on a number or a text goes into its
-//! field with the text selected: a typed number replaces it, and Up and
-//! Down step it. Return there sends the value and goes back to the
-//! search, for the next Up or Down; Esc goes back with no change. A drag of the top bar moves the box; it opens at
-//! the same place next time, and a double click on the bar puts it back.
+//! wheel zooms, and a click picks a line, while the results stay open.
+//! Up and Down go through the results, and Return runs an action or turns
+//! a switch. Return on a number or a text goes into its field with the
+//! text selected: a typed number replaces it, and Up and Down step it.
+//! Return there sends the value and goes back to the search field, for the
+//! next Up or Down; Esc goes back with no change.
+//!
+//! The state of the search (SearchState) is the same for the field of the
+//! toolbar and the field of the card, so the text stays when it moves.
 //!
 //! SPDX-License-Identifier: AGPL-3.0-or-later
 
@@ -32,78 +44,190 @@ struct SearchAction: Identifiable {
     var id: String { label }
 }
 
-struct SearchOverlay: View {
-    let workspace: Workspace
-    @State private var query = ""
-    @State private var index = 0
-    @State private var drag: CGSize = .zero
-    /// A drag of the head moves the search from its place under the Search
-    /// button, and it keeps that offset.
-    @AppStorage("search.dx", store: prefs) private var placeX = 0.0
-    @AppStorage("search.dy", store: prefs) private var placeY = 0.0
-    static let width: CGFloat = 400
-    @FocusState private var fieldFocus: Bool
+/// The text, the results shown, the selected row, and the place of the
+/// search (the toolbar or a card).
+@MainActor
+@Observable
+final class SearchState {
+    var query = "" {
+        didSet {
+            index = 0
+            if !query.isEmpty { open = true }
+        }
+    }
+    /// The results show (docked), or the card shows (undocked).
+    var open = false
+    var index = 0
     /// The setting whose field takes the focus next (Return on its row).
-    @State private var editing: String?
+    var editing: String?
+    /// The search is in the toolbar; false: a card over the view.
+    var docked = prefs.object(forKey: "search.docked") as? Bool ?? true {
+        didSet { prefs.set(docked, forKey: "search.docked") }
+    }
+    /// A field asks for the focus when this changes.
+    var focusTick = 0
+    /// The left edge of the field of the toolbar in the window, for the
+    /// results under it.
+    var fieldMinX: CGFloat = 0
 
-    private static let maxSettings = 14
-    private static let maxActions = 4
+    static let maxSettings = 14
+    static let maxActions = 4
 
-    private var model: SliceModel { workspace.model }
+    var words: [String] { query.lowercased().split(separator: " ").map(String.init) }
 
-    private var actions: [SearchAction] {
-        [
+    var settings: [SettingInfo] {
+        guard !words.isEmpty else { return [] }
+        // The core ranks the settings (zs_setting_search).
+        return SettingInfo.search(query, max: Self.maxSettings)
+    }
+
+    func actions(_ workspace: Workspace) -> [SearchAction] {
+        let w = words
+        guard !w.isEmpty else { return [] }
+        return Array(Self.allActions(workspace).filter { a in w.allSatisfy { a.label.lowercased().contains($0) } }.prefix(Self.maxActions))
+    }
+
+    static func allActions(_ workspace: Workspace) -> [SearchAction] {
+        let model = workspace.model
+        return [
             SearchAction(label: "Export G-code…", keys: "⌘E") { workspace.exportGcode(from: NSApp.keyWindow) },
             SearchAction(label: "Test Print: the Top Layer…", keys: "") { workspace.saveTestPrint(lo: workspace.hi, hi: workspace.hi + 1) },
             SearchAction(label: "Test Print: the Layers Shown…", keys: "") { workspace.saveTestPrint(lo: workspace.lo, hi: workspace.hi + 1) },
             SearchAction(label: "Undo", keys: "⌘Z") { model.history.undoManager.undo() },
             SearchAction(label: "Redo", keys: "⇧⌘Z") { model.history.undoManager.redo() },
-            SearchAction(label: "Show the 3D View", keys: "⌘1") { workspace.page = .threeD },
-            SearchAction(label: "Show the 2D Layer View", keys: "⌘2") { workspace.page = .twoD },
+            SearchAction(label: "Show the 3D View", keys: "3") { workspace.page = .threeD },
+            SearchAction(label: "Show the 2D View", keys: "2") { workspace.page = .twoD },
             SearchAction(label: "Fit the Part", keys: "⌘0") { workspace.fit() },
             SearchAction(label: "Show or Hide the Settings", keys: "N") { workspace.showSettings.toggle() },
             SearchAction(label: "Measure", keys: "T") { workspace.setTool(.measure) },
             SearchAction(label: "Move a Part", keys: "M") { workspace.setTool(.move) },
             SearchAction(label: "Turn a Part", keys: "R") { workspace.setTool(.turn) },
             SearchAction(label: workspace.simulated ? "Show the Plan" : "Show the Print as It Forms (Simulated Plastic)", keys: "") { workspace.toggleSimulation() },
-        ] + (workspace.model.project == nil ? [] : [SearchAction(label: "Close the Project", keys: "") { workspace.closeProject() }])
+        ] + (model.project == nil ? [] : [SearchAction(label: "Close the Project", keys: "") { workspace.closeProject() }])
     }
 
-    private var words: [String] {
-        query.lowercased().split(separator: " ").map(String.init)
+    func move(_ d: Int, _ workspace: Workspace) -> KeyPress.Result {
+        let n = actions(workspace).count + settings.count
+        guard n > 0 else { return .ignored }
+        index = (index + d + n) % n
+        return .handled
     }
 
-    private var settings: [SettingInfo] {
-        let w = words
-        guard !w.isEmpty else { return [] }
-        // The core ranks the settings (zs_setting_search).
-        return SettingInfo.search(query, max: Self.maxSettings)
+    /// Return in a field: run the selected action, turn a switch, or go
+    /// into the field of a number or a text.
+    func runSelected(_ workspace: Workspace) {
+        let acts = actions(workspace), found = settings
+        if index < acts.count {
+            acts[index].run()
+        } else if index - acts.count < found.count {
+            let info = found[index - acts.count]
+            if info.kind == .boolean {
+                workspace.model.set(info.name, workspace.model.entry(info.name).value == "true" ? "false" : "true")
+            } else if info.kind != .choice, !info.multiline {
+                editing = info.name
+            }
+        }
     }
 
-    private var matchingActions: [SearchAction] {
-        let w = words
-        guard !w.isEmpty else { return [] }
-        return Array(actions.filter { a in w.allSatisfy { a.label.lowercased().contains($0) } }.prefix(Self.maxActions))
+    /// `/` and Command-F: the field of the toolbar takes the focus, or the
+    /// card opens.
+    func show() {
+        open = true
+        focusTick += 1
     }
+}
+
+/// The field of the search in the toolbar, with the undock button; or the
+/// Search button while the search is a card.
+struct SearchToolbarItem: View {
+    let workspace: Workspace
+    @FocusState private var focused: Bool
 
     var body: some View {
-        let found = settings
-        let acts = matchingActions
-        VStack(alignment: .leading, spacing: 0) {
-            header
-            HStack(spacing: 6) {
+        let search = workspace.search
+        if search.docked {
+            HStack(spacing: 4) {
                 Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
-                TextField("Search settings and actions", text: $query)
+                TextField("Search settings and actions", text: Bindable(search).query)
                     .textFieldStyle(.plain)
-                    .font(.title3)
-                    .focused($fieldFocus)
-                    .onSubmit { runSelected(found, acts) }
-                    .onKeyPress(.downArrow) { move(1, found.count + acts.count) }
-                    .onKeyPress(.upArrow) { move(-1, found.count + acts.count) }
-                    .onKeyPress(.escape) { close(); return .handled }
+                    .frame(width: 200)
+                    .focused($focused)
+                    .onSubmit { search.runSelected(workspace) }
+                    .onKeyPress(.downArrow) { search.move(1, workspace) }
+                    .onKeyPress(.upArrow) { search.move(-1, workspace) }
+                    .onKeyPress(.escape) {
+                        workspace.closeSearch()
+                        return .handled
+                    }
+                Button {
+                    search.docked = false
+                    search.show()
+                } label: {
+                    Image(systemName: "macwindow").foregroundStyle(.secondary)
+                }
+                .buttonStyle(.borderless)
+                .help("Undock the search: a card over the view that you can move and size")
             }
-            .padding(10)
-            if !query.isEmpty {
+            .padding(.horizontal, 8)
+            .padding(.vertical, 3)
+            .background(RoundedRectangle(cornerRadius: 6).fill(Color(nsColor: .controlBackgroundColor)))
+            .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(.separator))
+            .help("Search the settings and the actions (/ or ⌘F)")
+            .onGeometryChange(for: CGFloat.self) { $0.frame(in: .global).minX } action: { search.fieldMinX = $0 }
+            .onChange(of: focused) { if focused { search.open = true } }
+            .onChange(of: search.focusTick) { focused = true }
+            .onAppear { if search.open { focused = true } }
+        } else {
+            Button { search.open.toggle() } label: { Label("Search", systemImage: "magnifyingglass") }
+                .help("Search the settings and the actions (/ or ⌘F)")
+        }
+    }
+}
+
+/// The results of the search: under the field of the toolbar (docked), or
+/// a card with its own field (undocked).
+struct SearchOverlay: View {
+    let workspace: Workspace
+    /// The area of the layer of the cards, for the place of the card.
+    var area: CGSize = .zero
+    @State private var drag: CGSize = .zero
+    @State private var size = CGSize(width: 400, height: 300)
+    static let width: CGFloat = 400
+    @FocusState private var fieldFocus: Bool
+
+    private var search: SearchState { workspace.search }
+
+    var body: some View {
+        if search.docked {
+            card
+        } else {
+            // A card over the view, at its place (the parent gives the area).
+            card
+                .position(cardCenter(in: area))
+                .offset(drag)
+        }
+    }
+
+    private var card: some View {
+        let found = search.settings
+        let acts = search.actions(workspace)
+        return VStack(alignment: .leading, spacing: 0) {
+            header
+            if !search.docked {
+                HStack(spacing: 6) {
+                    Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
+                    TextField("Search settings and actions", text: Bindable(search).query)
+                        .textFieldStyle(.plain)
+                        .font(.title3)
+                        .focused($fieldFocus)
+                        .onSubmit { search.runSelected(workspace) }
+                        .onKeyPress(.downArrow) { search.move(1, workspace) }
+                        .onKeyPress(.upArrow) { search.move(-1, workspace) }
+                        .onKeyPress(.escape) { workspace.closeSearch(); return .handled }
+                }
+                .padding(10)
+            }
+            if !search.query.isEmpty {
                 Divider()
                 ScrollView {
                     VStack(alignment: .leading, spacing: 0) {
@@ -119,14 +243,15 @@ struct SearchOverlay: View {
                                 }
                                 .padding(.horizontal, 10)
                                 .padding(.vertical, 6)
-                                .background(i == index ? Color.accentColor.opacity(0.15) : .clear)
+                                .background(i == search.index ? Color.accentColor.opacity(0.15) : .clear)
                                 .contentShape(Rectangle())
                             }
                             .buttonStyle(.plain)
                         }
                         ForEach(Array(found.enumerated()), id: \.element.id) { i, info in
-                            SearchRow(workspace: workspace, info: info, selected: acts.count + i == index, editing: $editing) {
-                                fieldFocus = true
+                            SearchRow(workspace: workspace, info: info, selected: acts.count + i == search.index, editing: Bindable(search).editing) {
+                                // Back to the field of the search.
+                                if search.docked { workspace.focusSearchField() } else { fieldFocus = true }
                             }
                         }
                         if found.isEmpty && acts.isEmpty {
@@ -136,27 +261,63 @@ struct SearchOverlay: View {
                         }
                     }
                 }
-                .frame(maxHeight: 420)
+                .frame(maxHeight: resultsHeight)
             }
         }
-        .frame(width: Self.width)
+        .frame(width: cardWidth)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
         .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(.separator))
+        .modifier(CardGrip(on: !search.docked, size: size))
         .shadow(color: .black.opacity(0.2), radius: 16, y: 6)
-        .offset(x: placeX + drag.width, y: placeY + drag.height)
+        .onGeometryChange(for: CGSize.self) { $0.size } action: { size = $0 }
         .onAppear {
-            fieldFocus = true
-            if let t = ProcessInfo.processInfo.environment["ZSLICE_SEARCH"] { query = t }
+            if !search.docked { fieldFocus = true }
+            if let t = ProcessInfo.processInfo.environment["ZSLICE_SEARCH"], search.query.isEmpty { search.query = t }
         }
-        .onChange(of: query) { index = 0 }
+        .onChange(of: search.focusTick) { if !search.docked { fieldFocus = true } }
+    }
+
+    /// The kept width of the card; the results under the toolbar have the
+    /// plain width.
+    private var cardWidth: CGFloat {
+        guard !search.docked, let s = SpatialStore.shared.size("search") else { return Self.width }
+        return max(s.width, 300)
+    }
+
+    /// The room of the results: the kept height of the card, else 420,
+    /// and never past the bottom bar (the field and the head take about
+    /// 90 points of a card, the head 30 of the results under the toolbar).
+    private var resultsHeight: CGFloat {
+        var h: CGFloat = 420
+        if !search.docked, let s = SpatialStore.shared.size("search"), s.height > 0 { h = max(120, s.height - 90) }
+        guard area.height > 0 else { return h }
+        return max(120, min(h, area.height - workspace.dockHeight - 24 - (search.docked ? 36 : 150)))
+    }
+
+    /// The center of the card: the place that the user gave it, else under
+    /// the toolbar in the middle.
+    func cardCenter(in area: CGSize) -> CGPoint {
+        let s = CGSize(width: cardWidth, height: size.height)
+        if let c = SpatialStore.shared.center("search", size: s, area: area, bottom: workspace.dockHeight, avoiding: nil) { return c }
+        return CGPoint(x: area.width / 2, y: 60 + s.height / 2)
     }
 
     private var header: some View {
         HStack {
             Text("Search").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
             Spacer()
+            if !search.docked {
+                Button {
+                    search.docked = true
+                    search.show()
+                } label: {
+                    Image(systemName: "dock.arrow.up.rectangle").foregroundStyle(.secondary)
+                }
+                .buttonStyle(.borderless)
+                .help("Dock the search in the toolbar")
+            }
             Button {
-                close()
+                workspace.closeSearch()
             } label: {
                 Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
             }
@@ -165,43 +326,27 @@ struct SearchOverlay: View {
         }
         .padding(.horizontal, 10)
         .padding(.top, 8)
+        .padding(.bottom, search.docked ? 4 : 0)
         .contentShape(Rectangle())
-        .help("Drag to move the search. A double click puts it back.")
-        .gesture(DragGesture()
+        .help(search.docked ? "" : "Drag to move the search; zslice keeps its place. A double click puts it back.")
+        .gesture(search.docked ? nil : DragGesture()
             .onChanged { drag = $0.translation }
             .onEnded { g in
-                placeX += g.translation.width
-                placeY += g.translation.height
+                let c = cardCenter(in: area)
+                SpatialStore.shared.moved("search", center: CGPoint(x: c.x + g.translation.width, y: c.y + g.translation.height),
+                                          size: CGSize(width: cardWidth, height: size.height))
                 drag = .zero
             })
-        .onTapGesture(count: 2) {
-            placeX = 0
-            placeY = 0
-        }
+        .onTapGesture(count: 2) { if !search.docked { SpatialStore.shared.forget("search") } }
     }
+}
 
-    private func move(_ d: Int, _ n: Int) -> KeyPress.Result {
-        guard n > 0 else { return .ignored }
-        index = (index + d + n) % n
-        return .handled
-    }
-
-    private func runSelected(_ found: [SettingInfo], _ acts: [SearchAction]) {
-        if index < acts.count {
-            acts[index].run()
-        } else if index - acts.count < found.count {
-            let info = found[index - acts.count]
-            if info.kind == .boolean {
-                model.set(info.name, model.entry(info.name).value == "true" ? "false" : "true")
-            } else if info.kind != .choice, !info.multiline {
-                editing = info.name
-            }
-        }
-    }
-
-    private func close() {
-        workspace.searchOpen = false
-        workspace.canvas.window?.makeFirstResponder(workspace.canvas)
+/// The grip of the card of the search, only while it is undocked.
+private struct CardGrip: ViewModifier {
+    let on: Bool
+    let size: CGSize
+    func body(content: Content) -> some View {
+        if on { content.spatialGrip("search", size: size) } else { content }
     }
 }
 
