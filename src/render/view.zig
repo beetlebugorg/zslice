@@ -2387,6 +2387,8 @@ pub const View = struct {
         for (0..3) |k| g.target[k] += v.target[k] - before.target[k];
         const delta = qmul(v.rot, qconj(before.rot));
         g.rot = qnormalize(qmul(delta, g.rot));
+        // A zoom: the goal comes nearer or goes back by the same ratio.
+        if (before.dist > 0 and v.dist > 0) g.dist *= v.dist / before.dist;
     }
 
     /// Moves the camera toward the goal for a time step of dt seconds.
@@ -2883,6 +2885,11 @@ pub const View = struct {
     /// Zooms toward the pixel (px, py): the point under the pixel, on the
     /// plane through the target that faces the camera, stays under it.
     pub fn zoomAt(v: *View, factor: f32, px: f32, py: f32) void {
+        // A camera that still moves to a goal (a Home, a frame of a part)
+        // keeps the zoom: the goal moves with it. Before, each frame of the
+        // motion took the zoom back, and the zoom came in jumps.
+        const before = v.pose();
+        defer v.carryGoal(before);
         // The point under the pixel: on the first bead that the ray hits
         // (the surface that the user looks at), else on the plane through
         // the target.
@@ -2895,7 +2902,10 @@ pub const View = struct {
         // size of the scene stopped the zoom far from the part on a row
         // of plates; now each point has the same stop as a bead.
         var along = if (hit) |h| h.t else old / dot(dir, cam.f);
-        if (hit == null and dir[2] < -1e-4 and cam.eye[2] > 0) along = -cam.eye[2] / dir[2];
+        // The bed under the pointer, but no farther than twice the distance
+        // to the target: near the horizon the bed point is far away, and a
+        // zoom toward it turned the camera away from the part.
+        if (hit == null and dir[2] < -1e-4 and cam.eye[2] > 0) along = @min(-cam.eye[2] / dir[2], 2 * old);
         const p = [3]f32{ cam.eye[0] + dir[0] * along, cam.eye[1] + dir[1] * along, cam.eye[2] + dir[2] * along };
         // The eye moves toward p by `f`, so p stays on the same ray. It
         // stops 2 mm in front of the point: it never goes into the part
@@ -6663,4 +6673,71 @@ test "a sign lies in front of its plate, and a click on it finds the plate" {
     try std.testing.expect(v.signQuad(0, .{ 110, 600, 300 }, .{ 0, -0.5, 0.8 }).?.flip);
     try std.testing.expectEqual(@as(?View.SignQuad, null), v.signQuad(0, .{ 110, -400, -50 }, .{ 0, 0.5, 0.8 }));
     try std.testing.expectEqual(@as(?View.SignQuad, null), v.signQuad(0, .{ 110, -4000, 5 }, .{ 0, 0.1, 1 }));
+}
+
+test "a zoom during a camera motion stays: the goal moves with it" {
+    var v: View = .{ .renderer = undefined, .headless = true, .width = 100, .height = 100 };
+    defer v.deinitData();
+    v.target = .{ 110, 110, 10 };
+    v.setAngles(-1.9, 0.6);
+    v.dist = 300;
+    // A motion to a goal 200 mm away, as a Home does.
+    v.goal = v.pose();
+    v.goal.?.dist = 200;
+    const d0 = v.dist;
+    v.zoomAt(1.0 / 1.15, 50, 50);
+    const zoomed = v.dist;
+    try std.testing.expect(zoomed < d0);
+    // The motion runs to its end: the zoom is still there (the goal took
+    // the same ratio).
+    for (0..200) |_| _ = v.animate(1.0 / 60.0);
+    try std.testing.expectApproxEqRel(@as(f32, 200) * zoomed / d0, v.dist, 1e-3);
+}
+
+test "a zoom at the horizon after a low orbit keeps the camera near the part" {
+    var v: View = .{ .renderer = undefined, .headless = true, .width = 200, .height = 200 };
+    defer v.deinitData();
+    v.target = .{ 110, 110, 5 };
+    v.extent = 60;
+    // Low, grazing: the camera looks along the bed.
+    v.setAngles(-1.9, 0.03);
+    v.dist = 200;
+    const eye0 = v.camera().eye;
+    // The pointer a little under the middle: the ray meets the bed far off.
+    v.zoomAt(1.0 / 1.15, 100, 104);
+    const eye1 = v.camera().eye;
+    const moved = std.math.sqrt((eye1[0] - eye0[0]) * (eye1[0] - eye0[0]) + (eye1[1] - eye0[1]) * (eye1[1] - eye0[1]) + (eye1[2] - eye0[2]) * (eye1[2] - eye0[2]));
+    // One step moves the eye at most a step of twice the distance.
+    try std.testing.expect(moved < 2 * 200 * (1 - 1.0 / 1.15) + 1);
+}
+
+test "a smooth zoom toward a wall moves the eye forward on each frame, with no jump" {
+    const gpa = View.gpa;
+    var v: View = .{ .renderer = undefined, .headless = true, .width = 100, .height = 100 };
+    defer v.deinitData();
+    try v.beads.append(gpa, .{ .ax = 80, .ay = 110, .bx = 140, .by = 110, .z = 30, .h = 60, .w = 4, .rgba = .{ 200, 200, 200, 0 } });
+    try v.layer_end.append(gpa, 1);
+    try v.buildPickIndex(null);
+    v.target = .{ 110, 110, 15 };
+    v.setAngles(-std.math.pi / 2.0, 0);
+    v.dist = 120;
+    var last = v.camera().eye;
+    var worst: f32 = 0;
+    var back: usize = 0;
+    // 40 wheel steps, 4 frames apart, as a fast wheel gives.
+    for (0..40) |_| {
+        v.zoomAtSmooth(1.0 / 1.15, 50, 50);
+        for (0..4) |_| {
+            _ = v.animate(1.0 / 60.0);
+            const e = v.camera().eye;
+            const d = [3]f32{ e[0] - last[0], e[1] - last[1], e[2] - last[2] };
+            const len = @sqrt(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]);
+            worst = @max(worst, len);
+            // The eye looks along +y here: it never goes back.
+            if (d[1] < -1e-3) back += 1;
+            last = e;
+        }
+    }
+    try std.testing.expectEqual(@as(usize, 0), back);
+    try std.testing.expect(worst < 15);
 }

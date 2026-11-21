@@ -4197,12 +4197,12 @@ function benchPick(step = 40) {
 window.zslice = {
   project,
   labelTool,
+  camera: () => cameraNow(),
   rangeCard,
   search,
   shortcuts,
   partCard,
   paintTool,
-  labelTool,
   turnRings,
   supportTool,
   app, view, view2d, layers, browser, client, gl, inspector, gaps, history, undoRedo, tools, store, managePrinters, openPrinterSettings, loadProfile, setSetting, pickAt, topLayerPoint, openCheck, frameTimes,
