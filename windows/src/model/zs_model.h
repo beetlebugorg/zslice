@@ -50,11 +50,32 @@ namespace zs
         // "84 layers, 26 min, 2.34 m, 7.0 g", or empty with no slice.
         std::wstring Summary() const;
 
+        // The plates. Each call makes the new active app ready.
+        size_t PlateCount() const { return zs_set_count(set_); }
+        size_t ActivePlate() const { return zs_set_active(set_); }
+        bool AddPlate();
+        bool SelectPlate(size_t i);
+        bool RemovePlate(size_t i);
+
+        // The printer library, built into the core.
+        zs_printers *Printers();
+        // Applies the machine profile of a library model to the active
+        // plate, and slices it again.
+        bool UsePrinter(std::string const &id, std::string &message);
+        // Shows the bed model of the printer of the active plate. The files
+        // are in the folder `beds` beside the program, or ZSLICE_BEDS_DIR.
+        void UpdateBed(zs_view *view);
+
     private:
         static void OnEvent(void *user, size_t plate, int event, double progress, int status);
+        void SyncActive();
 
         std::function<void(Event const &)> post_;
         zs_set *set_ = nullptr;
+        zs_printers *printers_ = nullptr;
+        bool printers_tried_ = false;
+        zs_view *bed_view_ = nullptr;
+        ptrdiff_t bed_shown_ = -2;
     };
 
     std::string ToUtf8(std::wstring const &text);
