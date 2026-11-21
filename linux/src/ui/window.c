@@ -913,6 +913,47 @@ void zg_window_open_file(GtkWindow *window, GFile *file) {
     g_file_load_contents_async(file, NULL, on_loaded, job);
 }
 
+/* A model from outside the app goes on a new plate if the active plate
+ * has parts, so it replaces no work. */
+static void new_plate_if_parts(Window *w) {
+    if (zs_app_part_count(zg_model_core(w->model)) > 0) zg_model_plate_add(w->model);
+}
+
+void zg_window_open_external(GtkWindow *window, GFile **files, int n) {
+    Window *w = get(window);
+    if (!w || n <= 0) return;
+    new_plate_if_parts(w);
+    for (int i = 0; i < n; i++) zg_window_open_file(window, files[i]);
+}
+
+void zg_window_open_bytes(GtkWindow *window, const char *name, GBytes *bytes) {
+    Window *w = get(window);
+    if (!w) return;
+    zg_model_project_end(w->model);
+    new_plate_if_parts(w);
+    GError *error = NULL;
+    gsize len = 0;
+    const void *data = g_bytes_get_data(bytes, &len);
+    if (!zg_model_add(w->model, name, data, len, &error)) {
+        show_error(w, "The model did not open", error->message);
+        g_error_free(error);
+    }
+    gtk_progress_bar_set_fraction(GTK_PROGRESS_BAR(w->progress), 0);
+    update(w);
+}
+
+void zg_window_show_progress(GtkWindow *window, const char *text, double fraction) {
+    Window *w = get(window);
+    if (!w) return;
+    gtk_label_set_text(GTK_LABEL(w->status), text);
+    gtk_progress_bar_set_fraction(GTK_PROGRESS_BAR(w->progress), fraction);
+}
+
+void zg_window_show_error(GtkWindow *window, const char *message, const char *detail) {
+    Window *w = get(window);
+    if (w) show_error(w, message, detail);
+}
+
 static void on_open_chosen(GObject *source, GAsyncResult *res, gpointer data) {
     GtkWindow *window = data;
     GListModel *files = gtk_file_dialog_open_multiple_finish(GTK_FILE_DIALOG(source), res, NULL);

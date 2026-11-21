@@ -85,6 +85,7 @@ SOURCES = [
     ("docs/internals/code-quality.md", "internals/code-quality/", "Internals", "Code quality"),
     ("docs/internals/macos.md", "internals/macos/", "Internals", "The macOS app"),
     ("docs/internals/windows.md", "internals/windows/", "Internals", "The Windows app"),
+    ("docs/internals/open-links.md", "internals/open-links/", "Internals", "Links that open a model"),
     ("docs/internals/release.md", "internals/release/", "Internals", "CI and releases"),
     ("docs/app/README.md", "app/", "Project", "App"),
     ("ROADMAP.md", "roadmap/", "Project", "Roadmap"),

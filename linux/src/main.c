@@ -1,7 +1,8 @@
 /* main.c: the GtkApplication entry point.
  *
- * One window and one ZgModel for the life of the app. A file on the command
- * line opens in the window.
+ * One window and one ZgModel for the life of the app. A file or a
+ * zslice:// link on the command line opens in the window. A second start
+ * hands its files and links to the first one.
  *
  * SPDX-License-Identifier: AGPL-3.0-or-later
  */
@@ -19,6 +20,7 @@
 
 #include "model/app-model.h"
 #include "ui/licenses.h"
+#include "ui/open-link.h"
 #include "ui/preferences.h"
 #include "ui/printer-picker.h"
 #include "ui/window.h"
@@ -481,17 +483,23 @@ static void session_hook(GtkWindow *w) {
     gtk_widget_add_controller(GTK_WIDGET(w), input);
 }
 
-static void on_activate(GApplication *app, gpointer data) {
-    if (g_getenv("ZSLICE_BENCH")) g_message("bench: activate, %.0f ms after the start", (g_get_monotonic_time() - zg_start_us) / 1000.0);
+/* The start of the window: the session of the last run (once, before the
+ * first frame), and the hooks that save it. */
+static GtkWindow *start_window(GApplication *app) {
     GtkWindow *w = main_window(GTK_APPLICATION(app));
-    if (g_getenv("ZSLICE_BENCH")) g_message("bench: the window built, %.0f ms after the start", (g_get_monotonic_time() - zg_start_us) / 1000.0);
-    /* The session of the last run, before the first frame. */
     static gboolean restored_once;
     if (!restored_once) {
         restored_once = TRUE;
         session_restore(w);
     }
     session_hook(w);
+    return w;
+}
+
+static void on_activate(GApplication *app, gpointer data) {
+    if (g_getenv("ZSLICE_BENCH")) g_message("bench: activate, %.0f ms after the start", (g_get_monotonic_time() - zg_start_us) / 1000.0);
+    GtkWindow *w = start_window(app);
+    if (g_getenv("ZSLICE_BENCH")) g_message("bench: the window built, %.0f ms after the start", (g_get_monotonic_time() - zg_start_us) / 1000.0);
     gtk_window_present(w);
     /* The first start (no printer set up): the printer picker. */
     static gboolean once;
@@ -499,15 +507,29 @@ static void on_activate(GApplication *app, gpointer data) {
     once = TRUE;
 }
 
+/* Files and links from outside the app: the command line, the file
+ * manager, a zslice:// link, or a second start (GtkApplication hands its
+ * files to this one). The session comes back first. The files go on a
+ * new plate if the plate has parts. A link asks first (ui/open-link). */
 static void on_open(GApplication *app, GFile **files, int n, const char *hint, gpointer data) {
-    GtkWindow *w = main_window(GTK_APPLICATION(app));
-    session_hook(w);
-    /* Each file is a part of the plate. */
-    for (int i = 0; i < n; i++) zg_window_open_file(w, files[i]);
+    GtkWindow *w = start_window(app);
     gtk_window_present(w);
+    GPtrArray *models = g_ptr_array_new();
+    for (int i = 0; i < n; i++) {
+        if (g_file_has_uri_scheme(files[i], "zslice")) {
+            char *uri = g_file_get_uri(files[i]);
+            zg_open_link(w, uri);
+            g_free(uri);
+        } else {
+            g_ptr_array_add(models, files[i]);
+        }
+    }
+    if (models->len) zg_window_open_external(w, (GFile **)models->pdata, (int)models->len);
+    g_ptr_array_free(models, TRUE);
 }
 
 static void on_shutdown(GApplication *app, gpointer data) {
+    zg_open_link_cancel();
     GtkWindow *w = gtk_application_get_active_window(GTK_APPLICATION(app));
     if (w) session_save(w, TRUE);
     g_clear_object(&model);

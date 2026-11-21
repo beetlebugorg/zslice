@@ -12,6 +12,7 @@ project('zslice-gtk', 'c',
 )
 
 cc = meson.get_compiler('c')
+gnome = import('gnome')
 
 # Callback signatures are fixed by the signal, so many have parameters that
 # they do not use.
@@ -96,6 +97,7 @@ executable('zslice-gtk',
   'src/ui/paint-card.c',
   'src/ui/bed-model.c',
   'src/ui/native-surface.c',
+  'src/ui/open-link.c',
   'src/prefs/printers.c',
   'src/prefs/cura-stack.c',
   'src/net/printer-link.c',
@@ -105,6 +107,7 @@ executable('zslice-gtk',
   'src/net/project-source.c',
   'src/net/key-header.c',
   'src/net/deck-filaments.c',
+  'src/net/model-download.c',
   core[1], core[2],
   link_with: core[0],
   c_args: ['-DZG_VERSION="' + meson.project_version() + '"',
@@ -114,7 +117,11 @@ executable('zslice-gtk',
   install: true,
 )
 
+# The .desktop file names the model types and the zslice:// links
+# (x-scheme-handler/zslice). An install runs update-desktop-database, so
+# the desktop finds the link handler.
 install_data('data/org.beetlebug.Zslice.desktop', install_dir: get_option('datadir') / 'applications')
+gnome.post_install(update_desktop_database: true)
 
 # Tests of the network code with local servers only: `meson test -C
 # linux/build`. They need no core and no display.
@@ -131,6 +138,12 @@ test('deck filaments', executable('deck-filaments-test', 'tests/deck-filaments-t
 # core and no display.
 test('label model', executable('label-model-test', 'tests/label-model-test.c', 'src/ui/label-model.c',
                                dependencies: [json_dep, m_dep]))
+# The download of a zslice:// link: a name that resolves to a local
+# address gets no connection. A stub resolver gives the addresses, so the
+# test sends no packet.
+test('model download', executable('model-download-test', 'tests/model-download-test.c', 'src/net/model-download.c',
+                                  core[1], core[2], link_with: core[0],
+                                  dependencies: [thread_dep, m_dep, soup_dep]))
 test('bambu pin', executable('bambu-pin-test', 'tests/bambu-pin-test.c', 'src/net/bambu-link.c', 'src/prefs/printers.c',
                              core[1], core[2], link_with: core[0],
                              dependencies: [gtk_dep, thread_dep, m_dep]))
