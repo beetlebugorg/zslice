@@ -92,6 +92,7 @@
 <h1>The print view: G-code on a printer screen</h1>
 
 <nav class="onpage"><b>On this page</b><ol><li><a href="#build">Build</a></li><li><a href="#the-flow">The flow</a></li><li><a href="#byte-offsets">Byte offsets</a></li><li><a href="#example">Example</a></li><li><a href="#go-cgo">Go (cgo)</a></li><li><a href="#speed-and-memory">Speed and memory</a></li><li><a href="#thumbnails">Thumbnails</a></li></ol></nav><p>A printer host (for example printdeck, in Go on a Raspberry Pi 5) can show the print as the zslice 3D view: the same beads, light, and colors as a slice, in a reduced view with no tools. The host gives the file position of the printer, and the view draws the print up to it. The calls are in <code>include/zslice-app.h</code>, in the part "a print view".</p>
+<p>A web page can do the same with <a href="../../embedding/viewer/">the G-code viewer</a>: Give the file position of the printer to <code>setPosition</code>. The viewer page has a live demo: <a href="../../embedding/viewer/#follow-a-print">Follow a print</a>.</p>
 <h2 id="build">Build</h2>
 <pre><code>zig build lib -Doptimize=ReleaseFast -Dtarget=aarch64-linux-gnu   # the Pi
 zig build lib -Doptimize=ReleaseFast -Dtarget=x86_64-linux-gnu    # a simulator on a PC</code></pre>

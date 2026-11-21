@@ -231,6 +231,10 @@ class Markdown:
                 while j < n and not lines[j].lstrip().startswith("```"):
                     j += 1
                 body = [l[len(fence):] if l.startswith(fence) else l for l in lines[i + 1:j]]
+                # A live example: the fence "```html live" puts its HTML in the page, and then
+                # shows the same HTML as code. The page runs the code that it shows.
+                if line.strip() == "```html live":
+                    out.append('<div class="live">' + "\n".join(body) + "</div>")
                 out.append("<pre><code>" + esc("\n".join(body), quote=False) + "</code></pre>")
                 i = j + 1
             elif (m := re.match(r"^(#{1,6}) +(.*?)#*$", line)):
@@ -607,6 +611,10 @@ code, pre, kbd { font-family: var(--mono); font-variant-ligatures: none; }
 code { font-size: .92em; background: var(--plate); padding: 0 .25em; border-radius: 3px; }
 pre { background: var(--plate); border-left: 4px solid var(--edge); padding: 12px 14px; overflow-x: auto; font-size: 13px; line-height: 1.45; }
 pre code { background: none; padding: 0; font-size: inherit; }
+.live { border: 1px solid var(--edge); padding: 12px; margin: 0 0 1.2em; }
+.live canvas { display: block; background: var(--plate); }
+.live label { display: flex; gap: 10px; align-items: center; margin-top: 10px; flex-wrap: wrap; }
+.live input[type="range"] { flex: 1; min-width: 160px; accent-color: var(--orange); }
 h1, h2, h3, h4 { font-family: var(--mono); letter-spacing: .02em; line-height: 1.2; }
 h1 { font-size: clamp(26px, 4vw, 34px); margin: 6px 0 10px; text-transform: uppercase; }
 h2 { font-size: 20px; margin: 40px 0 10px; padding-bottom: 6px; border-bottom: 3px solid var(--ink); }
