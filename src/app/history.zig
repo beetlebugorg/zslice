@@ -343,6 +343,8 @@ pub const Kind = enum {
     /// The filaments of the plate: a color, a material, a filament added
     /// or removed, and the filament of a part or of the support.
     filament,
+    /// A label of a part: its text, shapes, size, turn, or depth.
+    label,
 };
 
 fn kindOfSection(group: []const u8, section: []const u8) Kind {
@@ -381,7 +383,7 @@ pub fn kindOf(c: Change) Kind {
             const n = LabelFacts.parse(c.new);
             if (!eq(u8, o.get("filament"), n.get("filament"))) return .filament;
             if (!eq(u8, o.get("at"), n.get("at")) or !eq(u8, o.get("facing"), n.get("facing"))) return .move;
-            return .other;
+            return .label;
         }
     }
     if (eq(u8, c.key, "quality")) return .quality;
@@ -911,4 +913,9 @@ test "a change of a filament slot or of the filament of a part is a filament ste
     try testing.expectEqual(Kind.filament, kindOf(.{ .scope = "filament 2", .key = "filament.color", .old = "#d0d0cc", .new = "#d93a3a" }));
     try testing.expectEqual(Kind.filament, kindOf(.{ .scope = "", .key = "project.support_filament", .old = "0", .new = "2" }));
     try testing.expectEqual(Kind.heat, kindOf(.{ .scope = "", .key = "filament.nozzle_temp", .old = "", .new = "215" }));
+}
+
+test "history: a new text of a label is a label step" {
+    const ch = "part:Box\tlabel 1\ttext \"LABEL\", filament 2, shape 1a2b, at 20.0 10.0 5.0, facing 100 0 0, turned 0\ttext \"VOLUME\", filament 2, shape 3c4d, at 20.0 10.0 5.0, facing 100 0 0, turned 0\n";
+    try testing.expectEqual(Kind.label, try stepKind(testing.allocator, ch));
 }

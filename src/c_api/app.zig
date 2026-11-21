@@ -3523,7 +3523,7 @@ export fn zs_app_history_step(a: ?*App, i: usize, out: ?*HistoryStep) c_int {
 /// The kind of a step of the history, from its changes (zs_history_diff
 /// lines): "walls", "infill", "surface", "speed", "heat", "support",
 /// "layers", "move", "rotate", "scale", "add", "remove", "quality",
-/// "printer", "filament", or "other". A static string.
+/// "printer", "filament", "label", or "other". A static string.
 export fn zs_history_kind(changes: ?[*]const u8, len: usize) [*:0]const u8 {
     const t = if (changes) |p| p[0..len] else "";
     const k = app_mod.history.stepKind(gpa, t) catch return "other";
