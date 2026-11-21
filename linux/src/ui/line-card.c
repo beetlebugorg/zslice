@@ -76,7 +76,9 @@ static void stat_box(GtkWidget *grid, int col, const char *value, const char *ca
 /* The numbers of the line: its title, the three numbers, why it is slow,
  * and its size. */
 static void update_numbers(LineCard *c, const zs_inspect *info, size_t path) {
-    char *title = g_strdup_printf("%s · layer %zu", info->title, info->layer + 1);
+    /* A printer with two nozzles: the nozzle of the line. */
+    const char *nozzle = info->nozzle == 2 ? " · 2nd nozzle" : info->nozzle == 1 ? " · main nozzle" : "";
+    char *title = g_strdup_printf("%s · layer %zu%s", info->title, info->layer + 1, nozzle);
     gtk_label_set_text(GTK_LABEL(c->title), title);
     g_free(title);
     GtkWidget *child;
@@ -88,9 +90,13 @@ static void update_numbers(LineCard *c, const zs_inspect *info, size_t path) {
     stat_box(c->stats, 0, a, "planned", FALSE);
     stat_box(c->stats, 1, b, "real", info->slow_reason != 0);
     stat_box(c->stats, 2, f, "flow", FALSE);
+    /* Why it is slow, and the speed limits of the second nozzle. */
     const char *slow = info->slow_text ? info->slow_text : "";
-    gtk_label_set_text(GTK_LABEL(c->note), slow);
-    gtk_widget_set_visible(c->note, slow[0] != 0);
+    const char *limits = info->nozzle == 2 && info->nozzle_text ? info->nozzle_text : "";
+    char *note = g_strdup_printf("%s%s%s", slow, slow[0] && limits[0] ? "\n" : "", limits);
+    gtk_label_set_text(GTK_LABEL(c->note), note);
+    gtk_widget_set_visible(c->note, note[0] != 0);
+    g_free(note);
     /* The size: a circle or an arc, the segment, and the path. */
     gint64 seg = zg_model_segment(c->model);
     zs_measure m;

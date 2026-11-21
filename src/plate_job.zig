@@ -270,6 +270,10 @@ pub const PlateJob = struct {
         pj.slots = try gpa.alloc(settings_mod.Filament, 1 + @min(opts.filaments.len, filaments_mod.max_slots - 1));
         pj.slots[0] = settings.filament;
         for (pj.slots[1..], opts.filaments[0 .. pj.slots.len - 1]) |*d, f| d.* = f;
+        // The nozzle of each filament: a part on the second nozzle gets
+        // its line width.
+        const slot_nozzles = settings_mod.SlotNozzles.of(pj.slots);
+        pj.resolved = settings.resolveFor(slot_nozzles) catch return error.InvalidSettings;
         try pj.expandPaint(settings, parts_in, &expanded);
         const parts = expanded.items;
 
@@ -348,6 +352,7 @@ pub const PlateJob = struct {
                 .trees_layers = p.trees_layers,
                 .islands = opts.islands,
                 .paint = if (p.paint_split) |sp| .{ .split = sp, .index = p.paint_index } else null,
+                .slots = slot_nozzles,
             });
             errdefer job.deinit();
             // The scaled monitor lives only in this call.
@@ -360,13 +365,13 @@ pub const PlateJob = struct {
         pj.groups = try groups.toOwnedSlice(gpa);
 
         pj.sequential = settings.project.print_sequence == .by_object and !pj.single();
-        try pj.makeLevels(settings, opts.overrides);
+        try pj.makeLevels(settings, opts.overrides, slot_nozzles);
         try pj.makeOutline0();
         try pj.makeIslands();
         // A sequential plate has no move streams: a stream starts where the
         // level before it ends, and a lift moves the head between parts.
         if (opts.streams) |extra| if (!pj.sequential) {
-            pj.stamp = planStamp(settings, parts, opts.overrides, keys, boxes, extra);
+            pj.stamp = planStamp(settings, parts, opts.overrides, keys, boxes, extra ^ (@as(u64, slot_nozzles.second) << 32 | slot_nozzles.count));
             const old_streams: ?*PlateJob = if (opts.old) |o| (if (o.stamp == pj.stamp and o.streams.len == pj.levels.len) o else null) else null;
             if (old_streams) |o| {
                 // The same inputs of the plans: the streams are still right,
@@ -464,7 +469,7 @@ pub const PlateJob = struct {
 
     /// Step 4 and 5: the levels, their parts in print order, and the
     /// settings of each level.
-    fn makeLevels(self: *PlateJob, settings: Settings, overrides: []const settings_mod.Override) Error!void {
+    fn makeLevels(self: *PlateJob, settings: Settings, overrides: []const settings_mod.Override, slot_nozzles: settings_mod.SlotNozzles) Error!void {
         const gpa = self.gpa;
         var tops: std.ArrayList(Top_) = .empty;
         defer tops.deinit(gpa);
@@ -517,7 +522,7 @@ pub const PlateJob = struct {
         }
         self.levels = try levels.toOwnedSlice(gpa);
         self.entries = try entries.toOwnedSlice(gpa);
-        try self.levelSettings(settings, overrides);
+        try self.levelSettings(settings, overrides, slot_nozzles);
     }
 
     /// The levels of the parts with `in_pass` from the layer tops `tops`
@@ -574,7 +579,7 @@ pub const PlateJob = struct {
     }
 
     /// The settings of each level, with the overrides that cover it.
-    fn levelSettings(self: *PlateJob, settings: Settings, overrides: []const settings_mod.Override) Error!void {
+    fn levelSettings(self: *PlateJob, settings: Settings, overrides: []const settings_mod.Override, slot_nozzles: settings_mod.SlotNozzles) Error!void {
         const gpa = self.gpa;
         if (self.single() or overrides.len == 0) return;
         self.level_set = try gpa.alloc(u16, self.levels.len);
@@ -594,7 +599,7 @@ pub const PlateJob = struct {
                 continue;
             }
             const s = settings_mod.withOverrides(settings, overrides, lv.z) catch return error.InvalidSettings;
-            try list.append(gpa, s.resolve() catch return error.InvalidSettings);
+            try list.append(gpa, s.resolveFor(slot_nozzles) catch return error.InvalidSettings);
             try masks.append(gpa, mask);
             self.level_set[i] = @intCast(list.items.len);
         }
@@ -649,10 +654,17 @@ pub const PlateJob = struct {
         const p = s.project;
         const sup = filaments_mod.pathSlot(.support, p, n_slots);
         const iface = filaments_mod.pathSlot(.support_interface, p, n_slots);
-        const own_support = p.support != .off and (p.support_filament > 0 or p.support_interface_filament > 0);
+        // The infill of its own filament (project.infill_filament) changes
+        // the filament inside a layer too.
+        const fill = filaments_mod.lineSlot(.infill, true, p, n_slots);
+        const own_infill = ownInfill(p, n_slots);
+        const own_support = (p.support != .off and (p.support_filament > 0 or p.support_interface_filament > 0)) or own_infill;
         if (own_support) {
-            used[out.of_slot[sup]] = true;
-            used[out.of_slot[iface]] = true;
+            if (p.support != .off) {
+                used[out.of_slot[sup]] = true;
+                used[out.of_slot[iface]] = true;
+            }
+            if (own_infill) used[out.of_slot[fill]] = true;
         }
         var tool: ?u32 = null;
         for (self.levels) |lv| for (self.entries[lv.first..lv.end]) |e| {
@@ -701,7 +713,8 @@ pub const PlateJob = struct {
             };
         }
         var support_mask: u32 = 0;
-        if (own_support) support_mask = (@as(u32, 1) << @intCast(sup)) | (@as(u32, 1) << @intCast(iface));
+        if (own_support and p.support != .off) support_mask = (@as(u32, 1) << @intCast(sup)) | (@as(u32, 1) << @intCast(iface));
+        if (own_infill) support_mask |= @as(u32, 1) << @intCast(fill);
         var most = [_]f64{0} ** gcode.Towers.max;
         var prev: u32 = 1; // The start G-code loads filament 1.
         for (self.levels) |lv| {
@@ -741,6 +754,13 @@ pub const PlateJob = struct {
         return out;
     }
 
+    /// The sparse infill has a filament of its own (see
+    /// Project.infill_filament): a change can come on any layer.
+    fn ownInfill(p: settings_mod.Project, n_slots: usize) bool {
+        if (n_slots < 2 or !(p.infill_density > 0) or p.infill_filament == 0) return false;
+        return filaments_mod.slotOf(p.infill_filament, n_slots) != filaments_mod.slotOf(p.filament, n_slots);
+    }
+
     /// The right edge of the place of a tower near the right side: the
     /// side of the bed, or the edge of the reach of the first nozzle of a
     /// head with two (the left nozzle of the H2D stops 25 mm from the
@@ -760,7 +780,7 @@ pub const PlateJob = struct {
         // again, and a tower cannot rise with them.
         if (self.sequential) return null;
         const p = s.project;
-        const own_support = p.support != .off and (p.support_filament > 0 or p.support_interface_filament > 0) and self.slots.len > 1;
+        const own_support = ((p.support != .off and (p.support_filament > 0 or p.support_interface_filament > 0)) or ownInfill(p, self.slots.len)) and self.slots.len > 1;
         const last = self.lastChange() orelse (if (own_support) self.levels.len -| 1 else return null);
         const size = s.project.prime_tower_width;
         const margin = 10;
@@ -1044,6 +1064,11 @@ pub const PlateJob = struct {
             }
             try lp.append(&plans[inst.group].?, inst.dx, inst.dy, inst.part, e.layer);
         }
+        // The paths of the parts have their own widths (see
+        // LayerPlan.append). The skirt, the brim, and the prime tower have
+        // the width of the plate, also next to a part of a wider line (a
+        // part on a second nozzle of another size).
+        if (lp.paths.items.len > 0) lp.width = if (i == 0) r.first_layer_line_width else r.line_width;
         return lp;
     }
 
@@ -2930,4 +2955,270 @@ test "plate job: one change late in the print gives a small tower" {
     const st = try pj.writeGcode(&out.writer);
     try testing.expectEqual(@as(u32, 1), st.changes);
     try testing.expectEqual(@as(f64, 0), st.tower_short_mm3);
+}
+
+/// The extrusion moves of a G-code of two tools (T0 and T1, no change
+/// G-code): for each tool, the moves with X or Y and a positive E, as
+/// text, the highest feed (mm/s) of them, and the sum of their E.
+const ToolMoves = struct {
+    lines: [2]std.ArrayList([]const u8) = .{ .empty, .empty },
+    max_feed: [2]f64 = .{ 0, 0 },
+    e: [2]f64 = .{ 0, 0 },
+
+    fn init(a: Allocator, g: []const u8) !ToolMoves {
+        var out: ToolMoves = .{};
+        var tool: usize = 0;
+        var feed: f64 = 0;
+        var it = std.mem.splitScalar(u8, g, '\n');
+        while (it.next()) |line| {
+            if (line.len >= 2 and line[0] == 'T' and (line[1] == '0' or line[1] == '1')) tool = line[1] - '0';
+            if (!std.mem.startsWith(u8, line, "G1 ") and !std.mem.startsWith(u8, line, "G0 ")) continue;
+            var e: f64 = 0;
+            var xy = false;
+            var words = std.mem.tokenizeScalar(u8, line, ' ');
+            while (words.next()) |wd| switch (wd[0]) {
+                'F' => feed = (std.fmt.parseFloat(f64, wd[1..]) catch 0) / 60,
+                'E' => e = std.fmt.parseFloat(f64, wd[1..]) catch 0,
+                'X', 'Y' => xy = true,
+                else => {},
+            };
+            if (!xy or !(e > 0)) continue;
+            try out.lines[tool].append(a, line);
+            out.max_feed[tool] = @max(out.max_feed[tool], feed);
+            out.e[tool] += e;
+        }
+        return out;
+    }
+};
+
+/// Two boxes on a printer with two nozzles (T0 and T1, a plain tool
+/// change): the first of filament 1 on the main nozzle, the second of
+/// filament 2 on the second nozzle, with the settings `s`.
+fn twoNozzleGcode(a: Allocator, s: Settings) ![]const u8 {
+    const gpa = testing.allocator;
+    var m1 = try testBox(60, 90, 90, 120, 6);
+    defer m1.deinit(gpa);
+    var m2 = try testBox(130, 90, 160, 120, 6);
+    defer m2.deinit(gpa);
+    var second = s.filament;
+    second.color = "#d93a3a";
+    second.nozzle = 1;
+    const parts = [_]PartInput{
+        .{ .mesh = &m1, .part = 0 },
+        .{ .mesh = &m2, .part = 1, .changes = &.{.{ .name = "project.filament", .value = "2" }} },
+    };
+    var pj = try PlateJob.init(gpa, s, &parts, .{ .filaments = &.{second} });
+    defer pj.deinit();
+    var out: Writer.Allocating = .init(a);
+    _ = try pj.writeGcode(&out.writer);
+    return out.written();
+}
+
+fn twoNozzleSettings() Settings {
+    var s: Settings = .{};
+    s.engine.threads = 1;
+    s.machine.bed_size_x = 250;
+    s.machine.bed_size_y = 250;
+    s.machine.nozzles = 2;
+    s.machine.filament_change = .tool;
+    s.machine.max_speed = 200;
+    s.filament.max_flow = 30;
+    return s;
+}
+
+test "second nozzle: a speed limit of 50 mm/s slows only the lines of the second nozzle" {
+    var arena_state: std.heap.ArenaAllocator = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    var s = twoNozzleSettings();
+    const before = try ToolMoves.init(a, try twoNozzleGcode(a, s));
+    s.machine.nozzle2_max_speed = 50;
+    const after = try ToolMoves.init(a, try twoNozzleGcode(a, s));
+    // Before, the second nozzle prints faster than 50 mm/s; after, no
+    // line of it does (the F values of its lines).
+    try testing.expect(before.max_feed[1] > 60);
+    try testing.expect(after.max_feed[1] <= 50 + 1e-6);
+    try testing.expect(after.lines[1].items.len > 100);
+    // The lines of the main nozzle stay as they were.
+    try testing.expect(after.max_feed[0] > 60);
+    try testing.expectEqual(before.lines[0].items.len, after.lines[0].items.len);
+    for (before.lines[0].items, after.lines[0].items) |x, y| try testing.expectEqualStrings(x, y);
+    // A ratio of the speeds: half the speed of each line.
+    s.machine.nozzle2_max_speed = 0;
+    s.machine.nozzle2_speed = 0.5;
+    const half = try ToolMoves.init(a, try twoNozzleGcode(a, s));
+    try testing.expectApproxEqAbs(before.max_feed[1] / 2, half.max_feed[1], 0.02);
+    try testing.expectEqual(before.lines[0].items.len, half.lines[0].items.len);
+    // On a printer with one nozzle, the settings of the second change no line.
+    var one = s;
+    one.machine.nozzles = 1;
+    one.machine.nozzle2_speed = 0;
+    const plain = try twoNozzleGcode(a, one);
+    one.machine.nozzle2_speed = 0.5;
+    one.machine.nozzle2_max_speed = 50;
+    one.machine.nozzle2_line_width = 0.6;
+    one.machine.nozzle2_retract_length = 3;
+    // The G-code, but the list of the settings at its end.
+    const body = struct {
+        fn f(g: []const u8) []const u8 {
+            return g[0 .. std.mem.indexOf(u8, g, ";zslice settings") orelse g.len];
+        }
+    }.f;
+    try testing.expectEqualStrings(body(plain), body(try twoNozzleGcode(a, one)));
+}
+
+test "second nozzle: its line width changes only its lines" {
+    var arena_state: std.heap.ArenaAllocator = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    var s = twoNozzleSettings();
+    const before = try ToolMoves.init(a, try twoNozzleGcode(a, s));
+    s.machine.nozzle2_line_width = 0.6;
+    const after = try ToolMoves.init(a, try twoNozzleGcode(a, s));
+    // The main nozzle: the same lines.
+    try testing.expectEqual(before.lines[0].items.len, after.lines[0].items.len);
+    for (before.lines[0].items, after.lines[0].items) |x, y| try testing.expectEqualStrings(x, y);
+    // The second nozzle: other lines, fewer of them (wider lines fill the
+    // part with fewer lines), and about the same plastic.
+    try testing.expect(after.lines[1].items.len < before.lines[1].items.len);
+    try testing.expectApproxEqRel(before.e[1], after.e[1], 0.15);
+    // A diameter of its own: 1.1 times it with the automatic width.
+    s.machine.nozzle2_line_width = 0;
+    s.machine.nozzle2_diameter = 0.6;
+    const r = try s.resolveFor(.{ .count = 2, .second = 0b10 });
+    try testing.expectApproxEqAbs(@as(f64, 0.44), r.line_width, 1e-9);
+    var on2 = s;
+    on2.project.filament = 2;
+    const r2 = try on2.resolveFor(.{ .count = 2, .second = 0b10 });
+    try testing.expectApproxEqAbs(@as(f64, 0.66), r2.line_width, 1e-9);
+    try testing.expectApproxEqAbs(@as(f64, 0.75), r2.first_layer_line_width, 1e-9);
+    try testing.expectEqual(@as(f64, 0.6), r2.settings.machine.nozzle_diameter);
+}
+
+test "second nozzle: its retraction" {
+    var arena_state: std.heap.ArenaAllocator = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    var s = twoNozzleSettings();
+    s.machine.retract_length = 0.8;
+    s.machine.nozzle2_retract_length = 2;
+    s.machine.nozzle2_retract_speed = 20;
+    const g = try twoNozzleGcode(a, s);
+    // Each retraction of the second nozzle is 2 mm at 20 mm/s, and each
+    // of the first 0.8 mm.
+    var tool: usize = 0;
+    var n = [2]usize{ 0, 0 };
+    var it = std.mem.splitScalar(u8, g, '\n');
+    while (it.next()) |line| {
+        if (line.len >= 2 and line[0] == 'T') tool = line[1] - '0';
+        if (!std.mem.startsWith(u8, line, "G1 E-")) continue;
+        n[tool] += 1;
+        if (tool == 1) {
+            try testing.expectEqualStrings("G1 E-2 F1200", line);
+        } else try testing.expect(std.mem.startsWith(u8, line, "G1 E-0.8 F"));
+    }
+    try testing.expect(n[0] > 0 and n[1] > 0);
+}
+
+/// A box of `h` mm with sparse infill on a printer with two nozzles, its
+/// infill of filament 2 on the second nozzle, with layers of 0.1 mm.
+fn infillNozzleGcode(a: Allocator, infill_layers: u32) ![]const u8 {
+    const gpa = testing.allocator;
+    var m1 = try testBox(80, 80, 110, 110, 6);
+    defer m1.deinit(gpa);
+    var s = twoNozzleSettings();
+    s.project.layer_height = 0.1;
+    s.project.first_layer_height = 0.2;
+    s.project.infill_density = 0.2;
+    s.project.infill_pattern = .grid;
+    s.project.infill_filament = 2;
+    s.project.infill_layers = infill_layers;
+    var second = s.filament;
+    second.color = "#d93a3a";
+    second.nozzle = 1;
+    const parts = [_]PartInput{.{ .mesh = &m1, .part = 0 }};
+    var pj = try PlateJob.init(gpa, s, &parts, .{ .filaments = &.{second} });
+    defer pj.deinit();
+    var out: Writer.Allocating = .init(a);
+    _ = try pj.writeGcode(&out.writer);
+    return out.written();
+}
+
+/// For each layer of a G-code: the infill of the second nozzle (lines
+/// of ";TYPE:FILL" after T1), the walls, the infill of the main nozzle,
+/// the E of the infill of the second nozzle, and the tool changes.
+const InfillLayers = struct {
+    infill: std.ArrayList(bool) = .empty,
+    walls: std.ArrayList(bool) = .empty,
+    main_infill: bool = false,
+    e: f64 = 0,
+    changes: usize = 0,
+
+    fn init(a: Allocator, g: []const u8) !InfillLayers {
+        var out: InfillLayers = .{};
+        var tool: usize = 0;
+        var kind: []const u8 = "";
+        var it = std.mem.splitScalar(u8, g, '\n');
+        while (it.next()) |line| {
+            if (std.mem.startsWith(u8, line, ";LAYER:")) {
+                try out.infill.append(a, false);
+                try out.walls.append(a, false);
+            }
+            if (line.len >= 2 and line[0] == 'T' and (line[1] == '0' or line[1] == '1')) {
+                if (line[1] - '0' != tool) out.changes += 1;
+                tool = line[1] - '0';
+            }
+            if (std.mem.startsWith(u8, line, ";TYPE:")) kind = line[6..];
+            if (out.infill.items.len == 0 or !std.mem.startsWith(u8, line, "G1 X")) continue;
+            const e_at = std.mem.indexOf(u8, line, " E") orelse continue;
+            const k = out.infill.items.len - 1;
+            if (std.mem.eql(u8, kind, "FILL")) {
+                if (tool == 1) {
+                    out.infill.items[k] = true;
+                    out.e += std.fmt.parseFloat(f64, std.mem.trimEnd(u8, line[e_at + 2 ..], " ")) catch 0;
+                } else out.main_infill = true;
+            }
+            if (std.mem.startsWith(u8, kind, "WALL")) {
+                // The walls print with the main nozzle.
+                try testing.expectEqual(@as(usize, 0), tool);
+                out.walls.items[k] = true;
+            }
+        }
+        return out;
+    }
+};
+
+test "second nozzle: combined infill on the second nozzle every second layer" {
+    var arena_state: std.heap.ArenaAllocator = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    const each = try InfillLayers.init(a, try infillNozzleGcode(a, 1));
+    const comb = try InfillLayers.init(a, try infillNozzleGcode(a, 2));
+    // With the infill on each layer, the second nozzle prints all of it.
+    try testing.expect(!each.main_infill);
+    try testing.expectEqual(each.walls.items.len, comb.walls.items.len);
+    var n_each: usize = 0;
+    var n_comb: usize = 0;
+    var last: ?usize = null;
+    for (comb.walls.items, comb.infill.items, each.infill.items, 0..) |w, f, f1, k| {
+        // The walls print on each layer.
+        try testing.expect(w);
+        n_each += @intFromBool(f1);
+        if (!f) continue;
+        n_comb += 1;
+        // The tall beads: on every second layer.
+        if (last) |l| try testing.expectEqual(@as(usize, 2), k - l);
+        last = k;
+    }
+    try testing.expect(n_comb > 10);
+    try testing.expect(n_comb * 2 <= n_each + 2);
+    // The tall beads of 0.2 mm have the plastic of two layers of 0.1 mm:
+    // about the same plastic in all.
+    try testing.expectApproxEqRel(each.e, comb.e, 0.2);
+    // Combined: one change to the second nozzle in each group, on its
+    // top layer after the walls, and one back on the next layer. On each
+    // layer: one change, as the order of the filaments turns on each
+    // layer (walls then infill, then infill then walls).
+    try testing.expect(comb.changes <= 2 * n_comb + 4);
+    try testing.expect(each.changes + 4 >= n_each and each.changes <= n_each + 4);
 }

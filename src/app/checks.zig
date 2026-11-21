@@ -38,6 +38,10 @@
 //!   with the color of the label), with the size of text that prints
 //!   clean.
 //!
+//! - infill: combined infill (project.infill_layers) that combines fewer
+//!   layers than the setting asks: the bead of all of them is
+//!   thicker than the nozzle of the infill can print.
+//!
 //! Each issue has its kind, its layer, a place, the line it is about (or
 //! none), a number for its size, and a text that says what and why. The
 //! check runs on demand, and the app keeps the result until the next
@@ -51,7 +55,7 @@ const Allocator = std.mem.Allocator;
 const Toolpaths = @import("toolpaths.zig").Toolpaths;
 const geom = zs.geom;
 
-pub const Kind = enum(u8) { flow, cooling, overhang, island, retractions, bridge, stand, color, changes, tower, reach, label, sequence };
+pub const Kind = enum(u8) { flow, cooling, overhang, island, retractions, bridge, stand, color, changes, tower, reach, label, sequence, infill };
 
 pub const Issue = extern struct {
     kind: Kind,
@@ -145,6 +149,7 @@ pub fn runWith(gpa: Allocator, job: *const zs.PlateJob, t: *const Toolpaths, s: 
     try changeIssues(&b, job, s, stats);
     try reachIssues(&b, job, s);
     try sequenceIssues(&b, job, s);
+    try infillIssues(&b, job);
     try labelIssues(&b, job, s, labels);
     // The worst first: problems, then warnings, then by layer.
     std.mem.sort(Issue, b.issues.items, {}, struct {
@@ -642,6 +647,26 @@ fn reachIssues(b: *Builder, pj: *const zs.PlateJob, s: zs.Settings) Allocator.Er
             if (m.nozzle2_max_height > 0 and top[1] > m.nozzle2_max_height + 0.05)
                 try b.add(.{ .kind = .reach, .severity = 2, .layer = 0, .path = Issue.no_path, .x = at[1][0], .y = at[1][1], .value = top[1], .text_start = 0, .text_len = 0 }, "A part on the second nozzle is {d:.1} mm high, but the second nozzle reaches only {d:.1} mm (machine.nozzle2_max_height). Give its top layers a filament of the main nozzle.", .{ top[1], m.nozzle2_max_height });
         }
+    }
+}
+
+/// Combined infill that combines fewer layers than `infill_layers`: the
+/// group of all of them is thicker than the nozzle of the infill
+/// can print (layer.maxThickness: its diameter, or the infill line
+/// width). One note for each part.
+fn infillIssues(b: *Builder, pj: *const zs.PlateJob) Allocator.Error!void {
+    for (pj.groups) |*g| {
+        const j = &g.job;
+        if (j.layers.len < 2) continue;
+        const r = &j.resolved;
+        const want = r.settings.project.infill_layers;
+        if (want < 2 or r.settings.project.infill_pattern == .lightning) continue;
+        var most: usize = 1;
+        for (j.groups) |gr| most = @max(most, gr.count());
+        if (most >= want) continue;
+        const h = r.settings.project.layer_height;
+        const limit = zs.layer.maxThickness(r);
+        try b.add(.{ .kind = .infill, .severity = 1, .layer = 0, .path = Issue.no_path, .x = 0, .y = 0, .value = @floatFromInt(most), .text_start = 0, .text_len = 0 }, "Combined infill: {d} layers of {d:.2} mm are {d:.2} mm, more than the nozzle of the infill prints in one bead ({d:.2} mm: its diameter or its line width). The infill combines {d} layers (project.infill_layers is {d}). A larger nozzle for the infill (machine.nozzle2_diameter), or thinner layers, combines more.", .{ want, h, @as(f64, @floatFromInt(want)) * h, limit, most, want });
     }
 }
 

@@ -278,6 +278,38 @@ pub const Machine = struct {
     /// A pause flushes nothing: you push the new filament through by hand.
     flush_volume: f64 = 140,
 
+    // Second nozzle
+    /// The diameter of the second nozzle of a head with two (`nozzles =
+    /// 2`). 0: `nozzle_diameter`. With the automatic line width
+    /// (`project.line_width = 0`), the lines of the second nozzle are 1.1
+    /// times this wide.
+    nozzle2_diameter: f64 = 0,
+    /// The line width of the walls, the skin, and the infill of the second
+    /// nozzle, in mm. 0: the line width of the first nozzle, times
+    /// `nozzle2_diameter` / `nozzle_diameter`. The first layer gets the
+    /// same ratio to its own width.
+    nozzle2_line_width: f64 = 0,
+    /// The speed of the lines of the second nozzle, as a ratio of the
+    /// speed that the same line gets on the first nozzle. The ratios of
+    /// the features to each other stay. 0: the same speeds. Travel moves
+    /// keep `travel_speed`: one head moves both nozzles.
+    nozzle2_speed: f64 = 0,
+    /// The highest speed of the lines of the second nozzle, in mm/s, after
+    /// `nozzle2_speed`. 0: no limit of its own. A Bambu Lab X2D prints
+    /// with its second nozzle (a bowden extruder) at most at 200 mm/s.
+    nozzle2_max_speed: f64 = 0,
+    /// The highest acceleration of the lines of the second nozzle, in
+    /// mm/s². 0: no limit of its own. The G-code has it only with
+    /// `accel_control`; the time estimate always uses it.
+    nozzle2_max_accel: f64 = 0,
+    /// The retraction length of the second nozzle, in mm. 0:
+    /// `retract_length`. The X2D feeds its second nozzle through a bowden
+    /// tube: Bambu Studio retracts 2 mm there and 0.8 mm on the first.
+    nozzle2_retract_length: f64 = 0,
+    /// The speed of the filament in a retraction of the second nozzle, in
+    /// mm/s. 0: `retract_speed`.
+    nozzle2_retract_speed: f64 = 0,
+
     // G-code
     /// The pictures of the print at the top of the G-code, for the screen
     /// of the printer: sizes in pixels, as "300x300,32x32" (PNG, the form
@@ -741,8 +773,9 @@ pub const Project = struct {
     /// layers. The walls and the skin still print on each layer. Sparse
     /// infill is hidden, so it does not need the fine layers, and the
     /// print has fewer infill moves. A group is never thicker than the
-    /// nozzle diameter: the count goes down where the layers are too
-    /// thick. Only the area that is sparse infill in all layers of a group
+    /// diameter or the line width of the nozzle of the infill (see
+    /// `infill_filament`): the count goes down where the layers are too
+    /// thick, and the Check tells it. Only the area that is sparse infill in all layers of a group
     /// gets the tall bead, and the dense band under the top skin prints
     /// on each layer. 1: each layer.
     infill_layers: u32 = 1,
@@ -992,6 +1025,15 @@ pub const Project = struct {
     /// The filament of the support interface (the layers that touch the
     /// part). 0: the support filament.
     support_interface_filament: u32 = 0,
+    /// The filament of the sparse infill: 1 is the first filament of the
+    /// plate, 2 the second, and so on. 0: the filament of the part. On a
+    /// printer with two nozzles, a filament of the second nozzle prints
+    /// the infill with that nozzle, at its line width. With combined
+    /// infill (`infill_layers` above 1), this filament prints only the
+    /// tall beads, and the filament of the part prints the narrow areas of
+    /// infill that print on each layer: the nozzle then changes once in
+    /// each group of layers.
+    infill_filament: u32 = 0,
     /// A prime tower for a printer that changes the filament with a tool
     /// change (`machine.filament_change = tool`): after each change, the
     /// nozzle flushes the old color into a small tower next to the parts,
@@ -1090,8 +1132,16 @@ pub const Settings = struct {
         return error.UnknownSetting;
     }
 
-    /// Checks the values and computes the derived values.
+    /// Checks the values and computes the derived values, for a print of
+    /// one filament.
     pub fn resolve(self: Settings) error{InvalidValue}!Resolved {
+        return self.resolveFor(.{});
+    }
+
+    /// `resolve`, for a plate of the filaments `slots`: on a printer with
+    /// two nozzles, a part (or its infill) whose filament is on the second
+    /// nozzle gets the line width of that nozzle.
+    pub fn resolveFor(self: Settings, slots: SlotNozzles) error{InvalidValue}!Resolved {
         const m = self.machine;
         const f = self.filament;
         const p = self.project;
@@ -1128,14 +1178,21 @@ pub const Settings = struct {
         if (p.slope_smoothing and (p.slope_smoothing_speed == 0 or !(p.slope_smoothing_min_width < p.slope_smoothing_max_width))) return error.InvalidValue;
         if (p.support != .off and (p.support_density == 0 or p.support_interface_density == 0 or !(p.support_angle > 0 and p.support_angle < 90))) return error.InvalidValue;
 
-        const w = if (p.line_width > 0) p.line_width else 1.1 * m.nozzle_diameter;
-        const w0 = if (p.first_layer_line_width > 0) p.first_layer_line_width else 1.25 * m.nozzle_diameter;
+        const lines = nozzleLines(m, p);
+        // The part prints with the nozzle of its filament, and the sparse
+        // infill with the nozzle of the infill filament.
+        const nozzle = slots.nozzleOf(m, filaments_slot(p.filament, slots.count));
+        const infill_nozzle = if (p.infill_filament > 0) slots.nozzleOf(m, filaments_slot(p.infill_filament, slots.count)) else nozzle;
+        const w = lines.width[nozzle];
+        const w0 = lines.first[nozzle];
         if (p.layer_height > w or p.first_layer_height > w0) return error.InvalidValue;
         if (!(f.shrinkage_xy > 0.5 and f.shrinkage_xy < 1.5 and f.shrinkage_z > 0.5 and f.shrinkage_z < 1.5)) return error.InvalidValue;
         const r = f.diameter / 2;
         // A wall thickness sets the wall count, as in Cura.
         var out_settings = self;
         if (p.wall_thickness > 0) out_settings.project.wall_count = @max(1, @as(u32, @intFromFloat(@round(p.wall_thickness / w))));
+        // The lines of a part on the second nozzle come from its diameter.
+        out_settings.machine.nozzle_diameter = lines.diameter[nozzle];
         if (!(m.max_accel > 0 and m.corner_speed >= 0)) return error.InvalidValue;
         return .{
             .settings = out_settings,
@@ -1145,9 +1202,65 @@ pub const Settings = struct {
             .bottom_layers = @intFromFloat(@ceil(p.bottom_thickness / p.layer_height - 1e-6)),
             .filament_area = std.math.pi * r * r,
             .retract_length = m.retract_length * f.retract_ratio,
+            .slots = slots,
+            .nozzle = nozzle,
+            .infill_line_width = lines.width[infill_nozzle],
+            .infill_nozzle_diameter = lines.diameter[infill_nozzle],
         };
     }
 };
+
+/// The slot (from 0) of a filament number (from 1) in a plate of `count`
+/// filaments; as filaments.slotOf.
+fn filaments_slot(number: u32, count: u32) u32 {
+    if (number == 0 or number > count) return 0;
+    return number - 1;
+}
+
+/// The nozzle of each filament of a plate, for a printer with two
+/// nozzles (see `Settings.resolveFor`).
+pub const SlotNozzles = struct {
+    /// The number of filaments of the plate.
+    count: u32 = 1,
+    /// Bit k is 1 if the filament of slot k prints with the second nozzle.
+    second: u32 = 0,
+
+    /// The nozzles of the filaments `slots` (each `Filament.nozzle`).
+    pub fn of(slots: []const Filament) SlotNozzles {
+        var out: SlotNozzles = .{ .count = @intCast(@max(1, slots.len)) };
+        for (slots, 0..) |f, k| if (k < 32 and f.nozzle >= 1) {
+            out.second |= @as(u32, 1) << @intCast(k);
+        };
+        return out;
+    }
+
+    /// The nozzle (0 or 1) of slot `slot` on the machine `m`. A printer
+    /// with one nozzle: 0.
+    pub fn nozzleOf(self: SlotNozzles, m: Machine, slot: u32) u32 {
+        if (m.nozzles < 2 or slot >= 32 or slot >= self.count) return 0;
+        return @intFromBool(self.second & (@as(u32, 1) << @intCast(slot)) != 0);
+    }
+};
+
+/// The nozzle diameter and the line widths of each nozzle (0: the first,
+/// 1: the second). With no values of its own, the second nozzle has the
+/// values of the first.
+pub const NozzleLines = struct {
+    diameter: [2]f64,
+    width: [2]f64,
+    first: [2]f64,
+};
+
+pub fn nozzleLines(m: Machine, p: Project) NozzleLines {
+    const d = m.nozzle_diameter;
+    const w = if (p.line_width > 0) p.line_width else 1.1 * d;
+    const w0 = if (p.first_layer_line_width > 0) p.first_layer_line_width else 1.25 * d;
+    const d2 = if (m.nozzle2_diameter > 0) m.nozzle2_diameter else d;
+    // The same diameter gives the same widths, bit for bit.
+    const w2 = if (m.nozzle2_line_width > 0) m.nozzle2_line_width else if (d2 == d) w else w * d2 / d;
+    const w02 = if (w2 == w) w0 else w0 * w2 / w;
+    return .{ .diameter = .{ d, d2 }, .width = .{ w, w2 }, .first = .{ w0, w02 } };
+}
 
 pub const Feature = enum(u8) {
     outer_wall,
@@ -1179,6 +1292,16 @@ pub const Resolved = struct {
     bottom_layers: u32,
     filament_area: f64,
     retract_length: f64,
+    /// The nozzle of each filament of the plate.
+    slots: SlotNozzles = .{},
+    /// The nozzle of the filament of the part (0 or 1). `line_width` and
+    /// `settings.machine.nozzle_diameter` are of this nozzle.
+    nozzle: u32 = 0,
+    /// The line width of the sparse infill: of the nozzle of
+    /// `project.infill_filament`.
+    infill_line_width: f64 = 0,
+    /// The diameter of the nozzle of the sparse infill.
+    infill_nozzle_diameter: f64 = 0,
 
     /// The print speed of a line, in mm/s. The speed is the lowest of:
     /// the speed limit of the machine, and the speed at which the line uses
@@ -1211,6 +1334,55 @@ pub const Resolved = struct {
             .infill, .support => p.infill_accel,
         } else p.travel_accel;
         return if (a > 0) @min(max, a) else max;
+    }
+
+    /// `speedAt` for a line of nozzle `nozzle` (0 or 1): the second
+    /// nozzle scales it by `machine.nozzle2_speed` and limits it to
+    /// `machine.nozzle2_max_speed`.
+    pub fn speedOn(self: Resolved, feature: Feature, width: f64, height: f64, layer: usize, nozzle: u32) f64 {
+        return self.nozzleSpeed(self.speedAt(feature, width, height, layer), nozzle);
+    }
+
+    /// The speed `v` (mm/s) of a line of the first nozzle, for nozzle
+    /// `nozzle`.
+    pub fn nozzleSpeed(self: Resolved, v: f64, nozzle: u32) f64 {
+        const m = self.settings.machine;
+        if (nozzle == 0 or m.nozzles < 2) return v;
+        var out = v;
+        if (m.nozzle2_speed > 0) out *= m.nozzle2_speed;
+        if (m.nozzle2_max_speed > 0) out = @min(out, m.nozzle2_max_speed);
+        return out;
+    }
+
+    /// `accel` for a line of nozzle `nozzle`: the second nozzle limits it
+    /// to `machine.nozzle2_max_accel`. Travel (`feature` null) keeps its
+    /// acceleration: one head moves both nozzles.
+    pub fn accelOn(self: Resolved, feature: ?Feature, first_layer: bool, nozzle: u32) f64 {
+        const a = self.accel(feature, first_layer);
+        const m = self.settings.machine;
+        if (feature == null or nozzle == 0 or m.nozzles < 2 or !(m.nozzle2_max_accel > 0)) return a;
+        return @min(a, m.nozzle2_max_accel);
+    }
+
+    /// The retraction length of nozzle `nozzle` (mm): the second nozzle
+    /// has `machine.nozzle2_retract_length`, if it is set. The ratio of
+    /// the filament applies to both.
+    pub fn retractLengthOn(self: Resolved, nozzle: u32) f64 {
+        const m = self.settings.machine;
+        if (nozzle == 0 or m.nozzles < 2 or !(m.nozzle2_retract_length > 0)) return self.retract_length;
+        return m.nozzle2_retract_length * self.settings.filament.retract_ratio;
+    }
+
+    /// The retraction speed of nozzle `nozzle` (mm/s).
+    pub fn retractSpeedOn(self: Resolved, nozzle: u32) f64 {
+        const m = self.settings.machine;
+        if (nozzle == 0 or m.nozzles < 2 or !(m.nozzle2_retract_speed > 0)) return m.retract_speed;
+        return m.nozzle2_retract_speed;
+    }
+
+    /// The nozzle (0 or 1) of the filament slot `slot`.
+    pub fn nozzleOfSlot(self: Resolved, slot: u32) u32 {
+        return self.slots.nozzleOf(self.settings.machine, slot);
     }
 
     pub fn speed(self: Resolved, feature: Feature, width: f64, height: f64, first_layer: bool) f64 {
@@ -1566,6 +1738,7 @@ pub const limits = [_]struct { []const u8, f64, f64 }{
     .{ "project.skirt_loops", 0, 50 },
     .{ "project.filament", 1, 16 },
     .{ "project.support_filament", 0, 16 },
+    .{ "project.infill_filament", 0, 16 },
     .{ "project.support_interface_filament", 0, 16 },
     .{ "project.flush_multiplier", 0, 3 },
     .{ "project.prime_tower_width", 5, 100 },
@@ -1574,6 +1747,13 @@ pub const limits = [_]struct { []const u8, f64, f64 }{
     .{ "project.prime_tower_y", -1, 2000 },
     .{ "machine.change_time", 0, 3600 },
     .{ "machine.flush_volume", 0, 5000 },
+    .{ "machine.nozzle2_diameter", 0, 2 },
+    .{ "machine.nozzle2_line_width", 0, 2 },
+    .{ "machine.nozzle2_speed", 0, 1 },
+    .{ "machine.nozzle2_max_speed", 0, 2000 },
+    .{ "machine.nozzle2_max_accel", 0, 100000 },
+    .{ "machine.nozzle2_retract_length", 0, 20 },
+    .{ "machine.nozzle2_retract_speed", 0, 200 },
     .{ "project.skirt_distance", 0, 50 },
     .{ "project.skirt_layers", 0, 50 },
     .{ "project.brim_width", 0, 50 },

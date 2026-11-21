@@ -82,6 +82,26 @@ Combined infill: sparse infill printed once every n layers, as one taller bead. 
 
 **How zslice uses it:** `project.infill_layers`. zslice has its own method: groups from the bottom skin up, the area that is sparse in all layers of a group (with no band under a top), a bead of the group height from the flow model. No code was read or copied.
 
+### Infill of its own filament
+
+```ref
+kind: idea
+source: PrusaSlicer, Cura, Bambu Studio
+license: AGPL-3.0
+link: https://github.com/prusa3d/PrusaSlicer
+files: src/filaments.zig, src/layer.zig, src/settings.zig
+area: infill
+summary: `project.infill_filament`. zslice has its own method.
+```
+
+Sparse infill of another extruder than the walls: PrusaSlicer "Infill extruder" (`infill_extruder`, https://github.com/prusa3d/PrusaSlicer), Cura "Infill Extruder" (`infill_extruder_nr`, https://github.com/Ultimaker/CuraEngine), and Bambu Studio "Infill" filament (`sparse_infill_filament`, https://github.com/bambulab/BambuStudio) have it. With combined infill, PrusaSlicer prints the infill of a thicker extruder less often.
+
+**License:** AGPL-3.0 (the idea only)
+
+**Used in:** `src/filaments.zig`, `src/layer.zig`, `src/settings.zig`
+
+**How zslice uses it:** `project.infill_filament`. The infill of a filament on the second nozzle gets the line width of that nozzle, and with `project.infill_layers` above 1 only the tall beads print with the infill filament, so the nozzle changes once for each group of layers. No code was read or copied.
+
 ### Triangle, cubic, and concentric infill
 
 ```ref

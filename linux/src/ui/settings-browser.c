@@ -34,6 +34,9 @@ typedef struct {
     GtkWidget *scope;
     gboolean filling_scope;
     GtkWidget *sections; /* column 1 */
+    /* The row of the "Second nozzle" section: only a printer with two
+     * nozzles shows it. */
+    GtkWidget *nozzle2_row;
     GtkWidget *settings; /* column 2 */
     GtkWidget *detail;   /* column 3: a box; its child is rebuilt */
     GtkWidget *effect;   /* in column 3: the lines of the project */
@@ -1293,8 +1296,25 @@ static void add_sections(Browser *b) {
             g_object_set_data(G_OBJECT(row), "zg-group", (gpointer)info.group);
             g_object_set_data(G_OBJECT(row), "zg-section", (gpointer)info.section);
             gtk_list_box_append(GTK_LIST_BOX(b->sections), row);
+            if (strcmp(info.group, "machine") == 0 && strcmp(info.section, "Second nozzle") == 0) b->nozzle2_row = row;
         }
     }
+}
+
+/* The "Second nozzle" section shows for a printer with two nozzles. */
+static void update_nozzle2_row(Browser *b) {
+    if (!b->nozzle2_row) return;
+    char *n = zg_model_get(b->model, "machine.nozzles");
+    gtk_widget_set_visible(b->nozzle2_row, g_ascii_strtod(n, NULL) >= 2);
+    g_free(n);
+}
+
+static void on_nozzles_changed(ZgModel *model, const char *key, gpointer data) {
+    update_nozzle2_row(data);
+}
+
+static void on_printer_nozzles(ZgModel *model, gpointer data) {
+    update_nozzle2_row(data);
 }
 
 /* Right opens the selected row (as Enter does), Left goes back. */
@@ -1509,6 +1529,9 @@ GtkWidget *zg_settings_browser_new(ZgModel *model, GtkWidget *panel_stack) {
     g_signal_connect(b->page, "unmap", G_CALLBACK(on_page_mapped), b);
     g_signal_connect(model, "core-event", G_CALLBACK(on_browser_core_event), b);
     g_signal_connect(model, "profiles-changed", G_CALLBACK(on_profiles_changed), b);
+    g_signal_connect(model, "setting-changed::machine.nozzles", G_CALLBACK(on_nozzles_changed), b);
+    g_signal_connect(model, "printer-changed", G_CALLBACK(on_printer_nozzles), b);
+    update_nozzle2_row(b);
     g_signal_connect(model, "open-profile", G_CALLBACK(on_open_profile), b);
     fill_profiles(b);
     /* For development and screenshots: ZSLICE_SETTING=project.layer_height

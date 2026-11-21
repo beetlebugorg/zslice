@@ -323,7 +323,7 @@ pub const LayerPlan = struct {
         var mixed = false;
         for (self.paths.items, tool) |path, *t| {
             const pr = self.pathResolved(path) orelse self.resolved orelse r;
-            t.* = filaments.pathSlot(path.feature, pr.settings.project, slots);
+            t.* = filaments.slotOfPath(path, pr.settings.project, slots);
             mixed = mixed or t.* != tool[0];
         }
         if (!mixed) return;
@@ -537,7 +537,8 @@ pub const InfillGroup = struct {
 /// its width is a round thread in the bead model (see flow.zig), with no
 /// flat side on the layer below.
 pub fn maxThickness(r: *const Resolved) f64 {
-    return @min(r.settings.machine.nozzle_diameter, r.line_width);
+    // The nozzle that prints the infill (see `Project.infill_filament`).
+    return @min(r.infill_nozzle_diameter, r.infill_line_width);
 }
 
 /// The infill group of each layer, or an empty slice if no layer combines
@@ -644,8 +645,8 @@ pub fn combinedArea(gpa: Allocator, out: Allocator, ctx: Context, g: InfillGroup
 /// profile prints slower.
 fn narrowLimit(r: *const Resolved) i64 {
     const p = r.settings.project;
-    const spacing = @min(r.line_width / @max(p.infill_density, 1e-3), 40);
-    return geom.fromMm(@max(r.line_width, spacing / 4));
+    const spacing = @min(r.infill_line_width / @max(p.infill_density, 1e-3), 40);
+    return geom.fromMm(@max(r.infill_line_width, spacing / 4));
 }
 
 /// The areas of a layer (steps 1 to 4): the wall loops, the skin area, and
@@ -1604,6 +1605,12 @@ pub fn plan(gpa: Allocator, ctx: Context, i: usize) Allocator.Error!LayerPlan {
     var comb_lines: Paths = .empty;
     var comb_loops: Paths = .empty;
     var comb_height: f64 = 0;
+    // The line width of the sparse infill: of the nozzle of the infill
+    // filament (see `Project.infill_filament`). The first layer has no
+    // sparse infill.
+    const iw_mm = r.infill_line_width;
+    const own_iw = iw_mm != r.line_width;
+    const iw = if (own_iw) geom.fromMm(iw_mm) else w;
     if (p.infill_density > 0 and !sparse.isEmpty()) {
         var region = try patternRegion(ctx, i, memo, reg) orelse return lp;
         const group = ctx.groupOf(i);
@@ -1629,7 +1636,7 @@ pub fn plan(gpa: Allocator, ctx: Context, i: usize) Allocator.Error!LayerPlan {
                 region = try offset_mod.opening(s, left, w, .{});
                 if (i == group.last) {
                     for (group.first..group.last + 1) |j| comb_height += ctx.layers[j].height;
-                    const set = try fillSparseAt(s, p, ctx.infill_origin, comb, r.line_width, w, group.index, layer.z, null, .empty);
+                    const set = try fillSparseAt(s, p, ctx.infill_origin, comb, iw_mm, iw, group.index, layer.z, null, .empty);
                     comb_lines = set.lines;
                     comb_loops = set.loops;
                 }
@@ -1638,7 +1645,7 @@ pub fn plan(gpa: Allocator, ctx: Context, i: usize) Allocator.Error!LayerPlan {
         if (!mods.taken.isEmpty()) region = try clip.difference(s, region, mods.taken);
         // The lightning branches of this layer come from the engine.
         const light: Paths = if (i < ctx.lightning.len) ctx.lightning[i] else .empty;
-        const set = try fillSparseAt(s, p, ctx.infill_origin, region, r.line_width, w, i, layer.z, under_band, light);
+        const set = try fillSparseAt(s, p, ctx.infill_origin, region, iw_mm, iw, i, layer.z, under_band, light);
         sparse_lines = set.lines;
         sparse_loops = set.loops;
     }
@@ -1649,9 +1656,9 @@ pub fn plan(gpa: Allocator, ctx: Context, i: usize) Allocator.Error!LayerPlan {
         const split = try memo.topSplit(reg, inset, ctx.outlines, ctx.bands, i, layersFor(ctx.layers, i, p.top_thickness, .up) + p.top_support_layers, ctx.gen, ctx.cancel) orelse return lp;
         const band = if (mods.taken.isEmpty()) split.band else try clip.difference(s, split.band, mods.taken);
         if (!band.isEmpty()) {
-            const spacing = geom.fromMm(width_mm / p.top_support_density);
+            const spacing = geom.fromMm((if (own_iw) iw_mm else width_mm) / p.top_support_density);
             const angle = p.infill_angle + @as(f64, if (i % 2 == 0) 0 else 90);
-            const set = try infill.lines(s, band, spacing, angle, w);
+            const set = try infill.lines(s, band, spacing, angle, iw);
             const joined = try infill.connect(s, band, set, spacing, angle);
             try sparse_lines.appendAll(s, joined);
         }
@@ -1799,6 +1806,7 @@ pub fn plan(gpa: Allocator, ctx: Context, i: usize) Allocator.Error!LayerPlan {
         try addGroup(s, a, &lp, &pos, bridge_lines, false, .bridge, null, .{ .ids = bridge_ids, .id = id });
         try addGroupWidths(s, a, &lp, &pos, gap_fill.loops, gap_fill.loop_widths, true, .skin, null, .{ .ids = gap_loop_ids, .id = id });
         if (skin_tour == null) try addGroupWidths(s, a, &lp, &pos, gap_fill.lines, gap_fill.line_widths, false, .skin, null, .{ .ids = gap_line_ids, .id = id });
+        const sparse_before = lp.paths.items.len;
         try addGroup(s, a, &lp, &pos, sparse_lines, false, .infill, null, .{ .ids = sparse_ids, .id = id });
         try addGroup(s, a, &lp, &pos, sparse_loops, true, .infill, null, .{ .ids = sparse_loop_ids, .id = id });
         if (comb_height > 0) {
@@ -1807,6 +1815,10 @@ pub fn plan(gpa: Allocator, ctx: Context, i: usize) Allocator.Error!LayerPlan {
             try addGroup(s, a, &lp, &pos, comb_loops, true, .infill, null, .{ .ids = comb_loop_ids, .id = id });
             for (lp.paths.items[before..]) |*path| path.height = @floatCast(comb_height);
         }
+        // Infill of another nozzle has its own line width.
+        if (own_iw) for (lp.paths.items[sparse_before..]) |*path| {
+            path.width = @floatCast(iw_mm);
+        };
         for (mod_sets, mod_ids, 0..) |ms, ids, mk| {
             const before = lp.paths.items.len;
             try addGroup(s, a, &lp, &pos, ms.walls, true, .inner_wall, null, .{ .ids = ids[0], .id = id });

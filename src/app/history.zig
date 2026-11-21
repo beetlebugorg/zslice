@@ -392,7 +392,7 @@ pub fn kindOf(c: Change) Kind {
     }
     if (eq(u8, c.key, "quality")) return .quality;
     if (eq(u8, c.key, "(slot)") or std.mem.startsWith(u8, c.scope, "filament ")) return .filament;
-    if (eq(u8, c.key, "project.filament") or eq(u8, c.key, "project.support_filament") or eq(u8, c.key, "project.support_interface_filament")) return .filament;
+    if (eq(u8, c.key, "project.filament") or eq(u8, c.key, "project.support_filament") or eq(u8, c.key, "project.support_interface_filament") or eq(u8, c.key, "project.infill_filament")) return .filament;
     if (layerRange(c.scope) != null and eq(u8, c.key, "(name)")) return .layers;
     const info = infoOf(c.key) orelse return .other;
     return kindOfSection(info.group, info.section);

@@ -71,6 +71,34 @@ The Bambu Lab X2D and H2D have two nozzles. Each filament has a nozzle: **Main**
 - On the X2D, the AMS feeds the main nozzle. The external spool feeds the second one.
 - The second nozzle does not reach the whole bed. The Check tells you when a part on it is out of its reach.
 
+### Settings of the second nozzle
+
+The printer settings have a **Second nozzle** section. It shows only for a printer with two nozzles. Each setting at 0 has the value of the first nozzle.
+
+- **Nozzle2 speed**: the speed of each line of the second nozzle, as a part of the speed of the same line on the first nozzle. At 50 %, each line prints at half its speed. The speeds of the walls, the skin, and the infill keep their ratios.
+- **Nozzle2 max speed**: the highest speed of a line of the second nozzle, in mm/s.
+- **Nozzle2 max accel**: the highest acceleration of a line of the second nozzle.
+- **Nozzle2 diameter** and **Nozzle2 line width**: the nozzle size and the line width of the walls, the skin, and the infill of the second nozzle.
+- **Nozzle2 retract length** and **Nozzle2 retract speed**: the retraction of the second nozzle.
+
+Travel moves keep the travel speed of the printer: one head moves both nozzles.
+
+### Slow down the second nozzle
+
+To print the second nozzle at 50 mm/s:
+
+1. Open the settings, and pick **Printer** > **Second nozzle**.
+2. Set **Nozzle2 max speed** to 50.
+3. Slice again.
+
+Click a line of the second nozzle. The line card shows **2nd nozzle** and the speed of the line.
+
+### Infill with the second nozzle
+
+Search for **infill filament**, and pick a filament of the second nozzle. The second nozzle then prints the sparse infill, at its own line width. The walls and the skin stay on the filament of the part.
+
+With **Infill layers** at 2, the infill prints once every two layers, as one bead two layers tall. Example: layers of 0.1 mm for the walls, and the infill in beads of 0.2 mm. The second nozzle then prints the infill on every second layer: it prints after the walls of that layer, and the first nozzle starts the next layer. The narrow areas of infill that print on each layer stay on the filament of the part. A bead is never taller than the diameter of its nozzle or its line width. When the layers of the group are too thick for that, the Check tells you.
+
 ## Where to go next
 
 - → [Add support](support.md)

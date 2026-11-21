@@ -277,6 +277,9 @@ fn slicePart(gpa: Allocator, mesh: *const Mesh, settings: Settings, outline_over
 pub const Job = struct {
     gpa: Allocator,
     resolved: settings_mod.Resolved,
+    /// The nozzle of each filament of the plate (see
+    /// settings.Settings.resolveFor).
+    slot_nozzles: settings_mod.SlotNozzles = .{},
     monitor: Monitor = .{},
     threads: usize,
     layers: []slicer.Layer,
@@ -382,6 +385,9 @@ pub const Job = struct {
         /// One filament of a painted part (see paint_split.zig), or null:
         /// the outline of each layer is the region of that filament.
         paint: ?PaintClip = null,
+        /// The nozzle of each filament of the plate: a part or its infill
+        /// on the second nozzle gets the line width of that nozzle.
+        slots: settings_mod.SlotNozzles = .{},
     };
 
     /// The gap (mm) between the walls of a part and the root of a painted
@@ -432,7 +438,7 @@ pub const Job = struct {
         var outline_overrides: std.ArrayList(settings_mod.Override) = .empty;
         defer outline_overrides.deinit(gpa);
         for (overrides) |o| if (isOutlineSetting(o.name)) try outline_overrides.append(gpa, o);
-        var job = try initBase(gpa, mesh, settings, outline_overrides.items, opts.marks, opts.monitor, opts.old, opts.offset, opts.trees, opts.trees_layers, opts.islands);
+        var job = try initBase(gpa, mesh, settings, outline_overrides.items, opts.marks, opts.monitor, opts.old, opts.offset, opts.trees, opts.trees_layers, opts.islands, opts.slots);
         errdefer job.deinit();
         job.rings = opts.rings;
         if (overrides.len > 0) try job.resolveLayers(settings, overrides);
@@ -588,7 +594,9 @@ pub const Job = struct {
                 const region = try layer_mod.lightningRegion(job.gpa, ctx, i, &job.memos[i]) orelse return error.Canceled;
                 const r = job.resolvedAt(i);
                 const p = r.settings.project;
-                const width_mm = if (i == 0) r.first_layer_line_width else r.line_width;
+                // The lightning lines are infill: of the nozzle of the
+                // infill filament.
+                const width_mm = if (i == 0) r.first_layer_line_width else r.infill_line_width;
                 c.ins[i] = .{
                     .region = region,
                     .reach = if (p.infill_density > 0) geom.fromMm(width_mm / p.infill_density / 2) else 0,
@@ -626,7 +634,7 @@ pub const Job = struct {
                 continue;
             }
             const s = settings_mod.withOverrides(settings, overrides, layer.z) catch return error.InvalidSettings;
-            const r = s.resolve() catch return error.InvalidSettings;
+            const r = s.resolveFor(self.slot_nozzles) catch return error.InvalidSettings;
             try sets.append(gpa, mask);
             try list.append(gpa, r);
             self.layer_set[i] = @intCast(list.items.len);
@@ -634,9 +642,9 @@ pub const Job = struct {
         self.layer_resolved = try list.toOwnedSlice(gpa);
     }
 
-    fn initBase(gpa: Allocator, mesh: *const Mesh, settings: Settings, outline_overrides: []const settings_mod.Override, marks: []const support_mod.Mark, monitor: Monitor, old: ?*Job, offset: ?[2]f64, trees: ?*const skel_mod.Skeleton, trees_layers: u64, find_islands: bool) Error!Job {
+    fn initBase(gpa: Allocator, mesh: *const Mesh, settings: Settings, outline_overrides: []const settings_mod.Override, marks: []const support_mod.Mark, monitor: Monitor, old: ?*Job, offset: ?[2]f64, trees: ?*const skel_mod.Skeleton, trees_layers: u64, find_islands: bool, slots: settings_mod.SlotNozzles) Error!Job {
         // Step 1.
-        const r = settings.resolve() catch return error.InvalidSettings;
+        const r = settings.resolveFor(slots) catch return error.InvalidSettings;
         const threads = parallel.threadCount(settings.engine.threads);
 
         // Step 2.
@@ -659,6 +667,7 @@ pub const Job = struct {
         var job: Job = .{
             .gpa = gpa,
             .resolved = r,
+            .slot_nozzles = slots,
             .monitor = monitor,
             .threads = threads,
             .layers = &.{},
@@ -924,7 +933,7 @@ pub const Job = struct {
             for (res, 0..) |*r, set| {
                 var st = if (set == 0) self.resolved.settings else self.layer_resolved[set - 1].settings;
                 for (changes) |c| st.set(c.name, c.value) catch return error.InvalidSettings;
-                r.* = st.resolve() catch return error.InvalidSettings;
+                r.* = st.resolveFor(self.slot_nozzles) catch return error.InvalidSettings;
             }
             m.* = .{ .outlines = try self.sliceExtra(a, in.mesh), .resolved = res, .name = try a.dupe(u8, in.name) };
         }
