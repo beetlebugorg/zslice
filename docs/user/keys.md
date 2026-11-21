@@ -1,6 +1,6 @@
 # Keys and mouse
 
-Press `?` in the app to see all keys. Type in the sheet to filter it. On the Mac, Command replaces Ctrl.
+Press `?` in the app to see all keys. The main menu has the sheet too: **Keyboard shortcuts**. Type in the sheet to filter it. On the Mac, Command replaces Ctrl.
 
 ![The sheet of the keyboard shortcuts: General, Plates, Tools, Layers, Lines and the nozzle, Search, History, and Mouse and touchpad](../img/keys.webp "Press ? for the sheet of the keys.")
 

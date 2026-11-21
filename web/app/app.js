@@ -1693,10 +1693,15 @@ $("main-menu").onclick = () => openMenu($("main-menu"), [
   { label: "History", action: () => toggleHistory(true) },
   ...projectItems(),
   { sep: true },
+  // The plate items, as in the GTK main menu.
+  { label: "Smart placement", disabled: app.state === "empty", tip: "Turn and arrange the parts", action: () => client.call("plate", { action: "smart" }) },
+  { label: "Arrange the plate", disabled: app.state === "empty", tip: "Pack the parts on the bed", action: () => client.call("plate", { action: "arrange" }) },
+  { label: "Clear the plate", disabled: app.state === "empty", action: () => client.call("plate", { action: "clear" }) },
   { label: "Remove this plate", action: () => removePlate(app.activePlate) },
   { sep: true },
   { label: "2D view", checked: app.page === "2d", accel: "2", tip: "One layer from the top. A drag pans, the wheel zooms, a double click fits the part.", action: toggle2d },
   { sep: true },
+  { label: "Keyboard shortcuts", accel: "?", action: () => shortcuts.show() },
   { label: "Licenses", action: showLicenses },
   { label: "About zslice", action: () => toast(`zslice ${wasm.cstr(wasm.x.zs_version())}: a slicer in Zig, in WebAssembly. AGPL-3.0-or-later.`) },
 ]);

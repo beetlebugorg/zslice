@@ -67,7 +67,7 @@ Right-click a part, then **Placement**:
 - **Strong along X, Y, or Z of the part**: a print is weakest across its layers. So the part turns until that axis lies in the layers.
 - **Put this side on the bed**: the side at the click goes down.
 
-Right-click the empty view for **Arrange the plate**.
+Right-click the empty view for **Arrange the plate**. The main menu also has **Smart placement**, **Arrange the plate**, and **Clear the plate** for all parts of the plate.
 
 ## Cut a part
 
