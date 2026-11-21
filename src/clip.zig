@@ -684,9 +684,9 @@ noinline fn walkLine(arena: Allocator, out: *std.ArrayList(CellEntry), a: Point,
             @abs(diff) <= 1e-9 * larger(1.0, @abs(t_max_x));
         if (corner) {
             // Through a corner: add both side cells. A side cell outside the
-            // grid (a negative coordinate) has no edges, so it is skipped.
-            if (cx + sx >= 0) try push(arena, out, .{ .cell = g.key(cx + sx, cy), .edge = edge });
-            if (cy + sy >= 0) try push(arena, out, .{ .cell = g.key(cx, cy + sy), .edge = edge });
+            // grid has no edges, so it is skipped.
+            if (cx + sx >= 0 and cx + sx < g.cols) try push(arena, out, .{ .cell = g.key(cx + sx, cy), .edge = edge });
+            if (cy + sy >= 0 and cy + sy < g.rows) try push(arena, out, .{ .cell = g.key(cx, cy + sy), .edge = edge });
             cx += sx;
             cy += sy;
             t_max_x += t_dx;
@@ -698,7 +698,10 @@ noinline fn walkLine(arena: Allocator, out: *std.ArrayList(CellEntry), a: Point,
             cy += sy;
             t_max_y += t_dy;
         }
-        if (cx < 0 or cy < 0) break;
+        // A rounding error at a corner can make the walk miss the last
+        // cell and go on. No edge has a cell outside the grid, and the key
+        // of such a cell is the key of another cell or past the end.
+        if (cx < 0 or cy < 0 or cx >= g.cols or cy >= g.rows) break;
         try push(arena, out, .{ .cell = g.key(cx, cy), .edge = edge });
     }
 }
