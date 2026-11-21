@@ -886,3 +886,24 @@ The flip algorithm of Lawson makes a triangulation Delaunay. zslice keeps the ed
 **Used in:** `src/step.zig`
 
 **How zslice uses it:** `flips` makes the triangles of a face of a STEP file Delaunay in its chart before and after each refinement round.
+
+### The STREAM memory test
+
+```ref
+kind: idea
+source: John D. McCalpin
+license: Paper
+link: https://www.cs.virginia.edu/stream/
+version: J. D. McCalpin, "Memory Bandwidth and Machine Balance in Current High Performance Computers", IEEE TCCA Newsletter (1995)
+files: docs/internals/performance.md
+area: build
+summary: The copy and the triad of long arrays measure the memory speed of the machine for the lower bound of a slice.
+```
+
+The STREAM test measures the memory speed of a machine with four loops over arrays that are larger than the caches: copy, scale, add, and triad (a = b + s c).
+
+**License:** Paper
+
+**Used in:** `docs/internals/performance.md`
+
+**How zslice uses it:** The page of the lower bound gives the memory speed of the test machine from a copy and a triad of arrays of 64 to 256 MB. zslice has no code of the test.
