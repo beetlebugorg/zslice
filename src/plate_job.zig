@@ -657,13 +657,22 @@ pub const PlateJob = struct {
             if (k > 0) t.x = right - t.size / 2;
             right = t.x - t.size / 2 - @max(t.size, 10);
             if (p.prime_tower_x < 0 and k == 0) {
-                t.x = m.bed_size_x - t.size / 2 - 10;
+                t.x = towerEdge(m) - t.size / 2 - 10;
                 right = t.x - t.size / 2 - @max(t.size, 10);
             }
             if (p.prime_tower_y < 0) t.y = m.bed_size_y - t.depth / 2 - 10;
         }
         out.stack = own_support;
         return out;
+    }
+
+    /// The right edge of the place of a tower near the right side: the
+    /// side of the bed, or the edge of the reach of the first nozzle of a
+    /// head with two (the left nozzle of the H2D stops 25 mm from the
+    /// right side), so both nozzles reach the tower.
+    fn towerEdge(m: settings_mod.Machine) f64 {
+        if (m.nozzles >= 2 and m.nozzle1_max_x > 0) return @min(m.bed_size_x, m.nozzle1_max_x);
+        return m.bed_size_x;
     }
 
     /// The prime tower of the print (see gcode.Tower), or null: a tool
@@ -678,7 +687,7 @@ pub const PlateJob = struct {
         const size = s.project.prime_tower_width;
         const margin = 10;
         return .{
-            .x = if (s.project.prime_tower_x >= 0) s.project.prime_tower_x else s.machine.bed_size_x - size / 2 - margin,
+            .x = if (s.project.prime_tower_x >= 0) s.project.prime_tower_x else towerEdge(s.machine) - size / 2 - margin,
             .y = if (s.project.prime_tower_y >= 0) s.project.prime_tower_y else s.machine.bed_size_y - size / 2 - margin,
             .size = size,
             .last_layer = last,
