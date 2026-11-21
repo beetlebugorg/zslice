@@ -23,6 +23,25 @@ The whole project_settings.config of the Bambu Lab X2D (in `src/printers/bambu/b
 
 **Notes:** The keys guide `gcode.Emitter.bambuBlocks` and `src/bambu.zig`. The G-code templates of this file are the same as those of the presets of Bambu Studio (next line).
 
+### Bambu Lab X2D values of the second nozzle
+
+```ref
+kind: data
+source: Bambu Studio
+license: AGPL-3.0
+files: src/printers.zig, src/settings.zig
+area: printers
+summary: The machine profile of the X2D in the printer library gets the values of extruder 2 that differ from extruder 1.
+```
+
+The per-extruder lists of the X2D project settings (see the entry before): `print_extruder_id` (the extruder of each extruder variant), and for the first variant of extruder 2 (Bowden Standard) `retraction_length` (2 mm, 0.8 mm on extruder 1), `retraction_speed` (20 mm/s, 30 mm/s on extruder 1), `default_acceleration` (1000 mm/s², 10000 on extruder 1), and the fastest of `outer_wall_speed`, `inner_wall_speed`, `sparse_infill_speed`, `internal_solid_infill_speed`, and `top_surface_speed` (200 mm/s). Bambu Studio keeps the values of each extruder variant in these lists; zslice keeps a speed ratio and limits for the second nozzle.
+
+**License:** AGPL-3.0 (the license of Bambu Studio and its profiles)
+
+**Text:** `LICENSE`
+
+**Notes:** `printers.secondNozzle` reads the lists from the embedded project settings. `Library.profileText` writes `machine.nozzle2_max_speed`, `nozzle2_max_accel`, `nozzle2_retract_length`, and `nozzle2_retract_speed` for the X2D.
+
 ### Bambu Lab printer facts and G-code templates
 
 ```ref
