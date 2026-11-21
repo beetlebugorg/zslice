@@ -34,6 +34,7 @@ const bambu = @import("bambu.zig");
 const discovery = @import("discovery.zig");
 const import_cura = @import("import_cura.zig");
 const settings_mod = @import("settings.zig");
+const font = @import("font.zig");
 
 /// The most memory that one input can ask for. A small file that asks
 /// for more is a zip bomb or a size field that lies.
@@ -258,6 +259,17 @@ fn checkDiscovery(gpa: Allocator, bytes: []const u8) anyerror!void {
 fn check3mf(gpa: Allocator, bytes: []const u8) anyerror!void {
     var l = threemf.read(gpa, bytes) catch return;
     l.deinit(gpa);
+}
+
+/// A font: each glyph of the text and its kerning, flattened.
+fn checkFont(gpa: Allocator, bytes: []const u8) anyerror!void {
+    const f = font.Font.init(bytes) catch return;
+    var p = font.text(gpa, &f, "AVÉ ofi\n&@%", .{ .size = 5 }) catch |e| switch (e) {
+        error.BadFont => return,
+        else => return e,
+    };
+    p.deinit(gpa);
+    _ = font.stemRatio(&f);
 }
 
 // ---- the seeds ----
@@ -587,4 +599,9 @@ test "fuzz: Cura profile stacks" {
         CuraFiles.which = i;
         try run("cura", &.{d}, rounds(400) / CuraFiles.data.len + 1, checkCura);
     }
+}
+
+test "fuzz: fonts" {
+    // The embedded font is 44 KB: fewer rounds than the small inputs.
+    try run("font", &.{font.inter_bold}, rounds(60), checkFont);
 }
