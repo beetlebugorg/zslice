@@ -59,6 +59,7 @@ pub fn add(app: *App) Error!usize {
 pub fn remove(app: *App, i: usize) Error!void {
     if (i == 0 or i - 1 >= app.filaments.items.len) return error.NoSlot;
     _ = app.filaments.orderedRemove(i - 1);
+    @import("printer_filaments.zig").removed(app, i);
     const a = app.strings.allocator();
     const number: u32 = @intCast(i + 1);
     // The parts.

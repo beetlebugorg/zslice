@@ -64,6 +64,8 @@ pub const support_trees = @import("app/support_trees.zig");
 pub const plate_set = @import("app/plate_set.zig");
 /// The filaments of the plate (see app/filament_slots.zig).
 pub const filament_slots = @import("app/filament_slots.zig");
+/// The filaments that the printer has loaded (see app/printer_filaments.zig).
+pub const printer_filaments = @import("app/printer_filaments.zig");
 /// The labels of the parts (see app/labels.zig).
 pub const labels = @import("app/labels.zig");
 pub const clipboard = @import("app/clipboard.zig");
@@ -372,6 +374,9 @@ pub const App = struct {
     /// The filaments of the plate after the first: slot 2, 3, and on
     /// (see app/filament_slots.zig). Their strings are in `strings`.
     filaments: std.ArrayList(zs.settings.Filament) = .empty,
+    /// Where the values of each slot come from: the printer, or the hand
+    /// of the user (see app/printer_filaments.zig).
+    slot_marks: [zs.filaments.max_slots]printer_filaments.Mark = @splat(.{}),
     /// The copy of `filaments` that the slice uses.
     slice_filaments: []zs.settings.Filament = &.{},
     /// The last mesh of zs_app_part_mesh.
@@ -3321,6 +3326,7 @@ test {
     _ = plate_set;
     _ = support_areas;
     _ = filament_slots;
+    _ = printer_filaments;
     _ = support_trees;
     _ = clipboard;
     _ = @import("app/feature_settings.zig");

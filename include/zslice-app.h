@@ -191,6 +191,14 @@ int zs_printer_status_roll(const zs_printer_status *s, size_t i, zs_printer_roll
  * printdeck, the message of Moonraker, the error code of a Bambu Lab
  * printer. Valid until the next feed. */
 const char *zs_printer_status_message(const zs_printer_status *s);
+/* The spools that the printer has loaded (the trays of its AMS units and
+ * its external spools, from a printdeck or a Bambu Lab report) as the JSON
+ * of a printdeck: {"filaments": [{"slot": "A1", "tray": 0, "nozzle":
+ * "main", "material": "PLA", "color": "#rrggbb", "idx": "GFA00"}]}. Give
+ * it to zs_app_filaments_from_printer. ZS_NO_RESULT when the printer has
+ * not told its spools. `buf` gets up to cap - 1 bytes and a 0; `out_len`
+ * the full length. */
+int zs_printer_status_filaments(const zs_printer_status *s, char *buf, size_t cap, size_t *out_len);
 /* The state of the printer for the farm (enum zs_farm_printer_state, 0 to
  * 5), from its state text, the same for each kind of printer. */
 int zs_printer_status_farm_state(const zs_printer_status *s);
@@ -297,6 +305,12 @@ int zs_mqtt_publish_packet(const char *topic, const uint8_t *payload, size_t len
 int zs_bambu_push_all_packet(const char *serial, uint8_t **out, size_t *out_len);
 int zs_bambu_start_packet(const char *serial, const char *file, const char *title, const char *md5, int flags, uint8_t **out,
                           size_t *out_len);
+/* zs_bambu_start_packet with the tray of each filament of the file
+ * (zs_app_ams_mapping, n values): the ams_mapping and ams_mapping2 of
+ * Bambu Studio, so the printer loads each filament from its tray. An
+ * external spool (254, 255) is -1 in ams_mapping. */
+int zs_bambu_start_packet_trays(const char *serial, const char *file, const char *title, const char *md5, int flags,
+                                const int32_t *trays, size_t n, uint8_t **out, size_t *out_len);
 /* RTSP for the camera of a Bambu Lab X1, H2, P2S, or X2D (src/rtsp.zig):
  * rtsps://<address>:322/streaming/live/1, the user "bblp", the access code
  * as the password, over TLS that the shell opens (the certificate of the
@@ -1189,11 +1203,38 @@ int zs_app_filament_add(zs_app *app, size_t *out_index);
 /* Removes filament i (i >= 1). The parts and the layers of the filaments
  * after it move down by one; the ones of filament i go to filament 0. */
 int zs_app_filament_remove(zs_app *app, size_t i);
-/* A value of filament i: `name` is a filament setting ("filament.color"). */
+/* A value of filament i: `name` is a filament setting ("filament.color").
+ * A value that the user sets marks the filament as set by hand: it stays
+ * when the printer tells other spools (zs_app_filaments_from_printer). */
 int zs_app_filament_set(zs_app *app, size_t i, const char *name, const char *value);
+/* A value of filament i. Also "source.printer" and "source.hand" ("1" or
+ * "0": the values come from a spool of the printer, or the user set one
+ * by hand), "source.tray" (the tray of the spool, -1 for none), and
+ * "source.slot" (its holder: "A1", "Ext", or ""). */
 int zs_app_filament_get(const zs_app *app, size_t i, const char *name, char *buf, size_t cap, size_t *out_len);
-/* Applies the text of a filament profile to filament i (i >= 1). */
+/* Applies the text of a filament profile to filament i (i >= 1). It marks
+ * the filament as set by hand. */
 int zs_app_filament_profile(zs_app *app, size_t i, const char *name, const char *text);
+/* Makes the filaments of the plate the spools that a printer has loaded:
+ * the count, then the material (its built-in profile), the color, and the
+ * nozzle of each, in the order of the printer. `json` is the reply of a
+ * printdeck (GET /api/plugin/printdeck, with "filaments") or the list of
+ * zs_printer_status_filaments. A filament that the user set by hand
+ * stays, unless flags has 1 ("Use the printer's filament"). flags 2: the
+ * automatic follow of the spools, which changes nothing unless
+ * "machine.filament_change" is "tool" (the printer changes the filament
+ * by itself; a printer that pauses gets its spools from the user). `changed`
+ * (can be NULL) gets 1 when a filament changed: slice again. `message`
+ * (can be NULL) gets the words for the user, with `name` for the
+ * printer. ZS_NO_RESULT when the printer tells no spool for the plate. */
+int zs_app_filaments_from_printer(zs_app *app, const char *name, const char *json, size_t len, int flags, int *changed,
+                                  char *message, size_t cap);
+/* The tray of each filament of the plate for the ams_mapping of a print
+ * start on a Bambu Lab printer (zs_bambu_start_packet_trays): the AMS
+ * unit times 4 and the tray, 254 or 255 for an external spool, -1 for a
+ * filament with no spool of the printer. Returns the filament count;
+ * `out` (up to `cap`) can be NULL. */
+size_t zs_app_ams_mapping(const zs_app *app, int32_t *out, size_t cap);
 /* The last slice: the grams of up to `cap` filaments (with the flush of
  * the changes to each), the number of filament changes, and the grams of
  * all flushes. Each pointer can be NULL. */
