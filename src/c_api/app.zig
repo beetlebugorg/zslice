@@ -983,12 +983,11 @@ export fn zs_app_gcode_name(a: ?*const App, model: ?[*:0]const u8, plate: usize,
     if (!std.ascii.eqlIgnoreCase(s.machine.name, "generic")) _ = safePart(&w, s.machine.name, 32, true);
     if (app.result()) |r| {
         const t = r.print_time_s;
-        if (t >= 3600) {
-            const h: u64 = @intFromFloat(@floor(t / 3600));
-            const mins: u64 = @intFromFloat(@round(@mod(t, 3600) / 60));
-            w.print("_{d}h{d:0>2}m", .{ h, mins }) catch {};
-        } else if (t > 0) {
-            w.print("_{d}m", .{@max(1, @as(u64, @intFromFloat(@round(t / 60))))}) catch {};
+        if (t > 0) {
+            // The minutes first, then the hours: 2 h 59.6 min is "3h00m",
+            // not "2h60m".
+            const total: u64 = @max(1, @as(u64, @intFromFloat(@round(t / 60))));
+            if (total >= 60) w.print("_{d}h{d:0>2}m", .{ total / 60, total % 60 }) catch {} else w.print("_{d}m", .{total}) catch {};
         }
     }
     return copyOut(w.buffered(), buf, cap, out_len);
