@@ -54,7 +54,10 @@ const usage =
     \\            after a change of each kind of setting. Print the times
     \\            and the peak memory. --only KIND times one kind: full,
     \\            late, walls, top, width, height, support, area, tree, xy,
-    \\            speed, accel, flow, fan, temp, cool, cancel, or sim
+    \\            speed, accel, flow, fan, temp, cool, cancel, paint (the
+    \\            lower sixth of the part brushed with a second
+    \\            filament), dexel (the skin of each layer
+    \\            from line cuts, against polygon booleans), or sim
     \\            (the simulated print of the plastic; sim-side and
     \\            sim-flip turn the part on its side or upside down
     \\            first, for steep overhangs; sim-local changes the
@@ -540,6 +543,19 @@ fn bench(backing: std.mem.Allocator, io: Io, err: *Io.Writer, name: []const u8, 
         try err.print("peak memory: {d} MB resident (VmHWM), {d} MB allocated\n", .{ peakMb(io), counter.peak.load(.monotonic) >> 20 });
         return;
     }
+    if (only != null and std.mem.eql(u8, only.?, "dexel")) return benchDexel(gpa, io, err, bytes, settings, runs);
+    if (only != null and std.mem.eql(u8, only.?, "paint")) {
+        for (times, 0..) |*t, k| {
+            // A new model drops the split of the slice before.
+            try app.loadStl(std.fs.path.basename(name), bytes);
+            try benchPaint(gpa, app, if (k == 0) err else null);
+            t.* = try benchSlice(app, io);
+        }
+        try printTimes(err, "paint split", times);
+        if (app.result()) |st| try err.print("filament: {d:.3} g of the part, {d:.3} g of the paint, {d} changes\n", .{ st.slot_g[0], st.slot_g[1], st.changes });
+        try err.print("peak memory: {d} MB resident (VmHWM), {d} MB allocated\n", .{ peakMb(io), counter.peak.load(.monotonic) >> 20 });
+        return;
+    }
     if (only == null or std.mem.eql(u8, only.?, "full")) {
         // The first slice has no cache. Each one starts new.
         for (times) |*t| {
@@ -921,6 +937,134 @@ fn addCopies(app: *zslice.app.App, name: []const u8, bytes: []const u8, copies: 
     if (copies <= 1) return;
     for (1..copies) |_| _ = try app.addStl(std.fs.path.basename(name), bytes);
     _ = try app.arrangePlate();
+}
+
+/// The skin of each layer of a part (the outline minus the area that is
+/// in all the layers within the top and bottom thickness), two ways: with
+/// the line cuts of dexel.zig, and with polygon booleans. Prints the time
+/// of each on one thread, and the skin area of each.
+fn benchDexel(gpa: std.mem.Allocator, io: Io, err: *Io.Writer, bytes: []const u8, settings: zslice.Settings, runs: usize) !void {
+    const dexel = zslice.dexel;
+    const clip = zslice.clip;
+    var arena_state: std.heap.ArenaAllocator = .init(gpa);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    var m = try zslice.mesh.Mesh.fromStl(gpa, bytes);
+    defer m.deinit(gpa);
+    const b = m.bounds();
+    const h = settings.project.layer_height;
+    const n: usize = @intFromFloat(@floor((b.max[2] - b.min[2]) / h + 1e-9));
+    const faces = try a.alloc(u32, m.faces.items.len);
+    for (faces, 0..) |*f, i| f.* = @intCast(i);
+    const outlines = try a.alloc(zslice.geom.Paths, n);
+    var points: usize = 0;
+    for (outlines, 0..) |*o, i| {
+        o.* = try zslice.slicer.sliceAt(a, &m, faces, b.min[2] + (@as(f64, @floatFromInt(i)) + 0.5) * h, 0, 0);
+        points += o.points.items.len;
+    }
+    const pitch: f64 = @floatFromInt(zslice.geom.fromMm(if (settings.project.line_width > 0) settings.project.line_width else 0.45));
+    const top: usize = @intFromFloat(@round(settings.project.top_thickness / h));
+    const bottom: usize = @intFromFloat(@round(settings.project.bottom_thickness / h));
+    try err.print("{d} layers, {d} outline points, {d} layers of top and {d} of bottom, lines {d:.2} mm apart\n", .{ n, points, top, bottom, pitch / 1000 });
+
+    var best_cut: f64 = std.math.inf(f64);
+    var best_skin: f64 = std.math.inf(f64);
+    var best_poly: f64 = std.math.inf(f64);
+    var line_area: f64 = 0;
+    var poly_area: f64 = 0;
+    var intervals: usize = 0;
+    for (0..runs) |_| {
+        var run_state: std.heap.ArenaAllocator = .init(gpa);
+        defer run_state.deinit();
+        const ra = run_state.allocator();
+        // The two cuts of each layer: the lines at 45 and at 135 degrees.
+        const t0 = Io.Clock.awake.now(io);
+        const cuts = try ra.alloc([2]dexel.Lines, n);
+        for (cuts, outlines) |*c, o| {
+            c[0] = try dexel.cut(ra, o, std.math.pi / 4.0, pitch);
+            c[1] = try dexel.cut(ra, o, 3.0 * std.math.pi / 4.0, pitch);
+        }
+        const t1 = Io.Clock.awake.now(io);
+        // The skin lines of each layer, in its own direction.
+        line_area = 0;
+        intervals = 0;
+        for (0..n) |i| {
+            const d = i % 2;
+            var skin: dexel.Lines = .{};
+            if (i < bottom or i + top >= n) {
+                // A layer near the bottom or the top of the part: all skin.
+                skin = cuts[i][d];
+            } else {
+                var core = cuts[i][d];
+                for (i - bottom..i + top + 1) |j| {
+                    if (j != i) core = try dexel.boolean(ra, core, cuts[j][d], .intersection);
+                }
+                skin = try dexel.boolean(ra, cuts[i][d], core, .difference);
+            }
+            line_area += skin.length() * pitch;
+            intervals += skin.u.len / 2;
+        }
+        const t2 = Io.Clock.awake.now(io);
+        best_cut = @min(best_cut, @as(f64, @floatFromInt(t0.durationTo(t1).toNanoseconds())) / 1e6);
+        best_skin = @min(best_skin, @as(f64, @floatFromInt(t1.durationTo(t2).toNanoseconds())) / 1e6);
+        // The same skin with polygon booleans.
+        poly_area = 0;
+        for (0..n) |i| {
+            if (i < bottom or i + top >= n) {
+                poly_area += outlines[i].areaMm2();
+                continue;
+            }
+            var core = outlines[i];
+            for (i - bottom..i + top + 1) |j| {
+                if (j != i) core = try clip.intersect(ra, core, outlines[j]);
+            }
+            poly_area += (try clip.difference(ra, outlines[i], core)).areaMm2();
+        }
+        const t3 = Io.Clock.awake.now(io);
+        best_poly = @min(best_poly, @as(f64, @floatFromInt(t2.durationTo(t3).toNanoseconds())) / 1e6);
+    }
+    try err.print("line cuts:  cut {d:.2} ms, skin {d:.2} ms, {d} skin lines, skin area {d:.1} mm2\n", .{ best_cut, best_skin, intervals, line_area / 1e6 });
+    try err.print("polygons:   skin {d:.2} ms, skin area {d:.1} mm2\n", .{ best_poly, poly_area });
+}
+
+/// Paints the lower sixth of part 0 with filament 2, as strokes of a
+/// brush of 3 mm: a sphere at every 40th vertex there. The edge of the
+/// paint has split triangles, as the edge of a brushed area has.
+fn benchPaint(gpa: std.mem.Allocator, app: *zslice.app.App, err: ?*Io.Writer) !void {
+    if (zslice.app.filament_slots.count(app) < 2) _ = try zslice.app.filament_slots.add(app);
+    const part = &app.plate.parts.items[0];
+    const m = &part.mesh;
+    var lo: f32 = std.math.inf(f32);
+    var hi: f32 = -std.math.inf(f32);
+    for (m.vertices.items) |v| {
+        lo = @min(lo, v.z);
+        hi = @max(hi, v.z);
+    }
+    const top = lo + (hi - lo) * 0.16;
+    var grid = try zslice.paint.Grid.init(gpa, m);
+    defer grid.deinit(gpa);
+    const Ctx = struct {
+        gpa: std.mem.Allocator,
+        list: std.ArrayList(u32) = .empty,
+        fn add(cx: *@This(), t: u32) void {
+            cx.list.append(cx.gpa, t) catch {};
+        }
+    };
+    var ctx: Ctx = .{ .gpa = gpa };
+    defer ctx.list.deinit(gpa);
+    var i: usize = 0;
+    while (i < m.vertices.items.len) : (i += 40) {
+        const v = m.vertices.items[i];
+        if (v.z > top) continue;
+        ctx.list.clearRetainingCapacity();
+        const c: zslice.paint.V3 = .{ v.x, v.y, v.z };
+        grid.near(c, 3, &ctx, Ctx.add);
+        const sphere: zslice.paint.Sphere = .{ .c = c, .r = 3 };
+        for (ctx.list.items) |t| _ = try zslice.paint.brushTriangle(&part.paint, gpa, m, t, sphere, 2, 0.3);
+    }
+    var painted: usize = 0;
+    for (part.paint.states.items) |st| painted += @intFromBool(st != 0);
+    if (err) |e| try e.print("paint: {d} of {d} triangles, {d} of them in pieces\n", .{ painted, m.faces.items.len, part.paint.trees.count() });
 }
 
 fn benchSlice(app: *zslice.app.App, io: Io) !Sample {
