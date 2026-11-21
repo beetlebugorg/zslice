@@ -3778,7 +3778,10 @@ test "app: Arachne walls carry a bead area for each point, at the z of the layer
     var walls: usize = 0;
     for (tp.path_features.items, 0..) |f, pi| {
         const wall = f == @intFromEnum(zs.settings.Feature.outer_wall) or f == @intFromEnum(zs.settings.Feature.inner_wall);
-        try testing.expectEqual(wall, tp.path_z_start.items[pi] != Toolpaths.no_z);
+        // A zigzag of skin lines has a width for each point too: its
+        // links have half the plastic of a line (see layer.thinLinks).
+        const skin = f == @intFromEnum(zs.settings.Feature.skin);
+        if (!skin) try testing.expectEqual(wall, tp.path_z_start.items[pi] != Toolpaths.no_z);
         if (!wall) continue;
         walls += 1;
         const l = tp.layerOfPath(pi).?;
@@ -3818,7 +3821,10 @@ test "app: slope smoothing and ironing paths carry a z for each point" {
     for (tp.path_features.items, 0..) |f, pi| {
         const smooth = f == @intFromEnum(zs.settings.Feature.slope_smoothing);
         const ironing = f == @intFromEnum(zs.settings.Feature.slope_ironing);
-        try testing.expectEqual(smooth or ironing, tp.path_z_start.items[pi] != Toolpaths.no_z);
+        // A zigzag of skin lines has a width for each point too (see
+        // layer.thinLinks).
+        const skin = f == @intFromEnum(zs.settings.Feature.skin);
+        if (!skin) try testing.expectEqual(smooth or ironing, tp.path_z_start.items[pi] != Toolpaths.no_z);
         if (ironing) iron = pi;
         if (!smooth and !ironing) continue;
         if (smooth) found = pi;

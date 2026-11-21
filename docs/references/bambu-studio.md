@@ -151,6 +151,27 @@ The trays of a Bambu Lab report: `print.ams.ams[]` (each AMS unit, `id`) with it
 
 **How zslice uses it:** zslice reads the trays of a report (and the same list from a printdeck), makes the filaments of the plate the same, and writes the tray of each filament in the start message of the macOS app (`zs_bambu_start_packet_trays`). The start G-code loads the first filament of the print. An X2D stopped a zslice file in PREPARE with "Failed to get AMS mapping table" (21 November 2026): the file loaded filament 1, and the deck mapped only filament 4. zslice has not yet read the trays from a real printer; the printdeck deck reads them from the X2D.
 
+### Top surface: no plastic on the moves between the lines
+
+```ref
+kind: idea
+source: Bambu Studio
+license: AGPL-3.0
+link: https://github.com/bambulab/BambuStudio
+version: Bambu Studio 02.09.01.70 (the G-code of a user file, plate_1.gcode)
+files: src/layer.zig, src/infill.zig
+area: infill
+summary: The top surface pattern `monotonicline` of Bambu Studio moves from one line to the next with no plastic, so a turn at the wall adds no dot.
+```
+
+The G-code of a Bambu Studio 02.09.01.70 project (X2D, `top_surface_pattern = monotonicline`): in each `; FEATURE: Top surface` block, the moves between two lines have no `E`, and the plastic of each line stops about 0.19 mm before the turn.
+
+**License:** AGPL-3.0 (the method, read from G-code; no code)
+
+**Used in:** `src/layer.zig` (`thinLinks`), `src/infill.zig` (`tour`)
+
+**How zslice uses it:** The skin of zslice joins its lines at the walls into zigzags, and the retractless skin joins the zigzags with walks along the walls. A link printed with the full line width put twice the plastic on the inner half of its bead, where the line ends are: a dot at each turn and a ridge along each walk. zslice keeps the links (they save the travel and the retraction), but prints them with half the bead area: the plastic for each area at the edge of the skin is then the same as in the middle. Bambu Studio puts no plastic on the links of its top surface.
+
 ## G-code names and settings
 
 ### Bambu Studio feature names and plate files
