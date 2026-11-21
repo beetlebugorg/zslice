@@ -356,6 +356,11 @@ namespace winrt::ZSlice::implementation
         // A number or a text: a field, with its unit after it.
         TextBox box;
         box.HorizontalAlignment(HorizontalAlignment::Stretch);
+        box.MinHeight(30);
+        box.MinWidth(0);
+        box.Padding(ThicknessHelper::FromLengths(8, 4, 8, 4));
+        if (info.kind != ZS_SETTING_TEXT)
+            box.TextAlignment(TextAlignment::Right);
         bool multiline = info.kind == ZS_SETTING_TEXT && info.multiline != 0;
         if (multiline)
         {
@@ -554,6 +559,7 @@ namespace winrt::ZSlice::implementation
             return;
         for (auto &editor : setting_editors)
             editor.refresh();
+        RefreshSearchValues();
     }
 
     // The history commits 400 ms after the last change.

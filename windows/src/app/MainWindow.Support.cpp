@@ -2169,6 +2169,13 @@ namespace winrt::ZSlice::implementation
         support->Loaded();
     }
 
+    // Another focus of the view ended: the see-through of the tool again.
+    void MainWindow::SupportRefocus()
+    {
+        support->focus_set = true;
+        support->ApplyFocus();
+    }
+
     // An undo, a redo, or a switch of the plate: the areas of the core again.
     void MainWindow::SupportReload()
     {

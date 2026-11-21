@@ -81,6 +81,53 @@ namespace winrt::ZSlice::implementation
             Search,
             Detail,
         };
+        // The search of settings and actions (MainWindow.Search.cpp).
+        enum class SearchPlace
+        {
+            Header,
+            Card,
+            Left,
+            Right,
+        };
+        struct SearchRow
+        {
+            Microsoft::UI::Xaml::Controls::ContentControl node{ nullptr };
+            Microsoft::UI::Xaml::Controls::Border back{ nullptr };
+            Microsoft::UI::Xaml::Controls::Button eye{ nullptr };
+            std::string name;
+            std::function<void(int)> nudge;
+            std::function<void()> activate;
+        };
+        struct SearchAction
+        {
+            std::wstring label, keys, hint;
+            std::function<void()> run;
+        };
+        void WireSearch();
+        void OpenSearch(bool focus);
+        void CloseSearch();
+        void SetSearchPlace(SearchPlace place);
+        void FillSearch();
+        void PlaceSearch();
+        void FillSearchPins();
+        void SelectSearchRow(int index, bool focus);
+        void SearchPreviewKey(Microsoft::UI::Xaml::Input::KeyRoutedEventArgs const &e);
+        bool SearchKeyPress(Windows::System::VirtualKey key, bool ctrl);
+        void RestoreSearchPlace();
+        void ShowSearchField();
+        void UpdateSearchField();
+        void AddSearchSetting(zs_setting_info const &info);
+        void AddSearchAction(SearchAction const &action);
+        std::vector<SearchAction> SearchActions();
+        void SetSearchEye(std::string const &name);
+        void ApplySearchEye();
+        void RefreshSearchValues();
+        void FlushSearchDrag();
+        void SaveSearchCard();
+        bool InsideSearch(Microsoft::UI::Xaml::Input::PointerRoutedEventArgs const &e);
+        Microsoft::UI::Xaml::Controls::TextBox ActiveSearchEntry();
+        void SupportRefocus();
+
         void WireSettings();
         void ShowSettingsPane(bool show);
         void ShowSections();
@@ -374,6 +421,26 @@ namespace winrt::ZSlice::implementation
         std::wstring settings_query;
         // True while the code fills an editor: its change event is no edit.
         bool filling_editor = false;
+
+        SearchPlace search_place = SearchPlace::Header;
+        bool search_open = false;
+        // The text of the entry: a change from the code is no new search.
+        std::wstring search_text;
+        std::vector<SearchRow> search_rows;
+        int search_index = 0;
+        std::vector<SettingEditor> search_editors;
+        std::string search_eye;
+        bool search_eye_set = false;
+        bool search_click = false;
+        Windows::Foundation::Point search_press{};
+        // A drag of the card or of its corner: the point in the card.
+        int search_drag = 0;
+        double search_drag_x = 0, search_drag_y = 0;
+        double search_x = -1, search_y = -1, search_w = 0, search_h = 0;
+        // A slider sends a value at most each 90 ms.
+        Microsoft::UI::Dispatching::DispatcherQueueTimer search_timer{ nullptr };
+        std::function<void()> search_pending;
+        std::chrono::steady_clock::time_point search_sent{};
 
         Tool tool = Tool::Select;
         std::vector<Microsoft::UI::Xaml::Controls::Primitives::ToggleButton> tool_buttons;

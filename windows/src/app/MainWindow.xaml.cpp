@@ -379,6 +379,7 @@ namespace winrt::ZSlice::implementation
         model->UpdateBed(view);
         zs_set_view_sync(model->Set(), view);
         SupportLoaded();
+        ApplySearchEye();
         RefreshPlates();
         FindLineAnchor();
         ApplySelection();

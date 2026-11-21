@@ -72,12 +72,6 @@ namespace
     }
 
     // A color token of App.xaml, for the theme of the window.
-    Media::Brush TokenBrush(FrameworkElement const &element, wchar_t const *key)
-    {
-        wchar_t const *theme = element.ActualTheme() == ElementTheme::Dark ? L"Dark" : L"Light";
-        auto dictionary = Application::Current().Resources().MergedDictionaries().GetAt(1).ThemeDictionaries().Lookup(box_value(theme)).as<ResourceDictionary>();
-        return dictionary.Lookup(box_value(key)).as<Media::Brush>();
-    }
 
     std::wstring FormatTime(double seconds)
     {
@@ -90,6 +84,14 @@ namespace
 
 namespace winrt::ZSlice::implementation
 {
+    // A color token of App.xaml, in the theme of the element.
+    Media::Brush TokenBrush(FrameworkElement const &element, wchar_t const *key)
+    {
+        wchar_t const *theme = element.ActualTheme() == ElementTheme::Dark ? L"Dark" : L"Light";
+        auto dictionary = Application::Current().Resources().MergedDictionaries().GetAt(1).ThemeDictionaries().Lookup(box_value(theme)).as<ResourceDictionary>();
+        return dictionary.Lookup(box_value(key)).as<Media::Brush>();
+    }
+
     void MainWindow::WireChrome()
     {
         // The rail and the toast stay over the bottom bar.
@@ -130,28 +132,7 @@ namespace winrt::ZSlice::implementation
         LayerCard().PointerReleased(ended);
         LayerCard().PointerCaptureLost(ended);
 
-        // The search of the header drives the search of the panel.
-        HeaderSearch().TextChanged([this](auto &&, auto &&) {
-            hstring text = HeaderSearch().Text();
-            if (!text.empty())
-                ShowSettingsPane(true);
-            SettingsSearch().Text(text);
-        });
-        HeaderSearch().GotFocus([this](auto &&, auto &&) {
-            SearchKey().Visibility(Visibility::Collapsed);
-            SearchField().BorderBrush(TokenBrush(Root(), L"ZsAccent"));
-        });
-        HeaderSearch().LostFocus([this](auto &&, auto &&) {
-            SearchKey().Visibility(Visibility::Visible);
-            SearchField().BorderBrush(TokenBrush(Root(), L"ZsBorder"));
-        });
-        HeaderSearch().KeyDown([this](auto &&, Input::KeyRoutedEventArgs const &e) {
-            if (e.Key() != Windows::System::VirtualKey::Escape)
-                return;
-            HeaderSearch().Text(L"");
-            ViewPanel().Focus(FocusState::Keyboard);
-            e.Handled(true);
-        });
+        WireSearch();
         Root().SizeChanged([this](auto &&, SizeChangedEventArgs const &e) {
             double width = e.NewSize().Width;
             SearchField().Width(std::clamp(width * 0.3, 200.0, 380.0));
@@ -174,7 +155,9 @@ namespace winrt::ZSlice::implementation
     void MainWindow::LayoutHeader()
     {
         double width = ToolRow().ActualWidth() - 14 - 12;
-        double search = SearchField().ActualWidth(), end = HeaderEnd().ActualWidth();
+        bool field = SearchField().Visibility() == Visibility::Visible;
+        double search = field ? SearchField().ActualWidth() : SearchOpen().ActualWidth();
+        double end = HeaderEnd().ActualWidth();
         double left = std::max(0.0, std::min((width - search) / 2, width - search - end));
         ToolRow().ColumnDefinitions().GetAt(0).Width(GridLengthHelper::FromPixels(left));
     }

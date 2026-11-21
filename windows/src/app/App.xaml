@@ -77,6 +77,40 @@
                     <SolidColorBrush x:Key="ToggleButtonBorderBrushChecked" Color="Transparent" />
                     <SolidColorBrush x:Key="ToggleButtonBorderBrushCheckedPointerOver" Color="Transparent" />
                     <SolidColorBrush x:Key="ToggleButtonBorderBrushCheckedPressed" Color="Transparent" />
+
+                    <!-- The entries, the lists, and the switches of the settings. -->
+                    <SolidColorBrush x:Key="TextControlBackground" Color="#12000000" />
+                    <SolidColorBrush x:Key="TextControlBackgroundPointerOver" Color="#12000000" />
+                    <SolidColorBrush x:Key="TextControlBackgroundFocused" Color="#12000000" />
+                    <SolidColorBrush x:Key="TextControlBorderBrush" Color="Transparent" />
+                    <SolidColorBrush x:Key="TextControlBorderBrushPointerOver" Color="Transparent" />
+                    <SolidColorBrush x:Key="TextControlBorderBrushFocused" Color="#1C71D8" />
+                    <SolidColorBrush x:Key="TextControlElevationBorderBrush" Color="Transparent" />
+                    <SolidColorBrush x:Key="TextControlElevationBorderFocusedBrush" Color="#1C71D8" />
+                    <SolidColorBrush x:Key="ComboBoxBackground" Color="#14000000" />
+                    <SolidColorBrush x:Key="ComboBoxBackgroundPointerOver" Color="#1F000000" />
+                    <SolidColorBrush x:Key="ComboBoxBackgroundPressed" Color="#30000000" />
+                    <SolidColorBrush x:Key="ComboBoxBackgroundFocused" Color="#14000000" />
+                    <SolidColorBrush x:Key="ComboBoxBackgroundFocusedPointerOver" Color="#1F000000" />
+                    <SolidColorBrush x:Key="ComboBoxBorderBrush" Color="Transparent" />
+                    <SolidColorBrush x:Key="ComboBoxBorderBrushPointerOver" Color="Transparent" />
+                    <SolidColorBrush x:Key="ComboBoxBorderBrushPressed" Color="Transparent" />
+                    <SolidColorBrush x:Key="ComboBoxBorderBrushFocused" Color="Transparent" />
+                    <SolidColorBrush x:Key="ToggleSwitchFillOff" Color="#33000000" />
+                    <SolidColorBrush x:Key="ToggleSwitchFillOffPointerOver" Color="#42000000" />
+                    <SolidColorBrush x:Key="ToggleSwitchFillOffPressed" Color="#42000000" />
+                    <SolidColorBrush x:Key="ToggleSwitchStrokeOff" Color="Transparent" />
+                    <SolidColorBrush x:Key="ToggleSwitchStrokeOffPointerOver" Color="Transparent" />
+                    <SolidColorBrush x:Key="ToggleSwitchStrokeOffPressed" Color="Transparent" />
+                    <SolidColorBrush x:Key="ToggleSwitchKnobFillOff" Color="#FFFFFF" />
+                    <SolidColorBrush x:Key="ToggleSwitchKnobFillOffPointerOver" Color="#FFFFFF" />
+                    <SolidColorBrush x:Key="ToggleSwitchKnobFillOffPressed" Color="#FFFFFF" />
+                    <SolidColorBrush x:Key="ToggleSwitchFillOn" Color="#1C71D8" />
+                    <SolidColorBrush x:Key="ToggleSwitchFillOnPointerOver" Color="#1B66C4" />
+                    <SolidColorBrush x:Key="ToggleSwitchFillOnPressed" Color="#185AAD" />
+                    <SolidColorBrush x:Key="ToggleSwitchKnobFillOn" Color="#FFFFFF" />
+                    <SolidColorBrush x:Key="ToggleSwitchKnobFillOnPointerOver" Color="#FFFFFF" />
+                    <SolidColorBrush x:Key="ToggleSwitchKnobFillOnPressed" Color="#FFFFFF" />
                 </ResourceDictionary>
                 <ResourceDictionary x:Key="Dark">
                     <SolidColorBrush x:Key="ZsBg" Color="#2D2D2D" />
@@ -142,6 +176,40 @@
                     <SolidColorBrush x:Key="ToggleButtonBorderBrushChecked" Color="Transparent" />
                     <SolidColorBrush x:Key="ToggleButtonBorderBrushCheckedPointerOver" Color="Transparent" />
                     <SolidColorBrush x:Key="ToggleButtonBorderBrushCheckedPressed" Color="Transparent" />
+
+                    <!-- The entries, the lists, and the switches of the settings. -->
+                    <SolidColorBrush x:Key="TextControlBackground" Color="#232323" />
+                    <SolidColorBrush x:Key="TextControlBackgroundPointerOver" Color="#232323" />
+                    <SolidColorBrush x:Key="TextControlBackgroundFocused" Color="#232323" />
+                    <SolidColorBrush x:Key="TextControlBorderBrush" Color="Transparent" />
+                    <SolidColorBrush x:Key="TextControlBorderBrushPointerOver" Color="Transparent" />
+                    <SolidColorBrush x:Key="TextControlBorderBrushFocused" Color="#1C5FB0" />
+                    <SolidColorBrush x:Key="TextControlElevationBorderBrush" Color="Transparent" />
+                    <SolidColorBrush x:Key="TextControlElevationBorderFocusedBrush" Color="#1C5FB0" />
+                    <SolidColorBrush x:Key="ComboBoxBackground" Color="#3A3A3A" />
+                    <SolidColorBrush x:Key="ComboBoxBackgroundPointerOver" Color="#454545" />
+                    <SolidColorBrush x:Key="ComboBoxBackgroundPressed" Color="#232323" />
+                    <SolidColorBrush x:Key="ComboBoxBackgroundFocused" Color="#3A3A3A" />
+                    <SolidColorBrush x:Key="ComboBoxBackgroundFocusedPointerOver" Color="#454545" />
+                    <SolidColorBrush x:Key="ComboBoxBorderBrush" Color="Transparent" />
+                    <SolidColorBrush x:Key="ComboBoxBorderBrushPointerOver" Color="Transparent" />
+                    <SolidColorBrush x:Key="ComboBoxBorderBrushPressed" Color="Transparent" />
+                    <SolidColorBrush x:Key="ComboBoxBorderBrushFocused" Color="Transparent" />
+                    <SolidColorBrush x:Key="ToggleSwitchFillOff" Color="#555555" />
+                    <SolidColorBrush x:Key="ToggleSwitchFillOffPointerOver" Color="#5E5E5E" />
+                    <SolidColorBrush x:Key="ToggleSwitchFillOffPressed" Color="#5E5E5E" />
+                    <SolidColorBrush x:Key="ToggleSwitchStrokeOff" Color="Transparent" />
+                    <SolidColorBrush x:Key="ToggleSwitchStrokeOffPointerOver" Color="Transparent" />
+                    <SolidColorBrush x:Key="ToggleSwitchStrokeOffPressed" Color="Transparent" />
+                    <SolidColorBrush x:Key="ToggleSwitchKnobFillOff" Color="#FFFFFF" />
+                    <SolidColorBrush x:Key="ToggleSwitchKnobFillOffPointerOver" Color="#FFFFFF" />
+                    <SolidColorBrush x:Key="ToggleSwitchKnobFillOffPressed" Color="#FFFFFF" />
+                    <SolidColorBrush x:Key="ToggleSwitchFillOn" Color="#1C5FB0" />
+                    <SolidColorBrush x:Key="ToggleSwitchFillOnPointerOver" Color="#2468BD" />
+                    <SolidColorBrush x:Key="ToggleSwitchFillOnPressed" Color="#18528F" />
+                    <SolidColorBrush x:Key="ToggleSwitchKnobFillOn" Color="#FFFFFF" />
+                    <SolidColorBrush x:Key="ToggleSwitchKnobFillOnPointerOver" Color="#FFFFFF" />
+                    <SolidColorBrush x:Key="ToggleSwitchKnobFillOnPressed" Color="#FFFFFF" />
                 </ResourceDictionary>
             </ResourceDictionary.ThemeDictionaries>
                 </ResourceDictionary>

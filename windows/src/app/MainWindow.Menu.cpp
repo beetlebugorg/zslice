@@ -165,6 +165,9 @@ namespace winrt::ZSlice::implementation
             return;
         bool dark = Root().ActualTheme() == ElementTheme::Dark;
         zs_view_set_dark(view, dark ? 1 : 0);
+        // The rows of the search take their colors again.
+        if (search_open)
+            FillSearch();
         // The marks of the timeline take their colors again.
         timeline_count = (size_t)-1;
         RefreshTimeline();

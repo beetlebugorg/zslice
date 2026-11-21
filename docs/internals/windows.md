@@ -45,7 +45,8 @@ A build with `-p:ZsDevHooks=true` reads `ZSLICE_DO`: steps with `;` between them
 | `src/app/MainWindow.ContextMenu.cpp` | The menu of the view, and copy, cut, paste, and duplicate of parts. |
 | `src/app/Layer2D.cpp` | The 2D view of one layer, with Direct2D on its own swapchain. |
 | `src/app/MainWindow.Layer2D.cpp` | The input and the state of the 2D view. |
-| `src/app/MainWindow.Chrome.cpp` | The layer rail, the timeline, the print in the bottom bar, and the search of the header. |
+| `src/app/MainWindow.Chrome.cpp` | The layer rail, the timeline, and the print in the bottom bar. |
+| `src/app/MainWindow.Search.cpp` | The search of settings and actions: docked, on a card, or on a rail. It has no action that starts a print. |
 | `src/app/App.xaml` | The color tokens of `web/app/style.css` for light and dark, and the flat button styles. |
 | `src/app/MainWindow.DevHooks.cpp` | The test hooks, in a build with `ZsDevHooks`. |
 | `src/app/App` | The start of the app, and `ZSLICE_LOG`. |
