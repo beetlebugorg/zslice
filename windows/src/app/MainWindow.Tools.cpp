@@ -1056,7 +1056,11 @@ namespace winrt::ZSlice::implementation
         };
         bool shift = state(VirtualKey::Shift), ctrl = state(VirtualKey::Control);
         auto key = e.Key();
-        if (key == slash)
+        if (key == slash && shift)
+        {
+            ShowShortcuts();
+        }
+        else if (key == slash)
         {
             ShowSettingsPane(true);
             SettingsSearch().Focus(FocusState::Keyboard);

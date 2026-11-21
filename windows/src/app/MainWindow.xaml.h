@@ -135,6 +135,21 @@ namespace winrt::ZSlice::implementation
         bool OnToolKey(Windows::System::VirtualKey key, bool shift, bool ctrl);
         void WireCards();
 
+        // The session (MainWindow.Session.cpp).
+        void WireSession();
+        void SessionSoon();
+        void SaveSession(bool wait);
+        bool RestoreSession(bool has_file);
+        void ShowPlateChrome();
+
+        // The main menu and its dialogs (MainWindow.Menu.cpp).
+        void WireMenu();
+        void ApplyTheme();
+        void ShowDialog(hstring const &title, Microsoft::UI::Xaml::UIElement const &content);
+        void ShowShortcuts();
+        void ShowLicenses();
+        void ShowAbout();
+
         // Colors, the print as it forms, replay, gaps, check, and the bed
         // (MainWindow.View.cpp).
         void WireView();
@@ -242,6 +257,16 @@ namespace winrt::ZSlice::implementation
         bool hand_turning = false;
         double hand_height = 0, hand_x = 0, hand_y = 0, hand_turn_x = 0, hand_turn_y = 0;
         double hand_yaw = 0, hand_tilt = 0, hand_yaw_sent = 0, hand_tilt_sent = 0;
+
+        Microsoft::UI::Dispatching::DispatcherQueueTimer session_timer{ nullptr };
+        std::chrono::steady_clock::time_point session_due{};
+        std::chrono::steady_clock::time_point last_input{};
+        // False until the restore at launch is done: no session is written.
+        bool session_ready = false;
+        Windows::Graphics::SizeInt32 restore_size{ 1280, 860 };
+        Microsoft::UI::Xaml::Controls::MenuFlyoutItem menu_undo{ nullptr };
+        Microsoft::UI::Xaml::Controls::MenuFlyoutItem menu_redo{ nullptr };
+        Microsoft::UI::Xaml::Controls::ToggleMenuFlyoutItem menu_bed{ nullptr };
 
         int color_mode = 0;
         bool simulated = false;

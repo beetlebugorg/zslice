@@ -53,8 +53,17 @@
             </StackPanel>
             <TextBlock x:Name="FileName" Grid.Column="3" VerticalAlignment="Center" Margin="16,0,0,0"
                        Foreground="#5B6168" TextTrimming="CharacterEllipsis" />
-            <ToggleButton x:Name="SettingsToggle" Grid.Column="4" Content="Settings" VerticalAlignment="Center"
-                          ToolTipService.ToolTip="Show the settings (/ searches them)" />
+            <StackPanel Grid.Column="4" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
+                <ToggleButton x:Name="SettingsToggle" Content="Settings"
+                              ToolTipService.ToolTip="Show the settings (/ searches them)" />
+                <DropDownButton x:Name="MainMenuButton" AutomationProperties.Name="Main menu"
+                                Background="Transparent" BorderThickness="0" ToolTipService.ToolTip="Main menu">
+                    <FontIcon Glyph="&#xE700;" FontSize="14" />
+                    <DropDownButton.Flyout>
+                        <MenuFlyout x:Name="MainMenu" Placement="BottomEdgeAlignedRight" />
+                    </DropDownButton.Flyout>
+                </DropDownButton>
+            </StackPanel>
         </Grid>
 
         <!-- The core draws into this panel. The XAML chrome floats over it. -->
