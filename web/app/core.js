@@ -1225,4 +1225,18 @@ export class Core {
     const n = w.u32(w.cell + 4);
     return w.u8.slice(p, p + n);
   }
+
+  // The .gcode.3mf file of the slice for a Bambu Lab printer
+  // (zs_app_bambu_file), as bytes, or null.
+  bambuFile(title) {
+    const w = this.w;
+    const c = w.cell;
+    const rc = w.withString(title || "zslice", (t) => w.x.zs_app_bambu_file(this.app, t, c, c + 4));
+    if (rc !== 0) return null;
+    const p = w.u32(c);
+    const n = w.u32(c + 4);
+    const bytes = w.u8.slice(p, p + n);
+    w.x.zs_buffer_free(p, n);
+    return bytes;
+  }
 }
