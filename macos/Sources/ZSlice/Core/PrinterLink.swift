@@ -83,8 +83,15 @@ enum PrinterLink {
     /// https address, then the http address.
     @MainActor private static func addresses(_ p: Printer) -> [String] {
         var out: [String] = []
-        for u in [worked[p.id] ?? "", p.https, p.url] where !u.isEmpty && !out.contains(u) { out.append(u) }
+        for u in [worked[p.id] ?? "", p.https, p.url].map(fixDoubled) where !u.isEmpty && !out.contains(u) { out.append(u) }
         return out
+    }
+
+    /// An address saved with the path of a printer of a deck twice
+    /// (".../printers/x2d/printers/x2d", from a deck added at the address
+    /// of one of its printers) has it once (web/app/link.js fixDoubled).
+    nonisolated static func fixDoubled(_ u: String) -> String {
+        u.replacingOccurrences(of: #"(/printers/[^/]+)(?:\1)+(?=/|$)"#, with: "$1", options: .regularExpression)
     }
 
     private static func url(_ base: String, _ path: String) -> URL? {
@@ -224,6 +231,10 @@ enum PrinterLink {
             return LinkResult(ok: false, message: "Moonraker gives no API keys this way: it needs none, or the key of its config.")
         }
         let base = "/plugin/appkeys/request"
+        // A printdeck pairs at its root: the key is of the deck ("scope":
+        // "deck"), good for each of its printers and their list. At the
+        // address of one printer the key is of that printer only.
+        let p = p.kind == .printdeck ? deckRoot(p) : p
         let token: String
         // A new key pins the certificate again, and gives the printer the
         // public key of the app, so the deck can trust the signed prints.
@@ -269,7 +280,7 @@ enum PrinterLink {
     /// its API under the deck: "" for the first, "/printers/<id>" for
     /// another. nil if the deck does not answer.
     @MainActor static func deckPrinters(_ p: Printer) async -> [DeckPrinter]? {
-        guard let (d, r) = try? await request(p, "/slicer/printer.json"), (200 ..< 300).contains(r.statusCode),
+        guard let (d, r) = try? await request(deckRoot(p), "/slicer/printer.json", apiKey: p.apiKey), (200 ..< 300).contains(r.statusCode),
               let j = (try? JSONSerialization.jsonObject(with: d)) as? [String: Any] else { return nil }
         return (j["printers"] as? [[String: Any]] ?? []).map { o in
             DeckPrinter(id: o["id"] as? String ?? "", name: o["name"] as? String ?? "", label: o["label"] as? String ?? "",
@@ -280,7 +291,7 @@ enum PrinterLink {
     /// The root of a deck address, and the path of a printer of the deck:
     /// "http://deck/printers/p1" is ("http://deck", "/printers/p1").
     nonisolated static func deckSplit(_ u: String) -> (root: String, path: String) {
-        var s = u.trimmingCharacters(in: .whitespaces)
+        var s = fixDoubled(u.trimmingCharacters(in: .whitespaces))
         while s.hasSuffix("/") { s.removeLast() }
         if let r = s.range(of: "/printers/", options: .backwards) {
             let id = s[r.upperBound...]
@@ -424,12 +435,30 @@ enum PrinterLink {
         return src.stream == nil && src.snapshot == nil ? nil : src
     }
 
-    /// The https address of a printdeck, from its /slicer/printer.json, or nil.
+    /// The https address of a printer of a printdeck, or nil: the https
+    /// address of the deck (its /slicer/printer.json, at its root) and the
+    /// path of the printer under the deck.
     @MainActor static func printdeckHTTPS(_ p: Printer) async -> String? {
-        guard let (d, r) = try? await request(p, "/slicer/printer.json"), (200 ..< 300).contains(r.statusCode),
+        guard let (d, r) = try? await request(deckRoot(p), "/slicer/printer.json", apiKey: p.apiKey), (200 ..< 300).contains(r.statusCode),
               let j = (try? JSONSerialization.jsonObject(with: d)) as? [String: Any],
-              let https = j["https"] as? String, !https.isEmpty else { return nil }
-        return https
+              var https = j["https"] as? String, !https.isEmpty else { return nil }
+        while https.hasSuffix("/") { https.removeLast() }
+        return https + deckSplit(p.url.isEmpty ? p.https : p.url).path
+    }
+
+    /// The ids of the deck roots of the printers, for deckRoot.
+    @MainActor private static var rootIDs: [UUID: UUID] = [:]
+
+    /// The deck itself of a printer of a printdeck: its root address (the
+    /// url and the https address with no "/printers/<id>"), under an id of
+    /// its own, so the address that worked for the deck never stands for
+    /// the address of the printer (`worked`). It has no key: the requests
+    /// pass the key of the printer (setting one writes to the Keychain).
+    @MainActor static func deckRoot(_ p: Printer) -> Printer {
+        var r = Printer(name: p.name + " (deck)", kind: .printdeck, url: p.url.isEmpty ? "" : deckSplit(p.url).root)
+        r.https = p.https.isEmpty ? "" : deckSplit(p.https).root
+        if let id = rootIDs[p.id] { r.id = id } else { rootIDs[p.id] = r.id }
+        return r
     }
 }
 
