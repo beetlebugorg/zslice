@@ -120,6 +120,7 @@ namespace winrt::ZSlice::implementation
         WireSession();
         WireMenu();
         Wire2D();
+        WireChrome();
         Closed([this](auto &&, auto &&) {
             SaveSession(true);
             CloseView();
@@ -269,6 +270,7 @@ namespace winrt::ZSlice::implementation
             Draw2D();
             return;
         }
+        PlaceEmptyOpen();
         int rc = zs_view_draw(view);
         // The GPU or the compositor holds the frame before.
         if (rc == ZS_BUSY && !retry_timer.IsRunning())
@@ -312,7 +314,7 @@ namespace winrt::ZSlice::implementation
             {
                 SliceProgress().Visibility(Visibility::Visible);
                 SliceProgress().Value(event.progress);
-                StatusText().Text(L"Slicing");
+                ShowBusy(L"Slicing…");
             }
             break;
         case ZS_EVENT_SLICED:
@@ -366,7 +368,7 @@ namespace winrt::ZSlice::implementation
             SupportLoaded();
             if (!scene_timer.IsRunning())
                 scene_timer.Start();
-            StatusText().Text(model->Summary());
+            RefreshSummary();
             return;
         }
         AfterScene();
@@ -393,6 +395,7 @@ namespace winrt::ZSlice::implementation
         size_t shown = (size_t)LayerSlider().Value();
         LayerText().Text(to_hstring(shown));
         LayerCard().Visibility(count > 0 ? Visibility::Visible : Visibility::Collapsed);
+        UpdateLayerRail();
         if (count > 0)
             zs_view_set_layer(view, shown - 1);
         if (frame_next)
@@ -406,14 +409,15 @@ namespace winrt::ZSlice::implementation
 #ifdef ZS_DEV_HOOKS
         StartDevHooks();
 #endif
-        StatusText().Text(model->Summary());
+        RefreshSummary();
         RequestDraw();
     }
 
     void MainWindow::ShowError(std::wstring const &text)
     {
         zs::Log("shell: %s\n", zs::ToUtf8(text).c_str());
-        StatusText().Text(text);
+        ShowBusy(L"");
+        ShowToast(text);
     }
 
     // ---- files ----
@@ -437,7 +441,7 @@ namespace winrt::ZSlice::implementation
     {
         if (model == nullptr)
             return;
-        StatusText().Text(L"Reading " + FileNameOf(path));
+        ShowBusy(L"Reading " + FileNameOf(path));
         // A large file reads off the UI thread.
         auto self = get_strong();
         auto target = queue;
@@ -470,7 +474,7 @@ namespace winrt::ZSlice::implementation
         FileName().Text(name);
         Title(name + L" - zslice");
         EmptyHint().Visibility(Visibility::Collapsed);
-        StatusText().Text(L"Slicing");
+        ShowBusy(L"Slicing…");
     }
 
     void MainWindow::OnDragOver(DragEventArgs const &e)
@@ -525,13 +529,14 @@ namespace winrt::ZSlice::implementation
 
     void MainWindow::OnLayerChanged(double value)
     {
+        UpdateLayerRail();
         if (setting_layer || view == nullptr || layer_count == 0)
             return;
         StopReplay();
         replay_time = 0;
         size_t layer = (size_t)std::lround(value);
         LayerText().Text(to_hstring(layer));
-        zs_view_set_layer(view, layer - 1);
+        ApplyLayerRange();
         ShowGaps();
         ShowScrub(layer - 1, 1e12);
         RequestDraw();

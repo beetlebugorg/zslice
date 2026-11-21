@@ -50,7 +50,7 @@ namespace
         { L"Grab", L"G", L"Grab (G): click a part to pick it up, move the pointer to carry it, and click to let go. Alt and a move turn it.",
           L"<Path Data='M6 9V4.2a1.2 1.2 0 0 1 2.4 0V8M8.4 7.5V3.2a1.2 1.2 0 0 1 2.4 0V8M10.8 7.6V4.2a1.2 1.2 0 0 1 2.4 0v6.3c0 3-2 5-4.8 5-2 0-3-.9-4.2-2.6L2.6 10a1.2 1.2 0 0 1 2-1.3L6 10.4' " ZS_STROKE L"/>", true },
         { L"Measure", L"T", L"Measure (T): click two points of the print. The ends of the lines snap. Shift: no snap.",
-          L"<Path Data='M1 6H17V12H1ZM4 6v2.5M6.5 6v1.5M9 6v2.5M11.5 6v1.5M14 6v2.5' RenderTransformOrigin='0.5,0.5' " ZS_STROKE L"><Path.RenderTransform><RotateTransform Angle='-45' CenterX='9' CenterY='9'/></Path.RenderTransform></Path>", true },
+          L"<Path Data='M1 6H17V12H1ZM4 6v2.5M6.5 6v1.5M9 6v2.5M11.5 6v1.5M14 6v2.5' " ZS_STROKE L"><Path.RenderTransform><RotateTransform Angle='-45' CenterX='9' CenterY='9'/></Path.RenderTransform></Path>", true },
         { L"Paint", L"P", L"Paint (P): paint filaments on the surface of a part. Smart select: click a raised letter, a logo, or a face; Shift adds more. Brush: drag over the surface.",
           L"<Path Data='M9 2.5a6.5 6.5 0 1 0 0 13c1 0 1.5-.6 1.5-1.3 0-1-.9-1.2-.9-2s.6-1.2 1.4-1.2h1.6a2.9 2.9 0 0 0 2.9-2.9C15.5 5 12.6 2.5 9 2.5z' " ZS_STROKE L"/>"
           L"<Path Data='M4.6 8.4a1 1 0 1 0 2 0a1 1 0 1 0-2 0ZM6.6 5.4a1 1 0 1 0 2 0a1 1 0 1 0-2 0ZM10 5.4a1 1 0 1 0 2 0a1 1 0 1 0-2 0Z' Fill='{ThemeResource TextFillColorPrimaryBrush}'/>", true },
@@ -84,18 +84,17 @@ namespace winrt::ZSlice::implementation
         {
             auto const &info = tools[i];
             Primitives::ToggleButton button;
-            button.Width(38);
-            button.Height(38);
+            button.Width(40);
+            button.Height(40);
+            button.CornerRadius(CornerRadiusHelper::FromUniformRadius(8));
             button.Padding(ThicknessHelper::FromUniformLength(0));
-            button.Background(Media::SolidColorBrush(Microsoft::UI::Colors::Transparent()));
-            button.BorderThickness(ThicknessHelper::FromUniformLength(0));
             button.IsEnabled(info.ready);
             Automation::AutomationProperties::SetName(button, info.name);
             ToolTipService::SetToolTip(button, box_value(info.tip));
 
             Grid content;
-            content.Width(34);
-            content.Height(34);
+            content.Width(40);
+            content.Height(40);
             FrameworkElement glyph = MakeGlyph(info.glyph);
             glyph.HorizontalAlignment(HorizontalAlignment::Center);
             glyph.VerticalAlignment(VerticalAlignment::Center);
@@ -103,10 +102,10 @@ namespace winrt::ZSlice::implementation
             TextBlock letter;
             letter.Text(info.key);
             letter.FontSize(9);
-            letter.Opacity(0.65);
+            letter.Opacity(0.55);
             letter.HorizontalAlignment(HorizontalAlignment::Right);
             letter.VerticalAlignment(VerticalAlignment::Bottom);
-            letter.Margin(ThicknessHelper::FromLengths(0, 0, 1, 0));
+            letter.Margin(ThicknessHelper::FromLengths(0, 0, 3, 1));
             content.Children().Append(letter);
             button.Content(content);
 
@@ -1153,9 +1152,9 @@ namespace winrt::ZSlice::implementation
         case VirtualKey::L:
         case VirtualKey::Right: StepLine(1, shift); return true;
         case VirtualKey::K:
-        case VirtualKey::Up: StepLayer(1); return true;
+        case VirtualKey::Up: if (shift) StepLayerLo(1); else StepLayer(1); return true;
         case VirtualKey::J:
-        case VirtualKey::Down: StepLayer(-1); return true;
+        case VirtualKey::Down: if (shift) StepLayerLo(-1); else StepLayer(-1); return true;
         case VirtualKey::Escape:
             if (HandRelease())
                 return true;
@@ -1242,8 +1241,7 @@ namespace winrt::ZSlice::implementation
         }
         else if (key == slash)
         {
-            ShowSettingsPane(true);
-            SettingsSearch().Focus(FocusState::Keyboard);
+            HeaderSearch().Focus(FocusState::Keyboard);
         }
         else if (key == VirtualKey::Tab && !ctrl && InViewFocus(focused) && zs_app_part_count(model->Active()) > 0)
         {

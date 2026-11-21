@@ -1,4 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- The look of the other apps: the color tokens of web/app/style.css, for
+     the light and the dark theme. The overrides of the WinUI brushes give
+     each control those colors. -->
 <Application
     x:Class="ZSlice.App"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
@@ -7,7 +10,201 @@
         <ResourceDictionary>
             <ResourceDictionary.MergedDictionaries>
                 <XamlControlsResources xmlns="using:Microsoft.UI.Xaml.Controls" />
+                <!-- After the controls, so these brushes replace theirs. -->
+                <ResourceDictionary>
+                    <ResourceDictionary.ThemeDictionaries>
+                <ResourceDictionary x:Key="Light">
+                    <SolidColorBrush x:Key="ZsBg" Color="#FAFAFA" />
+                    <SolidColorBrush x:Key="ZsHeader" Color="#EBEBEB" />
+                    <SolidColorBrush x:Key="ZsButton" Color="#14000000" />
+                    <SolidColorBrush x:Key="ZsButtonHover" Color="#1F000000" />
+                    <SolidColorBrush x:Key="ZsButtonActive" Color="#30000000" />
+                    <SolidColorBrush x:Key="ZsEntry" Color="#12000000" />
+                    <SolidColorBrush x:Key="ZsCard" Color="#FFFFFF" />
+                    <SolidColorBrush x:Key="ZsBorder" Color="#26000000" />
+                    <SolidColorBrush x:Key="ZsFg" Color="#CC000000" />
+                    <SolidColorBrush x:Key="ZsDim" Color="#99000000" />
+                    <SolidColorBrush x:Key="ZsAccent" Color="#1C71D8" />
+                    <SolidColorBrush x:Key="ZsAccentHover" Color="#1B66C4" />
+                    <SolidColorBrush x:Key="ZsView" Color="#F6F7F8" />
+                    <SolidColorBrush x:Key="ZsFloat" Color="#EBFAFAFA" />
+                    <SolidColorBrush x:Key="ZsPopover" Color="#F7FFFFFF" />
+                    <SolidColorBrush x:Key="ZsPopoverBorder" Color="#1F000000" />
+                    <SolidColorBrush x:Key="ZsLine" Color="#26000000" />
+                    <SolidColorBrush x:Key="ZsDockLine" Color="#1F000000" />
+                    <SolidColorBrush x:Key="ZsTrough" Color="#2E000000" />
+                    <SolidColorBrush x:Key="ZsWarning" Color="#7D5800" />
+
+                    <SolidColorBrush x:Key="AccentFillColorDefaultBrush" Color="#1C71D8" />
+                            <SolidColorBrush x:Key="SliderTrackValueFill" Color="#1C71D8" />
+                            <SolidColorBrush x:Key="SliderTrackValueFillPointerOver" Color="#1C71D8" />
+                            <SolidColorBrush x:Key="SliderTrackValueFillPressed" Color="#1C71D8" />
+                            <SolidColorBrush x:Key="SliderThumbBackground" Color="#1C71D8" />
+                            <SolidColorBrush x:Key="SliderThumbBackgroundPointerOver" Color="#1C71D8" />
+                            <SolidColorBrush x:Key="SliderThumbBackgroundPressed" Color="#1C71D8" />
+                            <SolidColorBrush x:Key="AccentButtonBackground" Color="#1C71D8" />
+                            <SolidColorBrush x:Key="AccentButtonBackgroundPointerOver" Color="#1B66C4" />
+                            <SolidColorBrush x:Key="AccentButtonBackgroundPressed" Color="#185AAD" />
+                            <SolidColorBrush x:Key="AccentButtonBorderBrush" Color="Transparent" />
+                            <SolidColorBrush x:Key="AccentButtonBorderBrushPointerOver" Color="Transparent" />
+                            <SolidColorBrush x:Key="AccentButtonBorderBrushPressed" Color="Transparent" />
+                    <SolidColorBrush x:Key="AccentFillColorSecondaryBrush" Color="#1B66C4" />
+                    <SolidColorBrush x:Key="AccentFillColorTertiaryBrush" Color="#185AAD" />
+                    <SolidColorBrush x:Key="TextFillColorPrimaryBrush" Color="#CC000000" />
+                    <SolidColorBrush x:Key="ButtonBackground" Color="#14000000" />
+                    <SolidColorBrush x:Key="ButtonBackgroundPointerOver" Color="#1F000000" />
+                    <SolidColorBrush x:Key="ButtonBackgroundPressed" Color="#30000000" />
+                    <SolidColorBrush x:Key="ButtonBackgroundDisabled" Color="#0A000000" />
+                    <SolidColorBrush x:Key="ButtonForeground" Color="#CC000000" />
+                    <SolidColorBrush x:Key="ButtonForegroundPointerOver" Color="#CC000000" />
+                    <SolidColorBrush x:Key="ButtonForegroundPressed" Color="#CC000000" />
+                    <SolidColorBrush x:Key="ButtonBorderBrush" Color="Transparent" />
+                    <SolidColorBrush x:Key="ButtonBorderBrushPointerOver" Color="Transparent" />
+                    <SolidColorBrush x:Key="ButtonBorderBrushPressed" Color="Transparent" />
+                    <SolidColorBrush x:Key="ButtonBorderBrushDisabled" Color="Transparent" />
+                    <SolidColorBrush x:Key="ToggleButtonBackground" Color="#14000000" />
+                    <SolidColorBrush x:Key="ToggleButtonBackgroundPointerOver" Color="#1F000000" />
+                    <SolidColorBrush x:Key="ToggleButtonBackgroundPressed" Color="#30000000" />
+                    <SolidColorBrush x:Key="ToggleButtonBackgroundChecked" Color="#30000000" />
+                    <SolidColorBrush x:Key="ToggleButtonBackgroundCheckedPointerOver" Color="#30000000" />
+                    <SolidColorBrush x:Key="ToggleButtonBackgroundCheckedPressed" Color="#30000000" />
+                    <SolidColorBrush x:Key="ToggleButtonForegroundChecked" Color="#CC000000" />
+                    <SolidColorBrush x:Key="ToggleButtonForegroundCheckedPointerOver" Color="#CC000000" />
+                    <SolidColorBrush x:Key="ToggleButtonForegroundCheckedPressed" Color="#CC000000" />
+                    <SolidColorBrush x:Key="ToggleButtonBorderBrush" Color="Transparent" />
+                    <SolidColorBrush x:Key="ToggleButtonBorderBrushPointerOver" Color="Transparent" />
+                    <SolidColorBrush x:Key="ToggleButtonBorderBrushPressed" Color="Transparent" />
+                    <SolidColorBrush x:Key="ToggleButtonBorderBrushChecked" Color="Transparent" />
+                    <SolidColorBrush x:Key="ToggleButtonBorderBrushCheckedPointerOver" Color="Transparent" />
+                    <SolidColorBrush x:Key="ToggleButtonBorderBrushCheckedPressed" Color="Transparent" />
+                </ResourceDictionary>
+                <ResourceDictionary x:Key="Dark">
+                    <SolidColorBrush x:Key="ZsBg" Color="#2D2D2D" />
+                    <SolidColorBrush x:Key="ZsHeader" Color="#303030" />
+                    <SolidColorBrush x:Key="ZsButton" Color="#3A3A3A" />
+                    <SolidColorBrush x:Key="ZsButtonHover" Color="#454545" />
+                    <SolidColorBrush x:Key="ZsButtonActive" Color="#232323" />
+                    <SolidColorBrush x:Key="ZsEntry" Color="#232323" />
+                    <SolidColorBrush x:Key="ZsCard" Color="#353535" />
+                    <SolidColorBrush x:Key="ZsBorder" Color="#1F1F1F" />
+                    <SolidColorBrush x:Key="ZsFg" Color="#EBFFFFFF" />
+                    <SolidColorBrush x:Key="ZsDim" Color="#8CFFFFFF" />
+                    <SolidColorBrush x:Key="ZsAccent" Color="#1C5FB0" />
+                    <SolidColorBrush x:Key="ZsAccentHover" Color="#2468BD" />
+                    <SolidColorBrush x:Key="ZsView" Color="#1D1D20" />
+                    <SolidColorBrush x:Key="ZsFloat" Color="#E02D2D2D" />
+                    <SolidColorBrush x:Key="ZsPopover" Color="#F528282C" />
+                    <SolidColorBrush x:Key="ZsPopoverBorder" Color="#24FFFFFF" />
+                    <SolidColorBrush x:Key="ZsLine" Color="#26FFFFFF" />
+                    <SolidColorBrush x:Key="ZsDockLine" Color="#1FFFFFFF" />
+                    <SolidColorBrush x:Key="ZsTrough" Color="#2EFFFFFF" />
+                    <SolidColorBrush x:Key="ZsWarning" Color="#E5A50A" />
+
+                    <SolidColorBrush x:Key="AccentFillColorDefaultBrush" Color="#1C5FB0" />
+                            <SolidColorBrush x:Key="SliderTrackValueFill" Color="#1C5FB0" />
+                            <SolidColorBrush x:Key="SliderTrackValueFillPointerOver" Color="#1C5FB0" />
+                            <SolidColorBrush x:Key="SliderTrackValueFillPressed" Color="#1C5FB0" />
+                            <SolidColorBrush x:Key="SliderThumbBackground" Color="#1C5FB0" />
+                            <SolidColorBrush x:Key="SliderThumbBackgroundPointerOver" Color="#1C5FB0" />
+                            <SolidColorBrush x:Key="SliderThumbBackgroundPressed" Color="#1C5FB0" />
+                            <SolidColorBrush x:Key="AccentButtonBackground" Color="#1C5FB0" />
+                            <SolidColorBrush x:Key="AccentButtonBackgroundPointerOver" Color="#2468BD" />
+                            <SolidColorBrush x:Key="AccentButtonBackgroundPressed" Color="#18528F" />
+                            <SolidColorBrush x:Key="AccentButtonBorderBrush" Color="Transparent" />
+                            <SolidColorBrush x:Key="AccentButtonBorderBrushPointerOver" Color="Transparent" />
+                            <SolidColorBrush x:Key="AccentButtonBorderBrushPressed" Color="Transparent" />
+                    <SolidColorBrush x:Key="AccentFillColorSecondaryBrush" Color="#2468BD" />
+                    <SolidColorBrush x:Key="AccentFillColorTertiaryBrush" Color="#18528F" />
+                    <SolidColorBrush x:Key="TextFillColorPrimaryBrush" Color="#EBFFFFFF" />
+                    <SolidColorBrush x:Key="ButtonBackground" Color="#3A3A3A" />
+                    <SolidColorBrush x:Key="ButtonBackgroundPointerOver" Color="#454545" />
+                    <SolidColorBrush x:Key="ButtonBackgroundPressed" Color="#232323" />
+                    <SolidColorBrush x:Key="ButtonBackgroundDisabled" Color="#303030" />
+                    <SolidColorBrush x:Key="ButtonForeground" Color="#EBFFFFFF" />
+                    <SolidColorBrush x:Key="ButtonForegroundPointerOver" Color="#EBFFFFFF" />
+                    <SolidColorBrush x:Key="ButtonForegroundPressed" Color="#EBFFFFFF" />
+                    <SolidColorBrush x:Key="ButtonBorderBrush" Color="Transparent" />
+                    <SolidColorBrush x:Key="ButtonBorderBrushPointerOver" Color="Transparent" />
+                    <SolidColorBrush x:Key="ButtonBorderBrushPressed" Color="Transparent" />
+                    <SolidColorBrush x:Key="ButtonBorderBrushDisabled" Color="Transparent" />
+                    <SolidColorBrush x:Key="ToggleButtonBackground" Color="#3A3A3A" />
+                    <SolidColorBrush x:Key="ToggleButtonBackgroundPointerOver" Color="#454545" />
+                    <SolidColorBrush x:Key="ToggleButtonBackgroundPressed" Color="#232323" />
+                    <SolidColorBrush x:Key="ToggleButtonBackgroundChecked" Color="#232323" />
+                    <SolidColorBrush x:Key="ToggleButtonBackgroundCheckedPointerOver" Color="#232323" />
+                    <SolidColorBrush x:Key="ToggleButtonBackgroundCheckedPressed" Color="#232323" />
+                    <SolidColorBrush x:Key="ToggleButtonForegroundChecked" Color="#EBFFFFFF" />
+                    <SolidColorBrush x:Key="ToggleButtonForegroundCheckedPointerOver" Color="#EBFFFFFF" />
+                    <SolidColorBrush x:Key="ToggleButtonForegroundCheckedPressed" Color="#EBFFFFFF" />
+                    <SolidColorBrush x:Key="ToggleButtonBorderBrush" Color="Transparent" />
+                    <SolidColorBrush x:Key="ToggleButtonBorderBrushPointerOver" Color="Transparent" />
+                    <SolidColorBrush x:Key="ToggleButtonBorderBrushPressed" Color="Transparent" />
+                    <SolidColorBrush x:Key="ToggleButtonBorderBrushChecked" Color="Transparent" />
+                    <SolidColorBrush x:Key="ToggleButtonBorderBrushCheckedPointerOver" Color="Transparent" />
+                    <SolidColorBrush x:Key="ToggleButtonBorderBrushCheckedPressed" Color="Transparent" />
+                </ResourceDictionary>
+            </ResourceDictionary.ThemeDictionaries>
+                </ResourceDictionary>
             </ResourceDictionary.MergedDictionaries>
+
+            <CornerRadius x:Key="ControlCornerRadius">6</CornerRadius>
+
+            <!-- The buttons of the other apps: a flat tint, with no border. -->
+            <Style x:Key="ZsButtonBase" TargetType="Button" BasedOn="{StaticResource DefaultButtonStyle}">
+                <Setter Property="Background" Value="{ThemeResource ZsButton}" />
+                <Setter Property="Foreground" Value="{ThemeResource ZsFg}" />
+                <Setter Property="BorderBrush" Value="Transparent" />
+                <Setter Property="BorderThickness" Value="0" />
+                <Setter Property="CornerRadius" Value="6" />
+            </Style>
+            <Style TargetType="Button" BasedOn="{StaticResource ZsButtonBase}" />
+            <Style TargetType="DropDownButton">
+                <Setter Property="Background" Value="{ThemeResource ZsButton}" />
+                <Setter Property="Foreground" Value="{ThemeResource ZsFg}" />
+                <Setter Property="BorderBrush" Value="Transparent" />
+                <Setter Property="BorderThickness" Value="0" />
+                <Setter Property="CornerRadius" Value="6" />
+            </Style>
+            <!-- The main action: the accent color. -->
+            <Style x:Key="ZsSuggested" TargetType="Button" BasedOn="{StaticResource AccentButtonStyle}">
+                <Setter Property="Background" Value="{ThemeResource ZsAccent}" />
+                <Setter Property="Foreground" Value="#FFFFFF" />
+                <Setter Property="BorderBrush" Value="Transparent" />
+                <Setter Property="BorderThickness" Value="0" />
+            </Style>
+
+            <!-- A button of the header: an icon, 32 px. -->
+            <Style x:Key="ZsHeaderIcon" TargetType="Button" BasedOn="{StaticResource ZsButtonBase}">
+                <Setter Property="Width" Value="34" />
+                <Setter Property="Height" Value="32" />
+                <Setter Property="Padding" Value="0" />
+                <Setter Property="CornerRadius" Value="6" />
+            </Style>
+            <!-- The next parts of the setup group have a line at the left. -->
+            <Style x:Key="ZsSetupPartNext" TargetType="Button" BasedOn="{StaticResource ZsSetupPart}">
+                <Setter Property="BorderBrush" Value="{ThemeResource ZsBorder}" />
+                <Setter Property="BorderThickness" Value="1,0,0,0" />
+            </Style>
+            <!-- A round button of the bottom bar. -->
+            <Style x:Key="ZsPill" TargetType="Button" BasedOn="{StaticResource ZsButtonBase}">
+                <Setter Property="MinWidth" Value="0" />
+                <Setter Property="MinHeight" Value="26" />
+                <Setter Property="Height" Value="26" />
+                <Setter Property="Padding" Value="8,0" />
+                <Setter Property="CornerRadius" Value="13" />
+                <Setter Property="FontSize" Value="12.5" />
+            </Style>
+            <Style x:Key="ZsFlatPill" TargetType="Button" BasedOn="{StaticResource ZsPill}">
+                <Setter Property="Background" Value="Transparent" />
+            </Style>
+            <!-- One part of the setup group. -->
+            <Style x:Key="ZsSetupPart" TargetType="Button" BasedOn="{StaticResource ZsButtonBase}">
+                <Setter Property="Background" Value="Transparent" />
+                <Setter Property="MinHeight" Value="30" />
+                <Setter Property="Padding" Value="10,4" />
+                <Setter Property="CornerRadius" Value="0" />
+                <Setter Property="FontSize" Value="13" />
+            </Style>
         </ResourceDictionary>
     </Application.Resources>
 </Application>

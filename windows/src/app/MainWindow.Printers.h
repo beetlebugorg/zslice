@@ -132,6 +132,8 @@ namespace winrt::ZSlice::implementation
         void Close();
         void AfterSettings();
         void RefreshBar();
+        void RefreshPrimary();
+        void PrimaryAction();
         void FillPrinterMenu();
         void FillQuality();
         void FillFilament();
@@ -186,7 +188,7 @@ namespace winrt::ZSlice::implementation
         Poster poster;
         bool started = false;
 
-        Microsoft::UI::Xaml::Controls::DropDownButton printer_button{ nullptr }, filament_button{ nullptr }, quality_button{ nullptr }, send_button{ nullptr };
+        Microsoft::UI::Xaml::Controls::Button printer_button{ nullptr }, filament_button{ nullptr }, quality_button{ nullptr }, send_button{ nullptr };
         Microsoft::UI::Xaml::Controls::Primitives::ToggleButton page_button{ nullptr };
         Microsoft::UI::Xaml::Controls::MenuFlyout printer_menu{ nullptr }, send_menu{ nullptr };
         Microsoft::UI::Xaml::Controls::Flyout filament_flyout{ nullptr }, quality_flyout{ nullptr };

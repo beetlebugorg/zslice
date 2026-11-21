@@ -6,6 +6,7 @@
 
 #include "pch.h"
 #include "MainWindow.xaml.h"
+#include "MainWindow.Printers.h"
 
 using namespace winrt;
 using namespace Microsoft::UI::Xaml;
@@ -65,6 +66,23 @@ namespace winrt::ZSlice::implementation
             }
         });
         line();
+        add(L"Save the plate as 3MF…", [this] {
+            if (printers != nullptr)
+                printers->SavePlate3mf();
+        });
+        add(L"Save project…", [this] {
+            if (printers != nullptr)
+                printers->SaveProject();
+        });
+        add(L"Send all plates", [this] {
+            if (printers != nullptr)
+                printers->SendAll();
+        });
+        add(L"Export all plates…", [this] {
+            if (printers != nullptr)
+                printers->ExportAll();
+        });
+        line();
         add(L"Smart placement", [this] {
             if (model != nullptr && zs_app_part_count(model->Active()) > 0)
             {
@@ -93,6 +111,12 @@ namespace winrt::ZSlice::implementation
             if (model != nullptr && model->RemovePlate(model->ActivePlate()))
                 ShowPlate();
         });
+        line();
+        add(L"Printers", [this] {
+            if (printers != nullptr)
+                printers->ShowPage(true);
+        });
+        add(L"History", [this] { HistoryMenu().ShowAt(HistoryButton()); });
         line();
         menu_bed = ToggleMenuFlyoutItem{};
         menu_bed.Text(L"Hide the bed");
@@ -141,6 +165,9 @@ namespace winrt::ZSlice::implementation
             return;
         bool dark = Root().ActualTheme() == ElementTheme::Dark;
         zs_view_set_dark(view, dark ? 1 : 0);
+        // The marks of the timeline take their colors again.
+        timeline_count = (size_t)-1;
+        RefreshTimeline();
         // The view takes new colors from a load.
         if (zs_app_state(model->Active()) == ZS_STATE_DONE)
             ShowSlice();

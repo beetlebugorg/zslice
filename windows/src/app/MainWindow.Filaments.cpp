@@ -784,7 +784,7 @@ namespace winrt::ZSlice::implementation
         auto &f = *filaments;
         size_t i = !words.empty() ? (size_t)_wtoi(words[0].c_str()) : 0;
         if (verb == L"fopen")
-            FilamentFlyout().ShowAt(FilamentButton());
+            FilamentFlyout().ShowAt(ToolRow());
         else if (verb == L"fclose")
             FilamentFlyout().Hide();
         else if (verb == L"fmaterial" && words.size() >= 2 && i < f.rows.size())

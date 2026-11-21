@@ -573,6 +573,7 @@ namespace winrt::ZSlice::implementation
         size_t count = zs_app_history_count(app), current = zs_app_history_current(app);
         UndoButton().IsEnabled(current > 0 || zs_app_history_pending(app) != 0);
         RedoButton().IsEnabled(count > 0 && current + 1 < count);
+        RefreshTimeline();
     }
 
     void MainWindow::FillHistoryMenu()

@@ -161,6 +161,25 @@ namespace winrt::ZSlice::implementation
         bool InViewFocus(Windows::Foundation::IInspectable const &focused);
         void StepPart(int direction);
 
+        // The chrome that all apps share (MainWindow.Chrome.cpp).
+        void WireChrome();
+        void LayoutHeader();
+        size_t LayerAt(double y);
+        void RailMove(size_t at);
+        void StepLayerLo(int direction);
+        void ApplyLayerRange();
+        void UpdateLayerRail();
+        void RefreshTimeline();
+        void FitTimeline();
+        void RefreshSummary();
+        void ShowBusy(winrt::param::hstring const &text);
+        void PlaceEmptyOpen();
+        size_t layer_lo = 0;
+        // A drag of the rail: 1 the top knob, 2 the bottom knob.
+        int rail_drag = 0;
+        size_t timeline_count = (size_t)-1, timeline_now = (size_t)-1;
+        zs_app *timeline_app = nullptr;
+
         // The 2D view of the top layer (MainWindow.Layer2D.cpp).
         void Wire2D();
         void Size2D();
