@@ -15,6 +15,22 @@ import { filamentEditor } from "./filaments.js";
 const GROUP_ORDER = ["project", "filament", "machine", "engine"];
 const LIVE_DELAY_MS = 450;
 
+// The badge of a printer or a filament setting (null for a print setting):
+// "Printer · Bambu Lab X2D". setOwner fills in the name.
+function ownerBadge(info) {
+  if (info.group !== "machine" && info.group !== "filament") return null;
+  const b = el("span", `owner ${info.group}`);
+  b.title = info.group === "machine"
+    ? "A printer setting: each printer has its own value, and it changes when you change the printer."
+    : "A filament setting: each filament has its own value, and it changes when you change the filament.";
+  return b;
+}
+
+function setOwner(b, info, values) {
+  const who = info.group === "machine" ? values?.["machine.name"]?.value : values?.["filament.name"]?.value;
+  b.textContent = `${info.group === "machine" ? "Printer" : "Filament"}${who ? ` · ${who}` : ""}`;
+}
+
 // The help of a setting: the text in `backticks` in a code font, the rest
 // as text (no HTML from the help).
 function docText(text) {
@@ -225,10 +241,21 @@ export class SettingsBrowser {
     const col = this.cols[1];
     for (const [name, list] of this.editors) this.editors.set(name, list.filter((e) => e.where !== "row"));
     col.replaceChildren();
-    for (const info of this.infos) {
-      if (!filter(info)) continue;
-      col.append(this.settingRow(info, withSection));
+    const shown = this.infos.filter(filter);
+    // A list of one printer or filament section: one banner that says
+    // whose settings they are. A mixed list (a search): a badge on each.
+    const groups = new Set(shown.map((i) => i.group));
+    const one = groups.size === 1 && !withSection ? [...groups][0] : null;
+    if (one === "machine" || one === "filament") {
+      const owner = ownerBadge(shown[0]);
+      setOwner(owner, shown[0], this.values);
+      const note = el("div", "owner-note banner");
+      note.append(owner, document.createTextNode(one === "machine"
+        ? " Each printer keeps its own values here. They change when you change the printer."
+        : " Each filament keeps its own values here. They change when you change the filament."));
+      col.append(note);
     }
+    for (const info of shown) col.append(this.settingRow(info, withSection || !one));
     if (!col.childElementCount) col.append(el("div", "note", "No setting matches."));
   }
 
@@ -240,6 +267,10 @@ export class SettingsBrowser {
     const name = el("div", "name", info.label);
     name.title = info.doc;
     const tag = el("div", "tag");
+    // Whose setting it is: a printer setting changes with the printer, a
+    // filament setting with the filament. A print setting has no badge.
+    const owner = withSection ? ownerBadge(info) : null;
+    if (owner) name.append(owner);
     label.append(name, tag);
     const editor = this.makeEditor(info, "row");
     row.append(label, editor.node, el("span", "chevron"));
@@ -262,6 +293,7 @@ export class SettingsBrowser {
       where: "row",
       update: (entry) => {
         editor.update(entry);
+        if (owner) setOwner(owner, info, this.values);
         const t = sourceText(entry);
         tag.textContent = withSection ? `${GROUP_TITLES[info.group]} · ${info.section}${t ? ` · ${t}` : ""}` : t;
         tag.hidden = !tag.textContent;
@@ -463,6 +495,16 @@ export class SettingsBrowser {
     if (!info) return;
     col.append(el("h3", "", info.label));
     col.append(el("div", "path", `${GROUP_TITLES[info.group] ?? info.group} › ${info.section || "General"}`));
+    // A setting of the printer or the filament: say so, with the name.
+    const owner = ownerBadge(info);
+    if (owner) {
+      setOwner(owner, info, this.values);
+      const note = el("div", "owner-note");
+      note.append(owner, document.createTextNode(info.group === "machine"
+        ? " Each printer has its own value. It changes when you change the printer."
+        : " Each filament has its own value. It changes when you change the filament."));
+      col.append(note);
+    }
     const line = el("div", "edit-line");
     line.append(el("div", "name", info.label));
     const editor = this.makeEditor(info, "detail");
