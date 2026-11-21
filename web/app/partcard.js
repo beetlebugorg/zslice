@@ -9,7 +9,8 @@
 // - the settings that the part has of its own (not the values of the
 //   plate), each with a live editor and × to give it the value of the
 //   plate again. "+ Add a setting for this part" opens the search for the
-//   part: only the settings that a part can have, and the edits go to it.
+//   part: only the settings that a part can have, and the edits go to it;
+// - its labels: a click on one selects it in the Label tool (label.js).
 //
 // With several parts selected (Shift and a click), the card shows how
 // many, and the actions that work for all of them: Duplicate, Arrange the
@@ -28,6 +29,7 @@ import { movable } from "./drag.js";
 import { spatial, savedPlace, remember } from "./spatial.js";
 import { placeBeside, freeArea } from "./place.js";
 import { filaments, followFilaments } from "./filaments.js";
+import { labelName } from "./label.js";
 
 export class PartCard {
   // ctx: { client, browser (SettingsBrowser), host (the element of the
@@ -72,7 +74,31 @@ export class PartCard {
     this.part = part;
     if (!same) this.build();
     this.updateFacts();
-    if (!same) await this.refreshSettings();
+    if (!same) {
+      this.refreshLabels();
+      await this.refreshSettings();
+    }
+    this.place();
+  }
+
+  // The list of the labels of the part.
+  async refreshLabels() {
+    const part = this.part;
+    if (!part || !this.labelBox) return;
+    const r = await this.ctx.client.call("labelsGet", { index: part.index });
+    if (this.part !== part || !this.labelBox) return;
+    const box = this.labelBox;
+    const list = r.labels ?? [];
+    box.replaceChildren();
+    box.hidden = list.length === 0;
+    if (list.length === 0) return;
+    box.append(el("div", "pc-heading", "Labels"));
+    for (const l of list) {
+      const b = el("button", "flat", `${labelName(l)} · filament ${l.filament}`);
+      b.title = "Select this label in the Label tool (L)";
+      b.onclick = () => this.ctx.openLabel?.(part.index, l.id);
+      box.append(b);
+    }
     this.place();
   }
 
@@ -253,7 +279,11 @@ export class PartCard {
     this.filEd = filInfo ? this.ctx.browser.makeEditor(filInfo, "part", (n, v) => this.scope().set(n, v)) : null;
     filLabel.title = filInfo?.doc ?? "";
     if (this.filEd) filRow.append(filLabel, this.filEd.node);
-    card.append(head, this.facts, filRow, actions, make, this.cutBox, this.settingsBox, add);
+    // The labels of the part (label.js): a click selects one in the Label
+    // tool.
+    this.labelBox = el("div", "pc-labels");
+    this.labelBox.hidden = true;
+    card.append(head, this.facts, filRow, actions, make, this.cutBox, this.labelBox, this.settingsBox, add);
     card.addEventListener("keydown", (e) => {
       if (e.key === "Escape" && !e.target.closest("input, select, textarea")) {
         e.preventDefault();
