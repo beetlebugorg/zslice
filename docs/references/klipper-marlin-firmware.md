@@ -103,3 +103,32 @@ The filament change commands of the firmwares: Marlin `M600` (Filament Change, h
 **Used in:** `src/filaments.zig`, `src/gcode.zig`
 
 **How zslice uses it:** A change of the filament between layers or parts: a pause with M600 (PAUSE on Klipper) for a printer with one filament path, or a tool change Tn for a unit that feeds many filaments.
+
+## Reading G-code and the planner
+
+### Layer, feature, and time comments of other slicers
+
+```ref
+kind: format
+source: Cura, PrusaSlicer, OrcaSlicer, Bambu Studio, Klipper
+license: AGPL-3.0
+files: src/gcode_read.zig
+area: gcode
+summary: The G-code reader finds the layers, the features, and the time of a file from Cura, PrusaSlicer, OrcaSlicer, or Bambu Studio.
+```
+
+The comments that start a layer (`;LAYER:` of Cura, `;LAYER_CHANGE` of PrusaSlicer and OrcaSlicer, `; CHANGE_LAYER` of Bambu Studio), give its height (`;Z:`, `;HEIGHT:`), name a feature (`;TYPE:`, `; FEATURE:`), and give the print time (`;TIME:` of Cura, with 6666 as the value of CuraEngine with no estimate; `= 1h 2m 3s` of PrusaSlicer and OrcaSlicer). The rule of Klipper for absolute E (G90 and M82). The conventions only; no code is copied.
+
+### Planner limits of Marlin and Klipper
+
+```ref
+kind: idea
+source: Marlin, Klipper
+license: GPL-3.0
+link: https://marlinfw.org/docs/gcode/M201.html
+files: src/motion.zig, src/gcode.zig, src/settings.zig
+area: gcode
+summary: The acceleration limits of the motors of a CoreXY in Marlin, and the extruder limits of Marlin and Klipper, for the time estimate.
+```
+
+Marlin applies `M201 X Y` to the motors A = X + Y and B = X - Y of a CoreXY, and has an extruder jerk of 5 mm/s and no cruise ratio. Klipper limits the head in all directions alike, has a minimum cruise ratio, and limits the acceleration of the filament (`max_extrude_only_accel`). Klipper sets limits with `SET_VELOCITY_LIMIT`. The documented behavior only; no code is copied (https://www.klipper3d.org/Config_Reference.html).

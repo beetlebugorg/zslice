@@ -34,7 +34,7 @@ kind: format
 source: Cura
 license: LGPL-3.0
 link: https://github.com/Ultimaker/Cura
-files: src/import_cura.zig, src/cura_compare.zig
+files: src/import_cura.zig, src/cura_compare.zig, src/project.zig, src/main.zig
 area: files
 summary: The import of a Cura profile stack, and the comparison of the zslice settings with it.
 ```
@@ -223,3 +223,92 @@ The interlocking structure of CuraEngine (`src/interlocking/InterlockingGenerato
 **Used in:** `src/paint_split.zig`
 
 **How zslice uses it:** zslice grows a painted feature down into the part under it as a root, inside the walls of the part (`project.paint_anchor_depth`). The beams of Cura go both ways, so the layers of the feature get changes too, and a thin feature has no room for them.
+
+## Settings and behaviors
+
+These entries name the Cura settings and the CuraEngine behaviors that zslice has with the same meaning. zslice has its own code for each.
+
+### Wall thickness and the wall count
+
+```ref
+kind: setting
+source: Cura
+license: LGPL-3.0
+link: https://github.com/Ultimaker/Cura
+files: src/settings.zig, src/settings_meta.zig
+area: walls
+summary: `project.wall_thickness` sets the wall count from a thickness, as `wall_thickness` of Cura.
+```
+
+The Cura setting "Wall Thickness" (`wall_thickness` in `fdmprinter.def.json`) gives the wall count as the thickness divided by the line width, rounded. `project.wall_thickness` of zslice has the same meaning (`src/settings.zig`, the resolve step of the wall count).
+
+### Infill Flow, Connect Infill Lines, and Infill Line Directions
+
+```ref
+kind: setting
+source: Cura
+license: LGPL-3.0
+link: https://github.com/Ultimaker/Cura
+files: src/settings.zig, src/settings_meta.zig, src/layer.zig
+area: infill
+summary: `project.infill_flow`, `project.infill_connect`, and `project.infill_angles` have the meaning of the Cura settings of the same names.
+```
+
+The Cura settings `infill_material_flow` ("Infill Flow"), `zig_zaggify_infill` ("Connect Infill Lines"), and `infill_angles` ("Infill Line Directions", a list in brackets such as `[45, 135]`) of `fdmprinter.def.json`. zslice has `project.infill_flow`, `project.infill_connect`, and `project.infill_angles` with the same meaning, and reads the list with or without the brackets (`settings.infillAngles`).
+
+### Retract at layer change
+
+```ref
+kind: setting
+source: Cura
+license: LGPL-3.0
+link: https://github.com/Ultimaker/Cura
+files: src/settings.zig
+area: gcode
+summary: `project.retract_layer_change` is off by default, as `retract_at_layer_change` of Cura.
+```
+
+The Cura setting `retract_at_layer_change` is off by default. `project.retract_layer_change` of zslice has the same meaning and the same default.
+
+### Monotonic order
+
+```ref
+kind: idea
+source: Cura
+license: LGPL-3.0
+link: https://github.com/Ultimaker/Cura
+files: src/layer.zig
+area: slicing
+summary: The skin lines print in columns with no jump across the part, as the monotonic order of Cura.
+```
+
+Cura has "Monotonic Top/Bottom Order" (`skin_monotonic`): each line of the skin prints after the lines next to it on one side. zslice prints the pieces of the scan lines in a similar order (`src/layer.zig`, the skin order). The code is new.
+
+### Arachne wall direction and the inset of a narrow wall
+
+```ref
+kind: idea
+source: CuraEngine
+license: AGPL-3.0-or-later
+link: https://github.com/Ultimaker/CuraEngine
+version: commit 5eff812d2124b2eb93f832e92d33ccdba721135b
+files: src/layer.zig
+area: walls
+summary: The even Arachne walls turn as in CuraEngine, and a wall line narrower than the nozzle moves in, as in Cura.
+```
+
+CuraEngine prints the even walls clockwise around the part, and moves an outer wall narrower than the nozzle inward by half the difference (`wall_0_inset`). The Arachne defaults of zslice follow Cura for the nozzle and the line width (`arachneParams` in `src/layer.zig`).
+
+### Orbit with a right drag
+
+```ref
+kind: idea
+source: Cura
+license: LGPL-3.0
+link: https://github.com/Ultimaker/Cura
+files: src/render/view.zig
+area: ui
+summary: The camera turns with a right drag, around the vertical axis of the world, as in Cura.
+```
+
+Cura turns the camera with a right drag, and keeps the bed level. The orbit of zslice (`src/render/view.zig`) has the same controls. Tinkercad and Fusion turn the camera in the same way. The code is new.

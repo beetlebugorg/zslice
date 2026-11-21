@@ -123,3 +123,33 @@ The text and SVG emboss tools of PrusaSlicer 2.6 and later (https://help.prusa3d
 **Used in:** `src/label.zig`, `src/paint_split.zig`
 
 **How zslice uses it:** A label of zslice stays a 2D shape (text, ticks, bars) in the project. Each layer gets the prism of the shape along its normal, cut to the band of the depth of the label from the outline of the layer, with a clean-up of strokes and gaps narrower than the narrowest line.
+
+## G-code and settings
+
+### G-code thumbnails
+
+```ref
+kind: format
+source: PrusaSlicer, Klipper
+license: AGPL-3.0
+link: https://github.com/prusa3d/PrusaSlicer
+files: src/render/cpu.zig, src/settings.zig
+area: gcode
+summary: The thumbnail block of a G-code file, in the form of PrusaSlicer, which the screens of printers read.
+```
+
+PrusaSlicer writes pictures of the print at the top of the G-code as `; thumbnail begin <w>x<h> <size>`, base64 PNG lines, and `; thumbnail end`. Prusa printers and Klipper with Mainsail or Fluidd read them. `machine.thumbnails` and `src/render/cpu.zig` write this block. The format only; no code is copied.
+
+### The box of the first layer in a start G-code
+
+```ref
+kind: format
+source: PrusaSlicer, OrcaSlicer
+license: AGPL-3.0
+link: https://help.prusa3d.com/article/list-of-placeholders_205643
+files: src/engine.zig, src/gcode_vars.zig
+area: gcode
+summary: The start G-code variables `first_layer_print_min` of PrusaSlicer and `adaptive_bed_mesh_min` of OrcaSlicer.
+```
+
+PrusaSlicer has `first_layer_print_min` and `first_layer_print_max`, and OrcaSlicer has `adaptive_bed_mesh_min` and `adaptive_bed_mesh_max`: the box of the first layer, for a bed mesh of that area. zslice computes the box when a start G-code uses one of them (`usesFirstLayerBox` in `src/engine.zig`).

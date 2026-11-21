@@ -84,3 +84,19 @@ The LAN mode of Bambu Lab printers: the SSDP packets on UDP port 2021 (`DevModel
 **Used in:** `src/discovery.zig`, `src/bambu.zig`, `src/app/printer_status.zig`, `macos/Sources/ZSlice/Core/Bambu.swift`, `linux/src/net/bambu-link.c`, `linux/src/ui/camera-view.c`, `macos/Sources/ZSlice/Core/Camera.swift`
 
 **How zslice uses it:** zslice finds Bambu printers on the network, writes the file they print, and makes the messages that start a print and read its status. The temperatures (`nozzle_temper`, `bed_temper`, `chamber_temper`, the targets, and the packed `device.extruder.info[].temp` of the printers with two nozzles, as ha-bambulab reads it). The camera: RTSP over TLS on port 322 at `/streaming/live/1` (X1, H2, P2S, X2D, with "LAN Only Liveview" on), or JPEG frames over TLS on port 6000 after an 80-byte login (P1, A1), as ha-bambulab (MIT) and open-bambu-networking (https://github.com/ClusterM/open-bambu-networking) describe them. Status and RTSPS camera read from a real X2D in November 2026; the upload and the start are not yet tested with a real printer.
+
+## G-code names and settings
+
+### Bambu Studio feature names and plate files
+
+```ref
+kind: format
+source: Bambu Studio
+license: AGPL-3.0
+link: https://github.com/bambulab/BambuStudio
+files: src/gcode.zig, src/bambu.zig, src/settings.zig
+area: gcode
+summary: The feature names of Bambu G-code (`; FEATURE:`), the time format, `plate_1.json`, and the bed type names (`curr_bed_type`).
+```
+
+Bambu Studio names each feature with `; FEATURE: ` and a name of its own, writes the time as "1h 12m 43s", writes `Metadata/plate_1.json` with the box of the parts, and names the bed types (`curr_bed_type`: "Cool Plate", "Engineering Plate", "High Temp Plate", "Textured PEI Plate", "SuperTack Plate"). OrcaSlicer has the same bed type names. zslice writes the same names in a file for a Bambu Lab printer (`src/gcode.zig`, `src/bambu.zig`, `BedType.studioName` in `src/settings.zig`). The names only; no code is copied.
