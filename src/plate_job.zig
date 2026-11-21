@@ -1618,6 +1618,18 @@ test "plate job: raised, cut, and ink labels" {
         try testing.expect(!lo.isEmpty());
         try testing.expect(lo.bounds().min.x >= x_max - geom.fromMm(0.01));
         try testing.expectEqual(x_max, pj.groups[0].job.outlines[mid].bounds().max.x);
+        // Only on the layers of the label: the outlines and the G-code.
+        const job = &pj.groups[1].job;
+        for (job.outlines, job.layers) |o, l| {
+            if (o.isEmpty()) continue;
+            try testing.expect(l.sliceZ() > 2.3 and l.sliceZ() < 7.7);
+        }
+        var out: Writer.Allocating = .init(gpa);
+        defer out.deinit();
+        _ = try pj.writeGcode(&out.writer);
+        const per = try changesPerLayer(gpa, out.written());
+        defer gpa.free(per);
+        for (per, 0..) |c, i| if (c > 0) try testing.expect(pj.levels[i].z > 2.3 and pj.levels[i].z < 7.9);
     }
     // Cut in filament 2: less area, and the floor of the cut in the label.
     {

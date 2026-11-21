@@ -15,7 +15,7 @@
 //!   evenodd). A stroke with no fill becomes an outline: a rectangle for
 //!   each segment and a disk at each joint.
 //! - The tags in defs, clipPath, mask, symbol, pattern, marker, style,
-//!   text, and the gradients draw nothing. The reader skips them.
+//!   text, and the gradients have no fill. The reader skips them.
 //!
 //! All elements then join (nonzero). The result is centered on its box,
 //! with y up, and scaled to the height that the caller asks for. The
@@ -561,7 +561,7 @@ fn transform(s: []const u8) Error!Matrix {
     return m;
 }
 
-/// The tags whose content draws nothing.
+/// The tags whose content has no fill.
 const skipped = [_][]const u8{ "defs", "clipPath", "mask", "symbol", "pattern", "marker", "style", "script", "title", "desc", "metadata", "text", "linearGradient", "radialGradient", "filter", "foreignObject" };
 
 fn isSkipped(name: []const u8) bool {
@@ -898,8 +898,8 @@ test "svg path: basic shapes, strokes, and skipped tags" {
     try testing.expectApproxEqAbs(@as(f64, 50), try areaOf("<svg><polyline points='0,0 10,0 0,10'/></svg>", 0), 1e-3);
     // A line with a stroke: 10 long, 2 wide.
     try testing.expectApproxEqAbs(@as(f64, 20), try areaOf("<svg><line x1='0' y1='0' x2='10' y2='0' stroke='black' stroke-width='2'/></svg>", 0), 1e-3);
-    // fill none with no stroke, defs, comments, and hidden shapes draw
-    // nothing.
+    // fill none with no stroke, defs, comments, and hidden shapes have
+    // no area.
     const src =
         \\<?xml version="1.0"?>
         \\<!-- a comment <rect/> -->

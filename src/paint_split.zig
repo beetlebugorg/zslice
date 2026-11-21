@@ -47,7 +47,7 @@
 //! over the paint and the roots (see `Split.labelLayer`).
 //!
 //! A raised or cut label (label.Mode) also changes the outline. A cut
-//! label takes its shape out of the layers within its relief of the
+//! label removes its shape from the layers within its relief of the
 //! surface: the same prism, in a band of the relief. The floor of a cut
 //! in a top or bottom face gets skin (see `Split.removed`). A raised
 //! label on a side face adds the prism out of the surface, within the
@@ -160,9 +160,9 @@ pub const Split = struct {
     /// `init`, with the labels of the part (see label.zig) in the frame
     /// of `mesh`. Each label gets a state of its own after the states of
     /// the paint, also when its filament is a filament of the paint. A
-    /// label in the filament of the part gets none: an ink label then
-    /// does nothing, and a raised or cut label changes the outlines of
-    /// the state of the part. A label with no shape does nothing.
+    /// label in the filament of the part gets none: an ink label then has
+    /// no effect, and a raised or cut label changes the outlines of the
+    /// state of the part. A label with no shape has no effect.
     pub fn initLabels(gpa: Allocator, mesh: *const Mesh, paint: *const paint_mod.Paint, base: u8, labels: []const label_mod.Label) Allocator.Error!Split {
         var s = try initPaint(gpa, mesh, paint, base);
         errdefer s.deinit();
