@@ -545,6 +545,8 @@ export class GlRenderer {
     this.paintProg = compile(gl, paintVert, paintFrag);
     // The paint mesh (setPaintMesh): null when the paint tool is off.
     this.paint = null;
+    // The decals of the Label tool (setLabels): null for none.
+    this.labels = null;
     this.bedVbo = gl.createBuffer();
     this.bedVao = gl.createVertexArray();
     this.bedTex = gl.createTexture();
@@ -1082,6 +1084,87 @@ export class GlRenderer {
     gl.bindVertexArray(null);
   }
 
+  // ---- the labels (label.js) ----
+
+  // The live preview of the labels of the Label tool: a decal for each
+  // label, on the surface of the part. list: [{ pts (Float32Array of x, y,
+  // z points in the frame of the bed), ends (Uint32Array: the end of each
+  // path, in points), color [r, g, b], edge [r, g, b] or null (an outline
+  // of the paths) }], or null for none. The paths fill by the nonzero
+  // rule in the stencil buffer, so the holes of the letters stay open.
+  setLabels(list) {
+    const gl = this.gl;
+    if (!this.labelVbo) {
+      this.labelVbo = gl.createBuffer();
+      this.labelVao = gl.createVertexArray();
+      gl.bindVertexArray(this.labelVao);
+      gl.bindBuffer(gl.ARRAY_BUFFER, this.labelVbo);
+      gl.enableVertexAttribArray(0);
+      gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 12, 0);
+      gl.bindVertexArray(null);
+    }
+    this.labels = null;
+    if (!list || list.length === 0) return;
+    let n = 0;
+    for (const l of list) n += l.pts.length / 3;
+    const data = new Float32Array(3 * n);
+    const draws = [];
+    let at = 0;
+    for (const l of list) {
+      data.set(l.pts, 3 * at);
+      const paths = [];
+      let start = 0;
+      for (const end of l.ends) {
+        if (end - start >= 3) paths.push([at + start, end - start]);
+        start = end;
+      }
+      draws.push({ paths, color: l.color, edge: l.edge });
+      at += l.pts.length / 3;
+    }
+    gl.bindVertexArray(null);
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.labelVbo);
+    gl.bufferData(gl.ARRAY_BUFFER, data, gl.DYNAMIC_DRAW);
+    this.labels = draws;
+  }
+
+  drawLabels(f) {
+    const gl = this.gl;
+    const u = this.grid.u;
+    gl.useProgram(this.grid.prog);
+    gl.uniformMatrix4fv(u.mvp, false, f.grid, 0, 16);
+    gl.bindVertexArray(this.labelVao);
+    gl.enable(gl.STENCIL_TEST);
+    gl.enable(gl.POLYGON_OFFSET_FILL);
+    gl.polygonOffset(-2, -4);
+    gl.depthMask(false);
+    for (const l of this.labels) {
+      gl.clearStencil(0);
+      gl.clear(gl.STENCIL_BUFFER_BIT);
+      // The stencil counts the turns of the fans of all paths.
+      gl.colorMask(false, false, false, false);
+      gl.stencilFunc(gl.ALWAYS, 0, 0xff);
+      gl.stencilOpSeparate(gl.FRONT, gl.KEEP, gl.KEEP, gl.INCR_WRAP);
+      gl.stencilOpSeparate(gl.BACK, gl.KEEP, gl.KEEP, gl.DECR_WRAP);
+      for (const [first, count] of l.paths) gl.drawArrays(gl.TRIANGLE_FAN, first, count);
+      // The color where the count is not 0.
+      gl.colorMask(true, true, true, true);
+      gl.stencilFunc(gl.NOTEQUAL, 0, 0xff);
+      gl.stencilOp(gl.ZERO, gl.ZERO, gl.ZERO);
+      gl.uniform4f(u.color, l.color[0], l.color[1], l.color[2], 1);
+      for (const [first, count] of l.paths) gl.drawArrays(gl.TRIANGLE_FAN, first, count);
+    }
+    gl.disable(gl.STENCIL_TEST);
+    gl.disable(gl.POLYGON_OFFSET_FILL);
+    // The outline of the selected label.
+    for (const l of this.labels) {
+      if (!l.edge) continue;
+      gl.uniform4f(u.color, l.edge[0], l.edge[1], l.edge[2], 1);
+      for (const [first, count] of l.paths) gl.drawArrays(gl.LINE_LOOP, first, count);
+    }
+    gl.depthMask(true);
+    gl.bindVertexArray(null);
+  }
+
   // Draws one frame of view.js (View3D.frame).
   draw(f) {
     const gl = this.gl;
@@ -1127,6 +1210,7 @@ export class GlRenderer {
     }
     if (this.indexCount === 0 || this.instCapacity === 0) {
       this.drawBed(f);
+      if (this.labels) this.drawLabels(f);
       gl.bindVertexArray(null);
       return;
     }
@@ -1179,6 +1263,7 @@ export class GlRenderer {
       if (f.m32[q + 38] & 1) this.drawBed(f, f.mf32, q + 16);
     }
     this.drawSigns(f);
+    if (this.labels) this.drawLabels(f);
     gl.useProgram(this.box.prog);
     gl.bindVertexArray(this.boxVao);
     this.setPush(f.box);
