@@ -372,6 +372,12 @@ namespace winrt::ZSlice::implementation
         {
             Click2D(number(0), number(1));
         }
+        else if (verb == L"theme")
+        {
+            // 0 follows the system, 1 light, 2 dark.
+            int choice = (int)number(0);
+            Root().RequestedTheme(choice == 2 ? Microsoft::UI::Xaml::ElementTheme::Dark : choice == 1 ? Microsoft::UI::Xaml::ElementTheme::Light : Microsoft::UI::Xaml::ElementTheme::Default);
+        }
         else if (verb == L"popups")
         {
             auto open = Microsoft::UI::Xaml::Media::VisualTreeHelper::GetOpenPopupsForXamlRoot(Content().XamlRoot());

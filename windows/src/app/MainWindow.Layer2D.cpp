@@ -121,6 +121,8 @@ namespace winrt::ZSlice::implementation
             if (layer2d == nullptr)
                 layer2d = std::make_unique<zs::Layer2D>();
             Layer2DPanel().Visibility(Visibility::Visible);
+            ViewSign().Visibility(Visibility::Visible);
+            EmptyHint().Visibility(Visibility::Collapsed);
             layer2d_dirty = true;
             Layer2DPanel().UpdateLayout();
             Size2D();
@@ -130,6 +132,7 @@ namespace winrt::ZSlice::implementation
         else
         {
             Layer2DPanel().Visibility(Visibility::Collapsed);
+            ViewSign().Visibility(Visibility::Collapsed);
             ViewPanel().Focus(FocusState::Programmatic);
         }
         RequestDraw();

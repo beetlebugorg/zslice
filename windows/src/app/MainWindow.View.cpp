@@ -55,11 +55,10 @@ namespace
     template <typename B>
     void StyleStrip(B const &button, wchar_t const *name, wchar_t const *tip, wchar_t const *glyph)
     {
-        button.Width(38);
-        button.Height(38);
+        button.Width(40);
+        button.Height(40);
+        button.CornerRadius(CornerRadiusHelper::FromUniformRadius(8));
         button.Padding(ThicknessHelper::FromUniformLength(0));
-        button.Background(Media::SolidColorBrush(Microsoft::UI::Colors::Transparent()));
-        button.BorderThickness(ThicknessHelper::FromUniformLength(0));
         Automation::AutomationProperties::SetName(button, name);
         ToolTipService::SetToolTip(button, box_value(tip));
         button.Content(LoadGlyph(glyph));
@@ -101,13 +100,7 @@ namespace winrt::ZSlice::implementation
 {
     void MainWindow::WireView()
     {
-        ToolStrip().Children().Append([] {
-            Shapes::Rectangle line;
-            line.Height(1);
-            line.Margin(ThicknessHelper::FromLengths(4, 3, 4, 3));
-            line.Fill(Media::SolidColorBrush(Windows::UI::Color{ 255, 0xDD, 0xE0, 0xE4 }));
-            return line;
-        }());
+        ToolStrip().Children().Append(Markup::XamlReader::Load(L"<Rectangle xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation' Height='1' Margin='6,3' Fill='{ThemeResource ZsTrough}'/>").as<UIElement>());
 
         // The colors of the lines.
         Button colors;
@@ -235,7 +228,7 @@ namespace winrt::ZSlice::implementation
         sim_item.IsChecked(true);
         ShowSlice();
         if (sim_asked)
-            StatusText().Text(model->Summary());
+            RefreshSummary();
         sim_asked = false;
     }
 
@@ -275,7 +268,7 @@ namespace winrt::ZSlice::implementation
             return;
         }
         sim_asked = true;
-        StatusText().Text(L"Simulating the plastic of the print…");
+        ShowBusy(L"Simulating the plastic of the print…");
     }
 
     // ---- the replay ----

@@ -185,7 +185,7 @@ namespace winrt::ZSlice::implementation
 
     void MainWindow::PrintersUi::Note(std::wstring const &text)
     {
-        w.StatusText().Text(text);
+        w.ShowToast(text);
     }
 
     void MainWindow::PrintersUi::SavePin(zs::link::Target const &target)
@@ -204,26 +204,12 @@ namespace winrt::ZSlice::implementation
 
     void MainWindow::PrintersUi::BuildTopBar()
     {
-        // The group goes before the file name. Each control after it moves
-        // one column on.
-        Grid bar = w.ToolRow();
-        int column = Grid::GetColumn(w.FileName());
-        ColumnDefinition def;
-        def.Width(GridLengthHelper::Auto());
-        bar.ColumnDefinitions().InsertAt(column, def);
-        for (auto const &child : bar.Children())
-        {
-            auto element = child.try_as<FrameworkElement>();
-            if (element != nullptr && Grid::GetColumn(element) >= column)
-                Grid::SetColumn(element, Grid::GetColumn(element) + 1);
-        }
-        StackPanel group = Row(2);
-        group.Margin(ThicknessHelper::FromLengths(12, 0, 0, 0));
-        group.VerticalAlignment(VerticalAlignment::Center);
-        Grid::SetColumn(group, column);
-
+        // The setup group of the header: three parts with a line between.
+        StackPanel group = w.SetupRow();
+        auto resources = Application::Current().Resources();
         auto menu_button = [&](wchar_t const *name, wchar_t const *tip) {
-            DropDownButton b;
+            Button b;
+            b.Style(resources.Lookup(box_value(group.Children().Size() > 0 ? L"ZsSetupPartNext" : L"ZsSetupPart")).as<Microsoft::UI::Xaml::Style>());
             b.Content(box_value(name));
             b.MaxWidth(190);
             Name(b, name);
@@ -231,10 +217,11 @@ namespace winrt::ZSlice::implementation
             group.Children().Append(b);
             return b;
         };
-        printer_button = menu_button(L"Printer", L"The printer of this plate");
-        filament_button = menu_button(L"Filament", L"The filament: click to change it, or to add filaments");
-        quality_button = menu_button(L"Quality", L"The quality: pick a profile, or save these settings as one");
-        send_button = menu_button(L"Send", L"Upload or export the sliced plate");
+        printer_button = menu_button(L"Printer", L"The printer");
+        filament_button = menu_button(L"Filament", L"The filament");
+        quality_button = menu_button(L"Quality", L"The quality");
+        // The arrow beside the main button of the bottom bar.
+        send_button = w.SendMenuButton();
 
         printer_menu = MenuFlyout();
         printer_menu.Placement(Primitives::FlyoutPlacementMode::BottomEdgeAlignedLeft);
@@ -242,7 +229,7 @@ namespace winrt::ZSlice::implementation
         printer_button.Flyout(printer_menu);
 
         send_menu = MenuFlyout();
-        send_menu.Placement(Primitives::FlyoutPlacementMode::BottomEdgeAlignedLeft);
+        send_menu.Placement(Primitives::FlyoutPlacementMode::TopEdgeAlignedRight);
         send_menu.Opening([this](auto &&, auto &&) { FillSendMenu(); });
         send_button.Flyout(send_menu);
 
@@ -268,12 +255,39 @@ namespace winrt::ZSlice::implementation
         quality_button.Flyout(quality_flyout);
 
         page_button = Primitives::ToggleButton();
-        page_button.Content(box_value(L"Printers"));
+        page_button.Width(34);
+        page_button.Height(32);
+        page_button.Padding(ThicknessHelper::FromUniformLength(0));
+        page_button.CornerRadius(CornerRadiusHelper::FromUniformRadius(6));
+        page_button.Content(Markup::XamlReader::Load(L"<Path xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation' Width='16' Height='16' Stroke='{ThemeResource ZsFg}' StrokeThickness='1.3' StrokeLineJoin='Round' Data='M4.5 6V2.5h7V6M4.5 11.5h-2v-5.5h11v5.5h-2M4.5 9.5h7v4h-7z'/>"));
         Name(page_button, L"Printers");
-        ToolTipService::SetToolTip(page_button, box_value(L"Your printers, their jobs, and the plates to print"));
+        ToolTipService::SetToolTip(page_button, box_value(L"Printers: your printers, their jobs, and the plates to print"));
         page_button.Click([this](auto &&, auto &&) { ShowPage(page_button.IsChecked().GetBoolean()); });
-        group.Children().Append(page_button);
-        bar.Children().Append(group);
+        w.PrintersHost().Children().Append(page_button);
+    }
+
+    // The main button of the bottom bar. A printer that takes files gets an
+    // upload. This app never starts a print.
+    void MainWindow::PrintersUi::RefreshPrimary()
+    {
+        zs::SavedPrinter const &printer = zs::Printers().Current();
+        bool can_send = printer.kind != zs::LinkKind::None && printer.kind != zs::LinkKind::Bambu;
+        w.ExportButton().Content(box_value(sending ? std::wstring(L"Sending…") : can_send ? L"Upload to " + zs::ToWide(printer.name) : std::wstring(L"Export G-code…")));
+        if (sending)
+            w.ExportButton().IsEnabled(false);
+        // The arrow has the other ways to send, for a printer that takes files.
+        w.SendMenuButton().Visibility(can_send ? Visibility::Visible : Visibility::Collapsed);
+        w.SendMenuButton().IsEnabled(zs_app_state(w.model->Active()) == ZS_STATE_DONE && !sending);
+        w.ExportButton().CornerRadius(can_send ? CornerRadius{ 6, 0, 0, 6 } : CornerRadiusHelper::FromUniformRadius(6));
+    }
+
+    void MainWindow::PrintersUi::PrimaryAction()
+    {
+        zs::SavedPrinter const &printer = zs::Printers().Current();
+        if (printer.kind != zs::LinkKind::None && printer.kind != zs::LinkKind::Bambu)
+            SendPlate(printer.id, (size_t)-1);
+        else
+            ExportGcode();
     }
 
     void MainWindow::PrintersUi::RefreshBar()
@@ -299,6 +313,9 @@ namespace winrt::ZSlice::implementation
         Name(filament_button, L"Filament: " + filament);
 
         std::wstring quality = zs::ToWide(setup.QualityLabel());
+        // The group shows the name alone, as in the other apps.
+        if (quality.rfind(L"Quality: ", 0) == 0)
+            quality = quality.substr(9);
         quality_button.Content(box_value(quality));
         Name(quality_button, quality);
     }

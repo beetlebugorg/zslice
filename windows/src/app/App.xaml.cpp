@@ -1,5 +1,6 @@
 #include "pch.h"
 #include "App.xaml.h"
+#include "zs_model.h"
 #include "MainWindow.xaml.h"
 
 // InitializeComponent and wWinMain of App are in App.xaml.g.hpp, which
@@ -13,6 +14,10 @@ namespace winrt::ZSlice::implementation
     App::App()
     {
         InitializeComponent();
+        // An error that no code caught: its reason goes to the log.
+        UnhandledException([](auto &&, Microsoft::UI::Xaml::UnhandledExceptionEventArgs const &e) {
+            zs::Log("shell: unhandled error 0x%08x: %s\n", (unsigned)e.Exception().value, winrt::to_string(e.Message()).c_str());
+        });
     }
 
     void App::OnLaunched(LaunchActivatedEventArgs const &)

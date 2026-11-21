@@ -96,7 +96,8 @@ namespace winrt::ZSlice::implementation
         zs_set_view_sync(model->Set(), view);
         LayerCard().Visibility(Visibility::Collapsed);
         SliceProgress().Visibility(Visibility::Collapsed);
-        StatusText().Text(state == ZS_STATE_SLICING ? L"Slicing" : L"");
+        ShowBusy(state == ZS_STATE_SLICING ? L"Slicing…" : L"");
+        RefreshSummary();
         RefreshPlates();
         RequestDraw();
     }
@@ -113,7 +114,7 @@ namespace winrt::ZSlice::implementation
         FileName().Text(name);
         Title(name.empty() ? L"zslice" : name + L" - zslice");
         // With more plates the hint would cover their beds.
-        EmptyHint().Visibility(zs_app_part_count(app) == 0 && model->PlateCount() == 1 ? Visibility::Visible : Visibility::Collapsed);
+        PlaceEmptyOpen();
         RefreshSettingValues();
         RefreshHistoryButtons();
         RefreshFilamentTools();
