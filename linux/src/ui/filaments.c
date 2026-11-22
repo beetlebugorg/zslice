@@ -208,18 +208,23 @@ struct Button {
     GCancellable *cancel;
     gboolean reading;
     GPtrArray *rows; /* Row */
-    gboolean two;    /* the rows have a nozzle choice */
+    int nozzles;     /* the nozzles of the printer: a nozzle choice for 2 or more */
     gboolean filling;
     /* The colors of the dots. */
     double dot_rgb[MAX_DOTS][3];
     int n_dots;
 };
 
-static gboolean two_nozzles(ZgModel *model) {
+/* The number of nozzles of the printer (machine.nozzles). */
+static int nozzle_count(ZgModel *model) {
     char *n = zg_model_get(model, "machine.nozzles");
-    gboolean two = g_ascii_strtod(n, NULL) >= 2;
+    int count = (int)g_ascii_strtod(n, NULL);
     g_free(n);
-    return two;
+    return count < 1 ? 1 : count > 16 ? 16 : count;
+}
+
+static gboolean two_nozzles(ZgModel *model) {
+    return nozzle_count(model) >= 2;
 }
 
 static void draw_dots(GtkDrawingArea *area, cairo_t *cr, int w, int h, gpointer data) {
@@ -310,7 +315,11 @@ static void on_material(GObject *dd, GParamSpec *pspec, gpointer data) {
 static void on_nozzle(GObject *dd, GParamSpec *pspec, gpointer data) {
     Row *r = data;
     if (r->b->filling) return;
-    set_value(r->b, r->index, "filament.nozzle", gtk_drop_down_get_selected(GTK_DROP_DOWN(dd)) == 1 ? "1" : "0");
+    guint sel = gtk_drop_down_get_selected(GTK_DROP_DOWN(dd));
+    if (sel == GTK_INVALID_LIST_POSITION) return;
+    char value[8];
+    g_snprintf(value, sizeof value, "%u", sel);
+    set_value(r->b, r->index, "filament.nozzle", value);
 }
 
 static void on_remove(GtkButton *button, gpointer data) {
@@ -354,8 +363,11 @@ static void fill_row(Row *r, const double *grams, size_t n_grams) {
     g_free(tip);
     g_free(mat);
     if (r->nozzle) {
+        /* A nozzle that the printer does not have: no choice (the Check
+         * tells it). */
         char *nz = zg_model_filament_get(b->model, r->index, "filament.nozzle");
-        guint sel = g_ascii_strtod(nz, NULL) >= 1 ? 1 : 0;
+        guint k = (guint)g_ascii_strtod(nz, NULL);
+        guint sel = k < (guint)b->nozzles ? k : GTK_INVALID_LIST_POSITION;
         if (gtk_drop_down_get_selected(GTK_DROP_DOWN(r->nozzle)) != sel) gtk_drop_down_set_selected(GTK_DROP_DOWN(r->nozzle), sel);
         g_free(nz);
     }
@@ -409,11 +421,20 @@ static void add_row(Button *b, size_t i) {
     gtk_widget_set_valign(r->mat, GTK_ALIGN_CENTER);
     gtk_grid_attach(GTK_GRID(grid), r->mat, col++, y, 1, 1);
 
-    if (b->two) {
-        const char *const nozzles[] = {"Main", "2nd", NULL};
-        r->nozzle = gtk_drop_down_new_from_strings(nozzles);
+    if (b->nozzles >= 2) {
+        /* Two nozzles (the X2D): the main and the second. More: the tools
+         * T0 and on. */
+        GtkStringList *names = gtk_string_list_new(NULL);
+        for (int k = 0; k < b->nozzles; k++) {
+            char *label = b->nozzles == 2 ? g_strdup(k == 0 ? "Main" : "2nd") : g_strdup_printf("T%d", k);
+            gtk_string_list_append(names, label);
+            g_free(label);
+        }
+        r->nozzle = gtk_drop_down_new(G_LIST_MODEL(names), NULL);
         gtk_widget_set_valign(r->nozzle, GTK_ALIGN_CENTER);
-        char *tip = g_strdup_printf("The nozzle of filament %zu: the main nozzle (fed by the AMS on the X2D), or the second nozzle (fed by the external spool)", i + 1);
+        char *tip = b->nozzles == 2
+                        ? g_strdup_printf("The nozzle of filament %zu: the main nozzle (fed by the AMS on the X2D), or the second nozzle (fed by the external spool)", i + 1)
+                        : g_strdup_printf("The nozzle of filament %zu: the tool that prints it (T0 to T%d)", i + 1, b->nozzles - 1);
         gtk_widget_set_tooltip_text(r->nozzle, tip);
         g_free(tip);
         gtk_grid_attach(GTK_GRID(grid), r->nozzle, col++, y, 1, 1);
@@ -448,13 +469,13 @@ static void add_row(Button *b, size_t i) {
 static void update_list(Button *b) {
     zs_app *core = zg_model_core(b->model);
     size_t n = zs_app_filament_count(core);
-    gboolean two = two_nozzles(b->model);
+    int nozzles = nozzle_count(b->model);
     b->filling = TRUE;
-    if (n != b->rows->len || two != b->two) {
+    if (n != b->rows->len || nozzles != b->nozzles) {
         GtkWidget *c;
         while ((c = gtk_widget_get_first_child(b->list))) gtk_grid_remove(GTK_GRID(b->list), c);
         g_ptr_array_set_size(b->rows, 0);
-        b->two = two;
+        b->nozzles = nozzles;
         for (size_t i = 0; i < n; i++) add_row(b, i);
     }
     double grams[MAX_FILAMENTS] = {0};

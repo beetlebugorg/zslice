@@ -76,8 +76,12 @@ static void stat_box(GtkWidget *grid, int col, const char *value, const char *ca
 /* The numbers of the line: its title, the three numbers, why it is slow,
  * and its size. */
 static void update_numbers(LineCard *c, const zs_inspect *info, size_t path) {
-    /* A printer with two nozzles: the nozzle of the line. */
-    const char *nozzle = info->nozzle == 2 ? " · 2nd nozzle" : info->nozzle == 1 ? " · main nozzle" : "";
+    /* A printer with more than one nozzle: the nozzle of the line (from
+     * 1: the main nozzle, then T1 and on). */
+    char nozzle[32] = "";
+    if (info->nozzle == 1) g_strlcpy(nozzle, " · main nozzle", sizeof nozzle);
+    else if (info->nozzle == 2) g_strlcpy(nozzle, " · 2nd nozzle", sizeof nozzle);
+    else if (info->nozzle > 2) g_snprintf(nozzle, sizeof nozzle, " · nozzle T%d", info->nozzle - 1);
     char *title = g_strdup_printf("%s · layer %zu%s", info->title, info->layer + 1, nozzle);
     gtk_label_set_text(GTK_LABEL(c->title), title);
     g_free(title);
@@ -90,9 +94,9 @@ static void update_numbers(LineCard *c, const zs_inspect *info, size_t path) {
     stat_box(c->stats, 0, a, "planned", FALSE);
     stat_box(c->stats, 1, b, "real", info->slow_reason != 0);
     stat_box(c->stats, 2, f, "flow", FALSE);
-    /* Why it is slow, and the speed limits of the second nozzle. */
+    /* Why it is slow, and the speed limits of a nozzle after the first. */
     const char *slow = info->slow_text ? info->slow_text : "";
-    const char *limits = info->nozzle == 2 && info->nozzle_text ? info->nozzle_text : "";
+    const char *limits = info->nozzle >= 2 && info->nozzle_text ? info->nozzle_text : "";
     char *note = g_strdup_printf("%s%s%s", slow, slow[0] && limits[0] ? "\n" : "", limits);
     gtk_label_set_text(GTK_LABEL(c->note), note);
     gtk_widget_set_visible(c->note, note[0] != 0);

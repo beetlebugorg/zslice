@@ -167,7 +167,7 @@ export class Wasm {
     const x = this.x;
     const n = x.zs_setting_count();
     // zs_setting_info on wasm32: 10 pointers and ints, then 5 doubles,
-    // then 2 ints (see include/zslice-app.h).
+    // then 3 ints (see include/zslice-app.h).
     const size = 112;
     const p = this.alloc(size);
     const kinds = ["number", "integer", "boolean", "choice", "text"];
@@ -198,6 +198,9 @@ export class Wasm {
           sliderStep: this.f64(p + 72),
           perLayer: this.i32(p + 80) !== 0,
           perPart: this.i32(p + 84) !== 0,
+          // k >= 1: a setting of nozzle k (machine.nozzle.k.*), for a
+          // printer with more than k nozzles.
+          nozzle: this.i32(p + 88),
         });
       }
     } finally {

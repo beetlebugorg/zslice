@@ -458,6 +458,12 @@ export class SearchOverlay {
     this.ctx.closed?.();
   }
 
+  // A setting of nozzle k (machine.nozzle.k.*) only for a printer with
+  // more than k nozzles.
+  hasNozzle(info) {
+    return this.ctx.browser?.hasSection ? this.ctx.browser.hasSection(info) : !info.nozzle;
+  }
+
   fill() {
     const browser = this.ctx.browser;
     for (const [name, list] of browser.editors) browser.editors.set(name, list.filter((e) => e.where !== "search"));
@@ -482,7 +488,7 @@ export class SearchOverlay {
           .filter((info) => !this.scope || only || info.perPart)
           .map((info) => ({ info, s: score(info, words) }))
           .filter((r) => r.s > 0)
-          .sort((a, b) => b.s - a.s)).filter((r) => !only || only(r.info));
+          .sort((a, b) => b.s - a.s)).filter((r) => (!only || only(r.info)) && this.hasNozzle(r.info));
     const settings = matches.slice(0, MAX_SETTINGS);
     const actions = (this.scope ? [] : this.ctx.actions())
       .map((a) => ({ a, s: words.every((w) => a.label.toLowerCase().includes(w) || (a.hint ?? "").toLowerCase().includes(w)) ? 1 : 0 }))
