@@ -2782,10 +2782,11 @@ fn checkPrusaModel(gpa: Allocator, lib: *const @import("printers.zig").Library, 
     s.engine.threads = 1;
     var diag: @import("profile.zig").Diagnostic = .{};
     try @import("profile.zig").apply(a, &s, .machine, m.id, text.written(), null, &diag);
-    // An MMU changes the filament with a T command; the other models
-    // pause for a change by hand (M600).
+    // An MMU changes the filament with a T command, and a tool changer
+    // (the XL, the CORE One INDX) changes to the tool of the second
+    // filament; the other models pause for a change by hand (M600).
     const tools = s.machine.filament_change == .tool;
-    try testing.expectEqual(m.tool_change, tools);
+    try testing.expectEqual(m.tool_change or lib.toolsOf(i) != null, tools);
     const cx = s.machine.bed_size_x / 2;
     const cy = s.machine.bed_size_y / 2;
     var m1 = try testBox(cx - 15, cy - 5, cx - 5, cy + 5, 2);
@@ -2795,6 +2796,7 @@ fn checkPrusaModel(gpa: Allocator, lib: *const @import("printers.zig").Library, 
     var second = s.filament;
     second.color = "#d93a3a";
     second.material = "PETG";
+    if (s.machine.nozzles >= 2) second.nozzle = 1;
     const parts = [_]PartInput{
         .{ .mesh = &m1, .part = 0 },
         .{ .mesh = &m2, .part = 1, .changes = &.{.{ .name = "project.filament", .value = "2" }} },
@@ -2806,6 +2808,8 @@ fn checkPrusaModel(gpa: Allocator, lib: *const @import("printers.zig").Library, 
     const st = try pj.writeGcode(&out.writer);
     const g = out.written();
     try testing.expect(st.slot_g[0] > 0 and st.slot_g[1] > 0);
+    // A tool changer: one item of the statistics for each tool.
+    const tool_types = if (s.machine.nozzles >= 2) "\n; filament_type = PLA;PETG" else "\n; filament_type = PLA;PETG\n";
 
     // The printer model check of the maker's start G-code.
     if (check.len > 0) {
@@ -2820,7 +2824,7 @@ fn checkPrusaModel(gpa: Allocator, lib: *const @import("printers.zig").Library, 
     const used_line = g[used + 1 ..][0..std.mem.indexOfScalar(u8, g[used + 1 ..], '\n').?];
     try testing.expectEqual(tools, std.mem.indexOf(u8, used_line, ", ") != null);
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, g, "\n; estimated printing time (normal mode) = "));
-    try testing.expect(std.mem.indexOf(u8, g, if (tools) "\n; filament_type = PLA;PETG\n" else "\n; filament_type = PLA\n") != null);
+    try testing.expect(std.mem.indexOf(u8, g, if (tools) tool_types else "\n; filament_type = PLA\n") != null);
 
     var lines = std.mem.splitScalar(u8, g, '\n');
     var x: f64 = 0;
@@ -2846,7 +2850,7 @@ fn checkPrusaModel(gpa: Allocator, lib: *const @import("printers.zig").Library, 
         }
         var words = std.mem.tokenizeScalar(u8, cmd, ' ');
         const op = words.next().?;
-        if (std.mem.eql(u8, cmd, "T1")) t1 += 1;
+        if (std.mem.eql(u8, cmd, "T1") or std.mem.startsWith(u8, cmd, "T1 ")) t1 += 1;
         if (std.mem.eql(u8, op, "M600")) pauses += 1;
         if (std.mem.eql(u8, op, "G90")) relative = false;
         if (std.mem.eql(u8, op, "G91")) relative = true;
@@ -3773,6 +3777,116 @@ test "plate job: infill on the second nozzle of the X2D: a tower on each layer u
     try testing.expectEqual(changes, flushes);
 }
 
+/// The G-code of three boxes of three filaments on the Prusa XL 5T of
+/// the library: filament 1 on nozzle 0 (215 °C), filament 2 on nozzle 3
+/// (240 °C), and filament 3 on nozzle 1 (230 °C). Nozzle 3 has a tool
+/// offset of 10 mm in X, and the next nozzle heats 30 s before a change.
+fn xlGcode(a: Allocator) ![]const u8 {
+    const gpa = testing.allocator;
+    const printers = @import("printers.zig");
+    if (printers.builtin_data.len == 0) return error.SkipZigTest;
+    var s: Settings = .{};
+    s.engine.threads = 2;
+    const lib = try printers.Library.parse(gpa, printers.builtin_data);
+    defer lib.deinit();
+    const i = lib.find("prusa-xl-5t") orelse return error.NoModel;
+    var text: Writer.Allocating = .init(a);
+    try lib.profileText(i, 0, &text.writer);
+    var diag: @import("profile.zig").Diagnostic = .{};
+    try @import("profile.zig").apply(a, &s, .machine, "prusa-xl-5t", text.written(), null, &diag);
+    s.machine.nozzle[3].offset_x = 10;
+    s.machine.preheat_time = 30;
+    s.filament.nozzle_temp = 215;
+    s.filament.first_layer_nozzle_temp = 215;
+    var m1 = try testBox(100, 150, 120, 170, 4);
+    defer m1.deinit(gpa);
+    var m2 = try testBox(150, 150, 170, 170, 4);
+    defer m2.deinit(gpa);
+    var m3 = try testBox(200, 150, 220, 170, 4);
+    defer m3.deinit(gpa);
+    var second = s.filament;
+    second.color = "#d93a3a";
+    second.nozzle = 3;
+    second.nozzle_temp = 240;
+    second.first_layer_nozzle_temp = 240;
+    var third = s.filament;
+    third.color = "#3a3ad9";
+    third.nozzle = 1;
+    third.nozzle_temp = 230;
+    third.first_layer_nozzle_temp = 230;
+    const parts = [_]PartInput{
+        .{ .mesh = &m1, .part = 0 },
+        .{ .mesh = &m2, .part = 1, .changes = &.{.{ .name = "project.filament", .value = "2" }} },
+        .{ .mesh = &m3, .part = 2, .changes = &.{.{ .name = "project.filament", .value = "3" }} },
+    };
+    var pj = try PlateJob.init(gpa, s, &parts, .{ .filaments = &.{ second, third } });
+    defer pj.deinit();
+    var out: Writer.Allocating = .init(a);
+    _ = try pj.writeGcode(&out.writer);
+    return out.written();
+}
+
+test "tool changer: an XL 5T prints three filaments on three tools" {
+    var arena_state: std.heap.ArenaAllocator = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    const g = try xlGcode(a);
+    const has = struct {
+        fn f(text: []const u8, want: []const u8) bool {
+            return std.mem.indexOf(u8, text, want) != null;
+        }
+    }.f;
+    // Tool changes to the nozzle of each filament, with the change
+    // G-code of PrusaSlicer, and no pause.
+    try testing.expect(!has(g, "M600"));
+    try testing.expect(!has(g, "\nPAUSE"));
+    try testing.expect(has(g, "\nT3 S1 L0 D0\n"));
+    try testing.expect(has(g, "\nT1 S1 L0 D0\n"));
+    try testing.expect(has(g, "; Change Tool0 -> Tool3"));
+    // The temperature of each tool is the one of its filament: the
+    // change G-code waits for it (temperature[next_extruder]).
+    try testing.expect(has(g, "\nM109 S240 T3\n"));
+    try testing.expect(has(g, "\nM109 S230 T1\n"));
+    // The start G-code: the tools that the print uses, and the heaters
+    // of the others off.
+    try testing.expect(has(g, "M862.1 T0 P0.4"));
+    try testing.expect(has(g, "M862.1 T1 P0.4"));
+    try testing.expect(has(g, "M862.1 T3 P0.4"));
+    try testing.expect(!has(g, "M862.1 T2 "));
+    try testing.expect(has(g, "\nM104 T2 S0\n"));
+    try testing.expect(has(g, "\nM104 T4 S0\n"));
+    // The idle tool waits 110 °C below its temperature (the ooze
+    // prevention of the XL print profiles of PrusaSlicer).
+    try testing.expect(has(g, "\nM104 T0 S105 ; the nozzle waits\n"));
+    try testing.expect(has(g, "\nM104 T3 S130 ; the nozzle waits\n"));
+    // The next tool heats before its change.
+    try testing.expect(has(g, " ; the next nozzle heats\n"));
+    // The tower primes each tool after its change.
+    const changes = try checkTowerOrder(g);
+    try testing.expect(changes >= 4);
+    // The tool offset of nozzle 3: its lines are 10 mm to the left of
+    // its box (x 150 to 170), and the lines of the others are on their
+    // boxes.
+    var tool: u8 = 0;
+    var min_x = [_]f64{std.math.inf(f64)} ** 5;
+    var max_x = [_]f64{-std.math.inf(f64)} ** 5;
+    var in_part = false;
+    var it = std.mem.splitScalar(u8, g, '\n');
+    while (it.next()) |line| {
+        if (line.len >= 2 and line[0] == 'T' and line[1] >= '0' and line[1] <= '4' and (line.len == 2 or line[2] == ' ')) tool = line[1] - '0';
+        if (std.mem.startsWith(u8, line, ";TYPE:")) in_part = std.mem.indexOf(u8, line, "WALL") != null;
+        if (!in_part or !std.mem.startsWith(u8, line, "G1 X")) continue;
+        if (std.mem.indexOf(u8, line, " E") == null) continue;
+        const end = std.mem.indexOfScalarPos(u8, line, 4, ' ') orelse line.len;
+        const x = try std.fmt.parseFloat(f64, line[4..end]);
+        min_x[tool] = @min(min_x[tool], x);
+        max_x[tool] = @max(max_x[tool], x);
+    }
+    try testing.expect(min_x[0] > 99 and max_x[0] < 121);
+    try testing.expect(min_x[3] > 139 and max_x[3] < 161);
+    try testing.expect(min_x[1] > 199 and max_x[1] < 221);
+}
+
 test "tool changer: the moved settings of the second nozzle load into nozzle 1" {
     var arena_state: std.heap.ArenaAllocator = .init(testing.allocator);
     defer arena_state.deinit();
@@ -3837,3 +3951,26 @@ test "tool changer: two filaments on one nozzle change with a pause" {
     try testing.expect(std.mem.indexOf(u8, g2, "\nM104 T2 S") != null);
 }
 
+test "tool changer: the XL and INDX models print two filaments with tool changes" {
+    const gpa = testing.allocator;
+    for ([_][]const u8{ "prusa-xl-2t", "prusa-xl-5t", "prusa-core-one-indx-4t", "prusa-core-one-indx-8t" }) |id| {
+        const g = try towerPlate(gpa, id, false, "PLA", false);
+        defer gpa.free(g);
+        errdefer std.debug.print("{s}\n", .{id});
+        // No pause: a tool change to nozzle 1 for filament 2, and back.
+        try testing.expect(std.mem.indexOf(u8, g, "M600") == null);
+        var t1: usize = 0;
+        var t0: usize = 0;
+        var it = std.mem.splitScalar(u8, g, '\n');
+        var in_print = false;
+        while (it.next()) |raw| {
+            const line = std.mem.trim(u8, raw, " \t");
+            if (std.mem.startsWith(u8, line, ";LAYER:")) in_print = true;
+            if (!in_print) continue;
+            if (std.mem.eql(u8, line, "T1") or std.mem.startsWith(u8, line, "T1 ")) t1 += 1;
+            if (std.mem.eql(u8, line, "T0") or std.mem.startsWith(u8, line, "T0 ")) t0 += 1;
+        }
+        try testing.expect(t1 >= 2 and t0 >= 2);
+        try testing.expect(std.mem.indexOf(u8, g, "; filament change") != null);
+    }
+}

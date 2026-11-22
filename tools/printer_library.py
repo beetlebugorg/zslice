@@ -48,6 +48,10 @@ Steps:
    G-code gets the generic start G-code of zslice.
 6. Write the library: the sources with their licenses, the G-code texts
    once each, the beds once each, and one line for each model, by brand.
+   A model with a hot end for each of its extruders (a tool changer, an
+   IDEX printer) gets a T line after its P line: its change G-code, the
+   standby and the preheat of its idle nozzles, and the diameter and the
+   offset of each nozzle (see `tools_of`).
 
 With --beds <folder>, the tool also writes the bed models and the bed
 textures of the printers into the folder (see tools/printer_beds.py), and
@@ -431,7 +435,10 @@ VARS = {
     "input_filename_base": "job_name",
 }
 
-INDEX = r"(?:\[(?:\d+|initial_extruder|initial_tool|current_extruder|initial_extruder_nr|initial_no_support_extruder|0)\])?"
+# The index forms that name the filament now: the variable of zslice has
+# that value. A number names one extruder (filament_type[2]): the core
+# reads it as a list, the filament of that slot or that nozzle.
+INDEX = r"(?:\[(?:initial_extruder|initial_tool|current_extruder|initial_extruder_nr|initial_no_support_extruder)\])?"
 
 
 def translate_gcode(text, consts):
@@ -458,7 +465,7 @@ def translate_gcode(text, consts):
         return v if v is not None else m.group(0)
 
     # Cura: {name}, {name, 0}, {name, initial_extruder_nr}.
-    out = re.sub(r"\{([a-z_0-9]+)(?:\s*,\s*[a-z_0-9]+)?\}", brace, out)
+    out = re.sub(r"\{([a-z_0-9]+)(?:\s*,\s*[a-z_][a-z_0-9]*)?\}", brace, out)
     # PrusaSlicer and OrcaSlicer: {name[0]}, [name], [name_0].
     out = re.sub(r"\{([a-z_0-9]+)" + INDEX + r"\}", brace, out)
     out = re.sub(r"\[([a-z_][a-z_0-9]*)" + INDEX + r"\]", brace, out)
@@ -520,6 +527,9 @@ PRINTER_CONSTS = [
     "machine_max_acceleration_retracting", "machine_max_acceleration_z",
     "machine_max_acceleration_e", "machine_max_speed_e", "machine_max_feedrate_e",
     "machine_max_jerk_z", "machine_max_jerk_e",
+    # The slope of the lift of a travel (OrcaSlicer): the tool change of
+    # the CORE One INDX lifts the tool with it.
+    "travel_slope",
 ]
 
 
@@ -621,6 +631,45 @@ def nozzle_of(src, title, evals, vals):
         if m and 0.1 <= float(m.group(1)) <= 2:
             n = float(m.group(1))
     return n
+
+
+def offsets_of(values):
+    """The offsets of the extruders as (x, y) pairs, from the "XxY" texts
+    of PrusaSlicer and OrcaSlicer (extruder_offset)."""
+    out = []
+    for t in values:
+        parts = str(t).strip().split("x")
+        try:
+            out.append((float(parts[0]), float(parts[1])) if len(parts) == 2 else (0.0, 0.0))
+        except ValueError:
+            out.append((0.0, 0.0))
+    return out
+
+
+# The models with more than one extruder in a source that share one hot end
+# in fact: a unit that feeds many filaments to one nozzle. The brand and a
+# pattern of the model name.
+NOT_TOOLS = [
+    # The ACE Pro feeds four filaments to the one nozzle of the Kobra 3;
+    # the Cura definition has four extruders and no shared nozzle.
+    ("Anycubic", r"Kobra 3.*ACE"),
+]
+
+
+def tools_of(change, diameters, offsets, standby=None, preheat=None):
+    """The facts of a printer with a hot end for each extruder (a tool
+    changer, an IDEX printer): the change G-code (None: a plain Tn), the
+    diameter and the offset of each nozzle, the standby temperature change
+    of an idle nozzle (None: it keeps its temperature), and the preheat
+    time of the next nozzle (None: none). zslice gives each filament its
+    own nozzle there, and changes with Tn of the nozzle."""
+    return {
+        "change": change or None,
+        "diameters": [d for d in diameters],
+        "offsets": offsets,
+        "standby": standby if standby else None,
+        "preheat": preheat if preheat else None,
+    }
 
 
 def read_cura(root, src="c", flat=False):
@@ -789,6 +838,31 @@ def read_cura(root, src="c", flat=False):
             if ck not in own:
                 rec[key] = None
         rec["travel"] = travel_cura(vals, own)
+        # More than one extruder, each with its own nozzle and heater (not
+        # a nozzle or a heater that the extruders share): the diameter and
+        # the offset of each extruder train. CuraEngine moves the head by
+        # minus the offset (machine_use_extruder_offset_to_offset_coords).
+        n = rec["extruders"]
+        shared = boolean(vals.get("machine_extruders_share_nozzle"), False) or boolean(vals.get("machine_extruders_share_heater"), False)
+        if n > 1 and not shared:
+            use_offsets = boolean(vals.get("machine_use_extruder_offset_to_offset_coords"), True)
+            diameters = []
+            offsets = []
+            for k in range(n):
+                tv = dict(ext_base)
+                train = trains.get(str(k)) or trains.get(k)
+                if train:
+                    for c in reversed(chain(exts, train)):
+                        for key, node in c.get("overrides", {}).items():
+                            v = value(node)
+                            if v is not None:
+                                tv[key] = v
+                diameters.append(num(tv.get("machine_nozzle_size"), rec["nozzle"] or 0.4))
+                if use_offsets:
+                    offsets.append((num(tv.get("machine_nozzle_offset_x"), 0) or 0.0, num(tv.get("machine_nozzle_offset_y"), 0) or 0.0))
+                else:
+                    offsets.append((0.0, 0.0))
+            rec["tools"] = tools_of(None, diameters, offsets)
         records.append(rec)
     return records
 
@@ -834,6 +908,7 @@ def read_prusa(root):
         printers = {}
         models = {}
         filaments = {}
+        prints = {}
         for name, kv in secs:
             if name.startswith("printer:"):
                 printers[name[len("printer:"):]] = kv
@@ -841,6 +916,8 @@ def read_prusa(root):
                 models[name[len("printer_model:"):]] = kv
             elif name.startswith("filament:"):
                 filaments[name[len("filament:"):]] = kv
+            elif name.startswith("print:"):
+                prints[name[len("print:"):]] = kv
         vendor_name = vendor.get("full_name") or vendor.get("name") or vendor_key
         brand = brand_name(vendor.get("name") or vendor_key)
 
@@ -907,8 +984,23 @@ def read_prusa(root):
             acc = num(v.get("machine_max_acceleration_extruding")) or num(v.get("machine_max_acceleration_x"))
             if v.get("machine_limits_usage") in ("ignore",):
                 acc = None
+            # More than one extruder and no single extruder multi material
+            # (an MMU): a hot end for each extruder, as the XL. The standby
+            # of the idle nozzles comes from the ooze prevention of the
+            # default print profile of the printer.
+            tools = None
+            diameters = [num(x, 0.4) for x in (v.get("nozzle_diameter") or "0.4").split(",")]
+            if len(diameters) > 1 and boolean(v.get("single_extruder_multi_material")) is not True:
+                standby = None
+                dpp = ini_text(v.get("default_print_profile", "")) or ""
+                if dpp:
+                    pv = resolve(prints, dpp.split(";")[0].strip())
+                    if boolean(pv.get("ooze_prevention")) is True:
+                        standby = num(pv.get("standby_temperature_delta"))
+                tools = tools_of(translate_gcode(ini_text(v.get("toolchange_gcode")), consts), diameters, offsets_of((v.get("extruder_offset") or "").split(",")), standby)
             records.append({
                 "src": "p",
+                "tools": tools,
                 "id": vendor_key + "/" + model,
                 "brand": brand,
                 "name": model_name(brand, name),
@@ -979,6 +1071,15 @@ def read_orca(root):
                 continue
             if isinstance(d, dict) and "name" in d:
                 fil_by_name[d["name"]] = d
+        proc_by_name = {}
+        for f in glob.glob(os.path.join(vdir, "process", "**", "*.json"), recursive=True):
+            try:
+                with open(f, encoding="utf-8") as fh:
+                    d = json.load(fh)
+            except ValueError:
+                continue
+            if isinstance(d, dict) and "name" in d:
+                proc_by_name[d["name"]] = d
 
         def resolve(table, name, depth=0):
             d = table.get(name)
@@ -1046,6 +1147,26 @@ def read_orca(root):
             brand = brand_name(vendor.get("name") or vendor_key)
             nozzles = [num(x) for x in str(model.get("nozzle_diameter", "")).split(";") if num(x)]
             structure = str(v.get("printer_structure", "") or "")
+            # More than one extruder, and no single extruder multi material
+            # of the printer itself (the default of fdm_machine_common does
+            # not count): a hot end for each extruder (the XL, the CORE One
+            # INDX, an IDEX printer). A Bambu Lab printer has its own facts
+            # (printers.zig). The standby and the preheat come from the ooze
+            # prevention of the default process of the printer.
+            tools = None
+            nd = v.get("nozzle_diameter")
+            semm = "single_extruder_multi_material" in v["__own"] and boolean(first_value(v.get("single_extruder_multi_material")))
+            if isinstance(nd, list) and len(nd) > 1 and not semm and vendor_key != "BBL":
+                standby = None
+                preheat = None
+                dpp = str(v.get("default_print_profile", "") or "")
+                if dpp:
+                    pv = resolve(proc_by_name, dpp)
+                    if boolean(first_value(pv.get("ooze_prevention"))) is True:
+                        standby = num(first_value(pv.get("standby_temperature_delta")))
+                        preheat = num(first_value(pv.get("preheat_time")))
+                offs = v.get("extruder_offset")
+                tools = tools_of(translate_gcode(v.get("change_filament_gcode"), consts), [num(x, 0.4) for x in nd], offsets_of(offs if isinstance(offs, list) else []), standby, preheat)
             bed_files = None
             if model.get("bed_model") or model.get("bed_texture"):
                 hw, hd = bed["bed_x"] / 2, bed["bed_y"] / 2
@@ -1066,6 +1187,7 @@ def read_orca(root):
                 }
             records.append({
                 "src": "o",
+                "tools": tools,
                 "id": vendor_key + "/" + mname,
                 "brand": brand,
                 "name": model_name(brand, mname),
@@ -1156,6 +1278,11 @@ def merge(records):
         m["heated_chamber"] = any(r["heated_chamber"] for r in rs)
         m["beds_all"] = [r["bed"] for r in rs if r.get("bed")]
         m["start"] = next((r["start"] for r in rs if r["start"]), None)
+        # A hot end for each extruder: the facts of the first record with
+        # them and the same extruder count.
+        m["tools"] = next((r["tools"] for r in rs if r.get("tools") and len(r["tools"]["diameters"]) == m.get("extruders")), None)
+        if m["brand"] == "Bambu Lab" or any(m["brand"] == b and re.search(p, m["name"]) for b, p in NOT_TOOLS):
+            m["tools"] = None
         m["end"] = next((r["end"] for r in rs if r["end"]), None)
         if not m.get("filament"):
             m["filament"] = 2.85 if m["brand"] in ("LulzBot", "UltiMaker") else 1.75
@@ -1253,6 +1380,25 @@ def write(models, versions, out, beds=None):
         if m.get("mmu") and m["brand"] in TOOL_CHANGE_BRANDS:
             fields.append("t")
         lines.append("\t".join(f.replace("\t", " ") for f in fields))
+        if m.get("tools"):
+            # The T line comes after its P line. Its change G-code gets a
+            # number after the start and end G-code of all models, so
+            # those keep their numbers.
+            lines.append(m["tools"])
+    # The T lines: the change G-code, the standby, the preheat, the
+    # diameters (empty if all are the nozzle of the model), and the
+    # offsets (empty if all are 0).
+    for i, t in enumerate(lines):
+        if isinstance(t, dict):
+            diameters = t["diameters"]
+            offsets = t["offsets"]
+            p = lines[i - 1].split("\t")
+            same = all(abs(d - float(p[11])) < 1e-9 for d in diameters)
+            lines[i] = "\t".join([
+                "T", gid(t["change"]), fmt(t["standby"]), fmt(t["preheat"]),
+                "" if same else ";".join(fmt(d) for d in diameters),
+                "" if all(o == (0.0, 0.0) for o in offsets) else ";".join(fmt(o[0]) + "," + fmt(o[1]) for o in offsets),
+            ])
     out.write("zslice-printers 1\n")
     out.write("# The printer library of zslice. Made by tools/printer_library.py; do not edit.\n")
     out.write("# The format is in src/printers.zig. The data comes from these sources:\n")
