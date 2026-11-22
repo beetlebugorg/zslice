@@ -329,7 +329,10 @@ namespace winrt::ZSlice::implementation
         bool ok = zs::state::WriteBytes(chosen, std::string(reinterpret_cast<char const *>(bytes), len));
         zs_buffer_free(bytes, len);
         if (ok)
+        {
             Note(L"Saved " + chosen);
+            w.MarkHistorySaved();
+        }
         else
             w.ShowError(L"The project was not saved.");
     }

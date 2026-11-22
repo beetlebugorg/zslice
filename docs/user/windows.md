@@ -92,7 +92,7 @@ Under the tools are the line colors, Gaps, and Check.
 
 Click the time in the bottom bar for the details of the print. Each main setting is a button that opens the search on it. The details also have the filaments, the time of the slice, a warning with its usual fix, and the changes that you made in at least two other prints, with **Apply**.
 
-The bottom bar has the history of your changes. Hold the pointer on a step to see what changed, and change a setting right there. **History** opens the list of the steps, where ↶ undoes one change and keeps the later ones. Right-click a step to go to it or to clear the history after it.
+The bottom bar has Undo, Redo, and the history button (Ctrl+H). A number on the button counts your changes since the last open or save. The button opens the list of the steps, where ↶ undoes one change and keeps the later ones. Right-click a step to go to it or to clear the history after it. Esc closes the list.
 
 A change shows as a fast draft first, and the exact slice follows 300 ms after your last change or at the end of a drag. A thin bar at the top of the view shows the work, and small text says what runs and how long it took. Export and upload wait for the exact slice.
 

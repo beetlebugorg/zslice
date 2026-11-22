@@ -126,6 +126,12 @@ namespace winrt::ZSlice::implementation
         history_timer.Tick([this](auto &&, auto &&) {
             if (model != nullptr && model->HistoryCommit())
                 RefreshHistoryButtons();
+            // The step of a load comes after its mark: the count starts again.
+            if (history_mark_late)
+            {
+                history_mark_late = false;
+                MarkHistorySaved();
+            }
         });
 
         SettingsToggle().Click([this](auto &&, auto &&) {
@@ -613,7 +619,6 @@ namespace winrt::ZSlice::implementation
             editor.refresh();
         RefreshSearchValues();
         RangeRefresh();
-        RefreshHistoryValues();
         CuraSettingsChanged();
     }
 
@@ -634,7 +639,9 @@ namespace winrt::ZSlice::implementation
         size_t count = zs_app_history_count(app), current = zs_app_history_current(app);
         UndoButton().IsEnabled(current > 0 || zs_app_history_pending(app) != 0);
         RedoButton().IsEnabled(count > 0 && current + 1 < count);
-        RefreshTimeline();
+        UndoButton().Opacity(UndoButton().IsEnabled() ? 1 : 0.4);
+        RedoButton().Opacity(RedoButton().IsEnabled() ? 1 : 0.4);
+        RefreshHistoryButton();
     }
 
     // After an undo, a redo, or a jump: the editors, and a new slice.

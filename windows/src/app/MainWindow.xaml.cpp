@@ -491,6 +491,8 @@ namespace winrt::ZSlice::implementation
         ShowBusy(L"");
         // The load is a step of its own. The first edit after it is another.
         NoteChange();
+        MarkHistorySaved();
+        history_mark_late = true;
     }
 
     void MainWindow::OnDragOver(DragEventArgs const &e)

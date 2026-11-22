@@ -176,8 +176,8 @@ namespace winrt::ZSlice::implementation
         if (search_open)
             FillSearch();
         // The marks of the timeline take their colors again.
-        timeline_count = (size_t)-1;
-        RefreshTimeline();
+        if (HistoryFlyout().IsOpen())
+            FillHistoryList();
         // The view takes new colors from a load.
         if (zs_app_state(model->Active()) == ZS_STATE_DONE)
             ShowSlice();

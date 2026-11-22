@@ -53,7 +53,7 @@
 //   searchkey down|up|left|right|v|enter|esc, searchlog
 //   open file-or-link, linkok, plates
 //   sumopen, sumshot path, sumlog, tipapply
-//   histcard i, histclose, histopen, histshot path, histrevert i,
+//   dockw width, histsaved, histopen, histshot path, histrevert i,
 //   histclear i, histlog, worklog, draftset name value, draftgo,
 //   exportall, draftremove
 //   curaopen [all], curaclose, curamenu, curamenupress, curaall 0|1,
@@ -584,18 +584,13 @@ namespace winrt::ZSlice::implementation
             zs::Log("dev: work kind %d, draft %d, slicing draft %d, bar %.2f value %.2f, text '%s' %.1f, export %d\n", work_kind, model->IsDraft() ? 1 : 0, model->SlicesDraft() ? 1 : 0,
                     WorkBar().Opacity(), WorkBar().Value(), to_string(WorkText().Text()).c_str(), WorkText().Opacity(), ExportButton().IsEnabled() ? 1 : 0);
         }
-        else if (verb == L"histcard")
+        else if (verb == L"dockw")
         {
-            // histcard i: the hover card of step i. The marks and the lines
-            // between them alternate in the bar.
-            size_t i = (size_t)number(0);
-            auto marks = TimelineMarks().Children();
-            if (i * 2 < marks.Size())
-                ShowHistoryCard(marks.GetAt((uint32_t)(i * 2)).as<Microsoft::UI::Xaml::FrameworkElement>(), i);
+            LayoutDock(number(0));
         }
-        else if (verb == L"histclose")
+        else if (verb == L"histsaved")
         {
-            CloseHistoryCard();
+            MarkHistorySaved();
         }
         else if (verb == L"histopen")
         {
@@ -630,8 +625,8 @@ namespace winrt::ZSlice::implementation
                 words_now.assign(step.text, step.text_len);
             std::replace(words_now.begin(), words_now.end(), '\t', ':');
             std::replace(words_now.begin(), words_now.end(), '\n', '|');
-            zs::Log("dev: history %zu steps, now %zu '%s', card %d step %zd, card editors %zu, list rows %u, walls %s\n", zs_app_history_count(app), now,
-                    words_now.c_str(), history_card != nullptr ? 1 : 0, (ptrdiff_t)history_card_step, history_editors.size(), HistoryList().Children().Size(),
+            zs::Log("dev: history %zu steps, now %zu '%s', unsaved %zu, badge '%s' shown %d, dock h %.0f view h %.0f, list rows %u, walls %s\n", zs_app_history_count(app), now,
+                    words_now.c_str(), UnsavedChanges(), to_string(HistoryCountText().Text()).c_str(), HistoryCount().Visibility() == Microsoft::UI::Xaml::Visibility::Visible ? 1 : 0, Dock().ActualHeight(), ViewPanel().ActualHeight(), HistoryList().Children().Size(),
                     model->GetSetting("project.wall_count").c_str());
         }
         else if (verb == L"sumopen")

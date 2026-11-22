@@ -49,7 +49,7 @@ A build with `-p:ZsDevHooks=true` reads `ZSLICE_DO`: steps with `;` between them
 | `src/app/MainWindow.Chrome.cpp` | The layer rail, the timeline, and the print in the bottom bar. |
 | `src/app/MainWindow.Search.cpp` | The search of settings and actions: docked, on a card, or on a rail. It has no action that starts a print. |
 | `src/app/MainWindow.Summary.cpp` | The details of the print: the facts, the warning, and the refinements (`refine.txt` in the state folder). |
-| `src/app/MainWindow.History.cpp` | The hover card of a history step, the list of the steps, the undo of one change, and the line edits. |
+| `src/app/MainWindow.History.cpp` | The history button and its count, the list of the steps, the undo of one change, the line edits, and the layout of the bottom bar. |
 | `src/app/MainWindow.Work.cpp` | The timer of the exact slice after a draft, the work bar of 2 px, and its text. |
 | `src/app/MainWindow.Open.cpp` | A file or a `zslice://` link from outside the app. A link asks before it downloads. |
 | `src/net/zs_open_link` | The download of a link, with the rules of the core (`zs_link_check`, see [Links that open a model](open-links.md)). It resolves the host first, and it closes a connection to a local address before the TLS handshake. |
