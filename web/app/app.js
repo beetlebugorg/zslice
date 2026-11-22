@@ -667,6 +667,19 @@ async function checkOverhang() {
   }
 }
 
+// Faster slicing on or off (the Speed settings).
+async function setFasterSlicing(on) {
+  sendFocus();
+  applySettings(await client.call("speed", { on }));
+  work.text();
+}
+
+// The Speed section of the settings panel.
+function showSpeed() {
+  showTab("settings");
+  browser.showSpeed();
+}
+
 async function setSetting(name, value) {
   // The focus first, so the worker knows if this change goes on an edit.
   sendFocus();
@@ -686,6 +699,12 @@ var browser = new SettingsBrowser({ // var: setPanelMode runs before this line
   effect: (name) => wasm.settingEffect(name),
   set: setSetting,
   reset: async (name) => applySettings(await client.call("reset", { name })),
+  // The Speed section, and its Faster slicing switch (src/app/speed.zig).
+  speed: {
+    options: wasm.speedOptions(),
+    note: wasm.cstr(wasm.x.zs_speed_switch_note()),
+    set: (on) => setFasterSlicing(on),
+  },
   // A new filament of the plate, for the chips of project.filament
   // (filaments.js): its index, or -1.
   addFilament: async () => {
@@ -3266,6 +3285,10 @@ const work = {
       if (app.draft && this.kind !== "draft") t = `Draft · ${t}`;
     } else if (app.draft) t = `Draft · ${this.time(this.last.draft)}`;
     else t = this.lastText();
+    // The Faster slicing switch (the Speed settings), so its state shows.
+    const speed = app.snapshot?.speed;
+    if (t && speed === "on") t = `${t} · Faster slicing on`;
+    else if (t && speed === "custom") t = `${t} · Custom speed settings`;
     const running = !!this.kind && performance.now() - this.t0 >= this.SHOW_MS;
     const fresh = !this.kind && this.log.length > 0 && performance.now() - this.log[this.log.length - 1].end < this.KEEP_MS;
     node.textContent = t;
@@ -4463,6 +4486,8 @@ const search = new SearchOverlay({
     { label: "History", hint: "the changes, undo one change", run: () => showTab("history") },
     { label: "Keyboard shortcuts", keys: "?", run: () => shortcuts.show() },
     { label: "All settings", keys: "N", hint: "the panel of the settings", run: () => showTab("settings") },
+    { label: "Speed settings", hint: "faster slicing, draft slices, threads: the options that change the time of a slice", run: () => showSpeed() },
+    { label: app.snapshot?.speed === "on" ? "Faster slicing off" : "Faster slicing on", hint: "speed, performance: faster offsets and outline tolerance 0.01 mm", run: () => setFasterSlicing(app.snapshot?.speed !== "on") },
     { label: "Printers", hint: "your printers, their jobs, and the plates to print", run: () => showFarm(true) },
   ],
 });

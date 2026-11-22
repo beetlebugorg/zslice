@@ -243,7 +243,39 @@ export class Core {
       const rc = w.withStrings([name, values[name].value], (n, v) => w.x.zs_app_ratio_speed(this.app, n, v, w.cell));
       if (rc === 0) values[name].speed = w.f64(w.cell);
     }
-    return { values, quality: this.qualityName() };
+    // The Faster slicing switch: "off", "on", or "custom" (from the
+    // values of its options, zs_app_speed_state).
+    const speed = ["off", "on", "custom"][w.x.zs_app_speed_state(this.app)] ?? "off";
+    return { values, quality: this.qualityName(), speed };
+  }
+
+  // Faster slicing on or off (zs_app_speed_set).
+  setSpeed(on) {
+    const rc = this.w.x.zs_app_speed_set(this.app, on ? 1 : 0);
+    return rc === 0 ? "" : statusText(rc);
+  }
+
+  // The engine options of the Speed group that differ from their
+  // defaults: { name: value }. They are app preferences: no project file
+  // has them, so the saved state keeps them.
+  engineState() {
+    const out = {};
+    for (const info of this.infos) {
+      if (info.group !== "engine" || info.name === "engine.job_name") continue;
+      const v = this.get(info.name);
+      if (v !== info.defaultValue) out[info.name] = v;
+    }
+    return out;
+  }
+
+  // The engine options of all plates: each plate gets the values of the
+  // plate before it when it becomes active (worker.js, syncCore).
+  engineValues() {
+    const out = {};
+    for (const info of this.infos) {
+      if (info.group === "engine" && info.name !== "engine.job_name") out[info.name] = this.get(info.name);
+    }
+    return out;
   }
 
   qualityName() { return this.w.cstr(this.w.x.zs_app_quality_name(this.app)); }
@@ -268,6 +300,7 @@ export class Core {
       project: this.stateText(2),
       formulas: this.formulasText(),
       quality: this.qualityName(),
+      engine: this.engineState(),
     };
   }
 
@@ -303,6 +336,10 @@ export class Core {
     if (saved?.formulas) {
       const w = this.w;
       w.withString(saved.formulas, (t, len) => w.x.zs_app_formulas_read(this.app, t, len));
+    }
+    for (const [name, value] of Object.entries(saved?.engine ?? {})) {
+      const e = this.set(name, value);
+      if (e) errors.push(`${name}: ${e}`);
     }
     return errors;
   }

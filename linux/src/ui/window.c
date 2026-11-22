@@ -917,6 +917,12 @@ static void work_text(Window *w) {
         if (zg_model_draft_ms(w->model) > 0) g_snprintf(t, sizeof t, "Draft %s \u00b7 Exact %s", d, e);
         else g_snprintf(t, sizeof t, "Exact %s", e);
     }
+    /* The Faster slicing switch (the Speed settings), so its state shows. */
+    int speed = zg_model_speed_state(w->model);
+    if (t[0] && speed != 0) {
+        size_t len = strlen(t);
+        g_snprintf(t + len, sizeof t - len, " \u00b7 %s", speed == 1 ? "Faster slicing on" : "Custom speed settings");
+    }
     if (t[0]) gtk_label_set_text(GTK_LABEL(w->work_label), t);
     if (t[0] && show) gtk_widget_add_css_class(w->work_label, "on");
     else gtk_widget_remove_css_class(w->work_label, "on");
@@ -2218,6 +2224,13 @@ static void on_show_setting_action(GSimpleAction *a, GVariant *v, gpointer data)
     zg_settings_panel_show_setting(w->settings_panel, g_variant_get_string(v, NULL));
 }
 
+/* Faster slicing on, or off when it is on (the Speed settings). */
+static void on_faster_slicing_action(GSimpleAction *a, GVariant *v, gpointer data) {
+    Window *w = get(data);
+    zg_model_speed_set(w->model, zg_model_speed_state(w->model) != 1);
+    work_text(w);
+}
+
 /* The search (/), with a text (a string), or the search of one part
  * (search-part, the index of the part). */
 static void on_search_action(GSimpleAction *a, GVariant *v, gpointer data) {
@@ -2655,6 +2668,7 @@ GtkWindow *zg_window_new(GtkApplication *app, ZgModel *model) {
         {.name = "panel", .activate = on_panel_action},
         {.name = "show-page", .activate = on_show_page_action, .parameter_type = "s"},
         {.name = "show-setting", .activate = on_show_setting_action, .parameter_type = "s"},
+        {.name = "faster-slicing", .activate = on_faster_slicing_action},
         {.name = "search", .activate = on_search_action, .parameter_type = "s"},
         {.name = "search-part", .activate = on_search_part_action, .parameter_type = "x"},
         {.name = "refocus", .activate = on_refocus_action},

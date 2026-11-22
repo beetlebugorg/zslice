@@ -121,6 +121,21 @@ In the apps, for a 3DBenchy and a run of wall count changes (the times include t
 | GTK (8 threads) | 106 to 194 ms | 300 ms of pause, then 415 to 494 ms |
 | Web (Chromium with no GPU, one thread) | 175 to 252 ms | 520 ms to the start, then 0.66 to 1.82 s |
 
+## The Speed settings
+
+The settings panel has one Speed section with the options that change the time of a slice (`src/app/speed.zig`, `zs_speed_get`). Each option has a note with its gain and its cost. The Faster slicing switch sets `project.fast_offsets` to on and `engine.resolution` to 0.010 mm. Off puts back the defaults. The switch has no value of its own: `zs_app_speed_state` reads its state from the two options, so a change of one gives "custom". With `engine.draft_slices` off, `App.setDraft` keeps the slices exact.
+
+The 3DBenchy, `zslice bench --only full --runs 5`, the CPU median, on 2026-11-22 with a load average of 11:
+
+| Settings | CPU of a full slice |
+|---|---|
+| The defaults | 1579 ms |
+| `project.fast_offsets` on | 1406 ms (11 % less) |
+| `engine.resolution` 0.010 mm | 1260 ms (20 % less) |
+| Both (Faster slicing on) | 1140 ms (28 % less) |
+| `project.gap_fill` off | 1091 ms (31 % less) |
+| `project.wall_generator` arachne | 1832 ms (16 % more) |
+
 ## Rules
 
 - Compare CPU times when other programs use the machine. The wall time of a full slice was 500 to 680 ms during these measurements, and its CPU time changed by less than 1 % between rounds.

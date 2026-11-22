@@ -212,6 +212,30 @@ export class Wasm {
     return out;
   }
 
+  // The Speed group (zs_speed_get): { name, faster, note, gcode } for
+  // each option, in the order of the panel. faster is "" for an option
+  // that the Faster slicing switch does not set.
+  speedOptions() {
+    const x = this.x;
+    const n = x.zs_speed_count();
+    const p = this.alloc(16);
+    const out = [];
+    try {
+      for (let i = 0; i < n; i++) {
+        if (x.zs_speed_get(i, p) !== 0) continue;
+        out.push({
+          name: this.cstr(this.u32(p)),
+          faster: this.cstr(this.u32(p + 4)),
+          note: this.cstr(this.u32(p + 8)),
+          gcode: this.i32(p + 12) !== 0,
+        });
+      }
+    } finally {
+      this.free(p, 16);
+    }
+    return out;
+  }
+
   // What a setting changes (zs_setting_get_effect): a bit for each
   // feature, the first layer only, and a note.
   settingEffect(name) {

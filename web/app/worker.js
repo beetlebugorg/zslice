@@ -69,12 +69,23 @@ function coreAt(i) {
 }
 // The Core of the active plate.
 let core = null;
+// The engine options (engine.resolution, engine.threads, ...) are app
+// preferences: the same for all plates. A plate that becomes active gets
+// the values of the plate before it.
+let engineValues = null;
+
 function syncCore() {
-  core = coreAt(activeIndex());
   // The Cores of the apps that are not in the set now.
   const live = new Set();
   const n = wasm.x.zs_set_count(set);
   for (let i = 0; i < n; i++) live.add(wasm.x.zs_set_app(set, i));
+  if (core && live.has(core.app)) engineValues = core.engineValues();
+  core = coreAt(activeIndex());
+  if (engineValues) {
+    for (const [name, value] of Object.entries(engineValues)) {
+      if (core.get(name) !== value) core.set(name, value);
+    }
+  }
   for (const app of cores.keys()) if (!live.has(app)) cores.delete(app);
 }
 
@@ -253,7 +264,8 @@ function liveChange() {
   exactTimer = 0;
   const c = coreAt(activeIndex());
   if (draftApp && draftApp !== c.app) settle();
-  if (!draftApp && c.state() === STATE.done) {
+  // Draft slices off (the Speed settings): each change slices exact.
+  if (!draftApp && c.state() === STATE.done && c.get("engine.draft_slices") === "true") {
     draftApp = c.app;
     wasm.x.zs_app_set_draft(c.app, 1);
   }
@@ -516,7 +528,7 @@ function historyList() {
 // The ops after which a part can lose what held it (see the fall check).
 // An op with hold (a drag) checks at its end.
 const FALL_CHECK_OPS = new Set(["partSettingSet", "supportAreaKind", "supportAreaRemove", "projectLoad", "plateActivate", "treeMoveNode", "treeMoveBranch", "treeDelete", "treeReset"]);
-const SETTING_OPS = new Set(["refineApply", "importProfile", "set", "reset", "quality", "profile", "setScoped", "resetScoped", "rangePaste", "rangeReset"]);
+const SETTING_OPS = new Set(["refineApply", "importProfile", "set", "speed", "reset", "quality", "profile", "setScoped", "resetScoped", "rangePaste", "rangeReset"]);
 // The parts whose largest side is under 3 mm: a file in inches or in
 // meters loads that small. The print card offers a scale.
 function tinyParts(c) {
@@ -623,6 +635,13 @@ const ops = {
 
   set({ name, value }) {
     const error = core.set(name, value);
+    if (!error) wantSlice();
+    return { error, ...settingsState() };
+  },
+
+  // The Faster slicing switch of the Speed settings (zs_app_speed_set).
+  speed({ on }) {
+    const error = core.setSpeed(on);
     if (!error) wantSlice();
     return { error, ...settingsState() };
   },

@@ -174,6 +174,7 @@ const preview_notes = [_]struct { []const u8, [:0]const u8 }{
     .{ "project.paint_anchor_depth", "The root of a painted feature in the part under it: lines of the paint color under the feature, inside the walls. Only a painted part has it. Look at the layers under the feature." },
     .{ "project.paint_anchor_shape", "The shape of the root of a painted feature in the part under it. Only a painted part has it. Look at the layers under the feature." },
     .{ "engine.threads", "The number of threads of the slicer. The result is the same." },
+    .{ "engine.draft_slices", "The view during an edit: a draft first, then the exact slice. The G-code is the same." },
     .{ "engine.job_name", "The name of the print, for the start G-code." },
 };
 

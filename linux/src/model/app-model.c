@@ -163,6 +163,29 @@ static void sync_core(ZgModel *self) {
      * for a switch, and their worker writes the scene bytes of the row of
      * plates (zs_set_view_sync). */
     for (size_t i = 0; i < zs_set_count(self->set); i++) zs_app_set_auto_scene(zs_set_app(self->set, i), 1);
+    /* The engine options (the Speed settings: engine.resolution,
+     * engine.threads, engine.draft_slices) are app preferences, the same
+     * for each plate: Preferences keeps them. */
+    size_t n = zs_setting_count();
+    for (size_t i = 0; i < n; i++) {
+        zs_setting_info info;
+        if (zs_setting_get_info(i, &info) != ZS_OK || strcmp(info.group, "engine") != 0) continue;
+        if (strcmp(info.name, "engine.job_name") == 0) continue;
+        char *v = zg_pref_get(info.name, NULL);
+        if (v) zs_app_setting_set(self->core, info.name, v);
+        g_free(v);
+    }
+}
+
+/* Keeps an engine option in Preferences (see sync_core). */
+static void keep_engine_pref(ZgModel *self, const char *key) {
+    if (!g_str_has_prefix(key, "engine.") || strcmp(key, "engine.job_name") == 0) return;
+    size_t len = 0;
+    if (zs_app_setting_get(self->core, key, NULL, 0, &len) != ZS_OK) return;
+    char *v = g_malloc(len + 1);
+    zs_app_setting_get(self->core, key, v, len + 1, NULL);
+    zg_pref_set(key, v);
+    g_free(v);
 }
 
 /* The draft slices. A change of a plate that has a slice gives a draft
@@ -210,7 +233,11 @@ static void live_change(ZgModel *self) {
     self->settle_timer = 0;
     if (self->draft_core && self->draft_core != self->core) settle(self);
     int state = zs_app_state(self->core);
-    if (!self->draft_core && (state == ZS_STATE_DONE || state == ZS_STATE_SLICING)) {
+    /* Draft slices off (the Speed settings): each change slices exact. */
+    gboolean drafts = TRUE;
+    char v[8] = "";
+    if (zs_app_setting_get(self->core, "engine.draft_slices", v, sizeof v, NULL) == ZS_OK) drafts = strcmp(v, "false") != 0;
+    if (!self->draft_core && drafts && (state == ZS_STATE_DONE || state == ZS_STATE_SLICING)) {
         self->draft_core = self->core;
         zs_app_set_draft(self->core, 1);
     }
@@ -2661,6 +2688,7 @@ static void save_soon(ZgModel *self, const char *key) {
 gboolean zg_model_set(ZgModel *self, const char *key, const char *value, GError **error) {
     int rc = zs_app_setting_set(self->core, key, value);
     if (rc != ZS_OK) return fail(error, rc);
+    keep_engine_pref(self, key);
     emit_setting(self, key);
     /* The settings with a formula can change with this one. */
     size_t flen = 0;
@@ -2689,6 +2717,27 @@ gboolean zg_model_set(ZgModel *self, const char *key, const char *value, GError 
         if (rc != ZS_OK) return fail(error, rc);
     }
     return TRUE;
+}
+
+gboolean zg_model_speed_set(ZgModel *self, gboolean on) {
+    if (zs_app_speed_set(self->core, on ? 1 : 0) != ZS_OK) return FALSE;
+    size_t n = zs_speed_count();
+    for (size_t i = 0; i < n; i++) {
+        zs_speed_option o;
+        if (zs_speed_get(i, &o) != ZS_OK || !o.faster[0]) continue;
+        keep_engine_pref(self, o.name);
+        emit_setting(self, o.name);
+        save_soon(self, o.name);
+    }
+    undo_commit(self);
+    int state = zs_app_state(self->core);
+    if (state == ZS_STATE_SLICING) self->slice_pending = TRUE;
+    else if (state != ZS_STATE_EMPTY) request_slice(self);
+    return TRUE;
+}
+
+int zg_model_speed_state(ZgModel *self) {
+    return zs_app_speed_state(self->core);
 }
 
 char *zg_model_get(ZgModel *self, const char *key) {

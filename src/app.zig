@@ -34,6 +34,7 @@
 //! - `setting_effect.zig`: what a setting changes in the preview.
 //! - `setting_info.zig`: the description of each setting for a panel.
 //! - `setting_text.zig`: the text of a setting value in an editor, and back.
+//! - `speed.zig`: the Speed group of the panel, and the Faster slicing switch.
 //! - `licenses.zig`: the licenses for a Licenses screen.
 //! - `history.zig`: the undo list of an app.
 //! - `plate_set.zig`: the plates of a set, each with its own app.
@@ -62,6 +63,8 @@ pub const support_areas = @import("app/support_areas.zig");
 /// The support trees that the user edits (see app/support_trees.zig).
 pub const support_trees = @import("app/support_trees.zig");
 pub const plate_set = @import("app/plate_set.zig");
+/// The Speed group of the settings panel, and the Faster slicing switch.
+pub const speed = @import("app/speed.zig");
 /// The filaments of the plate (see app/filament_slots.zig).
 pub const filament_slots = @import("app/filament_slots.zig");
 /// The filaments that the printer has loaded (see app/printer_filaments.zig).
@@ -2809,10 +2812,31 @@ pub const App = struct {
     /// The G-code of a draft is not for a printer: `exactGcode` gives
     /// none (see `isDraft`). The shell turns the draft off at the end of
     /// the drag and slices again. Only the shell uses it.
-    pub fn setDraft(app: *App, on: bool) void {
+    /// With `engine.draft_slices` off, the slices stay exact.
+    pub fn setDraft(app: *App, on_: bool) void {
+        const on = on_ and app.settings.engine.draft_slices;
         if (app.draft == on) return;
         app.stopWorker();
         app.draft = on;
+    }
+
+    /// The state of the Faster slicing switch (see speed.zig).
+    pub fn speedState(app: *const App) speed.State {
+        return speed.state(app.settings);
+    }
+
+    /// Faster slicing on: the options of the switch get their faster
+    /// values. Off: their built-in defaults, for the exact slice. A value
+    /// replaces the formula of its option. The other settings stay.
+    pub fn setFasterSlicing(app: *App, on: bool) Settings.SetError!void {
+        const target = speed.applied(app.settings, on);
+        for (speed.options) |o| {
+            if (o.faster.len == 0) continue;
+            var buf: [64]u8 = undefined;
+            var w: std.Io.Writer = .fixed(&buf);
+            writeSettingOf(target, o.name, &w) catch return error.InvalidValue;
+            try app.setSetting(o.name, w.buffered());
+        }
     }
 
     /// True if the slice that runs, or the last slice, is a draft.
@@ -3662,6 +3686,7 @@ test {
     _ = gap_advice;
     _ = checks_mod;
     _ = plate_set;
+    _ = speed;
     _ = support_areas;
     _ = filament_slots;
     _ = printer_filaments;
@@ -4377,6 +4402,43 @@ test "app: a draft slice has no gap fill and no G-code for a printer, and the ex
     app.stopWorkerForTest();
     try testing.expect(!app.isDraft());
     try testing.expectEqualStrings(gcode, app.exactGcode().?);
+}
+
+test "app: Faster slicing on and back off gives the exact G-code; no draft with draft slices off" {
+    const gpa = testing.allocator;
+    var mesh = try zs.mesh.shapes.demo(gpa);
+    defer mesh.deinit(gpa);
+    var stl: std.Io.Writer.Allocating = .init(gpa);
+    defer stl.deinit();
+    try mesh.writeStl(&stl.writer);
+    const app = try App.create(gpa, null, null);
+    defer app.destroy();
+    try app.loadStl("demo.stl", stl.written());
+    try app.startSlice();
+    app.stopWorkerForTest();
+    const exact = try gpa.dupe(u8, app.exactGcode().?);
+    defer gpa.free(exact);
+    try testing.expectEqual(speed.State.off, app.speedState());
+    try app.setFasterSlicing(true);
+    try testing.expectEqual(speed.State.on, app.speedState());
+    try testing.expect(app.settings.project.fast_offsets);
+    try testing.expectEqual(@as(f64, 0.01), app.settings.engine.resolution);
+    try app.startSlice();
+    app.stopWorkerForTest();
+    try app.setSetting("project.fast_offsets", "false");
+    try testing.expectEqual(speed.State.custom, app.speedState());
+    try app.setFasterSlicing(false);
+    try testing.expectEqual(speed.State.off, app.speedState());
+    try app.startSlice();
+    app.stopWorkerForTest();
+    try testing.expectEqualStrings(exact, app.exactGcode().?);
+    // Draft slices off: a draft request gives the exact slice.
+    try app.setSetting("engine.draft_slices", "false");
+    app.setDraft(true);
+    try app.startSlice();
+    app.stopWorkerForTest();
+    try testing.expect(!app.isDraft());
+    try testing.expectEqualStrings(exact, app.exactGcode().?);
 }
 
 test "app: a simulation on the worker gives the result of a simulation on the calling thread" {

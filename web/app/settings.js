@@ -58,13 +58,23 @@ export { el };
 // Bambu Studio work too (src/gcode_vars.zig).
 const GCODE_VARS = ["nozzle_temp", "first_layer_nozzle_temp", "bed_temp", "standby_temp", "layer_height", "first_layer_height", "first_layer_speed", "nozzle_diameter", "filament_diameter", "filament_name", "machine_name", "job_name"];
 
+// The Speed section: one place for the options that change the time of a
+// slice (src/app/speed.zig), with the Faster slicing switch at the top.
+const SPEED = "speed";
+const SPEED_STATES = { off: "Off: the exact slice", on: "On", custom: "Custom: some options differ" };
+
 export class SettingsBrowser {
   // ctx: { infos, effect(name), set(name, value) -> Promise<error text>,
-  //        reset(name), focus(mask, firstLayerOnly) }
+  //        reset(name), focus(mask, firstLayerOnly),
+  //        speed: { options, note, set(on) } (the Speed section) }
   constructor(ctx) {
     this.ctx = ctx;
     this.infos = ctx.infos;
     this.byName = new Map(this.infos.map((i) => [i.name, i]));
+    this.speedOptions = (ctx.speed?.options ?? []).filter((o) => this.byName.has(o.name));
+    this.speedNames = new Set(this.speedOptions.map((o) => o.name));
+    this.speedState = "off";
+    this.speedEditors = [];
     this.values = {};
     this.quality = "";
     this.featureStats = null;
@@ -99,6 +109,8 @@ export class SettingsBrowser {
     const before = this.nozzleCount();
     this.values = snapshot.values;
     this.quality = snapshot.quality;
+    this.speedState = snapshot.speed ?? "off";
+    for (const ed of this.speedEditors) ed(this.speedState);
     // The section of each nozzle after the first comes and goes with the
     // number of nozzles.
     if (before !== this.nozzleCount()) {
@@ -141,6 +153,7 @@ export class SettingsBrowser {
     if (this.column >= 1) {
       if (this.search) add(`Search: ${this.search}`, 1);
       else if (this.feature >= 0) add(FEATURE_TITLES[this.feature], 1);
+      else if (this.group === SPEED) add("Speed", 1);
       else if (this.group) add(`${GROUP_TITLES[this.group] ?? this.group} · ${this.section || "General"}`, 1);
     }
     if (this.column >= 2 && this.key) add(this.byName.get(this.key)?.label ?? this.key, 2);
@@ -166,7 +179,8 @@ export class SettingsBrowser {
   sectionFocus(group, section) {
     let mask = 0;
     for (const i of this.infos) {
-      if (i.group === group && i.section === section) mask |= this.ctx.effect(i.name).features;
+      const here = group === SPEED ? this.speedNames.has(i.name) : i.group === group && i.section === section;
+      if (here) mask |= this.ctx.effect(i.name).features;
     }
     return mask || ALL_FEATURES;
   }
@@ -189,28 +203,83 @@ export class SettingsBrowser {
     const col = this.cols[0];
     col.replaceChildren();
     this.sectionRows = [];
+    if (this.speedOptions.length) {
+      col.append(el("div", "group-title", "Slicing"));
+      col.append(this.sectionRow(SPEED, "Speed", "Speed"));
+    }
     for (const g of GROUP_ORDER) {
       const seen = new Set();
       for (const i of this.infos) {
         if (i.group !== g || seen.has(i.section) || !this.hasSection(i)) continue;
         if (seen.size === 0) col.append(el("div", "group-title", GROUP_TITLES[g] ?? g));
         seen.add(i.section);
-        const row = el("div", "row");
-        row.tabIndex = 0;
-        row.append(el("div", "label", i.section || "General"), el("span", "chevron"));
-        row.onclick = () => this.selectSection(g, i.section, true);
-        row.onkeydown = (e) => {
-          if (e.key === "Enter" || e.key === "ArrowRight") this.selectSection(g, i.section, true);
-        };
-        row.onmouseenter = () => {
-          if (this.column === 0) this.ctx.focus(this.sectionFocus(g, i.section), false);
-        };
-        row.onmouseleave = () => { if (this.column === 0) this.sendFocus(); };
-        row.dataset.group = g;
-        row.dataset.section = i.section;
-        this.sectionRows.push(row);
-        col.append(row);
+        col.append(this.sectionRow(g, i.section, i.section || "General"));
       }
+    }
+  }
+
+  sectionRow(g, section, title) {
+    const row = el("div", "row");
+    row.tabIndex = 0;
+    row.append(el("div", "label", title), el("span", "chevron"));
+    row.onclick = () => this.selectSection(g, section, true);
+    row.onkeydown = (e) => {
+      if (e.key === "Enter" || e.key === "ArrowRight") this.selectSection(g, section, true);
+    };
+    row.onmouseenter = () => {
+      if (this.column === 0) this.ctx.focus(this.sectionFocus(g, section), false);
+    };
+    row.onmouseleave = () => { if (this.column === 0) this.sendFocus(); };
+    row.dataset.group = g;
+    row.dataset.section = section;
+    this.sectionRows.push(row);
+    return row;
+  }
+
+  // The Speed section: the Faster slicing switch, then each option with
+  // its gain and its cost.
+  fillSpeed() {
+    const col = this.cols[1];
+    for (const [name, list] of this.editors) this.editors.set(name, list.filter((e) => e.where !== "row"));
+    this.speedEditors = [];
+    col.replaceChildren();
+    const master = el("div", "row setting-row speed-master");
+    const label = el("div", "label");
+    const name = el("div", "name", "Faster slicing");
+    name.title = this.ctx.speed.note;
+    const tag = el("div", "tag");
+    label.append(name, tag, el("div", "speed-note", this.ctx.speed.note));
+    const box = el("div", "editor");
+    const sw = el("button", "switch");
+    sw.id = "speed-switch";
+    sw.setAttribute("role", "switch");
+    sw.title = this.ctx.speed.note;
+    sw.onclick = (e) => {
+      e.stopPropagation();
+      // Custom goes to on: the faster values of all options.
+      this.ctx.speed.set(this.speedState !== "on");
+    };
+    box.append(sw);
+    master.append(label, box);
+    col.append(master);
+    const update = (state) => {
+      sw.classList.toggle("on", state === "on");
+      sw.classList.toggle("custom", state === "custom");
+      sw.setAttribute("aria-checked", state === "on" ? "true" : state === "custom" ? "mixed" : "false");
+      tag.textContent = SPEED_STATES[state] ?? "";
+      tag.classList.toggle("mine", state !== "off");
+    };
+    update(this.speedState);
+    this.speedEditors.push(update);
+    for (const o of this.speedOptions) {
+      const row = this.settingRow(this.byName.get(o.name), false);
+      const note = el("div", "speed-note", o.note);
+      if (o.gcode) note.append(el("span", "gcode-mark", "Changes the G-code"));
+      const info = this.byName.get(o.name);
+      const faster = info.kind === "boolean" ? (o.faster === "true" ? "on" : "off") : displayValue(info, o.faster);
+      if (o.faster) note.append(el("span", "gcode-mark", `Faster slicing: ${faster}`));
+      row.querySelector(".label").append(note);
+      col.append(row);
     }
   }
 
@@ -223,7 +292,8 @@ export class SettingsBrowser {
       this.searchEntry.value = "";
     }
     for (const r of this.sectionRows) r.classList.toggle("selected", r.dataset.group === group && r.dataset.section === section);
-    this.fillSettings((i) => i.group === group && i.section === section, false);
+    if (group === SPEED) this.fillSpeed();
+    else this.fillSettings((i) => i.group === group && i.section === section, false);
     if (open) this.showColumn(1);
     else this.sendFocus();
   }
@@ -239,6 +309,11 @@ export class SettingsBrowser {
       this.selectSection(this.group, this.section, false);
       this.showColumn(0);
     }
+  }
+
+  // Opens the Speed section.
+  showSpeed() {
+    if (this.speedOptions.length) this.selectSection(SPEED, "Speed", true);
   }
 
   // Column 2 lists the settings that change the lines of feature f: not
