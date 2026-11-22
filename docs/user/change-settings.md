@@ -60,11 +60,11 @@ The **Faster slicing** switch at the top of the section sets the options that ma
 | Option | Faster slicing | Gain | Cost |
 |---|---|---|---|
 | Fast offsets (`project.fast_offsets`) | on | about 11 % | The outer walls stay within 1.4 µm. Some thin skin and fill lines come or go. |
-| Resolution, the outline tolerance (`engine.resolution`) | 0.01 mm | about 19 % on a fine mesh, and 19 % less G-code | The outer walls move up to 10 µm (99 % of the points). |
+| Resolution, the outline tolerance (`project.resolution`) | 0.01 mm | about 19 % on a fine mesh, and 19 % less G-code | The outer walls move up to 10 µm (99 % of the points). |
 
 Together they make a slice about 28 % faster (a 3DBenchy: 1580 ms to 1140 ms of CPU). Turn the switch off to get the exact defaults back. If you change one of these options yourself, the switch shows **Custom**. The work text at the top right of the view says "Faster slicing on" while the switch is on.
 
-The fast offsets are a setting of the print, so a project keeps them. The resolution, the threads, and the draft slices are app preferences: they are the same for each plate and each project.
+The fast offsets and the resolution change the G-code, so they are settings of the print: a project keeps them, and it slices the same on each computer. The threads and the draft slices are app preferences: they are the same for each plate and each project.
 
 The section has more options, which the switch does not change:
 

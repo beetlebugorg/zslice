@@ -213,7 +213,7 @@ hole_to_polyhole_twisted | missing | polyholes that turn on each layer
 elefant_foot_compensation | same | project.first_layer_xy_offset
 gap_fill_target | derived | project.gap_fill
 filter_out_gap_fill | derived | project.gap_fill
-resolution | same | engine.resolution
+resolution | same | project.resolution
 slice_closing_radius | same | engine.gap_closing
 slicing_mode | missing | the fill rule of the outlines (regular, even-odd, close holes)
 bottom_shell_layers | same | project.bottom_thickness (a count of layers)

@@ -10,6 +10,10 @@
 
 import { statusText } from "./wasm.js";
 
+// The settings that are app preferences: the same for each plate and each
+// project. They change no G-code.
+export const APP_PREFS = ["engine.threads", "engine.draft_slices"];
+
 export const GROUPS = ["machine", "filament", "project"];
 export const STATE = { empty: 0, ready: 1, slicing: 2, done: 3, failed: 4 };
 
@@ -255,26 +259,24 @@ export class Core {
     return rc === 0 ? "" : statusText(rc);
   }
 
-  // The engine options of the Speed group that differ from their
-  // defaults: { name: value }. They are app preferences: no project file
-  // has them, so the saved state keeps them.
+  // The app preferences of the Speed group (APP_PREFS) that differ from
+  // their defaults: { name: value }. No project file has them, so the
+  // saved state keeps them.
   engineState() {
     const out = {};
     for (const info of this.infos) {
-      if (info.group !== "engine" || info.name === "engine.job_name") continue;
+      if (!APP_PREFS.includes(info.name)) continue;
       const v = this.get(info.name);
       if (v !== info.defaultValue) out[info.name] = v;
     }
     return out;
   }
 
-  // The engine options of all plates: each plate gets the values of the
+  // The app preferences of all plates: each plate gets the values of the
   // plate before it when it becomes active (worker.js, syncCore).
   engineValues() {
     const out = {};
-    for (const info of this.infos) {
-      if (info.group === "engine" && info.name !== "engine.job_name") out[info.name] = this.get(info.name);
-    }
+    for (const name of APP_PREFS) out[name] = this.get(name);
     return out;
   }
 

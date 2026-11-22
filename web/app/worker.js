@@ -69,8 +69,8 @@ function coreAt(i) {
 }
 // The Core of the active plate.
 let core = null;
-// The engine options (engine.resolution, engine.threads, ...) are app
-// preferences: the same for all plates. A plate that becomes active gets
+// The app preferences (engine.threads, engine.draft_slices: APP_PREFS in
+// core.js) are the same for all plates. A plate that becomes active gets
 // the values of the plate before it.
 let engineValues = null;
 

@@ -267,17 +267,21 @@ check(gcode.includes(";LAYER:0\n"), "the G-code has layer 0");
   check(opts.some((o) => o.name === "engine.draft_slices" && o.faster === ""), "the draft slices are an option outside the switch");
   check(core.snapshot().speed === "off", "Faster slicing is off at first");
   check(core.setSpeed(true) === "", "Faster slicing on");
-  check(core.snapshot().speed === "on" && core.get("engine.resolution") === "0.01" && core.get("project.fast_offsets") === "true", "Faster slicing sets its options");
-  check(core.savedState().engine["engine.resolution"] === "0.01", "the saved state keeps the resolution");
+  check(core.snapshot().speed === "on" && core.get("project.resolution") === "0.01" && core.get("project.fast_offsets") === "true", "Faster slicing sets its options");
+  check(core.savedState().project.includes("resolution = 0.01") && !core.savedState().engine["project.resolution"], "the project keeps the resolution");
+  check(core.set("engine.resolution", "0.01") === "" && core.get("project.resolution") === "0.01", "the old name engine.resolution sets project.resolution");
   t0 = performance.now();
   core.slice();
   console.log(`slice with Faster slicing: ${(performance.now() - t0).toFixed(0)} ms`);
-  core.set("engine.resolution", "0.02");
+  core.set("project.resolution", "0.02");
   check(core.snapshot().speed === "custom", "one other value gives custom");
   check(core.setSpeed(false) === "" && core.snapshot().speed === "off", "Faster slicing off");
   core.slice();
   check(new TextDecoder().decode(core.gcode()) === gcode, "Faster slicing off gives the exact G-code");
-  check(Object.keys(core.savedState().engine).length === 0, "no engine option in the saved state at the defaults");
+  check(Object.keys(core.savedState().engine).length === 0, "no app preference in the saved state at the defaults");
+  core.set("engine.draft_slices", "false");
+  check(core.savedState().engine["engine.draft_slices"] === "false", "the saved state keeps the draft slices");
+  core.set("engine.draft_slices", "true");
 }
 
 // The main thread side: a second instance reads the scene and draws.

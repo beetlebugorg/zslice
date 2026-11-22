@@ -254,7 +254,7 @@ fn slicePart(gpa: Allocator, mesh: *const Mesh, settings: Settings, outline_over
             .z_offset = z_base,
             .dx = geom.fromMm(dx),
             .dy = geom.fromMm(dy),
-            .tolerance = geom.fromMm(settings.engine.resolution),
+            .tolerance = geom.fromMm(settings.project.resolution),
             .gap = geom.fromMm(settings.engine.gap_closing),
             .reporter = &reporter,
             .z_scale = f.shrinkage_z,
@@ -966,7 +966,7 @@ pub const Job = struct {
                 const job = c.job;
                 if (job.monitor.canceled()) return error.Canceled;
                 const st = job.resolved.settings;
-                const o = try slicer.sliceAt(job.gpa, c.mesh, c.index.get(i), job.layers[i].sliceZ() / st.filament.shrinkage_z + job.z_base, geom.fromMm(st.engine.resolution), geom.fromMm(st.engine.gap_closing));
+                const o = try slicer.sliceAt(job.gpa, c.mesh, c.index.get(i), job.layers[i].sliceZ() / st.filament.shrinkage_z + job.z_base, geom.fromMm(st.project.resolution), geom.fromMm(st.engine.gap_closing));
                 const dx = geom.fromMm(job.dx);
                 const dy = geom.fromMm(job.dy);
                 const xy_scale = st.filament.shrinkage_xy;
@@ -1644,7 +1644,7 @@ fn outlineKey(settings: Settings, outline_overrides: []const settings_mod.Overri
         b.max[0],             b.max[1],             b.max[2],          dx,
         dy,                   p.first_layer_height, p.layer_height,    f.shrinkage_z,
         f.shrinkage_xy,       f.xy_offset,          f.hole_xy_offset,  p.first_layer_xy_offset,
-        e.resolution,         e.gap_closing,        @floatFromInt(@intFromBool(p.polyholes)),
+        p.resolution,         e.gap_closing,        @floatFromInt(@intFromBool(p.polyholes)),
     };
     h.update(std.mem.sliceAsBytes(&values));
     for (outline_overrides) |o| {

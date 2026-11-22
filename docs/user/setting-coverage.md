@@ -621,10 +621,10 @@ The lists come from Cura `resources/definitions/fdmprinter.def.json` and `fdmext
 | `carve_multiple_volumes` (Remove Mesh Intersection) | Covered | the parts of a plate slice as their own jobs |
 | `alternate_carve_order` (Alternate Mesh Removal) | Covered | the parts of a plate slice as their own jobs |
 | `remove_empty_first_layers` (Remove Empty First Layers) | Covered | zslice starts at the bottom of the part |
-| `meshfix_maximum_resolution` (Maximum Resolution) | Same | `engine.resolution` |
-| `meshfix_maximum_travel_resolution` (Maximum Travel Resolution) | Covered | `engine.resolution` |
-| `meshfix_maximum_deviation` (Maximum Deviation) | Covered | `engine.resolution` |
-| `meshfix_maximum_extrusion_area_deviation` (Maximum Extrusion Area Deviation) | Covered | `engine.resolution` |
+| `meshfix_maximum_resolution` (Maximum Resolution) | Same | `project.resolution` |
+| `meshfix_maximum_travel_resolution` (Maximum Travel Resolution) | Covered | `project.resolution` |
+| `meshfix_maximum_deviation` (Maximum Deviation) | Covered | `project.resolution` |
+| `meshfix_maximum_extrusion_area_deviation` (Maximum Extrusion Area Deviation) | Covered | `project.resolution` |
 | `meshfix_fluid_motion_enabled` (Enable Fluid Motion) | Missing | smooth the corners of short segments |
 | `meshfix_fluid_motion_shift_distance` (Fluid Motion Shift Distance) | Missing | smooth the corners of short segments |
 | `meshfix_fluid_motion_small_distance` (Fluid Motion Small Distance) | Missing | smooth the corners of short segments |
@@ -978,7 +978,7 @@ The print, printer, and filament settings first, by status. The settings of resi
 | `printer_structure` (Printer structure) | `machine.kinematics` |
 | `reduce_crossing_wall` (Avoid crossing walls) | `project.combing_mode` |
 | `reduce_infill_retraction` (Reduce infill retraction) | `project.combing_mode` (no retraction inside the part) |
-| `resolution` (Resolution) | `engine.resolution` |
+| `resolution` (Resolution) | `project.resolution` |
 | `retract_lift_enforce` (On surfaces) | `machine.z_hop_only_crossing` |
 | `retract_when_changing_layer` (Retract on layer change) | `machine.retract_layer_change` |
 | `retraction_length` (Length) | `machine.retract_length` |

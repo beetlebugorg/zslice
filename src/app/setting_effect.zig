@@ -23,7 +23,7 @@ const all_lines_settings = [_][]const u8{
     "filament.max_flow",       "machine.max_speed",  "machine.nozzle_diameter",
     "filament.min_layer_time", "filament.min_speed", "filament.shrinkage_xy",
     "filament.shrinkage_z",    "filament.xy_offset", "project.placement",
-    "engine.resolution",       "engine.gap_closing", "filament.color",
+    "project.resolution",      "engine.gap_closing", "filament.color",
     "machine.bed_size_x",      "machine.bed_size_y",
 };
 

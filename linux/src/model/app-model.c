@@ -148,6 +148,10 @@ struct _ZgModel {
 
 static const char *group_files[] = {"machine", "filament", "project"};
 
+/* The settings that are app preferences: the same for each plate and each
+ * project. They change no G-code. */
+static const char *const app_prefs[] = {"engine.threads", "engine.draft_slices"};
+
 /* The active plate changed: `core` is its app. */
 static void sync_core(ZgModel *self) {
     self->core = zs_set_app(self->set, zs_set_active(self->set));
@@ -163,23 +167,20 @@ static void sync_core(ZgModel *self) {
      * for a switch, and their worker writes the scene bytes of the row of
      * plates (zs_set_view_sync). */
     for (size_t i = 0; i < zs_set_count(self->set); i++) zs_app_set_auto_scene(zs_set_app(self->set, i), 1);
-    /* The engine options (the Speed settings: engine.resolution,
-     * engine.threads, engine.draft_slices) are app preferences, the same
+    /* The app preferences of the Speed settings (app_prefs) are the same
      * for each plate: Preferences keeps them. */
-    size_t n = zs_setting_count();
-    for (size_t i = 0; i < n; i++) {
-        zs_setting_info info;
-        if (zs_setting_get_info(i, &info) != ZS_OK || strcmp(info.group, "engine") != 0) continue;
-        if (strcmp(info.name, "engine.job_name") == 0) continue;
-        char *v = zg_pref_get(info.name, NULL);
-        if (v) zs_app_setting_set(self->core, info.name, v);
+    for (size_t i = 0; i < G_N_ELEMENTS(app_prefs); i++) {
+        char *v = zg_pref_get(app_prefs[i], NULL);
+        if (v) zs_app_setting_set(self->core, app_prefs[i], v);
         g_free(v);
     }
 }
 
-/* Keeps an engine option in Preferences (see sync_core). */
-static void keep_engine_pref(ZgModel *self, const char *key) {
-    if (!g_str_has_prefix(key, "engine.") || strcmp(key, "engine.job_name") == 0) return;
+/* Keeps an app preference in Preferences (see sync_core). */
+static void keep_app_pref(ZgModel *self, const char *key) {
+    gboolean pref = FALSE;
+    for (size_t i = 0; i < G_N_ELEMENTS(app_prefs); i++) pref |= strcmp(key, app_prefs[i]) == 0;
+    if (!pref) return;
     size_t len = 0;
     if (zs_app_setting_get(self->core, key, NULL, 0, &len) != ZS_OK) return;
     char *v = g_malloc(len + 1);
@@ -2688,7 +2689,7 @@ static void save_soon(ZgModel *self, const char *key) {
 gboolean zg_model_set(ZgModel *self, const char *key, const char *value, GError **error) {
     int rc = zs_app_setting_set(self->core, key, value);
     if (rc != ZS_OK) return fail(error, rc);
-    keep_engine_pref(self, key);
+    keep_app_pref(self, key);
     emit_setting(self, key);
     /* The settings with a formula can change with this one. */
     size_t flen = 0;
@@ -2725,7 +2726,6 @@ gboolean zg_model_speed_set(ZgModel *self, gboolean on) {
     for (size_t i = 0; i < n; i++) {
         zs_speed_option o;
         if (zs_speed_get(i, &o) != ZS_OK || !o.faster[0]) continue;
-        keep_engine_pref(self, o.name);
         emit_setting(self, o.name);
         save_soon(self, o.name);
     }

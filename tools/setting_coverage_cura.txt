@@ -661,10 +661,10 @@ multiple_mesh_overlap | missing | an overlap of the meshes of a plate
 carve_multiple_volumes | derived | the parts of a plate slice as their own jobs
 alternate_carve_order | derived | the parts of a plate slice as their own jobs
 remove_empty_first_layers | derived | zslice starts at the bottom of the part
-meshfix_maximum_resolution | same | engine.resolution
-meshfix_maximum_travel_resolution | derived | engine.resolution
-meshfix_maximum_deviation | derived | engine.resolution
-meshfix_maximum_extrusion_area_deviation | derived | engine.resolution
+meshfix_maximum_resolution | same | project.resolution
+meshfix_maximum_travel_resolution | derived | project.resolution
+meshfix_maximum_deviation | derived | project.resolution
+meshfix_maximum_extrusion_area_deviation | derived | project.resolution
 meshfix_fluid_motion_enabled | missing | smooth the corners of short segments
 meshfix_fluid_motion_shift_distance | missing | smooth the corners of short segments
 meshfix_fluid_motion_small_distance | missing | smooth the corners of short segments
