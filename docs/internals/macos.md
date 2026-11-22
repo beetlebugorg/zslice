@@ -489,6 +489,7 @@ Like the GTK shell, the app reads environment variables for tests and screenshot
 
 - `ZSLICE_SET="name=value;name=value"` makes each change a step after the first slice, and `ZSLICE_UNDO=n` then undoes n steps.
 - `ZSLICE_RESLICE=n` changes the wall count after each slice, n times, for tests of memory and time. Any value also changes the infill 3 times, one change after each slice, and logs the longest wait of the main thread; `ZSLICE_RESLICE=name=a,b,c` changes that setting to each value in place of the infill. With `ZSLICE_TIMING=1`, the app logs the time of each slice, of the work after it on the main thread, of the save copy, and of each frame over 8 ms.
+- `ZSLICE_NOZZLE_TEST=n` sets `machine.nozzles` to n, and logs the sections of the printer, a search for "nozzle diameter", and the nozzle choices of a filament.
 - `ZSLICE_HISTORY_BADGE=1` logs the count of the History button 4 s after the start, then after an undo, a mark of a save, a commit with no change, and a redo.
 - `ZSLICE_EDIT=kind` edits the selected line (0: do not print it; 1: 90 % plastic), `ZSLICE_EDIT_UNDO=1` undoes it 3 s later, and each slice logs the edits.
 - `ZSLICE_SIM=1` logs the numbers of each simulated print, and its time after the slice. `ZSLICE_NO_SIM=1` turns off the simulation, to compare.

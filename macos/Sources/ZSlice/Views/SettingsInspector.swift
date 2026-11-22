@@ -128,7 +128,10 @@ struct SettingsInspector: View {
     }
 
     /// The core ranks the search (zs_setting_search).
-    private var matches: [SettingInfo] { SettingInfo.search(search) }
+    private var matches: [SettingInfo] {
+        let nozzles = workspace.model.nozzleCount
+        return SettingInfo.search(search).filter { $0.on(nozzles: nozzles) }
+    }
 
     private var sections: some View {
         List {
@@ -151,13 +154,10 @@ struct SettingsInspector: View {
         .navigationTitle("Settings")
     }
 
-    /// The sections of a group. The Second nozzle section shows only for a
-    /// printer with two nozzles (machine.nozzles ≥ 2).
+    /// The sections of a group. The section of nozzle k shows only for a
+    /// printer with more than k nozzles (machine.nozzles).
     private func sectionNames(_ group: String) -> [String] {
-        var seen = Set<String>()
-        let two = workspace.model.nozzleCount >= 2
-        return SettingInfo.all.filter { $0.group == group && (two || $0.section != "Second nozzle") }
-            .compactMap { seen.insert($0.section).inserted ? $0.section : nil }
+        SettingInfo.sections(group, nozzles: workspace.model.nozzleCount)
     }
 
     private func sectionFocus(_ group: String, _ section: String) -> UInt32 {
