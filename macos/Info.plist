@@ -8,6 +8,10 @@
 	<string>zslice</string>
 	<key>CFBundleIdentifier</key>
 	<string>org.beetlebug.zslice</string>
+	<key>CFBundleIconFile</key>
+	<string>AppIcon</string>
+	<key>CFBundleIconName</key>
+	<string>AppIcon</string>
 	<key>CFBundleExecutable</key>
 	<string>zslice</string>
 	<key>CFBundlePackageType</key>

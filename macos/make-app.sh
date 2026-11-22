@@ -27,6 +27,12 @@ rm -rf "$app"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
 cp "$bin/ZSlice" "$app/Contents/MacOS/zslice"
 cp Info.plist "$app/Contents/Info.plist"
+# The icon: the .icns of the AppIcon set (make-icon.sh).
+iconset=$(mktemp -d)/AppIcon.iconset
+cp -R Sources/ZSlice/Assets.xcassets/AppIcon.appiconset "$iconset"
+rm "$iconset/Contents.json"
+iconutil -c icns "$iconset" -o "$app/Contents/Resources/AppIcon.icns"
+rm -rf "$(dirname "$iconset")"
 # The bed models of the printers (src/printers/beds; see REFERENCES.md).
 cp -R ../src/printers/beds "$app/Contents/Resources/beds"
 codesign --force --sign - "$app"

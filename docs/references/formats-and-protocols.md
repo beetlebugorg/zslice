@@ -443,6 +443,26 @@ Uniform Type Identifiers: `public.standard-tesselated-geometry-format` (STL, a s
 
 **How zslice uses it:** The file types that the app opens.
 
+### The grid of macOS app icons
+
+```ref
+kind: format
+source: Apple
+license: Apple documentation
+link: https://developer.apple.com/design/human-interface-guidelines/app-icons
+files: macos/make-icon.sh, macos/Sources/ZSlice/Assets.xcassets/AppIcon.appiconset/
+area: ui
+summary: The size of the art of a Mac app icon, and the sizes of the AppIcon set.
+```
+
+Apple, Human Interface Guidelines, "App icons" (macOS), https://developer.apple.com/design/human-interface-guidelines/app-icons, read 2026-11-22
+
+**License:** Apple documentation
+
+**Used in:** `macos/make-icon.sh`, `macos/Sources/ZSlice/Assets.xcassets/AppIcon.appiconset/`
+
+**How zslice uses it:** The art of a Mac app icon fills 824 of 1024 px, with a margin of 100 px, so it has the size of the other icons in the Dock. The AppIcon set has 16, 32, 128, 256, and 512 pt, each at 1x and 2x. The art is the zslice icon (assets/icon); the script is new.
+
 ### DEFLATE and gzip
 
 ```ref
