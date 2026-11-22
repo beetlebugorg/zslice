@@ -345,7 +345,7 @@ export class SettingsBrowser {
     // The filament of a part or of layers: a chip for each filament of
     // the plate (filaments.js).
     if (info.name === "project.filament") return filamentEditor(info, (v) => commit(v), this.ctx.addFilament ?? null);
-    if (info.name === "project.support_filament") return filamentEditor(info, (v) => commit(v), this.ctx.addFilament ?? null, "Part");
+    if (info.name === "project.support_filament" || info.name === "project.infill_filament") return filamentEditor(info, (v) => commit(v), this.ctx.addFilament ?? null, "Part");
     if (info.name === "project.support_interface_filament") return filamentEditor(info, (v) => commit(v), this.ctx.addFilament ?? null, "Support");
     if (info.kind === "boolean") {
       const sw = el("button", "switch");
