@@ -162,12 +162,15 @@ static const char *ZG_CSS =
     ".zg-keycap { font-size: 0.8em; padding: 1px 6px; border-radius: 5px; border: 1px solid alpha(@theme_fg_color, 0.25);"
     "  background: alpha(@theme_fg_color, 0.06); font-feature-settings: 'tnum'; }"
     ".zg-summary-time { font-size: 1.6em; font-weight: 700; font-feature-settings: 'tnum'; }"
-    /* The head of the print card, and its badge: the warnings (amber) or
-     * the refinements. */
+    /* The head of the print card, and its badge: the problems and the
+     * warnings (red, as on the web) or the refinements. */
     ".zg-sum-head { padding: 2px 4px; }"
     ".zg-sum-badge { padding: 1px 8px; border-radius: 999px; font-size: 0.85em; font-weight: 600;"
     "  background: alpha(@accent_color, 0.18); }"
-    ".zg-sum-badge.warn { background: alpha(@warning_color, 0.25); }"
+    ".zg-sum-badge.warn { background: #b42318; color: #ffffff; }"
+    /* The count of the problems on the Check button (preview.c). */
+    ".zg-check-count { min-width: 14px; min-height: 14px; padding: 0 3px; margin: -2px -4px 0 0; border-radius: 7px;"
+    "  font-size: 10px; font-weight: 600; background: #d97706; color: #ffffff; }"
     ".zg-summary.zg-stale { opacity: 0.55; }"
     /* The source of a value in the settings (see zg_model_source_text):
      * dim, and the accent color for a change of this print or a part. */
