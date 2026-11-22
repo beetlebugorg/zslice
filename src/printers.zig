@@ -21,6 +21,7 @@
 //!        shape nozzle nozzles filament heat max_speed max_accel max_z_speed
 //!        corner flavor firmware kinematics retract retract_speed start end
 //!        extruders bed z_hop hop wipe wipe_distance layer_change min_travel
+//!        [change]
 //!
 //! In a P line: `sources` has one letter for each source (l Cura LulzBot Edition, c Cura,
 //! p PrusaSlicer, o OrcaSlicer). `shape` is "r" for a round bed.
@@ -34,7 +35,10 @@
 //! or "a" for each retraction, "1" or "0" for the wipe, the wipe length
 //! (mm), "1" or "0" for a retraction at each layer change, and the
 //! shortest travel that retracts (mm). An empty field: the sources do not
-//! tell it, and the model keeps the default of zslice.
+//! tell it, and the model keeps the default of zslice. The optional last
+//! field `change` is "t" for a unit that feeds many filaments to one
+//! nozzle (a Prusa MMU): the profile changes a filament with a tool
+//! change (T0, T1, and on).
 //!
 //! A D line names the files of a bed model in the bed folder (`mesh` and
 //! `texture`, each can be ""), the offset of the mesh from the center of
@@ -142,6 +146,9 @@ pub const Model = struct {
     /// The number of the bed model in `Library.beds`, or null.
     bed: ?u32 = null,
     travel: Travel = .{},
+    /// A unit feeds many filaments to one nozzle and changes them with a
+    /// tool change (the `change` field "t").
+    tool_change: bool = false,
 };
 
 /// The retraction of the travels of a model, as its source tells it
@@ -543,6 +550,10 @@ pub const Library = struct {
             try w.writeAll("filament_change = \"tool\"\nchange_gcode = ");
             try writeMultiline(w, g);
             try w.writeByte('\n');
+        } else if (m.tool_change) {
+            // An MMU: the firmware unloads and loads the filament at a T
+            // command, as in the G-code of PrusaSlicer.
+            try w.writeAll("filament_change = \"tool\"\n");
         }
     }
 };
@@ -1022,6 +1033,7 @@ fn parseModel(text: []const u8, brand: u32, n_gcodes: usize, n_beds: usize) Erro
     m.extruders = if (e >= 1 and e < 64) @intFromFloat(e) else 1;
     m.bed = f.index(n_beds);
     m.travel = Travel.read(&f);
+    m.tool_change = std.mem.eql(u8, f.next(), "t");
     if (m.id.len == 0 or m.name.len == 0 or !(m.bed_x > 0) or !(m.bed_y > 0) or !(m.height > 0)) return error.InvalidLibrary;
     if (!(m.nozzle > 0)) m.nozzle = 0.4;
     if (!(m.filament > 0)) m.filament = 1.75;

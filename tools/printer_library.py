@@ -573,7 +573,14 @@ OVERRIDES = [
     # The CORE One L moves 330 mm in Z (Z_SIZE of the firmware, and
     # max_print_height of PrusaSlicer); the HF preset of OrcaSlicer has 331.
     ("Prusa", r"CORE One L HF$", "height", 330.0),
+    # The MMU3 of the MK4 HF preset of OrcaSlicer (no PrusaSlicer preset):
+    # its preset has no single_extruder_multi_material of its own.
+    ("Prusa", r"MK4 MMU3 HF$", "mmu", True),
 ]
+
+# The brands whose MMU models get a tool change in the library (the "t"
+# field). The MMU flag of the other brands is not checked yet.
+TOOL_CHANGE_BRANDS = {"Prusa"}
 
 
 def apply_overrides(m):
@@ -926,6 +933,8 @@ def read_prusa(root):
                 "retract": num(v.get("retract_length")),
                 "retract_speed": num(v.get("retract_speed")),
                 "travel": travel_prusa(v),
+                # A unit that feeds many filaments to one nozzle (an MMU).
+                "mmu": boolean(v.get("single_extruder_multi_material")) is True and len((v.get("nozzle_diameter") or "0.4").split(",")) > 1,
                 "start": start,
                 "end": end,
                 "extruders": len((v.get("nozzle_diameter") or "0.4").split(",")),
@@ -1081,6 +1090,7 @@ def read_orca(root):
                 "retract": num(v.get("retraction_length")),
                 "retract_speed": num(v.get("retraction_speed")),
                 "travel": travel_orca(v, v["__own"]),
+                "mmu": "single_extruder_multi_material" in v["__own"] and boolean(first_value(v.get("single_extruder_multi_material"))),
                 "start": start,
                 "end": end,
                 "extruders": len(v.get("nozzle_diameter") or [0.4]) if isinstance(v.get("nozzle_diameter"), list) else 1,
@@ -1152,6 +1162,7 @@ def merge(records):
         if m["filament"] not in (1.75, 2.85, 3.0):
             m["filament"] = 2.85 if m["filament"] > 2.2 else 1.75
         m["series"] = series_of(m["name"], m.get("family", ""))
+        m["mmu"] = any(r.get("mmu") for r in rs)
         apply_overrides(m)
         out.append(m)
     # One spelling for each series of a brand: the spelling in a model
@@ -1237,6 +1248,10 @@ def write(models, versions, out, beds=None):
             gid(m["start"]), gid(m["end"]), str(m.get("extruders") or 1),
             bid(m),
         ] + travel_fields(m)
+        # An optional last field: "t" for a unit that feeds many filaments
+        # to one nozzle and changes them with a tool change (an MMU).
+        if m.get("mmu") and m["brand"] in TOOL_CHANGE_BRANDS:
+            fields.append("t")
         lines.append("\t".join(f.replace("\t", " ") for f in fields))
     out.write("zslice-printers 1\n")
     out.write("# The printer library of zslice. Made by tools/printer_library.py; do not edit.\n")
