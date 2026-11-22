@@ -695,8 +695,10 @@ pub const History = struct {
             return true;
         }
         if (!differs) {
-            // No change: the step now gets the new time and facts. An open
-            // edit stays open.
+            // No change: the step now gets the new facts, and keeps its
+            // time (a new time counts it as a change after a save). An
+            // open edit stays open.
+            now.time_ms = before.time_ms;
             before.deinit(gpa);
             before.* = now;
             return false;

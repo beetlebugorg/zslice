@@ -4161,3 +4161,27 @@ test "C API: the support trees: list, edit, undo, and reset" {
     var note: [128]u8 = undefined;
     try t.expectEqual(@as(usize, 0), zs_app_support_tree_note(a, &note, note.len));
 }
+
+test "C API: a commit with no change keeps the time of the step, also after an undo" {
+    const t = std.testing;
+    const app = try historyTestApp();
+    defer zs_app_free(app);
+    var step: HistoryStep = undefined;
+    _ = zs_app_history_set_focus(app, "project.infill_density", 1);
+    try t.expectEqual(ok, zs_app_setting_set(app, "project.infill_density", "0.3"));
+    try t.expectEqual(@as(c_int, 1), zs_app_history_commit(app, 10));
+    _ = zs_app_history_set_focus(app, "project.wall_count", 20);
+    try t.expectEqual(ok, zs_app_setting_set(app, "project.wall_count", "4"));
+    try t.expectEqual(@as(c_int, 1), zs_app_history_commit(app, 21));
+    // No change at 500: both steps keep their times.
+    try t.expectEqual(@as(c_int, 0), zs_app_history_commit(app, 500));
+    try t.expectEqual(ok, zs_app_history_step(app, 2, &step));
+    try t.expectEqual(@as(i64, 21), step.time_ms);
+    // An undo at 600, then no change at 700: step 1 keeps its time.
+    _ = zs_app_history_undo(app, 600);
+    try t.expectEqual(@as(c_int, 0), zs_app_history_commit(app, 700));
+    try t.expectEqual(ok, zs_app_history_step(app, 1, &step));
+    try t.expectEqual(@as(i64, 10), step.time_ms);
+    try t.expectEqual(ok, zs_app_history_step(app, 2, &step));
+    try t.expectEqual(@as(i64, 21), step.time_ms);
+}
