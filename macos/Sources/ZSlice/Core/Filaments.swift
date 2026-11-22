@@ -35,11 +35,37 @@ struct FilamentSlot: Identifiable, Equatable {
 }
 
 /// The filament of the last slice: grams of each filament, the changes,
-/// and the grams of all flushes.
+/// the grams of all flushes, and the waste (zs_app_waste): the flushes
+/// out of the print, the prime towers, the whole print with the waste, and
+/// the seconds of the changes.
 struct FilamentStats: Equatable {
     var grams: [Double]
     var changes: Int
     var flushG: Double
+    var chuteG = 0.0
+    var towerG = 0.0
+    var totalG = 0.0
+    var changeS = 0.0
+
+    /// "3 changes, about 2 min · waste 10.3 g (12 %)" (web/app/filaments.js,
+    /// wasteText).
+    var wasteText: String {
+        let words = "\(changes) \(changes == 1 ? "change" : "changes")"
+        let time = changeS >= 60 ? ", about \(Int((changeS / 60).rounded())) min" : changeS > 0 ? ", about \(Int(changeS.rounded())) s" : ""
+        let waste = chuteG + towerG
+        if waste < 0.05 { return words + time }
+        let part = totalG > 0 ? " (\(Int((100 * waste / totalG).rounded())) %)" : ""
+        return words + time + String(format: " · waste %.1f g", waste) + part
+    }
+
+    /// The parts of the waste, for the tooltip (wasteTip).
+    var wasteTip: String {
+        var lines: [String] = []
+        if chuteG > 0.05 { lines.append(String(format: "Flush out of the print: %.1f g", chuteG)) }
+        if towerG > 0.05 { lines.append(String(format: "Prime tower: %.1f g", towerG)) }
+        if changeS > 0 { lines.append("Filament changes: \(Int(changeS.rounded())) s") }
+        return lines.joined(separator: "\n")
+    }
 }
 
 extension Workspace {
@@ -151,7 +177,9 @@ extension SliceModel {
         var changes: UInt32 = 0
         var flush = 0.0
         guard zs_app_filament_stats(app, &grams, 16, &changes, &flush) == 0 else { return nil }
-        return FilamentStats(grams: Array(grams.prefix(n)), changes: Int(changes), flushG: flush)
+        var st = FilamentStats(grams: Array(grams.prefix(n)), changes: Int(changes), flushG: flush)
+        _ = zs_app_waste(app, &st.chuteG, &st.towerG, &st.totalG, &st.changeS)
+        return st
     }
 
     /// A new filament (a copy of filament 1 with a new color). Its index,

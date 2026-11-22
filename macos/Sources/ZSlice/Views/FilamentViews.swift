@@ -114,8 +114,10 @@ struct FilamentList: View {
                     Text(" · from the printer").font(.callout).foregroundStyle(.secondary)
                 }
                 if let st, st.changes > 0 {
-                    Text(" · \(st.changes) \(st.changes == 1 ? "change" : "changes")" + (st.flushG > 0.05 ? String(format: " · flush %.1f g", st.flushG) : ""))
+                    // The changes, their time, and the waste (as the web).
+                    Text(" · " + st.wasteText)
                         .font(.callout).foregroundStyle(.secondary)
+                        .help(st.wasteTip)
                 }
             }
             ForEach(list) { f in
