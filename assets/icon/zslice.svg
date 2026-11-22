@@ -8,6 +8,8 @@
     </linearGradient>
   </defs>
   <rect width="1024" height="1024" rx="228" fill="url(#bg)"/>
+  <!-- A light rim, so the icon keeps its edge on a dark background. -->
+  <rect x="6" y="6" width="1012" height="1012" rx="222" fill="none" stroke="#ffffff" stroke-opacity=".16" stroke-width="12"/>
   <g fill="none" stroke-linecap="round" stroke-linejoin="round" stroke-width="96">
     <path d="M262 270 H762 L262 754" stroke="#f4f0e6"/>
     <path d="M262 754 H762" stroke="#ff5a1f"/>
