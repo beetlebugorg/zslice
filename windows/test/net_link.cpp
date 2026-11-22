@@ -1481,11 +1481,53 @@ namespace
             return IsPublicAddress(reinterpret_cast<sockaddr const *>(&a));
         };
         CHECK(v4("93.184.216.34"));
-        for (char const *text : { "127.0.0.1", "10.1.2.3", "172.16.0.1", "172.31.9.9", "192.168.1.5", "169.254.1.1", "100.64.0.1", "0.0.0.0", "224.0.0.1" })
+        for (char const *text : { "127.0.0.1", "10.1.2.3", "172.16.0.1", "172.31.9.9", "192.168.1.5", "169.254.1.1", "100.64.0.1", "0.0.0.0", "224.0.0.1",
+                                  "198.18.0.1", "192.0.0.1" })
             CHECK(!v4(text));
         CHECK(v6("2606:4700::1111"));
-        for (char const *text : { "::1", "::", "fe80::1", "fc00::1", "fd12::1", "ff02::1", "::ffff:192.168.1.5" })
+        for (char const *text : { "::1", "::", "fe80::1", "fc00::1", "fd12::1", "ff02::1", "::ffff:192.168.1.5", "2001:db8::1", "64:ff9b::7f00:1", "2002:7f00:1::" })
             CHECK(!v6(text));
+
+        // A name that resolves to a local address gets no request.
+        std::string local = zs_link_message(ZS_LINK_LOCAL_ADDRESS);
+        ModelLink named;
+        named.url = "https://localhost/a.stl";
+        named.host = "localhost";
+        named.name = L"a.stl";
+        CHECK(Fetch(named, nullptr, nullptr).error == local);
+
+        // An address that appears only when WinHTTP connects: the stub on
+        // 127.0.0.1 must get no byte, so no TLS handshake starts.
+        SOCKET server = ::socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+        sockaddr_in at{};
+        at.sin_family = AF_INET;
+        at.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+        int at_size = sizeof at;
+        CHECK(::bind(server, reinterpret_cast<sockaddr *>(&at), sizeof at) == 0);
+        CHECK(::listen(server, 1) == 0);
+        CHECK(::getsockname(server, reinterpret_cast<sockaddr *>(&at), &at_size) == 0);
+        ModelLink changed;
+        changed.url = "https://127.0.0.1/a.stl";
+        changed.host = "127.0.0.1";
+        changed.name = L"a.stl";
+        FetchSeam seam;
+        seam.port = ntohs(at.sin_port);
+        seam.skip_resolve = true;
+        CHECK(Fetch(changed, nullptr, nullptr, seam).error == local);
+        fd_set ready;
+        FD_ZERO(&ready);
+        FD_SET(server, &ready);
+        timeval wait{ 0, 300000 };
+        if (::select(0, &ready, nullptr, nullptr, &wait) == 1)
+        {
+            SOCKET peer = ::accept(server, nullptr, nullptr);
+            DWORD read_ms = 500;
+            ::setsockopt(peer, SOL_SOCKET, SO_RCVTIMEO, reinterpret_cast<char const *>(&read_ms), sizeof read_ms);
+            char first[16];
+            CHECK(::recv(peer, first, sizeof first, 0) <= 0);
+            ::closesocket(peer);
+        }
+        ::closesocket(server);
     }
 
     // The keys go to a scratch root. The real file types do not change.

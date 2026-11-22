@@ -1,15 +1,11 @@
 #pragma once
-// Links that open a model: zslice://open?file=<percent-encoded https URL>,
-// the form of the "Open in slicer" links of model sites. This file takes
-// only the shape of the link from PrusaSlicer (docs/references/).
+// Links that open a model: zslice://open?file=<percent-encoded https URL>.
+// The rules of a link are in the core (zs_link_check and the other zs_link
+// calls, docs/internals/open-links.md). This file adds what needs the
+// network of Windows: it resolves the host, checks each address before
+// WinHTTP connects to it, and downloads the file.
 //
-// Any web page can start such a link, so the rules are strict:
-// - The file comes over https, from a public host name. An address, a local
-//   name, a user name in the URL, and another port are refused.
-// - Each redirect passes the same rules, and the connection must end at a
-//   public address, so a link cannot reach a device on the local network.
-// - The request sends no cookie and no key, and the download has a size limit.
-// - The caller asks the user before it calls Fetch.
+// The caller asks the user before it calls Fetch.
 //
 // It has no WinRT, so a test program can link it.
 //
@@ -24,9 +20,6 @@ struct sockaddr;
 
 namespace zs::openlink
 {
-    // The largest file that a link can download.
-    size_t const max_download = size_t(512) << 20;
-
     struct ModelLink
     {
         std::string url;
@@ -43,14 +36,22 @@ namespace zs::openlink
         bool cancelled = false;
     };
 
+    // For a test: another port, and no check of the name before WinHTTP
+    // resolves it. The check of each address in WinHTTP stays.
+    struct FetchSeam
+    {
+        unsigned short port = 0;
+        bool skip_resolve = false;
+    };
+
     // True for text that starts with the scheme of the app.
     bool IsLink(std::wstring const &text);
     // True for a name that ends in .stl, .3mf, .step, .stp, or .obj.
     bool IsModelName(std::wstring const &name);
-    // Reads a link. `why` says what is wrong when it returns false.
+    // Reads a link. `why` has the reason when it returns false.
     bool Parse(std::wstring const &text, ModelLink &out, std::string &why);
     // False for a loopback, private, link-local, or multicast address.
     bool IsPublicAddress(sockaddr const *address);
     // Downloads the file. It blocks, so call it on a worker thread.
-    Download Fetch(ModelLink const &link, http::CancelPtr cancel, std::function<void(double)> progress);
+    Download Fetch(ModelLink const &link, http::CancelPtr cancel, std::function<void(double)> progress, FetchSeam const &seam = {});
 }
