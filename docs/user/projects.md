@@ -8,7 +8,7 @@ A project is a repository with a `printdeck.yml` file at its root. The file list
 
 ## Open a project
 
-1. In the web app, pick **Open a project…** in the main menu.
+1. In the web app or the Windows app, pick **Open a project…** in the main menu.
 2. Type `owner/repo`, or the address of a repository on github.com, and click **Open**. An address with `/tree/<branch>` opens that branch. The repository must be public.
 3. Or click **Open a folder…**, and pick the folder of the repository on your computer.
 

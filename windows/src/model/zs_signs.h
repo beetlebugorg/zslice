@@ -7,6 +7,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 #include <cstdint>
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -24,6 +25,8 @@ namespace zs
     };
 
     // The signs of the set at the view scale `dpi_scale`. `key` holds the
-    // text of the last image. False when the signs did not change.
-    bool DrawPlateSigns(zs_set *set, double dpi_scale, std::wstring &key, SignImage &out);
+    // text of the last image. False when the signs did not change. `print`
+    // gives the print status of a plate of a project, or an empty text.
+    bool DrawPlateSigns(zs_set *set, double dpi_scale, std::wstring &key, SignImage &out,
+                        std::function<std::wstring(size_t)> const &print = nullptr);
 }

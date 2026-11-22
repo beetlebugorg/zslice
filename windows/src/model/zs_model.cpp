@@ -128,6 +128,35 @@ namespace zs
             zs_set_changed(set_, i);
     }
 
+    int Model::LoadProject(zs_files const *files, std::string const &yml, std::string const &counts, size_t active, std::string &message)
+    {
+        char text[1024] = "";
+        int rc = zs_set_project_load(set_, files, yml.c_str(), counts.c_str(), active, text, sizeof text);
+        if (rc != ZS_OK)
+        {
+            message = text[0] != 0 ? text : zs_status_message(rc);
+            return rc;
+        }
+        SyncActive();
+        // The load starts the slice of the active plate before the flags of
+        // SyncActive are on. A change slices it again with them. A plate
+        // that failed keeps its message, so it gets no change.
+        zs_plate_info info{};
+        size_t now = zs_set_active(set_);
+        if (zs_set_plate_info(set_, now, &info) == ZS_OK &&
+            (info.status == ZS_PLATE_STATUS_STALE || info.status == ZS_PLATE_STATUS_SLICING))
+            zs_set_changed(set_, now);
+        return ZS_OK;
+    }
+
+    bool Model::KeepActivePlate()
+    {
+        if (zs_set_keep_active(set_) != ZS_OK)
+            return false;
+        SyncActive();
+        return true;
+    }
+
     bool Model::AddPlate()
     {
         if (zs_set_add(set_) < 0)

@@ -162,6 +162,7 @@ namespace winrt::ZSlice::implementation
         ApplySize();
         WirePrinters();
         ApplyThemePref();
+        WireProject();
         // ZSLICE_PRINTER=id: starts on a printer of the library, for tests.
         wchar_t printer[128];
         if (::GetEnvironmentVariableW(L"ZSLICE_PRINTER", printer, ARRAYSIZE(printer)) > 0)
@@ -174,6 +175,7 @@ namespace winrt::ZSlice::implementation
         zs_view_set_dark(view, Root().ActualTheme() == ElementTheme::Dark ? 1 : 0);
         if (!RestoreSession())
             ShowPlate();
+        ProjectStart();
         ViewPanel().Focus(FocusState::Programmatic);
         ApplyThreadsPref();
         ApplyFirstViewPref();
@@ -194,6 +196,7 @@ namespace winrt::ZSlice::implementation
         fall_timer.Stop();
         session_timer.Stop();
         replay_timer.Stop();
+        CloseProjectUi();
         ClosePrinters();
         // The view reads the apps of the set, so it goes first.
         if (view != nullptr)
@@ -461,6 +464,7 @@ namespace winrt::ZSlice::implementation
         if (new_plate && zs_app_part_count(model->Active()) > 0 &&
             !zs_project_file_is(reinterpret_cast<uint8_t const *>(bytes.data()), bytes.size()) && model->AddPlate())
             ShowPlate();
+        ProjectFileOpening(zs_project_file_is(reinterpret_cast<uint8_t const *>(bytes.data()), bytes.size()) != 0, new_plate);
         std::string message;
         frame_next = true;
         int rc = model->Load(name, bytes, message);

@@ -150,19 +150,42 @@ namespace zs
     {
         for (int g = 0; g < 3; g++)
         {
+            // The machine of a project plate is not the printer of the user.
+            if (project_ && g == ZS_GROUP_MACHINE)
+                continue;
             std::string text = GroupText(g);
             if (text == written_[g])
                 continue;
             bool ok = state::WriteBytes(StatePath(g), text);
             // The filament also goes with the printer: it gets it back after
             // a switch to it.
-            if (g == ZS_GROUP_FILAMENT)
+            if (g == ZS_GROUP_FILAMENT && !project_)
                 ok = state::WriteBytes(PrinterStore::FilamentPath(Printers().Current()), text) && ok;
             if (ok)
                 written_[g] = std::move(text);
             else
                 Log("shell: the settings were not saved\n");
         }
+    }
+
+    void PrinterSetup::EndProject()
+    {
+        if (!project_)
+            return;
+        project_ = false;
+        UsePrinterMachine();
+        written_[ZS_GROUP_MACHINE] = GroupText(ZS_GROUP_MACHINE);
+    }
+
+    bool PrinterSetup::KeepProject() const
+    {
+        return project_ && zs_set_count(model_.Set()) > 1;
+    }
+
+    void PrinterSetup::UsePrinterMachine()
+    {
+        zs_app_group_reset(model_.Active(), ZS_GROUP_MACHINE);
+        LoadGroup(ZS_GROUP_MACHINE);
     }
 
     void PrinterSetup::Touch(int group)
@@ -196,12 +219,28 @@ namespace zs
             return false;
         }
         if (store.Current().id == id)
+        {
+            // A pick of the printer puts its machine on a plate of a project.
+            if (project_)
+            {
+                if (KeepProject())
+                    UsePrinterMachine();
+                else
+                    EndProject();
+                model_.RequestSlice();
+            }
             return true;
-        // The machine and the filament of the printer before.
+        }
+        // The machine and the filament of the printer before. A plate of a
+        // project has neither.
         SaveState();
-        std::string machine = GroupText(ZS_GROUP_MACHINE);
-        state::WriteBytes(PrinterStore::ProfilePath(store.Current()), machine);
-        state::WriteBytes(PrinterStore::FilamentPath(store.Current()), GroupText(ZS_GROUP_FILAMENT));
+        if (!project_)
+        {
+            std::string machine = GroupText(ZS_GROUP_MACHINE);
+            state::WriteBytes(PrinterStore::ProfilePath(store.Current()), machine);
+            state::WriteBytes(PrinterStore::FilamentPath(store.Current()), GroupText(ZS_GROUP_FILAMENT));
+        }
+        project_ = KeepProject();
         store.SetCurrent(id);
         zs_app *app = model_.Active();
         zs_app_group_reset(app, ZS_GROUP_MACHINE);
@@ -248,9 +287,13 @@ namespace zs
         }
         else
         {
-            state::WriteBytes(PrinterStore::ProfilePath(store.Current()), GroupText(ZS_GROUP_MACHINE));
+            if (!project_)
+                state::WriteBytes(PrinterStore::ProfilePath(store.Current()), GroupText(ZS_GROUP_MACHINE));
             printer = &store.Add(name);
         }
+        // The profile of the new printer is written below.
+        bool was_project = project_, keep_project = KeepProject();
+        project_ = false;
         printer->kind = in.kind;
         printer->url = in.url;
         printer->api_key = in.api_key;
@@ -261,7 +304,10 @@ namespace zs
         store.SetCurrent(id);
         store.Save();
         if (!ApplyText(ZS_GROUP_MACHINE, profile, message))
+        {
+            project_ = was_project;
             return false;
+        }
         zs_app *app = model_.Active();
         zs_app_setting_set(app, "machine.name", name.c_str());
         if (in.nozzle > 0)
@@ -277,6 +323,7 @@ namespace zs
         model_.RequestSlice();
         written_[ZS_GROUP_MACHINE].clear();
         SaveState();
+        project_ = keep_project;
         return true;
     }
 
@@ -345,11 +392,17 @@ namespace zs
     {
         if (!ApplyText(group, text, message))
             return false;
+        // A machine profile that the user picks goes to the printer. The
+        // guard stays while other plates of the project are on the view.
+        bool keep_project = group == ZS_GROUP_MACHINE ? KeepProject() : project_;
+        if (group == ZS_GROUP_MACHINE)
+            project_ = false;
         profile_[group] = name;
         Touch(group);
         Printers().SetPref(std::string("profile_") + group_dirs[group], name);
         model_.RequestSlice();
         SaveState();
+        project_ = keep_project;
         return true;
     }
 

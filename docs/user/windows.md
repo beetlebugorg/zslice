@@ -101,6 +101,16 @@ Ctrl and a click selects a part, and Shift and a click adds a part to the select
 
 The card of a line shows its planned speed, its real speed, and its flow, and the settings that matter most for it. **Fade the others** shows the line alone. **Don't print this line** and **±10 % plastic** change this line only, and the change stays through new slices.
 
+## Projects
+
+A project is a repository with a `printdeck.yml`: its parts, each with a printer, a Cura profile, and a material. Pick **Open a project…** in the main menu or in the search. Type `owner/repo` or a github.com address for a public repository, or click **Open a folder…**.
+
+The dialog lists the plates and the parts. Change the count of a part, or clear its box. **Open** on a plate loads all plates of the project and slices them. **Show** then goes to a plate. Each plate has a status: **To print**, **Printing**, **Printed**, or **Failed**. The Windows app never starts a print, so you set the status yourself.
+
+The plates of a project use the machine settings of the project. Your printer profile stays as it is. When you open a model in place of the plates, the app goes back to your printer. **Close the project** keeps its plates and forgets their status. With two plates or more, the details of the print show the sums of all plates.
+
+To read a project, the app contacts only GitHub, over https, with no login and no key. Each file can be up to 256 MB. See [printdeck projects](projects.md).
+
 ## When you come back
 
 The app keeps your session. After a quit it opens with the same plates, the same view, and the same window size. A file that you open from the command line opens in place of the session.

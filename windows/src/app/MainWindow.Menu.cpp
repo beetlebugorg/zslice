@@ -118,6 +118,7 @@ namespace winrt::ZSlice::implementation
                 printers->ShowPage(true);
         });
         add(L"History", [this] { HistoryFlyout().ShowAt(HistoryButton()); });
+        AddProjectMenuItems();
         line();
         menu_bed = ToggleMenuFlyoutItem{};
         menu_bed.Text(L"Hide the bed");
@@ -141,6 +142,7 @@ namespace winrt::ZSlice::implementation
             }
             menu_bed.IsChecked(bed_hidden);
             menu_2d.IsChecked(show_2d);
+            RefreshProjectMenu();
         });
 
         // The theme follows the system, or the choice in Preferences.

@@ -147,6 +147,7 @@ namespace winrt::ZSlice::implementation
                 tip += std::wstring(L" · ") + status;
         }
         ToolTipService::SetToolTip(PlateName(), box_value(tip));
+        ProjectPlatesChanged();
         RefreshSigns();
     }
 
@@ -155,7 +156,7 @@ namespace winrt::ZSlice::implementation
         if (view == nullptr)
             return;
         zs::SignImage image;
-        if (!zs::DrawPlateSigns(model->Set(), Scale(), sign_key, image))
+        if (!zs::DrawPlateSigns(model->Set(), Scale(), sign_key, image, [this](size_t plate) { return ProjectPrintStatus(plate); }))
             return;
         int rc = zs_view_set_signs(view, model->PlateCount(), image.rects.data(), image.width, image.height,
                                    image.rgba.data(), image.scale);

@@ -18,6 +18,7 @@
 #include <winsock2.h>
 #include <ws2tcpip.h>
 #include <windows.h>
+#include <winioctl.h>
 #include <bcrypt.h>
 #include <ncrypt.h>
 #include <wincrypt.h>
@@ -49,6 +50,7 @@
 #include "zs_printer_link.h"
 #include "zs_model.h"
 #include "zs_printer_store.h"
+#include "zs_project_source.h"
 #include "zs_setup.h"
 #include "zs_signing.h"
 #include "zs_state.h"
@@ -1382,6 +1384,43 @@ namespace
         CHECK(atof(model.GetSetting("machine.bed_size_x").c_str()) == 300);
         CHECK(!setup.UsePrinter("no-such-printer", message));
 
+        // A plate of a project: the machine profile of the printer stays.
+        std::string profile_before, profile_now;
+        CHECK(state::ReadBytes(PrinterStore::ProfilePath(*Printers().Find(id_b)), profile_before));
+        setup.SetProjectPlates(true);
+        CHECK(zs_app_setting_set(model.Active(), "machine.bed_size_x", "123") == ZS_OK);
+        setup.SaveState();
+        CHECK(state::ReadBytes(PrinterStore::ProfilePath(*Printers().Find(id_b)), profile_now) && profile_now == profile_before);
+        // A switch of the printer writes no machine for the printer before.
+        CHECK(setup.UsePrinter(id_a, message));
+        CHECK(!setup.ProjectPlates());
+        CHECK(state::ReadBytes(PrinterStore::ProfilePath(*Printers().Find(id_b)), profile_now) && profile_now == profile_before);
+        CHECK(atof(model.GetSetting("machine.bed_size_x").c_str()) == 200);
+        CHECK(setup.UsePrinter(id_b, message));
+        // The end of project mode puts the machine of the printer back.
+        setup.SetProjectPlates(true);
+        CHECK(zs_app_setting_set(model.Active(), "machine.bed_size_x", "123") == ZS_OK);
+        setup.EndProject();
+        CHECK(!setup.ProjectPlates());
+        CHECK(atof(model.GetSetting("machine.bed_size_x").c_str()) == 300);
+        // With another plate of the project, a pick keeps the guard: a
+        // switch to that plate writes its machine to no printer.
+        CHECK(model.AddPlate());
+        setup.SetProjectPlates(true);
+        CHECK(zs_app_setting_set(zs_set_app(model.Set(), 0), "machine.bed_size_x", "123") == ZS_OK);
+        std::string profile_a;
+        CHECK(state::ReadBytes(PrinterStore::ProfilePath(*Printers().Find(id_a)), profile_a));
+        CHECK(setup.UsePrinter(id_a, message));
+        CHECK(setup.ProjectPlates());
+        CHECK(atof(model.GetSetting("machine.bed_size_x").c_str()) == 200);
+        CHECK(model.SelectPlate(0));
+        setup.SaveState();
+        CHECK(state::ReadBytes(PrinterStore::ProfilePath(*Printers().Find(id_a)), profile_now) && profile_now == profile_a);
+        setup.EndProject();
+        CHECK(model.RemovePlate(1));
+        CHECK(setup.UsePrinter(id_b, message));
+        CHECK(atof(model.GetSetting("machine.bed_size_x").c_str()) == 300);
+
         // Quality: a capital, and a detail line from the core.
         CHECK(zs_builtin_profile_count(ZS_GROUP_PROJECT) > 0);
         std::string quality = zs_builtin_profile_name(ZS_GROUP_PROJECT, 0);
@@ -1425,6 +1464,78 @@ namespace
         std::string machine;
         CHECK(state::ReadBytes(PrinterStore::ProfilePath(*Printers().Find(id_a)), machine));
         CHECK(!Has(machine, test_key));
+    }
+
+    // The rules of a project source. No check here goes to the network.
+    void TestProjectSource()
+    {
+        using namespace zs::project;
+        GithubRepo repo;
+        CHECK(ParseGithub("owner/repo", repo) && repo.owner == "owner" && repo.repo == "repo" && repo.ref.empty());
+        CHECK(ParseGithub(" https://github.com/Owner/my.repo.git ", repo) && repo.owner == "Owner" && repo.repo == "my.repo");
+        CHECK(ParseGithub("github.com/a/b/tree/feature/x", repo) && repo.repo == "b" && repo.ref == "feature/x");
+        CHECK(ParseGithub("https://www.github.com/a/b/", repo) && repo.owner == "a" && repo.ref.empty());
+        char const *const bad_repos[] = {
+            "http://github.com/a/b", "https://evil.test/a/b", "https://github.com.evil.test/a/b", "https://user@github.com/a/b",
+            "https://github.com:8443/a/b", "file:///C:/a/b", "a", "a/b/c", "../b", "a/..", "a/b/tree/x..y", "a/b/tree/", "a/b?x=1", "a/b#c",
+            "a b/c", "a%2Fb/c", "a\\b/c", "",
+        };
+        for (auto const *text : bad_repos)
+            CHECK(!ParseGithub(text, repo));
+
+        char const *const good_urls[] = {
+            "https://api.github.com/repos/a/b", "https://raw.githubusercontent.com/a/b/c/d.stl", "https://media.githubusercontent.com/media/a/b/c/d.stl",
+            "https://github.com/a/b", "https://API.GitHub.com:443/repos/a/b",
+        };
+        for (auto const *url : good_urls)
+            CHECK(IsAllowedUrl(url));
+        char const *const bad_urls[] = {
+            "http://api.github.com/repos/a/b", "https://evil.test/a", "https://api.github.com.evil.test/a", "https://api.github.com@evil.test/a",
+            "https://user:pw@api.github.com/a", "https://api.github.com:8443/a", "https://objects.githubusercontent.com/a", "https://127.0.0.1/a",
+            "https://raw.githubusercontent.com\\@evil.test/a", "ftp://github.com/a", "https://",
+        };
+        for (auto const *url : bad_urls)
+            CHECK(!IsAllowedUrl(url));
+        CHECK(IsCommit(std::string(40, 'a')));
+        CHECK(!IsCommit(std::string(40, 'g')));
+        CHECK(!IsCommit("main"));
+
+        // A folder: the list has its files, with no .git and no junction.
+        std::wstring root = state::PathOf(L"project-test"), outside = state::PathOf(L"project-outside");
+        CHECK(state::WriteBytes(root + L"\\printdeck.yml", "project: x\n"));
+        CHECK(state::WriteBytes(root + L"\\models\\a b.stl", "solid"));
+        CHECK(state::WriteBytes(root + L"\\.git\\config", "no"));
+        CHECK(state::WriteBytes(outside + L"\\secret.txt", "secret"));
+        std::wstring link = L"mklink /J \"" + root + L"\\link\" \"" + outside + L"\" >nul";
+        CHECK(_wsystem(link.c_str()) == 0);
+        // A sparse file over the limit: it uses no space on the disk.
+        HANDLE big = ::CreateFileW((root + L"\\big.stl").c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+        CHECK(big != INVALID_HANDLE_VALUE);
+        DWORD returned = 0;
+        ::DeviceIoControl(big, FSCTL_SET_SPARSE, nullptr, 0, nullptr, 0, &returned, nullptr);
+        LARGE_INTEGER big_size{};
+        big_size.QuadPart = (LONGLONG)max_file + 1;
+        CHECK(::SetFilePointerEx(big, big_size, nullptr, FILE_BEGIN) != 0 && ::SetEndOfFile(big) != 0);
+        ::CloseHandle(big);
+        std::string error, bytes;
+        auto source = OpenFolder(root + L"\\", nullptr, error);
+        CHECK(source != nullptr);
+        if (source != nullptr)
+        {
+            CHECK(source->Has("printdeck.yml"));
+            CHECK(source->Has("models/a b.stl"));
+            CHECK(!source->Has(".git/config"));
+            CHECK(!source->Has("link/secret.txt"));
+            CHECK(source->List("models").size() == 1);
+            CHECK(source->Read("models/a b.stl", bytes, error, nullptr) && bytes == "solid");
+            CHECK(!source->Read("link/secret.txt", bytes, error, nullptr));
+            CHECK(!source->Read("../project-outside/secret.txt", bytes, error, nullptr));
+            error.clear();
+            CHECK(source->Has("big.stl") && !source->Read("big.stl", bytes, error, nullptr));
+            CHECK(Has(error, "larger than 256 MB"));
+        }
+        ::RemoveDirectoryW((root + L"\\link").c_str());
+        CHECK(OpenFolder(root + L"\\none", nullptr, error) == nullptr);
     }
 
     // The rules of a link from a web page. Nothing here goes to the network.
@@ -1681,7 +1792,7 @@ int main()
         { "status", TestStatus }, { "key flow", TestKeyFlow }, { "deck", TestDeck }, { "upload", TestUpload },
         { "detect", TestDetect }, { "filaments", TestFilaments }, { "mjpeg", TestMjpeg }, { "camera", TestCamera },
         { "discovery", TestDiscovery }, { "bambu", TestBambu }, { "setup", TestSetup },
-        { "open link", TestOpenLink }, { "file types", TestRegisterApp }, { "hand off", TestHandOff }, { "state move", TestStateMove },
+        { "open link", TestOpenLink }, { "project", TestProjectSource }, { "file types", TestRegisterApp }, { "hand off", TestHandOff }, { "state move", TestStateMove },
     };
     for (auto const &step : steps)
     {

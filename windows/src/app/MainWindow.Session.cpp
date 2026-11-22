@@ -134,7 +134,7 @@ namespace winrt::ZSlice::implementation
         app_text += ",\"refine\":\"";
         for (size_t i = 0; i < refine_ids.size(); i++)
             app_text += (i > 0 ? "," : "") + refine_ids[i];
-        app_text += "\"}";
+        app_text += "\"" + ProjectSessionText() + "}";
         zs_session_snapshot *snapshot = nullptr;
         if (zs_session_snapshot_take(model->Set(), has_camera ? camera : nullptr, app_text.c_str(), &snapshot) != ZS_OK)
             return;
@@ -200,6 +200,7 @@ namespace winrt::ZSlice::implementation
                     start = comma + 1;
                 }
             }
+            ProjectSessionRead(text);
         }
         // The plates of the session slice with the threads of Preferences.
         ApplyThreadsPref(true);

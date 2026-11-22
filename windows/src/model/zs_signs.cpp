@@ -85,7 +85,8 @@ namespace zs
         }
     }
 
-    bool DrawPlateSigns(zs_set *set, double dpi_scale, std::wstring &key, SignImage &out)
+    bool DrawPlateSigns(zs_set *set, double dpi_scale, std::wstring &key, SignImage &out,
+                        std::function<std::wstring(size_t)> const &print)
     {
         StartGdiPlus();
         size_t n = zs_set_count(set), active = zs_set_active(set);
@@ -99,6 +100,12 @@ namespace zs
                 continue;
             valid[i] = true;
             SignLines(set, i, info, titles[i], subs[i]);
+            if (print)
+            {
+                std::wstring status = print(i);
+                if (!status.empty())
+                    subs[i] += (subs[i].empty() ? L"" : L" · ") + status;
+            }
             next += L"\n" + titles[i] + L"\n" + subs[i] + (i == active && n > 1 ? L"\n1" : L"\n0");
         }
         if (next == key)

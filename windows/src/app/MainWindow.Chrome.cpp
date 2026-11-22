@@ -373,6 +373,32 @@ namespace winrt::ZSlice::implementation
     }
 
     // The print in the bottom bar: its time, its numbers, and a badge.
+    // The sums of all plates in the details of the print, with two plates
+    // or more (showProjectTotals of web/app/app.js).
+    void MainWindow::RefreshProjectTotals()
+    {
+        auto box = SummaryProject();
+        zs_totals t{};
+        if (model == nullptr || model->PlateCount() < 2 || zs_set_totals(model->Set(), &t) != ZS_OK || t.plates < 2)
+        {
+            box.Visibility(Visibility::Collapsed);
+            return;
+        }
+        wchar_t grams[32], cost[32] = L"";
+        swprintf_s(grams, L"%.1f g", t.filament_g);
+        if (t.cost > 0)
+            swprintf_s(cost, L" · %.2f", t.cost);
+        std::wstring wait;
+        if (t.missing > 0)
+            wait = L" (" + std::to_wstring(t.missing) + (t.missing == 1 ? L" plate slices)" : L" plates slice)");
+        box.Text(L"All " + std::to_wstring(t.plates) + L" plates: " + FormatTime(t.time_s) + L" · " + grams + cost + wait);
+        wchar_t tip[160];
+        swprintf_s(tip, L"%zu parts on %zu plates. The cost: the filament %.2f, the printer time %.2f (machine.hour_rate).", t.parts, t.plates,
+                   t.cost_filament, t.cost_machine);
+        ToolTipService::SetToolTip(box, box_value(hstring(tip)));
+        box.Visibility(Visibility::Visible);
+    }
+
     void MainWindow::RefreshSummary()
     {
         if (model == nullptr)
