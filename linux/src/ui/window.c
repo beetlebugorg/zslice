@@ -57,6 +57,7 @@ typedef struct {
     GtkWidget *timeline, *project_dialog, *farm_view, *printers_button;
     /* The search of settings and actions (/), over the view. */
     GtkWidget *search;
+    GtkWidget *quality_menu; /* the menu of the quality profiles */
     /* The main settings of the print on the print card. */
     GtkWidget *facts;
     int panel_mode; /* enum PanelMode */
@@ -1262,13 +1263,13 @@ static void on_save_plate_chosen(GObject *source, GAsyncResult *res, gpointer da
     g_object_unref(window);
 }
 
-/* Saves the parts, their places, and the changes for the parts (not the
- * global settings) in a 3MF file. */
+/* Saves the project: all plates in one 3MF file, with their parts, the
+ * places of the parts, and their changes. */
 void zg_window_save_plate_dialog(GtkWindow *window) {
     Window *w = get(window);
     if (zs_app_part_count(zg_model_core(w->model)) == 0) return;
     GtkFileDialog *dialog = gtk_file_dialog_new();
-    gtk_file_dialog_set_title(dialog, "Save the plate as 3MF (parts and their changes)");
+    gtk_file_dialog_set_title(dialog, "Save the project: all plates in one 3MF file");
     const char *name = zg_model_name(w->model);
     char *base = g_strdup(name && *name ? name : "plate");
     char *dot = strrchr(base, '.');
@@ -2023,6 +2024,14 @@ static void on_calibration_action(GSimpleAction *a, GVariant *v, gpointer data) 
     show_calibration(get(data));
 }
 
+/* Import a profile (the search has it): the item of the quality menu. */
+static void on_import_profile_action(GSimpleAction *a, GVariant *v, gpointer data) {
+    Window *w = get(data);
+    char *name = g_strdup_printf("profiles%d.import", ZS_GROUP_PROJECT);
+    gtk_widget_activate_action(w->quality_menu, name, NULL);
+    g_free(name);
+}
+
 static void on_clear_action(GSimpleAction *a, GVariant *v, gpointer data) {
     zg_model_plate_clear(get(data)->model);
 }
@@ -2601,7 +2610,8 @@ GtkWindow *zg_window_new(GtkApplication *app, ZgModel *model) {
     gtk_box_append(GTK_BOX(setup), w->printer_dd);
     gtk_box_append(GTK_BOX(setup), zg_filament_button_new(model));
     gtk_box_append(GTK_BOX(setup), zg_profile_menu_new(model, ZS_GROUP_FILAMENT));
-    gtk_box_append(GTK_BOX(setup), zg_profile_menu_new(model, ZS_GROUP_PROJECT));
+    w->quality_menu = zg_profile_menu_new(model, ZS_GROUP_PROJECT);
+    gtk_box_append(GTK_BOX(setup), w->quality_menu);
     w->send_button = gtk_button_new_with_label("Print");
     gtk_widget_add_css_class(w->send_button, "suggested-action");
     g_signal_connect(w->send_button, "clicked", G_CALLBACK(on_send_clicked), w->window);
@@ -2626,6 +2636,7 @@ GtkWindow *zg_window_new(GtkApplication *app, ZgModel *model) {
         {.name = "arrange", .activate = on_arrange_action},
         {.name = "calibrate", .activate = on_calibrate_action, .parameter_type = "s"},
         {.name = "calibration", .activate = on_calibration_action},
+        {.name = "import-profile", .activate = on_import_profile_action},
         {.name = "remove-plate", .activate = on_remove_plate_action},
         {.name = "smart-place", .activate = on_smart_place_action},
         {.name = "send-all", .activate = on_send_all_action},
@@ -2662,7 +2673,7 @@ GtkWindow *zg_window_new(GtkApplication *app, ZgModel *model) {
     g_menu_append(edit, "Redo", "win.redo");
     g_menu_append_section(menu, NULL, G_MENU_MODEL(edit));
     g_object_unref(edit);
-    g_menu_append(menu, "Save the plate as 3MF…", "win.save-plate");
+    g_menu_append(menu, "Save project…", "win.save-plate");
     g_menu_append(menu, "Send all plates", "win.send-all");
     g_menu_append(menu, "Export all plates\u2026", "win.export-all");
     g_menu_append(menu, "Smart placement", "win.smart-place");

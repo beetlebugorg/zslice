@@ -72,7 +72,8 @@ static gboolean edits(Menu *m) {
     return any;
 }
 
-/* The label of the button shortens with "…" in a narrow window. */
+/* The label of the button wraps in a narrow window: it never shortens
+ * with "…". */
 static void ellipsize_labels(GtkWidget *w) {
     for (GtkWidget *c = gtk_widget_get_first_child(w); c; c = gtk_widget_get_next_sibling(c)) {
         if (GTK_IS_POPOVER(c)) continue;
@@ -473,6 +474,54 @@ static void on_import(GSimpleAction *a, GVariant *v, gpointer data) {
     g_object_unref(dialog);
 }
 
+/* A click on a quality of the menu: the action of its item. */
+static void on_quality_clicked(GtkButton *b, gpointer data) {
+    Menu *m = data;
+    const char *target = g_object_get_data(G_OBJECT(b), "zg-target");
+    char *action = g_strdup_printf("profiles%d.pick", m->group);
+    gtk_widget_activate_action(m->button, action, "s", target);
+    g_free(action);
+    gtk_menu_button_popdown(GTK_MENU_BUTTON(m->button));
+}
+
+/* A quality in the menu, as on the web: a check mark on the quality in
+ * use, its name, and its main points in small dim text under it
+ * (zs_quality_summary). */
+static GtkWidget *quality_item(Menu *m, const char *n, gboolean current) {
+    GtkWidget *b = gtk_button_new();
+    gtk_widget_add_css_class(b, "flat");
+    gtk_widget_add_css_class(b, "zg-quality-item");
+    GtkWidget *row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
+    GtkWidget *check = gtk_image_new_from_icon_name("object-select-symbolic");
+    gtk_widget_set_opacity(check, current ? 1 : 0);
+    gtk_widget_set_valign(check, GTK_ALIGN_START);
+    gtk_box_append(GTK_BOX(row), check);
+    GtkWidget *texts = gtk_box_new(GTK_ORIENTATION_VERTICAL, 1);
+    char *name = quality_name(n);
+    GtkWidget *title = gtk_label_new(name);
+    g_free(name);
+    gtk_label_set_xalign(GTK_LABEL(title), 0);
+    gtk_box_append(GTK_BOX(texts), title);
+    size_t len = 0;
+    if (zs_quality_summary(n, NULL, 0, &len) == ZS_OK && len > 0) {
+        char *sum = g_malloc(len + 1);
+        zs_quality_summary(n, sum, len + 1, NULL);
+        GtkWidget *detail = gtk_label_new(sum);
+        g_free(sum);
+        gtk_label_set_xalign(GTK_LABEL(detail), 0);
+        gtk_label_set_wrap(GTK_LABEL(detail), TRUE);
+        gtk_widget_add_css_class(detail, "dim-label");
+        gtk_widget_add_css_class(detail, "caption");
+        gtk_box_append(GTK_BOX(texts), detail);
+    }
+    gtk_box_append(GTK_BOX(row), texts);
+    gtk_button_set_child(GTK_BUTTON(b), row);
+    char *target = g_strdup_printf("builtin:%s", n);
+    g_object_set_data_full(G_OBJECT(b), "zg-target", target, g_free);
+    g_signal_connect(b, "clicked", G_CALLBACK(on_quality_clicked), m);
+    return b;
+}
+
 static void fill_menu(GtkMenuButton *button, gpointer data) {
     Menu *m = data;
     GMenu *menu = g_menu_new();
@@ -502,24 +551,15 @@ static void fill_menu(GtkMenuButton *button, gpointer data) {
         const char *n = zs_builtin_profile_name(m->group, i);
         char *action = g_strdup_printf("profiles%d.pick('builtin:%s')", m->group, n);
         if (m->group == ZS_GROUP_PROJECT) {
-            /* A quality: its name with a capital, and its main points in
-             * a second line under it (zs_quality_summary). */
-            char *name = quality_name(n);
-            size_t len = 0;
-            char *sum = NULL;
-            if (zs_quality_summary(n, NULL, 0, &len) == ZS_OK) {
-                sum = g_malloc(len + 1);
-                zs_quality_summary(n, sum, len + 1, NULL);
-            }
-            /* Plain text on two lines: the popover menu of this GTK shows
-             * markup as text. */
-            char *text = sum && sum[0] ? g_strdup_printf("%s\n%s", name, sum) : g_strdup(name);
-            GMenuItem *item = g_menu_item_new(text, action);
+            /* A quality: a widget of its own (quality_item), in the place
+             * of this item. The popover menu shows markup as text, so a
+             * plain item cannot have the small dim second line. */
+            char *id = g_strdup_printf("quality-%zu", i);
+            GMenuItem *item = g_menu_item_new(NULL, NULL);
+            g_menu_item_set_attribute(item, "custom", "s", id);
             g_menu_append_item(builtin, item);
             g_object_unref(item);
-            g_free(text);
-            g_free(sum);
-            g_free(name);
+            g_free(id);
         } else {
             g_menu_append(builtin, n, action);
         }
@@ -580,6 +620,16 @@ static void fill_menu(GtkMenuButton *button, gpointer data) {
     g_free(action);
     g_menu_append_section(menu, NULL, G_MENU_MODEL(save));
     gtk_menu_button_set_menu_model(button, G_MENU_MODEL(menu));
+    if (m->group == ZS_GROUP_PROJECT) {
+        GtkPopover *pop = gtk_menu_button_get_popover(button);
+        const char *q = zg_model_quality(m->model);
+        for (size_t i = 0; GTK_IS_POPOVER_MENU(pop) && i < zs_builtin_profile_count(m->group); i++) {
+            const char *n = zs_builtin_profile_name(m->group, i);
+            char *id = g_strdup_printf("quality-%zu", i);
+            gtk_popover_menu_add_child(GTK_POPOVER_MENU(pop), quality_item(m, n, q && strcmp(q, n) == 0), id);
+            g_free(id);
+        }
+    }
     g_object_unref(save);
     g_object_unref(builtin);
     g_object_unref(mine);
