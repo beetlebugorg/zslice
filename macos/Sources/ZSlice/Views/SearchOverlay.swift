@@ -197,7 +197,7 @@ struct SearchToolbarItem: View {
                     search.docked = false
                     search.show()
                 } label: {
-                    Image(systemName: "arrow.up.right.square").foregroundStyle(.secondary)
+                    CardGlyph().foregroundStyle(.secondary)
                 }
                 .buttonStyle(.borderless)
                 .help("Undock the search: a card over the view that you can move and size")
@@ -372,7 +372,11 @@ struct SearchOverlay: View {
                      ("left", "sidebar.left", "Pin the search to the left of the view"),
                      ("right", "sidebar.right", "Pin the search to the right of the view")].filter { $0.0 != search.placeName && !(search.docked && $0.0 == "toolbar") }, id: \.0) { p in
                 Button { search.place(p.0) } label: {
-                    Image(systemName: p.1).foregroundStyle(.secondary)
+                    if p.0 == "card" {
+                        CardGlyph().foregroundStyle(.secondary)
+                    } else {
+                        Image(systemName: p.1).foregroundStyle(.secondary)
+                    }
                 }
                 .buttonStyle(.borderless)
                 .help(p.2)
