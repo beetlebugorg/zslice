@@ -1022,6 +1022,58 @@ pub const Plate = struct {
         return best;
     }
 
+    /// Gives part i, whose mesh already has a pose and a scale (a part
+    /// read back from a 3MF file of zslice), that pose and that scale
+    /// again, with no change of its mesh: the mesh of the file (`source`)
+    /// is the mesh with the pose and the scale taken off, and the labels
+    /// go into its frame. The angles, a reset, and a new turn then work as
+    /// before the save. A pose that is not a turn, or a scale near 0, is
+    /// left out.
+    pub fn restorePose(self: *Plate, gpa: Allocator, i: usize, pose: M3, scale: [3]f64) Allocator.Error!void {
+        if (i >= self.parts.items.len) return;
+        for (scale) |x| if (!(@abs(x) > 1e-3 and @abs(x) < 1e3)) return;
+        // A turn: the rows are unit vectors at right angles.
+        for (0..3) |r| for (0..3) |c| {
+            const d = pose[r][0] * pose[c][0] + pose[r][1] * pose[c][1] + pose[r][2] * pose[c][2];
+            if (@abs(d - @as(f64, if (r == c) 1 else 0)) > 1e-6) return;
+        };
+        const p = &self.parts.items[i];
+        if (p.source != null) return;
+        // The inverse of M = P S: S^-1 P^T.
+        var inv: M3 = undefined;
+        for (0..3) |r| for (0..3) |c| {
+            inv[r][c] = pose[c][r] / scale[r];
+        };
+        const flip = scale[0] * scale[1] * scale[2] < 0;
+        const unpose = struct {
+            fn f(g: Allocator, m: *const Mesh, n: M3, fl: bool) Allocator.Error!Mesh {
+                var out: Mesh = .empty;
+                errdefer out.deinit(g);
+                try out.vertices.ensureTotalCapacity(g, m.vertices.items.len);
+                for (m.vertices.items) |v| {
+                    const q = mulV(n, .{ v.x, v.y, v.z });
+                    out.vertices.appendAssumeCapacity(.{ .x = @floatCast(q[0]), .y = @floatCast(q[1]), .z = @floatCast(q[2]) });
+                }
+                try out.faces.ensureTotalCapacity(g, m.faces.items.len);
+                for (m.faces.items) |fc| out.faces.appendAssumeCapacity(if (fl) .{ fc[0], fc[2], fc[1] } else fc);
+                return out;
+            }
+        }.f;
+        p.source = try unpose(gpa, &p.mesh, inv, flip);
+        for (p.volumes.items) |*v| {
+            if (v.source == null) v.source = try unpose(gpa, &v.mesh, inv, flip);
+        }
+        for (p.labels.items) |*l| {
+            const m = mapLabel(l.*, inv, .{ 0, 0, 0 });
+            l.origin = m.origin;
+            l.normal = m.normal;
+            l.right = m.right;
+            l.stretch = m.stretch;
+        }
+        p.pose = pose;
+        p.scale = scale;
+    }
+
     /// The orientation and the scale of the file again.
     pub fn resetPose(self: *Plate, gpa: Allocator, i: usize) Allocator.Error!void {
         if (i >= self.parts.items.len) return;

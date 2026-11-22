@@ -1805,3 +1805,49 @@ test "plate set: the shoulder parts of the user, put down with the text up, come
     b.stopWorkerForTest();
     try testing.expectEqualStrings(app.gcode().?, b.gcode().?);
 }
+
+test "plate set: a part lifted or sunk, and turned about X and Y, comes back the same from a session" {
+    const gpa = testing.allocator;
+    const session = @import("session.zig");
+    const cube = try boxStl(gpa, 30, 20, 10);
+    defer gpa.free(cube);
+    const set = try Set.create(gpa, null, null, false);
+    defer set.destroy();
+    const app = set.appOf(0).?;
+    try app.loadStl("a.stl", cube);
+    _ = try app.addStl("b.stl", cube);
+    try app.setSetting("project.support", "everywhere");
+    // Part 0: turned about X and Y, then lifted 6 mm. Part 1: turned about
+    // Y and Z, then sunk 3 mm into the bed.
+    try app.setPartAngles(0, .{ 30, -20, 0 });
+    try app.liftPart(0, 6);
+    try app.setPartAngles(1, .{ 0, 45, 15 });
+    try app.liftPart(1, -3);
+    try app.startSlice();
+    app.stopWorkerForTest();
+    const want_gcode = try gpa.dupe(u8, app.gcode().?);
+    defer gpa.free(want_gcode);
+    const bytes = try session.write(gpa, set, null, "");
+    defer gpa.free(bytes);
+    const back = try Set.create(gpa, null, null, false);
+    defer back.destroy();
+    var diag: project_file.Diagnostic = .{};
+    const rd = try session.read(gpa, bytes, back, &diag);
+    gpa.free(rd.app_text);
+    const b = back.appOf(0).?;
+    try expectSameParts(app, b);
+    for (app.plate.parts.items, b.plate.parts.items, 0..) |*p, *q, i| {
+        try testing.expectEqual(p.z, q.z);
+        const pa = app.plate.angles(i);
+        const qa = b.plate.angles(i);
+        for (0..3) |k| try testing.expectApproxEqAbs(pa[k], qa[k], 1e-6);
+        for (0..3) |k| try testing.expectApproxEqAbs(p.scale[k], q.scale[k], 1e-12);
+    }
+    try b.startSlice();
+    b.stopWorkerForTest();
+    try testing.expectEqualStrings(want_gcode, b.gcode().?);
+    // A reset after the reload gives the orientation of the file again.
+    try b.plate.resetPose(gpa, 0);
+    const r = b.plate.angles(0);
+    for (r) |x| try testing.expectApproxEqAbs(@as(f64, 0), x, 1e-4);
+}
