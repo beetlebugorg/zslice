@@ -45,6 +45,10 @@ typedef struct {
      * of the layers above and below, and the body of the last pick. */
     GtkWidget *fil_chips, *extend;
     int fil_value;
+    /* The filament of the last pick: the extend buttons paint with it.
+     * show() sets fil_value from the line again after the slice, and the
+     * reselected line can report another filament. */
+    int body_fil;
     ZgLineBody body;
 } LineCard;
 
@@ -205,7 +209,7 @@ static void on_extend(GtkButton *b, gpointer data) {
     int dir = GPOINTER_TO_INT(g_object_get_data(G_OBJECT(b), "zg-dir"));
     const float *beads = dir > 0 ? c->body.above : c->body.below;
     size_t n = dir > 0 ? c->body.n_above : c->body.n_below;
-    if (!beads || !zg_view3d_paint_beads(zg_preview_view3d(c->preview), beads, n, c->fil_value)) return;
+    if (!beads || !zg_view3d_paint_beads(zg_preview_view3d(c->preview), beads, n, c->body_fil)) return;
     gtk_widget_set_visible(GTK_WIDGET(b), FALSE);
 }
 
@@ -234,6 +238,7 @@ static void pick_filament(LineCard *c, int f) {
     clear_extend(c);
     if (!zg_view3d_paint_line(zg_preview_view3d(c->preview), path, f, &c->body)) return;
     c->fil_value = f;
+    c->body_fil = f;
     if (c->body.above) {
         char *t = g_strdup_printf("Also the layers above, to %zu", c->body.hi + 1);
         char *tip = g_strdup_printf("The same filament for this body on layers %zu to %zu, where it goes on", c->body.layer + 2, c->body.hi + 1);
