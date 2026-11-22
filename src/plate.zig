@@ -7,6 +7,12 @@
 //! places, each with its bottom at z = 0, for the engine. So the engine
 //! slices a plate as it slices one part.
 //!
+//! A part can have a lift (`Part.z`): its bottom is that far over the bed
+//! (it prints on support), or under it (it sinks into the bed, and the
+//! slice starts at z 0, so the part below the bed does not print, as the
+//! "sinking" objects of PrusaSlicer and OrcaSlicer). The engine slices
+//! from z 0 (engine.Job.Options.bed_z).
+//!
 //! A new part keeps the place of its file if it is on the bed there and
 //! does not touch another part; else it goes to a free place, from the
 //! center out. `arrange` packs all parts in rows, the largest first, with
@@ -33,7 +39,9 @@
 //!
 //! References (see docs/references/papers-and-algorithms.md): the closest point on a triangle
 //! (Ericson, "Real-Time Collision Detection"), for the side of a part
-//! nearest to a picked point.
+//! nearest to a picked point. The lift of a part, and a part that sinks
+//! into the bed: the sinking objects of PrusaSlicer and OrcaSlicer (see
+//! docs/references/prusaslicer.md).
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
@@ -79,6 +87,47 @@ fn mulM(a: M3, b: M3) M3 {
 
 fn mulV(a: M3, v: [3]f64) [3]f64 {
     return .{ a[0][0] * v[0] + a[0][1] * v[1] + a[0][2] * v[2], a[1][0] * v[0] + a[1][1] * v[1] + a[1][2] * v[2], a[2][0] * v[0] + a[2][1] * v[1] + a[2][2] * v[2] };
+}
+
+/// The turn of `deg` degrees about the X (0), Y (1), or Z (2) axis, with
+/// the sine and the cosine of a right angle exact.
+pub fn axisTurn(axis: u2, deg: f64) M3 {
+    const a = std.math.degreesToRadians(deg);
+    const c = @round(@cos(a) * 1e12) / 1e12;
+    const s = @round(@sin(a) * 1e12) / 1e12;
+    return switch (axis) {
+        0 => .{ .{ 1, 0, 0 }, .{ 0, c, -s }, .{ 0, s, c } },
+        1 => .{ .{ c, 0, s }, .{ 0, 1, 0 }, .{ -s, 0, c } },
+        else => .{ .{ c, -s, 0 }, .{ s, c, 0 }, .{ 0, 0, 1 } },
+    };
+}
+
+/// The orientation of a part on the bed: its turn about Z after its
+/// pose.
+pub fn orientation(p: *const Part) M3 {
+    return mulM(axisTurn(2, p.rot), p.pose);
+}
+
+/// The angles x, y, z (degrees) of a turn r = Rz(z) Ry(y) Rx(x). At
+/// y = +-90 the turns about X and Z are the same axis: x takes all of it.
+pub fn anglesOf(r: M3) [3]f64 {
+    const deg = std.math.radiansToDegrees;
+    const sy = std.math.clamp(-r[2][0], -1, 1);
+    const y = std.math.asin(sy);
+    if (@abs(sy) > 1 - 1e-9) {
+        // Gimbal lock: z = 0.
+        const x = std.math.atan2(-r[1][2], r[1][1]);
+        return .{ clean(deg(x)), clean(deg(y)), 0 };
+    }
+    const x = std.math.atan2(r[2][1], r[2][2]);
+    const z = std.math.atan2(r[1][0], r[0][0]);
+    return .{ clean(deg(x)), clean(deg(y)), clean(deg(z)) };
+}
+
+/// An angle rounded to 1e-6 degrees, with -0 as 0.
+fn clean(a: f64) f64 {
+    const r = @round(a * 1e6) / 1e6;
+    return if (r == 0) 0 else r;
 }
 
 /// A label under the map p -> m p + t. `right` and `up` map as vectors;
@@ -132,6 +181,11 @@ pub const Part = struct {
     y: f64,
     /// The turn around the vertical axis, in degrees.
     rot: f64 = 0,
+    /// The lift: the height of the lowest point of the part over the bed
+    /// (mm). 0: the part is on the bed. Over 0, the part floats: it
+    /// prints on support. Under 0, the part sinks into the bed, and the
+    /// slice cuts it at z 0 (see `Plate.lift`).
+    z: f64 = 0,
     /// The footprint of the turned part, from its center: the half width
     /// and the half depth, and where the center of the box is from the
     /// turn center (so that x, y is the center of the footprint).
@@ -252,7 +306,7 @@ pub const Part = struct {
             out.vertices.appendAssumeCapacity(.{
                 .x = @floatCast(p.x + rx),
                 .y = @floatCast(p.y + ry),
-                .z = @floatCast(v.z - b.min[2]),
+                .z = @floatCast(v.z - b.min[2] + p.z),
             });
         }
         try out.faces.ensureUnusedCapacity(gpa, m.faces.items.len);
@@ -291,7 +345,8 @@ pub const Part = struct {
 
     /// The transform of the part from its file to the bed, as a 3MF
     /// transform (a 4x3 matrix for row vectors): the turn around the turn
-    /// center, the move to the place, and the bottom to z = 0.
+    /// center, the move to the place, and the bottom to z = `z` (the
+    /// lift).
     pub fn transform(p: *const Part) [12]f64 {
         const c = p.turnCenter();
         const b = p.mesh.bounds();
@@ -301,7 +356,7 @@ pub const Part = struct {
         // x' = ca (x - cx) - sa (y - cy) - shift x + x0, and the same for y.
         const tx = p.x - p.shift[0] - ca * c[0] + sa * c[1];
         const ty = p.y - p.shift[1] - sa * c[0] - ca * c[1];
-        const tz = -b.min[2];
+        const tz = p.z - b.min[2];
         return .{
             ca,  sa, 0,
             -sa, ca, 0,
@@ -852,15 +907,46 @@ pub const Plate = struct {
     }
 
     /// Turns part i by `deg` degrees around the X (0) or Y (1) axis of the
-    /// bed. A turn around Z is `rotate`.
+    /// bed: the axes of the rings of the transform tool, also for a part
+    /// with a turn about Z. A turn around Z is `rotate`.
     pub fn turn(self: *Plate, gpa: Allocator, i: usize, axis: u2, deg: f64) Allocator.Error!void {
         if (i >= self.parts.items.len or axis > 1) return;
-        const a = std.math.degreesToRadians(deg);
-        const c = @round(@cos(a) * 1e12) / 1e12;
-        const s = @round(@sin(a) * 1e12) / 1e12;
-        const r: M3 = if (axis == 0) .{ .{ 1, 0, 0 }, .{ 0, c, -s }, .{ 0, s, c } } else .{ .{ c, 0, s }, .{ 0, 1, 0 }, .{ -s, 0, c } };
+        try self.applyTurn(gpa, i, axisTurn(axis, deg));
+    }
+
+    /// The lift of part i (see `Part.z`): over 0 it floats, under 0 it
+    /// sinks into the bed. A part sinks at most to `keep` mm over the bed
+    /// (some of it must print).
+    pub fn lift(self: *Plate, i: usize, z: f64) void {
+        if (i >= self.parts.items.len or !std.math.isFinite(z)) return;
         const p = &self.parts.items[i];
-        p.pose = mulM(r, p.pose);
+        p.z = @max(z, -@max(p.height - min_keep, 0));
+        // A lift within a micron of the bed is the bed: the exact slice of
+        // a part on the bed stays the same.
+        if (@abs(p.z) < 1e-3) p.z = 0;
+    }
+
+    /// The least height of a part that sinks into the bed (mm).
+    pub const min_keep = 0.5;
+
+    /// The orientation of part i as three angles in degrees: the turns
+    /// about X, then Y, then Z of the bed (R = Rz Ry Rx) from the
+    /// orientation of its file.
+    pub fn angles(self: *const Plate, i: usize) [3]f64 {
+        if (i >= self.parts.items.len) return .{ 0, 0, 0 };
+        return anglesOf(orientation(&self.parts.items[i]));
+    }
+
+    /// Sets the orientation of part i from three angles (see `angles`).
+    /// The part keeps its place and its lift.
+    pub fn setAngles(self: *Plate, gpa: Allocator, i: usize, a: [3]f64) Allocator.Error!void {
+        if (i >= self.parts.items.len) return;
+        for (a) |x| if (!std.math.isFinite(x)) return;
+        const p = &self.parts.items[i];
+        // R = Rz(c) Ry(b) Rx(a): the pose is Ry(b) Rx(a), and the turn
+        // about Z is c.
+        p.pose = mulM(axisTurn(1, a[1]), axisTurn(0, a[0]));
+        p.rot = @mod(a[2], 360);
         try self.repose(gpa, i);
     }
 
@@ -1109,7 +1195,8 @@ pub const Plate = struct {
     }
 
     /// One mesh of all parts at their places, each with its bottom at
-    /// z = 0. The caller owns the result.
+    /// its lift (z = 0 for a part on the bed). The caller owns the
+    /// result.
     pub fn combined(self: *const Plate, gpa: Allocator) Allocator.Error!Mesh {
         var out: Mesh = .empty;
         errdefer out.deinit(gpa);

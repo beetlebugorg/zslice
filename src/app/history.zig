@@ -9,8 +9,9 @@
 //!   filament, or of the print (the effective value, over the built-in
 //!   default).
 //! - "part:<name>": a setting of one part ("project.wall_count"), and its
-//!   place: "(part)" (the part is on the plate), "position", "rotation"
-//!   (the turn around the vertical axis), "orientation" (the side on the
+//!   place: "(part)" (the part is on the plate), "position", "height"
+//!   (the lift over the bed, or under it), "rotation" (the turn around
+//!   the vertical axis), "orientation" (the side on the
 //!   bed), "scale", "(paint)" (a hash of the paint of the part), and
 //!   "label <id>" (a label of the part, see `label.summary`).
 //! - "layers:<z_min>:<z_max>": a change for some layers (an override), and
@@ -228,6 +229,7 @@ pub fn writeChange(w: *std.Io.Writer, c: Change) std.Io.Writer.Error!void {
     const is_layers = layerRange(c.scope) != null;
     if (is_part and std.mem.eql(u8, c.key, "(part)")) return w.writeAll(if (c.new.len > 0) "Added to the plate" else "Removed from the plate");
     if (is_part and std.mem.eql(u8, c.key, "position")) return w.print("Moved to {s} mm", .{c.new});
+    if (is_part and std.mem.eql(u8, c.key, "height")) return w.print("Lifted to {s} mm", .{if (c.new.len > 0) c.new else "0"});
     if (is_part and std.mem.eql(u8, c.key, "rotation")) return w.print("Turned to {s}°", .{if (c.new.len > 0) c.new else "0"});
     if (is_part and std.mem.eql(u8, c.key, "orientation")) return w.writeAll(if (c.new.len > 0) "Put on another side" else "Back on its first side");
     if (is_part and std.mem.eql(u8, c.key, "scale")) return w.print("Scaled to {s}", .{if (c.new.len > 0) c.new else "1, 1, 1"});
@@ -397,7 +399,7 @@ pub fn kindOf(c: Change) Kind {
     const eq = std.mem.eql;
     if (partName(c.scope) != null) {
         if (eq(u8, c.key, "(part)")) return if (c.new.len > 0) .add else .remove;
-        if (eq(u8, c.key, "position")) return .move;
+        if (eq(u8, c.key, "position") or eq(u8, c.key, "height")) return .move;
         if (eq(u8, c.key, "rotation") or eq(u8, c.key, "orientation")) return .rotate;
         if (eq(u8, c.key, "scale")) return .scale;
         // The paint of a part (the Paint tool, or the filament of a body of
@@ -463,7 +465,7 @@ pub fn revertible(line: []const u8) bool {
     if (!std.mem.startsWith(u8, line, "part:")) return true;
     const tab = std.mem.indexOfScalar(u8, line, '\t') orelse return false;
     const key = line[tab + 1 ..];
-    for ([_][]const u8{ "(part)", "position", "rotation", "orientation", "scale", "(support trees)", "region " }) |k| {
+    for ([_][]const u8{ "(part)", "position", "height", "rotation", "orientation", "scale", "(support trees)", "region " }) |k| {
         if (std.mem.startsWith(u8, key, k)) return false;
     }
     return true;

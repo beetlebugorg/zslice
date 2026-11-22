@@ -2327,6 +2327,13 @@ pub const Part = extern struct {
     scale_x: f64,
     scale_y: f64,
     scale_z: f64,
+    /// The lift: the lowest point over the bed (mm), under 0 in it.
+    z: f64,
+    /// The orientation: the turns about X, then Y, then Z of the bed
+    /// (degrees, R = Rz Ry Rx).
+    angle_x: f64,
+    angle_y: f64,
+    angle_z: f64,
 };
 
 export fn zs_app_part_count(a: ?*const App) usize {
@@ -2340,7 +2347,8 @@ export fn zs_app_part_get(a: ?*App, i: usize, out: ?*Part) c_int {
     const o = out orelse return @intFromEnum(Status.invalid_argument);
     if (i >= app.plate.count()) return @intFromEnum(Status.out_of_range);
     const p = &app.plate.parts.items[i];
-    o.* = .{ .name = p.name.ptr, .x = p.x, .y = p.y, .rotation = p.rot, .size_x = 2 * p.half[0], .size_y = 2 * p.half[1], .size_z = p.height, .scale_x = p.scale[0], .scale_y = p.scale[1], .scale_z = p.scale[2] };
+    const an = app.plate.angles(i);
+    o.* = .{ .name = p.name.ptr, .x = p.x, .y = p.y, .rotation = p.rot, .size_x = 2 * p.half[0], .size_y = 2 * p.half[1], .size_z = p.height, .scale_x = p.scale[0], .scale_y = p.scale[1], .scale_z = p.scale[2], .z = p.z, .angle_x = an[0], .angle_y = an[1], .angle_z = an[2] };
     return ok;
 }
 
@@ -2898,6 +2906,37 @@ export fn zs_app_part_stands(a: ?*App, i: usize) c_int {
     const app = a orelse return 1;
     if (i >= app.plate.count()) return 1;
     return @intFromBool(app.standsOnBed(i) catch return 1);
+}
+
+/// The lift of part i (plate.Part.z): over 0 it floats, under 0 it sinks
+/// into the bed.
+export fn zs_app_part_lift(a: ?*App, i: usize, z: f64) c_int {
+    const app = a orelse return @intFromEnum(Status.invalid_argument);
+    if (i >= app.plate.count()) return @intFromEnum(Status.out_of_range);
+    if (!std.math.isFinite(z)) return @intFromEnum(Status.invalid_value);
+    app.liftPart(i, z) catch |e| return status(e);
+    noted(app, null, true);
+    return ok;
+}
+
+/// The orientation of part i from three angles about the axes of the bed
+/// (degrees, R = Rz Ry Rx).
+export fn zs_app_part_set_angles(a: ?*App, i: usize, ax: f64, ay: f64, az: f64) c_int {
+    const app = a orelse return @intFromEnum(Status.invalid_argument);
+    if (i >= app.plate.count()) return @intFromEnum(Status.out_of_range);
+    if (!std.math.isFinite(ax) or !std.math.isFinite(ay) or !std.math.isFinite(az)) return @intFromEnum(Status.invalid_value);
+    app.setPartAngles(i, .{ ax, ay, az }) catch |e| return status(e);
+    noted(app, null, true);
+    return ok;
+}
+
+/// Why part i floats, for its card, or ZS_NO_RESULT for a part that does
+/// not float. The same buffer rules as zs_app_setting_get.
+export fn zs_app_part_float_note(a: ?*const App, i: usize, buf: ?[*]u8, cap: usize, out_len: ?*usize) c_int {
+    const app = a orelse return @intFromEnum(Status.invalid_argument);
+    if (i >= app.plate.count()) return @intFromEnum(Status.out_of_range);
+    const text = app.floatNote(i) orelse return @intFromEnum(Status.no_result);
+    return copyOut(text, buf, cap, out_len);
 }
 
 export fn zs_app_part_turn(a: ?*App, i: usize, axis: c_int, degrees: f64) c_int {

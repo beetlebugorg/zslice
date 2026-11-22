@@ -57,7 +57,8 @@
 //! Sequential printing: the head clearance model of PrusaSlicer and
 //! OrcaSlicer (see docs/references/prusaslicer.md).
 //! The prime tower: see docs/references/prusaslicer.md and
-//! docs/references/bambu-studio.md.
+//! docs/references/bambu-studio.md. A part that sinks into the bed
+//! (bed_z 0): see docs/references/prusaslicer.md.
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
@@ -360,6 +361,9 @@ pub const PlateJob = struct {
                 .islands = opts.islands,
                 .paint = if (p.paint_split) |sp| .{ .split = sp, .index = p.paint_index } else null,
                 .slots = slot_nozzles,
+                // The bed is at z 0: a part with a lift floats or sinks
+                // (plate.Part.z).
+                .bed_z = 0,
             });
             errdefer job.deinit();
             // The scaled monitor lives only in this call.

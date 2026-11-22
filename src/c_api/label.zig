@@ -419,3 +419,31 @@ test "C API: the face of a label and a snap" {
     try testing.expect(res.value.guides.len >= 1);
     try testing.expectEqual(@intFromEnum(Status.invalid_value), zs_label_snap("{}", 2, &out, out.len, &len));
 }
+
+// ---- the snap of a part on the bed (part_snap.zig) ----
+
+/// The snap of a part that moves on the bed (see part_snap.zig and
+/// include/zslice-app.h): `box` is its footprint (x0, y0, x1, y1), and
+/// `others` has n boxes of the other parts. out gets the move of the snap
+/// (dx, dy), and `guides` up to `cap` lines (x0, y0, x1, y1 each).
+/// Returns the count of the guides.
+export fn zs_part_snap(box: ?*const [4]f64, others: ?[*]const [4]f64, n: usize, bed_x: f64, bed_y: f64, tol: f64, out: ?*[2]f64, guides: ?[*][4]f64, cap: usize) usize {
+    const b = box orelse return 0;
+    const o: []const [4]f64 = if (others) |p| p[0..n] else &.{};
+    const r = zs.part_snap.snap(b.*, o, .{ bed_x, bed_y }, tol);
+    if (out) |d| d.* = .{ r.dx, r.dy };
+    const k = @min(r.n, cap);
+    if (guides) |g| for (0..k) |i| {
+        g[i] = r.guides[i];
+    };
+    return k;
+}
+
+test "zs_part_snap: the move and the guides" {
+    const others = [_][4]f64{.{ 0, 0, 20, 10 }};
+    var d: [2]f64 = undefined;
+    var g: [4][4]f64 = undefined;
+    const n = zs_part_snap(&.{ 20.6, 40, 30.6, 50 }, &others, 1, 220, 220, 1, &d, &g, 4);
+    try testing.expectEqual(@as(usize, 1), n);
+    try testing.expectApproxEqAbs(@as(f64, -0.6), d[0], 1e-9);
+}
