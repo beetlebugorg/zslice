@@ -111,6 +111,7 @@ namespace winrt::ZSlice::implementation
             if (model != nullptr && model->RemovePlate(model->ActivePlate()))
                 ShowPlate();
         });
+        add(L"Compare with Cura…", [this] { ShowCuraCompare(); });
         line();
         add(L"Printers", [this] {
             if (printers != nullptr)

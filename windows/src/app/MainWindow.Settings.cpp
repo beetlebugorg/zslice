@@ -561,6 +561,7 @@ namespace winrt::ZSlice::implementation
             editor.refresh();
         RefreshSearchValues();
         RefreshHistoryValues();
+        CuraSettingsChanged();
     }
 
     // The history commits 400 ms after the last change.

@@ -75,7 +75,7 @@ fan = {layer} < 3 ? 0 : {fan}
 
 ## Compare with Cura
 
-In the Linux app, **Compare with Cura…** (in the search) shows your zslice settings next to the settings of the printer of Cura. **Use** sets one Cura value in zslice, and **Use all** sets each value that differs. See [Profiles](profiles.md) for `zslice import cura`.
+In the Linux and Windows apps, **Compare with Cura…** (in the main menu and the search) shows your zslice settings next to the settings of the printer of Cura. **Use** sets one Cura value in zslice, and **Use all** sets each value that differs. See [Profiles](profiles.md) for `zslice import cura`.
 
 ## Where the settings stay
 
