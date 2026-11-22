@@ -221,6 +221,10 @@ namespace winrt::ZSlice::implementation
             });
             SummaryWarnButtons().Children().Append(on);
         };
+        // A part that does not fit the printer: its size, and what to do.
+        std::wstring refusal = PlateRefusal(app);
+        if (!refusal.empty())
+            return show(refusal, warn_color);
         if (zs_app_plate_fits(app) != 1)
             return show(L"A part is off the bed or on another part. Move it, turn it, scale it, or cut it (the part card) before you print.", warn_color);
 

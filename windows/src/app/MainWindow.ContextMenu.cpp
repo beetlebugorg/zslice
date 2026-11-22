@@ -92,8 +92,15 @@ namespace winrt::ZSlice::implementation
             ShowToast(L"The exact slice runs. Try again when it is done.");
             return;
         }
-        if (selected_path < 0 || zs_app_gcode(app, &gcode, &gcode_len) != ZS_OK)
+        if (selected_path < 0)
             return;
+        if (zs_app_gcode(app, &gcode, &gcode_len) != ZS_OK)
+        {
+            std::wstring refusal = PlateRefusal(app);
+            if (!refusal.empty())
+                ShowToast(refusal);
+            return;
+        }
         std::wstring file = zs::StateDir() + L"\\last-slice.gcode";
         FILE *out = nullptr;
         if (_wfopen_s(&out, file.c_str(), L"wb") == 0 && out != nullptr)

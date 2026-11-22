@@ -198,6 +198,8 @@ The app reads a Bambu Lab printer and sends it nothing. It shows the JPEG camera
 
 The button at the right of the bottom bar is **Export G-code…**. With a printer that takes files, it is **Upload to** that printer, and its arrow has the other ways to send.
 
+A part that is too high or too large for the printer still slices, so you can see it. The plate does not export or upload until the part fits. The Check names the part and its size, and a click on that line selects the part. **Export all plates…** and **Send all plates** leave that plate out and say so.
+
 The main menu has **Save this plate as 3MF…**, **Save project (all plates)…**, **Send all plates**, and **Export all plates…**.
 
 **The Windows app never starts a print.** It uploads the file, and you start the print on the printer.

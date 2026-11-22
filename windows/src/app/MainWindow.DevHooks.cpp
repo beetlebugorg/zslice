@@ -91,6 +91,7 @@
 // prefdraft 0// The layer profiles: profnew 1|-1, profopen i, profset name value,
 // profclear name, profrename text, profdelete, profdone, profmark i, proflog.
 |1, prefsimulate 0|1.
+// A part that does not fit: fitlog, fitexport, fitissue.
 // The print order of the part card: orderlog.
 // Two nozzles: nozzleset i n, partfilament i k, settingspane 0|1, nozzlelog.
 // Each step writes the state to the log (ZSLICE_LOG).
@@ -671,6 +672,44 @@ namespace winrt::ZSlice::implementation
             std::string error;
             model->SetSetting(zs::ToUtf8(words[0]).c_str(), zs::ToUtf8(words[1]), error);
             settle_timer.Stop();
+        }
+        else if (verb == L"fitexport")
+        {
+            printers->ExportGcode();
+        }
+        else if (verb == L"fitissue")
+        {
+            zs_issue const *issues = nullptr;
+            size_t n = 0;
+            char const *text = nullptr;
+            if (zs_app_checks(model->Active(), &issues, &n, &text) == ZS_OK)
+                for (size_t i = 0; i < n; i++)
+                    if (issues[i].kind == ZS_ISSUE_FIT)
+                    {
+                        GoToIssue(zs_issue(issues[i]));
+                        break;
+                    }
+        }
+        else if (verb == L"fitlog")
+        {
+            zs_app *app = model->Active();
+            uint8_t const *g = nullptr;
+            size_t len = 0;
+            int gcode = zs_app_gcode(app, &g, &len);
+            zs_issue const *issues = nullptr;
+            size_t n = 0, fit = 0;
+            char const *text = nullptr;
+            int checks = zs_app_checks(app, &issues, &n, &text);
+            if (checks == ZS_OK)
+                for (size_t i = 0; i < n; i++)
+                    fit += issues[i].kind == ZS_ISSUE_FIT ? 1 : 0;
+            printers->FillSendMenu();
+            std::string menu;
+            for (auto const &item : printers->send_menu.Items())
+                if (auto entry = item.try_as<Microsoft::UI::Xaml::Controls::MenuFlyoutItem>())
+                    menu += to_string(entry.Text()) + (entry.IsEnabled() ? "=on " : "=off ");
+            zs::Log("dev: fit refusal '%s' | state %d gcode rc %d len %zu | export on %d | fit issues %zu of %zu | parts selected %zu | menu %s\n", zs::ToUtf8(PlateRefusal(app)).c_str(),
+                    zs_app_state(app), gcode, gcode == ZS_OK ? len : 0, ExportButton().IsEnabled() ? 1 : 0, fit, n, selected_parts.size(), menu.c_str());
         }
         else if (verb == L"exportall")
         {

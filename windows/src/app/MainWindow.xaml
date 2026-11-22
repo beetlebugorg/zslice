@@ -370,7 +370,7 @@
                             </Flyout>
                         </Button.Flyout>
                     </Button>
-                    <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="2" VerticalAlignment="Center" MinWidth="150">
+                    <StackPanel x:Name="ExportGroup" Grid.Column="1" Orientation="Horizontal" Spacing="2" VerticalAlignment="Center" MinWidth="150" Background="Transparent">
                         <Button x:Name="ExportButton" Content="Export G-code&#x2026;" MinWidth="124" Height="32" Padding="14,0" CornerRadius="6"
                                 Style="{StaticResource ZsSuggested}" IsEnabled="False" />
                         <Button x:Name="SendMenuButton" Width="28" Height="32" Padding="0" CornerRadius="0,6,6,0"

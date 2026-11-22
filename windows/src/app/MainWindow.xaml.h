@@ -48,6 +48,8 @@ namespace winrt::ZSlice::implementation
         void ShowSlice();
         void AfterScene();
         void ShowError(std::wstring const &text);
+        // Why this plate cannot print (a part does not fit), or "".
+        std::wstring PlateRefusal(zs_app *app);
 
         // Files.
         winrt::fire_and_forget PickFile();
