@@ -534,7 +534,8 @@ extension Workspace {
         zs_app_setting_set(model.core, "project.support_style", "tree")
         model.settingsChanged()
         Task { @MainActor in
-            while model.state != .done { try? await Task.sleep(for: .milliseconds(100)) }
+            // The exact slice: a draft comes first after a change.
+            while model.state != .done || model.draft { try? await Task.sleep(for: .milliseconds(100)) }
             try? await Task.sleep(for: .milliseconds(500))
             setTool(.support)
             readSupportTrees()

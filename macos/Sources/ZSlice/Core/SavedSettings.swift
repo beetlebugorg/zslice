@@ -12,7 +12,7 @@
 //! scope of the drawer changes them, and saves the file at once.
 //!
 //! Some settings moved to another group (the accelerations of the
-//! features are printer settings now). An old text still loads, and the
+//! features and the travel retraction are printer settings now). An old text still loads, and the
 //! core puts each value in its new group. When the project text or
 //! global.toml has such keys (zs_profile_moved), the app saves the groups
 //! and global.toml once after the load, in their new form.
@@ -88,7 +88,7 @@ enum SavedSettings {
         // The values of the moved settings are in their new group now: save
         // the texts once in their new form.
         if moved {
-            NSLog("zslice: the accelerations of the features are printer settings now; the saved values moved to the printer")
+            NSLog("zslice: some settings are printer settings now (the accelerations of the features, the travel retraction); the saved values moved to the printer")
             save(from: core)
             if globalMoved { saveGlobal(from: core) }
         }

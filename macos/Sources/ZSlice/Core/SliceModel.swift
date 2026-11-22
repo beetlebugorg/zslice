@@ -186,6 +186,7 @@ final class SliceModel {
     /// Makes plate i the active plate.
     func select(_ i: Int) {
         guard i != active, i >= 0, i < plates.count else { return }
+        settle()
         history.commit()
         zs_set_select(set, i)
         readPlates()
@@ -217,6 +218,8 @@ final class SliceModel {
 
     /// Removes plate i (no undo). The plate on its left becomes active.
     func removePlate(_ i: Int) {
+        // The exact slice of a draft first: the plate list changes.
+        settle()
         let was = active
         zs_set_remove(set, i)
         readPlates()
@@ -277,30 +280,102 @@ final class SliceModel {
 
     /// A change during a drag of a part: the slice waits for release().
     func changedHeld() {
+        liveChange()
         zs_set_changed_held(set, active)
     }
 
-    /// The end of a drag: the plate slices once.
+    /// The end of a drag: the plate slices once, exact, with no draft.
     func release() {
         settingsGeneration += 1
         history.noteChange()
         sliceStart = Date()
+        stopDraft()
         zs_set_release(set)
     }
 
     /// A slice during a drag, so the result follows it: the held change
-    /// slices now, and the step of the history stays open until release().
+    /// slices now (a draft), and the step of the history stays open until
+    /// release().
     func sliceHeldNow() {
         sliceStart = Date()
         zs_set_release(set)
     }
 
+    // MARK: - the draft slices
+
+    /// A change of a plate that has a slice gives a draft first
+    /// (zs_app_set_draft: an outline tolerance of 0.05 mm and no gap fill,
+    /// in about a third of the time). The exact slice follows 300 ms after
+    /// the last change, or at the end of a drag. A plate with no slice yet
+    /// (a new model) slices exact at once. A draft has no G-code, so the
+    /// print card keeps the numbers of the last exact slice, and Export and
+    /// Print wait for the exact one (as the GTK and web apps).
+    static let settleDelay = 0.3
+
+    /// A change of the active plate: its next slices are drafts, if it has
+    /// a slice; the exact slice comes after the delay.
+    private func liveChange() {
+        settleTimer?.invalidate()
+        settleTimer = nil
+        if let d = draftCore, d != core { settle() }
+        let st = zs_app_state(core)
+        if draftCore == nil, st == Int32(ZS_STATE_DONE.rawValue) || st == Int32(ZS_STATE_SLICING.rawValue) {
+            draftCore = core
+            zs_app_set_draft(core, 1)
+        }
+        guard draftCore != nil else { return }
+        settleTimer = Timer.scheduledTimer(withTimeInterval: Self.settleDelay, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                // A draft that still runs: the exact slice waits for it, so
+                // the view gets the draft.
+                if let d = self.draftCore, zs_app_state(d) == Int32(ZS_STATE_SLICING.rawValue) { return }
+                self.settle()
+            }
+        }
+    }
+
+    /// Drafts off for the plate that has them, with no slice (the caller
+    /// slices).
+    private func stopDraft() {
+        settleTimer?.invalidate()
+        settleTimer = nil
+        if let d = draftCore { zs_app_set_draft(d, 0) }
+        draftCore = nil
+    }
+
+    /// The exact slice of the plate that has a draft. Before a plate goes,
+    /// or another plate becomes active, too.
+    func settle() {
+        settleTimer?.invalidate()
+        settleTimer = nil
+        guard let app = draftCore else { return }
+        draftCore = nil
+        zs_app_set_draft(app, 0)
+        for i in 0 ..< zs_set_count(set) where zs_set_app(set, i) == app {
+            if i == active { sliceStart = Date() }
+            zs_set_changed(set, i)
+            return
+        }
+    }
+
     @ObservationIgnored private var sliceStart = Date()
+    /// The app whose next slices are drafts (nil: none), and the timer of
+    /// its exact slice.
+    @ObservationIgnored private var draftCore: OpaquePointer?
+    @ObservationIgnored private var settleTimer: Timer?
+    /// The last slice of the active plate is a draft: no G-code yet.
+    private(set) var draft = false
+    /// Export and Print: a slice that is not a draft.
+    var canExport: Bool { state == .done && !draft }
+    /// The work bar of the view (WorkBar.swift).
+    let work = WorkState()
     /// The time of the last slice, from the request to the result.
     private(set) var sliceSeconds: Double?
 
     func requestSlice() {
         sliceStart = Date()
+        liveChange()
         let rc = zs_set_changed(set, active)
         if rc != 0 { state = .failed(statusText(rc)) }
     }
@@ -331,16 +406,23 @@ final class SliceModel {
             if zs_app_state(core) == Int32(ZS_STATE_SLICING.rawValue) {
                 state = .slicing
                 self.progress = progress
+                work.slicing(draft: zs_app_is_draft(core) == 1, fraction: progress)
             }
         case Int(ZS_EVENT_SLICED.rawValue):
             guard zs_app_state(core) == Int32(ZS_STATE_DONE.rawValue) else { return }
-            var s = zs_stats()
-            stats = zs_app_stats(core, &s) == 0 ? s : nil
+            let isDraft = zs_app_is_draft(core) == 1
+            // A draft keeps the numbers of the last exact slice.
+            if !isDraft || stats == nil {
+                var s = zs_stats()
+                stats = zs_app_stats(core, &s) == 0 ? s : nil
+            }
+            draft = isDraft
             state = .done
             self.progress = 1
             sliceSeconds = Date().timeIntervalSince(sliceStart)
+            work.sliced(draft: isDraft, seconds: sliceSeconds ?? 0, model: self)
             if ProcessInfo.processInfo.environment["ZSLICE_TIMING"] != nil {
-                NSLog("zslice timing: sliced in %.3f s", sliceSeconds ?? 0)
+                NSLog("zslice timing: sliced in %.3f s%@", sliceSeconds ?? 0, isDraft ? " (draft)" : "")
             }
             onSliced?()
             onPlates?()
@@ -354,7 +436,10 @@ final class SliceModel {
             guard zs_app_state(core) == Int32(ZS_STATE_DONE.rawValue), holdSimulation?() != true, zs_app_sim_adopt(core) == 1 else { return }
             onSimulated?()
         case Int(ZS_EVENT_FAILED.rawValue):
-            if zs_app_state(core) == Int32(ZS_STATE_FAILED.rawValue) { state = .failed(statusText(status)) }
+            if zs_app_state(core) == Int32(ZS_STATE_FAILED.rawValue) {
+                state = .failed(statusText(status))
+                work.stop()
+            }
         default:
             break
         }
