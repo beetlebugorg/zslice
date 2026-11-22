@@ -4064,7 +4064,10 @@ pub const View = struct {
     /// The paths of layers lo to hi that are joined to path `start`, as the
     /// smart select of the Paint tool joins faces, inside its part. On the
     /// layer of `start`: the paths of its part whose boxes touch it, or
-    /// touch such a path, inside the box of `start` grown by a wall step.
+    /// touch such a path, inside the box of `start` grown by a wall step,
+    /// or inside a closed path around `start` (an outer wall around an
+    /// inner wall, also where the outer wall goes into a fin that the
+    /// inner wall does not).
     /// On each layer above and under it: the paths of its part over or
     /// under the lit paths of the layer next to it whose boxes stay inside
     /// the lit box of that layer grown by a step. So the lit region follows
@@ -4141,9 +4144,27 @@ pub const View = struct {
         var taken: std.ArrayList(bool) = .empty;
         defer taken.deinit(gpa);
         const Dir = struct { from: usize, to: usize, up: bool };
+        // The boxes that start the walk: the box of `start`, and the box of
+        // each closed path of its part on its layer that goes around it
+        // (an outer wall around an inner wall, or around a hole). So a
+        // start on an inner line lights its whole island on its layer.
+        var seeds: std.ArrayList(Box) = .empty;
+        defer seeds.deinit(gpa);
+        try seeds.append(gpa, boxOf(v, start));
+        {
+            const sb = seeds.items[0];
+            const q0 = v.beads.items[v.path_start.items[start]];
+            const p0: usize = if (ls == 0) 0 else ends[ls - 1];
+            for (p0..ends[ls]) |p| {
+                if (p == start or !samePart(v, p, part)) continue;
+                const b = boxOf(v, p);
+                if (!inside(sb, b, 0) or (b[2] - b[0]) * (b[3] - b[1]) <= (sb[2] - sb[0]) * (sb[3] - sb[1])) continue;
+                if (v.loopAround(p, q0.ax, q0.ay)) try seeds.append(gpa, b);
+            }
+        }
         for ([_]Dir{ .{ .from = ls, .to = hi, .up = true }, .{ .from = ls, .to = lo, .up = false } }) |dir| {
             prev.clearRetainingCapacity();
-            try prev.append(gpa, boxOf(v, start));
+            try prev.appendSlice(gpa, seeds.items);
             var l = dir.from;
             while (true) {
                 const p0: usize = if (l == 0) 0 else ends[l - 1];
@@ -4228,6 +4249,29 @@ pub const View = struct {
         defer gpa.free(list);
         v.more.clearRetainingCapacity();
         return v.setMore(list);
+    }
+
+    /// True if path `p` is a closed loop (its last bead ends within a bead
+    /// width of its first) and the point (x, y) is inside it (the count of
+    /// its crossings is odd).
+    fn loopAround(v: *const View, p: usize, x: f32, y: f32) bool {
+        const bs = v.beads.items[v.path_start.items[p]..v.path_start.items[p + 1]];
+        if (bs.len < 3) return false;
+        const f = bs[0];
+        const l = bs[bs.len - 1];
+        const gap = @abs(l.bx - f.ax) + @abs(l.by - f.ay);
+        if (gap > 2 * f.w) return false;
+        var odd = false;
+        for (bs, 0..) |b, k| {
+            // The closing segment from the last end to the first start.
+            const segs = [2][4]f32{ .{ b.ax, b.ay, b.bx, b.by }, .{ l.bx, l.by, f.ax, f.ay } };
+            for (segs[0..if (k + 1 == bs.len) 2 else 1]) |sg| {
+                if ((sg[1] > y) == (sg[3] > y)) continue;
+                const t = (y - sg[1]) / (sg[3] - sg[1]);
+                if (sg[0] + t * (sg[2] - sg[0]) > x) odd = !odd;
+            }
+        }
+        return odd;
     }
 
     /// The beads of `paths` for the paint of a body (paint_body.zig): for
