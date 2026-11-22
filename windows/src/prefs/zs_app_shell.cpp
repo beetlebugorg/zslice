@@ -252,6 +252,15 @@ namespace zs::appshell
                     if (!::WriteFile(pipe, &answer, 1, &wrote, &write) && ::GetLastError() == ERROR_IO_PENDING)
                         finish(write, 2000, wrote);
                     on_open(std::move(argument));
+                    // DisconnectNamedPipe drops unread data, so the pipe
+                    // stays until the client reads the answer and closes.
+                    OVERLAPPED closed{};
+                    closed.hEvent = done;
+                    ::ResetEvent(done);
+                    char rest = 0;
+                    DWORD left = 0;
+                    if (!::ReadFile(pipe, &rest, 1, &left, &closed) && ::GetLastError() == ERROR_IO_PENDING)
+                        finish(closed, 2000, left);
                 }
             }
             ::DisconnectNamedPipe(pipe);
