@@ -1855,7 +1855,9 @@ int zs_view_ring_at(const zs_view *view, float px, float py, float tol);
  * started. */
 int zs_view_ring_press(zs_view *view, int axis, float px, float py);
 /* The turn since the press in degrees, in steps of step_deg (0: none), in
- * the sense of the ring on the screen, so the part turns with the pointer.
+ * a right-hand turn about the axis, measured on the plane of the ring, so
+ * the part turns with the pointer. A ring seen almost as a line measures
+ * on the screen.
  * Send the difference to the last value (zs_app_part_turn), with
  * zs_set_changed_held, and zs_set_release at the end. */
 double zs_view_ring_drag(const zs_view *view, float px, float py, float step_deg);
