@@ -201,6 +201,8 @@ namespace winrt::ZSlice::implementation
                 }
             }
         }
+        // The plates of the session slice with the threads of Preferences.
+        ApplyThreadsPref(true);
         model->AfterSessionRead();
         // The last scene of the active plate shows at once, and the plate
         // slices again behind it.

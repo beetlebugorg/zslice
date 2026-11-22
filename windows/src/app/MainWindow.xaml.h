@@ -235,6 +235,19 @@ namespace winrt::ZSlice::implementation
         void ShowShortcuts();
         void ShowLicenses();
         void ShowAbout();
+        // Preferences (MainWindow.Preferences.cpp).
+        void WirePreferences();
+        void ShowPreferences();
+        bool PreferencesOpen();
+        void ApplyThemePref();
+        void ApplyFirstViewPref();
+        // idle: no plate slices yet, so each plate can change now.
+        void ApplyThreadsPref(bool idle = false);
+        void PreferencesThemeChanged();
+        void ThemeDialog(Microsoft::UI::Xaml::Controls::ContentDialog const &dialog);
+#ifdef ZS_DEV_HOOKS
+        bool RunPreferencesStep(std::wstring const &verb, std::vector<std::wstring> const &words);
+#endif
         // A short note over the dock, for a few seconds.
         void ShowToast(winrt::param::hstring const &text);
         Microsoft::UI::Dispatching::DispatcherQueueTimer toast_timer{ nullptr };

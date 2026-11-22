@@ -1023,7 +1023,7 @@ namespace winrt::ZSlice::implementation
                        } });
         out.push_back({ L"2D layer view", L"2", L"", [this] { Set2D(true); } });
         out.push_back({ L"3D view", L"3", L"", [this] { Set2D(false); } });
-        out.push_back({ L"Manage printers…", L"", L"", with_printers([](PrintersUi &p) { p.ShowManage(); }) });
+        out.push_back({ L"Manage printers…", L"Ctrl+,", L"preferences, connections, API keys", [this] { ShowPreferences(); } });
         out.push_back({ L"Compare with Cura…", L"", L"", [this] { ShowCuraCompare(); } });
         out.push_back({ L"History", L"", L"the changes, undo one change", [this] { HistoryFlyout().ShowAt(HistoryButton()); } });
         out.push_back({ L"Keyboard shortcuts", L"?", L"", [this] { ShowShortcuts(); } });

@@ -924,7 +924,9 @@ export fn zs_app_setting_set(a: ?*App, name: ?[*:0]const u8, value: ?[*:0]const 
     const n = std.mem.span(name orelse return @intFromEnum(Status.invalid_argument));
     const v = std.mem.span(value orelse return @intFromEnum(Status.invalid_argument));
     app.setSetting(n, v) catch |e| return status(e);
-    noted(app, n, false);
+    // A history step has no engine options. The thread count is an app
+    // preference, so a change of it is no pending edit.
+    if (!std.mem.eql(u8, n, "engine.threads")) noted(app, n, false);
     return ok;
 }
 
@@ -3570,6 +3572,17 @@ test "C API: the simulated print of a slab over air: the first failed layer and 
     try t.expectEqual(ok, zs_app_sim_layer(a, 2, &drop, &failed));
     try t.expectEqual(@as(u32, 0), failed);
     try t.expectEqual(@intFromEnum(Status.invalid_argument), zs_app_sim_layer(a, 100000, &drop, &failed));
+}
+
+test "C API: the thread count is no pending edit of the undo list" {
+    var app: ?*App = null;
+    try std.testing.expectEqual(ok, zs_app_new(null, null, &app));
+    defer zs_app_free(app);
+    try std.testing.expectEqual(ok, zs_app_setting_set(app, "engine.threads", "3"));
+    try std.testing.expectEqual(@as(u32, 3), app.?.settings.engine.threads);
+    try std.testing.expectEqual(@as(c_int, 0), zs_app_history_pending(app));
+    try std.testing.expectEqual(ok, zs_app_setting_set(app, "project.wall_count", "4"));
+    try std.testing.expectEqual(@as(c_int, 1), zs_app_history_pending(app));
 }
 
 test "C API: apply the status of a printer" {

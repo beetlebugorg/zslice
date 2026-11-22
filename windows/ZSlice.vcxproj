@@ -151,6 +151,7 @@
     <ClCompile Include="src\app\MainWindow.Printers.cpp" />
     <ClCompile Include="src\app\MainWindow.Picker.cpp" />
     <ClCompile Include="src\app\MainWindow.Farm.cpp" />
+    <ClCompile Include="src\app\MainWindow.Preferences.cpp" />
     <ClCompile Include="src\app\MainWindow.Send.cpp" />
     <ClCompile Include="src\app\winrt_glue.cpp" />
     <!-- The printer connections have no WinRT either. -->

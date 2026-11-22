@@ -54,6 +54,16 @@
 //   curaopen [all], curaclose, curamenu, curamenupress, curaall 0|1,
 //   curareload, curause i, curauseall, curascroll y, curasize w h,
 //   curatheme light|dark, curashot path, curashot menu path, curalog
+// Preferences, in MainWindow.Preferences.cpp:
+//   prefmenu        opens the main menu, and writes its items
+//   prefmenurun     runs its item Preferences
+//   prefopen, prefclose, prefpage printers|general, preflog
+//   prefpick i      selects printer i of the list
+//   prefset name|url|serial|key value   an entry ('_' is a space)
+//   prefkind i, preftheme i, prefview i, prefthreads n
+//   prefdialog      opens the Keyboard shortcuts dialog
+//   preflist NAME i selects row i of the list with this automation name
+//   prefpopups      writes the theme of each open popup
 // Each step writes the state to the log (ZSLICE_LOG).
 //
 // SPDX-License-Identifier: AGPL-3.0-or-later
@@ -684,7 +694,8 @@ namespace winrt::ZSlice::implementation
         {
             SelectPlate((size_t)number(0));
         }
-        else if (!RunPaintStep(verb, words) && !RunLabelStep(verb, words) && !RunFilamentStep(verb, words) && verb != L"log")
+        else if (!RunPaintStep(verb, words) && !RunLabelStep(verb, words) && !RunFilamentStep(verb, words) &&
+                 !RunPreferencesStep(verb, words) && verb != L"log")
         {
             zs::Log("dev: a bad step: %s\n", zs::ToUtf8(step).c_str());
         }
