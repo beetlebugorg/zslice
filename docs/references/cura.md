@@ -76,18 +76,18 @@ kind: format
 source: Cura
 license: LGPL-3.0
 link: https://github.com/Ultimaker/Cura
-files: linux/src/prefs/cura-stack.c
+files: linux/src/prefs/cura-stack.c, windows/src/prefs/zs_cura_stack.cpp
 area: ui
-summary: The GTK app finds the stack of the active Cura printer for "Compare with Cura".
+summary: The GTK and Windows apps find the stack of the active Cura printer for "Compare with Cura".
 ```
 
-The Cura configuration folders (Ultimaker Cura, https://github.com/Ultimaker/Cura): `active_machine` in `cura.cfg`, the stack files in `machine_instances/` and `extruders/` with their `[containers]` list (user, quality_changes, intent, quality, material, variant, definition_changes, definition), the container folders of the user and of the resources, and the file names with the URL escapes of Python `quote_plus`
+The Cura configuration folders (Ultimaker Cura, https://github.com/Ultimaker/Cura): `active_machine` in `cura.cfg`, the stack files in `machine_instances/` and `extruders/` with their `[containers]` list (user, quality_changes, intent, quality, material, variant, definition_changes, definition), the container folders of the user and of the resources, and the file names with the URL escapes of Python `quote_plus`. On Windows, `UM/Resources.py` of Uranium (https://github.com/Ultimaker/Uranium) keeps the configuration and the data in `%APPDATA%\cura\<version>`, and `conandata.yml` of Cura puts the resources in `share/cura/resources` of the install folder.
 
 **License:** LGPL-3.0 (Cura; the layout, not code)
 
-**Used in:** `linux/src/prefs/cura-stack.c`
+**Used in:** `linux/src/prefs/cura-stack.c`, `windows/src/prefs/zs_cura_stack.cpp`
 
-**How zslice uses it:** The GTK app finds the stack of the active Cura printer for "Compare with Cura".
+**How zslice uses it:** The GTK and Windows apps find the stack of the active Cura printer for "Compare with Cura".
 
 ### Lightning infill
 

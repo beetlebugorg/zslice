@@ -168,6 +168,17 @@ namespace winrt::ZSlice::implementation
         void RevertChange(std::string const &line);
         void AfterRestore(int bits);
 
+        // The comparison with Cura (MainWindow.CuraCompare.cpp).
+        struct CuraCompare;
+        std::shared_ptr<CuraCompare> cura;
+        void ShowCuraCompare();
+        void CuraSettingsChanged();
+        void CloseCuraCompare();
+#ifdef ZS_DEV_HOOKS
+        bool CuraDevStep(std::wstring const &verb, std::vector<std::wstring> const &words);
+        Microsoft::UI::Xaml::UIElement CuraDevRoot();
+#endif
+
         // Tools and cards (MainWindow.Tools.cpp, MainWindow.Cards.cpp).
         enum class Tool
         {

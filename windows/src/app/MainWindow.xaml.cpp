@@ -99,6 +99,7 @@ namespace winrt::ZSlice::implementation
         WireChrome();
         WireSummary();
         Closed([this](auto &&, auto &&) {
+            CloseCuraCompare();
             SaveSession(true);
             CloseView();
         });

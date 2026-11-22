@@ -51,6 +51,9 @@
 //   sumopen, sumshot path, sumlog, tipapply
 //   histcard i, histclose, histopen, histshot path, histrevert i,
 //   histclear i, histlog
+//   curaopen [all], curaclose, curamenu, curamenupress, curaall 0|1,
+//   curareload, curause i, curauseall, curascroll y, curasize w h,
+//   curatheme light|dark, curashot path, curashot menu path, curalog
 // Each step writes the state to the log (ZSLICE_LOG).
 //
 // SPDX-License-Identifier: AGPL-3.0-or-later
@@ -235,8 +238,22 @@ namespace winrt::ZSlice::implementation
         auto number = [&](size_t i) { return i < words.size() ? _wtof(words[i].c_str()) : 0.0; };
         auto has = [&](wchar_t const *flag) { return std::find(words.begin(), words.end(), flag) != words.end(); };
 
-        if (SupportDevStep(verb, words))
+        if (SupportDevStep(verb, words) || CuraDevStep(verb, words))
         {
+        }
+        else if (verb == L"curashot")
+        {
+            // curashot path, or curashot menu path for the open main menu.
+            if (words.size() >= 2 && words[0] == L"menu")
+            {
+                auto popups = Microsoft::UI::Xaml::Media::VisualTreeHelper::GetOpenPopupsForXamlRoot(Content().XamlRoot());
+                if (popups.Size() > 0)
+                    SaveChrome(popups.GetAt(0).Child(), words[1]);
+            }
+            else if (auto root = CuraDevRoot(); root != nullptr && !words.empty())
+            {
+                SaveChrome(root, words[0]);
+            }
         }
         else if (verb == L"tool" && !words.empty())
         {

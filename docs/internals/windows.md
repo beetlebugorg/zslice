@@ -60,6 +60,8 @@ A build with `-p:ZsDevHooks=true` reads `ZSLICE_DO`: steps with `;` between them
 | `src/app/MainWindow.Picker.cpp` | The printer picker. |
 | `src/app/MainWindow.Farm.cpp` | The Printers page and the list of the printers of the user. |
 | `src/app/MainWindow.Send.cpp` | Send, export, the plate as 3MF, the project, and all plates. |
+| `src/app/MainWindow.CuraCompare.cpp` | The "Compare with Cura" window, as in `linux/src/ui/cura-compare.c`. It is a second XAML window, owned by the main window, so the settings and Undo stay in reach. Any call of `RefreshSettingValues` refreshes it. |
+| `src/prefs/zs_cura_stack` | Finds the stack of the active Cura printer in `%APPDATA%\cura`, and reads its files for `zs_app_cura_compare`. |
 | `src/prefs/` | The state folder, the saved printers, the secrets, and the setup of a plate. It has no WinRT. |
 | `src/net/` | HTTP (WinHTTP), TLS (Schannel), the printer links, the search, Bambu Lab, and the cameras. It has no WinRT. |
 
@@ -93,6 +95,7 @@ These variables change a run, for tests:
 | `ZSLICE_PLATES=file;file` | Adds a plate for each file, one each 1.5 s, then goes back to plate 1. |
 | `ZSLICE_BAMBU_MQTT_PORT`, `ZSLICE_BAMBU_JPEG_PORT` | Move the ports of a Bambu Lab printer, for a stub. |
 | `ZSLICE_PRINTER=id` | Starts on a printer of the library, with no picker. |
+| `ZSLICE_CURA_RESOURCES=dir` | The resources of Cura for "Compare with Cura", in place of the Cura folder in Program Files. |
 
 `windows/test/net_link.cpp` tests the links against stub servers on 127.0.0.1: HTTP, canned mDNS and SSDP packets, and a TLS server with a self-signed certificate. It contacts no real printer.
 

@@ -151,6 +151,12 @@ The main menu has **Save the plate as 3MF…**, **Save project…**, **Send all 
 
 **The Windows app never starts a print.** It uploads the file, and you start the print on the printer.
 
+## Compare with Cura
+
+**Compare with Cura…** is in the main menu and the search. It opens a window with your zslice settings next to the settings of the active printer of Cura on this computer. The app reads them from `%APPDATA%\cura` and from the Cura folder in Program Files.
+
+The list shows the settings that differ. **Show all mapped settings** shows each setting that maps to Cura. **Reload** reads the settings of Cura again. **Use** sets one Cura value in zslice. **Use all** sets each value that differs, except the names of the printer and the filament and the start and end G-code. Undo reverts these changes.
+
 ## Where your settings are
 
 Your printers and profiles are in `%APPDATA%\zslice`. API keys and access codes are encrypted for your Windows account. They are never in a file in plain text.
