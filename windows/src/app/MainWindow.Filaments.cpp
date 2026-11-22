@@ -811,6 +811,56 @@ namespace winrt::ZSlice::implementation
         return b;
     }
 
+    void MainWindow::FillFilamentChips(VariableSizedWrapGrid const &panel, std::string &key_store, int value, std::wstring const &what,
+                                       std::function<void(int)> const &pick)
+    {
+        // The most filaments of a plate (src/app/filament_slots.zig).
+        constexpr size_t most = 16;
+        size_t n = zs_app_filament_count(model->Active());
+        std::string key = std::to_string(value);
+        for (size_t i = 0; i < n; i++)
+            key += " " + FilamentValue(i, "filament.color") + FilamentValue(i, "filament.material");
+        if (key == key_store)
+            return;
+        key_store = key;
+        panel.Children().Clear();
+        std::wstring name = what.empty() ? std::wstring(L"Filament ") : what + L": filament ";
+        for (size_t i = 0; i < n; i++)
+        {
+            int k = (int)i + 1;
+            std::string material = FilamentValue(i, "filament.material");
+            std::string color = FilamentValue(i, "filament.color");
+            Button chip = MakeFilamentChip(color, std::to_wstring(k), k == value);
+            std::wstring tip = name + std::to_wstring(k) + L" · " + (material.empty() ? std::wstring(L"filament") : zs::ToWide(material)) + L" (" + zs::ToWide(color) + L")";
+            ToolTipService::SetToolTip(chip, box_value(tip));
+            Microsoft::UI::Xaml::Automation::AutomationProperties::SetName(chip, name + std::to_wstring(k));
+            // After the click: the chip can go away with the new value.
+            chip.Click([this, pick, k](auto &&, auto &&) { queue.TryEnqueue([pick, k] { pick(k); }); });
+            panel.Children().Append(chip);
+        }
+        if (n < most)
+        {
+            Button plus = MakeFilamentChip({}, L"+", false);
+            std::wstring tip = L"Add a filament to the plate";
+            if (!what.empty())
+            {
+                std::wstring place = what;
+                place[0] = (wchar_t)towlower(place[0]);
+                tip += L", for " + place;
+            }
+            ToolTipService::SetToolTip(plus, box_value(tip));
+            Microsoft::UI::Xaml::Automation::AutomationProperties::SetName(plus, tip);
+            plus.Click([this, pick](auto &&, auto &&) {
+                queue.TryEnqueue([this, pick] {
+                    int64_t added = AddFilament();
+                    if (added >= 0)
+                        pick((int)added + 1);
+                });
+            });
+            panel.Children().Append(plus);
+        }
+    }
+
     int64_t MainWindow::AddFilament()
     {
         if (model == nullptr)

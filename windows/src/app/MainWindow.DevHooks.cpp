@@ -84,7 +84,8 @@
 //   qualityshot path   writes the open quality menu to a BMP file
 // The range of layers, in MainWindow.Range.cpp (key K shift grows it):
 //   rangelog, rangeclose, rangeadd, rangeset name value, rangereset name,
-//   rangechip k, rangebody k, rangeshot path
+//   rangechip k, rangebody k, rangescope name, rangeshot path
+// The Filament row of the line card: linefil k, lineext 1|-1, linefillog.
 // The Speed section: speedshow, speedswitch, speedtry value, speedlog.
 // Preferences:
 // prefdraft 0|1, prefsimulate 0|1.

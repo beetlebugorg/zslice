@@ -420,6 +420,7 @@ namespace winrt::ZSlice::implementation
         ShowGaps();
         if (count > 0)
             ShowScrub(shown - 1, 1e12);
+        LineLightAfterSlice();
         RangeScene();
 #ifdef ZS_DEV_HOOKS
         StartDevHooks();

@@ -13,9 +13,21 @@
 // at the first layer. "+ Add a setting" opens the search with a scope of the
 // settings that have per_layer.
 //
-// A lit body has a row "This body": a chip paints the mesh of the part under
-// the lines of the body (zs_app_paint_body), and the body shows in the color
-// of that filament at once.
+// A lit body has a row "This part of the layers": a chip paints the mesh of
+// the part under the lines of the body (zs_app_paint_body), and the body
+// shows in the color of that filament at once. The row of project.filament
+// then reads "Whole layers".
+//
+// With a lit body, each other row has a switch: "This part" (the default) or
+// "Whole layers". A change for this part goes to the region of the body
+// (zs_app_region_set: a modifier volume of the part). A setting that a region
+// cannot have (zs_setting_region_note) stays for the whole layers, and a line
+// under its row says why.
+//
+// The Filament row of the line card (FillLineFilament) gives the body of a
+// line its own filament on its layer. Then the card offers the layers above
+// and below where the body goes on (zs_view_connected_layers), with the beads
+// that the pick took before the slice numbered the lines again.
 //
 // Esc, a click elsewhere in the view, a change of the tool, or × closes the
 // card and ends the light. The card does no work for a frame except its
@@ -27,6 +39,7 @@
 #include "MainWindow.xaml.h"
 
 #include <cmath>
+#include <map>
 
 using namespace winrt;
 using namespace Microsoft::UI::Xaml;
@@ -44,29 +57,28 @@ namespace
         "project.outer_wall_speed", "project.infill_speed", "filament.fan_speed", "filament.nozzle_temp",
     };
 
-    // The most filaments of a plate (src/app/filament_slots.zig).
-    constexpr size_t max_filaments = 16;
-
     wchar_t const *const card_xaml =
         L"<Border xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation' xmlns:x='http://schemas.microsoft.com/winfx/2006/xaml' "
         L"Width='300' Visibility='Collapsed' Padding='14,10,12,10' CornerRadius='12' BorderThickness='1' "
         L"Background='{ThemeResource ZsPopover}' BorderBrush='{ThemeResource ZsPopoverBorder}' AutomationProperties.Name='The selected layers'>"
-        L"<StackPanel Spacing='8'>"
+        L"<Grid RowSpacing='8'>"
+        L"<Grid.RowDefinitions><RowDefinition Height='Auto'/><RowDefinition Height='Auto'/><RowDefinition Height='Auto'/><RowDefinition Height='*'/><RowDefinition Height='Auto'/></Grid.RowDefinitions>"
         L"<Grid x:Name='RcHead' Background='Transparent' ToolTipService.ToolTip='Drag to move the card'>"
         L"<Grid.ColumnDefinitions><ColumnDefinition Width='*'/><ColumnDefinition Width='Auto'/></Grid.ColumnDefinitions>"
         L"<TextBlock x:Name='RcTitle' FontWeight='Bold' VerticalAlignment='Center' TextWrapping='Wrap' Foreground='{ThemeResource ZsFg}'/>"
         L"<Button x:Name='RcClose' Grid.Column='1' Background='Transparent' BorderThickness='0' Padding='6' "
         L"AutomationProperties.Name='Close the layers card' ToolTipService.ToolTip='Close (Esc)'><FontIcon Glyph='&#xE711;' FontSize='11'/></Button>"
         L"</Grid>"
-        L"<TextBlock x:Name='RcFacts' FontSize='12' TextWrapping='WrapWholeWords' Foreground='{ThemeResource ZsDim}'/>"
-        L"<TextBlock Text='Changes here are for these layers of this print.' FontSize='11.5' TextWrapping='WrapWholeWords' Foreground='{ThemeResource ZsDim}'/>"
-        L"<Border BorderThickness='0,1,0,0' BorderBrush='{ThemeResource ZsLine}' Padding='0,8,0,0'>"
-        L"<StackPanel x:Name='RcRows' Spacing='4'/>"
-        L"</Border>"
-        L"<Button x:Name='RcAdd' Content='+ Add a setting for these layers' Background='Transparent' BorderThickness='0' "
+        L"<TextBlock x:Name='RcFacts' Grid.Row='1' FontSize='12' TextWrapping='WrapWholeWords' Foreground='{ThemeResource ZsDim}'/>"
+        L"<TextBlock Grid.Row='2' Text='Changes here are for these layers of this print.' FontSize='11.5' TextWrapping='WrapWholeWords' Foreground='{ThemeResource ZsDim}'/>"
+        L"<Border Grid.Row='3' BorderThickness='0,1,0,0' BorderBrush='{ThemeResource ZsLine}' Padding='0,8,0,0'>"
+        L"<ScrollViewer VerticalScrollBarVisibility='Auto' HorizontalScrollBarVisibility='Disabled' HorizontalScrollMode='Disabled' ZoomMode='Disabled'>"
+        L"<StackPanel x:Name='RcRows' Spacing='4' Padding='0,0,10,0'/>"
+        L"</ScrollViewer></Border>"
+        L"<Button x:Name='RcAdd' Grid.Row='4' Content='+ Add a setting for these layers' Background='Transparent' BorderThickness='0' "
         L"Foreground='{ThemeResource ZsAccentText}' FontSize='12' Padding='0,2' MinHeight='24' "
         L"ToolTipService.ToolTip='Search the settings that can change for some layers'/>"
-        L"</StackPanel></Border>";
+        L"</Grid></Border>";
 
     bool FindSetting(char const *name, zs_setting_info &out)
     {
@@ -87,13 +99,19 @@ namespace
 
 namespace winrt::ZSlice::implementation
 {
+    Media::Brush TokenBrush(FrameworkElement const &element, wchar_t const *key);
+
     struct MainWindow::RangeState
     {
         struct Row
         {
             std::string name;
-            TextBlock label{ nullptr };
-            Button reset{ nullptr };
+            std::wstring text;
+            TextBlock label{ nullptr }, sub{ nullptr }, note{ nullptr };
+            Button reset{ nullptr }, scope{ nullptr };
+            ColumnDefinition editor_column{ nullptr };
+            // With a lit body: this part of the layers, or the whole layers.
+            bool part = true;
             // project.filament has chips in place of an editor.
             VariableSizedWrapGrid chips{ nullptr };
             std::string chips_key;
@@ -110,6 +128,9 @@ namespace winrt::ZSlice::implementation
         VariableSizedWrapGrid body_chips{ nullptr };
         std::string body_key;
         int body_value = 0;
+        // The region of the lit body (0: none yet), and its own values.
+        uint32_t region = 0;
+        std::map<std::string, std::string> region_values;
         std::vector<Row> rows;
         std::shared_ptr<EditorTarget> target;
 
@@ -219,6 +240,11 @@ namespace winrt::ZSlice::implementation
 
         void ResetValue(std::string const &name)
         {
+            if (PartScope(name))
+            {
+                RegionSet(name, nullptr);
+                return;
+            }
             double z0, z1;
             if (w.model == nullptr || !open || !ZRange(z0, z1))
                 return;
@@ -318,6 +344,157 @@ namespace winrt::ZSlice::implementation
             return true;
         }
 
+        // ---- the region of the lit body ----
+
+        static bool Regional(char const *name)
+        {
+            return strcmp(name, "project.filament") != 0 && zs_setting_region_note(name) == nullptr;
+        }
+
+        Row *FindRow(std::string const &name)
+        {
+            for (auto &row : rows)
+                if (row.name == name)
+                    return &row;
+            return nullptr;
+        }
+
+        // True if an edit of the setting changes the region of the lit body.
+        bool PartScope(std::string const &name)
+        {
+            if (!BodyLit() || !Regional(name.c_str()))
+                return false;
+            Row const *row = FindRow(name);
+            return row == nullptr || row->part;
+        }
+
+        uint32_t FindRegion()
+        {
+            if (!BodyLit())
+                return 0;
+            float const *beads = nullptr;
+            size_t n = 0;
+            if (zs_view_connected_beads(w.view, (size_t)light_path, light_lo, light_hi, &beads, &n) != ZS_OK || n == 0)
+                return 0;
+            uint32_t id = 0;
+            zs_app_region_find(w.model->Active(), beads, n, &id);
+            return id;
+        }
+
+        // The values of the region. An undo can take the region away.
+        void ReadRegion()
+        {
+            region_values.clear();
+            if (region == 0 || w.model == nullptr)
+                return;
+            zs_app *app = w.model->Active();
+            size_t len = 0;
+            if (zs_app_region_settings(app, region, nullptr, 0, &len) == ZS_OK && len > 0)
+            {
+                std::string text(len + 1, '\0');
+                if (zs_app_region_settings(app, region, text.data(), text.size(), &len) == ZS_OK)
+                {
+                    text.resize(len);
+                    size_t at = 0;
+                    while (at < text.size())
+                    {
+                        size_t end = std::min(text.find('\n', at), text.size());
+                        size_t tab = text.find('\t', at);
+                        if (tab != std::string::npos && tab < end)
+                            region_values[text.substr(at, tab - at)] = text.substr(tab + 1, end - tab - 1);
+                        at = end + 1;
+                    }
+                }
+            }
+            if (region_values.empty())
+                region = 0;
+        }
+
+        // value nullptr: the region has no value of its own.
+        bool RegionSet(std::string const &name, char const *value)
+        {
+            if (!open || w.model == nullptr)
+                return false;
+            float const *beads = nullptr;
+            size_t n = 0;
+            if (BodyLit())
+                zs_view_connected_beads(w.view, (size_t)light_path, light_lo, light_hi, &beads, &n);
+            if (n == 0 && region == 0)
+                return false;
+            uint32_t out = 0;
+            int rc = zs_app_region_set(w.model->Active(), beads, n, region, name.c_str(), value, &out);
+            if (rc != ZS_OK)
+            {
+                w.ShowToast(zs::ToWide(name) + L": " + zs::ToWide(zs_status_message(rc)));
+                w.RefreshSettingValues();
+                return false;
+            }
+            region = out;
+            w.model->RequestSlice();
+            if (w.model->HistoryCommit())
+                w.RefreshHistoryButtons();
+            w.RefreshSettingValues();
+            return true;
+        }
+
+        // The value of an editor: of the region when it has its own, else
+        // of the layers.
+        std::string EditValue(std::string const &name)
+        {
+            if (PartScope(name))
+            {
+                auto at = region_values.find(name);
+                if (at != region_values.end())
+                    return at->second;
+            }
+            return Value(name);
+        }
+
+        void EditSet(std::string const &name, std::string const &value)
+        {
+            if (PartScope(name))
+                RegionSet(name, value.c_str());
+            else
+                SetValue(name, value);
+        }
+
+        void ToggleScope(std::string const &name)
+        {
+            Row *row = FindRow(name);
+            if (row == nullptr)
+                return;
+            row->part = !row->part;
+            DrawScope(*row);
+            Refresh();
+        }
+
+        // The switch, the name, and the note of a row.
+        void DrawScope(Row &row)
+        {
+            bool body = BodyLit();
+            bool filament = row.name == "project.filament";
+            bool can = Regional(row.name.c_str());
+            bool part = body && can && row.part;
+            row.scope.Visibility(body && can ? Visibility::Visible : Visibility::Collapsed);
+            // One width of the editors, so that the switches line up.
+            row.editor_column.MinWidth(body ? 172 : 0);
+            row.scope.Content(box_value(part ? L"This part" : L"Whole layers"));
+            row.scope.Background(part ? TokenBrush(w.Root(), L"ZsAccent") : Media::SolidColorBrush(Microsoft::UI::Colors::Transparent()).as<Media::Brush>());
+            row.scope.Foreground(part ? Media::SolidColorBrush(Microsoft::UI::Colors::White()).as<Media::Brush>() : TokenBrush(w.Root(), L"ZsFg"));
+            ToolTipService::SetToolTip(row.scope, box_value(part ? L"The change is for the lit part of these layers only. Click for the whole layers."
+                                                                 : L"The change is for the whole layers. Click for the lit part only."));
+            Automation::AutomationProperties::SetName(row.scope, row.text + (part ? L": this part of the layers" : L": the whole layers"));
+            row.label.Text(filament && body ? std::wstring(L"Whole layers") : row.text);
+            row.sub.Visibility(filament && body ? Visibility::Visible : Visibility::Collapsed);
+            char const *why = zs_setting_region_note(row.name.c_str());
+            bool noted = body && !can && !filament && why != nullptr;
+            row.note.Text(noted ? L"Whole layers only. " + zs::ToWide(why) : std::wstring());
+            row.note.Visibility(noted ? Visibility::Visible : Visibility::Collapsed);
+            wchar_t const *reset = part ? L"Remove the change for this part of the layers" : L"Remove the change for these layers";
+            ToolTipService::SetToolTip(row.reset, box_value(reset));
+            Automation::AutomationProperties::SetName(row.reset, row.text + L": " + (part ? L"remove the change for this part of the layers" : L"remove the change for these layers"));
+        }
+
         // The layer under the pointer in a drag: the pointer goes to the
         // nearest point of the line on the screen from the bed to the top
         // layer shown, up through the point of the press. A view from above
@@ -393,21 +570,35 @@ namespace winrt::ZSlice::implementation
             body_row.ColumnDefinitions().Append(name_column);
             body_row.ColumnDefinitions().Append(chips_column);
             body_row.ColumnDefinitions().Append(reset_column);
+            StackPanel body_labels;
+            body_labels.VerticalAlignment(VerticalAlignment::Center);
+            body_labels.Background(Media::SolidColorBrush(Microsoft::UI::Colors::Transparent()));
+            ToolTipService::SetToolTip(body_labels, box_value(L"The filament of the lit part of these layers only. The paint of the part keeps it."));
             TextBlock body_name;
-            body_name.Text(L"This body");
+            body_name.Text(L"This part of the layers");
             body_name.FontSize(13);
             body_name.TextWrapping(TextWrapping::WrapWholeWords);
-            body_name.VerticalAlignment(VerticalAlignment::Center);
-            ToolTipService::SetToolTip(body_name, box_value(L"The filament of the lit body only, on these layers. The paint of the part keeps it."));
-            body_row.Children().Append(body_name);
+            body_labels.Children().Append(body_name);
+            body_labels.Children().Append(SmallText(L"Filament"));
+            body_row.Children().Append(body_labels);
             body_chips = MakeChipPanel();
             Grid::SetColumn(body_chips, 1);
             body_row.Children().Append(body_chips);
             body_row.Visibility(Visibility::Collapsed);
 
             target = std::make_shared<EditorTarget>();
-            target->get = [this](std::string const &name) { return Value(name); };
-            target->set = [this](std::string const &name, std::string const &value) { SetValue(name, value); };
+            target->get = [this](std::string const &name) { return EditValue(name); };
+            target->set = [this](std::string const &name, std::string const &value) { EditSet(name, value); };
+        }
+
+        static TextBlock SmallText(wchar_t const *text)
+        {
+            TextBlock line;
+            line.Text(text);
+            line.FontSize(11);
+            line.Opacity(0.7);
+            line.TextWrapping(TextWrapping::WrapWholeWords);
+            return line;
         }
 
         VariableSizedWrapGrid MakeChipPanel()
@@ -445,21 +636,44 @@ namespace winrt::ZSlice::implementation
 
             Grid grid;
             grid.ColumnSpacing(8);
-            ColumnDefinition label_column, editor_column, reset_column;
+            ColumnDefinition label_column, scope_column, editor_column, reset_column;
             label_column.Width(GridLengthHelper::FromValueAndType(1, GridUnitType::Star));
+            scope_column.Width(GridLengthHelper::Auto());
             editor_column.Width(GridLengthHelper::Auto());
             reset_column.Width(GridLengthHelper::FromPixels(22));
             grid.ColumnDefinitions().Append(label_column);
+            grid.ColumnDefinitions().Append(scope_column);
             grid.ColumnDefinitions().Append(editor_column);
             grid.ColumnDefinitions().Append(reset_column);
+            row.editor_column = editor_column;
 
+            row.text = zs::ToWide(info.label);
+            StackPanel labels;
+            labels.VerticalAlignment(VerticalAlignment::Center);
+            labels.Background(Media::SolidColorBrush(Microsoft::UI::Colors::Transparent()));
+            ToolTipService::SetToolTip(labels, box_value(PlainDoc(info.doc)));
             row.label = TextBlock();
-            row.label.Text(zs::ToWide(info.label));
+            row.label.Text(row.text);
             row.label.FontSize(13);
             row.label.TextWrapping(TextWrapping::WrapWholeWords);
-            row.label.VerticalAlignment(VerticalAlignment::Center);
-            ToolTipService::SetToolTip(row.label, box_value(PlainDoc(info.doc)));
-            grid.Children().Append(row.label);
+            labels.Children().Append(row.label);
+            row.sub = SmallText(L"Filament");
+            row.sub.Visibility(Visibility::Collapsed);
+            labels.Children().Append(row.sub);
+            grid.Children().Append(labels);
+
+            row.scope = Button();
+            row.scope.FontSize(11);
+            row.scope.MinWidth(0);
+            row.scope.MinHeight(22);
+            row.scope.Padding(ThicknessHelper::FromLengths(6, 1, 6, 1));
+            row.scope.BorderThickness(ThicknessHelper::FromUniformLength(0));
+            row.scope.CornerRadius(CornerRadiusHelper::FromUniformRadius(10));
+            row.scope.VerticalAlignment(VerticalAlignment::Center);
+            std::string scope_name = info.name;
+            row.scope.Click([this, scope_name](auto &&, auto &&) { Later([this, scope_name] { ToggleScope(scope_name); }); });
+            Grid::SetColumn(row.scope, 1);
+            grid.Children().Append(row.scope);
 
             FrameworkElement editor{ nullptr };
             if (strcmp(info.name, "project.filament") == 0)
@@ -488,7 +702,7 @@ namespace winrt::ZSlice::implementation
                 }
             }
             editor.VerticalAlignment(VerticalAlignment::Center);
-            Grid::SetColumn(editor, 1);
+            Grid::SetColumn(editor, 2);
             grid.Children().Append(editor);
 
             row.reset = Button();
@@ -500,71 +714,33 @@ namespace winrt::ZSlice::implementation
             row.reset.Background(Media::SolidColorBrush(Microsoft::UI::Colors::Transparent()));
             row.reset.Content(box_value(L"↺"));
             row.reset.VerticalAlignment(VerticalAlignment::Center);
-            ToolTipService::SetToolTip(row.reset, box_value(L"Remove the change for these layers"));
-            Automation::AutomationProperties::SetName(row.reset, zs::ToWide(info.label) + L": remove the change for these layers");
             std::string name = info.name;
             row.reset.Click([this, name](auto &&, auto &&) { Later([this, name] { ResetValue(name); }); });
-            Grid::SetColumn(row.reset, 2);
+            Grid::SetColumn(row.reset, 3);
             grid.Children().Append(row.reset);
 
+            row.note = SmallText(L"");
+            row.note.Visibility(Visibility::Collapsed);
             rows_box.Children().Append(grid);
+            rows_box.Children().Append(row.note);
             rows.push_back(std::move(row));
+            DrawScope(rows.back());
         }
 
-        // One chip for each filament of the plate, and "+".
+        // The chips of the filament of the layers, or of the lit body.
         void FillChips(VariableSizedWrapGrid const &panel, std::string &key_store, int value, bool body)
         {
-            zs_app *app = w.model->Active();
-            size_t n = zs_app_filament_count(app);
-            std::string key = std::to_string(value);
-            for (size_t i = 0; i < n; i++)
-                key += " " + w.FilamentValue(i, "filament.color") + w.FilamentValue(i, "filament.material");
-            if (key == key_store)
-                return;
-            key_store = key;
-            panel.Children().Clear();
-            auto pick = [this, body](int k) {
-                if (body)
-                {
-                    if (PaintBody(k))
-                    {
-                        body_value = k;
-                        Refresh();
-                    }
-                }
-                else
+            w.FillFilamentChips(panel, key_store, value, body ? L"This part of the layers" : L"", [this, body](int k) {
+                if (!body)
                 {
                     SetValue("project.filament", std::to_string(k));
                 }
-            };
-            for (size_t i = 0; i < n; i++)
-            {
-                int k = (int)i + 1;
-                std::string mat = w.FilamentValue(i, "filament.material");
-                std::string color = w.FilamentValue(i, "filament.color");
-                Button chip = w.MakeFilamentChip(color, std::to_wstring(k), k == value);
-                std::wstring tip = std::wstring(body ? L"This body: filament " : L"Filament ") + std::to_wstring(k) + L" · " +
-                                   (mat.empty() ? std::wstring(L"filament") : zs::ToWide(mat)) + L" (" + zs::ToWide(color) + L")";
-                ToolTipService::SetToolTip(chip, box_value(tip));
-                Automation::AutomationProperties::SetName(chip, std::wstring(body ? L"This body: filament " : L"Filament ") + std::to_wstring(k));
-                chip.Click([this, pick, k](auto &&, auto &&) { Later([pick, k] { pick(k); }); });
-                panel.Children().Append(chip);
-            }
-            if (n < max_filaments)
-            {
-                Button plus = w.MakeFilamentChip({}, L"+", false);
-                wchar_t const *tip = body ? L"Add a filament to the plate, for this body" : L"Add a filament to the plate";
-                ToolTipService::SetToolTip(plus, box_value(tip));
-                Automation::AutomationProperties::SetName(plus, tip);
-                plus.Click([this, pick](auto &&, auto &&) {
-                    Later([this, pick] {
-                        int64_t added = w.AddFilament();
-                        if (added >= 0)
-                            pick((int)added + 1);
-                    });
-                });
-                panel.Children().Append(plus);
-            }
+                else if (PaintBody(k))
+                {
+                    body_value = k;
+                    Refresh();
+                }
+            });
         }
 
         // The values at the first layer, and the ↺ of each changed setting.
@@ -574,6 +750,7 @@ namespace winrt::ZSlice::implementation
             if (!open || w.model == nullptr || !ZRange(z0, z1))
                 return;
             zs_app *app = w.model->Active();
+            ReadRegion();
             int filament = std::max(atoi(ValueAt(z0, "project.filament").c_str()), 1);
             for (auto &row : rows)
             {
@@ -581,7 +758,9 @@ namespace winrt::ZSlice::implementation
                     editor.refresh();
                 if (row.chips != nullptr)
                     FillChips(row.chips, row.chips_key, filament, false);
-                bool over = zs_app_override_at(app, z0, row.name.c_str()) == 1;
+                // The ↺ of the row removes the value of its own scope.
+                bool part = PartScope(row.name);
+                bool over = part ? region_values.count(row.name) != 0 : zs_app_override_at(app, z0, row.name.c_str()) == 1;
                 row.reset.Opacity(over ? 0.7 : 0);
                 row.reset.IsHitTestVisible(over);
                 row.reset.IsTabStop(over);
@@ -624,10 +803,14 @@ namespace winrt::ZSlice::implementation
             ShowHead();
             bool body = BodyLit();
             body_row.Visibility(body ? Visibility::Visible : Visibility::Collapsed);
-            zs_setting_info info{};
+            // A lit body has the switch in each row.
+            card.Width(body ? 384 : 300);
+            region = FindRegion();
             for (auto &row : rows)
-                if (row.name == "project.filament" && FindSetting("project.filament", info))
-                    row.label.Text(body ? std::wstring(L"All of these layers") : zs::ToWide(info.label));
+            {
+                row.part = true;
+                DrawScope(row);
+            }
             Refresh();
             Place(true);
         }
@@ -636,7 +819,11 @@ namespace winrt::ZSlice::implementation
         // first layer to the top of the last, on the screen.
         void Place(bool force)
         {
-            if (!open || moved || w.view == nullptr)
+            if (!open || w.view == nullptr)
+                return;
+            // The rows scroll in a card that is taller than the view.
+            card.MaxHeight(std::max(220.0, w.CardLayer().ActualHeight() - 76));
+            if (moved)
                 return;
             double b[4];
             if (zs_view_bounds(w.view, b) != ZS_OK)
@@ -678,10 +865,12 @@ namespace winrt::ZSlice::implementation
         void OpenScope()
         {
             auto scope = std::make_shared<SearchScope>();
-            scope->label = ScopeLabel();
+            scope->label = ScopeLabel() + (BodyLit() ? L", this part" : L"");
             scope->only = [](zs_setting_info const &info) { return info.per_layer != 0; };
             scope->source = [this](std::string const &name) -> std::wstring {
                 double z0, z1;
+                if (open && PartScope(name) && region_values.count(name) != 0)
+                    return L"This part";
                 if (open && ZRange(z0, z1) && zs_app_override_at(w.model->Active(), z0, name.c_str()) == 1)
                     return L"These layers";
                 return zs::ToWide(w.model->SourceTag(name.c_str()));
@@ -693,9 +882,16 @@ namespace winrt::ZSlice::implementation
                 if (open && FindSetting(name.c_str(), info))
                 {
                     AddRow(info);
+                    // With a lit body, a setting that a region can have goes
+                    // to this part of the layers.
+                    if (Row *row = FindRow(name); row != nullptr && Regional(name.c_str()))
+                    {
+                        row->part = true;
+                        DrawScope(*row);
+                    }
                     Refresh();
                 }
-                SetValue(name, value);
+                EditSet(name, value);
             };
             w.OpenScopedSearch(scope);
         }
@@ -721,6 +917,8 @@ namespace winrt::ZSlice::implementation
         r.key_on = false;
         r.light_on = false;
         r.light_rgb = -1;
+        r.region = 0;
+        r.region_values.clear();
         r.moved = false;
         r.card.Visibility(Visibility::Collapsed);
         r.rows.clear();
@@ -855,6 +1053,8 @@ namespace winrt::ZSlice::implementation
         r.UpdateZ();
         r.ShowHead();
         r.Relight();
+        if (r.region == 0)
+            r.region = r.FindRegion();
         r.Refresh();
         r.Place(true);
     }
@@ -863,6 +1063,153 @@ namespace winrt::ZSlice::implementation
     {
         if (range != nullptr)
             range->Refresh();
+        if (model != nullptr && LineCard().Visibility() == Visibility::Visible)
+            DrawLineChips();
+    }
+
+    // ---- the filament of the body of a line ----
+
+    void MainWindow::ClearLineExtend()
+    {
+        line_body = {};
+        LineExtend().Children().Clear();
+        LineExtend().Visibility(Visibility::Collapsed);
+    }
+
+    void MainWindow::DrawLineChips()
+    {
+        FillFilamentChips(LineFilamentChips(), line_chips_key, line_filament, L"This part of the layer", [this](int k) { PickLineFilament(k); });
+    }
+
+    void MainWindow::FillLineFilament()
+    {
+        if (model == nullptr || selected_path < 0)
+            return;
+        int f = (int)zs_app_path_filament(model->Active(), (size_t)selected_path);
+        if (f > 0)
+            line_filament = f;
+        DrawLineChips();
+    }
+
+    // Lights the body in the color of the filament until the slice comes
+    // back. A lit range keeps its own light.
+    void MainWindow::LightLine(int64_t path, size_t lo, size_t hi, int filament)
+    {
+        if (range != nullptr && range->light_on)
+            return;
+        line_lit = true;
+        zs_view_light_color(view, (int32_t)FilamentRgb(filament));
+        zs_view_light_connected(view, (size_t)path, lo, hi, nullptr);
+        RequestDraw();
+    }
+
+    // The slice of a filament of the line card: its lines have the color.
+    void MainWindow::LineLightAfterSlice()
+    {
+        if (!line_lit || (range != nullptr && range->light_on))
+            return;
+        line_lit = false;
+        zs_view_light_color(view, -1);
+        zs_view_light_connected(view, (size_t)-1, 0, 0, nullptr);
+        ApplySelection();
+    }
+
+    bool MainWindow::PaintBeads(std::vector<float> const &beads, int filament)
+    {
+        size_t changed = 0;
+        if (beads.empty() || zs_app_paint_body(model->Active(), beads.data(), beads.size(), (uint32_t)filament, &changed) != ZS_OK)
+            return false;
+        if (changed > 0)
+        {
+            model->RequestSlice();
+            if (model->HistoryCommit())
+                RefreshHistoryButtons();
+        }
+        return true;
+    }
+
+    // A chip of the Filament row: the body of the line on its layer gets the
+    // filament, and the buttons of the layers where it goes on show.
+    void MainWindow::PickLineFilament(int filament)
+    {
+        if (filament < 1 || selected_path < 0 || view == nullptr || model == nullptr)
+            return;
+        ClearLineExtend();
+        size_t path = (size_t)selected_path;
+        ptrdiff_t at = zs_app_path_layer(model->Active(), path);
+        if (at < 0)
+            return;
+        size_t layer = (size_t)at;
+        auto copy = [&](size_t lo, size_t hi) {
+            std::vector<float> out;
+            float const *beads = nullptr;
+            size_t n = 0;
+            if (zs_view_connected_beads(view, path, lo, hi, &beads, &n) == ZS_OK && n > 0)
+                out.assign(beads, beads + n);
+            return out;
+        };
+        std::vector<float> beads = copy(layer, layer);
+        if (beads.empty())
+            return;
+        size_t lo = layer, hi = layer;
+        zs_view_connected_layers(view, path, &lo, &hi);
+        // The beads above and below now: the slice numbers the lines again.
+        LineBody body;
+        if (hi > layer)
+            body.above = copy(layer + 1, hi);
+        if (lo < layer)
+            body.below = copy(lo, layer - 1);
+        LightLine(selected_path, layer, layer, filament);
+        if (!PaintBeads(beads, filament))
+            return;
+        line_filament = filament;
+        body.filament = filament;
+        auto button = [&](int direction, std::wstring const &text, std::wstring const &tip) {
+            Button b;
+            b.Content(box_value(text));
+            b.Background(Media::SolidColorBrush(Microsoft::UI::Colors::Transparent()));
+            b.BorderThickness(ThicknessHelper::FromUniformLength(0));
+            b.FontSize(12);
+            b.Padding(ThicknessHelper::FromLengths(6, 4, 6, 4));
+            ToolTipService::SetToolTip(b, box_value(tip));
+            b.Click([this, direction](auto &&, auto &&) { ExtendLineFilament(direction); });
+            LineExtend().Children().Append(b);
+            return b;
+        };
+        if (!body.above.empty())
+            body.above_button = button(1, L"Also the layers above, to " + std::to_wstring(hi + 1),
+                                       L"The same filament for this body on layers " + std::to_wstring(layer + 2) + L" to " + std::to_wstring(hi + 1) + L", where it goes on");
+        if (!body.below.empty())
+            body.below_button = button(-1, L"Also the layers below, from " + std::to_wstring(lo + 1),
+                                       L"The same filament for this body on layers " + std::to_wstring(lo + 1) + L" to " + std::to_wstring(layer) + L", where it goes on");
+        bool more = !body.above.empty() || !body.below.empty();
+        line_body = std::move(body);
+        LineExtend().Visibility(more ? Visibility::Visible : Visibility::Collapsed);
+        DrawLineChips();
+    }
+
+    // "Also the layers above" (1) and "below" (-1).
+    void MainWindow::ExtendLineFilament(int direction)
+    {
+        std::vector<float> const &beads = direction > 0 ? line_body.above : line_body.below;
+        Button b = direction > 0 ? line_body.above_button : line_body.below_button;
+        int filament = line_body.filament;
+        if (beads.empty() || b == nullptr || filament < 1 || view == nullptr || model == nullptr)
+            return;
+        if (selected_path >= 0)
+        {
+            size_t lo = (size_t)-1, hi = 0;
+            for (size_t k = 1; k < beads.size(); k += 9)
+            {
+                lo = std::min(lo, (size_t)beads[k]);
+                hi = std::max(hi, (size_t)beads[k]);
+            }
+            ptrdiff_t layer = zs_app_path_layer(model->Active(), (size_t)selected_path);
+            if (layer >= 0)
+                LightLine(selected_path, std::min(lo, (size_t)layer), std::max(hi, (size_t)layer), filament);
+        }
+        if (PaintBeads(beads, filament))
+            b.Visibility(Visibility::Collapsed);
     }
 
     void MainWindow::RangePlace()
@@ -915,6 +1262,36 @@ namespace winrt::ZSlice::implementation
             }
             zs::Log("dev: range body filament %d painted %d\n", k, painted ? 1 : 0);
         }
+        else if (verb == L"rangescope" && !words.empty())
+        {
+            r.ToggleScope(zs::ToUtf8(words[0]));
+        }
+        else if (verb == L"linefil" && !words.empty())
+        {
+            PickLineFilament(_wtoi(words[0].c_str()));
+            zs::Log("dev: line filament %d, path %lld, above %zu below %zu\n", line_filament, (long long)selected_path, line_body.above.size() / 9, line_body.below.size() / 9);
+        }
+        else if (verb == L"lineext" && !words.empty())
+        {
+            ExtendLineFilament(_wtoi(words[0].c_str()));
+        }
+        else if (verb == L"linefillog")
+        {
+            int f = selected_path >= 0 ? (int)zs_app_path_filament(model->Active(), (size_t)selected_path) : 0;
+            zs_toolpaths tp{};
+            size_t by[3] = {}, on_layer[3] = {};
+            ptrdiff_t at = selected_path >= 0 ? zs_app_path_layer(model->Active(), (size_t)selected_path) : -1;
+            if (zs_app_toolpaths(model->Active(), &tp) == ZS_OK)
+                for (size_t i = 0; i < tp.path_count; i++)
+                {
+                    size_t k = std::min<size_t>(zs_app_path_filament(model->Active(), i), 2);
+                    by[k]++;
+                    if (zs_app_path_layer(model->Active(), i) == at)
+                        on_layer[k]++;
+                }
+            zs::Log("dev: line path %lld layer %lld filament %d chip %d chips %u extend %u lit %d, paths f1 %zu f2 %zu, on its layer f1 %zu f2 %zu\n", (long long)selected_path, (long long)at, f,
+                    line_filament, LineFilamentChips().Children().Size(), LineExtend().Children().Size(), line_lit ? 1 : 0, by[1], by[2], on_layer[1], on_layer[2]);
+        }
         else if (verb == L"rangelog")
         {
             zs::Log("dev: range open %d lo %zu hi %zu title '%s' facts '%s' rows %zu body %d light path %lld rgb %d key %d card %.0f,%.0f %.0fx%.0f\n", r.open ? 1 : 0, r.lo, r.hi,
@@ -925,8 +1302,11 @@ namespace winrt::ZSlice::implementation
             {
                 zs::Log("dev: range z %.3f to %.3f, overrides %zu, print wall_count %s\n", z0, z1, zs_app_override_count(model->Active()), model->GetSetting("project.wall_count").c_str());
                 for (auto const &row : r.rows)
-                    zs::Log("dev: range row %s = %s over %d reset %.1f\n", row.name.c_str(), r.ValueAt(z0, row.name.c_str()).c_str(),
-                            zs_app_override_at(model->Active(), z0, row.name.c_str()), row.reset.Opacity());
+                    zs::Log("dev: range row %s = %s shown %s over %d reset %.1f scope '%s' note '%s'\n", row.name.c_str(), r.ValueAt(z0, row.name.c_str()).c_str(), r.EditValue(row.name).c_str(),
+                            zs_app_override_at(model->Active(), z0, row.name.c_str()), row.reset.Opacity(),
+                            row.scope.Visibility() == Visibility::Visible ? zs::ToUtf8(std::wstring(unbox_value<hstring>(row.scope.Content()))).c_str() : "",
+                            zs::ToUtf8(std::wstring(row.note.Text())).c_str());
+                zs::Log("dev: range region %u values %zu\n", r.region, r.region_values.size());
             }
             zs::Log("dev: search scope %d\n", search_scope != nullptr ? 1 : 0);
         }
