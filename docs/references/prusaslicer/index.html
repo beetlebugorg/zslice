@@ -109,6 +109,12 @@
 <p><strong>License:</strong> AGPL-3.0 (the model, not code)</p>
 <p><strong>Used in:</strong> <code>src/flow.zig</code></p>
 <p><strong>How zslice uses it:</strong> The plastic volume for each line, and the bead width in the 3D view.</p>
+<h3 id="print-statistics-at-the-end-of-the-g-code">Print statistics at the end of the G-code</h3>
+<div class="ref"><span class="kind k-format">format</span><span class="area">gcode</span><dl><dt>Source</dt><dd>PrusaSlicer</dd><dt>What zslice uses</dt><dd>The statistics comments at the end of the G-code of a Prusa printer, with the names and the forms of PrusaSlicer.</dd><dt>License</dt><dd>AGPL-3.0</dd><dt>Link</dt><dd><a href="https://github.com/prusa3d/PrusaSlicer">https://github.com/prusa3d/PrusaSlicer</a></dd><dt>Used in</dt><dd><a href="https://github.com/beetlebugorg/zslice/blob/main/src/gcode.zig"><code>src/gcode.zig</code></a></dd></dl></div>
+<p>PrusaSlicer 2.9.7 (tag version_2.9.7, commit 450d70dd): <code>src/libslic3r/Print.cpp</code> (the names <code>filament used [mm]</code>, <code>filament used [cm3]</code>, <code>filament used [g]</code>, <code>total filament used [g]</code>), <code>src/libslic3r/GCode/GCodeProcessor.cpp</code> (<code>estimated printing time (normal mode)</code>, values with two decimals and ", " between the tools), and <code>src/libslic3r/Utils.hpp</code> (<code>get_time_dhms</code>: "1d 2h 3m 4s").</p>
+<p><strong>License:</strong> AGPL-3.0 (the names and the forms, not code)</p>
+<p><strong>Used in:</strong> <code>src/gcode.zig</code></p>
+<p><strong>How zslice uses it:</strong> zslice writes these comments at the end of the G-code of a Prusa printer (machine.model "prusa-..."), as PrusaSlicer writes them, so the Prusa firmware shows the time and the filament and checks the filament type.</p>
 <h3 id="ironing-g-code-comment">Ironing G-code comment</h3>
 <div class="ref"><span class="kind k-format">format</span><span class="area">gcode</span><dl><dt>Source</dt><dd>PrusaSlicer</dd><dt>What zslice uses</dt><dd>zslice writes <code>;TYPE:IRONING</code>. printdeck reads the name in lowercase.</dd><dt>License</dt><dd>AGPL-3.0</dd><dt>Link</dt><dd><a href="https://github.com/prusa3d/PrusaSlicer">https://github.com/prusa3d/PrusaSlicer</a></dd><dt>Used in</dt><dd><a href="https://github.com/beetlebugorg/zslice/blob/main/src/gcode.zig"><code>src/gcode.zig</code></a></dd></dl></div>
 <p>PrusaSlicer G-code comment name <code>;TYPE:Ironing</code> (<a href="https://github.com/prusa3d/PrusaSlicer">https://github.com/prusa3d/PrusaSlicer</a>)</p>

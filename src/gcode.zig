@@ -1554,8 +1554,78 @@ pub const Emitter = struct {
         try self.w.writeAll("g\n;Estimated time: ");
         try writeNum(self.w, st.print_time_s, 0);
         try self.w.writeAll("s\n");
+        try self.prusaMeta();
         try self.writeSettings();
         if (self.bambu_blocks) try self.w.writeAll("; EXECUTABLE_BLOCK_END\n");
+    }
+
+    /// For a Prusa printer (machine.model "prusa-..."): the statistics of
+    /// the print as PrusaSlicer writes them at the end of the G-code. The
+    /// Buddy firmware (MINI, MK3.5, MK3.9, MK4, XL, CORE One) reads these
+    /// keys before a print (gcode_info.cpp): the time and the filament for
+    /// the screen, the filament type for its check of the loaded
+    /// filament, and the grams of each tool. A file with grams for tool 0
+    /// only is a one-tool print: the XL picks tool 0 (or the one tool that
+    /// is on), and an MMU with a filament in its sensor starts with it.
+    /// Each value has one item for each tool, in
+    /// the order of the tools ("," between the numbers, ";" between the
+    /// texts). A print with a pause at each change has one tool.
+    fn prusaMeta(self: *Emitter) Writer.Error!void {
+        const s = self.r.settings;
+        if (!std.mem.startsWith(u8, s.machine.model, "prusa-")) return;
+        const st = &self.stats;
+        const tools = s.machine.filament_change == .tool and self.slots.len > 1;
+        const n: usize = if (tools) @min(self.slots.len, filaments.max_slots) else 1;
+        const w = self.w;
+        const Kind = enum { mm, cm3, g };
+        inline for (.{ .{ "mm", Kind.mm }, .{ "cm3", Kind.cm3 }, .{ "g", Kind.g } }) |key| {
+            try w.print("; filament used [{s}] = ", .{key[0]});
+            for (0..n) |k| {
+                const f = if (tools) self.slots[k] else s.filament;
+                const mm = if (tools) st.slot_mm[k] else st.filament_mm;
+                const g = if (tools) st.slot_g[k] else st.filament_g;
+                const r = f.diameter / 2;
+                const v = switch (key[1]) {
+                    .mm => mm,
+                    .cm3 => mm * std.math.pi * r * r / 1000.0,
+                    .g => g,
+                };
+                try w.print("{s}{d:.2}", .{ if (k > 0) ", " else "", v });
+            }
+            try w.writeByte('\n');
+        }
+        try w.print("; total filament used [g] = {d:.2}\n", .{st.filament_g});
+        var tbuf: [32]u8 = undefined;
+        try w.print("; estimated printing time (normal mode) = {s}\n", .{dhmsText(&tbuf, st.print_time_s)});
+        inline for (.{ "filament_type", "extruder_colour" }, 0..) |key, which| {
+            try w.print("; {s} = ", .{key});
+            for (0..n) |k| {
+                const f = if (tools) self.slots[k] else s.filament;
+                if (k > 0) try w.writeByte(';');
+                if (which == 0) {
+                    try w.writeAll(f.material);
+                } else for (f.color) |c| try w.writeByte(std.ascii.toUpper(c));
+            }
+            try w.writeByte('\n');
+        }
+    }
+
+    /// "1d 2h 3m 4s", "2h 3m 4s", "3m 4s", or "4s", as PrusaSlicer writes
+    /// a time (get_time_dhms in libslic3r/Utils.hpp).
+    fn dhmsText(buf: []u8, seconds: f64) []const u8 {
+        const s: u64 = @intFromFloat(@min(@max(0, @floor(seconds)), 1e12));
+        const d = s / 86400;
+        const h = (s % 86400) / 3600;
+        const m = (s % 3600) / 60;
+        const sec = s % 60;
+        return (if (d > 0)
+            std.fmt.bufPrint(buf, "{d}d {d}h {d}m {d}s", .{ d, h, m, sec })
+        else if (h > 0)
+            std.fmt.bufPrint(buf, "{d}h {d}m {d}s", .{ h, m, sec })
+        else if (m > 0)
+            std.fmt.bufPrint(buf, "{d}m {d}s", .{ m, sec })
+        else
+            std.fmt.bufPrint(buf, "{d}s", .{sec})) catch "0s";
     }
 
     /// The settings of the print that differ from the defaults, as
