@@ -371,6 +371,9 @@ pub const App = struct {
     slice_plan: ?zs.part_settings.Plan = null,
     slice_meshes: []zs.Mesh = &.{},
     slice_parts: []const zs.plate_job.PartInput = &.{},
+    /// The parts that the last slice left out (too low to slice).
+    slice_left_out: [8]zs.plate_job.LeftOut = undefined,
+    slice_left_out_n: usize = 0,
     slice_arena: ?std.heap.ArenaAllocator = null,
     /// The bytes of the last write3mf.
     file_bytes: []u8 = &.{},
@@ -2994,9 +2997,28 @@ pub const App = struct {
         }
         app.slice_plan = try zs.part_settings.plan(app.gpa, inputs, &app.settings);
         const plan = &app.slice_plan.?;
-        const parts = try a.alloc(zs.plate_job.PartInput, plan.parts.len);
-        for (plan.parts, parts) |pp, *out| {
+        const all_parts = try a.alloc(zs.plate_job.PartInput, plan.parts.len);
+        var n_parts: usize = 0;
+        app.slice_left_out_n = 0;
+        for (plan.parts) |pp| {
             const mesh = &app.slice_meshes[pp.input];
+            // A part lower than half of the first layer: no layer cuts it.
+            // It stays out of the slice, so that the other parts slice,
+            // and the check names it (checks.fitIssues). With no other
+            // part, the slice fails with PartTooThin.
+            if (plan.parts.len > 1) {
+                const bb = mesh.bounds();
+                if (bb.max[2] * app.settings.filament.shrinkage_z < app.settings.project.first_layer_height / 2) {
+                    if (app.slice_left_out_n < app.slice_left_out.len) {
+                        const nm = if (part_of[pp.input]) |pi| app.plate.parts.items[pi].name else "";
+                        app.slice_left_out[app.slice_left_out_n] = .of(nm, @max(0, bb.max[2] - bb.min[2]), (bb.min[0] + bb.max[0]) / 2, (bb.min[1] + bb.max[1]) / 2);
+                        app.slice_left_out_n += 1;
+                    }
+                    continue;
+                }
+            }
+            const out = &all_parts[n_parts];
+            n_parts += 1;
             // The marks of the user over the box of the part.
             const b = mesh.bounds();
             var marks: std.ArrayList(zs.support.Mark) = .empty;
@@ -3057,6 +3079,7 @@ pub const App = struct {
                 .name = if (part_of[pp.input]) |pi| try a.dupe(u8, app.plate.parts.items[pi].name) else "",
             };
         }
+        const parts = all_parts[0..n_parts];
         app.slice_parts = parts;
     }
 
@@ -3171,7 +3194,7 @@ pub const App = struct {
         // The settings of the parts for the whole plate, under the
         // overrides of the user.
         if (app.slice_plan) |*pp| pp.applyBase(&part) catch |e| return app.finishFailed(e);
-        if (app.slice_parts.len == 0) return app.finishFailed(error.EmptyMesh);
+        if (app.slice_parts.len == 0) return app.finishFailed(if (app.slice_left_out_n > 0) error.PartTooThin else error.EmptyMesh);
         var layer_overrides: std.ArrayList(zs.settings.Override) = .empty;
         defer layer_overrides.deinit(app.gpa);
         for (app.slice_overrides) |o| {
@@ -3189,7 +3212,7 @@ pub const App = struct {
         // The order of the parts on a level depends on the number of
         // filaments (see plate_job.zig).
         zs.settings.hashValue(&edits_hash, app.slice_filaments.len);
-        const job_or = zs.PlateJob.init(app.gpa, part, app.slice_parts, .{ .overrides = layer_overrides.items, .monitor = monitor, .old = prev, .streams = edits_hash.final(), .filaments = app.slice_filaments });
+        const job_or = zs.PlateJob.init(app.gpa, part, app.slice_parts, .{ .overrides = layer_overrides.items, .monitor = monitor, .old = prev, .streams = edits_hash.final(), .filaments = app.slice_filaments, .left_out = app.slice_left_out[0..app.slice_left_out_n] });
         // The new job took what it could use. A job that failed (for
         // example, a cancel) can leave the old job without outlines, so the
         // old job goes in each case.
@@ -3760,6 +3783,7 @@ pub fn statusOf(e: anyerror) c_int {
         error.InvalidValue => 6,
         error.InvalidSettings => 7,
         error.PartTooLarge => 8,
+        error.PartTooThin => 17,
         error.WriteFailed => 9,
         error.Canceled => 10,
         else => 2,

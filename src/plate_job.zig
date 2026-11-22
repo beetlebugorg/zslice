@@ -188,7 +188,31 @@ pub const Level = struct {
 /// part in sequential printing (mm).
 pub const lift_margin = 2.0;
 
+/// A part that the app left out of the slice: lower than half of the
+/// first layer, so no layer cuts it (see App and checks.fitIssues).
+pub const LeftOut = struct {
+    name: [48]u8 = undefined,
+    name_len: usize = 0,
+    /// Its height (mm) and the center of its box on the bed.
+    height: f64 = 0,
+    x: f64 = 0,
+    y: f64 = 0,
+
+    pub fn of(name: []const u8, height: f64, x: f64, y: f64) LeftOut {
+        var o: LeftOut = .{ .height = height, .x = x, .y = y };
+        o.name_len = @min(name.len, o.name.len);
+        @memcpy(o.name[0..o.name_len], name[0..o.name_len]);
+        return o;
+    }
+
+    pub fn nameOf(o: *const LeftOut) []const u8 {
+        return o.name[0..o.name_len];
+    }
+};
+
 pub const Options = struct {
+    /// The parts that the app left out of the slice (at most 8 stay).
+    left_out: []const LeftOut = &.{},
     /// Overrides for z ranges (see settings.Override and Job.Options).
     overrides: []const settings_mod.Override = &.{},
     monitor: engine.Monitor = .{},
@@ -252,6 +276,9 @@ pub const PlateJob = struct {
     stamp: u64 = 0,
     /// The parts print one at a time (see the file comment).
     sequential: bool = false,
+    /// The parts left out of the slice (Options.left_out).
+    left_out: [8]LeftOut = undefined,
+    left_out_n: usize = 0,
     /// The filaments of the plate: slot 0 is the filament of the
     /// settings, then `Options.filaments`. One: no filament change.
     slots: []settings_mod.Filament = &.{},
@@ -375,6 +402,8 @@ pub const PlateJob = struct {
         }
         pj.groups = try groups.toOwnedSlice(gpa);
 
+        pj.left_out_n = @min(opts.left_out.len, pj.left_out.len);
+        @memcpy(pj.left_out[0..pj.left_out_n], opts.left_out[0..pj.left_out_n]);
         pj.sequential = settings.project.print_sequence == .by_object and !pj.single();
         try pj.makeLevels(settings, opts.overrides, slot_nozzles);
         try pj.makeOutline0();

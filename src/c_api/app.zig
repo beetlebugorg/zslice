@@ -2395,7 +2395,8 @@ export fn zs_app_plate_printable(a: ?*const App, buf: ?[*]u8, cap: usize, out_le
 }
 
 /// How part i fits the printer of its plate (see engine.fitOf): the cause
-/// (0 fits, 1 too high, 2 too wide in X, 3 too deep in Y), its size, and
+/// (0 fits, 1 too high, 2 too wide in X, 3 too deep in Y, 4 too thin: lower
+/// than half of the first layer, left out of the slice), its size, and
 /// the limits of the printer (mm).
 pub const PartFit = extern struct { cause: c_int, size: [3]f64, limit: [3]f64 };
 
@@ -4611,4 +4612,13 @@ test "C API: a part higher than the printer slices, shows a check, and does not 
     try t.expectEqual(ok, zs_app_setting_set(a, "machine.max_height", "200"));
     try t.expectEqual(ok, zs_app_plate_printable(a, &buf, buf.len, &len));
     try t.expectEqual(@as(usize, 0), len);
+}
+
+/// The name of the error of the last failed slice ("PartTooLarge"), for a
+/// bug report: the status of ZS_EVENT_FAILED groups many errors as
+/// ZS_INVALID_ARGUMENT. Valid until zs_app_free.
+export fn zs_app_failure_name(a: ?*const App) [*:0]const u8 {
+    const app = a orelse return "";
+    if (app.state.load(.acquire) != .failed) return "";
+    return @errorName(app.failure);
 }

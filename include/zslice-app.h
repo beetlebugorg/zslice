@@ -972,7 +972,8 @@ typedef struct zs_part {
 } zs_part;
 
 /* How part i fits the printer of its plate: cause 0 fits, 1 too high,
- * 2 too wide in X, 3 too deep in Y (the first cause in this order); its
+ * 2 too wide in X, 3 too deep in Y, 4 too thin (lower than half of the
+ * first layer: the slice leaves it out) (the first cause in this order); its
  * size (x, y, z, mm, with the shrinkage of the filament); and the limits
  * of the printer (the bed in x and y, the highest z). */
 typedef struct zs_part_fit {

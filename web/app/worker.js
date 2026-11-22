@@ -32,6 +32,18 @@ let sliceTimer = 0;
 let lastProgress = 0;
 let slicing = -1; // the plate that slices now
 let failStatus = 0; // the status of the last ZS_EVENT_FAILED
+// The words of a failed slice for the user: the message of the core
+// (zs_status_message), with the error name for a bug report.
+function failText(status) {
+  try {
+    const x = core.w.x;
+    const msg = core.w.cstr(x.zs_status_message(status));
+    const name = core.w.cstr(x.zs_app_failure_name(core.app));
+    return name ? `${msg} (${name})` : msg;
+  } catch {
+    return statusText(status);
+  }
+}
 let warming = false; // a warm-up slice runs: its events do not go to the page
 let platesDirty = false; // the list changed: a "plates" event waits
 
@@ -167,7 +179,7 @@ function sendResult(i, ms, turn) {
     return;
   }
   if (state !== STATE.done) {
-    if (state === STATE.failed) post({ event: "failed", state, error: failStatus ? statusText(failStatus) : "" });
+    if (state === STATE.failed) post({ event: "failed", state, error: failStatus ? failText(failStatus) : "" });
     return;
   }
   const scene = sceneOf(i);

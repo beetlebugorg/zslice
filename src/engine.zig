@@ -123,7 +123,8 @@ pub fn fitsBed(min: [3]f64, max: [3]f64, s: Settings) bool {
 
 /// Why a part does not fit the printer, the first cause first: too high,
 /// then too wide in X, then too deep in Y.
-pub const FitCause = enum(c_int) { fits = 0, too_high = 1, too_wide_x = 2, too_deep_y = 3 };
+/// too_thin: lower than half of the first layer, so no layer cuts it.
+pub const FitCause = enum(c_int) { fits = 0, too_high = 1, too_wide_x = 2, too_deep_y = 3, too_thin = 4 };
 
 /// How a part with these bounds fits the printer: the cause, the size of
 /// the part (mm, with the shrinkage of the filament), and the limits of
@@ -136,7 +137,8 @@ pub fn fitOf(min: [3]f64, max: [3]f64, s: Settings) Fit {
     const size = [3]f64{ (max[0] - min[0]) * f.shrinkage_xy, (max[1] - min[1]) * f.shrinkage_xy, (max[2] - min[2]) * f.shrinkage_z };
     const limit = [3]f64{ m.bed_size_x, m.bed_size_y, m.max_height };
     const eps = 1e-6;
-    const cause: FitCause = if (size[2] > limit[2] + eps) .too_high else if (size[0] > limit[0] + eps) .too_wide_x else if (size[1] > limit[1] + eps) .too_deep_y else .fits;
+    const thin = size[2] < s.project.first_layer_height / 2;
+    const cause: FitCause = if (size[2] > limit[2] + eps) .too_high else if (size[0] > limit[0] + eps) .too_wide_x else if (size[1] > limit[1] + eps) .too_deep_y else if (thin) .too_thin else .fits;
     return .{ .cause = cause, .size = size, .limit = limit };
 }
 
@@ -148,6 +150,7 @@ pub fn fitText(fit: Fit, w: *std.Io.Writer) std.Io.Writer.Error!void {
         .too_high => try w.print("The part is {d:.0} mm high, and the printer reaches {d:.0} mm. Lay it on a side, scale it down, or cut it (Cut on the part card).", .{ fit.size[2], fit.limit[2] }),
         .too_wide_x => try w.print("The part is {d:.0} mm wide in X, and the bed is {d:.0} mm. Turn it on the bed, scale it down, or cut it (Cut on the part card).", .{ fit.size[0], fit.limit[0] }),
         .too_deep_y => try w.print("The part is {d:.0} mm deep in Y, and the bed is {d:.0} mm. Turn it on the bed, scale it down, or cut it (Cut on the part card).", .{ fit.size[1], fit.limit[1] }),
+        .too_thin => try w.print("The part is {d:.2} mm high, less than half of the first layer, so no layer prints it, and the slice leaves it out. Turn it to stand on another side, scale it up, or remove it.", .{fit.size[2]}),
     }
 }
 

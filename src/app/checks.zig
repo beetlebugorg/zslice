@@ -730,6 +730,11 @@ fn infillIssues(b: *Builder, pj: *const zs.PlateJob) Allocator.Error!void {
 }
 
 fn fitIssues(b: *Builder, job: *const zs.PlateJob, s: zs.Settings) Allocator.Error!void {
+    // The parts that the app left out of the slice: too low for a layer.
+    for (job.left_out[0..job.left_out_n]) |*o| {
+        const name = if (o.name_len > 0) o.nameOf() else "A part";
+        try b.add(.{ .kind = .fit, .severity = 2, .layer = 0, .path = Issue.no_path, .x = o.x, .y = o.y, .value = @intFromEnum(zs.engine.FitCause.too_thin), .text_start = 0, .text_len = 0 }, "{s} is {d:.2} mm high, less than half of the first layer ({d:.2} mm), so no layer prints it. The slice leaves it out, and the plate does not print. Turn it to stand on another side, scale it up, or remove it.", .{ name, o.height, s.project.first_layer_height });
+    }
     for (job.instances) |inst| {
         const j = &job.groups[inst.group].job;
         if (j.layers.len == 0) continue;
