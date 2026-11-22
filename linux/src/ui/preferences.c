@@ -6,8 +6,9 @@
  * values" copies the bed and the nozzle to the machine settings, and "Use
  * this filament" the filament of the printer to the filament settings.
  *
- * General: the theme, the first view, the slicer threads, and the folder
- * of the settings files.
+ * General: the theme, the first view, the slicer threads, the draft slices,
+ * the print as it forms after each slice, and the folder of the settings
+ * files.
  *
  * SPDX-License-Identifier: AGPL-3.0-or-later
  */
@@ -497,6 +498,26 @@ static void on_threads(GtkSpinButton *spin, gpointer data) {
     set_num(p->model, "engine.threads", gtk_spin_button_get_value(spin));
 }
 
+/* A switch of an app preference (engine.draft_slices,
+ * engine.auto_simulate): the model keeps it in Preferences. */
+static gboolean on_pref_switch(GtkSwitch *sw, gboolean on, gpointer data) {
+    Prefs *p = data;
+    zg_model_set(p->model, g_object_get_data(G_OBJECT(sw), "zg-key"), on ? "true" : "false", NULL);
+    return FALSE;
+}
+
+static GtkWidget *pref_switch(Prefs *p, const char *key, const char *tip) {
+    GtkWidget *sw = gtk_switch_new();
+    char *v = zg_model_get(p->model, key);
+    gtk_switch_set_active(GTK_SWITCH(sw), strcmp(v, "false") != 0);
+    g_free(v);
+    gtk_widget_set_halign(sw, GTK_ALIGN_START);
+    gtk_widget_set_tooltip_text(sw, tip);
+    g_object_set_data(G_OBJECT(sw), "zg-key", (gpointer)key);
+    g_signal_connect(sw, "state-set", G_CALLBACK(on_pref_switch), p);
+    return sw;
+}
+
 static void on_open_folder(GtkButton *b, gpointer data) {
     Prefs *p = data;
     char *dir = zg_config_dir();
@@ -747,6 +768,14 @@ static GtkWidget *general_page(Prefs *p) {
     gtk_grid_attach(GTK_GRID(g), form_label("Slicer threads"), 0, row, 1, 1);
     gtk_grid_attach(GTK_GRID(g), threads, 1, row++, 1, 1);
 
+    GtkWidget *draft = pref_switch(p, "engine.draft_slices", "After a change, the view first shows a draft in about a third of the time, then the exact slice. A draft never goes to the G-code. Off: only exact slices.");
+    gtk_grid_attach(GTK_GRID(g), form_label("Draft slices during edits"), 0, row, 1, 1);
+    gtk_grid_attach(GTK_GRID(g), draft, 1, row++, 1, 1);
+
+    GtkWidget *sim = pref_switch(p, "engine.auto_simulate", "Runs after each slice; off saves CPU, and the Check has no simulated failures until you run it by hand (Show the print as it forms).");
+    gtk_grid_attach(GTK_GRID(g), form_label("Show the print as it forms after each slice"), 0, row, 1, 1);
+    gtk_grid_attach(GTK_GRID(g), sim, 1, row++, 1, 1);
+
     char *dir = zg_config_dir();
     GtkWidget *folder = gtk_label_new(dir);
     g_free(dir);
@@ -767,7 +796,11 @@ static GtkWidget *general_page(Prefs *p) {
     gtk_label_set_xalign(GTK_LABEL(note), 0);
     gtk_widget_add_css_class(note, "dim-label");
     gtk_grid_attach(GTK_GRID(g), note, 1, row++, 1, 1);
-    return g;
+    /* A small window scrolls the page. */
+    GtkWidget *scroll = gtk_scrolled_window_new();
+    gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(scroll), GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC);
+    gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(scroll), g);
+    return scroll;
 }
 
 static void on_destroy(GtkWidget *w, gpointer data) {
@@ -807,6 +840,8 @@ void zg_preferences_show(GtkWindow *parent, ZgModel *model) {
     gtk_header_bar_set_title_widget(GTK_HEADER_BAR(header), switcher);
     gtk_window_set_titlebar(p->window, header);
     gtk_window_set_child(p->window, stack);
+    /* For tests: ZSLICE_PREFS=general opens the General page. */
+    if (g_strcmp0(g_getenv("ZSLICE_PREFS"), "general") == 0) gtk_stack_set_visible_child_name(GTK_STACK(stack), "general");
 
     p->printer = zg_printers_current();
     fill_list(p);

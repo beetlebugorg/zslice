@@ -2657,7 +2657,8 @@ pub const App = struct {
         if (app.auto_checks) app.slice_stands = try app.checkStands(app.slice_arena.?.allocator());
         app.cancel_flag.store(false, .release);
         // The simulation is for the exact slice: a draft has none.
-        app.sim_coming.store(app.auto_simulate and !app.draft, .release);
+        // engine.auto_simulate off: only a run by hand (requestSimulation).
+        app.sim_coming.store(app.auto_simulate and app.settings.engine.auto_simulate and !app.draft, .release);
         app.state.store(.slicing, .release);
         // The experiment of a faster offset (project.fast_offsets): a
         // switch of the process, read by each offset of this slice.
@@ -5849,6 +5850,32 @@ test "app: the simulation runs after the slice on its thread, and in pieces, wit
     app.stopWorkerForTest();
     try testing.expectError(error.NoResult, app.advanceSimulation(1));
     // The new slice simulates again on its thread.
+    try testing.expect(app.adoptSimulation());
+}
+
+test "app: engine.auto_simulate off gives no simulation after the slice; a run by hand still works" {
+    if (comptime !has_threads) return error.SkipZigTest;
+    const gpa = testing.allocator;
+    var stl = try slabStl(gpa);
+    defer stl.deinit();
+    const app = try App.create(gpa, null, null);
+    defer app.destroy();
+    try app.loadStl("slab.stl", stl.written());
+    app.auto_simulate = true;
+    try app.setSetting("engine.auto_simulate", "false");
+    try app.startSlice();
+    app.stopWorkerForTest();
+    try testing.expectEqual(State.done, app.getState());
+    try testing.expect(!app.adoptSimulation());
+    try testing.expect(app.sim == null);
+    // By hand: the simulation runs.
+    try app.requestSimulation();
+    app.stopWorkerForTest();
+    try testing.expect(app.adoptSimulation());
+    // On again: the simulation runs after the slice, as before.
+    try app.setSetting("engine.auto_simulate", "true");
+    try app.startSlice();
+    app.stopWorkerForTest();
     try testing.expect(app.adoptSimulation());
 }
 

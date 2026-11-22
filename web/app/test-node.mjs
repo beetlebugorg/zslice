@@ -264,7 +264,7 @@ check(gcode.includes(";LAYER:0\n"), "the G-code has layer 0");
 {
   const opts = wasm.speedOptions();
   check(opts.some((o) => o.name === "project.fast_offsets" && o.faster === "true" && o.gcode), "the speed options");
-  check(opts.some((o) => o.name === "engine.draft_slices" && o.faster === ""), "the draft slices are an option outside the switch");
+  check(opts.every((o) => o.name.startsWith("project.") && o.gcode) && opts.some((o) => o.name === "project.gap_fill" && o.faster === ""), "the Speed options are print settings; gap fill is outside the switch");
   check(core.snapshot().speed === "off", "Faster slicing is off at first");
   check(core.setSpeed(true) === "", "Faster slicing on");
   check(core.snapshot().speed === "on" && core.get("project.resolution") === "0.01" && core.get("project.fast_offsets") === "true", "Faster slicing sets its options");
@@ -282,6 +282,10 @@ check(gcode.includes(";LAYER:0\n"), "the G-code has layer 0");
   core.set("engine.draft_slices", "false");
   check(core.savedState().engine["engine.draft_slices"] === "false", "the saved state keeps the draft slices");
   core.set("engine.draft_slices", "true");
+  check(core.get("engine.auto_simulate") === "true", "the simulation after each slice is on at first");
+  core.set("engine.auto_simulate", "false");
+  check(core.savedState().engine["engine.auto_simulate"] === "false", "the saved state keeps the simulation after each slice off");
+  core.set("engine.auto_simulate", "true");
 }
 
 // The main thread side: a second instance reads the scene and draws.

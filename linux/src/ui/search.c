@@ -71,7 +71,7 @@ static const Action ACTIONS[] = {
     {"History", NULL, "the changes, undo one change", "win.show-page", "history"},
     {"Keyboard shortcuts", "?", NULL, "win.shortcuts", NULL},
     {"All settings", "N", "the panel of the settings", "win.show-page", "settings"},
-    {"Speed settings", NULL, "faster slicing, draft slices, threads: the options that change the time of a slice", "win.show-setting", "speed"},
+    {"Speed settings", NULL, "faster slicing, fast offsets, resolution, gap fill: the print settings that change the time of a slice", "win.show-setting", "speed"},
     {"Faster slicing on or off", NULL, "speed, performance: faster offsets and outline tolerance 0.01 mm", "win.faster-slicing", NULL},
     {"Printers", NULL, "your printers, their jobs, and the plates to print", "win.show-page", "farm"},
 };

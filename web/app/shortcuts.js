@@ -20,6 +20,7 @@ export const SHORTCUTS = [
       ["B", "Hide the bed and its grid, or show them again: the bottom of a part shows from below (also in the main menu)"],
       ["3", "The 3D view"],
       ["Ctrl+O", "Open a model or a project"],
+      ["Ctrl+, (Cmd+, on a Mac)", "Preferences: the slicer threads, the draft slices, the print as it forms after each slice, the theme, the first view, and the printers"],
       ["Ctrl+S", "Save the project: all plates in one 3MF file"],
       ["Ctrl+E", "Export the G-code"],
       ["Ctrl+Z", "Undo"],

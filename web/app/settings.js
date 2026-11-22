@@ -281,6 +281,13 @@ export class SettingsBrowser {
       row.querySelector(".label").append(note);
       col.append(row);
     }
+    // The app options (threads, draft slices, the simulation after each
+    // slice) are in Preferences.
+    const prefs = el("div", "speed-note speed-prefs", this.ctx.speed.prefsNote);
+    const open = el("button", "", "Preferences…");
+    open.onclick = () => this.ctx.speed.preferences();
+    prefs.append(" ", open);
+    col.append(prefs);
   }
 
   selectSection(group, section, open) {

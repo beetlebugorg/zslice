@@ -53,7 +53,7 @@ A speed is a ratio of what the printer and the filament allow. So one quality wo
 
 ## Faster slicing
 
-The **Speed** section at the top of the panel has all options that change the time of a slice. Each row gives the gain and the cost of its option, as measured on a 3DBenchy. A row with "Changes the G-code" changes the print a little. To open the section, search for "speed" with `/`, or click **Speed** in the panel.
+The **Speed** section at the top of the panel has the print settings that change the time of a slice. Each row gives the gain and the cost of its option, as measured on a 3DBenchy. Each of these options changes the G-code a little. To open the section, search for "speed" with `/`, or click **Speed** in the panel.
 
 The **Faster slicing** switch at the top of the section sets the options that make a slice faster for a small change of the lines:
 
@@ -64,14 +64,28 @@ The **Faster slicing** switch at the top of the section sets the options that ma
 
 Together they make a slice about 28 % faster (a 3DBenchy: 1580 ms to 1140 ms of CPU). Turn the switch off to get the exact defaults back. If you change one of these options yourself, the switch shows **Custom**. The work text at the top right of the view says "Faster slicing on" while the switch is on.
 
-The fast offsets and the resolution change the G-code, so they are settings of the print: a project keeps them, and it slices the same on each computer. The threads and the draft slices are app preferences: they are the same for each plate and each project.
+The options of this section are settings of the print: a project keeps them, and it slices the same on each computer.
 
-The section has more options, which the switch does not change:
+The section has two more options, which the switch does not change:
 
-- **Draft slices** (on): after a change, the view first shows a draft in about a third of the time, then the exact slice. A draft never goes to the G-code. Turn it off to see only exact slices.
-- **Threads** (0): 0 uses one thread for each CPU but one. The G-code is the same with each count.
 - **Gap fill** (on): off makes a slice about 30 % faster, but the narrow gaps between the walls and the skin stay empty.
 - **Wall generator** (classic): arachne needs about 16 % more CPU for each slice.
+
+The options that change no G-code are in [Preferences](#preferences).
+
+## Preferences
+
+Preferences has the options of the app. They are the same for each plate and each project. Open it with Ctrl+, (Cmd+, on a Mac), or with **Preferences…** in the main menu. The web app keeps them in this browser. The Linux app keeps them in its settings folder.
+
+| Option | Default | What it does |
+|---|---|---|
+| Slicer threads | 0 | 0 uses one thread for each CPU but one. The G-code is the same with each count. |
+| Draft slices during edits | on | After a change, the view first shows a draft in about a third of the time, then the exact slice. A draft never goes to the G-code. Turn it off to see only exact slices. |
+| Show the print as it forms after each slice | on | The simulation of the plastic runs after each slice. Off saves CPU, and the Check has no simulated failures until you run it by hand: **Show the print as it forms** in the colors menu. |
+| Theme | Follow the system | Light or dark. |
+| First view | The last view (web), 3D (Linux) | The view at the start of the app. |
+
+Preferences also opens **Manage printers…** and the **Printers** page. In the Linux app, Preferences has a page for the printers, and the folder of the settings files.
 
 ## Where a value comes from
 

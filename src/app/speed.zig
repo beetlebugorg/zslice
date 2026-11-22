@@ -1,6 +1,7 @@
-//! The Speed group of the settings panel: the options that change the
-//! time of a slice, in one list, with the measured gain and cost of each
-//! (docs/internals/performance.md, a 3DBenchy with the default settings).
+//! The Speed group of the settings panel: the print settings that change
+//! the time of a slice, in one list, with the measured gain and cost of
+//! each (docs/internals/performance.md, a 3DBenchy with the default
+//! settings). Each of them changes the G-code, so a project keeps them.
 //!
 //! The "Faster slicing" switch sets the options of the list that have a
 //! faster value (`Option.faster`): together about 28 % less CPU for a
@@ -10,8 +11,10 @@
 //! shows the switch as `custom`, and a project that has the faster values
 //! shows it as on.
 //!
-//! The draft slice of an edit (`engine.draft_slices`) is in the list, but
-//! the switch does not change it: a draft never goes to the G-code.
+//! The options of the app that change the time of the work but no G-code
+//! (`engine.threads`, `engine.draft_slices`, `engine.auto_simulate`) are
+//! app preferences: the Preferences of each app have them, and the section
+//! points there (`prefs_note`).
 //!
 //! SPDX-License-Identifier: AGPL-3.0-or-later
 
@@ -48,16 +51,6 @@ pub const options = [_]Option{
         .note = "0.01 mm: about 19 % faster slices of a fine mesh, and 19 % less G-code. The outer walls move up to 10 µm (99 % of the points).",
     },
     .{
-        .name = "engine.draft_slices",
-        .gcode = false,
-        .note = "A draft shows an edit in a third of the time. The exact slice follows. A draft never goes to the G-code.",
-    },
-    .{
-        .name = "engine.threads",
-        .gcode = false,
-        .note = "0: one thread for each CPU but one, the fastest. The G-code is the same with each count.",
-    },
-    .{
         .name = "project.gap_fill",
         .gcode = true,
         .note = "Off: about 30 % faster slices. The narrow gaps between the walls and the skin stay empty.",
@@ -72,6 +65,10 @@ pub const options = [_]Option{
 /// The help of the Faster slicing switch, for the row at the top of the
 /// Speed section.
 pub const switch_note: [:0]const u8 = "On: fast offsets and an outline tolerance of 0.01 mm, together about 28 % faster slices. The outer walls move up to 10 µm, and some thin skin and fill lines change. Off: the exact slice. Custom: one of these options has another value.";
+
+/// The line at the end of the Speed section: the app options are in the
+/// Preferences.
+pub const prefs_note: [:0]const u8 = "The threads, the draft slices, and the print as it forms after each slice are in Preferences (Ctrl+,). They change no G-code.";
 
 pub const State = enum(c_int) { off = 0, on = 1, custom = 2 };
 
@@ -136,6 +133,8 @@ test "speed: each option is a setting, and its faster value is valid" {
         try writeSettingOf(s, o.name, &w);
         if (o.faster.len > 0) try s.set(o.name, o.faster);
         try testing.expect(o.note.len > 0);
+        // Each option is a print setting: a project keeps it.
+        try testing.expect(o.gcode and std.mem.startsWith(u8, o.name, "project."));
     }
 }
 
@@ -148,6 +147,7 @@ test "speed: the switch sets and clears its options, and one change is custom" {
     try testing.expectEqual(@as(f64, 0.01), s.project.resolution);
     // The options outside the switch keep their values.
     try testing.expect(s.engine.draft_slices);
+    try testing.expect(s.engine.auto_simulate);
     try testing.expect(s.project.gap_fill);
     try s.set("project.resolution", "0.02");
     try testing.expectEqual(State.custom, state(s));

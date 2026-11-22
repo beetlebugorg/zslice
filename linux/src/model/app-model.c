@@ -150,7 +150,7 @@ static const char *group_files[] = {"machine", "filament", "project"};
 
 /* The settings that are app preferences: the same for each plate and each
  * project. They change no G-code. */
-static const char *const app_prefs[] = {"engine.threads", "engine.draft_slices"};
+static const char *const app_prefs[] = {"engine.threads", "engine.draft_slices", "engine.auto_simulate"};
 
 /* The active plate changed: `core` is its app. */
 static void sync_core(ZgModel *self) {
