@@ -169,6 +169,9 @@ void zg_model_edits_changed(ZgModel *self);
 /* Copies of part i until there are n in all, over new plates when the bed
  * is full (zs_set_fill): the copies in all, or -status. */
 gint64 zg_model_part_fill(ZgModel *self, size_t i, size_t n, size_t *plates);
+/* Puts the parts of the active plate that do not fit its bed on new
+ * plates (zs_set_spill): the count of new plates, or -status. */
+gint64 zg_model_spill(ZgModel *self);
 /* Cuts part i at height z (zs_app_part_cut): the count of new parts (2 and
  * the pegs), 0 if the plane misses the part, or -1. */
 gint64 zg_model_part_cut(ZgModel *self, size_t i, double z, gboolean flip, int pegs, double peg_d);

@@ -11,6 +11,7 @@
  *   credentials.
  * - It follows each redirect by itself, with the check of the core.
  * - It stops at ZS_LINK_MAX_BYTES.
+ * - Each request has the User-Agent of zs_import_user_agent.
  *
  * The caller asks the user before it calls zg_model_download.
  *
@@ -37,3 +38,13 @@ GBytes *zg_model_download_finish(GAsyncResult *result, char **name, GError **err
 /* Resolves host with the default resolver. FALSE and an error if it has
  * no address or an address that is not public. */
 gboolean zg_model_download_check_host(const char *host, GCancellable *cancel, GError **error);
+
+/* A request of an import (docs/internals/model-import.md) with the same
+ * checks: a POST of the JSON `body` to an API (no redirect), or a GET
+ * when body is NULL (a preview image; the redirects of the core). The
+ * answer must be 2xx and at most `limit` bytes. No check of the type or
+ * the name. */
+void zg_net_request(const zs_link *link, const char *body, guint64 limit, GCancellable *cancel, GAsyncReadyCallback done,
+                    gpointer data);
+/* The bytes of the answer, or NULL and an error. */
+GBytes *zg_net_request_finish(GAsyncResult *result, GError **error);

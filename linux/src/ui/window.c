@@ -14,6 +14,7 @@
 #include <string.h>
 
 #include "licenses.h"
+#include "model-import.h"
 #include "preferences.h"
 #include "cura-compare.h"
 #include "../net/printer-link.h"
@@ -1052,13 +1053,23 @@ typedef struct {
     char *name;
 } LoadJob;
 
+static gboolean zip_name(const char *name) {
+    size_t n = strlen(name);
+    return n > 4 && g_ascii_strcasecmp(name + n - 4, ".zip") == 0;
+}
+
 static void on_loaded(GObject *source, GAsyncResult *res, gpointer data) {
     LoadJob *job = data;
     Window *w = get(job->window);
     char *contents = NULL;
     gsize len = 0;
     GError *error = NULL;
-    if (g_file_load_contents_finish(G_FILE(source), res, &contents, &len, NULL, &error)) {
+    if (g_file_load_contents_finish(G_FILE(source), res, &contents, &len, NULL, &error) && zip_name(job->name)) {
+        /* A ZIP file of a model: the user chooses the files to load. */
+        GBytes *bytes = g_bytes_new_take(contents, len);
+        zg_model_import_zip(job->window, job->name, bytes);
+        g_bytes_unref(bytes);
+    } else if (!error) {
         /* A model file of the user ends project mode: the machine
          * settings of the printer of the user load again. */
         zg_model_project_end(w->model);
@@ -1123,6 +1134,34 @@ void zg_window_open_bytes(GtkWindow *window, const char *name, GBytes *bytes) {
     update(w);
 }
 
+int zg_window_add_import(GtkWindow *window, char **names, GBytes **bytes, guint n, GString *errors) {
+    Window *w = get(window);
+    if (!w || n == 0) return 0;
+    zg_model_project_end(w->model);
+    new_plate_if_parts(w);
+    guint loaded = 0;
+    for (guint i = 0; i < n; i++) {
+        GError *error = NULL;
+        gsize len = 0;
+        const void *data = g_bytes_get_data(bytes[i], &len);
+        if (zg_model_add(w->model, names[i], data, len, &error)) {
+            loaded++;
+        } else {
+            g_string_append_printf(errors, "%s: %s\n", names[i], error->message);
+            g_error_free(error);
+        }
+    }
+    int plates = loaded > 0 ? 1 : 0;
+    if (loaded > 0) {
+        gint64 more = zg_model_spill(w->model);
+        if (more > 0) plates += (int)more;
+    }
+    zg_history_tools_mark_saved(w->history_tools);
+    gtk_progress_bar_set_fraction(GTK_PROGRESS_BAR(w->progress), 0);
+    update(w);
+    return plates;
+}
+
 void zg_window_show_progress(GtkWindow *window, const char *text, double fraction) {
     Window *w = get(window);
     if (!w) return;
@@ -1153,12 +1192,13 @@ void zg_window_open_dialog(GtkWindow *window) {
     GtkFileDialog *dialog = gtk_file_dialog_new();
     gtk_file_dialog_set_title(dialog, "Add models to the plate");
     GtkFileFilter *stl = gtk_file_filter_new();
-    gtk_file_filter_set_name(stl, "Models (STL, 3MF, OBJ, STEP)");
+    gtk_file_filter_set_name(stl, "Models (STL, 3MF, OBJ, STEP, or a ZIP file of a model)");
     gtk_file_filter_add_suffix(stl, "stl");
     gtk_file_filter_add_suffix(stl, "3mf");
     gtk_file_filter_add_suffix(stl, "obj");
     gtk_file_filter_add_suffix(stl, "step");
     gtk_file_filter_add_suffix(stl, "stp");
+    gtk_file_filter_add_suffix(stl, "zip");
     gtk_file_filter_add_mime_type(stl, "model/stl");
     gtk_file_filter_add_mime_type(stl, "model/3mf");
     GListStore *filters = g_list_store_new(GTK_TYPE_FILE_FILTER);

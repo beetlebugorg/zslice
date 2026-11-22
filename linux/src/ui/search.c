@@ -43,6 +43,7 @@ typedef struct {
 
 static const Action ACTIONS[] = {
     {"Open a model…", "Ctrl+O", "add models to the plate", "app.open", NULL},
+    {"Import from a model page…", NULL, "Printables or Thingiverse: choose the files to load", "app.import-page", ""},
     {"Export G-code…", "Ctrl+E", NULL, "win.export", NULL},
     {"The print as it forms", NULL, "simulated plastic: it sags and droops where nothing holds it", "preview.simulate", NULL},
     {"Print", NULL, "send the G-code to the printer and start", "win.send-print", NULL},

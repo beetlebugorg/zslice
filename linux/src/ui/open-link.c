@@ -6,6 +6,7 @@
 #include "open-link.h"
 
 #include "../net/model-download.h"
+#include "model-import.h"
 #include "window.h"
 #include "zslice.h"
 
@@ -73,6 +74,13 @@ void zg_open_link(GtkWindow *window, const char *uri) {
     if (rc != ZS_LINK_OK) {
         g_free(a);
         zg_window_show_error(window, "This link did not open", zs_link_message(rc));
+        return;
+    }
+    /* A link to a model page: the user chooses the files of the model. */
+    zs_import_page page;
+    if (zs_import_page_check(a->link.url, &page) == ZS_IMPORT_OK) {
+        g_free(a);
+        zg_model_import_page(window, &page);
         return;
     }
     if (busy) {

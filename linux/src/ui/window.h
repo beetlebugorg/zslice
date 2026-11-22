@@ -22,6 +22,11 @@ void zg_window_open_external(GtkWindow *window, GFile **files, int n);
 /* Opens the bytes of a downloaded model: on a new plate if the active
  * plate has parts. */
 void zg_window_open_bytes(GtkWindow *window, const char *name, GBytes *bytes);
+/* Adds the files of an import (ui/model-import) as parts: on a new plate
+ * if the active plate has parts, then the parts that do not fit go on
+ * more plates (zs_set_spill). A line for each file that did not load goes
+ * to errors. Returns the count of plates with parts of the import. */
+int zg_window_add_import(GtkWindow *window, char **names, GBytes **bytes, guint n, GString *errors);
 /* A line in the status bar and the fraction of the progress bar. */
 void zg_window_show_progress(GtkWindow *window, const char *text, double fraction);
 /* An alert with a message and a detail. */

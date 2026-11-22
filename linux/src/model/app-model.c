@@ -2386,6 +2386,13 @@ gint64 zg_model_part_fill(ZgModel *self, size_t i, size_t n, size_t *plates) {
     return r;
 }
 
+gint64 zg_model_spill(ZgModel *self) {
+    plate_leave(self);
+    ptrdiff_t r = zs_set_spill(self->set, zs_set_active(self->set));
+    plate_switched(self);
+    return r;
+}
+
 void zg_model_edits_changed(ZgModel *self) {
     zg_model_select(self, -1);
     plate_changed(self);

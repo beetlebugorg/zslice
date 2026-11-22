@@ -13,6 +13,11 @@ typedef struct {
     ZgDownloadProgress progress;
     gpointer progress_data;
     GMainContext *context;
+    /* A request of an import (zg_net_request): the POST body, or NULL for
+     * a GET; and the largest answer. */
+    gboolean request;
+    char *body;
+    guint64 limit;
     /* Set by the check of a connection. */
     gboolean local_peer;
     GCancellable *inner;
@@ -40,6 +45,7 @@ static void job_free(gpointer p) {
     Job *j = p;
     if (j->context) g_main_context_unref(j->context);
     g_clear_object(&j->inner);
+    g_free(j->body);
     g_free(j);
 }
 
@@ -124,10 +130,15 @@ static GBytes *fetch_once(Job *j, SoupSession *session, gboolean *redirected, GE
         fail_with(error, ZS_LINK_NOT_PUBLIC);
         return NULL;
     }
-    SoupMessage *m = soup_message_new_from_uri("GET", uri);
+    SoupMessage *m = soup_message_new_from_uri(j->body ? "POST" : "GET", uri);
     g_uri_unref(uri);
     soup_message_set_flags(m, SOUP_MESSAGE_NO_REDIRECT);
-    soup_message_headers_replace(soup_message_get_request_headers(m), "Accept", "*/*");
+    soup_message_headers_replace(soup_message_get_request_headers(m), "Accept", j->body ? "application/json" : "*/*");
+    if (j->body) {
+        GBytes *body = g_bytes_new(j->body, strlen(j->body));
+        soup_message_set_request_body_from_bytes(m, "application/json", body);
+        g_bytes_unref(body);
+    }
     g_signal_connect(m, "network-event", G_CALLBACK(on_network_event), j);
     GError *e = NULL;
     GInputStream *in = soup_session_send(session, m, j->inner, &e);
@@ -150,6 +161,11 @@ static GBytes *fetch_once(Job *j, SoupSession *session, gboolean *redirected, GE
     GBytes *result = NULL;
     guint status = soup_message_get_status(m);
     SoupMessageHeaders *head = soup_message_get_response_headers(m);
+    if (j->body && status >= 300 && status < 400) {
+        /* A POST to an API follows no redirect. */
+        g_set_error(error, G_IO_ERROR, G_IO_ERROR_FAILED, "The site answered with error %u.", status);
+        goto out;
+    }
     if (status == 301 || status == 302 || status == 303 || status == 307 || status == 308) {
         const char *location = soup_message_headers_get_one(head, "Location");
         if (!location || !*location)
@@ -167,11 +183,19 @@ static GBytes *fetch_once(Job *j, SoupSession *session, gboolean *redirected, GE
     gint64 total = soup_message_headers_get_encoding(head) == SOUP_ENCODING_CONTENT_LENGTH
                        ? soup_message_headers_get_content_length(head)
                        : -1;
-    int rc = zs_link_check_reply(soup_message_headers_get_one(head, "Content-Type"), total);
-    if (rc == ZS_LINK_OK) rc = zs_link_file_name(soup_message_headers_get_one(head, "Content-Disposition"), &j->link);
-    if (rc != ZS_LINK_OK) {
-        fail_with(error, rc);
-        goto out;
+    guint64 limit = j->request ? j->limit : ZS_LINK_MAX_BYTES;
+    if (j->request) {
+        if (total > 0 && (guint64)total > limit) {
+            fail_with(error, ZS_LINK_TOO_LARGE);
+            goto out;
+        }
+    } else {
+        int rc = zs_link_check_reply(soup_message_headers_get_one(head, "Content-Type"), total);
+        if (rc == ZS_LINK_OK) rc = zs_link_file_name(soup_message_headers_get_one(head, "Content-Disposition"), &j->link);
+        if (rc != ZS_LINK_OK) {
+            fail_with(error, rc);
+            goto out;
+        }
     }
     GByteArray *data = g_byte_array_sized_new(total > 0 ? (guint)total : 1 << 20);
     guint8 *buffer = g_malloc(256 * 1024);
@@ -192,8 +216,11 @@ static GBytes *fetch_once(Job *j, SoupSession *session, gboolean *redirected, GE
             data = NULL;
             break;
         }
-        if (data->len + (guint64)got > ZS_LINK_MAX_BYTES) {
-            fail_with(error, ZS_LINK_TOO_LARGE);
+        if (data->len + (guint64)got > limit) {
+            if (j->request)
+                g_set_error_literal(error, G_IO_ERROR, G_IO_ERROR_FAILED, "The answer of the site is too large.");
+            else
+                fail_with(error, ZS_LINK_TOO_LARGE);
             break;
         }
         g_byte_array_append(data, buffer, (guint)got);
@@ -216,7 +243,7 @@ out:
 
 static void download_thread(GTask *task, gpointer source, gpointer data, GCancellable *cancel) {
     Job *j = data;
-    SoupSession *session = soup_session_new_with_options("user-agent", "zslice", "timeout", 30, "max-conns-per-host", 2, NULL);
+    SoupSession *session = soup_session_new_with_options("user-agent", zs_import_user_agent(), "timeout", 30, "max-conns-per-host", 2, NULL);
     /* No proxy: the check of the peer needs the real address. */
     soup_session_set_proxy_resolver(session, NULL);
     /* No cookie jar, no cache, and no credentials: a new session has none,
@@ -233,12 +260,14 @@ static void download_thread(GTask *task, gpointer source, gpointer data, GCancel
     }
     if (cancel) g_cancellable_disconnect(cancel, forward);
     g_object_unref(session);
-    if (bytes && zs_project_file_is(g_bytes_get_data(bytes, NULL), g_bytes_get_size(bytes))) {
+    if (bytes && !j->request && zs_project_file_is(g_bytes_get_data(bytes, NULL), g_bytes_get_size(bytes))) {
         g_bytes_unref(bytes);
         bytes = NULL;
         fail_with(&error, ZS_LINK_PROJECT);
     }
     if (!bytes) {
+        if (!error && j->request)
+            g_set_error_literal(&error, G_IO_ERROR, G_IO_ERROR_FAILED, "The site did not answer.");
         if (!error) fail_with(&error, ZS_LINK_NOT_A_MODEL);
         g_task_return_error(task, error);
         return;
@@ -272,4 +301,24 @@ GBytes *zg_model_download_finish(GAsyncResult *result, char **name, GError **err
     if (name) *name = g_strdup(d->name);
     done_free(d);
     return bytes;
+}
+
+void zg_net_request(const zs_link *link, const char *body, guint64 limit, GCancellable *cancel, GAsyncReadyCallback done,
+                    gpointer data) {
+    Job *j = g_new0(Job, 1);
+    j->link = *link;
+    j->request = TRUE;
+    j->body = g_strdup(body);
+    j->limit = limit;
+    j->context = g_main_context_ref_thread_default();
+    j->inner = g_cancellable_new();
+    GTask *task = g_task_new(NULL, cancel, done, data);
+    g_task_set_task_data(task, j, job_free);
+    g_task_set_return_on_cancel(task, FALSE);
+    g_task_run_in_thread(task, download_thread);
+    g_object_unref(task);
+}
+
+GBytes *zg_net_request_finish(GAsyncResult *result, GError **error) {
+    return zg_model_download_finish(result, NULL, error);
 }

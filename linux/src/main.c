@@ -21,6 +21,7 @@
 #include "model/app-model.h"
 #include "ui/licenses.h"
 #include "ui/open-link.h"
+#include "ui/model-import.h"
 #include "ui/preferences.h"
 #include "ui/printer-picker.h"
 #include "ui/window.h"
@@ -248,6 +249,11 @@ static void on_open_action(GSimpleAction *a, GVariant *p, gpointer app) {
     zg_window_open_dialog(main_window(app));
 }
 
+/* "Import from a model page…": the target is an address to show, or "". */
+static void on_import_page_action(GSimpleAction *a, GVariant *p, gpointer app) {
+    zg_model_import_ask(main_window(app), p ? g_variant_get_string(p, NULL) : NULL);
+}
+
 static void on_export_action(GSimpleAction *a, GVariant *p, gpointer app) {
     zg_window_export_dialog(main_window(app));
 }
@@ -271,6 +277,7 @@ static void on_quit_action(GSimpleAction *a, GVariant *p, gpointer app) {
 
 static const GActionEntry actions[] = {
     {.name = "open", .activate = on_open_action},
+    {.name = "import-page", .activate = on_import_page_action, .parameter_type = "s"},
     {.name = "export", .activate = on_export_action},
     {.name = "licenses", .activate = on_licenses_action},
     {.name = "about", .activate = on_about_action},
@@ -550,6 +557,7 @@ static void on_open(GApplication *app, GFile **files, int n, const char *hint, g
 
 static void on_shutdown(GApplication *app, gpointer data) {
     zg_open_link_cancel();
+    zg_model_import_cancel();
     GtkWindow *w = gtk_application_get_active_window(GTK_APPLICATION(app));
     if (w) session_save(w, TRUE);
     g_clear_object(&model);

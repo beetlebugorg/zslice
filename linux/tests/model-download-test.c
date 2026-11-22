@@ -5,8 +5,10 @@
  * A stub resolver takes the place of the default one: "lan.example.com"
  * gives 192.168.1.20, "mixed.example.com" gives a public address and
  * 127.0.0.1, and "nas.example.com" gives fd00::5. Each download must end
- * with the "local network" error. The test sends no packet: the stub
- * answers each lookup, and a refused name gets no connection.
+ * with the "local network" error. The requests of an import (a POST to an
+ * API, and a GET of a preview) get the same checks. The test sends no
+ * packet: the stub answers each lookup, and a refused name gets no
+ * connection.
  *
  * SPDX-License-Identifier: AGPL-3.0-or-later
  */
@@ -66,6 +68,12 @@ static void on_done(GObject *source, GAsyncResult *res, gpointer data) {
     g_main_loop_quit(r->loop);
 }
 
+static void on_request(GObject *source, GAsyncResult *res, gpointer data) {
+    Result *r = data;
+    r->bytes = zg_net_request_finish(res, &r->error);
+    g_main_loop_quit(r->loop);
+}
+
 static int failures;
 
 static void check(gboolean ok, const char *what) {
@@ -98,6 +106,21 @@ int main(void) {
     download_refused("zslice://open?file=https://nas.example.com/b.3mf", "local network");
     download_refused("zslice://open?file=https://gone.example.com/b.3mf", "does not resolve");
     check(lookups == 4, "one lookup for each link");
+
+    /* An API request and a preview to a local address. */
+    const char *bodies[] = {"{\"query\":\"x\"}", NULL};
+    for (int i = 0; i < 2; i++) {
+        zs_link api;
+        check(zs_link_check_url("https://lan.example.com/graphql/", &api) == ZS_LINK_OK, "an API URL");
+        Result q = {g_main_loop_new(NULL, FALSE), NULL, NULL};
+        zg_net_request(&api, bodies[i], ZS_IMPORT_MAX_ANSWER, NULL, on_request, &q);
+        g_main_loop_run(q.loop);
+        check(q.bytes == NULL && q.error && strstr(q.error->message, "local network"), "a request to a local address");
+        g_clear_error(&q.error);
+        g_main_loop_unref(q.loop);
+    }
+    check(lookups == 6, "one lookup for each request");
+    check(g_str_has_prefix(zs_import_user_agent(), "zslice/"), "the User-Agent");
 
     GError *error = NULL;
     check(!zg_model_download_check_host("lan.example.com", NULL, &error), "the check of a host");
