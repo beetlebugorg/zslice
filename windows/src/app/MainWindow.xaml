@@ -529,6 +529,29 @@
                                                    MaximumRowsOrColumns="6" HorizontalAlignment="Right" VerticalAlignment="Center" />
                         </Grid>
                         <StackPanel x:Name="LineExtend" Visibility="Collapsed" />
+                        <!-- The support mark of the user at this line. -->
+                        <StackPanel x:Name="LineMark" Spacing="4" Visibility="Collapsed">
+                            <TextBlock Text="Support you added" FontWeight="SemiBold" FontSize="12" />
+                            <Grid ColumnSpacing="6">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="72" />
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <ComboBox x:Name="LineMarkKind" HorizontalAlignment="Stretch" AutomationProperties.Name="The kind of support">
+                                    <x:String>Grid</x:String>
+                                    <x:String>Tree</x:String>
+                                    <x:String>Bridge pad</x:String>
+                                    <x:String>Block (no support)</x:String>
+                                </ComboBox>
+                                <NumberBox x:Name="LineMarkRadius" Grid.Column="1" Minimum="0.5" Maximum="30" SmallChange="0.5"
+                                           AutomationProperties.Name="The radius of the mark in millimeters"
+                                           ToolTipService.ToolTip="The radius of the area of the mark, mm" />
+                                <TextBlock Grid.Column="2" Text="mm" VerticalAlignment="Center" Foreground="{ThemeResource ZsDim}" />
+                                <Button x:Name="LineMarkRemove" Grid.Column="3" Content="Remove" Foreground="#C01C28" />
+                            </Grid>
+                        </StackPanel>
                         <StackPanel x:Name="LineSettings" Spacing="4" />
                         <StackPanel Orientation="Horizontal" Spacing="6">
                             <ToggleButton x:Name="LineFade" Content="Fade the others"

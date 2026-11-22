@@ -438,7 +438,8 @@ namespace winrt::ZSlice::implementation
 #ifdef ZS_DEV_HOOKS
     // scopeset n (0 print, 1 global, 2 and up a part), scopeedit name value,
     // scopereset name, scopelog name, scopepart name value, scopepartclear
-    // name, scopepartadd, scopepartpick i, scopeparttoggle i, scopepartlog.
+    // name, scopepartadd, scopepartpick i, scopeparttoggle i, scopepartlog,
+    // scopepartscale percent, scopemark add k|kind k|radius r|remove|log.
     bool MainWindow::RunScopeStep(std::wstring const &verb, std::vector<std::wstring> const &words)
     {
         if (verb.rfind(L"scope", 0) != 0 || model == nullptr)
@@ -460,6 +461,33 @@ namespace winrt::ZSlice::implementation
         }
         else if (verb == L"scopepartadd")
             OpenPartSearch();
+        else if (verb == L"scopemark" && !words.empty())
+        {
+            // add k, kind k, radius r, remove, log.
+            double value = words.size() > 1 ? _wtof(words[1].c_str()) : 0;
+            double x, y, z;
+            if (words[0] == L"add" && MenuPlace(x, y, z) && zs_app_mark_add(model->Active(), x, y, z, 3, (int)value) == ZS_OK)
+                SupportEdited();
+            else if (words[0] == L"kind")
+                LineMarkKind().SelectedIndex((int32_t)value);
+            else if (words[0] == L"radius")
+                LineMarkRadius().Value(value);
+            else if (words[0] == L"remove" && line_mark >= 0)
+            {
+                zs_app_mark_remove(model->Active(), (size_t)line_mark);
+                line_mark = -1;
+                LineMark().Visibility(Visibility::Collapsed);
+                SupportEdited();
+            }
+            else if (words[0] == L"log")
+            {
+                double r = 0;
+                int kind = -1;
+                if (line_mark >= 0)
+                    zs_app_mark_get(model->Active(), (size_t)line_mark, nullptr, nullptr, nullptr, &r, &kind);
+                zs::Log("dev: mark count %zu, path %lld, row %d, index %lld, core kind %d radius %.1f, combo %d box %.1f\n", zs_app_mark_count(model->Active()), (long long)selected_path,
+                        LineMark().Visibility() == Visibility::Visible ? 1 : 0, (long long)line_mark, kind, r, LineMarkKind().SelectedIndex(), LineMarkRadius().Value());            }
+        }
         else if (verb == L"scopepartpick" && !words.empty())
             SelectPart(_wtoi(words[0].c_str()));
         else if (verb == L"scopeparttoggle" && !words.empty())
