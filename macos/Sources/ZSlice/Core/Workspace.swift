@@ -145,12 +145,6 @@ final class Workspace {
     var paint: PaintSession?
     /// The other lines of a run (Shift and a click) are lit.
     @ObservationIgnored var runLit = false
-    /// The card of a history step over its bubble (HistoryCard.swift).
-    var historyCard: HistoryCardState?
-    @ObservationIgnored var historyCardTask: Task<Void, Never>?
-    @ObservationIgnored var historyCardHovered = false
-    /// The frame of each bubble of the timeline (global), for the card.
-    @ObservationIgnored var historyBubbles: [Int: CGRect] = [:]
     /// The panels over the view (global frames), and the global origin of
     /// the layer of the cards: a card keeps out of each panel.
     var panelFrames: [CGRect] = []
@@ -631,13 +625,27 @@ final class Workspace {
             PrinterStore.shared.remove(p.id)
             NSLog("zslice key remove: key before %d, after %d", before ? 1 : 0, Keychain.read(account: p.id.uuidString) == nil ? 0 : 1)
         }
-        // ZSLICE_HISTORY_CARD=i opens the card of history step i over its
-        // bubble, 4 s after the start (after ZSLICE_SET makes the steps).
-        if let i = env["ZSLICE_HISTORY_CARD"].flatMap(Int.init) {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 4) { [weak self] in
+        // ZSLICE_HISTORY_BADGE=1 logs the count of the history button, 4 s
+        // after the start (after ZSLICE_SET makes the steps), then an undo,
+        // then a mark of a save.
+        if env["ZSLICE_HISTORY_BADGE"] != nil {
+            Task { @MainActor [weak self] in
                 guard let self else { return }
-                historyCard = HistoryCardState(step: i, anchor: historyBubbles[i] ?? .zero)
-                NSLog("zslice history card: step %ld of %ld, keys %@, changes %@", i, model.history.count, historyCardKeys(i).joined(separator: ","), model.history.step(i)?.changes.joined(separator: " / ") ?? "-")
+                let h = model.history
+                @MainActor func log(_ what: String) { NSLog("zslice history badge: %@: %ld changes, now %ld, unsaved %ld, times %@, saved %.3f", what, h.count - 1, h.current, h.unsaved(since: model.savedAt), (0 ..< h.count).map { String(format: "%.3f", h.step($0)?.time.timeIntervalSince1970.truncatingRemainder(dividingBy: 100) ?? -1) }.joined(separator: ","), model.savedAt.timeIntervalSince1970.truncatingRemainder(dividingBy: 100)) }
+                try? await Task.sleep(for: .seconds(4))
+                log("start")
+                h.undoManager.undo()
+                try? await Task.sleep(for: .milliseconds(300))
+                log("undo")
+                model.markSaved()
+                log("saved")
+                try? await Task.sleep(for: .milliseconds(50))
+                h.commit()
+                log("commit with no change")
+                h.undoManager.redo()
+                try? await Task.sleep(for: .milliseconds(300))
+                log("redo")
             }
         }
         // ZSLICE_SPOOLS_TEST=url: a printdeck printer at url becomes the
@@ -1243,7 +1251,7 @@ final class Workspace {
                 try? await Task.sleep(for: .seconds(1.5))
                 let box = self.gapScreenBox() ?? .zero
                 let size = self.gapCardSize
-                let c = cardPlace(avoiding: box, near: at, size: size, in: self.canvas.bounds.size, bottom: self.dockHeight + 12, panels: self.panels)
+                let c = cardPlace(avoiding: box, near: at, size: size, in: self.canvas.bounds.size, bottom: 12, panels: self.panels)
                 let card = CGRect(x: c.x - size.width / 2, y: c.y - size.height / 2, width: size.width, height: size.height)
                 NSLog("zslice gap open: gap %@, card %@, overlap %d", NSStringFromRect(box), NSStringFromRect(card), card.intersects(box) ? 1 : 0)
             }

@@ -48,6 +48,11 @@ struct ToolGlyph: View {
         // Two squares and a dashed corner.
         "gaps": Glyph(parts: [.rect(2.5, 2.5, 5.5, 5.5), .rect(10, 10, 5.5, 5.5), .path("M10 2.5h5.5V8", dash: [1.6, 1.6])], width: 1.4, round: false),
         "check": Glyph(parts: [.path("M3.5 9.5l3.5 3.5 7.5-8.5")], width: 1.6),
+        // The bottom bar: undo, redo (undo mirrored), and the history (a
+        // clock with an arrow against the clock).
+        "undo": Glyph(parts: [.path("M6.5 3.5 3 7l3.5 3.5"), .path("M3 7h7.5a4.5 4.5 0 0 1 0 9H8")]),
+        "redo": Glyph(parts: [.path("M11.5 3.5 15 7l-3.5 3.5"), .path("M15 7H7.5a4.5 4.5 0 0 0 0 9H10")]),
+        "history": Glyph(parts: [.path("M3.2 9a5.8 5.8 0 1 0 1.7-4.1"), .path("M4.9 1.9v3h3"), .path("M9 5.8V9l2.3 1.5")]),
     ]
 
     var body: some View {

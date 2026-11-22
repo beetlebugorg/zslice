@@ -67,7 +67,11 @@ final class ProjectDocument: ReferenceFileDocument, @unchecked Sendable {
     }
 
     func fileWrapper(snapshot: Data, configuration: WriteConfiguration) throws -> FileWrapper {
-        FileWrapper(regularFileWithContents: snapshot)
+        // A save: the count of the history button starts again.
+        DispatchQueue.main.async { [weak model] in
+            MainActor.assumeIsolated { model?.markSaved() }
+        }
+        return FileWrapper(regularFileWithContents: snapshot)
     }
 }
 

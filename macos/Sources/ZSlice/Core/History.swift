@@ -149,6 +149,22 @@ final class History {
         undoActions += 1
     }
 
+    /// The changes since the last open or save (time `saved`): the steps
+    /// after it up to the step now, and the steps before it that an undo
+    /// took back (web/app/history.js, unsaved). The core keeps the time of
+    /// each step, so the history needs no mark.
+    func unsaved(since saved: Date) -> Int {
+        let n = count
+        let now = current
+        var k = 0
+        for i in 1 ..< max(1, n) {
+            guard let s = step(i) else { continue }
+            let after = s.time > saved
+            if i <= now ? after : !after { k += 1 }
+        }
+        return k
+    }
+
     /// Makes the undo actions again: one for each step before the step now.
     /// The redo actions go (the core keeps its redo steps, and a jump in
     /// the timeline still reaches them).

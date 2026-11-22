@@ -66,7 +66,6 @@ The package is `Package.swift`. `Sources/CZslice/module.modulemap` makes the C A
 | `Core/Settings.swift` | The setting infos, values, sources, effects, and value texts, from the core. |
 | `Core/Profiles.swift` | The Filament and Quality profiles. |
 | `Core/History.swift` | The undo list of the core on the `UndoManager` of macOS. |
-| `Core/HistoryCard.swift` | The card of a history step over its bubble. |
 | `Core/Refinements.swift` | Your usual refinements. |
 | `Core/Simulation.swift` | The print as it forms. |
 | `Core/Checks.swift` | Gaps and Check. |
@@ -119,10 +118,9 @@ The package is `Package.swift`. `Sources/CZslice/module.modulemap` makes the C A
 | `Views/LayerSlider.swift` | The slider with two knobs for the layers that show. |
 | `Views/PlateBar.swift` | The plate bar: the plate before and after, all plates, a new plate, and Remove. |
 | `Views/PlateSigns.swift` | The signs of the plates on the bed (the image of their text), and the Open button of an empty plate. |
-| `Views/Timeline.swift` | The history in the bottom bar: Undo, Redo, and a bubble for each step. |
+| `Views/HistoryTools.swift` | Undo, Redo, and the History button of the bottom bar, with its badge (`History.unsaved(since:)`, the time of `SliceModel.savedAt`) and the popover. |
 | `Views/HistoryGlyph.swift` | The glyph of each kind of step. |
-| `Views/HistoryCardView.swift` | The bubble, and the card of a step. |
-| `Views/HistoryPage.swift` | The History popover: the steps, the newest first, with their changes, and the line edits. |
+| `Views/HistoryPage.swift` | The History popover: a head with the count, the steps, the newest first, with their changes, the line edits, and the clear button. |
 | `Views/LineCard.swift` | The card of a selected line, and the placement of the cards. |
 | `Views/PartCard.swift` | The card of a selected part, or of several parts. |
 | `Views/CutPopover.swift` | Cut, from the part card. |
@@ -302,9 +300,10 @@ The core keeps the undo list of each plate (`zs_app_history_*`). Each change thr
 - **The UndoManager** of the plate mirrors the list: each step before the step now is one undo action, and each step after it one redo action. Each step registers as a top-level group of its own, with no grouping by event while it registers: in the group of an event that stayed open, the steps after it went into one group, and one undo took back all of them. An undo action calls `zs_app_history_undo` and registers the redo action, as AppKit expects. So Edit > Undo and Redo (Command-Z and Shift-Command-Z) have the titles of a Mac app ("Undo Walls"). A text field that edits keeps its own undo.
 - **Copy and paste**: `ClipboardCommands` replaces the pasteboard group of the Edit menu. When the first responder is a text field (`NSText`), Cut, Copy, Paste, and Select All go to it. Else they call `clipCut`, `clipCopy`, and `clipPaste` of the workspace. A paste with no point uses the pointer over the view (`pointerInView`). The core keeps one clipboard of parts for the process (`zs_app_parts_copy`), so the parts paste on any plate of any window. `Clip.current` keeps the kind of the last copy, and the data of a label, an area, or layer changes. A label with no face under or over it says so, and adds no label.
 - **A jump**: a click on a step goes to it through the undo and redo actions, so both lists stay right. When the list changes in another way (a step amended or dropped, or the history cleared after a step), the app makes the undo actions again. After an undo, the editors read the values again, and the plate slices again.
-- **The timeline** in the bottom bar has Undo, Redo, a bubble for each step, and the count. A bubble has the color of its kind and its glyph: the SVG paths of web/app/history.js, read into SwiftUI paths (`HistoryGlyph`). The step now is 26 points, the others 22. A filament step (`zs_history_kind` "filament": a filament added, removed, or changed, or the filament of a part or the support) is indigo, with a spool from the side. A label step ("label": the text, the shapes, the size, the turn, or the depth of a label) is purple, with a tag.
-- **The card of a step** opens after a hover of 350 ms on its bubble, over the bubble (`HistoryCard.swift`). It has the changes in words and an editor for each setting of the plate that the step changed: the change lines `scope\tkey\tbefore\tafter` whose scope has no ":" and is not one filament ("filament 2"), as web/app/history.js. It closes 400 ms after the pointer leaves the bubble and the card, unless one of its editors has the focus.
-- **The History popover** lists the steps, the newest first, with their changes in words. The arrow button of a change undoes only that change (`zs_app_history_revert`). The menu of a step clears the history after it.
+- **The History button** in the bottom bar (`HistoryTools`) has the glyph of a clock, and Undo and Redo have the glyphs of the web dock (`ToolGlyph` "undo", "redo", "history"). Its badge counts the steps i ≥ 1 with i ≤ the step now and a time after the last open or save, or with i > the step now and a time at or before it (web/app/history.js, unsaved). `SliceModel.markSaved` sets that time after a load of the window, a load of a model, and each write of the document (`ProjectDocument.fileWrapper`). A restored session keeps the time of no save, so each change counts.
+- **A row of a step** has the glyph of its kind on its color: the SVG paths of web/app/history.js, read into SwiftUI paths (`HistoryGlyph`). A filament step (`zs_history_kind` "filament": a filament added, removed, or changed, or the filament of a part or the support) is indigo, with a spool from the side. A label step ("label": the text, the shapes, the size, the turn, or the depth of a label) is purple, with a tag.
+- **The History popover** opens over the button and lists the steps, the newest first, with their changes in words. The arrow button of a change undoes only that change (`zs_app_history_revert`). A double-click on a change with a setting key opens the setting (`openSetting`). The menu of a step, and the button at the foot, clear the history after it. Up and Down go to the next and the previous step.
+- **The bottom bar** is one row when it is at least 940 points wide; else the replay is a second row. The 3D view ends at the top of the bar (`dockHeight`).
 
 ## The tools
 
@@ -489,7 +488,7 @@ Like the GTK shell, the app reads environment variables for tests and screenshot
 
 - `ZSLICE_SET="name=value;name=value"` makes each change a step after the first slice, and `ZSLICE_UNDO=n` then undoes n steps.
 - `ZSLICE_RESLICE=n` changes the wall count after each slice, n times, for tests of memory and time. Any value also changes the infill 3 times, one change after each slice, and logs the longest wait of the main thread; `ZSLICE_RESLICE=name=a,b,c` changes that setting to each value in place of the infill. With `ZSLICE_TIMING=1`, the app logs the time of each slice, of the work after it on the main thread, of the save copy, and of each frame over 8 ms.
-- `ZSLICE_HISTORY_CARD=i` opens the card of history step i over its bubble 4 s after the start, and logs the settings that get an editor there.
+- `ZSLICE_HISTORY_BADGE=1` logs the count of the History button 4 s after the start, then after an undo, a mark of a save, a commit with no change, and a redo.
 - `ZSLICE_EDIT=kind` edits the selected line (0: do not print it; 1: 90 % plastic), `ZSLICE_EDIT_UNDO=1` undoes it 3 s later, and each slice logs the edits.
 - `ZSLICE_SIM=1` logs the numbers of each simulated print, and its time after the slice. `ZSLICE_NO_SIM=1` turns off the simulation, to compare.
 - `ZSLICE_REFINE=path` keeps the store of refinements in that file, also with `ZSLICE_FRESH`. `ZSLICE_REFINE_APPLY=1` applies the first suggestion and logs it.
