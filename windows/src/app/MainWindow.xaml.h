@@ -382,6 +382,14 @@ namespace winrt::ZSlice::implementation
             int count = 0;
         };
         void WireSummary();
+        void WireWork();
+        void StopWork();
+        void WorkBegin(int kind);
+        void WorkEnd();
+        void WorkProgress(double fraction);
+        void WorkSliceEnded(bool draft);
+        void WorkTick();
+        void ShowWorkText();
         void FillFacts();
         bool FillSummaryWarn();
         void UpdateSummaryBadge(bool warn);
@@ -538,9 +546,14 @@ namespace winrt::ZSlice::implementation
         // The id of each plate in the store of the refinements.
         std::vector<std::string> refine_ids;
         Microsoft::UI::Dispatching::DispatcherQueueTimer refine_timer{ nullptr };
-        bool slice_timing = false;
-        std::chrono::steady_clock::time_point slice_start{};
-        double slice_ms = 0;
+        // The work bar (MainWindow.Work.cpp). work_kind: 0 none, 1 draft,
+        // 2 exact, 3 simulation.
+        Microsoft::UI::Dispatching::DispatcherQueueTimer settle_timer{ nullptr }, work_show{ nullptr }, work_poll{ nullptr };
+        int work_kind = 0;
+        double work_fraction = 0;
+        bool work_draft = false;
+        bool work_has_ended = false;
+        std::chrono::steady_clock::time_point work_start{}, work_ended{};
 
         std::unique_ptr<zs::appshell::OpenServer> open_server;
         zs::http::CancelPtr download_cancel;

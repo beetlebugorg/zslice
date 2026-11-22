@@ -143,6 +143,7 @@
     <ClCompile Include="src\app\MainWindow.Open.cpp" />
     <ClCompile Include="src\app\MainWindow.Summary.cpp" />
     <ClCompile Include="src\app\MainWindow.History.cpp" />
+    <ClCompile Include="src\app\MainWindow.Work.cpp" />
     <ClCompile Include="src\app\MainWindow.CuraCompare.cpp" />
     <ClCompile Include="src\app\MainWindow.Project.cpp" />
     <ClCompile Include="src\app\MainWindow.Layer2D.cpp" />

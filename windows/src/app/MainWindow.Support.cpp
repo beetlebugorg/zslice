@@ -1272,6 +1272,7 @@ namespace winrt::ZSlice::implementation
             if (!td_releasing && td_sent - td_live > std::chrono::milliseconds(150))
             {
                 td_live = td_sent;
+                w.model->LiveChange();
                 zs_set_release(w.model->Set());
             }
             ReadTree(td_part);

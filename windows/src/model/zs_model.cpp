@@ -224,7 +224,11 @@ namespace zs
             return false;
         }
         if (zs_app_part_count(app) > 0)
+        {
+            LiveChange();
+            MarkSliceStart();
             zs_set_changed(set_, zs_set_active(set_));
+        }
         return true;
     }
 
@@ -359,6 +363,8 @@ namespace zs
         if (rc == ZS_OK)
         {
             zs_set_name(set_, active, utf8.c_str());
+            LiveChange();
+            MarkSliceStart();
             rc = zs_set_changed(set_, active);
         }
         if (rc != ZS_OK)
@@ -435,8 +441,116 @@ namespace zs
         return true;
     }
 
+    // A change of a plate that has a slice gives a draft first. The exact
+    // slice follows 300 ms after the last change, or at the end of a drag.
+    // A plate with no slice yet slices exact at once.
+    void Model::LiveChange()
+    {
+        zs_app *app = Active();
+        if (draft_app_ != nullptr && draft_app_ != app)
+            Settle();
+        int state = zs_app_state(app);
+        if (draft_app_ == nullptr && (state == ZS_STATE_DONE || state == ZS_STATE_SLICING))
+        {
+            draft_app_ = app;
+            zs_app_set_draft(app, 1);
+            draft_since_exact_ = true;
+        }
+        if (draft_app_ != nullptr && settle_restart_)
+            settle_restart_();
+    }
+
+    void Model::SetSettleTimer(std::function<void()> restart)
+    {
+        settle_restart_ = std::move(restart);
+    }
+
+    bool Model::SettleDue()
+    {
+        if (draft_app_ != nullptr && zs_app_state(draft_app_) == ZS_STATE_SLICING)
+            return false;
+        Settle();
+        return true;
+    }
+
+    // The exact slice of the plate that has a draft.
+    void Model::Settle()
+    {
+        zs_app *app = draft_app_;
+        draft_app_ = nullptr;
+        if (app == nullptr)
+            return;
+        for (size_t i = 0; i < zs_set_count(set_); i++)
+        {
+            if (zs_set_app(set_, i) != app)
+                continue;
+            zs_app_set_draft(app, 0);
+            if (i == zs_set_active(set_))
+            {
+                MarkSliceStart();
+                slice_pending_ = false;
+            }
+            zs_set_changed(set_, i);
+            return;
+        }
+    }
+
+    void Model::SliceExact(size_t plate)
+    {
+        zs_app *app = zs_set_app(set_, plate);
+        if (app == nullptr)
+            return;
+        if (app == draft_app_)
+        {
+            Settle();
+            return;
+        }
+        zs_app_set_draft(app, 0);
+        zs_set_changed(set_, plate);
+    }
+
+    bool Model::IsDraft() const
+    {
+        zs_app *app = Active();
+        return zs_app_state(app) == ZS_STATE_DONE && zs_app_is_draft(app) != 0;
+    }
+
+    bool Model::SlicesDraft() const
+    {
+        zs_app *app = Active();
+        return zs_app_state(app) == ZS_STATE_SLICING && zs_app_is_draft(app) != 0;
+    }
+
+    void Model::MarkSliceStart()
+    {
+        slice_timing_ = true;
+        slice_start_ = std::chrono::steady_clock::now();
+    }
+
+    void Model::NoteSliceProgress()
+    {
+        if (!slice_timing_)
+            MarkSliceStart();
+    }
+
+    void Model::NoteSliced()
+    {
+        double ms = slice_timing_ ? std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - slice_start_).count() : 0;
+        slice_timing_ = false;
+        if (zs_app_is_draft(Active()) != 0)
+        {
+            draft_ms_ = ms;
+            return;
+        }
+        exact_ms_ = ms;
+        if (!draft_since_exact_)
+            draft_ms_ = 0;
+        draft_since_exact_ = false;
+    }
+
     void Model::RequestSlice()
     {
+        LiveChange();
         if (held_)
         {
             zs_set_changed_held(set_, zs_set_active(set_));
@@ -449,7 +563,10 @@ namespace zs
         if (state == ZS_STATE_SLICING)
             slice_pending_ = true;
         else if (state != ZS_STATE_EMPTY)
+        {
+            MarkSliceStart();
             zs_set_changed(set_, zs_set_active(set_));
+        }
     }
 
     void Model::Hold(bool on)
@@ -458,7 +575,12 @@ namespace zs
             return;
         held_ = on;
         if (!on)
+        {
+            // The end of a drag: the exact slice, with no draft before it.
+            Settle();
+            MarkSliceStart();
             zs_set_release(set_);
+        }
     }
 
     bool Model::TakeSlicePending()

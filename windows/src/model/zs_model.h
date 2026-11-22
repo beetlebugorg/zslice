@@ -5,6 +5,7 @@
 //
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <functional>
@@ -75,6 +76,24 @@ namespace zs
         bool SetSetting(char const *name, std::string const &value, std::string &error);
         // Slices the active plate. During a slice it waits for the end.
         void RequestSlice();
+        // The draft slices (zs_app_set_draft). `restart` starts the timer of
+        // 300 ms again. Its tick calls SettleDue, and starts the timer again
+        // if SettleDue returns false: a draft still runs.
+        void SetSettleTimer(std::function<void()> restart);
+        // A change while the view is live: the next slice is a draft.
+        void LiveChange();
+        bool SettleDue();
+        // The exact slice of the plate that has a draft, now.
+        void Settle();
+        // An exact slice of this plate, for a batch.
+        void SliceExact(size_t plate);
+        // The view has a draft: it has no G-code.
+        bool IsDraft() const;
+        bool SlicesDraft() const;
+        void NoteSliceProgress();
+        void NoteSliced();
+        double DraftMs() const { return draft_ms_; }
+        double ExactMs() const { return exact_ms_; }
         // True once after a slice if a change came during it.
         bool TakeSlicePending();
         // During a drag the changes wait. The release slices once.
@@ -107,7 +126,16 @@ namespace zs
         bool printers_tried_ = false;
         zs_view *bed_view_ = nullptr;
         ptrdiff_t bed_shown_ = -2;
+        void MarkSliceStart();
+
         bool slice_pending_ = false;
+        // The plate whose next slices are drafts, or null.
+        zs_app *draft_app_ = nullptr;
+        std::function<void()> settle_restart_;
+        bool slice_timing_ = false;
+        std::chrono::steady_clock::time_point slice_start_{};
+        double draft_ms_ = 0, exact_ms_ = 0;
+        bool draft_since_exact_ = false;
         bool held_ = false;
     };
 

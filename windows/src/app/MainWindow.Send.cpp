@@ -80,7 +80,8 @@ namespace winrt::ZSlice::implementation
         zs_app *app = w.model->Active();
         int state = zs_app_state(app);
         bool has_parts = zs_app_part_count(app) > 0;
-        bool sliced = state == ZS_STATE_DONE;
+        bool draft = w.model->IsDraft();
+        bool sliced = state == ZS_STATE_DONE && !draft;
         zs::SavedPrinter const &printer = zs::Printers().Current();
         bool can_send = printer.kind != zs::LinkKind::None && printer.kind != zs::LinkKind::Bambu;
         auto add = [&](std::wstring const &text, bool enabled, std::function<void()> run) {
@@ -121,6 +122,13 @@ namespace winrt::ZSlice::implementation
         if (app == nullptr || zs_app_state(app) != ZS_STATE_DONE)
         {
             Note(L"No G-code: the plate has no slice yet.");
+            return;
+        }
+        // A draft has no G-code.
+        if (zs_app_is_draft(app) != 0)
+        {
+            w.model->SliceExact(index);
+            Note(L"The exact slice runs. Send again when it is done.");
             return;
         }
         std::string gcode = CopyGcode(app);
@@ -222,6 +230,14 @@ namespace winrt::ZSlice::implementation
         auto window = w.get_strong();
         zs_app *app = w.model->Active();
         int state = zs_app_state(app);
+        if (state == ZS_STATE_DONE && zs_app_is_draft(app) != 0)
+        {
+            // A draft has no G-code: the exact slice comes first.
+            w.model->Settle();
+            state = zs_app_state(app);
+            if (state == ZS_STATE_DONE)
+                state = ZS_STATE_SLICING;
+        }
         if (state == ZS_STATE_SLICING)
         {
             // Export when the slice is done.
@@ -376,7 +392,12 @@ namespace winrt::ZSlice::implementation
         if (zs_set_active(set) != batch.i)
             w.SelectPlate(batch.i);
         int state = zs_app_state(w.model->Active());
-        if (state == ZS_STATE_DONE)
+        // The batch waits for a slice that is no draft.
+        if (state == ZS_STATE_DONE && w.model->IsDraft())
+        {
+            w.model->SliceExact(batch.i);
+        }
+        else if (state == ZS_STATE_DONE)
         {
             Poster post = poster;
             post.Post([](PrintersUi &ui) { ui.BatchTake(); });
@@ -391,7 +412,7 @@ namespace winrt::ZSlice::implementation
         if (!batch.on || sending || w.model->ActivePlate() != batch.i)
             return;
         zs_app *app = w.model->Active();
-        if (zs_app_state(app) != ZS_STATE_DONE)
+        if (zs_app_state(app) != ZS_STATE_DONE || zs_app_is_draft(app) != 0)
             return;
         if (batch.send)
         {

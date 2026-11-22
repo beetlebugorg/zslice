@@ -49,6 +49,7 @@ A build with `-p:ZsDevHooks=true` reads `ZSLICE_DO`: steps with `;` between them
 | `src/app/MainWindow.Search.cpp` | The search of settings and actions: docked, on a card, or on a rail. It has no action that starts a print. |
 | `src/app/MainWindow.Summary.cpp` | The details of the print: the facts, the warning, and the refinements (`refine.txt` in the state folder). |
 | `src/app/MainWindow.History.cpp` | The hover card of a history step, the list of the steps, the undo of one change, and the line edits. |
+| `src/app/MainWindow.Work.cpp` | The timer of the exact slice after a draft, the work bar of 2 px, and its text. |
 | `src/app/MainWindow.Open.cpp` | A file or a `zslice://` link from outside the app. A link asks before it downloads. |
 | `src/net/zs_open_link` | The download of a link, with the rules of the core (`zs_link_check`, see [Links that open a model](open-links.md)). It resolves the host first, and it closes a connection to a local address before the TLS handshake. |
 | `src/app/MainWindow.Project.cpp` | The printdeck.yml project: its dialog, its plan, the status of its plates, and `project.json` in the state folder. |
@@ -77,6 +78,7 @@ A build with `-p:ZsDevHooks=true` reads `ZSLICE_DO`: steps with `;` between them
 - The Label tool keeps a copy of the labels of one part. An edit shows at once, and goes to the core 400 ms after the last change or at the end of a drag, so it is one step of the history.
 - The state of Paint, Label, and the filaments is in structs inside their `.cpp` files. `MainWindow.xaml.h` has only a pointer to each and the calls that other files need. Their cards are built in code, so `MainWindow.xaml` has only the filament button.
 - The Support tool keeps a copy of the areas and the trees. It reads them again after a load of the view, an undo, and a switch of the plate. During a drag the copy leads, and the slices wait for the release. A drag of a tree sends its edit at most each 60 ms, and slices at most each 150 ms.
+- A change of a plate with a slice gives a draft (`zs_app_set_draft`). `Model::LiveChange` starts a timer of 300 ms, and `Model::Settle` starts the exact slice at its end or at the end of a drag. A draft has no G-code, so the file, the session, the refinements, and a batch wait for the exact slice.
 - One window has each state folder, so that two windows do not overwrite one session. A later start gives its argument to the first window and exits. The first window restores its session before it opens a file.
 - A shipped build writes the file type keys when they differ from its path. A build with test hooks, or a run with `ZSLICE_STATE_DIR`, writes none.
 

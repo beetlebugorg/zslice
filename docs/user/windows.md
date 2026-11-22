@@ -91,6 +91,8 @@ Click the time in the bottom bar for the details of the print. Each main setting
 
 The bottom bar has the history of your changes. Hold the pointer on a step to see what changed, and change a setting right there. **History** opens the list of the steps, where ↶ undoes one change and keeps the later ones. Right-click a step to go to it or to clear the history after it.
 
+A change shows as a fast draft first, and the exact slice follows 300 ms after your last change or at the end of a drag. A thin bar at the top of the view shows the work, and small text says what runs and how long it took. Export and upload wait for the exact slice.
+
 The bar under the view replays the print at a speed of 1× to 100×. Its slider moves the nozzle through the top layer. B hides the bed.
 
 ## Parts

@@ -87,6 +87,11 @@ namespace winrt::ZSlice::implementation
         zs_app *app = model->Active();
         uint8_t const *gcode = nullptr;
         size_t gcode_len = 0;
+        if (selected_path >= 0 && model->IsDraft())
+        {
+            ShowToast(L"The exact slice runs. Try again when it is done.");
+            return;
+        }
         if (selected_path < 0 || zs_app_gcode(app, &gcode, &gcode_len) != ZS_OK)
             return;
         std::wstring file = zs::StateDir() + L"\\last-slice.gcode";

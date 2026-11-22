@@ -96,7 +96,7 @@ namespace winrt::ZSlice::implementation
         zs_set_view_sync(model->Set(), view);
         LayerCard().Visibility(Visibility::Collapsed);
         SliceProgress().Visibility(Visibility::Collapsed);
-        ShowBusy(state == ZS_STATE_SLICING ? L"Slicing…" : L"");
+        ShowBusy(L"");
         RefreshSummary();
         RefreshPlates();
         RequestDraw();

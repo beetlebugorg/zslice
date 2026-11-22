@@ -160,6 +160,7 @@ namespace winrt::ZSlice::implementation
             return;
         }
         ApplySize();
+        WireWork();
         WirePrinters();
         ApplyThemePref();
         WireProject();
@@ -189,6 +190,7 @@ namespace winrt::ZSlice::implementation
     void MainWindow::CloseView()
     {
         StopOpenLinks();
+        StopWork();
         retry_timer.Stop();
         animation_timer.Stop();
         scene_timer.Stop();
@@ -299,31 +301,36 @@ namespace winrt::ZSlice::implementation
             // The state is the truth: an old slice can still report.
             if (zs_app_state(model->Active()) == ZS_STATE_SLICING)
             {
-                if (!slice_timing)
-                {
-                    slice_timing = true;
-                    slice_start = std::chrono::steady_clock::now();
-                }
+                model->NoteSliceProgress();
+                WorkProgress(event.progress);
                 SliceProgress().Visibility(Visibility::Visible);
                 SliceProgress().Value(event.progress);
-                ShowBusy(L"Slicing…");
             }
             break;
         case ZS_EVENT_SLICED:
             if (zs_app_state(model->Active()) == ZS_STATE_DONE)
             {
-                slice_ms = slice_timing ? std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - slice_start).count() : 0;
-                slice_timing = false;
-                refine_timer.Stop();
-                refine_timer.Start();
+                // A draft has no G-code and no simulation: the file, the
+                // session, and the refinements wait for the exact slice.
+                bool draft = model->IsDraft();
+                model->NoteSliced();
+                WorkSliceEnded(draft);
+                if (!draft)
+                {
+                    refine_timer.Stop();
+                    refine_timer.Start();
+                }
                 // A new slice shows the plan again.
                 simulated = false;
                 sim_item.IsChecked(false);
                 StopReplay();
                 replay_time = 0;
                 ShowSlice();
-                SessionSoon();
-                PrintersOnSliced();
+                if (!draft)
+                {
+                    SessionSoon();
+                    PrintersOnSliced();
+                }
             }
             break;
         case ZS_EVENT_SIMULATED:
@@ -332,7 +339,7 @@ namespace winrt::ZSlice::implementation
         case ZS_EVENT_FAILED:
             if (zs_app_state(model->Active()) == ZS_STATE_FAILED)
             {
-                slice_timing = false;
+                WorkSliceEnded(false);
                 SliceProgress().Visibility(Visibility::Collapsed);
                 ShowError(zs::ToWide(zs_status_message(event.status)));
                 PrintersOnFailed();
@@ -477,7 +484,7 @@ namespace winrt::ZSlice::implementation
         FileName().Text(name);
         Title(name + L" - zslice");
         EmptyHint().Visibility(Visibility::Collapsed);
-        ShowBusy(L"Slicing…");
+        ShowBusy(L"");
         // The load is a step of its own. The first edit after it is another.
         NoteChange();
     }

@@ -149,6 +149,20 @@
                         ToolTipService.ToolTip="Open a model on this plate. You can also drop an STL or 3MF file on the view." />
             </Canvas>
 
+            <!-- The work bar: 2 px at the top edge of the view, and what runs. -->
+            <ProgressBar x:Name="WorkBar" Canvas.ZIndex="45" Height="2" MinHeight="2" VerticalAlignment="Top" Minimum="0" Maximum="1"
+                         Background="Transparent" Foreground="{ThemeResource ZsAccent}" CornerRadius="0" Opacity="0" IsHitTestVisible="False">
+                <ProgressBar.OpacityTransition>
+                    <ScalarTransition Duration="0:0:0.2" />
+                </ProgressBar.OpacityTransition>
+            </ProgressBar>
+            <TextBlock x:Name="WorkText" Canvas.ZIndex="45" HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,8,64,0"
+                       FontSize="11.5" Foreground="{ThemeResource ZsFg}" Opacity="0" IsHitTestVisible="False">
+                <TextBlock.OpacityTransition>
+                    <ScalarTransition Duration="0:0:0.2" />
+                </TextBlock.OpacityTransition>
+            </TextBlock>
+
             <!-- A short note, over the bottom bar. -->
             <Border x:Name="ToastCard" Canvas.ZIndex="60" HorizontalAlignment="Center" VerticalAlignment="Bottom"
                     Margin="0,0,0,84" Padding="16,8" CornerRadius="18" Background="#EB242424"

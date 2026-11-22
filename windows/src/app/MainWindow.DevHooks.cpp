@@ -50,7 +50,8 @@
 //   open file-or-link, linkok, plates
 //   sumopen, sumshot path, sumlog, tipapply
 //   histcard i, histclose, histopen, histshot path, histrevert i,
-//   histclear i, histlog
+//   histclear i, histlog, worklog, draftset name value, draftgo,
+//   exportall
 //   curaopen [all], curaclose, curamenu, curamenupress, curaall 0|1,
 //   curareload, curause i, curauseall, curascroll y, curasize w h,
 //   curatheme light|dark, curashot path, curashot menu path, curalog
@@ -74,6 +75,7 @@
 
 #include "pch.h"
 #include "MainWindow.xaml.h"
+#include "MainWindow.Printers.h"
 
 #ifdef ZS_DEV_HOOKS
 
@@ -479,6 +481,27 @@ namespace winrt::ZSlice::implementation
         {
             std::wstring at = words.empty() ? L"header" : words[0];
             SetSearchPlace(at == L"card" ? SearchPlace::Card : at == L"left" ? SearchPlace::Left : at == L"right" ? SearchPlace::Right : SearchPlace::Header);
+        }
+        else if (verb == L"draftset" && words.size() >= 2)
+        {
+            // draftset name value: a change, and the timer of the exact
+            // slice stops, so the view keeps the draft for a look.
+            std::string error;
+            model->SetSetting(zs::ToUtf8(words[0]).c_str(), zs::ToUtf8(words[1]), error);
+            settle_timer.Stop();
+        }
+        else if (verb == L"exportall")
+        {
+            printers->ExportAll();
+        }
+        else if (verb == L"draftgo")
+        {
+            model->Settle();
+        }
+        else if (verb == L"worklog")
+        {
+            zs::Log("dev: work kind %d, draft %d, slicing draft %d, bar %.2f value %.2f, text '%s' %.1f, export %d\n", work_kind, model->IsDraft() ? 1 : 0, model->SlicesDraft() ? 1 : 0,
+                    WorkBar().Opacity(), WorkBar().Value(), to_string(WorkText().Text()).c_str(), WorkText().Opacity(), ExportButton().IsEnabled() ? 1 : 0);
         }
         else if (verb == L"histcard")
         {

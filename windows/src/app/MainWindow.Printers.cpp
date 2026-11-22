@@ -281,7 +281,7 @@ namespace winrt::ZSlice::implementation
             w.ExportButton().IsEnabled(false);
         // The arrow has the other ways to send, for a printer that takes files.
         w.SendMenuButton().Visibility(can_send ? Visibility::Visible : Visibility::Collapsed);
-        w.SendMenuButton().IsEnabled(zs_app_state(w.model->Active()) == ZS_STATE_DONE && !sending);
+        w.SendMenuButton().IsEnabled(zs_app_state(w.model->Active()) == ZS_STATE_DONE && !w.model->IsDraft() && !sending);
         w.ExportButton().CornerRadius(can_send ? CornerRadius{ 6, 0, 0, 6 } : CornerRadiusHelper::FromUniformRadius(6));
     }
 

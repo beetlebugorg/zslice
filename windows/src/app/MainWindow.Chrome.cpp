@@ -406,13 +406,15 @@ namespace winrt::ZSlice::implementation
         zs_app *app = model->Active();
         int state = zs_app_state(app);
         DockSummary().Visibility(state == ZS_STATE_EMPTY ? Visibility::Collapsed : Visibility::Visible);
-        DockSummary().Opacity(state == ZS_STATE_SLICING ? 0.55 : 1);
-        ExportButton().IsEnabled(state == ZS_STATE_DONE);
+        // A draft has no G-code, and the numbers are of the last exact slice.
+        bool draft = model->IsDraft();
+        DockSummary().Opacity(state == ZS_STATE_SLICING || draft ? 0.55 : 1);
+        ExportButton().IsEnabled(state == ZS_STATE_DONE && !draft);
         if (printers != nullptr)
             printers->RefreshPrimary();
-        if (state != ZS_STATE_DONE)
+        if (state == ZS_STATE_EMPTY || state == ZS_STATE_FAILED)
             ShowCheckCount(0);
-        if (state == ZS_STATE_SLICING)
+        if (state == ZS_STATE_SLICING || draft)
             return;
         ShowBusy(L"");
         zs_stats stats{};
@@ -445,14 +447,19 @@ namespace winrt::ZSlice::implementation
         if (zs_app_filament_stats(app, grams, 16, &changes, &flush) == ZS_OK && changes > 0)
             detail += L" · " + std::to_wstring(changes) + (changes == 1 ? L" change" : L" changes");
         SummaryDetail().Text(detail);
-        if (slice_ms > 0)
+        if (model->ExactMs() > 0)
         {
-            wchar_t took[48];
-            if (slice_ms < 1000)
-                swprintf_s(took, L"Sliced in %.0f ms", slice_ms);
-            else
-                swprintf_s(took, L"Sliced in %.1f s", slice_ms / 1000);
-            SummaryTook().Text(took);
+            auto time_text = [](double ms) {
+                wchar_t line[32];
+                if (ms < 1000)
+                    swprintf_s(line, L"%.0f ms", ms);
+                else
+                    swprintf_s(line, L"%.2f s", ms / 1000);
+                return std::wstring(line);
+            };
+            // After a draft: the times of both.
+            SummaryTook().Text(model->DraftMs() > 0 ? L"Draft " + time_text(model->DraftMs()) + L" · Exact " + time_text(model->ExactMs())
+                                                    : L"Sliced in " + time_text(model->ExactMs()));
         }
         else
         {
