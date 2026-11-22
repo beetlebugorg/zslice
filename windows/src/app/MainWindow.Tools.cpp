@@ -896,6 +896,8 @@ namespace winrt::ZSlice::implementation
         selected_path = path;
         selected_segment = segment;
         line_card_moved = false;
+        // Another line: no buttons of the body of the line before.
+        ClearLineExtend();
         SaveLineAnchor();
         ApplySelection();
         FillPartCard();

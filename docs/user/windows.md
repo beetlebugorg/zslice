@@ -115,7 +115,9 @@ On a printer with more than one nozzle, the title of the card says **main nozzle
 
 With the Select tool, press on a line and drag up or down. The body of that line turns yellow, from its layer to the layer under the pointer. Shift+K and Shift+J grow a range of layers up or down from the selected line, or from the top layer. Shift+Up and Shift+Down move the bottom of the layers that show.
 
-A card opens beside the layers. It has the filament of the layers and the settings that can change for some layers. **+ Add a setting for these layers** searches the others. A change is for these layers only and slices at once, and ↺ removes it. With a lit body, the row **This body** gives that body its own filament. Esc, ×, a click elsewhere, or another tool closes the card.
+A card opens beside the layers. It has the filament of the layers and the settings that can change for some layers. **+ Add a setting for these layers** searches the others. A change is for these layers only and slices at once, and ↺ removes it. With a lit body, the row **This part of the layers** gives that body its own filament. Each other row then has a switch, **This part** or **Whole layers**. A change for this part stays inside the lit body. A setting that a part cannot have stays for the whole layers, and a line under its row says why. Esc, ×, a click elsewhere, or another tool closes the card.
+
+The card of a selected line has a **Filament** row. A chip gives the body of that line its own filament on its layer. **Also the layers above** and **Also the layers below** then give the same filament to the layers where the body goes on.
 
 ## Projects
 

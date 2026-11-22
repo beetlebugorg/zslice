@@ -499,6 +499,7 @@ namespace winrt::ZSlice::implementation
         setting_editors.swap(kept);
         setting_editors.insert(setting_editors.end(), line_editors.begin(), line_editors.end());
 
+        FillLineFilament();
         PartCard().Visibility(Visibility::Collapsed);
         LineCard().Visibility(Visibility::Visible);
         PlaceLineCard();
