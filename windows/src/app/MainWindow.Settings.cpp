@@ -161,6 +161,7 @@ namespace winrt::ZSlice::implementation
             AfterRestore(model->Redo());
         });
         WireHistory();
+        WireProfiles();
         ShowSections();
     }
 
@@ -190,10 +191,17 @@ namespace winrt::ZSlice::implementation
         SettingsCrumb().Text(L"Settings");
         size_t n = zs_setting_count();
         settings_nozzles = NozzleCount();
-        // The Speed section first: the options of all groups that change
-        // the time of a slice.
+        AppendProfileRows();
+        // Then the Speed section: the options of all groups that change the
+        // time of a slice.
         if (zs_speed_count() > 0)
         {
+            TextBlock slicing;
+            slicing.Text(L"Slicing");
+            slicing.FontWeight(Microsoft::UI::Text::FontWeights::SemiBold());
+            slicing.Foreground(Brush(0x5B, 0x61, 0x68));
+            slicing.Margin(ThicknessHelper::FromLengths(4, 12, 0, 2));
+            SettingsList().Children().Append(slicing);
             Button speed = RowButton(L"Speed");
             speed.Click([this](auto &&, auto &&) { ShowSection("speed", "Speed"); });
             SettingsList().Children().Append(speed);
@@ -352,6 +360,11 @@ namespace winrt::ZSlice::implementation
             ShowSpeedSection();
             return;
         }
+        if (strcmp(group, "profiles") == 0)
+        {
+            ShowProfileChanges();
+            return;
+        }
         ClearSettingsList();
         settings_page = SettingsPage::Section;
         settings_group = group;
@@ -451,11 +464,26 @@ namespace winrt::ZSlice::implementation
         });
         row.Children().Append(label);
 
-        FrameworkElement editor = MakeEditor(info);
+        FrameworkElement editor = MakeEditor(info, in_profile ? profile_target : nullptr);
         // A row with a note under its name is taller than its editor.
         editor.VerticalAlignment(VerticalAlignment::Center);
         Grid::SetColumn(editor, 1);
         row.Children().Append(editor);
+        if (in_profile)
+        {
+            // A change of the profile has the accent color. A setting for
+            // the whole print is dim: it cannot change for some layers.
+            std::string key = info.name;
+            label.Opacity(info.per_layer != 0 ? 1.0 : 0.6);
+            auto tint = [this, label, key]() mutable {
+                if (ProfileHas(key))
+                    label.Foreground(TokenBrush(Root(), L"ZsAccentText"));
+                else
+                    label.Foreground(Brush(0x24, 0x28, 0x2E));
+            };
+            tint();
+            setting_editors.push_back({ key, tint });
+        }
         return row;
     }
 
@@ -623,7 +651,7 @@ namespace winrt::ZSlice::implementation
         TextBlock title = Wrapped(zs::ToWide(info.label), 18);
         title.FontWeight(Microsoft::UI::Text::FontWeights::SemiBold());
         page.Children().Append(title);
-        page.Children().Append(MakeEditor(info));
+        page.Children().Append(MakeEditor(info, in_profile ? profile_target : nullptr));
 
         TextBlock source = Wrapped(L"", 12);
         source.Foreground(Brush(0x5B, 0x61, 0x68));
@@ -642,9 +670,23 @@ namespace winrt::ZSlice::implementation
         page.Children().Append(source_row);
 
         std::string key = info.name;
-        auto fill_source = [this, source, reset, key, default_value = std::string(info.default_value != nullptr ? info.default_value : "")]() mutable {
+        auto fill_source = [this, source, reset, key, per_layer = info.per_layer != 0, default_value = std::string(info.default_value != nullptr ? info.default_value : "")]() mutable {
             if (model == nullptr)
                 return;
+            if (in_profile)
+            {
+                // Changed for these layers, or the value of all layers.
+                bool changed = ProfileHas(key);
+                source.Text(!per_layer ? std::wstring(L"This setting is for the whole print. It cannot change for some layers.")
+                            : changed  ? std::wstring(L"Changed in this profile.")
+                                       : L"The same as for all layers (" + DisplayValue(key.c_str(), model->GetSetting(key.c_str()), true) + L").");
+                reset.Content(box_value(L"Remove the change"));
+                reset.IsEnabled(changed);
+                reset.Opacity(changed ? 1 : 0);
+                return;
+            }
+            reset.Content(box_value(L"Reset"));
+            reset.Opacity(1);
             std::wstring text = L"From: " + zs::ToWide(model->SourceTag(key.c_str()));
             text += L"\nDefault: " + DisplayValue(key.c_str(), default_value, true);
             source.Text(text);
@@ -653,12 +695,15 @@ namespace winrt::ZSlice::implementation
         fill_source();
         setting_editors.push_back({ key, fill_source });
         reset.Click([this, key](auto &&, auto &&) {
-            if (model != nullptr)
+            if (in_profile)
+                ProfileClear(key);
+            else if (model != nullptr)
                 CommitSetting(key, model->BaseValue(key.c_str()));
         });
 
-        // A formula makes the value follow other settings.
-        if (info.kind != ZS_SETTING_TEXT)
+        // A formula makes the value follow other settings. It is for the
+        // whole print, so a layer profile has none.
+        if (info.kind != ZS_SETTING_TEXT && !in_profile)
         {
             TextBox formula;
             formula.Header(box_value(L"Formula"));
@@ -776,6 +821,7 @@ namespace winrt::ZSlice::implementation
         RefreshSearchValues();
         RangeRefresh();
         CuraSettingsChanged();
+        ProfilesRefresh();
     }
 
     // The history commits 400 ms after the last change.
