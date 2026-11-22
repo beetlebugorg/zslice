@@ -445,6 +445,7 @@
                             </StackPanel>
                         </Grid>
                         <TextBlock x:Name="LineNote" TextWrapping="WrapWholeWords" FontSize="12" Foreground="#B45309" />
+                        <TextBlock x:Name="LineNozzle" TextWrapping="WrapWholeWords" FontSize="12" Opacity="0.85" Visibility="Collapsed" />
                         <TextBlock x:Name="LineSize" TextWrapping="WrapWholeWords" FontSize="12" Foreground="{ThemeResource ZsDim}" />
                         <StackPanel x:Name="LineSettings" Spacing="4" />
                         <StackPanel Orientation="Horizontal" Spacing="6">
