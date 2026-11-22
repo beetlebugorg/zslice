@@ -1779,7 +1779,7 @@ final class Workspace {
     /// Adds models to the active plate with an open panel.
     func addModels() {
         let panel = NSOpenPanel()
-        panel.allowedContentTypes = [.stl, .threeMF, .step, .obj]
+        panel.allowedContentTypes = UTType.models
         panel.allowsMultipleSelection = true
         panel.message = "Choose the models to add to the plate."
         let add = { [weak self] (r: NSApplication.ModalResponse) in

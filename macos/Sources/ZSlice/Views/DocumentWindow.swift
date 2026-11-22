@@ -101,6 +101,11 @@ struct DocumentWindow: View {
         openPendingSessions()
         // A file opens in place of the empty window of the start (or of
         // File > New), at its place: no second window.
+        // A project 3MF that macOS typed as another slicer's 3MF: zslice
+        // saves it as its own type, so a save writes it in place.
+        if document.isProject, let t = doc.fileType.flatMap({ UTType($0) }), t != .threeMF, t.isThreeMF {
+            doc.fileType = UTType.threeMF.identifier
+        }
         if document.data.isEmpty {
             EmptyWindows.note(doc, workspace)
         } else {

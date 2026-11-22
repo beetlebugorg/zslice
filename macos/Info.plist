@@ -80,6 +80,7 @@
 			<array>
 				<string>org.iso.step</string>
 				<string>public.geometry-definition-format</string>
+				<string>com.bambulab.step</string>
 			</array>
 		</dict>
 		<dict>
@@ -92,6 +93,7 @@
 			<key>LSItemContentTypes</key>
 			<array>
 				<string>org.3mf.3mf</string>
+				<string>com.bambulab.3mf</string>
 			</array>
 		</dict>
 	</array>
