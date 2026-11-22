@@ -119,7 +119,11 @@ namespace winrt::ZSlice::implementation
     void MainWindow::WireChrome()
     {
         // The rail and the toast stay over the bottom bar.
-        Dock().SizeChanged([this](auto &&, auto &&) {
+        Dock().SizeChanged([this](auto &&, SizeChangedEventArgs const &e) {
+            // The bar folds by its own width: the settings pane takes a part
+            // of the window.
+            if (e.NewSize().Width != e.PreviousSize().Width)
+                LayoutDock(e.NewSize().Width);
             double h = Dock().ActualHeight();
             LayerCard().Margin(ThicknessHelper::FromLengths(0, 140, 14, h + 24));
             ToastCard().Margin(ThicknessHelper::FromLengths(0, 0, 0, h + 12));
@@ -130,7 +134,6 @@ namespace winrt::ZSlice::implementation
             Layer2DPanel().Margin(above);
             PlaceEmptyOpen();
         });
-        Root().SizeChanged([this](auto &&, SizeChangedEventArgs const &e) { LayoutDock(e.NewSize().Width); });
         LayerCard().SizeChanged([this](auto &&, auto &&) { UpdateLayerRail(); });
         LayerHiBubble().SizeChanged([this](auto &&, auto &&) { UpdateLayerRail(); });
         LayerCard().PointerPressed([this](auto &&, Input::PointerRoutedEventArgs const &e) {
