@@ -21,3 +21,8 @@
 
 /* A new card, hidden. Add it to the overlay of `preview`. */
 GtkWidget *zg_line_card_new(ZgModel *model, GtkWidget *preview);
+/* The Filament row: filament `filament` (from 1) for the body of the
+ * selected line on its layer, as a click on its chip. */
+void zg_line_card_pick_filament(GtkWidget *card, int filament);
+/* The line card of the preview that has `widget` in it, or NULL. */
+GtkWidget *zg_line_card_of(GtkWidget *widget);

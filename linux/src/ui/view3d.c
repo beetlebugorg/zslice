@@ -47,6 +47,7 @@
 #include "paint-tool.h"
 #include "part-mesh.h"
 #include "filaments.h"
+#include "line-card.h"
 #include "range-card.h"
 #include "setting-editor.h"
 #include "support-tool.h"
@@ -106,6 +107,9 @@ typedef struct {
     /* The color of the lit body: the filament the user gave it
      * (0xRRGGBB), or -1 for the yellow of a selection. */
     gint32 light_rgb;
+    /* The body of a line that the Filament row of the line card colors:
+     * lit in the color of the filament until the slice comes back. */
+    gboolean line_lit;
     /* Shift+K and Shift+J: the first layer of the range, the layer that
      * moves, and the selected line at the start. key_on while that range
      * shows. */
@@ -1483,6 +1487,14 @@ static void light_range(View3d *v, gint64 path, size_t lo, size_t hi) {
  * range again, from its start line if that line is still on its layer,
  * else all the lines of the layers. */
 static void relight(View3d *v) {
+    /* The slice of a filament of the line card: its lines have the color
+     * now. */
+    if (v->line_lit && !v->light_on) {
+        v->line_lit = FALSE;
+        zs_view_light_color(v->view, -1);
+        zs_view_light_connected(v->view, (size_t)-1, 0, 0, NULL);
+        more_from_model(v);
+    }
     if (!v->light_on || !zg_range_card_open(zg_range_card_of(v->area))) return;
     gint64 path = v->light_path;
     if (path >= 0 && v->light_pt && v->light_layer >= 0) {
@@ -1596,6 +1608,90 @@ gboolean zg_view3d_paint_body(GtkWidget *view, int filament) {
     zs_view_light_color(v->view, v->light_rgb);
     queue_frame(v);
     return zg_model_paint_body(v->model, beads, n, (guint)filament);
+}
+
+/* A copy of the beads of the body of `path` on layers lo to hi, or NULL. */
+static float *body_copy(View3d *v, gint64 path, size_t lo, size_t hi, size_t *n) {
+    const float *beads = NULL;
+    *n = 0;
+    if (path < 0 || zs_view_connected_beads(v->view, (size_t)path, lo, hi, &beads, n) != ZS_OK || *n == 0) return NULL;
+    return g_memdup2(beads, *n * sizeof(float));
+}
+
+/* Lights the body of `path` on layers lo to hi in the color of the
+ * filament, until the slice comes back (relight). */
+static void light_line(View3d *v, gint64 path, size_t lo, size_t hi, int filament) {
+    if (v->light_on) return;
+    v->line_lit = TRUE;
+    zs_view_light_color(v->view, (int32_t)zg_filament_rgb24(v->model, filament));
+    zs_view_light_connected(v->view, (size_t)path, lo, hi, NULL);
+    queue_frame(v);
+}
+
+gboolean zg_view3d_paint_line(GtkWidget *view, gint64 path, int filament, ZgLineBody *out) {
+    View3d *v = g_object_get_data(G_OBJECT(view), "zg-view3d");
+    memset(out, 0, sizeof *out);
+    if (!v || !v->view || path < 0 || filament < 1) return FALSE;
+    ptrdiff_t layer = zs_app_path_layer(zg_model_core(v->model), (size_t)path);
+    if (layer < 0) return FALSE;
+    size_t n = 0;
+    float *beads = body_copy(v, path, (size_t)layer, (size_t)layer, &n);
+    if (!beads) return FALSE;
+    size_t lo = (size_t)layer, hi = (size_t)layer;
+    zs_view_connected_layers(v->view, (size_t)path, &lo, &hi);
+    out->layer = (size_t)layer;
+    out->lo = lo;
+    out->hi = hi;
+    /* The beads above and below now: the slice numbers the lines again. */
+    if (hi > (size_t)layer) out->above = body_copy(v, path, (size_t)layer + 1, hi, &out->n_above);
+    if (lo < (size_t)layer) out->below = body_copy(v, path, lo, (size_t)layer - 1, &out->n_below);
+    light_line(v, path, (size_t)layer, (size_t)layer, filament);
+    gboolean ok = zg_model_paint_body(v->model, beads, n, (guint)filament);
+    g_free(beads);
+    return ok;
+}
+
+gboolean zg_view3d_paint_beads(GtkWidget *view, const float *beads, size_t n, int filament) {
+    View3d *v = g_object_get_data(G_OBJECT(view), "zg-view3d");
+    if (!v || !v->view || !beads || n == 0 || filament < 1) return FALSE;
+    gint64 sel = zg_model_selected(v->model);
+    if (sel >= 0) {
+        size_t lo = (size_t)-1, hi = 0;
+        for (size_t k = 1; k < n; k += 9) {
+            lo = MIN(lo, (size_t)beads[k]);
+            hi = MAX(hi, (size_t)beads[k]);
+        }
+        ptrdiff_t layer = zs_app_path_layer(zg_model_core(v->model), (size_t)sel);
+        if (layer >= 0) light_line(v, sel, MIN(lo, (size_t)layer), MAX(hi, (size_t)layer), filament);
+    }
+    return zg_model_paint_body(v->model, beads, n, (guint)filament);
+}
+
+void zg_line_body_free(ZgLineBody *b) {
+    g_clear_pointer(&b->above, g_free);
+    g_clear_pointer(&b->below, g_free);
+    b->n_above = b->n_below = 0;
+}
+
+guint32 zg_view3d_region_find(GtkWidget *view) {
+    View3d *v = g_object_get_data(G_OBJECT(view), "zg-view3d");
+    if (!v || !v->view || !v->light_on || v->light_path < 0) return 0;
+    const float *beads = NULL;
+    size_t n = 0;
+    if (zs_view_connected_beads(v->view, (size_t)v->light_path, v->light_lo, v->light_hi, &beads, &n) != ZS_OK || n == 0) return 0;
+    uint32_t id = 0;
+    zs_app_region_find(zg_model_core(v->model), beads, n, &id);
+    return id;
+}
+
+gboolean zg_view3d_region_set(GtkWidget *view, guint32 *id, const char *name, const char *value) {
+    View3d *v = g_object_get_data(G_OBJECT(view), "zg-view3d");
+    if (!v || !v->view) return FALSE;
+    const float *beads = NULL;
+    size_t n = 0;
+    if (v->light_on && v->light_path >= 0) zs_view_connected_beads(v->view, (size_t)v->light_path, v->light_lo, v->light_hi, &beads, &n);
+    if (n == 0 && (!id || *id == 0)) return FALSE;
+    return zg_model_region_set(v->model, beads, n, id, name, value);
 }
 
 /* Shift+K (dir 1) and Shift+J (dir -1): a range of layers that grows from
@@ -2426,6 +2522,27 @@ static void close_card_hook(gpointer data) {
     g_message("select test: the card closed");
 }
 
+/* ZSLICE_SELECT_LINE (see select_hook): the filament of the body of the
+ * selected line, from the Filament row of its card. */
+static void line_hook(gpointer data) {
+    View3d *v = data;
+    /* After the slice that runs (a draft, then the exact slice). */
+    if (zs_app_state(zg_model_core(v->model)) != ZS_STATE_DONE) {
+        g_timeout_add_once(1000, line_hook, v);
+        return;
+    }
+    int fil = atoi(g_getenv("ZSLICE_SELECT_LINE"));
+    /* A new filament slices again first. */
+    if ((int)zs_app_filament_count(zg_model_core(v->model)) < fil && zg_model_filament_add(v->model) >= 0) {
+        g_timeout_add_once(1000, line_hook, v);
+        return;
+    }
+    gint64 path = zg_model_selected(v->model);
+    ptrdiff_t layer = path >= 0 ? zs_app_path_layer(zg_model_core(v->model), (size_t)path) : -1;
+    zg_line_card_pick_filament(zg_line_card_of(v->area), fil);
+    g_message("select test: line %" G_GINT64_FORMAT ", layer %td, filament %d", path, layer, fil);
+}
+
 static void select_hook(gpointer data) {
     View3d *v = data;
     char **f = g_strsplit(g_getenv("ZSLICE_SELECT_TEST"), " ", 4);
@@ -2456,6 +2573,13 @@ static void select_hook(gpointer data) {
         size_t seg = 0;
         size_t path = zs_view_pick_segment(v->view, (float)(x * scale), (float)(y * scale), &seg);
         if (path != (size_t)-1) zg_model_select_segment(v->model, (gint64)path, (gint64)seg);
+        /* ZSLICE_SELECT_LINE=n: a click on the line (its card opens), and
+         * when the slice is done, filament n for its body on its layer, as
+         * a chip of the Filament row of the card. */
+        if (g_getenv("ZSLICE_SELECT_LINE") && path != (size_t)-1) {
+            zg_model_select(v->model, (gint64)path);
+            g_timeout_add_once(5000, line_hook, v);
+        }
         int n = atoi(f[3]);
         for (int i = 0; i < abs(n); i++) zg_view3d_key_range(v->area, n > 0 ? 1 : -1);
         GtkWidget *card = zg_range_card_of(v->area);

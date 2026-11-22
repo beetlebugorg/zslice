@@ -1203,6 +1203,38 @@ export class Core {
     return w.withBytes(bytes, (p) => (w.x.zs_app_paint_body(this.app, p, beads.length, filament, w.cell) === 0 ? w.u32(w.cell) : -1));
   }
 
+  // The region of a body of some layers (zs_app_region_set): setting
+  // `name` of region `id` (0: the region of the beads) to `value` (null:
+  // no value of its own). Returns { id } (0: the region went), or
+  // { error }.
+  regionSet(beads, id, name, value) {
+    const w = this.w;
+    const b = beads ?? new Float32Array(0);
+    const bytes = new Uint8Array(b.buffer, b.byteOffset, b.byteLength);
+    const rc = w.withBytes(bytes, (p) => w.withStrings([name, value], (n, v) => w.x.zs_app_region_set(this.app, p, b.length, id >>> 0, n, v, w.cell)));
+    if (rc !== 0) return { error: rc === 6 ? "A part of the layers cannot have this setting." : statusText(rc) };
+    return { id: w.u32(w.cell) };
+  }
+
+  // The id of the region of the beads (their box), or 0.
+  regionFind(beads) {
+    const w = this.w;
+    const bytes = new Uint8Array(beads.buffer, beads.byteOffset, beads.byteLength);
+    return w.withBytes(bytes, (p) => (w.x.zs_app_region_find(this.app, p, beads.length, w.cell) === 0 ? w.u32(w.cell) : 0));
+  }
+
+  // The settings of region `id`: { name: value }.
+  regionSettings(id) {
+    const w = this.w;
+    const text = w.readText((b, c, l) => w.x.zs_app_region_settings(this.app, id >>> 0, b, c, l)) ?? "";
+    const out = {};
+    for (const line of text.split("\n")) {
+      const tab = line.indexOf("\t");
+      if (tab > 0) out[line.slice(0, tab)] = line.slice(tab + 1);
+    }
+    return out;
+  }
+
   // ---- the labels of a part (zs_app_part_labels_get, zs_app_label_*) ----
 
   // The labels of part i: an array of label objects (the JSON of

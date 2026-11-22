@@ -544,6 +544,9 @@ int zs_app_edit_add_dot_z(zs_app *app, size_t layer, double z, double x, double 
 int zs_app_path_run(const zs_app *app, size_t path, size_t *first, size_t *last);
 /* The layer of path `path` of the last slice, or -1. */
 ptrdiff_t zs_app_path_layer(const zs_app *app, size_t path);
+/* The filament (from 1) that prints path `path` of the last slice, or 0
+ * for no such path. */
+uint32_t zs_app_path_filament(const zs_app *app, size_t path);
 /* applied: 1 if the last slice found the line of the edit, 0 if the line
  * is not there now (the edit waits). Any output can be NULL. */
 int zs_app_edit_get(const zs_app *app, size_t i, int *kind, double *value, size_t *layer, int *applied);
@@ -1078,6 +1081,25 @@ int zs_app_part_paint_used(const zs_app *app, size_t i, uint32_t *out);
  * paint changed. A change is a step of the undo list (kind filament), and
  * the next slice splits the part. */
 int zs_app_paint_body(zs_app *app, const float *beads, size_t n, uint32_t filament, size_t *changed);
+/* The settings of a region of some layers: a body (the beads of
+ * zs_view_connected_beads) becomes a modifier volume of its part with its
+ * own value of a setting. Only the settings with no zs_setting_region_note
+ * (the infill, its speed, and its flow); the filament of a body is
+ * zs_app_paint_body. Sets setting `name` of region `id` to `value` (NULL:
+ * no value of its own). `id` 0: the region of the beads (the region with
+ * their box, or a new one). `out_id` (may be NULL): the id of the region,
+ * or 0 if it went (no setting left). ZS_INVALID_VALUE: a setting that a
+ * region cannot have, or a bad value. A change is a step of the undo list
+ * (the 3MF of the plate keeps the region), and the next slice has it. */
+int zs_app_region_set(zs_app *app, const float *beads, size_t n, uint32_t id, const char *name, const char *value, uint32_t *out_id);
+/* The id of the region of the beads (their box), or 0 in `out_id`. */
+int zs_app_region_find(zs_app *app, const float *beads, size_t n, uint32_t *out_id);
+/* The settings of region `id`, one on each line: "name\tvalue". The same
+ * buffer rules as zs_app_setting_get. */
+int zs_app_region_settings(const zs_app *app, uint32_t id, char *buf, size_t cap, size_t *out_len);
+/* Why a region of some layers cannot have setting `name` of its own (a
+ * short sentence, static), or NULL if it can. */
+const char *zs_setting_region_note(const char *name);
 
 typedef struct zs_paint zs_paint;
 /* A session of a mesh (mm). It keeps the regions of the smart select: the
@@ -1954,6 +1976,10 @@ int zs_view_light_connected(zs_view *view, size_t start, size_t lo, size_t hi, s
  * z, its height, its ends a and b, and its width, mm). `out` points to `n`
  * floats, valid until the next call. The light does not change. */
 int zs_view_connected_beads(zs_view *view, size_t start, size_t lo, size_t hi, const float **out, size_t *n);
+/* The first and the last layer of the body of path `start` (the rule of
+ * zs_view_light_connected over all the layers): where the body goes on
+ * above and below its layer. ZS_OUT_OF_RANGE: no such path. */
+int zs_view_connected_layers(zs_view *view, size_t start, size_t *lo, size_t *hi);
 /* The color of the lit paths: 0xRRGGBB, or -1 for the yellow of a
  * selection. Give the color of the filament of a lit body, so it shows at
  * once, before the slice comes back. */

@@ -63,6 +63,8 @@ src/
                  brush, and the regions of the smart select.
   paint_body.zig  The filament of a selected body of some layers: the
                  faces under its lines become paint.
+  body_region.zig  The settings of a selected body of some layers: a
+                 modifier volume, a prism stack of its footprints.
   paint_split.zig  The split of the layers of a painted part into the
                  regions of its filaments.
   profile.zig    Profiles in TOML files. toml.zig: the parser.

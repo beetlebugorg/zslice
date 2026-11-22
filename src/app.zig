@@ -932,6 +932,157 @@ pub const App = struct {
         return changed;
     }
 
+    /// The metadata key of the id of a region (see body_region.zig).
+    pub const region_key = "zslice:region";
+
+    /// The region of id `id`: its part and its volume, or null.
+    pub fn regionAt(app: *const App, id: u32) ?[2]usize {
+        if (id == 0) return null;
+        for (app.plate.parts.items, 0..) |p, i| for (p.volumes.items, 0..) |v, k| {
+            if (regionId(v.meta) == id) return .{ i, k };
+        };
+        return null;
+    }
+
+    /// The id of a region from the metadata of a volume, or 0.
+    pub fn regionId(meta: []const zs.threemf.Meta) u32 {
+        for (meta) |m| if (std.mem.eql(u8, m.key, region_key)) return std.fmt.parseInt(u32, m.value, 10) catch 0;
+        return 0;
+    }
+
+    /// True if a key of the metadata of a region is one of its settings
+    /// (not its role, its id, or the walls it has none of).
+    pub fn isRegionSettingKey(key: []const u8) bool {
+        if (!std.mem.startsWith(u8, key, "zslice:")) return false;
+        if (std.mem.eql(u8, key, region_key)) return false;
+        return !std.mem.eql(u8, key, "zslice:project.wall_count");
+    }
+
+    pub const RegionError = Allocator.Error || Settings.SetError || error{ NoPart, NotRegional, NoRegion };
+
+    /// Sets setting `name` of the region of a body of some layers to
+    /// `value` (null: the region gets no value of its own). `id` 0: the
+    /// region of the beads (body_region.zig, the beads of
+    /// zs_view_connected_beads): the region with the same box, or a new
+    /// modifier volume of their part. A region with no setting left goes.
+    /// Returns the id of the region (0 if it went). Only the settings of
+    /// settings.region_settings (not the filament: that is paint, see
+    /// `paintBody`).
+    pub fn regionSet(app: *App, beads: []const f32, id: u32, name: []const u8, value: ?[]const u8) RegionError!u32 {
+        const current = zs.settings.currentName(name);
+        if (zs.settings.regionNote(current) != null or std.mem.eql(u8, current, "project.filament")) return error.NotRegional;
+        if (value) |v| {
+            var check = app.settings;
+            try check.set(current, v);
+        }
+        var at = app.regionAt(id);
+        if (at == null and id == 0) at = try app.regionOfBeads(beads);
+        if (at == null) {
+            if (value == null) return 0;
+            if (id != 0) return error.NoRegion;
+            const part = zs.body_region.partOf(beads) orelse return error.NoPart;
+            if (part >= app.plate.parts.items.len) return error.NoPart;
+            const mesh = zs.body_region.volume(app.gpa, beads) catch |e| return switch (e) {
+                error.OutOfMemory => error.OutOfMemory,
+                else => error.NoPart,
+            };
+            if (mesh.faces.items.len == 0) return error.NoPart;
+            var next: u32 = 1;
+            for (app.plate.parts.items) |p| for (p.volumes.items) |v| {
+                next = @max(next, regionId(v.meta) + 1);
+            };
+            var vname_buf: [32]u8 = undefined;
+            const vname = std.fmt.bufPrint(&vname_buf, "Region {d}", .{next}) catch unreachable;
+            const meta = try app.gpa.alloc(zs.threemf.Meta, 3);
+            @memset(meta, .{ .key = &.{}, .value = &.{} });
+            errdefer zs.threemf.freeMeta(app.gpa, meta);
+            meta[0] = .{ .key = try app.gpa.dupe(u8, "cura:infill_mesh"), .value = try app.gpa.dupe(u8, "True") };
+            meta[1] = .{ .key = try app.gpa.dupe(u8, region_key), .value = try std.fmt.allocPrint(app.gpa, "{d}", .{next}) };
+            // The walls of the part stay: the region has none of its own.
+            meta[2] = .{ .key = try app.gpa.dupe(u8, "zslice:project.wall_count"), .value = try app.gpa.dupe(u8, "0") };
+            app.stopWorker();
+            try app.plate.addVolumeOnBed(app.gpa, part, vname, mesh, meta);
+            at = .{ part, app.plate.parts.items[part].volumes.items.len - 1 };
+        }
+        const i = at.?[0];
+        const k = at.?[1];
+        const vol = &app.plate.parts.items[i].volumes.items[k];
+        const rid = regionId(vol.meta);
+        app.stopWorker();
+        // The key of the setting in the metadata.
+        const key = try std.fmt.allocPrint(app.gpa, "zslice:{s}", .{current});
+        defer app.gpa.free(key);
+        var found: ?usize = null;
+        for (vol.meta, 0..) |m, j| if (std.mem.startsWith(u8, m.key, "zslice:") and sameSetting(m.key["zslice:".len..], current)) {
+            found = j;
+        };
+        if (value) |v| {
+            const nv = try app.gpa.dupe(u8, v);
+            if (found) |j| {
+                app.gpa.free(vol.meta[j].value);
+                vol.meta[j].value = nv;
+            } else {
+                errdefer app.gpa.free(nv);
+                const nk = try app.gpa.dupe(u8, key);
+                errdefer app.gpa.free(nk);
+                const grown = try app.gpa.realloc(vol.meta, vol.meta.len + 1);
+                grown[grown.len - 1] = .{ .key = nk, .value = nv };
+                vol.meta = grown;
+            }
+        } else if (found) |j| {
+            const smaller = try app.gpa.alloc(zs.threemf.Meta, vol.meta.len - 1);
+            const m = vol.meta[j];
+            app.gpa.free(m.key);
+            app.gpa.free(m.value);
+            @memcpy(smaller[0..j], vol.meta[0..j]);
+            @memcpy(smaller[j..], vol.meta[j + 1 ..]);
+            app.gpa.free(vol.meta);
+            vol.meta = smaller;
+        }
+        // The next slice plans the parts again, with the region.
+        try app.plateChanged();
+        // No setting left: the region goes.
+        for (vol.meta) |m| {
+            if (isRegionSettingKey(m.key)) return rid;
+        }
+        app.plate.removeVolume(app.gpa, i, k);
+        return 0;
+    }
+
+    /// The region whose box is the box of the beads (within 0.3 mm: the
+    /// outline of the volume is simplified), or null.
+    fn regionOfBeads(app: *App, beads: []const f32) Allocator.Error!?[2]usize {
+        const part = zs.body_region.partOf(beads) orelse return null;
+        if (part >= app.plate.parts.items.len) return null;
+        const want = zs.body_region.bounds(beads) orelse return null;
+        const p = &app.plate.parts.items[part];
+        for (p.volumes.items, 0..) |v, k| {
+            if (regionId(v.meta) == 0) continue;
+            var vm = try app.plate.volumeMesh(app.gpa, part, k);
+            defer vm.deinit(app.gpa);
+            const got = vm.bounds();
+            var same = true;
+            for (0..3) |d| same = same and @abs(got.min[d] - want[0][d]) < 0.3 and @abs(got.max[d] - want[1][d]) < 0.3;
+            if (same) return .{ part, k };
+        }
+        return null;
+    }
+
+    /// The id of the region of the beads (see `regionSet`), or 0.
+    pub fn regionFind(app: *App, beads: []const f32) Allocator.Error!u32 {
+        const at = (try app.regionOfBeads(beads)) orelse return 0;
+        return regionId(app.plate.parts.items[at[0]].volumes.items[at[1]].meta);
+    }
+
+    /// The settings of region `id`, one on each line: "name\tvalue".
+    pub fn regionSettings(app: *const App, id: u32, w: *std.Io.Writer) std.Io.Writer.Error!void {
+        const at = app.regionAt(id) orelse return;
+        for (app.plate.parts.items[at[0]].volumes.items[at[1]].meta) |m| {
+            if (!isRegionSettingKey(m.key)) continue;
+            try w.print("{s}\t{s}\n", .{ m.key["zslice:".len..], m.value });
+        }
+    }
+
     pub fn setPartSetting(app: *App, i: usize, name: []const u8, value: ?[]const u8) (Allocator.Error || Settings.SetError || error{NoPart})!void {
         if (i >= app.plate.parts.items.len) return error.NoPart;
         if (value) |v| {
@@ -1724,6 +1875,17 @@ pub const App = struct {
                 try w.print("part:{s}\t{s}\t", .{ name, m.key["zslice:".len..] });
                 try history.writeEscaped(w, m.value);
                 try w.writeByte('\n');
+            }
+            // The settings of each region of some layers (body_region.zig).
+            for (p.volumes.items) |v| {
+                const rid = regionId(v.meta);
+                if (rid == 0) continue;
+                for (v.meta) |m| {
+                    if (!isRegionSettingKey(m.key)) continue;
+                    try w.print("part:{s}\tregion {d} {s}\t", .{ name, rid, m.key["zslice:".len..] });
+                    try history.writeEscaped(w, m.value);
+                    try w.writeByte('\n');
+                }
             }
         }
         for (app.profiles.items) |p| {
@@ -3692,6 +3854,126 @@ test "app: the filament of a body of some layers paints the body, a step of kind
     _ = app.undo.commit(app, 2000);
     _ = app.undo.undo(app, 3000);
     try testing.expect(!app.plate.parts.items[0].paint.isEmpty());
+}
+
+/// The infill length (mm) of the paths of `tp` with x in [x0, x1], on the
+/// layers with z in (z0, z1): one sum for each such layer, in `out`.
+fn infillLengths(gpa: Allocator, tp: *const toolpaths_mod.Toolpaths, x0: f32, x1: f32, z0: f32, z1: f32, out: *std.ArrayList(f32)) !void {
+    out.clearRetainingCapacity();
+    var first: usize = 0;
+    for (tp.layer_ends.items, tp.layer_z.items) |end, z| {
+        defer first = end;
+        if (!(z > z0 and z < z1)) continue;
+        var sum: f32 = 0;
+        for (first..end) |p| {
+            if (tp.path_features.items[p] != 3) continue;
+            const a = if (p == 0) 0 else tp.path_ends.items[p - 1];
+            const b = tp.path_ends.items[p];
+            const px = tp.points.items[2 * a];
+            if (px < x0 or px > x1) continue;
+            for (a + 1..b) |k| {
+                const dx = tp.points.items[2 * k] - tp.points.items[2 * k - 2];
+                const dy = tp.points.items[2 * k + 1] - tp.points.items[2 * k - 1];
+                sum += @sqrt(dx * dx + dy * dy);
+            }
+        }
+        try out.append(gpa, sum);
+    }
+}
+
+test "app: a setting of a body of some layers changes only its lines there, with undo" {
+    const gpa = testing.allocator;
+    // A base and two columns on it: A on the left, B on the right.
+    var b: zs.mesh.Builder = .init(gpa);
+    try zs.mesh.shapes.addBox(&b, 0, 0, 0, 34, 14, 3);
+    try zs.mesh.shapes.addBox(&b, 2, 2, 3, 14, 12, 13);
+    try zs.mesh.shapes.addBox(&b, 20, 2, 3, 32, 12, 13);
+    var mesh = try b.finish();
+    var bytes: std.Io.Writer.Allocating = .init(gpa);
+    defer bytes.deinit();
+    try mesh.writeStl(&bytes.writer);
+    mesh.deinit(gpa);
+    const app = try App.create(gpa, null, null);
+    defer app.destroy();
+    try app.loadStl("columns.stl", bytes.written());
+    try app.startSlice();
+    app.stopWorkerForTest();
+    var placed = try app.plate.partMesh(gpa, 0);
+    const box = placed.bounds();
+    placed.deinit(gpa);
+    const ox: f32 = @floatCast(box.min[0]);
+    const oy: f32 = @floatCast(box.min[1]);
+    var before_a: std.ArrayList(f32) = .empty;
+    defer before_a.deinit(gpa);
+    var before_b: std.ArrayList(f32) = .empty;
+    defer before_b.deinit(gpa);
+    var before_base: std.ArrayList(f32) = .empty;
+    defer before_base.deinit(gpa);
+    try infillLengths(gpa, app.allToolpaths().?, ox + 2, ox + 14, 5.3, 8.7, &before_a);
+    try infillLengths(gpa, app.allToolpaths().?, ox + 20, ox + 32, 5.3, 8.7, &before_b);
+    try infillLengths(gpa, app.allToolpaths().?, ox, ox + 34, 0.5, 2.5, &before_base);
+    _ = app.undo.commit(app, 0);
+    const base_count = app.undo.count();
+
+    // The outer wall of column A on the layers from z 5 to 9 (as the view
+    // gives its beads).
+    var beads: std.ArrayList(f32) = .empty;
+    defer beads.deinit(gpa);
+    var l: usize = 25;
+    while (l <= 45) : (l += 1) {
+        const z: f32 = 0.2 * @as(f32, @floatFromInt(l));
+        const c = [_][2]f32{ .{ ox + 2.2, oy + 2.2 }, .{ ox + 13.8, oy + 2.2 }, .{ ox + 13.8, oy + 11.8 }, .{ ox + 2.2, oy + 11.8 } };
+        for (0..4) |k| try beads.appendSlice(gpa, &.{ 0, @floatFromInt(l), z, 0.2, c[k][0], c[k][1], c[(k + 1) % 4][0], c[(k + 1) % 4][1], 0.4 });
+    }
+    // Not a setting of a region: the walls, the filament (paint).
+    try testing.expectError(error.NotRegional, app.regionSet(beads.items, 0, "project.wall_count", "4"));
+    try testing.expectError(error.NotRegional, app.regionSet(beads.items, 0, "project.filament", "2"));
+    const id = try app.regionSet(beads.items, 0, "project.infill_density", "0.6");
+    try testing.expect(id > 0);
+    try testing.expectEqual(id, try app.regionFind(beads.items));
+    try testing.expectEqual(@as(usize, 1), app.plate.parts.items[0].volumes.items.len);
+    app.undo.note(gpa, null, true);
+    _ = app.undo.commit(app, 1000);
+    try testing.expectEqual(base_count + 1, app.undo.count());
+    const info = try app.undo.step(app, app.undo.count() - 1);
+    try testing.expectEqualStrings("infill", info.kind);
+
+    try app.startSlice();
+    app.stopWorkerForTest();
+    const tp = app.allToolpaths().?;
+    var after: std.ArrayList(f32) = .empty;
+    defer after.deinit(gpa);
+    // Column B and the base: the same lines.
+    try infillLengths(gpa, tp, ox + 20, ox + 32, 5.3, 8.7, &after);
+    try testing.expectEqualSlices(f32, before_b.items, after.items);
+    try infillLengths(gpa, tp, ox, ox + 34, 0.5, 2.5, &after);
+    try testing.expectEqualSlices(f32, before_base.items, after.items);
+    // Column A: more infill on these layers.
+    try infillLengths(gpa, tp, ox + 2, ox + 14, 5.3, 8.7, &after);
+    try testing.expectEqual(before_a.items.len, after.items.len);
+    for (before_a.items, after.items) |x, y| try testing.expect(y > 1.5 * x);
+    // Each path of the region is in column A, on its layers.
+    var first: usize = 0;
+    var any = false;
+    for (tp.layer_ends.items, tp.layer_z.items) |end, z| {
+        defer first = end;
+        for (first..end) |p| if (tp.path_modifier.items[p] != 0) {
+            any = true;
+            try testing.expect(z > 4.7 and z < 9.3);
+            const a = if (p == 0) 0 else tp.path_ends.items[p - 1];
+            try testing.expect(tp.points.items[2 * a] > ox + 1.5 and tp.points.items[2 * a] < ox + 14.5);
+        };
+    }
+    try testing.expect(any);
+
+    // The region goes with its last setting; undo brings it back.
+    try testing.expectEqual(@as(u32, 0), try app.regionSet(beads.items, 0, "project.infill_density", null));
+    try testing.expectEqual(@as(usize, 0), app.plate.parts.items[0].volumes.items.len);
+    app.undo.note(gpa, null, true);
+    _ = app.undo.commit(app, 2000);
+    _ = app.undo.undo(app, 3000);
+    try testing.expectEqual(@as(usize, 1), app.plate.parts.items[0].volumes.items.len);
+    try testing.expectEqual(id, App.regionId(app.plate.parts.items[0].volumes.items[0].meta));
 }
 
 /// The JSON of a label "VOLUME" 5 mm tall in filament 2 on the +x side of

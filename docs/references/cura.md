@@ -194,7 +194,7 @@ kind: idea
 source: CuraEngine
 license: AGPL-3.0
 link: https://github.com/Ultimaker/CuraEngine
-files: src/layer.zig, src/engine.zig, src/part_settings.zig
+files: src/layer.zig, src/engine.zig, src/part_settings.zig, src/body_region.zig
 area: slicing
 summary: The modifier volumes of zslice (`layer.Modifier`).
 ```
@@ -203,9 +203,9 @@ Infill meshes ("Modify settings for infill of other models") and `infill_mesh_or
 
 **License:** AGPL-3.0 (the behavior, not code)
 
-**Used in:** `src/layer.zig`, `src/engine.zig`, `src/part_settings.zig`
+**Used in:** `src/layer.zig`, `src/engine.zig`, `src/part_settings.zig`, `src/body_region.zig`
 
-**How zslice uses it:** The modifier volumes of zslice (`layer.Modifier`). zslice has its own method: the area of a volume on each layer, cut from the sparse area (and the skin area, if the volume has no top and no bottom thickness) of the part. No code was copied.
+**How zslice uses it:** The modifier volumes of zslice (`layer.Modifier`). A region of a selected body of some layers (`src/body_region.zig`) is such a volume. zslice has its own method: the area of a volume on each layer, cut from the sparse area (and the skin area, if the volume has no top and no bottom thickness) of the part. No code was copied.
 
 ### Trihexagon infill and infill line distance
 

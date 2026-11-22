@@ -199,6 +199,9 @@ export class Wasm {
           perLayer: this.i32(p + 80) !== 0,
           perPart: this.i32(p + 84) !== 0,
         });
+        // Why a region of some layers (a lit body) cannot have it, or "".
+        const last = out[out.length - 1];
+        last.regionNote = x.zs_setting_region_note ? this.cstr(x.zs_setting_region_note(this.u32(p))) : "";
       }
     } finally {
       this.free(p, size);

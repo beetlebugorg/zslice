@@ -10,6 +10,12 @@
 //! - The settings that most people change (`common`) get +4, so a short
 //!   query ("speed", "temp") shows them before the special ones.
 //!
+//! `aliases` sends a word straight to one setting: "color", "colour",
+//! "extruder", "material", and "tool" find the filament of the part or of
+//! some layers (`project.filament`) first, as a person who wants another
+//! color looks for that word. "nozzle" finds it too, after the nozzle
+//! settings.
+//!
 //! `same` has the words of other slicers for the settings of zslice
 //! ("perimeters" for walls, "feedrate" for speed), so a person who knows
 //! another slicer finds the setting. The actions of an app (export, print)
@@ -62,6 +68,27 @@ pub const same = [_][]const []const u8{
     &.{ "line width", "extrusion width", "width" },
 };
 
+/// A word that finds one setting at a fixed score (see the file comment).
+pub const Alias = struct { words: []const []const u8, name: []const u8, score: u32 };
+
+pub const aliases = [_]Alias{
+    .{ .words = &.{ "color", "colour", "colors", "colours", "extruder", "material", "tool", "spool" }, .name = "project.filament", .score = 60 },
+    .{ .words = &.{"nozzle"}, .name = "project.filament", .score = 30 },
+};
+
+/// The score of an alias of word `w` for setting `name`: 0 for none.
+fn aliasScore(name: []const u8, w: []const u8) u32 {
+    if (w.len < 3) return 0;
+    var best: u32 = 0;
+    for (aliases) |al| {
+        if (!std.mem.eql(u8, al.name, name)) continue;
+        for (al.words) |x| if (std.mem.startsWith(u8, x, w)) {
+            best = @max(best, al.score);
+        };
+    }
+    return best;
+}
+
 fn lower(buf: []u8, s: []const u8) []const u8 {
     const n = @min(buf.len, s.len);
     for (s[0..n], 0..) |c, i| buf[i] = std.ascii.toLower(c);
@@ -93,7 +120,7 @@ pub fn wordScore(s: *const SettingInfo, w: []const u8) u32 {
 
 /// The best score of the word `w` or of a word of its groups (3/4).
 fn bestScore(s: *const SettingInfo, w: []const u8) f64 {
-    var best: f64 = @floatFromInt(wordScore(s, w));
+    var best: f64 = @floatFromInt(@max(wordScore(s, w), aliasScore(s.name, w)));
     if (w.len < 3) return best;
     for (same) |g| {
         var hit = false;
@@ -195,6 +222,21 @@ test "setting search: the common settings first" {
         };
         try testing.expect(found);
     }
+}
+
+test "setting search: a color, a material, or a tool finds the filament first" {
+    for ([_][]const u8{ "color", "colour", "extruder", "material", "tool", "Color" }) |q| try testing.expectEqualStrings("project.filament", top(q));
+    // "nozzle" finds it after the nozzle settings.
+    var out: [64]Hit = undefined;
+    const n = search("nozzle", false, &out);
+    var found = false;
+    for (out[0..n]) |h| {
+        if (std.mem.eql(u8, info_mod.settings_info[h.index].name, "project.filament")) found = true;
+    }
+    try testing.expect(found);
+    try testing.expect(!std.mem.eql(u8, top("nozzle"), "project.filament"));
+    // Other settings with the word still come after it.
+    try testing.expect(search("color", false, &out) > 1);
 }
 
 test "setting search: the whole query first" {

@@ -1338,6 +1338,32 @@ gboolean zg_model_paint_body(ZgModel *self, const float *beads, size_t n, guint 
     return TRUE;
 }
 
+gboolean zg_model_region_set(ZgModel *self, const float *beads, size_t n, guint32 *id, const char *name, const char *value) {
+    uint32_t out = 0;
+    if (zs_app_region_set(self->core, beads, n, id ? *id : 0, name, value, &out) != ZS_OK) return FALSE;
+    if (id) *id = out;
+    labels_changed(self);
+    return TRUE;
+}
+
+char *zg_model_region_value(ZgModel *self, guint32 id, const char *name) {
+    if (id == 0) return NULL;
+    size_t len = 0;
+    if (zs_app_region_settings(self->core, id, NULL, 0, &len) != ZS_OK || len == 0) return NULL;
+    char *buf = g_malloc(len + 1);
+    char *out = NULL;
+    if (zs_app_region_settings(self->core, id, buf, len + 1, NULL) == ZS_OK) {
+        char **lines = g_strsplit(buf, "\n", -1);
+        for (char **l = lines; *l && !out; l++) {
+            char *tab = strchr(*l, '\t');
+            if (tab && (size_t)(tab - *l) == strlen(name) && strncmp(*l, name, (size_t)(tab - *l)) == 0) out = g_strdup(tab + 1);
+        }
+        g_strfreev(lines);
+    }
+    g_free(buf);
+    return out;
+}
+
 gboolean zg_model_label_remove(ZgModel *self, size_t part, guint32 id) {
     if (zs_app_label_remove(self->core, part, id) != ZS_OK) return FALSE;
     labels_changed(self);

@@ -6,9 +6,16 @@
  * it closes. The card does no work for each frame but its place: 8
  * projections (zg_view3d_on_frame).
  *
- * A lit body (a drag from a line) gets a row "This body" first: a chip
- * paints the body with that filament (zg_view3d_paint_body). The row of
- * project.filament then reads "All of these layers".
+ * A lit body (a drag from a line, or Shift+K from a selected line) gets
+ * the row "This part of the layers" first: a chip paints the body with
+ * that filament (zg_view3d_paint_body). The row of project.filament then
+ * reads "Whole layers".
+ *
+ * With a lit body, each other row has a switch: "This part" (the default)
+ * or "Whole layers". The editor of "This part" sets the setting of the
+ * region of the body (zg_view3d_region_set: a modifier volume of the
+ * part). A setting that a region cannot have (zs_setting_region_note)
+ * stays for the whole layers, and a line under its row says why.
  *
  * SPDX-License-Identifier: AGPL-3.0-or-later
  */
@@ -38,9 +45,15 @@ typedef struct {
      * that the user gave the body (0: none yet). */
     GtkWidget *body_row, *body_chips;
     int body_value;
+    /* The region of the lit body (0: none yet), and the rows that the
+     * user switched to the whole layers (names). */
+    guint32 region;
+    GHashTable *whole;
     size_t lo, hi;
     gboolean open;
 } RangeCard;
+
+static void fill(RangeCard *c);
 
 static void body_chips_draw(RangeCard *c);
 
@@ -52,13 +65,8 @@ static gboolean on_body_idle(gpointer data) {
 
 static void on_body_chip(GtkButton *b, gpointer data) {
     RangeCard *c = data;
-    int f = GPOINTER_TO_INT(g_object_get_data(G_OBJECT(b), "zg-value"));
-    if (f < 1) {
-        /* "+": a new filament of the plate, for the body. */
-        gint64 i = zg_model_filament_add(c->model);
-        if (i < 0) return;
-        f = (int)i + 1;
-    }
+    int f = zg_filament_chip_pick(b, c->model);
+    if (f < 1) return;
     if (!zg_view3d_paint_body(zg_preview_view3d(c->preview), f)) return;
     c->body_value = f;
     /* Not in the click of the chip that goes. */
@@ -67,30 +75,7 @@ static void on_body_chip(GtkButton *b, gpointer data) {
 
 /* The chips of the body: one for each filament of the plate, and "+". */
 static void body_chips_draw(RangeCard *c) {
-    GtkWidget *child;
-    while ((child = gtk_widget_get_first_child(c->body_chips))) gtk_box_remove(GTK_BOX(c->body_chips), child);
-    size_t n = zs_app_filament_count(zg_model_core(c->model));
-    for (size_t i = 0; i < n; i++) {
-        char *color = zg_model_filament_get(c->model, i, "filament.color");
-        char *mat = zg_model_filament_get(c->model, i, "filament.material");
-        char num[16];
-        g_snprintf(num, sizeof num, "%zu", i + 1);
-        GtkWidget *chip = zg_filament_chip_new(color, num, c->body_value == (int)i + 1);
-        char *tip = g_strdup_printf("This body: filament %zu \u00b7 %s (%s)", i + 1, mat[0] ? mat : "filament", color);
-        gtk_widget_set_tooltip_text(chip, tip);
-        g_object_set_data(G_OBJECT(chip), "zg-value", GINT_TO_POINTER((int)i + 1));
-        g_signal_connect(chip, "clicked", G_CALLBACK(on_body_chip), c);
-        gtk_box_append(GTK_BOX(c->body_chips), chip);
-        g_free(tip);
-        g_free(mat);
-        g_free(color);
-    }
-    if (n < 16) {
-        GtkWidget *plus = zg_filament_chip_new(NULL, "+", FALSE);
-        gtk_widget_set_tooltip_text(plus, "Add a filament to the plate, for this body");
-        g_signal_connect(plus, "clicked", G_CALLBACK(on_body_chip), c);
-        gtk_box_append(GTK_BOX(c->body_chips), plus);
-    }
+    zg_filament_chips_fill(c->body_chips, c->model, c->body_value, "This part of the layers", G_CALLBACK(on_body_chip), c);
 }
 
 static void on_filaments_changed(GtkWidget *owner) {
@@ -135,31 +120,108 @@ static void place(gpointer data) {
     zg_float_place(c->card, x, y);
 }
 
+/* The value of a setting of the region of the lit body, or NULL. */
+static char *region_get(gpointer data, const char *name) {
+    RangeCard *c = data;
+    return zg_model_region_value(c->model, c->region, name);
+}
+
+static gboolean region_set(gpointer data, const char *name, const char *value) {
+    RangeCard *c = data;
+    return zg_view3d_region_set(zg_preview_view3d(c->preview), &c->region, name, value);
+}
+
+/* Not in the click of the button that goes. */
+static gboolean on_fill_idle(gpointer data) {
+    RangeCard *c = data;
+    if (c->open) fill(c);
+    return G_SOURCE_REMOVE;
+}
+
+/* The switch of a row: this part of the layers, or the whole layers. */
+static void on_scope(GtkButton *b, gpointer data) {
+    RangeCard *c = data;
+    const char *name = g_object_get_data(G_OBJECT(b), "zg-name");
+    if (g_hash_table_contains(c->whole, name)) g_hash_table_remove(c->whole, name);
+    else g_hash_table_add(c->whole, g_strdup(name));
+    g_idle_add(on_fill_idle, c);
+}
+
+/* The region has no value of its own for the setting of the button. */
+static void on_region_reset(GtkButton *b, gpointer data) {
+    RangeCard *c = data;
+    region_set(c, g_object_get_data(G_OBJECT(b), "zg-name"), NULL);
+    g_idle_add(on_fill_idle, c);
+}
+
+static GtkWidget *small_label(const char *text, const char *css) {
+    GtkWidget *l = gtk_label_new(text);
+    gtk_label_set_xalign(GTK_LABEL(l), 0);
+    gtk_label_set_wrap(GTK_LABEL(l), TRUE);
+    gtk_label_set_wrap_mode(GTK_LABEL(l), PANGO_WRAP_WORD_CHAR);
+    gtk_widget_add_css_class(l, "caption");
+    if (css) gtk_widget_add_css_class(l, css);
+    return l;
+}
+
 static void fill(RangeCard *c) {
     GtkWidget *child;
     while ((child = gtk_widget_get_first_child(c->settings))) gtk_grid_remove(GTK_GRID(c->settings), child);
+    gboolean body = gtk_widget_get_visible(c->body_row);
     int row = 0;
     for (size_t i = 0; i < G_N_ELEMENTS(SETTINGS); i++) {
         zs_setting_info s;
         if (!zg_setting_find(SETTINGS[i], &s) || !s.per_layer) continue;
-        gboolean body = strcmp(s.name, "project.filament") == 0 && gtk_widget_get_visible(c->body_row);
-        GtkWidget *name = gtk_label_new(body ? "All of these layers" : s.label);
+        gboolean fil = strcmp(s.name, "project.filament") == 0;
+        const char *note = zs_setting_region_note(s.name);
+        gboolean regional = !fil && !note;
+        gboolean part = body && regional && !g_hash_table_contains(c->whole, s.name);
+        GtkWidget *labels = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
+        gtk_widget_set_hexpand(labels, TRUE);
+        GtkWidget *name = gtk_label_new(fil && body ? "Whole layers" : s.label);
         gtk_label_set_xalign(GTK_LABEL(name), 0);
         gtk_label_set_wrap(GTK_LABEL(name), TRUE);
         gtk_label_set_wrap_mode(GTK_LABEL(name), PANGO_WRAP_WORD);
-        gtk_widget_set_hexpand(name, TRUE);
         gtk_widget_set_tooltip_text(name, zg_doc_plain(s.doc));
-        GtkWidget *editor = zg_setting_editor_new(c->model, &s, TRUE);
-        gtk_grid_attach(GTK_GRID(c->settings), name, 0, row, 1, 1);
-        gtk_grid_attach(GTK_GRID(c->settings), editor, 1, row, 1, 1);
+        gtk_box_append(GTK_BOX(labels), name);
+        if (fil && body) gtk_box_append(GTK_BOX(labels), small_label("Filament", "dim-label"));
+        GtkWidget *editor = part ? zg_setting_editor_new_custom(c->model, &s, region_get, region_set, c) : zg_setting_editor_new(c->model, &s, TRUE);
+        gtk_grid_attach(GTK_GRID(c->settings), labels, 0, row, 1, 1);
+        gtk_grid_attach(GTK_GRID(c->settings), editor, 2, row, 1, 1);
+        if (body && regional) {
+            GtkWidget *scope = gtk_button_new_with_label(part ? "This part" : "Whole layers");
+            gtk_widget_add_css_class(scope, part ? "suggested-action" : "flat");
+            gtk_widget_add_css_class(scope, "zg-scope");
+            gtk_widget_set_valign(scope, GTK_ALIGN_CENTER);
+            gtk_widget_set_tooltip_text(scope, part ? "The change is for the lit part of these layers only. Click for the whole layers." : "The change is for the whole layers. Click for the lit part only.");
+            g_object_set_data_full(G_OBJECT(scope), "zg-name", g_strdup(s.name), g_free);
+            g_signal_connect(scope, "clicked", G_CALLBACK(on_scope), c);
+            gtk_grid_attach(GTK_GRID(c->settings), scope, 1, row, 1, 1);
+        }
         if (s.unit[0] && (s.kind == ZS_SETTING_NUMBER || s.kind == ZS_SETTING_INTEGER)) {
             GtkWidget *unit = gtk_label_new(s.unit);
             gtk_label_set_xalign(GTK_LABEL(unit), 0);
             gtk_widget_add_css_class(unit, "dim-label");
             gtk_widget_add_css_class(unit, "zg-unit");
-            gtk_grid_attach(GTK_GRID(c->settings), unit, 2, row, 1, 1);
+            gtk_grid_attach(GTK_GRID(c->settings), unit, 3, row, 1, 1);
+        }
+        char *own = part ? region_get(c, s.name) : NULL;
+        if (own) {
+            GtkWidget *reset = gtk_button_new_from_icon_name("edit-undo-symbolic");
+            gtk_widget_add_css_class(reset, "flat");
+            gtk_widget_set_valign(reset, GTK_ALIGN_CENTER);
+            gtk_widget_set_tooltip_text(reset, "Remove the change for this part of the layers");
+            g_object_set_data_full(G_OBJECT(reset), "zg-name", g_strdup(s.name), g_free);
+            g_signal_connect(reset, "clicked", G_CALLBACK(on_region_reset), c);
+            gtk_grid_attach(GTK_GRID(c->settings), reset, 4, row, 1, 1);
+            g_free(own);
         }
         row++;
+        if (body && note && !fil) {
+            char *text = g_strdup_printf("Whole layers only. %s", note);
+            gtk_grid_attach(GTK_GRID(c->settings), small_label(text, "dim-label"), 0, row++, 5, 1);
+            g_free(text);
+        }
     }
 }
 
@@ -183,7 +245,9 @@ void zg_range_card_show(GtkWidget *card, size_t lo, size_t hi) {
     zg_float_forget(c->card);
     c->open = TRUE;
     c->body_value = 0;
+    g_hash_table_remove_all(c->whole);
     gtk_widget_set_visible(c->body_row, zg_view3d_body_lit(zg_preview_view3d(c->preview)));
+    c->region = gtk_widget_get_visible(c->body_row) ? zg_view3d_region_find(zg_preview_view3d(c->preview)) : 0;
     body_chips_draw(c);
     fill(c);
     gtk_widget_set_visible(c->card, TRUE);
@@ -229,6 +293,7 @@ static gboolean on_key(GtkEventControllerKey *k, guint key, guint code, GdkModif
 
 static void card_free(gpointer data) {
     RangeCard *c = data;
+    g_hash_table_unref(c->whole);
     g_object_unref(c->model);
     g_free(c);
 }
@@ -237,6 +302,7 @@ GtkWidget *zg_range_card_new(ZgModel *model, GtkWidget *preview) {
     RangeCard *c = g_new0(RangeCard, 1);
     c->model = g_object_ref(model);
     c->preview = preview;
+    c->whole = g_hash_table_new_full(g_str_hash, g_str_equal, g_free, NULL);
     c->card = zg_card_new();
     gtk_widget_add_css_class(c->card, "zg-range-card");
     gtk_widget_set_size_request(c->card, 300, -1);
@@ -257,12 +323,16 @@ GtkWidget *zg_range_card_new(ZgModel *model, GtkWidget *preview) {
     gtk_box_append(GTK_BOX(c->card), note);
     c->body_row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
     gtk_widget_set_margin_top(c->body_row, 4);
-    GtkWidget *body_name = gtk_label_new("This body");
+    GtkWidget *body_labels = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
+    gtk_widget_set_hexpand(body_labels, TRUE);
+    GtkWidget *body_name = gtk_label_new("This part of the layers");
     gtk_label_set_xalign(GTK_LABEL(body_name), 0);
-    gtk_widget_set_hexpand(body_name, TRUE);
-    gtk_widget_set_tooltip_text(body_name, "The filament of the lit body only, on these layers. The paint of the part keeps it.");
+    gtk_label_set_wrap(GTK_LABEL(body_name), TRUE);
+    gtk_widget_set_tooltip_text(body_name, "The filament of the lit part of these layers only. The paint of the part keeps it.");
+    gtk_box_append(GTK_BOX(body_labels), body_name);
+    gtk_box_append(GTK_BOX(body_labels), small_label("Filament", "dim-label"));
     c->body_chips = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 2);
-    gtk_box_append(GTK_BOX(c->body_row), body_name);
+    gtk_box_append(GTK_BOX(c->body_row), body_labels);
     gtk_box_append(GTK_BOX(c->body_row), c->body_chips);
     gtk_widget_set_visible(c->body_row, FALSE);
     gtk_box_append(GTK_BOX(c->card), c->body_row);

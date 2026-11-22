@@ -339,6 +339,61 @@ check((core.lineReport(path) ?? "").includes("## The line"), "the report of Copy
   check(core.filamentRemove(1), "remove the filament of the body");
   core.slice();
 }
+// The Filament row of the line card (linecard.js): the body of the line
+// on its layer only, then the layers above where it goes on. The beads of
+// the layers above come before the slice, as the card reads them.
+{
+  const pathsOf = (f) => {
+    const out = [];
+    for (let p = 0; ; p++) {
+      const l = wasm.x.zs_app_path_layer(core.app, p);
+      if (l < 0) break;
+      if (wasm.x.zs_app_path_filament(core.app, p) === f) out.push(l);
+    }
+    return out;
+  };
+  check(pathsOf(2).length === 0 && pathsOf(1).length > 0, "the filament of each line");
+  const one = view.connectedBeads(path, mid, mid);
+  check(one && one.length > 0 && [...one].every((v, k) => k % 9 !== 1 || v === mid), "the beads of the body of a line on its layer");
+  const ext = view.connectedLayers(path);
+  check(ext && ext[0] <= mid && ext[1] >= mid, `the layers where the body goes on (${ext})`);
+  const top = Math.min(ext[1], mid + 6);
+  const above = top > mid ? view.connectedBeads(path, mid + 1, top) : null;
+  check(core.filamentAdd() === 1, "a second filament for the line");
+  check(core.paintBody(one, 2) > 0, "the body of the line paints its part");
+  check(core.slice().state === STATE.done, "the slice of the line in filament 2");
+  const lay = pathsOf(2);
+  // The paint reaches about 1 mm under the layer (paint_anchor_depth),
+  // and no layer over it.
+  const dz = (l) => layers.z[l] - layers.z[mid];
+  check(lay.length > 0 && lay.includes(mid) && lay.every((l) => dz(l) <= 0.25 && dz(l) >= -1.6), `only the body of the line, on its layer (${[...new Set(lay)]})`);
+  if (above) {
+    check(core.paintBody(above, 2) > 0, "the layers above where the body goes on");
+    check(core.slice().state === STATE.done, "the slice of the layers above");
+    const up = pathsOf(2);
+    check(up.some((l) => l >= top - 1) && up.every((l) => l <= top + 1), `the body on the layers above, to layer ${top + 1}`);
+  }
+  // A region of the body: its own infill density, then none.
+  const body = view.connectedBeads(path, mid, top);
+  const r = core.regionSet(body, 0, "project.infill_density", "0.6");
+  check(r.id > 0 && core.regionSettings(r.id)["project.infill_density"] === "0.6", "a region of the body with its own infill");
+  check(core.regionFind(body) === r.id, "the region of the same body");
+  check(core.regionSet(body, 0, "project.wall_count", "4").error, "the walls are for the whole layers");
+  check(core.slice().state === STATE.done, "the slice of the region");
+  check(core.regionSet(body, r.id, "project.infill_density", null).id === 0, "the region goes with its last setting");
+  check(core.paintBody(view.connectedBeads(path, ext[0], ext[1]), 1) >= 0, "the paint of the line goes");
+  check(core.filamentRemove(1), "remove the filament of the line");
+  core.slice();
+  // The search: "color" finds the filament first.
+  const max = 4;
+  const sp = wasm.alloc(12 * max);
+  const n = wasm.withString("color", (q) => wasm.x.zs_setting_search(q, 0, sp + 8 * max, sp, max));
+  const first = n > 0 ? wasm.u32(sp + 8 * max) : -1;
+  wasm.free(sp, 12 * max);
+  const infos = wasm.settingInfos();
+  check(infos.find((i) => i.index === first)?.name === "project.filament", "the search for color finds the filament first");
+  check(infos.find((i) => i.name === "project.infill_density")?.regionNote === "" && infos.find((i) => i.name === "project.wall_count")?.regionNote.length > 0, "the note of a setting that a region cannot have");
+}
 // A 3D pick in the middle of the view.
 t0 = performance.now();
 const hit3d = view.pickSegment(400, 300);

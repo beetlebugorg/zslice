@@ -611,6 +611,9 @@ export class SearchOverlay {
     }
     controls.append(editor.node);
     row.append(label, controls);
+    // A scope can add to the row (rangecard.js: the part of the layers
+    // that the row changes, and the filament of a lit body).
+    scope?.decorate?.(info, row, label);
     const show = (entry) => {
       editor.update(entry);
       if (slider && entry && !dragging) slider.value = displayValue(info, entry.value);

@@ -646,3 +646,40 @@ GtkWidget *zg_filament_button_new(ZgModel *model) {
     if (g_getenv("ZSLICE_FILAMENTS")) g_timeout_add(2500, test_hook, b);
     return b->button;
 }
+
+void zg_filament_chips_fill(GtkWidget *box, ZgModel *model, int selected, const char *what, GCallback clicked, gpointer data) {
+    GtkWidget *child;
+    while ((child = gtk_widget_get_first_child(box))) gtk_box_remove(GTK_BOX(box), child);
+    size_t n = zs_app_filament_count(zg_model_core(model));
+    for (size_t i = 0; i < n; i++) {
+        char *color = zg_model_filament_get(model, i, "filament.color");
+        char *mat = zg_model_filament_get(model, i, "filament.material");
+        char num[16];
+        g_snprintf(num, sizeof num, "%zu", i + 1);
+        GtkWidget *chip = zg_filament_chip_new(color, num, selected == (int)i + 1);
+        char *tip = g_strdup_printf("%s: filament %zu \u00b7 %s (%s)", what, i + 1, mat[0] ? mat : "filament", color);
+        gtk_widget_set_tooltip_text(chip, tip);
+        g_object_set_data(G_OBJECT(chip), "zg-value", GINT_TO_POINTER((int)i + 1));
+        g_signal_connect(chip, "clicked", clicked, data);
+        gtk_box_append(GTK_BOX(box), chip);
+        g_free(tip);
+        g_free(mat);
+        g_free(color);
+    }
+    if (n < 16) {
+        GtkWidget *plus = zg_filament_chip_new(NULL, "+", FALSE);
+        char *tip = g_strdup_printf("Add a filament to the plate, for %s", what[0] ? what : "this");
+        gtk_widget_set_tooltip_text(plus, tip);
+        g_free(tip);
+        g_signal_connect(plus, "clicked", clicked, data);
+        gtk_box_append(GTK_BOX(box), plus);
+    }
+}
+
+int zg_filament_chip_pick(GtkButton *chip, ZgModel *model) {
+    int f = GPOINTER_TO_INT(g_object_get_data(G_OBJECT(chip), "zg-value"));
+    if (f >= 1) return f;
+    /* "+": a new filament of the plate. */
+    gint64 i = zg_model_filament_add(model);
+    return i < 0 ? 0 : (int)i + 1;
+}

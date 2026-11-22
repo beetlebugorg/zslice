@@ -40,7 +40,24 @@ static gint64 part_of(GtkWidget *w) {
 /* The value that the editor shows: of its part (or the value of the plate
  * while the part has none), or of the scope of the model. Free with
  * g_free. */
+/* The getter and the setter of an editor of zg_setting_editor_new_custom,
+ * or NULL. */
+typedef struct {
+    ZgEditorGet get;
+    ZgEditorSet set;
+    gpointer data;
+} Custom;
+
+static Custom *custom_of(GtkWidget *w) {
+    return g_object_get_data(G_OBJECT(w), "zg-custom");
+}
+
 static char *editor_get(GtkWidget *w, const char *key) {
+    Custom *cu = custom_of(w);
+    if (cu) {
+        char *own = cu->get(cu->data, key);
+        return own ? own : zg_model_get_for(model_of(w), key, is_scoped(w));
+    }
     gint64 part = part_of(w);
     if (part >= 0) {
         char *own = zg_model_part_setting(model_of(w), (size_t)part, key);
@@ -50,6 +67,12 @@ static char *editor_get(GtkWidget *w, const char *key) {
 }
 
 static gboolean editor_set(GtkWidget *w, const char *value, GError **error) {
+    Custom *cu = custom_of(w);
+    if (cu) {
+        if (cu->set(cu->data, info_of(w)->name, value)) return TRUE;
+        g_set_error(error, G_IO_ERROR, G_IO_ERROR_INVALID_DATA, "not a valid value");
+        return FALSE;
+    }
     gint64 part = part_of(w);
     if (part < 0) return zg_model_set_for(model_of(w), info_of(w)->name, value, is_scoped(w), error);
     if (!zg_model_part_setting_set(model_of(w), (size_t)part, info_of(w)->name, value)) {
@@ -731,6 +754,15 @@ GtkWidget *zg_setting_editor_new(ZgModel *model, const zs_setting_info *info, gb
 
 GtkWidget *zg_setting_editor_new_for_part(ZgModel *model, const zs_setting_info *info, size_t part) {
     return editor_build(model, info, FALSE, (gint64)part);
+}
+
+GtkWidget *zg_setting_editor_new_custom(ZgModel *model, const zs_setting_info *info, ZgEditorGet get, ZgEditorSet set, gpointer data) {
+    GtkWidget *editor = editor_build(model, info, TRUE, -1);
+    Custom *cu = g_new0(Custom, 1);
+    *cu = (Custom){get, set, data};
+    g_object_set_data_full(G_OBJECT(editor), "zg-custom", cu, g_free);
+    zg_setting_editor_refresh(editor);
+    return editor;
 }
 
 ZgModel *zg_setting_editor_model(GtkWidget *editor) {

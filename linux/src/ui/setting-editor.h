@@ -36,6 +36,14 @@ GtkWidget *zg_setting_editor_new(ZgModel *model, const zs_setting_info *info, gb
  * goes to the part. */
 GtkWidget *zg_setting_editor_new_for_part(ZgModel *model, const zs_setting_info *info, size_t part);
 
+/* An editor with its own getter and setter (a region of some layers, see
+ * range-card.c). get(data, name) gives the value (g_free) or NULL for the
+ * value of the scope of the model; set(data, name, value) makes a change
+ * and returns FALSE for a bad value. */
+typedef char *(*ZgEditorGet)(gpointer data, const char *name);
+typedef gboolean (*ZgEditorSet)(gpointer data, const char *name, const char *value);
+GtkWidget *zg_setting_editor_new_custom(ZgModel *model, const zs_setting_info *info, ZgEditorGet get, ZgEditorSet set, gpointer data);
+
 ZgModel *zg_setting_editor_model(GtkWidget *editor);
 const zs_setting_info *zg_setting_editor_info(GtkWidget *editor);
 /* The editor of a setting that has `w` in it (or is it), or NULL. */

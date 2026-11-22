@@ -6,6 +6,12 @@
  * the main settings of its feature, then the other settings that change
  * the line (zs_inspect.settings).
  *
+ * The Filament row gives the body of the line on its layer its own
+ * filament (zg_view3d_paint_line: the lines joined to it, as paint of its
+ * part). Then the card offers the layers above and below where the body
+ * goes on (zs_view_connected_layers), with the beads that the pick took
+ * before the slice numbered the lines again.
+ *
  * SPDX-License-Identifier: AGPL-3.0-or-later
  */
 #include "line-card.h"
@@ -13,6 +19,7 @@
 #include <string.h>
 
 #include "../prefs/printers.h"
+#include "filaments.h"
 #include "float.h"
 #include "preview.h"
 #include "setting-editor.h"
@@ -34,7 +41,14 @@ typedef struct {
     char *signature;    /* the title and the settings of the line shown */
     double at_x, at_y;  /* the point of the click */
     gboolean quiet;
+    /* The Filament row: its chips, the filament of the line, the buttons
+     * of the layers above and below, and the body of the last pick. */
+    GtkWidget *fil_chips, *extend;
+    int fil_value;
+    ZgLineBody body;
 } LineCard;
+
+static void fil_chips_draw(LineCard *c);
 
 static void pick_free(gpointer data) {
     Pick *p = data;
@@ -175,6 +189,92 @@ static void place(LineCard *c) {
     zg_float_place(c->card, x, y);
 }
 
+static gboolean on_fil_idle(gpointer data) {
+    fil_chips_draw(data);
+    return G_SOURCE_REMOVE;
+}
+
+/* "Also the layers above" (dir 1) and "below" (dir -1): the beads that
+ * the pick took. */
+static void on_extend(GtkButton *b, gpointer data) {
+    LineCard *c = data;
+    int dir = GPOINTER_TO_INT(g_object_get_data(G_OBJECT(b), "zg-dir"));
+    const float *beads = dir > 0 ? c->body.above : c->body.below;
+    size_t n = dir > 0 ? c->body.n_above : c->body.n_below;
+    if (!beads || !zg_view3d_paint_beads(zg_preview_view3d(c->preview), beads, n, c->fil_value)) return;
+    gtk_widget_set_visible(GTK_WIDGET(b), FALSE);
+}
+
+static void clear_extend(LineCard *c) {
+    zg_line_body_free(&c->body);
+    GtkWidget *child;
+    while ((child = gtk_widget_get_first_child(c->extend))) gtk_box_remove(GTK_BOX(c->extend), child);
+    gtk_widget_set_visible(c->extend, FALSE);
+}
+
+static void extend_button(LineCard *c, int dir, const char *text, const char *tip) {
+    GtkWidget *b = gtk_button_new_with_label(text);
+    gtk_widget_add_css_class(b, "flat");
+    gtk_widget_set_tooltip_text(b, tip);
+    gtk_widget_set_halign(b, GTK_ALIGN_START);
+    g_object_set_data(G_OBJECT(b), "zg-dir", GINT_TO_POINTER(dir));
+    g_signal_connect(b, "clicked", G_CALLBACK(on_extend), c);
+    gtk_box_append(GTK_BOX(c->extend), b);
+}
+
+/* A chip of the Filament row: the body of the line on its layer gets the
+ * filament, and the buttons of the layers where it goes on show. */
+static void pick_filament(LineCard *c, int f) {
+    gint64 path = zg_model_selected(c->model);
+    if (f < 1 || path < 0) return;
+    clear_extend(c);
+    if (!zg_view3d_paint_line(zg_preview_view3d(c->preview), path, f, &c->body)) return;
+    c->fil_value = f;
+    if (c->body.above) {
+        char *t = g_strdup_printf("Also the layers above, to %zu", c->body.hi + 1);
+        char *tip = g_strdup_printf("The same filament for this body on layers %zu to %zu, where it goes on", c->body.layer + 2, c->body.hi + 1);
+        extend_button(c, 1, t, tip);
+        g_free(tip);
+        g_free(t);
+    }
+    if (c->body.below) {
+        char *t = g_strdup_printf("Also the layers below, from %zu", c->body.lo + 1);
+        char *tip = g_strdup_printf("The same filament for this body on layers %zu to %zu, where it goes on", c->body.lo + 1, c->body.layer);
+        extend_button(c, -1, t, tip);
+        g_free(tip);
+        g_free(t);
+    }
+    gtk_widget_set_visible(c->extend, c->body.above || c->body.below);
+    g_idle_add(on_fil_idle, c);
+}
+
+static void on_fil_chip(GtkButton *b, gpointer data) {
+    LineCard *c = data;
+    pick_filament(c, zg_filament_chip_pick(b, c->model));
+}
+
+void zg_line_card_pick_filament(GtkWidget *card, int filament) {
+    LineCard *c = card ? g_object_get_data(G_OBJECT(card), "zg-line-card") : NULL;
+    if (c) pick_filament(c, filament);
+}
+
+GtkWidget *zg_line_card_of(GtkWidget *widget) {
+    for (GtkWidget *w = widget; w; w = gtk_widget_get_parent(w)) {
+        GtkWidget *card = g_object_get_data(G_OBJECT(w), "zg-line-card-of");
+        if (card) return card;
+    }
+    return NULL;
+}
+
+static void fil_chips_draw(LineCard *c) {
+    zg_filament_chips_fill(c->fil_chips, c->model, c->fil_value, "This part of the layer", G_CALLBACK(on_fil_chip), c);
+}
+
+static void on_filaments_changed(GtkWidget *owner) {
+    LineCard *c = g_object_get_data(G_OBJECT(owner), "zg-line-card");
+    if (c && gtk_widget_get_visible(c->card)) fil_chips_draw(c);
+}
+
 static void close_card(LineCard *c) {
     c->want = FALSE;
     g_clear_pointer(&c->signature, g_free);
@@ -202,6 +302,13 @@ static void show(LineCard *c, gint64 path) {
         g_free(sig);
     }
     update_numbers(c, &info, (size_t)path);
+    int f = (int)zs_app_path_filament(zg_model_core(c->model), (size_t)path);
+    if (f > 0 && f != c->fil_value) {
+        c->fil_value = f;
+        fil_chips_draw(c);
+    } else if (!same) {
+        fil_chips_draw(c);
+    }
     c->quiet = TRUE;
     gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(c->fade), zg_model_isolate(c->model));
     c->quiet = FALSE;
@@ -221,6 +328,8 @@ static void on_picked(ZgModel *model, gint64 path, gpointer data) {
     /* A new click: the card goes next to it. The keys (h, j, k, l) move
      * the selection, and the card stays where it is. */
     if (!c->want || !gtk_widget_get_visible(c->card) || x != c->at_x || y != c->at_y) {
+        /* Another line: no buttons of the body of the line before. */
+        clear_extend(c);
         zg_float_forget(c->card);
         g_clear_pointer(&c->signature, g_free);
         c->at_x = x;
@@ -287,6 +396,7 @@ static gboolean on_key(GtkEventControllerKey *k, guint key, guint code, GdkModif
 static void card_free(gpointer data) {
     LineCard *c = data;
     g_signal_handlers_disconnect_by_data(c->model, c);
+    zg_line_body_free(&c->body);
     g_free(c->signature);
     g_object_unref(c->model);
     g_free(c);
@@ -319,6 +429,27 @@ GtkWidget *zg_line_card_new(ZgModel *model, GtkWidget *preview) {
     gtk_widget_add_css_class(c->size, "caption");
     gtk_widget_add_css_class(c->size, "numeric");
     gtk_box_append(GTK_BOX(c->card), c->size);
+    /* The Filament row (see the top of the file). */
+    GtkWidget *fil_row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
+    gtk_widget_set_margin_top(fil_row, 4);
+    GtkWidget *fil_labels = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
+    gtk_widget_set_hexpand(fil_labels, TRUE);
+    GtkWidget *fil_name = gtk_label_new("Filament");
+    gtk_label_set_xalign(GTK_LABEL(fil_name), 0);
+    gtk_widget_set_tooltip_text(fil_name, "A filament for the body of this line on its layer only: the lines joined to it. The paint of the part keeps it.");
+    GtkWidget *fil_why = gtk_label_new("This part of the layer");
+    gtk_label_set_xalign(GTK_LABEL(fil_why), 0);
+    gtk_widget_add_css_class(fil_why, "zg-lc-why");
+    gtk_box_append(GTK_BOX(fil_labels), fil_name);
+    gtk_box_append(GTK_BOX(fil_labels), fil_why);
+    c->fil_chips = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 2);
+    gtk_widget_set_valign(c->fil_chips, GTK_ALIGN_CENTER);
+    gtk_box_append(GTK_BOX(fil_row), fil_labels);
+    gtk_box_append(GTK_BOX(fil_row), c->fil_chips);
+    gtk_box_append(GTK_BOX(c->card), fil_row);
+    c->extend = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
+    gtk_widget_set_visible(c->extend, FALSE);
+    gtk_box_append(GTK_BOX(c->card), c->extend);
     c->settings = gtk_grid_new();
     gtk_grid_set_row_spacing(GTK_GRID(c->settings), 4);
     gtk_grid_set_column_spacing(GTK_GRID(c->settings), 6);
@@ -357,6 +488,8 @@ GtkWidget *zg_line_card_new(ZgModel *model, GtkWidget *preview) {
     gtk_widget_add_controller(c->card, keys);
     gtk_widget_set_visible(c->card, FALSE);
     g_object_set_data_full(G_OBJECT(c->card), "zg-line-card", c, card_free);
+    g_object_set_data(G_OBJECT(preview), "zg-line-card-of", c->card);
+    zg_filaments_follow(model, c->card, FALSE, on_filaments_changed);
     g_signal_connect(model, "picked", G_CALLBACK(on_picked), c);
     g_signal_connect(model, "selection-changed", G_CALLBACK(on_selection), c);
     return c->card;

@@ -1559,6 +1559,15 @@ export fn zs_app_path_layer(a: ?*const App, path: usize) isize {
     return @intCast(l);
 }
 
+/// The filament (from 1) that prints path `path` of the last slice, or 0
+/// for no such path.
+export fn zs_app_path_filament(a: ?*const App, path: usize) u32 {
+    const app = a orelse return 0;
+    const t = app.allToolpaths() orelse return 0;
+    if (path >= t.path_tool.items.len) return 0;
+    return @as(u32, t.path_tool.items[path]) + 1;
+}
+
 /// The count of the edits of the user.
 export fn zs_app_edit_count(a: ?*const App) usize {
     const app = a orelse return 0;
@@ -2391,6 +2400,68 @@ export fn zs_app_paint_body(a: ?*App, beads: ?[*]align(1) const f32, n: usize, f
     if (count > 0) noted(app, null, true);
     if (changed) |out| out.* = count;
     return ok;
+}
+
+/// A copy of n floats with the alignment of f32 (the web app gives bytes).
+fn floatsOf(beads: ?[*]align(1) const f32, n: usize) ?[]f32 {
+    const list = gpa.alloc(f32, if (beads != null) n else 0) catch return null;
+    if (beads) |b| for (list, 0..) |*d, i| {
+        d.* = b[i];
+    };
+    return list;
+}
+
+/// Sets setting `name` of the region of a body of some layers to `value`
+/// (NULL: no value of its own). `id` 0: the region of the beads (`n`
+/// floats, from zs_view_connected_beads): the region with their box, or
+/// a new one. `out_id` (may be NULL): the id of the region, 0 if it went
+/// (no setting left). ZS_INVALID_VALUE: a setting that a region cannot
+/// have (zs_setting_region_note), or a bad value. A change is a step of
+/// the undo list, and the next slice has the region.
+export fn zs_app_region_set(a: ?*App, beads: ?[*]align(1) const f32, n: usize, id: u32, name: ?[*:0]const u8, value: ?[*:0]const u8, out_id: ?*u32) c_int {
+    const app = a orelse return @intFromEnum(Status.invalid_argument);
+    const nm = std.mem.span(name orelse return @intFromEnum(Status.invalid_argument));
+    const list = floatsOf(beads, n) orelse return @intFromEnum(Status.out_of_memory);
+    defer gpa.free(list);
+    const r = app.regionSet(list, id, nm, if (value) |v| std.mem.span(v) else null) catch |e| return switch (e) {
+        error.OutOfMemory => @intFromEnum(Status.out_of_memory),
+        error.UnknownSetting => @intFromEnum(Status.unknown_setting),
+        error.NoPart, error.NoRegion => @intFromEnum(Status.out_of_range),
+        else => @intFromEnum(Status.invalid_value),
+    };
+    noted(app, null, true);
+    if (out_id) |o| o.* = r;
+    return ok;
+}
+
+/// The id of the region of the beads (their box, see zs_app_region_set),
+/// or 0 in `out_id`.
+export fn zs_app_region_find(a: ?*App, beads: ?[*]align(1) const f32, n: usize, out_id: ?*u32) c_int {
+    const app = a orelse return @intFromEnum(Status.invalid_argument);
+    const list = floatsOf(beads, n) orelse return @intFromEnum(Status.out_of_memory);
+    defer gpa.free(list);
+    const r = app.regionFind(list) catch return @intFromEnum(Status.out_of_memory);
+    if (out_id) |o| o.* = r;
+    return ok;
+}
+
+/// The settings of region `id`, one on each line: "name\tvalue". The
+/// same buffer rules as zs_app_setting_get.
+export fn zs_app_region_settings(a: ?*const App, id: u32, buf: ?[*]u8, cap: usize, out_len: ?*usize) c_int {
+    const app = a orelse return @intFromEnum(Status.invalid_argument);
+    var aw: Writer.Allocating = .init(gpa);
+    defer aw.deinit();
+    app.regionSettings(id, &aw.writer) catch return @intFromEnum(Status.out_of_memory);
+    return copyOut(aw.written(), buf, cap, out_len);
+}
+
+/// Why a region of some layers cannot have setting `name` of its own (a
+/// short sentence, static), or NULL if it can (see
+/// settings.region_settings).
+export fn zs_setting_region_note(name: ?[*:0]const u8) ?[*:0]const u8 {
+    const n = std.mem.span(name orelse return null);
+    const note = zs.settings.regionNote(n) orelse return null;
+    return @ptrCast(note.ptr);
 }
 
 /// The states that the paint of part i uses: bit k for state k (0 is the
