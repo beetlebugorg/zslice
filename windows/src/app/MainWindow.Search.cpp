@@ -49,7 +49,7 @@ namespace
 
     wchar_t const *const left_pin = L"M2.5 2.5v11M5.5 4.5h8v7h-8z";
     wchar_t const *const right_pin = L"M13.5 2.5v11M2.5 4.5h8v7h-8z";
-    wchar_t const *const card_pin = L"M9.5 2.5h4v4M13.5 2.5 8 8M7 3.5H2.5v10h10V9";
+    wchar_t const *const card_pin = L"M2.5 3.5h11v9h-11zM2.5 6.5h11";
     wchar_t const *const dock_pin = L"M2.5 2.5h11M8 13.5V6M5 9l3-3 3 3";
     wchar_t const *const eye_icon = L"M1.5 9s2.8-5 7.5-5 7.5 5 7.5 5-2.8 5-7.5 5-7.5-5-7.5-5zM11.3 9a2.3 2.3 0 1 1-4.6 0a2.3 2.3 0 1 1 4.6 0z";
 
