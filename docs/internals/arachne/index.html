@@ -63,6 +63,7 @@
 <a href="../../internals/one-view/">Plan: one view</a>
 <a href="../../internals/how-slicing-works/">How slicing works</a>
 <a href="../../internals/layer-settings/">Settings for some layers</a>
+<a href="../../internals/gcode/">G-code reference</a>
 <a href="../../internals/arachne/" aria-current="page">Arachne walls</a>
 <a href="../../internals/print-sim/">The print simulation</a>
 <a href="../../internals/performance/">Speed: the lower bound</a>
@@ -117,7 +118,7 @@
 <p>A path with a width for each point has <code>Path.w_start</code>, and its widths are in <code>LayerPlan.point_w</code>. The G-code writer extrudes each segment with the mean width of its two ends and the bead model of <code>flow.zig</code>. The speed limit of <code>filament.max_flow</code> uses the widest point of the path. The preview gets the bead area of each point in <code>Toolpaths.point_area</code> (with the z of the layer in <code>point_z</code>), as the slope smoothing beads, and draws each segment with its own width.</p>
 <h2 id="tests">Tests</h2>
 <ul><li><code>src/voronoi.zig</code>: the diagram against a brute force check on random points and segments.</li><li><code>src/arachne/beading.zig</code>: the bead counts and widths for known thicknesses.</li><li><code>src/arachne/walls.zig</code>: a 1.2 mm wall with 0.4 mm lines gets 3 beads of 0.4 mm; a 0.3 mm fin gets one narrow bead; a wedge gets a bead count that goes up along it.</li></ul>
-<p>The <a href="../../internals/cura-compare/#testing-against-curaengine">CuraEngine test</a> can compare the walls with CuraEngine, which also uses Arachne.</p><nav class="pager"><a class="prev" href="../../internals/layer-settings/"><span>Previous</span><b>Settings for some layers</b></a><a class="next" href="../../internals/print-sim/"><span>Next</span><b>The print simulation</b></a></nav>
+<p>The <a href="../../internals/cura-compare/#testing-against-curaengine">CuraEngine test</a> can compare the walls with CuraEngine, which also uses Arachne.</p><nav class="pager"><a class="prev" href="../../internals/gcode/"><span>Previous</span><b>G-code reference</b></a><a class="next" href="../../internals/print-sim/"><span>Next</span><b>The print simulation</b></a></nav>
 </main>
 </div>
 <footer>zslice is free software (AGPL-3.0-or-later). <a href="../../privacy/">Privacy</a>: no analytics, no cookies, nothing from other sites. <a href="https://github.com/beetlebugorg/zslice/blob/main/docs/build.py">docs/build.py</a> writes this site from <a href="https://github.com/beetlebugorg/zslice/blob/main/docs/internals/arachne.md">docs/internals/arachne.md</a>.</footer>

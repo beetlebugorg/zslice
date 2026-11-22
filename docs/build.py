@@ -78,6 +78,7 @@ SOURCES = [
     ("docs/internals/one-view.md", "internals/one-view/", "Internals", "Plan: one view"),
     ("docs/internals/how-slicing-works.md", "internals/how-slicing-works/", "Internals", "How slicing works"),
     ("docs/internals/layer-settings.md", "internals/layer-settings/", "Internals", "Settings for some layers"),
+    ("docs/internals/gcode.md", "internals/gcode/", "Internals", "G-code reference"),
     ("docs/internals/arachne.md", "internals/arachne/", "Internals", "Arachne walls"),
     ("docs/internals/print-sim.md", "internals/print-sim/", "Internals", "The print simulation"),
     ("docs/internals/performance.md", "internals/performance/", "Internals", "Speed: the lower bound"),

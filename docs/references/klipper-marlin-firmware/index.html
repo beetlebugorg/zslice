@@ -63,6 +63,7 @@
 <a href="../../internals/one-view/">Plan: one view</a>
 <a href="../../internals/how-slicing-works/">How slicing works</a>
 <a href="../../internals/layer-settings/">Settings for some layers</a>
+<a href="../../internals/gcode/">G-code reference</a>
 <a href="../../internals/arachne/">Arachne walls</a>
 <a href="../../internals/print-sim/">The print simulation</a>
 <a href="../../internals/performance/">Speed: the lower bound</a>
@@ -142,6 +143,12 @@
 <p><strong>License:</strong> Public documents</p>
 <p><strong>Used in:</strong> <code>src/gcode.zig</code>, <code>src/engine.zig</code>, <code>src/plate_job.zig</code></p>
 <p><strong>How zslice uses it:</strong> With <code>machine.label_objects</code>, the start of the file defines each part (its name and the box of its footprint on Klipper, the count with M486 T), and the paths of a part on each layer go between a start and an end label. A filament change is outside of all labels.</p>
+<h3 id="g-code-dictionaries-of-the-firmwares">G-code dictionaries of the firmwares</h3>
+<div class="ref"><span class="kind k-format">format</span><span class="area">gcode</span><dl><dt>Source</dt><dd>Marlin, Klipper, RepRapFirmware, Repetier-Firmware, Prusa</dd><dt>What zslice uses</dt><dd>The meaning of each command that zslice writes in each firmware, for the G-code reference.</dd><dt>License</dt><dd>Public documents</dd><dt>Link</dt><dd><a href="https://marlinfw.org/docs/gcode/">https://marlinfw.org/docs/gcode/</a></dd><dt>Version</dt><dd>MarlinDocumentation dc2778ada2, Klipper c9559fa04e, Repetier-Firmware 7cb3741323, the Duet3D and Prusa pages read on 2026-11-22</dd><dt>Used in</dt><dd><a href="https://github.com/beetlebugorg/zslice/blob/main/docs/internals/gcode.md"><code>docs/internals/gcode.md</code></a></dd></dl></div>
+<p>The G-code documents of each firmware: Marlin (<a href="https://marlinfw.org/docs/gcode/">https://marlinfw.org/docs/gcode/</a>, from the source files of <a href="https://github.com/MarlinFirmware/MarlinDocumentation">https://github.com/MarlinFirmware/MarlinDocumentation</a>), Klipper <code>docs/G-Codes.md</code> and <code>docs/Config_Reference.md</code> (<a href="https://www.klipper3d.org/G-Codes.html">https://www.klipper3d.org/G-Codes.html</a>), the RepRapFirmware G-code dictionary (<a href="https://docs.duet3d.com/User_manual/Reference/Gcodes">https://docs.duet3d.com/User_manual/Reference/Gcodes</a>), Repetier-Firmware <code>src/ArduinoAVR/Repetier/Commands.cpp</code> (<a href="https://github.com/repetier/Repetier-Firmware">https://github.com/repetier/Repetier-Firmware</a>), and "Buddy firmware-specific G-code commands" of Prusa (<a href="https://help.prusa3d.com/article/buddy-firmware-specific-g-code-commands_633112">https://help.prusa3d.com/article/buddy-firmware-specific-g-code-commands_633112</a>).</p>
+<p><strong>License:</strong> Public documents (Klipper and Repetier-Firmware are GPL-3.0); the facts only, no text or code</p>
+<p><strong>Used in:</strong> <code>docs/internals/gcode.md</code></p>
+<p><strong>How zslice uses it:</strong> The G-code reference says, for each command that zslice writes, which firmware reads it and what it does there. Examples: M204 S is a legacy parameter in Marlin, M205 X Y needs CLASSIC_JERK, M566 is in mm/min, and Repetier has M201 for the print moves and M202 for the travel moves.</p>
 <h2 id="reading-g-code-and-the-planner">Reading G-code and the planner</h2>
 <h3 id="layer-feature-and-time-comments-of-other-slicers">Layer, feature, and time comments of other slicers</h3>
 <div class="ref"><span class="kind k-format">format</span><span class="area">gcode</span><dl><dt>Source</dt><dd>Cura, PrusaSlicer, OrcaSlicer, Bambu Studio, Klipper</dd><dt>What zslice uses</dt><dd>The G-code reader finds the layers, the features, and the time of a file from Cura, PrusaSlicer, OrcaSlicer, or Bambu Studio.</dd><dt>License</dt><dd>AGPL-3.0</dd><dt>Used in</dt><dd><a href="https://github.com/beetlebugorg/zslice/blob/main/src/gcode_read.zig"><code>src/gcode_read.zig</code></a></dd></dl></div>

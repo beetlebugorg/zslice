@@ -144,6 +144,27 @@ Klipper `exclude_object` (https://www.klipper3d.org/G-Codes.html#exclude_object)
 
 **How zslice uses it:** With `machine.label_objects`, the start of the file defines each part (its name and the box of its footprint on Klipper, the count with M486 T), and the paths of a part on each layer go between a start and an end label. A filament change is outside of all labels.
 
+### G-code dictionaries of the firmwares
+
+```ref
+kind: format
+source: Marlin, Klipper, RepRapFirmware, Repetier-Firmware, Prusa
+license: Public documents
+link: https://marlinfw.org/docs/gcode/
+version: MarlinDocumentation dc2778ada2, Klipper c9559fa04e, Repetier-Firmware 7cb3741323, the Duet3D and Prusa pages read on 2026-11-22
+files: docs/internals/gcode.md
+area: gcode
+summary: The meaning of each command that zslice writes in each firmware, for the G-code reference.
+```
+
+The G-code documents of each firmware: Marlin (https://marlinfw.org/docs/gcode/, from the source files of https://github.com/MarlinFirmware/MarlinDocumentation), Klipper `docs/G-Codes.md` and `docs/Config_Reference.md` (https://www.klipper3d.org/G-Codes.html), the RepRapFirmware G-code dictionary (https://docs.duet3d.com/User_manual/Reference/Gcodes), Repetier-Firmware `src/ArduinoAVR/Repetier/Commands.cpp` (https://github.com/repetier/Repetier-Firmware), and "Buddy firmware-specific G-code commands" of Prusa (https://help.prusa3d.com/article/buddy-firmware-specific-g-code-commands_633112).
+
+**License:** Public documents (Klipper and Repetier-Firmware are GPL-3.0); the facts only, no text or code
+
+**Used in:** `docs/internals/gcode.md`
+
+**How zslice uses it:** The G-code reference says, for each command that zslice writes, which firmware reads it and what it does there. Examples: M204 S is a legacy parameter in Marlin, M205 X Y needs CLASSIC_JERK, M566 is in mm/min, and Repetier has M201 for the print moves and M202 for the travel moves.
+
 ## Reading G-code and the planner
 
 ### Layer, feature, and time comments of other slicers
