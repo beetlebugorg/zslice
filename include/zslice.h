@@ -218,6 +218,148 @@ const char *zs_link_message(int result);
  * ZS_LINK_MAX_REDIRECTS, and sizeof(zs_link). Each pointer can be NULL. */
 void zs_link_limits(uint64_t *max_bytes, int *max_redirects, size_t *link_size);
 
+/* ---- import a model from a model page or a ZIP file
+ * (src/model_import.zig) ----
+ *
+ * The user pastes the address of a model page. zslice lists the files of
+ * the model, the user checks the files to load, and zslice downloads them
+ * and puts them on plates. The calls do no I/O. The call order is in
+ * docs/internals/model-import.md:
+ *  1. zs_import_page_check reads the address: a Printables model or a
+ *     Thingiverse thing.
+ *  2. Printables: POST zs_import_files_request to zs_import_api_url, with
+ *     Content-Type application/json and the User-Agent
+ *     zs_import_user_agent. Check the host and each address as for a
+ *     zs_link. zs_import_list_read reads the answer.
+ *     Thingiverse (ZS_IMPORT_NO_API): show zs_import_message, and open
+ *     the page (page.url) in the browser. The user downloads its ZIP
+ *     file, and opens it in zslice.
+ *     A ZIP file: zs_import_list_zip.
+ *  3. Show the list (zs_import_list_info, zs_import_file_get), with a
+ *     check box for each file that loads. The list is the question before
+ *     the download: Cancel has the focus. zs_import_ready checks the
+ *     choice.
+ *  4. Printables: for each checked file, POST zs_import_link_request, and
+ *     read the answer with zs_import_link_read into a zs_link. Download it
+ *     with the rules of the links (steps 1 to 9 of
+ *     docs/internals/open-links.md). A ZIP file: zs_import_zip_file.
+ *  5. Add the files as parts on a new plate (a new plate if the active
+ *     plate has parts), then call zs_set_spill (zslice-app.h). Never start
+ *     a print. */
+#define ZS_IMPORT_MAX_ANSWER ((uint64_t)4 << 20)  /* the largest API answer */
+#define ZS_IMPORT_MAX_PREVIEW ((uint64_t)2 << 20) /* the largest preview image */
+#define ZS_IMPORT_MAX_FILES 100                   /* the most checked files */
+
+enum zs_import_site { ZS_IMPORT_SITE_NONE = 0, ZS_IMPORT_SITE_PRINTABLES = 1, ZS_IMPORT_SITE_THINGIVERSE = 2 };
+
+enum zs_import_result {
+    ZS_IMPORT_OK = 0,
+    ZS_IMPORT_NOT_A_PAGE = 1,      /* not a model page of a known site */
+    ZS_IMPORT_NO_API = 2,          /* the site has no API that zslice can use */
+    ZS_IMPORT_BAD_ANSWER = 3,      /* the answer is not the expected JSON */
+    ZS_IMPORT_NOT_FOUND = 4,       /* no public model or file at the address */
+    ZS_IMPORT_NO_FILES = 5,        /* no file that zslice loads */
+    ZS_IMPORT_NOTHING_CHECKED = 6,
+    ZS_IMPORT_TOO_MANY = 7,        /* over ZS_IMPORT_MAX_FILES checked */
+    ZS_IMPORT_TOO_LARGE = 8,       /* the checked files are over ZS_LINK_MAX_BYTES together */
+    ZS_IMPORT_BAD_LINK = 9,        /* a download link that fails the checks */
+    ZS_IMPORT_NOT_ZIP = 10
+};
+
+/* The kinds of files. The list has them in this order: 3MF, STL, STEP,
+ * OBJ, other. */
+enum zs_import_kind {
+    ZS_IMPORT_KIND_OTHER = 0, /* zslice does not load it */
+    ZS_IMPORT_KIND_STL = 1,
+    ZS_IMPORT_KIND_3MF = 2,
+    ZS_IMPORT_KIND_STEP = 3,
+    ZS_IMPORT_KIND_OBJ = 4
+};
+
+/* A model page. url: the clean https URL of the page, to open in a
+ * browser. */
+typedef struct zs_import_page {
+    int site; /* enum zs_import_site */
+    char id[32];
+    char url[128];
+} zs_import_page;
+
+typedef struct zs_import_list zs_import_list;
+
+/* The model of a list. Each string is UTF-8, or "" if the site did not
+ * give it. note: a note on the choice for the user. */
+typedef struct zs_import_info {
+    int site;
+    const char *title;
+    const char *author;
+    const char *license;
+    const char *page_url;
+    const char *note;
+} zs_import_info;
+
+/* A file of a list. name has no folder. preview: an https URL of an image
+ * (check it with zs_link_check_url, and download it as a zs_link of at
+ * most ZS_IMPORT_MAX_PREVIEW bytes), or "". note: why the file does not
+ * load, or a note, or "". kind_label: "3MF", "STL", "STEP", "OBJ", or
+ * "Other files", a heading for the group. plates: the plates of a 3MF
+ * file, or 0 if the list does not know (a file at a site). */
+typedef struct zs_import_file {
+    const char *name;
+    const char *folder;
+    const char *preview;
+    const char *note;
+    const char *kind_label;
+    uint64_t size;
+    int kind; /* enum zs_import_kind */
+    int can_load;
+    int checked;
+    int plates;
+} zs_import_file;
+
+/* Reads the address of a model page. */
+int zs_import_page_check(const char *text, zs_import_page *out);
+/* "zslice/<version> (+https://github.com/beetlebugorg/zslice)". */
+const char *zs_import_user_agent(void);
+/* The API URL of a site, or "" (Thingiverse). */
+const char *zs_import_api_url(int site);
+/* The JSON body of the POST that asks for the files of the model. The
+ * same buffer rules as zs_app_setting_get. ZS_IMPORT_NO_API for
+ * Thingiverse. */
+int zs_import_files_request(const zs_import_page *page, char *buf, size_t cap, size_t *out_len);
+/* Reads the answer of the site into a new list. */
+int zs_import_list_read(const zs_import_page *page, const char *json, size_t len, zs_import_list **out);
+/* Lists the files of a ZIP file. Keep the bytes for zs_import_zip_file. */
+int zs_import_list_zip(const uint8_t *bytes, size_t len, zs_import_list **out);
+void zs_import_list_free(zs_import_list *list);
+int zs_import_list_info(const zs_import_list *list, zs_import_info *out);
+size_t zs_import_count(const zs_import_list *list);
+int zs_import_file_get(const zs_import_list *list, size_t i, zs_import_file *out);
+/* Checks (on != 0) or unchecks file i. A file that does not load stays
+ * unchecked. The list checks the files to load first: each file that
+ * loads, but a STEP file with an STL file of the same name, and a 3MF file
+ * when the model has STL or OBJ files (info.note says so). */
+int zs_import_check(zs_import_list *list, size_t i, int on);
+/* The checked files, their bytes together, and ZS_IMPORT_OK if the
+ * download can start. files and bytes can be NULL. */
+int zs_import_ready(const zs_import_list *list, size_t *files, uint64_t *bytes);
+/* The JSON body of the POST that asks for the download link of file i.
+ * The same buffer rules as zs_app_setting_get. */
+int zs_import_link_request(const zs_import_list *list, size_t i, char *buf, size_t cap, size_t *out_len);
+/* Reads the answer to zs_import_link_request: an https URL on
+ * printables.com, with the name of file i. */
+int zs_import_link_read(const zs_import_list *list, size_t i, const char *json, size_t len, zs_link *out);
+/* The bytes of file i of a ZIP list, from the same ZIP bytes. Free them
+ * with zs_buffer_free. */
+int zs_import_zip_file(const zs_import_list *list, const uint8_t *bytes, size_t len, size_t i, uint8_t **out, size_t *out_len);
+/* The plates of a 3MF file of Bambu Studio or OrcaSlicer: 1 for a 3MF
+ * file with no plates, 0 for bytes that are not a 3MF file. */
+int zs_import_3mf_plates(const uint8_t *bytes, size_t len);
+/* The text for the user of an enum zs_import_result. */
+const char *zs_import_message(int result);
+/* The limits and sizeof(zs_import_page) and sizeof(zs_import_file), for a
+ * shell with no C header. Each pointer can be NULL. */
+void zs_import_limits(uint64_t *max_answer, uint64_t *max_preview, size_t *max_files, size_t *page_size, size_t *file_size);
+
 #ifdef __cplusplus
 }
 #endif
