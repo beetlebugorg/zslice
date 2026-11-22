@@ -2,7 +2,7 @@
 
 The Windows app is a native shell over the Zig core, in `windows/`: a WinUI 3 shell in C++/WinRT, and a Direct3D 12 backend in the core. Only the core is shared with the other apps.
 
-The port is in progress. The app opens a model, slices it, and draws it. It has the plates, the plate signs, the bed models, the settings pane with search and history, the Select, Move, Turn, Support, Grab, Measure, Paint, and Label tools, the filaments of the plate, and the line and part cards. The other tools, the printers, and the session restore come in the next steps. This page describes the parts that exist.
+The port has most features of the other apps: the plates and bed models, the settings with the docked search and its rails, history, the tools and their cards, the filaments, the printers with send and export, the print details, Compare with Cura, Preferences, printdeck projects, file types and zslice:// links, the session restore, and the draft slice with the work bar. The parity list in docs/app/README.md names what is still open. This page describes the parts that exist.
 
 ## Build the app
 

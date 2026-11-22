@@ -69,7 +69,7 @@ The rule of `docs/app/README.md` holds: the app logic is in the core, and the we
 | `layers.js` | The layer slider with two knobs |
 | `support.js` | The Support tool (U): draw a support area on the part, and drag its points |
 | `paint.js` | The Paint tool (P): the mesh of a part in the colors of its paint, the smart select, and the brush (a paint session of the view, zs_paint_*) |
-| `label.js` | The Label tool (L): text and marks on the surface of a part, in a filament of their own. The pick on the mesh (zs_label_place), the decal of each label in the view (zs_label_outline), the drag, the turn, and the scale. The model of a label (its JSON and its frame) is at the top of the file, with no DOM |
+| `label.js` | The Label tool (E): text and marks on the surface of a part, in a filament of their own. The pick on the mesh (zs_label_place), the decal of each label in the view (zs_label_outline), the drag, the turn, and the scale. The model of a label (its JSON and its frame) is at the top of the file, with no DOM |
 | `labelcard.js` | The card of the selected label: its shapes and their fields, the turn, the filament, the depth, the stroke check, and the cost (zs_app_label_info) |
 | `filaments.js` | The filaments of the plate: the chips of `project.filament`, and the list on the print card |
 | `menus.js` | The popup menus, the context menu, and the popovers |

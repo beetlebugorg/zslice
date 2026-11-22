@@ -330,7 +330,7 @@ The tool strip picks the tool of the mouse; each tool has a key.
 - **The fall of a part**: after a turn (the release of a ring, or 0.6 s after the last turn key), `settle(part:then:)` starts the fall of the part (`zs_app_fall_start`, the rigid body of src/rigid.zig). Each frame of the display link runs `zs_app_fall_step` with the frame time, and gives its turn, pivot, and move to `zs_view_part_preview`. The renderer draws the beads of that part with its own push constants (`part_draws`). At rest the core puts the part flush on its face (one history step), and `then` slices the plate; the new beads end the preview. A part that stands, or that support holds, does not fall, and a note says which.
 - After each change of a setting or of the plates (support turned off, an area removed or made Block, a plate or a project opened), `checkPendingFall` asks the core for a part that cannot stand now (`zs_app_fall_pending`) and lets it fall, except during a turn, which runs its own fall.
 
-### Grab (H)
+### Grab (G)
 
 The Grab tool takes a part with a click (`zs_view_surface_point`, `zs_app_grab_start`) and keeps it with no button held.
 
@@ -352,7 +352,7 @@ Measure puts a tape between two points (`zs_view_surface_point`). A click on a c
   - The core gets the edit at most each 60 ms (`zs_app_support_tree_move_node`, `_set_radius`, `_move_branch`) and holds the slice (`zs_set_changed_held`). At most each 150 ms, `SliceModel.sliceHeldNow` releases it, so the support follows the drag; the history step stays open.
   - The release sends the last edit, slices, commits one history step, and runs the fall check. An edit sent while a slice runs gets `ZS_BUSY` and stays dirty for the next move or the release.
 
-### Label (L)
+### Label (E)
 
 `Core/Label.swift` is the model of a label (web/app/label.js, its top part): the JSON of the core as Codable structs, with each field optional so a field that the app does not show stays, and the math of its frame (the level right, the turn, a move into a new plane, the hit of a ray on its plane). `Core/LabelTool.swift` is the tool:
 
