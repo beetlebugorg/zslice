@@ -81,6 +81,7 @@ The rule of `docs/app/README.md` holds: the app logic is in the core, and the we
 | `signing.js` | The signing key of this browser (a WebCrypto Ed25519 key in IndexedDB that no script can read), and the signature of each exported or sent G-code file |
 | `test-signing.mjs` | The Node test of the signatures |
 | `openlink.js` | A `web+zslice://` link or `?open=<URL>`: the checks of the core and the download (see [Links that open a model](../../docs/internals/open-links.md)) |
+| `modelimport.js` | An import from a model page or a ZIP file: the page check, and the list of the files of a ZIP file with check boxes (see [Import a model from a model page](../../docs/internals/model-import.md)) |
 | `test-link.mjs` | The Node test of the printer link: redirects and addresses from outside |
 
 ### The bed model

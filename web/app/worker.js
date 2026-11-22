@@ -1609,6 +1609,19 @@ const ops = {
     return { ok: true, copies: r, plates };
   },
 
+  // The parts of the active plate that do not fit its bed go on new
+  // plates (zs_set_spill): an import of many files. Returns { ok, plates }
+  // with the count of new plates.
+  spill() {
+    commitPending();
+    const r = wasm.x.zs_set_spill(set, activeIndex());
+    if (r < 0) return { ok: false };
+    syncCore();
+    postPlates();
+    wantSlice();
+    return { ok: true, plates: r };
+  },
+
   // Moves part `index` of the active plate to plate `to` (-1: a new
   // plate). Returns { ok, to }.
   partToPlate({ index, to }) {

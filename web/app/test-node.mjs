@@ -11,6 +11,7 @@ import { Core, STATE } from "./core.js";
 import { View3D } from "./view.js";
 import { clipText, parseClipText } from "./clipboard.js";
 import { LinkRules, downloadModel, LINK, webAppLink } from "./openlink.js";
+import { ImportRules, IMPORT, SITE, KIND, webPageText } from "./modelimport.js";
 import { outlineOf, placeAt, newItem, scaleLabel, withAngle, angleOf, turned, nextFilament, changeShape, labelName, svgItem, resizeBox, resized, turnedAbout, toBed, handleGeom, hitHandle } from "./label.js";
 
 const [wasmPath, stlPath] = process.argv.slice(2);
@@ -652,6 +653,109 @@ check(clipText({ kind: "setting", id: "s", data: { value: "0.2" } }) === "0.2", 
   const pl = rules.check("https://example.com/p.3mf");
   check((await fails(reply(projBytes, {}, pl.url), "a project", pl)) === rules.message(LINK.project), "a zslice project");
   console.log("open links: the checks and the download");
+}
+// The import of a model (modelimport.js): the address of a page, the
+// list of a ZIP file, a file of it, and the parts on more plates
+// (zs_set_spill).
+{
+  const rules = new ImportRules(wasm);
+  let page = rules.page("https://www.printables.com/model/3161-3d-benchy/files");
+  check(page.ok && page.site === SITE.printables && page.id === "3161" && page.url === "https://www.printables.com/model/3161", "a Printables page");
+  page = rules.page("thingiverse.com/thing:763622");
+  check(page.ok && page.site === SITE.thingiverse && page.url === "https://www.thingiverse.com/thing:763622", "a Thingiverse page");
+  check(!rules.page("https://example.com/model/1").ok, "another site");
+  check(webPageText(SITE.printables).includes("CORS"), "the text for a page in the browser");
+  // A ZIP file with stored entries, as a site gives it.
+  const crcTable = Array.from({ length: 256 }, (_, n) => {
+    let c = n;
+    for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+    return c >>> 0;
+  });
+  const crc32 = (b) => {
+    let c = 0xffffffff;
+    for (const v of b) c = crcTable[(c ^ v) & 0xff] ^ (c >>> 8);
+    return (c ^ 0xffffffff) >>> 0;
+  };
+  const zipOf = (entries) => {
+    const enc = new TextEncoder();
+    const parts = [];
+    const central = [];
+    let offset = 0;
+    for (const [name, data] of entries) {
+      const n = enc.encode(name);
+      const h = new DataView(new ArrayBuffer(30));
+      h.setUint32(0, 0x04034b50, true);
+      h.setUint16(4, 20, true);
+      h.setUint32(14, crc32(data), true);
+      h.setUint32(18, data.length, true);
+      h.setUint32(22, data.length, true);
+      h.setUint16(26, n.length, true);
+      parts.push(new Uint8Array(h.buffer), n, data);
+      const c = new DataView(new ArrayBuffer(46));
+      c.setUint32(0, 0x02014b50, true);
+      c.setUint16(4, 20, true);
+      c.setUint16(6, 20, true);
+      c.setUint32(16, crc32(data), true);
+      c.setUint32(20, data.length, true);
+      c.setUint32(24, data.length, true);
+      c.setUint16(28, n.length, true);
+      c.setUint32(42, offset, true);
+      central.push(new Uint8Array(c.buffer), n);
+      offset += 30 + n.length + data.length;
+    }
+    const cdSize = central.reduce((a, b) => a + b.length, 0);
+    const end = new DataView(new ArrayBuffer(22));
+    end.setUint32(0, 0x06054b50, true);
+    end.setUint16(8, entries.length, true);
+    end.setUint16(10, entries.length, true);
+    end.setUint32(12, cdSize, true);
+    end.setUint32(16, offset, true);
+    const all = [...parts, ...central, new Uint8Array(end.buffer)];
+    const out = new Uint8Array(all.reduce((a, b) => a + b.length, 0));
+    let o = 0;
+    for (const b of all) {
+      out.set(b, o);
+      o += b.length;
+    }
+    return out;
+  };
+  const part = new Uint8Array(stl);
+  const zip = zipOf([["files/part.stl", part], ["files/part.step", new TextEncoder().encode("ISO-10303-21;")], ["images/part.png", new Uint8Array(8)]]);
+  const list = rules.listZip(zip);
+  const files = list.files();
+  check(files.length === 3 && files[0].name === "part.stl" && files[0].folder === "files" && files[0].kind === KIND.stl && files[0].checked, "the STL file of the ZIP file, checked");
+  check(files[1].kind === KIND.step && !files[1].checked && files[1].note.length > 0, "a STEP file of the same part, not checked");
+  check(files[2].kind === KIND.other && !files[2].canLoad && files[2].kindLabel === "Other files", "an image, which does not load");
+  let r = list.ready();
+  check(r.code === IMPORT.ok && r.files === 1 && r.bytes === part.length, "the sum of the checked files");
+  list.check(0, false);
+  check(list.ready().code === IMPORT.nothingChecked, "nothing checked");
+  list.check(0, true);
+  const bytes = list.zipFile(0);
+  check(bytes.length === part.length && bytes.every((v, i) => v === part[i]), "the bytes of a file of the ZIP file");
+  list.free();
+  let notZip = "";
+  try {
+    rules.listZip(new Uint8Array(64));
+  } catch (e) {
+    notZip = e.message;
+  }
+  check(notZip === rules.message(IMPORT.notZip), "a file that is not a ZIP file");
+  // Six parts on a small bed: the parts that do not fit go on new plates.
+  const at = x3.zs_set_add(set);
+  const app = x3.zs_set_app(set, at);
+  wasm3.withStrings(["machine.bed_size_x", "100"], (n, v) => x3.zs_app_setting_set(app, n, v));
+  wasm3.withStrings(["machine.bed_size_y", "100"], (n, v) => x3.zs_app_setting_set(app, n, v));
+  const core = new Core(wasm3, null, app);
+  core.loadStl("part.stl", bytes);
+  for (let i = 0; i < 5; i++) core.addStl("part.stl", bytes);
+  const before = x3.zs_set_count(set);
+  const more = x3.zs_set_spill(set, at);
+  check(more >= 1 && x3.zs_set_count(set) === before + more, `the parts on ${1 + more} plates`);
+  let parts = 0;
+  for (let i = at; i < x3.zs_set_count(set); i++) parts += x3.zs_app_part_count(x3.zs_set_app(set, i));
+  check(parts === 6, "each part on a plate");
+  console.log(`model import: the page, the ZIP list, and ${1 + more} plates`);
 }
 x3.zs_set_free(set);
 console.log("ok");

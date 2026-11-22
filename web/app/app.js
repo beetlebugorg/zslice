@@ -53,7 +53,8 @@
 // theme.js first: it sets the colors before the rest of the page loads.
 import { isDark, onThemeChange, themeChoice, setTheme } from "./theme.js";
 import { Wasm } from "./wasm.js";
-import { LinkRules, downloadModel, registerLinks } from "./openlink.js";
+import { LINK, LinkRules, downloadModel, registerLinks } from "./openlink.js";
+import { ImportRules, askImportPage, showImportList } from "./modelimport.js";
 import { savePlate, loadPlate, clearPlate, loadSession } from "./keep.js";
 import { Client } from "./client.js";
 import { View3D, MODES } from "./view.js";
@@ -4425,6 +4426,10 @@ async function showProjectTotals() {
 async function openFile(file) {
   if (!file) return;
   stopReplay();
+  if (/\.zip$/i.test(file.name)) {
+    await importZip(file);
+    return;
+  }
   // A project file of zslice: its plates replace the plates.
   if (/\.3mf$/i.test(file.name)) {
     const probe = await file.arrayBuffer();
@@ -4473,6 +4478,10 @@ async function openFile(file) {
 // "Add models…": more parts on the plate (zs_app_add_stl).
 async function addFiles(files) {
   for (const file of files) {
+    if (/\.zip$/i.test(file.name)) {
+      await importZip(file);
+      continue;
+    }
     const bytes = await file.arrayBuffer();
     try {
       await client.call("add", { name: file.name, bytes }, [bytes]);
@@ -4501,6 +4510,7 @@ $("open").onclick = () => openMenu($("open"), [
   { label: "Open a model…", action: () => $("file").click() },
   { label: "Add models to this plate…", disabled: app.state === "empty", action: () => addModels() },
   { label: "Save project…", disabled: app.state === "empty", action: () => saveProject() },
+  { label: "Import from a model page…", detail: "Printables or Thingiverse", action: () => askImportPage(new ImportRules(wasm)) },
   { label: "Open links from model sites here", detail: "web+zslice:// links", action: () => toast(registerLinks(), 9000) },
   ...projectItems(),
 ]);
@@ -4539,6 +4549,7 @@ const search = new SearchOverlay({
   actions: () => [
     { label: "Open a model…", keys: "Ctrl+O", run: () => $("file").click() },
     { label: "Add models to the plate…", run: () => addModels() },
+    { label: "Import from a model page…", hint: "Printables or Thingiverse: choose the files to load", run: () => askImportPage(new ImportRules(wasm)) },
     { label: "Export G-code…", keys: "Ctrl+E", run: () => exportGcode() },
     { label: "Test print the top layer", hint: "the layer alone, on the bed", run: () => debugPrint(true) },
     { label: "Test print the layers shown", hint: "the layers of the slider alone, on the bed", run: () => debugPrint(false) },
@@ -4831,9 +4842,57 @@ async function openLinkFile(bytes, name) {
   await addFiles([file]);
 }
 
+// ---- import a model from a model page or a ZIP file (modelimport.js) ----
+
+// The files of a ZIP file: the user checks the files to load. They go on
+// a new plate (if the plate has parts), and the parts that do not fit go
+// on more plates. It never prints.
+async function importZip(file) {
+  const rules = new ImportRules(wasm);
+  let list;
+  try {
+    list = rules.listZip(new Uint8Array(await file.arrayBuffer()));
+  } catch (e) {
+    toast(`${file.name}: ${e.message}`);
+    return;
+  }
+  showImportList(list, file.name, loadImported);
+}
+
+async function loadImported(files, errors) {
+  // A zslice project replaces the plates: the user opens it with Open.
+  const good = [];
+  for (const f of files) {
+    if (wasm.withBytes(f.bytes, (p, n) => wasm.x.zs_project_file_is(p, n)) !== 0) errors.push(`${f.name}: ${new LinkRules(wasm).message(LINK.project)}`);
+    else good.push(new File([f.bytes], f.name));
+  }
+  if (good.length) {
+    if (app.state === "empty") {
+      await openFile(good[0]);
+      await addFiles(good.slice(1));
+    } else {
+      await addPlate();
+      await addFiles(good);
+    }
+    const r = await client.call("spill");
+    const plates = 1 + (r?.plates ?? 0);
+    toast(`${good.length} ${good.length === 1 ? "file" : "files"} on ${plates} ${plates === 1 ? "plate" : "plates"}.`);
+  }
+  if (errors.length) toast(errors.join("\n"), 9000);
+}
+
 function askOpenLink(text) {
   const rules = new LinkRules(wasm);
   const link = rules.check(text);
+  // A link to a model page: the page of the import says how to get its
+  // files.
+  if (link.ok) {
+    const page = new ImportRules(wasm).page(link.url);
+    if (page.ok) {
+      askImportPage(new ImportRules(wasm), page.url);
+      return;
+    }
+  }
   const d = document.createElement("dialog");
   d.className = "printers-dialog pair-dialog";
   const title = Object.assign(document.createElement("h3"), { textContent: link.ok ? "Open this model?" : "This link did not open" });
