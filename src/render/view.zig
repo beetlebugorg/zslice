@@ -6479,6 +6479,51 @@ test "a part preview draws the beads of the part apart, turned" {
     try std.testing.expect(v.preview == null);
 }
 
+test "a drag along a ring turns the part with the pointer, about each axis" {
+    var v = try testScene(2, 2, 5);
+    defer destroyTest(&v);
+    v.target = .{ 0, 0, 5 };
+    v.extent = 80;
+    v.dist = 100;
+    v.setAngles(0.5, 0.5);
+    const c = [3]f32{ 0, 0, 5 };
+    v.setGizmo(c, 10, false);
+    for (0..3) |axis| {
+        const pts = v.ringPoints(axis);
+        // From a point of the ring a few samples along it: the turn of the
+        // drag (degrees) about the axis, as zs_app_part_turn gets it.
+        const k0 = 5;
+        const k1 = 9;
+        const a = v.pixelOf(pts[k0]).?;
+        const b = v.pixelOf(pts[k1]).?;
+        try std.testing.expect(v.ringPress(@intCast(axis), a[0], a[1]));
+        const deg = v.ringDrag(b[0], b[1], 0);
+        v.ringRelease();
+        // The angle on the screen is not the angle of the ring (a ring
+        // seen at a slant), but it has its sign.
+        try std.testing.expect(@abs(deg) > 1);
+        // The turn of the point at the press by that angle, with the
+        // matrices of plate.axisTurn, goes toward the point of the
+        // release; the turn the other way goes away from it.
+        var err: [2]f32 = undefined;
+        for ([_]f32{ deg, -deg }, 0..) |g, n| {
+            const t = std.math.degreesToRadians(g);
+            const co = @cos(t);
+            const si = @sin(t);
+            const d = [3]f32{ pts[k0][0] - c[0], pts[k0][1] - c[1], pts[k0][2] - c[2] };
+            const r: [3]f32 = switch (axis) {
+                0 => .{ d[0], co * d[1] - si * d[2], si * d[1] + co * d[2] },
+                1 => .{ co * d[0] + si * d[2], d[1], -si * d[0] + co * d[2] },
+                else => .{ co * d[0] - si * d[1], si * d[0] + co * d[1], d[2] },
+            };
+            var e: f32 = 0;
+            for (0..3) |j| e += (pts[k1][j] - c[j] - r[j]) * (pts[k1][j] - c[j] - r[j]);
+            err[n] = @sqrt(e);
+        }
+        try std.testing.expect(err[0] < err[1]);
+    }
+}
+
 test "the arrows of the gizmo: the pick, and a drag along X and Z" {
     var v = try testScene(2, 2, 5);
     defer destroyTest(&v);

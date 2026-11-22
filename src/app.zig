@@ -644,6 +644,25 @@ pub const App = struct {
                 app.plate.lift(first + k, z);
                 continue;
             }
+            // "pose <tab> part <tab> 9 values <tab> 3 values": the pose and
+            // the scale of a part (plate.Plate.restorePose).
+            if (std.mem.startsWith(u8, line, "pose\t")) {
+                var f = std.mem.splitScalar(u8, line["pose\t".len..], '\t');
+                const k = std.fmt.parseInt(usize, f.next() orelse continue, 10) catch continue;
+                var v: [12]f64 = undefined;
+                var ok = true;
+                for (&v) |*x| x.* = std.fmt.parseFloat(f64, f.next() orelse {
+                    ok = false;
+                    break;
+                }) catch {
+                    ok = false;
+                    break;
+                };
+                if (!ok) continue;
+                const pose: zs.plate.M3 = .{ v[0..3].*, v[3..6].*, v[6..9].* };
+                try app.plate.restorePose(app.gpa, first + k, pose, v[9..12].*);
+                continue;
+            }
             // "profile <tab> z_min <tab> z_max <tab> name": a layer profile.
             if (std.mem.startsWith(u8, line, "profile\t")) {
                 var f = std.mem.splitScalar(u8, line["profile\t".len..], '\t');
@@ -708,6 +727,16 @@ pub const App = struct {
         // The lift of each part that floats or sinks (plate.Part.z), by its
         // index on the plate.
         for (app.plate.parts.items, 0..) |p, k| if (p.z != 0) try w.print("lift\t{d}\t{d}\n", .{ k, p.z });
+        // The pose and the scale of each part that has them (the mesh of
+        // the file has them in its vertices): "pose", the index, the 9
+        // values of the pose (rows), and the 3 of the scale.
+        for (app.plate.parts.items, 0..) |p, k| {
+            if (p.source == null) continue;
+            try w.print("pose\t{d}", .{k});
+            for (p.pose) |row| for (row) |x| try w.print("\t{d}", .{x});
+            for (p.scale) |x| try w.print("\t{d}", .{x});
+            try w.writeByte('\n');
+        }
         for (app.overrides.items) |o| try w.print("{d}\t{d}\t{s}\t{s}\n", .{ o.z_min, o.z_max, o.name, o.value });
     }
 
