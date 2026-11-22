@@ -29,7 +29,10 @@ Build the settings model, the TOML profiles with inheritance, the formulas, the 
     - A speed in mm/s becomes a ratio of `machine.max_speed`, after the printer limits of the file.
     - Each value goes into the limits of its setting.
 11. The qualities. The core lists the built-in qualities from the finest to the coarsest: Fine, Standard, Strong, Draft, Coarse. Each name starts with a capital. `zs_quality_summary` gives one line of the main points of a quality: the layer height first, then what differs from Standard ("0.1 mm layers · 3 walls · slower walls · ironed tops"). The menus show that line in small text under the name.
-12. The second nozzle (`machine.nozzle2_*`, section "Second nozzle"): `nozzle2_speed` (a ratio of the speed of each line of the first nozzle), `nozzle2_max_speed`, `nozzle2_max_accel`, `nozzle2_diameter`, `nozzle2_line_width`, `nozzle2_retract_length`, and `nozzle2_retract_speed`. A value of 0 is the value of the first nozzle, so a print with the defaults gives the same G-code. Travel keeps the speeds of the printer. A shell shows the section only for a printer with two nozzles.
+12. Up to 16 nozzles. `machine.nozzles` is 1 to 16, and `filament.nozzle` is 0 to 15. Each nozzle after the first has the settings `machine.nozzle.k.*`: the diameter, the line width, the speeds, the acceleration, the retraction, the tool offset, the reach, the standby, and the preheat. A value of 0 is the value of the first nozzle, so a print with the defaults gives the same G-code. A profile writes them as dotted keys (`nozzle.1.diameter = 0.6`), and the TOML parser reads a dotted key as one key. The old `machine.nozzle2_*` names load into nozzle 1 (`settings.moved_settings`). `zs_setting_info` gives the nozzle of each setting. A shell shows the section of nozzle k only for a printer with more than k nozzles, and leaves its settings out of a search. The nozzle choice of a filament lists Main and 2nd for two nozzles, and T0 to Tn for more.
+13. Tool changers: `machine.tool_numbers` is `filament` (default: Tn is the filament, for an AMS, an MMU, the X2D, and the H2D) or `nozzle` (Tn is the nozzle of the filament, for a printer with a hot end for each filament). `machine.standby_delta` sets the temperature of a waiting nozzle (a filament with `standby_temp` waits at that temperature). `machine.preheat_time` heats the next nozzle that many seconds before a change in the middle of a layer. Two filaments on one nozzle change with M600 (part 03).
+14. The Speed section (`src/app/speed.zig`, `zs_speed_get`): the print settings that change the time of a slice, each with its measured gain and cost. The Faster slicing switch sets `project.fast_offsets` on and `project.resolution` to 0.01 mm. Its state comes from the two options (`zs_app_speed_state`: off, on, or custom). The engine options that change no G-code (`engine.threads`, `engine.draft_slices`, `engine.auto_simulate`) are app preferences. Each shell keeps them and gives them to each plate that becomes active.
+15. The printer library has a T line for each model with a hot end for each extruder: the change G-code, the standby and the preheat of the ooze prevention of the default print profile, and the diameter and the offset of each nozzle. 177 models have one. Their machine profile has `nozzles`, `filament_change = tool`, and `tool_numbers = nozzle`. The field `change` is "t" for a model with a Prusa MMU, so its profile has `filament_change = tool`. The format is in the header of `src/printers.zig`.
 
 ## Numbers and rules that matter
 
@@ -47,6 +50,12 @@ Build the settings model, the TOML profiles with inheritance, the formulas, the 
 - The X2D profile has the values of its second nozzle (a bowden extruder): at most 200 mm/s, 1000 mm/s², and a 2 mm retraction at 20 mm/s.
 - `project.combing_mode` (part 03) replaces the switch `project.combing`. An old `combing = true` or `false` loads as `all` or `off`.
 - `filament.pressure_advance` is a layer setting. The calibration tower (part 07) needs it.
+- `project.resolution` (0.005 mm) is the outline tolerance. It was `engine.resolution`. It changes the G-code, so the project keeps it and the slice is the same on each computer. The old name still sets the value, and `zs_profile_moved` counts it in a saved text. The draft slice keeps its own 0.05 mm in the settings of the slice only.
+- `engine.draft_slices` (on) and `engine.auto_simulate` (on): off gives no draft slice during an edit, and no simulation after each slice.
+- A setting of a region of a body (part 05) is one of `settings.region_settings`: the filament, the infill pattern, density, angles, and stack, the infill flow and speed, and the infill acceleration. The other rows say why (`zs_setting_region_note`).
+- The search finds the filament first for "color", "colour", "extruder", "material", and "tool".
+- A variable with a number index in the G-code of the library (`first_layer_temperature[1]`) stays as it is. The core gives the value of that slot or nozzle. `printer_library.py` writes the OrcaSlicer test `idle_temperature == 0` as `is_nil(idle_temperature[...])`.
+- The library tool gives the Prusa models what their sources lack: CoreXY for the XL and the CORE One, i3 for the MK and MINI printers, and 330 mm of height for the CORE One L HF of OrcaSlicer.
 
 ## Lessons
 
@@ -57,6 +66,9 @@ Build the settings model, the TOML profiles with inheritance, the formulas, the 
 - Keep the filament diameter when the material changes.
 - Keep the quality profile and the global settings of a Cura stack as levels of one cascade.
 - Keep the vendor G-code of each printer in the library, and the popular printers in the core.
+- **Write the idle temperature test as `is_nil`.** The CORE One presets of OrcaSlicer test `idle_temperature == 0` for a filament with no idle temperature. In zslice that value is nil, so the line that sets the nozzle to 100 °C during the bed heat-up became a comment.
+- **A Prusa MMU changes with a tool change.** A plate of two filaments on an MMU printer paused with M600 at each change, twice a layer. PrusaSlicer writes T0 and T1 for these printers, and the firmware unloads and loads the filament.
+- **Keep the outline tolerance in the project.** It changes the G-code, so as an engine option it made other G-code on another computer.
 - A multiline value (G-code) shows its first line and " …" in a row. This is the only short form of a value. A label never ends in "…".
 
 ## Acceptance checks
@@ -68,5 +80,7 @@ Build the settings model, the TOML profiles with inheritance, the formulas, the 
 5. `docs/user/settings.md` is the output of `tools/settings_doc.py` with no diff.
 6. A new field in `settings.zig` shows in the panel of each app with no shell code.
 7. `zslice import` of a PrusaSlicer `.ini` writes a report with each value set, each clamp, and each unknown key.
-8. A two-nozzle print with each `nozzle2_*` value at 0 gives the same G-code as before the section existed.
+8. A print of one nozzle, of the X2D, and of the H2D gives the same G-code as before the settings of each nozzle, except the list of the settings at the end of the file. An old text with `nozzle2_*` values loads them into nozzle 1.
 9. Each app lists the qualities in the order Fine, Standard, Strong, Draft, Coarse, with the same summary lines.
+10. The test "each Prusa model of the library prints two filaments with its checks" passes (`src/plate_job.zig`, part 03).
+11. The Faster slicing switch shows custom after a change of one of its options.

@@ -22,7 +22,13 @@ Build the native Linux app in `linux/`: a GTK 4 shell in C around the app core, 
 7. Open links: the `.desktop` file has `MimeType=x-scheme-handler/zslice` and the model types. `ui/open-link.c` asks first. `net/model-download.c` downloads with libsoup. It resolves the host, and checks each address and each connection peer. A second start hands the link to the first window, and the session comes back before the file opens.
 8. The Label tool draws its handles as decals of the core view, in place of a handle widget over the view. The card has the modes and "Place an SVG…" with a file dialog. An SVG dropped on a part makes a label. Other files go to the window.
 9. The Calibrate menu, "Import a profile...", the part order on the part card, the draft slice first, and the work bar, as on the web.
-10. Test hooks: each `ZSLICE_*` variable in the table of the app page. Use them to drive the app in tests and screenshots: `ZSLICE_PICK`, `ZSLICE_MENU`, `ZSLICE_RING_DRAG`, `ZSLICE_GRAB`, `ZSLICE_SUPPORT_DO`, `ZSLICE_BENCH`, `ZSLICE_PLATES`, and the others. `ZSLICE_STALLS=ms` logs each stall of the UI thread with stacks. `ZSLICE_STRESS=n` makes n fast changes.
+10. The parity steps of the web app: the transform tool (`ui/view3d`: the core view draws the rings, the arrows, and the guides, and cairo draws the label of a drag), the dock with the history button, the Speed section, the switches of the draft slices and of the simulation on the General page of Preferences, the settings of each nozzle, the Filament row and the range rows of a part of some layers, and the waste line.
+11. The search has the four places of the web search: under the header field, a card, and the left or the right rail of the view. The app keeps the place in `search_at`. A click outside the docked results closes them, and a drag in the view keeps them. The header field shows the `/` key, and × while the results show.
+12. The Check button counts the problems of the check (a warning or worse) in orange, and the print card says "N to check" in red. The tool strip is at the top left of the view.
+13. The quality menu has a widget for each quality: a check mark on the quality in use, its name, and its main points in small dim text. The popover menu shows markup as text, so a plain item does not work.
+14. Import from a model page (`ui/model-import.c`, the action `app.import-page`): the address, the list of files of a Printables model with check boxes, sizes, and previews, then the downloads one at a time, a new plate, and the spill. The POST to the API and the GET of a preview use the checks of a download (`zg_net_request`): public addresses only, no proxy, no cookie, and a size limit. Each request sends the User-Agent of the core. A Thingiverse address opens the page in the browser. A ZIP file from Open or a drop shows the same list.
+15. The icon: the hicolor icons, the `.desktop` file, and the window icon.
+16. Test hooks: each `ZSLICE_*` variable in the table of the app page. Use them to drive the app in tests and screenshots: `ZSLICE_PICK`, `ZSLICE_MENU`, `ZSLICE_RING_DRAG`, `ZSLICE_GRAB`, `ZSLICE_SUPPORT_DO`, `ZSLICE_BENCH`, `ZSLICE_PLATES`, and the others. `ZSLICE_STALLS=ms` logs each stall of the UI thread with stacks. `ZSLICE_STRESS=n` makes n fast changes. `ZSLICE_ARROW_DRAG=axis,mm` drags an arrow of the gizmo. `ZSLICE_IMPORT_LIST=1` and `ZSLICE_IMPORT_YES=1` drive the import dialog.
 
 ## Rules that match the other apps
 
@@ -31,7 +37,8 @@ Build the native Linux app in `linux/`: a GTK 4 shell in C around the app core, 
 - Cards keep clear of the clicked line or part, with the rules of `web/app/place.js`.
 - A right drag of a mouse orbits; a touchpad two-finger click and slide pans. The app reads the device from the last scroll (`GDK_SCROLL_UNIT_SURFACE`).
 - Alt+Left and the back button of the mouse go back to the place before.
-- The tool keys of the web app: Grab G, Label E, and h and l step along the line.
+- The tool keys of the web app: Move M (also R and G), Label E, and h and l step along the line. Gaps has no key.
+- The search gives S as the key of the Support tool, and has "Import a profile…". The main menu item that saves all plates is "Save project…".
 - The Linux app shows the active plate only. It has layer profiles, Compare with Cura, USB printers, Send all plates, and Export all plates.
 
 ## Lessons
@@ -42,6 +49,8 @@ Build the native Linux app in `linux/`: a GTK 4 shell in C around the app core, 
 - Keep the measure readout clear of the tape.
 - Count an upload as sent only when the printer stored the file.
 - The 3D view needs Wayland. X11 is open in the roadmap.
+- **Show the qualities as widgets.** The popover menu showed each name and its points as one plain block of two lines, with no mark on the quality in use.
+- **Name the right keys in the search.** The search gave U as the key of the Support tool. The docs said that G shows the gaps.
 
 ## Acceptance checks
 

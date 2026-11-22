@@ -2,7 +2,7 @@
 
 ## Goal
 
-Print a plate with more than one filament: a filament for each part, each layer range, each body, the support, each painted face, and each label. Change the filament with a pause or a tool change. Flush the old color into hidden lines and a prime tower. Support printers with two nozzles (Bambu Lab H2D and X2D).
+Print a plate with more than one filament: a filament for each part, each layer range, each body, the support, each painted face, and each label. Change the filament with a pause or a tool change. Flush the old color into hidden lines and a prime tower. Support printers with two nozzles (Bambu Lab H2D and X2D), and tool changers with up to 16 nozzles (Prusa XL, CORE One INDX).
 
 ## Read first
 
@@ -18,9 +18,13 @@ Print a plate with more than one filament: a filament for each part, each layer 
 3. The flush volume of a change: `machine.flush_volume` (default 140) times `1 + 3 * max(0, L(to) - L(from)) + |to - from|`, where L is the luma (0 to 1) and `|to - from|` the RGB distance (0 to 1). Then times `project.flush_multiplier`. Black to white flushes about 5 times the base.
 4. The order of the filaments of a layer: try each order (up to 8 filaments), and pick the least flush after the hidden lines take their part. Count the time of each change, so the order never adds a change to save a little plastic.
 5. Flush into hidden lines (`project.flush_into_hidden`): after a change, the new filament prints its infill and support body first. A change between two kinds of material flushes into the support body only.
-6. Prime towers (`project.prime_tower`, default on, only with `filament_change = tool`): one tower for each family of materials that bond (`project.prime_tower_split`, default on), sized from the purge of each layer, `prime_tower_width` 20 mm. With `prime_tower_x` and `prime_tower_y` at -1, the tower goes to the back of the bed. Draw the rows, the loop, and the grid of each tower layer in the 3D view.
+6. Prime towers (`project.prime_tower`, default on, only with `filament_change = tool`): one tower for each family of materials that bond (`project.prime_tower_split`, default on), sized from the purge of each layer, `prime_tower_width` 20 mm. With `prime_tower_x` and `prime_tower_y` at -1, the tower goes to the back of the bed. `src/tower.zig` makes the shape and the lines of each tower layer. The G-code and the view use the same functions, and a test checks that they draw the same lines.
    - Each change goes in this order: the change, the flush, a prime and a wipe on the tower at the z of the layer, then the part.
-   - Each tower grows on each layer up to its last change, with its loop and a grid of lines at most 5 mm apart. The purge rows print inside the loop.
+   - The tower is a rib wall tower, as in Bambu Studio. The wall has `prime_tower_wall_loops` loops (4). Two strips along the diagonals (`prime_tower_rib_width` 8 mm, `prime_tower_extra_rib_length`) stick out at the corners, and the corners get fillets (`prime_tower_fillet_wall`). `prime_tower_rib_wall` off gives a square wall.
+   - The rows of each prime go from the inner loop to the inner loop as one zigzag. Each change gets its own block of rows.
+   - At the end of a layer, the area of the prime of the next layer gets solid rows. The rest of the inside has sparse lines, close to the walls and further apart toward the center, at the same x on each layer. The first layer is solid.
+   - `prime_tower_brim` (3 mm): loops out from the outer loop on the first layer.
+   - Each tower grows on each layer up to its last change.
    - A support or infill filament of its own counts up to the top of the support or of the infill.
    - A Bambu Lab printer flushes into its chute (its change G-code). Its tower gets a prime of 45 mm³, as Bambu Studio primes.
 7. Support in its own filament: `project.support_filament` and `project.support_interface_filament`.
@@ -32,18 +36,22 @@ Print a plate with more than one filament: a filament for each part, each layer 
     - SVG pictures (`src/svg_path.zig`): an item of kind `svg` has the source of the picture and its height. The reader takes the path data, the basic shapes, the transforms, the fill rules, and simple strokes, as polygons at the tolerance of the labels.
     - Modes: `ink` (the default; its JSON is the same as before), `raised`, or `cut`, with a relief in mm. A cut label removes its shape from the layers within the relief, and the floor of the cut gets skin. A raised label on a side face adds its shape out of the wall. A raised label on a top face adds the walls of a plateau to the mesh. Raised and cut labels work with one filament too.
     - Smart guides (`src/label_snap.zig`, `zs_label_face`, `zs_label_snap`): the face of the part in the plane of the label, with its outline and its holes (round, rectangular, or other). A move snaps to the edges and centers of the other labels in the plane, to equal gaps, to the holes, and to the centers of the face and of the part. A resize also snaps to the size of another label. The core gives the guide lines as JSON.
-13. Two nozzles: each filament has a nozzle (`filament.nozzle`: main or 2nd). Check the reach of each nozzle. Keep the prime tower in the reach of both nozzles of the H2D. The second nozzle has its own speed, line width, and retraction (part 02).
+13. Two nozzles: each filament has a nozzle (`filament.nozzle`: main or 2nd, or T0 to T15 on a printer with more nozzles, part 02). The Check tells a filament on a nozzle that the printer does not have. Check the reach of each nozzle. Keep the prime tower in the reach of both nozzles of the H2D. The second nozzle has its own speed, line width, and retraction (part 02).
     - A switch of the nozzles flushes only when the filament in the new nozzle changed. Bambu Studio flushes 0 there.
     - The idle nozzle goes to 10 °C below its temperature (`M104 T`). `M104 S` sets the print temperature after the `M620.15` cooling of the change G-code.
 14. The infill filament (`project.infill_filament`, 0 is the filament of the part): the sparse infill in another filament. A filament of the second nozzle prints it at the line width of that nozzle. With `infill_layers` above 1, only the tall beads use it, and the nozzle changes once for each group of layers. The Check tells when a group is too thick for the nozzle of the infill. The skirt and the tower keep the width of the plate next to a part with wider lines.
-15. "This body": when a drag from a line lights one body, the range card has a row "This body" first. A filament chip paints the faces of the part under the lines of that body (`zs_app_paint_body`), so only that body prints in the filament. The body shows in the color of the filament at once (`zs_view_light_color`). The body is paint, so it stays after a change of the walls, the layer height, or the place of the part.
+15. A part of some layers with its own filament and infill (`src/body_region.zig`). The line card has a Filament row: a chip paints the body of the line on its layer (the lines joined to it, `zs_app_paint_body`). The card then offers the layers above and below where the body goes on (`zs_view_connected_layers`). The range card has two filament rows: "This part of the layers" for a lit body, and "Whole layers". With a lit body, each other row has a switch "This part" or "Whole layers". A change for this part makes a region (`zs_app_region_set`): a modifier volume that is a stack of prisms, one for each layer of the body. A region has only the settings of `settings.region_settings` (part 02). The 3MF file and the undo list keep a region.
+16. The waste of a print with changes (`zs_app_waste`): the flush out of the print (the chute of a Bambu Lab printer), all lines of the prime towers, and the time of the changes, in grams and seconds. The filament list shows "3 changes, about 2 min · waste 10.3 g (12 %)", with the parts in the tooltip.
+17. "This body": when a drag from a line lights one body, the range card has a row "This body" first. A filament chip paints the faces of the part under the lines of that body (`zs_app_paint_body`), so only that body prints in the filament. The body shows in the color of the filament at once (`zs_view_light_color`). The body is paint, so it stays after a change of the walls, the layer height, or the place of the part.
 
 ## Numbers and rules that matter
 
 - A label stroke of two lines (text about 4 mm tall with a 0.4 mm nozzle) prints clean. One line (about 2 mm) prints rough. The default depth is one line.
 - A side label adds about one change for each layer it covers. "VOLUME" 5 mm tall at 0.2 mm layers is 26 changes, about 17 minutes. A top label adds about 3. The card warns when a side label adds more than 10 changes.
 - Each layer of a root can add a change. A layer that already has both filaments gets no new change.
-- A print of one filament gives the same G-code as before multi-material existed.
+- A print of one filament gives the same G-code as before multi-material existed. It has no tower, so the tower settings do not change it.
+- With no paint and no region, the G-code is the same as before the regions.
+- The waste counts the whole tower. The panel showed only the flush first, so it showed less waste than the print had.
 
 ## Lessons
 
@@ -53,6 +61,9 @@ Print a plate with more than one filament: a filament for each part, each layer 
 - Keep labels in the 3MF file, the snapshots, and the history.
 - Keep the material and the color in their Bambu config lines.
 - **Make the new filament ready on the tower before it prints the part.** A change printed the new filament with a prime of 15 mm³ on a weak tower. A tower layer with no change had only its loop and one diagonal, so purge rows bridged up to the full tower width. Towers of more families grew only on the layers with a purge, and the nozzle went down to their top. On the X2D, a switch of the nozzles flushed the full volume into the chute, the idle nozzle stayed at its print temperature, and the new nozzle stayed 10 °C cold after `M620.15`.
+- **Give the tower a wall, ribs, a brim, and rows from wall to wall.** The primes lifted from the tower. First a brim and a grid of lines 2 mm apart (in place of 5 mm) came. Then the rows went half a line into the loop at both ends. The primes still lifted off a grid with one loop, so the tower became the rib wall tower of Bambu Studio.
+- **Extend the paint of a line with the filament of the pick.** The buttons for the layers above and below painted with the filament of the card. After the slice, the line can report another filament. The extend then painted the wrong filament and erased the paint (GTK).
+- **Find the outer wall around an inner line.** The body of a line held only the paths inside the box of the line, grown by a wall step. An inner wall whose outer wall goes into a fin or around a boss had no outer wall in its body. Now a closed path of the part around the start line on its layer also starts the walk (`View.connectedPaths`).
 - **Start a label resize at its own size.** A corner handle sits on the frame, 4 pixels outside the box of the label, and the resize anchors the box. The first move jumped by the gap. Keep the offset from the pointer to the corner of the box at the press, and take it off each move.
 
 ## Acceptance checks
@@ -66,4 +77,7 @@ Print a plate with more than one filament: a filament for each part, each layer 
 7. A raised label in its own filament changes the filament only on the layers of the label.
 8. A cut label removes its shape within the relief, and its floor gets skin.
 9. On a head with two nozzles, a switch to a nozzle that keeps its filament has no flush.
-10. Each tower layer up to the last change has its loop and its grid.
+10. Each tower layer up to the last change has its wall, and the view draws the same lines as the G-code.
+11. A paint of an inner wall from the line card prints the inner wall and the outer wall around the fin in the new filament (a C API test).
+12. A region of a body prints its own infill, and the 3MF file and an undo keep it.
+13. A part on an X2D with five spools, in filament 2 and in filament 5 (the external spool on the second nozzle), gives the right bead colors, M620 and T lines, `ams_mapping`, and `slice_info.config`.

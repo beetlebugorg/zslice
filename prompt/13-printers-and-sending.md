@@ -27,9 +27,10 @@ Find printers on the network, pair with them, read their state and their spools,
    - The AMS mapping of a print start: `ams_mapping` (the AMS unit times 4 plus the tray; -1 for a filament with no tray) and `ams_mapping2` (`ams_id` and `slot_id`; 255 and 255 for none; 254 is the external spool). A plate of filament 4 only on a printer with tray 3 gives `"ams_mapping":[-1,-1,-1,3]`.
    - The certificate has no authority. Trust it at the first connection, keep its SHA-256, and send the access code only to that certificate after that.
    - Cameras: P1 and A1 send JPEG frames on port 6000. X1, H2, P2S, and X2D send RTSP over TLS on port 322 with H.264 (`src/rtsp.zig`).
-7. Printdeck pairing and the deck root (see the lesson): pair and list the printers at the root of the deck (`/slicer/printer.json`). Each added printer gets the root of the deck and its own path as its address, its name on the deck, the key of the deck, and the profile of its model.
+7. Printdeck pairing and the deck root (see the lesson): pair and list the printers at the root of the deck (`/slicer/printer.json`). Each added printer gets the root of the deck and its own path as its address, its name on the deck, the key of the deck, and the profile of its model. An empty deck path always means the root of the deck. At the start, each app reads the list of each deck and puts each saved printer with a deck name on the address of the printer of that name. A deck that does not answer keeps its addresses.
 8. The Printers page: a card for each printer with its camera, state, job, temperatures, and roll. A camera plays only while its card is on the screen. The plates of the project are at the top, each with a printer to send it to.
-9. The farm (`src/app/farm.zig`): printers, orders, jobs, proposals of sends, and events. The farm never sends by itself: a send is a proposal that the user confirms. `tools/farm_sim/` simulates printdecks.
+9. The import from a model page (part 07) uses the network rules of a link download: public addresses only, a check of each address and peer, no proxy, no cookie, no redirect for the API POST, and a size limit. The GTK app reads the file list of Printables. The web app cannot (CORS), and no app calls the API of Thingiverse (it needs an app token).
+10. The farm (`src/app/farm.zig`): printers, orders, jobs, proposals of sends, and events. The farm never sends by itself: a send is a proposal that the user confirms. `tools/farm_sim/` simulates printdecks.
 
 ## Rules that matter
 
@@ -46,6 +47,8 @@ Find printers on the network, pair with them, read their state and their spools,
 - **Refuse a send that may reach another printer.** A queued print for the X2D went to the TAZ. An address of the deck itself, on a deck of two or more printers, with no saved deck name and a name that does not name the first printer, now stops the send with a message.
 - **Load the first filament of the print** in the start G-code (part 03). The X2D failed in PREPARE with "Failed to get AMS mapping table" when the start G-code loaded a filament with no tray.
 - **Name only a used filament for each nozzle** in the X2D start G-code (part 03). A print of filaments 3 and 4 on the main nozzle stopped 37 s in with HMS errors, because the start G-code named filament 4 for the second nozzle.
+- **Give each printer of a deck its own address.** A deck added at the address of one of its printers gave the printer at the root of the deck that same address, so two printers showed one camera and one status (issue #24). The web app, the Mac, and Windows each needed the fix.
+- **Write the statistics of PrusaSlicer for a Prusa printer** (part 03), so the firmware shows the time and the filament, and an MMU starts with the filament in its sensor.
 - Repair an address saved with a printer path twice (`.../printers/x2d/printers/x2d`).
 - A model hint of one word matches no library model: "TAZ" alone matched a TAZ 6 for a TAZ Workhorse.
 - Keep the project paths inside the repository, and limit the size of MQTT packets.
@@ -62,3 +65,4 @@ The X2D work is recent. The git log has a series of fixes that match the file of
 3. The `.gcode.3mf` of each Bambu model has the files and fields of the file of Bambu Studio for that model. The X2D is the hard case: see the note above.
 4. A fake deck at its own address, named "Bambu Lab X2D", stops the send. "taz workhorse" goes to the TAZ.
 5. `zig build test` runs the fuzz tests of the readers with no panic.
+6. At the start, a deck of two printers saved with one address gives each printer its own address, camera, and status.

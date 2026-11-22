@@ -4,7 +4,7 @@ Give this page to the agent with each part.
 
 ## The product
 
-Build zslice: a slicer for FDM 3D printers, written from scratch in Zig 0.16. It shows the print as the plastic forms it, before you print. It runs in a browser on WebAssembly, and as a native app on Linux, macOS, and Windows. A command line tool and a C library come from the same core.
+Build zslice: a slicer for FDM 3D printers, written from scratch in Zig 0.16. It shows the print as the plastic forms it, before you print. It runs in a browser on WebAssembly, and as a native app on Linux, macOS, and Windows. A command line tool and a C library come from the same core. The README and the docs name the web app and the three native apps side by side in their first lines.
 
 zslice is an experimental slicer. It has three goals ([README](../README.md)):
 
@@ -77,3 +77,4 @@ One Zig core has all logic: the slicer (`src/`), the app core (`src/app.zig`, `s
 - Put each decision in the core, so that each shell behaves the same.
 - Test each UI change in the real app with its test hooks (`ZSLICE_*` variables, `window.zslice`), and look at a screenshot.
 - When the owner corrects a behavior, write the correction in the code comment, the docs, and the commit body. The lessons in these parts came from such corrections.
+- Each push and each merge to main includes the update of the `prompt/` folder for its commits ([UPDATING.md](UPDATING.md)). This rule comes from the owner (2026-11-22).

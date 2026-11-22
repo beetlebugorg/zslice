@@ -7,7 +7,7 @@ Build the native Mac app in `macos/`: a SwiftUI and AppKit shell around the app 
 ## Read first
 
 - [The macOS app internals](../docs/internals/macos.md): the build, the Xcode project and signing, each file, threads, plates, the document, the session, the 3D view, the window, cards, input, tools, printers, cameras, Quick Look, and the development hooks. It is the spec of this part.
-- [The macOS app user guide](../docs/user/macos.md): the keys and menus of the Mac. It names Grab G and Label E. The tool headings of the internals page ("Grab (H)", "Label (L)") are older.
+- [The macOS app user guide](../docs/user/macos.md): the keys and menus of the Mac. It names Grab G and Label E. Its section "Grab a part" still says "The Grab tool (H)": that is older than the code.
 - Part 09 of this folder: the window layout, the cards, and the keys follow the web app.
 
 ## Build
@@ -22,12 +22,19 @@ Build the native Mac app in `macos/`: a SwiftUI and AppKit shell around the app 
    - The search can also be a rail at the left of the view (beside the tool strip) or at the right (beside the layer slider), the height of the view, with the name of each setting over its control. The head of the results, the card, and the rails have a button for each other place. A card and a rail stay open until × or Esc.
    - A click in the view closes the results under the toolbar field. A drag to turn or pan keeps them.
 8. Cards and panels with `cardPlace(avoiding:)`, `.panel()` frames, and spatial cards (`SpatialStore`, the rules of `web/app/spatial.js`).
-9. The tools: Select (V), Move (M), Turn (R), Grab (G), Measure (T), Support (S), Label (E), Paint (P). h and l step like the arrows: the segment before or after a selected line, else the nozzle back or on. Shift-H and Shift-L step a whole line. Gaps keeps Shift-Command-G only.
+9. The tools: Select (V), Move (M), Turn (R), Grab (G), Measure (T), Support (S), Label (E), Paint (P). The Mac keeps Move, Turn, and Grab as three tools; the transform tool of the web and GTK apps is not on the Mac yet. h and l step like the arrows: the segment before or after a selected line, else the nozzle back or on. Shift-H and Shift-L step a whole line. Gaps has no key; View > Show Gaps stays.
    - The open panel, a drop, and the Finder take `.step`, `.stp`, and `.obj`. The part card has Mirror X and Mirror Y. B and View > Hide the Bed hide the bed.
    - The range card has the row "This body" (part 05).
    - Labels: the handles on the surface, the smart guides drawn as thin lines (Option moves free), Place an SVG, an SVG dropped on a part, and the mode and relief on the card. A corner keeps the aspect (Shift: each axis on its own).
-   - A printer with two nozzles shows the Second nozzle section. The line card says which nozzle prints a line. Infill filament has the filament chips.
+   - A printer with more than one nozzle shows a section for each nozzle after the first. The line card says which nozzle prints a line. Infill filament has the filament chips.
    - File > Calibrate, Import a Profile in the printer and quality menus, and Print Earlier and Print Later on the part card with one part at a time.
+   - The search field shows its key (/) while it is closed, and × while the results show. The results show at once on focus, with a line of help before the first letter, 640 points wide. The unit and the speed hint have columns of their own. The undock button is the card glyph of the web app. The labels of the Printers page, the project page, and the print card wrap.
+   - The badge of the print is red for the problems and for a note, and says "2 refinements" in the accent color.
+   - The bottom bar is one row: the plates, then Undo, Redo, and a History button with a clock, then the replay, then the print. Under 940 points the replay goes to a second row. The button counts the changes since the window opened or saved its file. A click or Command-Y opens the list in a popover. Each step has its glyph, its kind, its time, and Now or Go to. The 3D view ends at the top of the bar.
+   - A failed slice says "Did not slice" in red in the bottom bar, with a short reason. For a part that does not fit, the reason has the sizes.
+   - The settings of each nozzle (`SettingInfo` reads the nozzle of each setting), the nozzle choice T0 to Tn, and the waste line of the filament list (part 05).
+   - The document and the open panels take the type that macOS gives each model extension, and `Info.plist` lists the Bambu Studio types (`com.bambulab.3mf`, `com.bambulab.step`) for Open With.
+   - The icon: `macos/make-icon.sh` writes the AppIcon set (16 to 512 pt at 1x and 2x) from `assets/icon`. The art is 824 of 1024 px, on the grid of macOS icons. The small art makes the 16 pt icons and 32 pt at 1x. `make-app.sh` makes `AppIcon.icns` for the app of the Swift package.
    - The draft slice first, with a work bar of 2 points. The exact slice waits while a draft slices. Another plate, or a plate that goes, gets the exact slice first.
    - `zslice://` links: the app gets a Get URL event. After the session is back, the key window checks the link with the core and asks in a sheet, with Cancel on Return. The download has no cookie, no credentials, and no proxy, and refuses a host with a local address before each request and each redirect.
 10. Printers: `Core/PrinterLink.swift`, `Core/Bambu.swift`, `Core/Camera.swift`, `Core/FarmMonitor.swift` (part 13).
@@ -56,6 +63,9 @@ Build the native Mac app in `macos/`: a SwiftUI and AppKit shell around the app 
 - **Split large literals for the Swift compiler.** The Debug build on the CI runner stopped: the compiler could not type-check the map of the feature colors in time. The colors now go through a function with typed steps.
 - **Read the URL of a link with `zs_link_url`.** Swift does not import the long C array of the URL, so the Mac read it at offset 0 of the struct.
 - Free H and L for the vim keys: Grab is G and Label is E (part 09).
+- **Take the file types of other apps.** Bambu Studio claims `.3mf` and `.step` with types of its own, and macOS then types the files with them. The Mac app took only its own types, so it refused these files: "cannot open files in the STEP Model format". A project 3MF of another type saves as the 3MF of zslice.
+- **Say why a plate did not slice in the bar.** A failed slice showed "Slicing…" or the numbers of an older slice, and its reason only in the closed details.
+- The Mac app does not have the import from a model page, the Speed section, the regions of a body, or the transform tool yet ([model import](../docs/internals/model-import.md) says "Not yet" for the Mac).
 
 ## Acceptance checks
 

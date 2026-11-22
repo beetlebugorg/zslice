@@ -10,6 +10,7 @@ Keep a docs site from Markdown with no dependencies beyond Python 3, a reference
 - [References and licenses](../docs/references/README.md): the rule and the form of an entry.
 - [CI and releases](../docs/internals/release.md): the CI jobs, the release steps, the tags, the files of a release, Homebrew, and the secrets (by name only).
 - [Contributing](../docs/internals/contributing.md) and [Code quality](../docs/internals/code-quality.md).
+- The newer internals pages: [G-code reference](../docs/internals/gcode.md) and [Import from a model page](../docs/internals/model-import.md). The new reference pages: [Printables](../docs/references/printables.md) and [Thingiverse](../docs/references/thingiverse.md).
 - `.github/workflows/ci.yml`, `release.yml`, `site.yml`, `npm.yml`.
 
 ## Build
@@ -19,9 +20,10 @@ Keep a docs site from Markdown with no dependencies beyond Python 3, a reference
 3. `tools/settings_doc.py` writes `docs/user/settings.md` and `src/settings_meta.zig`. `tools/setting_coverage.py` writes `docs/user/setting-coverage.md` from the Cura and OrcaSlicer coverage lists.
 4. `ci.yml`: on a push to main, each pull request, and by hand. A change of docs or Markdown only starts no job. The first job picks the jobs the change needs. A core change starts all jobs: core tests (`zig build test` and a 20 mm cube), the web app (`zig build web` and the Node tests), the Linux app (meson with `-Dwerror=true`, then `meson test`), the Mac app (the Xcode project lists each Swift file; build; open a box, slice, and take a picture), and the Windows app (x64 and ARM64).
 5. `release.yml` on a tag: the command line tool (Linux musl, macOS), the C library for printer hosts, the Mac dmg (signed, notarized, stapled, or ad hoc with no Apple secrets), the Linux GTK tarball, the web zip, the Windows zips (unsigned), and `SHA256SUMS`. The notes come from the commit subjects since the tag before.
-6. Homebrew: the `homebrew` job writes `Formula/zslice.rb`, `Formula/zslice-gtk.rb`, and `Casks/zslice.rb` to the tap with `packaging/homebrew/tap.sh`.
-7. `site.yml`: on a push to main, build the web app and the docs, and upload them to the S3 bucket behind CloudFront. The bucket, the distribution, and the deploy role are in a separate private repository. CloudFront sends the isolation headers. GitHub Pages cannot.
-8. `npm.yml`: the npm package with the embeddable G-code viewer.
+6. The icon: a Z of print lines on a dark square with a light rim, and an orange first layer. `assets/icon/zslice.svg` is the icon, and `zslice-small.svg` has thicker lines for 16 to 48 px. `tools/icons.sh` makes the files of each app. `docs/build.py` makes the favicon of the docs from the small icon. `assets/icon/out` has the 1024 px picture for the Mac and the `.ico` file for Windows.
+7. Homebrew: the `homebrew` job writes `Formula/zslice.rb`, `Formula/zslice-gtk.rb`, and `Casks/zslice.rb` to the tap with `packaging/homebrew/tap.sh`.
+8. `site.yml`: on a push to main, build the web app and the docs, and upload them to the S3 bucket behind CloudFront. The bucket, the distribution, and the deploy role are in a separate private repository. CloudFront sends the isolation headers. GitHub Pages cannot.
+9. `npm.yml`: the npm package with the embeddable G-code viewer.
 
 ## Rules that matter
 
@@ -35,12 +37,14 @@ Keep a docs site from Markdown with no dependencies beyond Python 3, a reference
 
 ## Lessons
 
-- Make the doc pages again after each merge that changes a Markdown file. The main commit this folder describes is such a commit.
+- Make the doc pages again after each merge that changes a Markdown file. The range of this update has several such commits (for example `b42d385c`, "Build the doc pages again after the merge").
 - A cached script with a fresh page broke the app after a deploy: send the app files with `no-cache`.
 - Add a privacy page, and load no fonts from Google.
 - Say in the privacy page that AWS hosts the site, with no logs.
 - **Check the doc pages against the code after a batch of features.** An audit found, for example: the C link needs `-lm`, the status codes 10 to 17 were not in the table, and the user pages had old names of tools, qualities, and keys. Some pages are still older than the code in places; parts 09, 11, and 12 name them.
 - **Link to a reference page, not to a heading that has no anchor.** A link to an anchor in the PrusaSlicer references went nowhere, and `docs/build.py` stopped with an error. The link now goes to the page and names the entry.
+- **Give the icon a light rim.** On a dark Dock or desktop the near black square lost its edge.
+- **Give each new area a contract page.** The import from a model page has `docs/internals/model-import.md`: the call order for the apps that do not have it yet, what each site allows (CORS, tokens, and terms), and the state of each app.
 - The Mac CI job builds Debug: keep each Swift expression small enough to type-check in time (part 11).
 
 ## Acceptance checks

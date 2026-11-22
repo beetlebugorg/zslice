@@ -16,11 +16,12 @@ Make the plate obey physics. A part that cannot stand falls over onto a face, as
 1. `src/physics.zig`: the center of mass from the signed tetrahedra of the closed mesh. The foot is the convex hull of the lowest points (within 0.05 mm). A part whose center of mass is past its foot rolls over the edge until it rests. Supports under a part add to its foot.
 2. `src/rigid.zig`: a rigid-body engine for the fall that the view shows. Mass properties by the method of Eberly. Contact points from 642 even directions (an icosphere). Sequential impulses (Catto) with friction and a Baumgarte push. A fixed step of 1/240 s, so a run is the same on each machine. A body sleeps after 0.3 s of low speed. One static plane (the bed).
 3. `src/bond.zig`: the bond of the first layer and the brim. The nozzle pushes at the top of the part. Test 72 directions on the bed. Bond strength: 0.3 N/mm² for PLA and ABS on PEI, 0.45 N/mm² for PETG.
-4. Settle parts in the core. A part dropped or turned on the plate settles before the slice. A thrown part stops at the edge of the bed.
-5. `src/print_sim.zig`: the model in eleven steps (masses, a height field of 0.1 mm cells in 32 x 32 tiles, strands, heat by Newton's law with forced convection, viscosity laws per material, catenaries for runs held at both ends, position based dynamics for free runs, contact, failure at 1.5 mm of drop, sleep, and time jumps).
-6. `src/app/sim_print.zig`: the simulation on the toolpaths of a slice. A path whose plastic moved gets a z and a bead area for each point, so the view draws a strand as one continuous bead.
-7. Run the simulation after each slice on the slice thread, in pieces with a cancel check (`zs_app_set_auto_simulate`, `ZS_EVENT_SIMULATED`). A shell with no threads runs it in pieces between its messages (`zs_app_sim_begin`, `zs_app_sim_advance`). `zs_app_sim_work` gives the progress of the simulation on the slice thread, for the work bar of the view (part 08). A draft slice starts no simulation.
-8. The Check lists the failed plastic.
+4. Settle parts in the core. A part dropped or turned on the plate settles before the slice. A thrown part stops at the edge of the bed. A part lifted over the bed (part 07) falls to the bed with support off, and prints on support with support on. After a drag of the transform tool, a part on an edge, or in the air with support off, falls with the physics of the Grab tool.
+5. A 3MF load runs no fall. A project and a session keep the saved place of each part (part 14).
+6. `src/print_sim.zig`: the model in eleven steps (masses, a height field of 0.1 mm cells in 32 x 32 tiles, strands, heat by Newton's law with forced convection, viscosity laws per material, catenaries for runs held at both ends, position based dynamics for free runs, contact, failure at 1.5 mm of drop, sleep, and time jumps).
+7. `src/app/sim_print.zig`: the simulation on the toolpaths of a slice. A path whose plastic moved gets a z and a bead area for each point, so the view draws a strand as one continuous bead.
+8. Run the simulation after each slice on the slice thread, in pieces with a cancel check (`zs_app_set_auto_simulate`, `ZS_EVENT_SIMULATED`). A shell with no threads runs it in pieces between its messages (`zs_app_sim_begin`, `zs_app_sim_advance`). `zs_app_sim_work` gives the progress of the simulation on the slice thread, for the work bar of the view (part 08). A draft slice starts no simulation. With `engine.auto_simulate` off, the core runs no simulation after a slice, and the menu item of the print as it forms runs it by hand.
+9. The Check lists the failed plastic.
 
 ## Numbers and rules that matter
 
@@ -36,6 +37,7 @@ Make the plate obey physics. A part that cannot stand falls over onto a face, as
 - Stop the print sim within a step when a slice starts. A new change must stop it at once.
 - A part with edited trees stands only on the trees that hold it.
 - Read only the top of a cell in the floor test of the sim.
+- **Run no fall on a 3MF load.** A part put down on a side rested on a boss of 0.15 mm after a reload, and the fall turned it by 0.52 degrees. The G-code changed.
 - Fix the test of a slab over air for the bead contact: a mass beside a bead of its own layer is solid only up to 2 beads out from plastic that an earlier layer holds. So a bridge line welds to the wall, and a skin over air does not grow from line to line.
 
 ## Acceptance checks

@@ -1,6 +1,6 @@
 # A prompt that could build zslice
 
-Describes: main at commit `b6af6dca` ("Link the open-links page to the PrusaSlicer page itself"), 2026-11-22.
+Describes: the branch `import-fix` at commit `aab615cd` ("Fold the Windows bottom bar by its own width"), 2026-11-22. This branch goes to main next.
 
 ## Read this first
 
@@ -71,4 +71,4 @@ The main links:
 
 ## How it stays current
 
-The folder describes one commit of main. The commit and the date are at the top of this page. When features land, an update follows the steps in `UPDATING.md`, and adds a line to `CHANGELOG.md`.
+The folder describes one commit. The commit and the date are at the top of this page. Each push and each merge to main includes the update of this folder for its commits. The update follows the steps in `UPDATING.md`, and adds a line to `CHANGELOG.md`.

@@ -6,8 +6,8 @@ Build the native Windows app in `windows/`: a WinUI 3 shell in C++/WinRT around 
 
 ## Read first
 
-- [The Windows app internals](../docs/internals/windows.md): the build, the shell files, the printers, the core build, the Direct3D 12 backend, and the differences from the other platforms. Its first paragraph is older than its file table. The file table lists the session, the menu, the printers, the picker, the farm, the send, the search, the work bar, the links, Preferences, and Compare with Cura.
-- [Links that open a model](../docs/internals/open-links.md). It says that the Windows app has its own copy of the link rules. That is older than the code: `windows/src/net/zs_open_link.cpp` now calls `zs_link_*`.
+- [The Windows app internals](../docs/internals/windows.md): the build, the shell files, the printers, the core build, the Direct3D 12 backend, and the differences from the other platforms. The file table lists the session, the menu, the printers, the picker, the farm, the send, the search, the work bar, the links, Preferences, and Compare with Cura.
+- [Links that open a model](../docs/internals/open-links.md). `windows/src/net/zs_open_link.cpp` calls the core rules (`zs_link_*`).
 - [The Windows app user guide](../docs/user/windows.md).
 - Part 08 (the view) and part 09 (the layout, the cards, and the keys).
 
@@ -25,6 +25,9 @@ Build the native Windows app in `windows/`: a WinUI 3 shell in C++/WinRT around 
 8. `src/net/`: WinHTTP, Schannel, the printer links, the search, Bambu Lab, and the cameras.
 9. The rest of the window, in the order it came: the docked search with its card and rails, the print details card, the history card and list, the draft slice with the work bar, one Check count, Compare with Cura, and printdeck projects.
    - Compare with Cura: `zs_cura_stack` finds the stack in `%APPDATA%\cura` and the resources in the Cura folder of Program Files. Of a global stack file, it parses only `[containers]`, because `[metadata]` can hold an API key.
+   - The parity steps after that, in the order they came: the small items (the monochrome glyph of the colors button, long titles that wrap, search results 640 px wide with a column for the speed hint, two save items for one plate and all plates), the card glyph of the search undock, the Label tool with SVG, handles, guides, and modes (Alt turns the snap off), profile import and Calibrate, the layer range card (Shift+K and Shift+J, an override of the z range), Print earlier and Print later, the settings of each nozzle, the history button (Ctrl+H) in a bottom bar of one row, the waste line, the Filament row and the range rows of a part of some layers (the rows of the range card scroll), the Speed section with the switches of the draft slices and the print as it forms in Preferences, layer profiles in the settings pane (a bar with the name and the layers, and an orange mark on the layer rail for each range), a part that does not fit (no export and no upload for its plate, and a Check line that selects the part), and "Settings for": this print, global (`global.toml`), or one part. Formulas stay after a restart.
+   - The icon: the exe holds the `.ico` file of 16 to 256 px, and the file types and links use it. `make-logos.ps1` draws the package logos, but the unpackaged app does not load them yet.
+   - Windows keeps Move, Turn, and Grab as three tools. It does not have the transform tool or the import from a model page yet.
    - Projects: GitHub reads use a separate WinHTTP session with no key or token. Each URL and each redirect must be https to a GitHub host. Each file has a limit of 256 MB. PrinterSetup writes no machine profile while plates of a project are on the view.
 
 ## Rules that matter
@@ -48,6 +51,10 @@ Build the native Windows app in `windows/`: a WinUI 3 shell in C++/WinRT around 
 - **Keep the session in the state folder.** A missing backslash put the session in `%APPDATA%zslice`. At the first start, move the old files into `%APPDATA%\zslice`. Keep a file that is already there.
 - **Send the log lines to the log file.** A WinUI app has no console, so `fprintf` to stderr lost the setup lines.
 - **Save the settings again after a load that moved keys**, as the other apps do (part 02).
+- **Forget a draft when its plate goes.** The model kept a pointer to the plate with a draft. A removed plate left that pointer dangling until the timer of the exact slice read it.
+- **Fold the bottom bar by its own width.** The bar measured the whole window. With the settings pane open it kept one row, and the pane cut off the Export button.
+- **Write no empty file.** An export wrote an empty file when the plate had no G-code.
+- **An empty deck path means the root of the deck** (part 13). The pairing had this right, and `DeckAddress` follows it now too.
 
 ## Acceptance checks
 
@@ -58,3 +65,4 @@ Build the native Windows app in `windows/`: a WinUI 3 shell in C++/WinRT around 
 5. A close and a start bring back the session.
 6. A second start with a file opens it in the first window, with no second window.
 7. A test of the link code shows that a local stub gets no byte.
+8. The ring drag hook of the test build drags a ring along a right-hand turn, and logs the angle from the front, the back, or above.

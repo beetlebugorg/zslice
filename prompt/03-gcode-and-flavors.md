@@ -6,6 +6,7 @@ Turn layer plans into printer commands for Marlin, Klipper, RepRapFirmware, and 
 
 ## Read first
 
+- [The G-code reference](../docs/internals/gcode.md): each command that the writer writes, the settings that turn it on, the firmware that reads it (Marlin, Klipper, RepRapFirmware, Repetier, Bambu Lab, Prusa Buddy), the commands of the templates, the counts of a test slice, and the commands that a firmware can ignore.
 - [Firmware and G-code](../docs/references/klipper-marlin-firmware.md).
 - "The header and end comments of slicer G-code" in [Formats and protocols](../docs/references/formats-and-protocols.md).
 - [Profiles](../docs/user/profiles.md), section "Start and end G-code", and [Send to a printer](../docs/user/printers.md), section "The start and end G-code".
@@ -29,7 +30,10 @@ Turn layer plans into printer commands for Marlin, Klipper, RepRapFirmware, and 
 5. `src/gcode_vars.zig`: the start and end G-code variables of Cura (`{name}`, `{name, 0}`, `{if}`), PrusaSlicer, OrcaSlicer, and Bambu Studio (`[name]`, `{expression}` with lists, regex, `? :`, `{local x = 2}`), and zslice (`{bed_temp}`, ...). A line with a variable that has no zslice value becomes a comment: `; zslice: no value for NAME: <the line>`. A condition with such a variable is false. Never write a command with a wrong value. The emitter adds the heating commands that a start G-code leaves out. For the X2D, `first_filaments` gives, for each nozzle, the first filament that the print uses on that nozzle, in print order, support aside, or -1 (the template then writes 0). The plate job finds it.
 6. `src/render/cpu.zig`: a software renderer for the thumbnails that Prusa, Klipper, and Bambu Lab screens show. An iso view, a depth test, a clear background, a PNG writer.
 7. `src/gcode_sign.zig`: the last line of a signed file is `; zslice-signature: ed25519 <key id> <base64 signature>`. The signature is Ed25519 over the SHA-256 of all bytes before that line. The key id is the first 8 bytes of the SHA-256 of the public key, in hex. The C API is in `include/zslice.h` (`zs_sign_*`, `zs_verify_gcode`).
-8. `src/gcode_read.zig` and `src/gcode_meta.zig`: a reader of G-code of any slicer, with the byte offset of each segment, for a print view and for a host that knows the offset of a running print.
+8. Tool changers (`machine.tool_numbers = nozzle`, part 02): Tn is the nozzle of the filament. The old nozzle goes to its standby temperature. The new nozzle waits for its temperature. The next nozzle heats `preheat_time` seconds before a change in the layer. The lines of a nozzle move by minus its offset. The tower primes each nozzle after its change. The extruder variables of PrusaSlicer (`next_extruder`, `initial_tool`, and the filament lists) are nozzles there. The XL and the CORE One INDX models print two filaments with tool changes and no M600.
+9. The print statistics of PrusaSlicer for a Prusa printer (a model id that starts with `prusa-`): the time, the filament used, the type, and the color, in the names and forms of PrusaSlicer, at the end of the file. A tool change print has one item for each tool. The Buddy firmware (MINI, MK3.5, MK3.9, MK4, XL, CORE One) reads them before a print.
+10. Spiral vase: each spiral layer starts at the point of its loop that is furthest in one fixed direction, so it starts where the layer below ended. No travel to a rising wall that starts within a line width. No Z move to the z where the nozzle already is. No retraction at a layer change.
+11. `src/gcode_read.zig` and `src/gcode_meta.zig`: a reader of G-code of any slicer, with the byte offset of each segment, for a print view and for a host that knows the offset of a running print.
 
 ## Numbers and rules that matter
 
@@ -46,6 +50,8 @@ Turn layer plans into printer commands for Marlin, Klipper, RepRapFirmware, and 
 - **Retract a travel to another tree branch.** A travel between tree support paths had no retraction when it crossed no edge of the part. Long travels from branch to branch then strung in the air, with no lift. Only a travel inside one support island skips the retraction now. The G-code of the generic printer changes only with tree support.
 - **Wipe and lift with the values of the printer.** With the travel retraction in the project, the X2D printed with no z hop and no wipe, and the nozzle dragged over the support tops. The generic printer keeps its old G-code for the 3DBenchy and the supported test parts.
 - Round the print time of a file name to whole minutes before the split into hours.
+- **Write the statistics that the firmware reads.** zslice wrote its own names, so the Prusa print preview showed no time and no filament, and the firmware took the file for a print of no tool.
+- **Start each spiral layer where the last one ended.** A can with ribs printed with lines across its wall. The seam jumped between the equal corners of the ribs: on 222 of 392 layers the nozzle stopped, went up to 48 mm along the wall with no extrusion, and started again. A float step off the z of the layer also wrote a Z move of 0 mm at each layer change.
 
 ## Acceptance checks
 
@@ -57,3 +63,5 @@ Turn layer plans into printer commands for Marlin, Klipper, RepRapFirmware, and 
 6. An X2D plate of filaments 3 and 4 on the main nozzle names no unused filament for the second nozzle.
 7. With tree support, a travel to another branch retracts. A travel inside one support loop does not.
 8. Each combing mode slices the corpus. `not_in_skin` gives no travel over the skin with no retraction.
+9. The test of each Prusa model (51 models, `src/plate_job.zig`) slices two cubes of two filaments. It checks the M862.3 printer name, a value for each template variable, the temperatures, the extrusions on the bed, a tool change on an MMU and a pause on the others, and the statistics comments.
+10. The test of spiral vase mode finds no stop in the wall.

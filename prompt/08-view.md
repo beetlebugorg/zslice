@@ -18,7 +18,7 @@ Build the 3D view of a slice in the core (`src/render/`), so that each platform 
 2. Backends behind one interface (`src/render/frame.zig`): `vk.zig` (Vulkan, Linux), `d3d12.zig` (Direct3D 12, Windows, part 12), and `web.zig` (keeps the frame data in core memory, for WebGL2 on the web and Metal on the Mac). The core loads the Vulkan loader at run time. With no Vulkan, `zs_view_new` returns `ZS_NOT_SUPPORTED`, and the shell shows the 2D view only.
 3. Beads: a flat top and bottom, round sides (`flow.zig`), round ends that overlap at corners, the deposited width from the bead area, the cooled size (shrinkage compensation removed), and the filament color with PLA-like light. 4x MSAA. The beads are in print order, so the layer slider changes only a count.
 4. Color modes: filament, feature, speed, flow, layer time, line width, with the range of the ramp. An ironed top draws as a flat sheet.
-5. Focus: the lines that a setting changes are solid, the others are ghosts that do not hide them.
+5. Focus: the lines that a setting changes are solid, the others are ghosts that do not hide them. On a plate of more than one filament, each bead in focus keeps the color of its filament, so a feature color does not look like another filament. The scene bytes have the count of filaments, so the web view does the same.
 6. Picks: a box for each run of 32 beads in print order, and a box for each layer. Test layers from the top down. A plate of a million beads tests a few thousand.
 7. Camera: a target and a distance, with a unit quaternion for the direction. Orbit turns about the vertical axis and tilts with no roll (the code stops the tilt at 89 degrees). A free rotation turns about the screen axes. Zoom goes toward the pointer and stops 2 mm in front of the surface. A double click on a side of a part faces that side (`zs_view_look_at_side`); elsewhere it resets the view. Camera moves animate.
 8. Plates (`src/render/plates.zig`): all plates in a row with a gap. The active plate is the full view. Each other plate is a fixed bead buffer at an offset. A plate out of the frustum has no draw cost.
@@ -26,9 +26,12 @@ Build the 3D view of a slice in the core (`src/render/`), so that each platform 
 10. Signs: the shell draws the name, the printer, and the status of each plate into one RGBA image (`zs_view_set_signs`). The view draws each sign as a flat quad in front of the front edge of its plate. It keeps about the same height on the screen, fades when the camera looks along the bed, and turns round when the camera is behind the plate.
 11. Decals: the labels draw as decals (`src/render/decal.zig`, the nonzero rule, holes stay open). The selected label gets a frame, four corner handles, and a turn handle as decals in its plane, with sizes in screen pixels, and the smart guide lines (part 05). A corner resizes about the opposite corner (Shift: each axis on its own). The turn handle turns the label about the center of its box (Shift: 15° steps). Alt (Option on the Mac) moves free of the guides.
 12. The bed model of the printer (`src/bed.zig`): a static mesh and a texture, drawn after the beads in soft gray. B hides the bed and its grids, so the bottom of a part shows from below (`zs_view_set_bed_hidden`). The other plates keep their beds.
-13. The mesh of the Paint, Label, and Support tools. A lit body shows in the color of a filament at once (`zs_view_light_color`).
-14. Replay: `zs_view_set_time` shows the print at a time, with a nozzle marker, at 1x to 100x.
-15. A print view of a G-code file of any slicer (`loadGcode`): the beads go straight into the GPU buffer. The host reports the byte offset it has read.
+13. The gizmo of the transform tool: the rings and an arrow for each axis on the selected part, and the guides of a snap (`zs_view_set_guides`). `zs_view_arrow_drag` gives the move along an arrow. The angle of a ring drag comes from the plane of the ring, about the center of the press. A ring seen almost as a line still measures on the screen. `ZS_PREVIEW_SINK` lets a preview go under the bed.
+14. A preview of a part with its lowest bead below z 0 lifts to the bed, unless it has `ZS_PREVIEW_SINK`. A lift above the bed (a hold) stays.
+15. The tower layers draw with the lines of `src/tower.zig` (part 05), and the tower brim draws too.
+16. The mesh of the Paint, Label, and Support tools. A lit body shows in the color of a filament at once (`zs_view_light_color`).
+17. Replay: `zs_view_set_time` shows the print at a time, with a nozzle marker, at 1x to 100x.
+18. A print view of a G-code file of any slicer (`loadGcode`): the beads go straight into the GPU buffer. The host reports the byte offset it has read.
 
 ## Mouse and touch
 
@@ -52,6 +55,10 @@ This is the rule after several corrections. Match it in each shell.
 - Slice a draft during a drag or an edit that keeps all the paths in the view (`zs_app_set_draft`): an outline tolerance of 0.05 mm, no gap fill, and classic walls. A draft of a 3DBenchy needs a third of the CPU time. A draft has no G-code for a file or a printer (`zs_app_gcode` gives `ZS_NO_RESULT`): turn the draft off 300 ms after the last change, or at the end of the drag, and slice again. Show a small "Draft" note while the view has a draft, and keep the export, the print, and the numbers of the print card for the exact slice.
 - Show the work that runs in a bar of 2 px at the top edge of the view, in the accent color: the draft slice, the exact slice, and the simulated print, each with the progress of the core. Fade it in after 150 ms of work and out at the end. Put small dim text next to it: what runs and its time, then the times of the last draft and exact slice. The bar and the text take no clicks and no room.
 - Build the light levels again only for the changed layers.
+- **Never draw a turning part below the bed.** A preview with no on-bed flag (the fall of the GTK app and the Mac) kept the move of the shell, and a turn about the middle of the part sent its lower half into the bed.
+- **Turn a part toward the pointer on each ring.** The green ring ran from +X toward +Z, and a turn about +Y moves +X toward -Z, so a drag on that ring turned the part the other way. A drag also measured its angle on the screen, so a view from the side gave the wrong angle (issue #20).
+- **Keep the filament colors in a focus.** With the five spools of an X2D, the orange and red of the walls in a focus looked like filament 4 (#f98c36).
+- **End the view at the top of the dock.** The camera then frames the plate signs above the dock, and the dock covers no sign.
 
 ## Acceptance checks
 
@@ -62,3 +69,5 @@ This is the rule after several corrections. Match it in each shell.
 5. A mouse right drag orbits. A touchpad two-finger click and slide pans.
 6. The replay of a print ends at the time estimate of the G-code.
 7. In each app, a change of a plate with a slice shows a draft first, the bar at the top edge, and then the exact slice 300 ms after the last change.
+8. A test drags each ring of the gizmo from four sides, and the part turns toward the pointer.
+9. A part lifted or sunk, and turned about X and Y, comes back from a session with the same vertices, angles, and G-code (a test in `src/app/plate_set.zig`).
