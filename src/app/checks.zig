@@ -737,15 +737,23 @@ fn changeIssues(b: *Builder, job: *const zs.PlateJob, s: zs.Settings, stats: zs.
             try b.add(.{ .kind = .changes, .severity = 0, .layer = 0, .path = Issue.no_path, .x = 0, .y = 0, .value = @floatFromInt(stats.changes), .text_start = 0, .text_len = 0 }, "The print has {d} filament changes (about {d:.0} min).", .{ stats.changes, time / 60 });
         }
     }
-    const t = job.tower() orelse return;
-    const h = t.size / 2;
-    var bad = t.x - h < 0 or t.y - h < 0 or t.x + h > m.bed_size_x or t.y + h > m.bed_size_y;
-    if (job.bounds()) |pb| {
-        // The parts are in bed coordinates: their box and the tower must
-        // not touch.
-        if (!(t.x + h < pb[0] or t.x - h > pb[2] or t.y + h < pb[1] or t.y - h > pb[3])) bad = true;
+    const towers = job.towers();
+    for (towers.items()) |t| {
+        // The box of the first layer, with the ribs and the brim.
+        const f = t.footprint(job.resolved.first_layer_line_width, s.project.prime_tower_brim);
+        const off = f[0] < 0 or f[1] < 0 or f[2] > m.bed_size_x or f[3] > m.bed_size_y;
+        var on_part = false;
+        if (job.bounds()) |pb| {
+            // The parts are in bed coordinates: their box and the tower
+            // must not touch.
+            on_part = !(f[2] < pb[0] or f[0] > pb[2] or f[3] < pb[1] or f[1] > pb[3]);
+        }
+        if (off) {
+            try b.add(.{ .kind = .tower, .severity = 2, .layer = 0, .path = Issue.no_path, .x = t.x, .y = t.y, .value = t.size, .text_start = 0, .text_len = 0 }, "The prime tower at {d:.0}, {d:.0} mm is off the bed: with its ribs and brim it covers x {d:.0} to {d:.0} and y {d:.0} to {d:.0} mm. Set project.prime_tower_x and project.prime_tower_y, or make project.prime_tower_brim smaller.", .{ t.x, t.y, f[0], f[2], f[1], f[3] });
+        } else if (on_part) {
+            try b.add(.{ .kind = .tower, .severity = 2, .layer = 0, .path = Issue.no_path, .x = t.x, .y = t.y, .value = t.size, .text_start = 0, .text_len = 0 }, "The prime tower at {d:.0}, {d:.0} mm is on a part: with its ribs and brim it covers x {d:.0} to {d:.0} and y {d:.0} to {d:.0} mm. Move the parts, or set project.prime_tower_x and project.prime_tower_y.", .{ t.x, t.y, f[0], f[2], f[1], f[3] });
+        }
     }
-    if (bad) try b.add(.{ .kind = .tower, .severity = 2, .layer = 0, .path = Issue.no_path, .x = t.x, .y = t.y, .value = t.size, .text_start = 0, .text_len = 0 }, "The prime tower at {d:.0}, {d:.0} mm is off the bed or on a part. Move the parts, or set project.prime_tower_x and project.prime_tower_y.", .{ t.x, t.y });
 }
 
 fn retractionIssues(b: *Builder, t: *const Toolpaths) Allocator.Error!void {

@@ -155,6 +155,26 @@ pub const Tower = struct {
         return l;
     }
 
+    /// The box of the first layer on the bed (min x, min y, max x, max y),
+    /// for lines `w` mm wide and `brim` mm of brim: the ribs and the brim
+    /// are in it. The ribs are longest on the first layer.
+    pub fn footprint(t: Tower, w: f64, brim: f64) [4]f64 {
+        const l = t.layer(w, 0);
+        var loop: Loop = .{};
+        const n = brimLoops(brim, l.w);
+        if (n > 0) l.brimLoop(n, &loop) else l.wallLoop(0, &loop);
+        var box = [4]f64{ t.x, t.y, t.x, t.y };
+        for (loop.points()) |p| {
+            box[0] = @min(box[0], p[0]);
+            box[1] = @min(box[1], p[1]);
+            box[2] = @max(box[2], p[0]);
+            box[3] = @max(box[3], p[1]);
+        }
+        // The loop is the center of its line.
+        const h = l.w / 2;
+        return .{ box[0] - h, box[1] - h, box[2] + h, box[3] + h };
+    }
+
     /// The count of the loops of the brim of a tower: `brim` mm of lines
     /// `w` mm wide.
     pub fn brimLoops(brim: f64, w: f64) u32 {
@@ -776,4 +796,23 @@ test "tower: the brim loops step out by a line width" {
     var brim: Loop = .{};
     l.brimLoop(1, &brim);
     try testing.expectApproxEqAbs(w, loopDist(brim.points(), .{ 10 - w / 2, 0 }), 1e-6);
+}
+
+test "tower: the footprint holds the ribs and the brim" {
+    const t = Tower{ .x = 100, .y = 100, .size = 30, .last_layer = 50, .rib_extra = 10, .height = 10 };
+    const bare = t.footprint(0.5, 0);
+    // The ribs stick out past the box of the tower at the corners.
+    try std.testing.expect(bare[2] - bare[0] > 30.5);
+    try std.testing.expect(bare[3] - bare[1] > 30.5);
+    // A brim of 5 mm adds at least 5 mm on each side: more at the points
+    // of the ribs.
+    const brim = t.footprint(0.5, 5);
+    try std.testing.expect(bare[0] - brim[0] >= 5 - 1e-6 and bare[0] - brim[0] < 7);
+    try std.testing.expect(brim[3] - bare[3] >= 5 - 1e-6 and brim[3] - bare[3] < 7);
+    // A tower with no ribs and no brim is its box.
+    var plain = t;
+    plain.rib = false;
+    const box = plain.footprint(0.5, 0);
+    try std.testing.expectApproxEqAbs(@as(f64, 85), box[0], 1e-6);
+    try std.testing.expectApproxEqAbs(@as(f64, 115), box[2], 1e-6);
 }
