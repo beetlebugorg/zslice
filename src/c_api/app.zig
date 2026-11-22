@@ -931,9 +931,10 @@ export fn zs_app_setting_set(a: ?*App, name: ?[*:0]const u8, value: ?[*:0]const 
     const n = std.mem.span(name orelse return @intFromEnum(Status.invalid_argument));
     const v = std.mem.span(value orelse return @intFromEnum(Status.invalid_argument));
     app.setSetting(n, v) catch |e| return status(e);
-    // A history step has no engine options. The thread count is an app
-    // preference, so a change of it is no pending edit.
-    if (!std.mem.eql(u8, n, "engine.threads")) noted(app, n, false);
+    // A history step has no engine options. The thread count and the
+    // draft slices are app preferences, so a change of them is no pending
+    // edit.
+    if (!std.mem.eql(u8, n, "engine.threads") and !std.mem.eql(u8, n, "engine.draft_slices")) noted(app, n, false);
     return ok;
 }
 
@@ -2904,6 +2905,48 @@ export fn zs_app_set_coarse_part(a: ?*App, i: c_int) c_int {
 export fn zs_app_set_draft(a: ?*App, on: c_int) c_int {
     const app = a orelse return @intFromEnum(Status.invalid_argument);
     app.setDraft(on != 0);
+    return ok;
+}
+
+/// One option of the Speed group (app/speed.zig).
+pub const SpeedOption = extern struct {
+    name: [*:0]const u8,
+    faster: [*:0]const u8,
+    note: [*:0]const u8,
+    gcode: c_int,
+};
+
+/// The number of options of the Speed group.
+export fn zs_speed_count() usize {
+    return app_mod.speed.options.len;
+}
+
+/// Option i of the Speed group, in the order of the panel.
+export fn zs_speed_get(i: usize, out: ?*SpeedOption) c_int {
+    const o = out orelse return @intFromEnum(Status.invalid_argument);
+    if (i >= app_mod.speed.options.len) return @intFromEnum(Status.invalid_argument);
+    const s = app_mod.speed.options[i];
+    o.* = .{ .name = s.name.ptr, .faster = s.faster.ptr, .note = s.note.ptr, .gcode = @intFromBool(s.gcode) };
+    return ok;
+}
+
+/// The help of the Faster slicing switch, for its row.
+export fn zs_speed_switch_note() [*:0]const u8 {
+    return app_mod.speed.switch_note.ptr;
+}
+
+/// The state of the Faster slicing switch: 0 off, 1 on, 2 custom.
+export fn zs_app_speed_state(a: ?*const App) c_int {
+    const app = a orelse return 0;
+    return @intFromEnum(app.speedState());
+}
+
+/// Faster slicing on (on != 0) or off: sets the options of the switch,
+/// as one change of each for the history.
+export fn zs_app_speed_set(a: ?*App, on: c_int) c_int {
+    const app = a orelse return @intFromEnum(Status.invalid_argument);
+    app.setFasterSlicing(on != 0) catch |e| return status(e);
+    for (app_mod.speed.options) |o| if (o.faster.len > 0) noted(app, o.name, false);
     return ok;
 }
 

@@ -609,11 +609,13 @@ M84</code></pre>
 <p>Options for the engine. They do not change the print.</p>
 <h3 id="slicer">Slicer</h3>
 <p><strong><code>engine.resolution</code></strong> (number). Default: <code>0.005</code></p>
-<p>The largest change to the shape (mm) that the slicer makes when it removes points from the mesh outlines.</p>
+<p>The largest change to the shape (mm) that the slicer makes when it removes points from the mesh outlines. A larger value gives fewer points and a faster slice, and changes the G-code: 0.01 slices a 3DBenchy about 19 % faster, and moves its outer walls up to 10 µm.</p>
 <p><strong><code>engine.gap_closing</code></strong> (number). Default: <code>1.0</code></p>
 <p>The largest gap (mm) that the slicer closes in a mesh with holes.</p>
 <p><strong><code>engine.threads</code></strong> (integer). Default: <code>0</code></p>
 <p>The number of threads. 0 uses one thread for each CPU but one, so that the app and the desktop can answer while a slice runs.</p>
+<p><strong><code>engine.draft_slices</code></strong> (true or false). Default: <code>true</code></p>
+<p>A draft slice for the view during an edit: the outlines lose the points within 0.05 mm of a straight line, the gaps get no fill, and the walls are classic walls. A draft needs about a third of the time of the exact slice, and the exact slice follows it. A draft never goes to the G-code. Off: each edit gives the exact slice only.</p>
 <p><strong><code>engine.job_name</code></strong> (text). Default: <code>&quot;&quot;</code></p>
 <p>The name of the print, for {job_name} in the start and end G-code. The command line tool sets it to the model file name.</p><nav class="pager"><a class="prev" href="../../user/keys/"><span>Previous</span><b>Keys and mouse</b></a><a class="next" href="../../user/expert/"><span>Next</span><b>Formulas and rules</b></a></nav>
 </main>

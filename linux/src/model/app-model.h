@@ -445,6 +445,11 @@ double zg_model_slice_ms(ZgModel *self);
 gboolean zg_model_is_draft(ZgModel *self);
 /* TRUE if the slice that runs is a draft. */
 gboolean zg_model_slices_draft(ZgModel *self);
+/* The Faster slicing switch of the Speed settings (zs_app_speed_set): sets
+ * its options, as one history step, and slices again. */
+gboolean zg_model_speed_set(ZgModel *self, gboolean on);
+/* 0 off, 1 on, 2 custom (zs_app_speed_state). */
+int zg_model_speed_state(ZgModel *self);
 /* The times of the last draft and of the last exact slice, in ms (0: none). */
 double zg_model_draft_ms(ZgModel *self);
 double zg_model_exact_ms(ZgModel *self);

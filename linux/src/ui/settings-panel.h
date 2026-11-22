@@ -20,6 +20,7 @@
 GtkWidget *zg_settings_panel_new(ZgModel *model);
 /* Shows the Settings page at the setting `key` (for example
  * "machine.start_gcode"). */
+/* key "speed": the Speed section (the Faster slicing switch). */
 void zg_settings_panel_show_setting(GtkWidget *panel, const char *key);
 /* Shows a page: "settings" or "selected". */
 void zg_settings_panel_show_page(GtkWidget *panel, const char *name);

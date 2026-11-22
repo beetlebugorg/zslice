@@ -19,6 +19,7 @@ static const struct {
     const char *title;
 } groups[] = {
     {"profiles", "Layer profiles"},
+    {"speed", "Slicing"},
     {"project", "Part"},
     {"filament", "Filament"},
     {"machine", "Printer"},
@@ -236,6 +237,16 @@ static guint32 focus_of(const char *key, gboolean *first_only) {
     return e.features ? e.features : (1u << ZS_FEATURE_COUNT) - 1;
 }
 
+/* TRUE if `name` is an option of the Speed section (zs_speed_get). */
+static gboolean is_speed_option(const char *name) {
+    size_t n = zs_speed_count();
+    for (size_t i = 0; i < n; i++) {
+        zs_speed_option o;
+        if (zs_speed_get(i, &o) == ZS_OK && strcmp(o.name, name) == 0) return TRUE;
+    }
+    return FALSE;
+}
+
 /* The focus for a section: all lines and marks that its settings change. */
 static guint32 section_focus(const char *group, const char *section) {
     guint32 mask = 0;
@@ -243,7 +254,7 @@ static guint32 section_focus(const char *group, const char *section) {
     for (size_t i = 0; i < n; i++) {
         zs_setting_info info;
         if (zs_setting_get_info(i, &info) != ZS_OK) continue;
-        if (g_strcmp0(info.group, group) != 0 || g_strcmp0(info.section, section) != 0) continue;
+        if (g_strcmp0(group, "speed") == 0 ? !is_speed_option(info.name) : (g_strcmp0(info.group, group) != 0 || g_strcmp0(info.section, section) != 0)) continue;
         zs_setting_effect e = {0};
         zs_setting_get_effect(info.name, &e);
         mask |= e.features;
@@ -784,9 +795,111 @@ static gboolean matches(const zs_setting_info *info, const char *needle) {
 
 static gboolean has_setting(Browser *b, const zs_setting_info *info);
 
+/* ---- the Speed section ----
+ * The options that change the time of a slice (src/app/speed.zig), with
+ * the Faster slicing switch at the top. The switch has no value of its
+ * own: its state comes from its options (zs_app_speed_state). */
+
+static const char *speed_state_text(int state) {
+    return state == 1 ? "On" : state == 2 ? "Custom: some options differ" : "Off: the exact slice";
+}
+
+static void speed_switch_update(GtkWidget *sw, int state) {
+    g_object_set_data(G_OBJECT(sw), "zg-quiet", GINT_TO_POINTER(1));
+    gtk_switch_set_active(GTK_SWITCH(sw), state == 1);
+    gtk_switch_set_state(GTK_SWITCH(sw), state == 1);
+    g_object_set_data(G_OBJECT(sw), "zg-quiet", NULL);
+    GtkWidget *tag = g_object_get_data(G_OBJECT(sw), "zg-tag");
+    gtk_label_set_text(GTK_LABEL(tag), speed_state_text(state));
+    if (state != 0) gtk_widget_add_css_class(tag, "zg-source-mine");
+    else gtk_widget_remove_css_class(tag, "zg-source-mine");
+}
+
+static gboolean on_speed_switch(GtkSwitch *sw, gboolean on, gpointer data) {
+    Browser *b = data;
+    if (g_object_get_data(G_OBJECT(sw), "zg-quiet")) return FALSE;
+    /* Custom goes to on: the faster values of all options. */
+    zg_model_speed_set(b->model, zg_model_speed_state(b->model) != 1);
+    speed_switch_update(GTK_WIDGET(sw), zg_model_speed_state(b->model));
+    return TRUE;
+}
+
+static void on_speed_setting(ZgModel *model, const char *key, gpointer data) {
+    speed_switch_update(GTK_WIDGET(data), zg_model_speed_state(model));
+}
+
+static GtkWidget *caption(const char *text) {
+    GtkWidget *l = zg_wrapped_label_new(text);
+    gtk_widget_add_css_class(l, "dim-label");
+    gtk_widget_add_css_class(l, "caption");
+    return l;
+}
+
+static GtkWidget *setting_row(Browser *b, const zs_setting_info *src, gboolean with_section);
+
+static void fill_speed(Browser *b) {
+    GtkWidget *box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
+    gtk_widget_set_margin_start(box, 10);
+    gtk_widget_set_margin_end(box, 10);
+    gtk_widget_set_margin_top(box, 8);
+    gtk_widget_set_margin_bottom(box, 8);
+    GtkWidget *names = gtk_box_new(GTK_ORIENTATION_VERTICAL, 2);
+    gtk_widget_set_hexpand(names, TRUE);
+    GtkWidget *name = gtk_label_new("Faster slicing");
+    gtk_widget_add_css_class(name, "heading");
+    gtk_label_set_xalign(GTK_LABEL(name), 0);
+    gtk_box_append(GTK_BOX(names), name);
+    GtkWidget *tag = gtk_label_new("");
+    gtk_label_set_xalign(GTK_LABEL(tag), 0);
+    gtk_widget_add_css_class(tag, "caption");
+    gtk_widget_add_css_class(tag, "zg-source");
+    gtk_box_append(GTK_BOX(names), tag);
+    gtk_box_append(GTK_BOX(names), caption(zs_speed_switch_note()));
+    gtk_box_append(GTK_BOX(box), names);
+    GtkWidget *sw = gtk_switch_new();
+    gtk_widget_set_valign(sw, GTK_ALIGN_CENTER);
+    gtk_widget_set_tooltip_text(sw, zs_speed_switch_note());
+    gtk_accessible_update_property(GTK_ACCESSIBLE(sw), GTK_ACCESSIBLE_PROPERTY_LABEL, "Faster slicing", -1);
+    g_object_set_data(G_OBJECT(sw), "zg-tag", tag);
+    speed_switch_update(sw, zg_model_speed_state(b->model));
+    g_signal_connect(sw, "state-set", G_CALLBACK(on_speed_switch), b);
+    g_signal_connect_object(b->model, "setting-changed", G_CALLBACK(on_speed_setting), sw, 0);
+    gtk_box_append(GTK_BOX(box), sw);
+    GtkWidget *row = gtk_list_box_row_new();
+    gtk_list_box_row_set_child(GTK_LIST_BOX_ROW(row), box);
+    gtk_list_box_row_set_selectable(GTK_LIST_BOX_ROW(row), FALSE);
+    gtk_list_box_row_set_activatable(GTK_LIST_BOX_ROW(row), FALSE);
+    gtk_list_box_append(GTK_LIST_BOX(b->settings), row);
+
+    size_t n = zs_speed_count();
+    for (size_t i = 0; i < n; i++) {
+        zs_speed_option o;
+        zs_setting_info info;
+        if (zs_speed_get(i, &o) != ZS_OK || !zg_setting_find(o.name, &info)) continue;
+        GtkWidget *r = setting_row(b, &info, FALSE);
+        /* The gain and the cost, under the name. */
+        GtkWidget *names_box = gtk_widget_get_first_child(gtk_list_box_row_get_child(GTK_LIST_BOX_ROW(r)));
+        GString *note = g_string_new(o.note);
+        if (o.gcode) g_string_append(note, " Changes the G-code.");
+        if (o.faster[0]) {
+            char *v = info.kind == ZS_SETTING_BOOLEAN ? g_strdup(strcmp(o.faster, "true") == 0 ? "on" : "off") : zg_setting_value_with_unit(&info, o.faster);
+            g_string_append_printf(note, " Faster slicing: %s.", v);
+            g_free(v);
+        }
+        gtk_box_append(GTK_BOX(names_box), caption(note->str));
+        g_string_free(note, TRUE);
+        gtk_list_box_append(GTK_LIST_BOX(b->settings), r);
+        if (b->key && strcmp(b->key, info.name) == 0) gtk_list_box_select_row(GTK_LIST_BOX(b->settings), GTK_LIST_BOX_ROW(r));
+    }
+}
+
 /* Fills column 2: the settings of a section, or the matches of a search. */
 static void fill_settings(Browser *b, const char *group, const char *section, const char *search) {
     gtk_list_box_remove_all(GTK_LIST_BOX(b->settings));
+    if (!(search && search[0]) && g_strcmp0(group, "speed") == 0) {
+        fill_speed(b);
+        return;
+    }
     char *needle = search && search[0] ? g_utf8_strdown(search, -1) : NULL;
     /* A section of the printer or the filament: one banner that says
      * whose settings they are. */
@@ -1272,9 +1385,34 @@ static void section_header(GtkListBoxRow *row, GtkListBoxRow *before, gpointer d
     gtk_list_box_row_set_header(row, h);
 }
 
+/* A row of column 1 for a section. */
+static GtkWidget *section_row(const char *group, const char *section, const char *title) {
+    GtkWidget *label = gtk_label_new(title);
+    gtk_label_set_xalign(GTK_LABEL(label), 0);
+    gtk_label_set_wrap(GTK_LABEL(label), TRUE);
+    gtk_label_set_wrap_mode(GTK_LABEL(label), PANGO_WRAP_WORD);
+    gtk_widget_set_margin_start(label, 18);
+    gtk_widget_set_margin_top(label, 5);
+    gtk_widget_set_margin_bottom(label, 5);
+    gtk_widget_set_hexpand(label, TRUE);
+    GtkWidget *line = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
+    gtk_box_append(GTK_BOX(line), label);
+    GtkWidget *mark = chevron();
+    gtk_widget_set_margin_end(mark, 10);
+    gtk_box_append(GTK_BOX(line), mark);
+    GtkWidget *row = gtk_list_box_row_new();
+    gtk_list_box_row_set_child(GTK_LIST_BOX_ROW(row), line);
+    g_object_set_data(G_OBJECT(row), "zg-group", (gpointer)group);
+    g_object_set_data(G_OBJECT(row), "zg-section", (gpointer)section);
+    return row;
+}
+
 static void add_sections(Browser *b) {
     size_t n = zs_setting_count();
     const char *last_group = NULL, *last_section = NULL;
+    /* The Speed section first: the options of all groups that change the
+     * time of a slice. */
+    if (zs_speed_count() > 0) gtk_list_box_append(GTK_LIST_BOX(b->sections), section_row("speed", "Speed", "Speed"));
     for (size_t g = 0; g < G_N_ELEMENTS(groups); g++) {
         for (size_t i = 0; i < n; i++) {
             zs_setting_info info;
@@ -1282,23 +1420,7 @@ static void add_sections(Browser *b) {
             if (last_group && strcmp(last_group, info.group) == 0 && g_strcmp0(last_section, info.section) == 0) continue;
             last_group = info.group;
             last_section = info.section;
-            GtkWidget *label = gtk_label_new(info.section[0] ? info.section : "General");
-            gtk_label_set_xalign(GTK_LABEL(label), 0);
-            gtk_label_set_wrap(GTK_LABEL(label), TRUE);
-            gtk_label_set_wrap_mode(GTK_LABEL(label), PANGO_WRAP_WORD);
-            gtk_widget_set_margin_start(label, 18);
-            gtk_widget_set_margin_top(label, 5);
-            gtk_widget_set_margin_bottom(label, 5);
-            gtk_widget_set_hexpand(label, TRUE);
-            GtkWidget *line = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
-            gtk_box_append(GTK_BOX(line), label);
-            GtkWidget *mark = chevron();
-            gtk_widget_set_margin_end(mark, 10);
-            gtk_box_append(GTK_BOX(line), mark);
-            GtkWidget *row = gtk_list_box_row_new();
-            gtk_list_box_row_set_child(GTK_LIST_BOX_ROW(row), line);
-            g_object_set_data(G_OBJECT(row), "zg-group", (gpointer)info.group);
-            g_object_set_data(G_OBJECT(row), "zg-section", (gpointer)info.section);
+            GtkWidget *row = section_row(info.group, info.section, info.section[0] ? info.section : "General");
             gtk_list_box_append(GTK_LIST_BOX(b->sections), row);
             if (info.nozzle > 0 && info.nozzle < (int)G_N_ELEMENTS(b->nozzle_rows)) b->nozzle_rows[info.nozzle] = row;
         }
@@ -1634,6 +1756,20 @@ void zg_settings_browser_show_setting(GtkWidget *browser, const char *key) {
     if (!b) return;
     select_setting(b, key);
     scroll_to_end(b);
+}
+
+void zg_settings_browser_show_speed(GtkWidget *browser) {
+    Browser *b = g_object_get_data(G_OBJECT(browser), "zg-browser");
+    if (!b) return;
+    for (int i = 0;; i++) {
+        GtkListBoxRow *row = gtk_list_box_get_row_at_index(GTK_LIST_BOX(b->sections), i);
+        if (!row) return;
+        if (g_strcmp0(g_object_get_data(G_OBJECT(row), "zg-group"), "speed") == 0) {
+            gtk_list_box_select_row(GTK_LIST_BOX(b->sections), row);
+            on_section_activated(GTK_LIST_BOX(b->sections), row, b);
+            return;
+        }
+    }
 }
 
 gboolean zg_settings_browser_opens_first(GtkWidget *browser) {

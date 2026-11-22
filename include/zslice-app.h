@@ -1354,6 +1354,34 @@ int zs_app_set_coarse_part(zs_app *app, int part);
 int zs_app_set_draft(zs_app *app, int on);
 /* 1 if the slice that runs, or the last slice, is a draft. */
 int zs_app_is_draft(const zs_app *app);
+/* With engine.draft_slices off, zs_app_set_draft(app, 1) does nothing: the
+ * slices stay exact. A shell then slices each change at once. */
+
+/* ---- the Speed group ----
+ * The options that change the time of a slice, in one list for the
+ * settings panel: a "Speed" section that lists them with the note of each
+ * (its measured gain and cost). The "Faster slicing" switch at the top of
+ * the section sets the options with a faster value (faster is not empty);
+ * off puts back their defaults, the exact slice. The switch has no value
+ * of its own: zs_app_speed_state reads it from the options, so a change of
+ * one option shows it as custom. An option with gcode = 1 changes the
+ * G-code: say so in its row. */
+typedef struct zs_speed_option {
+    const char *name;   /* the setting, for zs_setting_find and the editors */
+    const char *faster; /* the value with Faster slicing on, or "" */
+    const char *note;   /* one line: the gain and the cost */
+    int gcode;          /* 1: the option changes the G-code */
+} zs_speed_option;
+
+size_t zs_speed_count(void);
+int zs_speed_get(size_t index, zs_speed_option *out);
+/* The help of the Faster slicing switch, for its row. */
+const char *zs_speed_switch_note(void);
+/* 0 off (the exact defaults), 1 on, 2 custom. */
+int zs_app_speed_state(const zs_app *app);
+/* Faster slicing on (1) or off (0): sets the options of the switch, each
+ * a change for the history. Slice again after it. */
+int zs_app_speed_set(zs_app *app, int on);
 /* Physics: part i falls over if it cannot stand as it is (the bond of its
  * first layer and its brim to the bed does not hold it against its weight
  * and the push of the nozzle), and rolls onto a face until it rests.

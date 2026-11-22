@@ -258,6 +258,28 @@ console.log(`scene: ${(scene.byteLength / 1e6).toFixed(1)} MB in ${(performance.
 const gcode = new TextDecoder().decode(core.gcode());
 check(gcode.includes(";LAYER:0\n"), "the G-code has layer 0");
 
+// The Speed section: the options, and the Faster slicing switch. On sets
+// its options, off gives the exact G-code back, and an engine option
+// stays in the saved state.
+{
+  const opts = wasm.speedOptions();
+  check(opts.some((o) => o.name === "project.fast_offsets" && o.faster === "true" && o.gcode), "the speed options");
+  check(opts.some((o) => o.name === "engine.draft_slices" && o.faster === ""), "the draft slices are an option outside the switch");
+  check(core.snapshot().speed === "off", "Faster slicing is off at first");
+  check(core.setSpeed(true) === "", "Faster slicing on");
+  check(core.snapshot().speed === "on" && core.get("engine.resolution") === "0.01" && core.get("project.fast_offsets") === "true", "Faster slicing sets its options");
+  check(core.savedState().engine["engine.resolution"] === "0.01", "the saved state keeps the resolution");
+  t0 = performance.now();
+  core.slice();
+  console.log(`slice with Faster slicing: ${(performance.now() - t0).toFixed(0)} ms`);
+  core.set("engine.resolution", "0.02");
+  check(core.snapshot().speed === "custom", "one other value gives custom");
+  check(core.setSpeed(false) === "" && core.snapshot().speed === "off", "Faster slicing off");
+  core.slice();
+  check(new TextDecoder().decode(core.gcode()) === gcode, "Faster slicing off gives the exact G-code");
+  check(Object.keys(core.savedState().engine).length === 0, "no engine option in the saved state at the defaults");
+}
+
 // The main thread side: a second instance reads the scene and draws.
 const view = new View3D(wasm2, 800, 600);
 t0 = performance.now();

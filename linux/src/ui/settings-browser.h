@@ -31,6 +31,10 @@ GtkWidget *zg_settings_browser_new(ZgModel *model, GtkWidget *panel_stack);
 /* Selects the setting `key`, for a link from another page. */
 void zg_settings_browser_show_setting(GtkWidget *browser, const char *key);
 
+/* Opens the Speed section: the Faster slicing switch and the options
+ * that change the time of a slice. */
+void zg_settings_browser_show_speed(GtkWidget *browser);
+
 /* TRUE if the page must be in front at the start (ZSLICE_SETTING). */
 gboolean zg_settings_browser_opens_first(GtkWidget *browser);
 
