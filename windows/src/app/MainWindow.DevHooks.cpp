@@ -56,6 +56,7 @@
 //   dockw width, histsaved, histopen, histshot path, histrevert i,
 //   histclear i, histlog, worklog, draftset name value, draftgo,
 //   exportall, draftremove
+//   ringview front|back|above, ringdrag axis degrees
 //   curaopen [all], curaclose, curamenu, curamenupress, curaall 0|1,
 //   curareload, curause i, curauseall, curascroll y, curasize w h,
 //   curatheme light|dark, curashot path, curashot menu path, curalog
@@ -384,6 +385,75 @@ namespace winrt::ZSlice::implementation
                 else
                 {
                     zs::Log("dev: no ring at the point\n");
+                }
+            }
+        }
+        else if (verb == L"ringview" && !words.empty())
+        {
+            // The camera on the selected part: front, back, or above, a
+            // little to the side, so that no ring shows as a line.
+            zs_part p{};
+            if (selected_parts.empty())
+                SelectPart(0);
+            if (!selected_parts.empty() && zs_app_part_get(model->Active(), (size_t)selected_parts[0], &p) == ZS_OK)
+            {
+                float n[3] = { 0.40f, -0.80f, 0.45f };
+                if (words[0] == L"back")
+                {
+                    n[0] = -0.36f;
+                    n[1] = 0.80f;
+                    n[2] = 0.48f;
+                }
+                else if (words[0] == L"above")
+                {
+                    n[0] = 0.15f;
+                    n[1] = -0.30f;
+                    n[2] = 0.94f;
+                }
+                double size = std::max({ p.size_x, p.size_y, p.size_z });
+                zs_view_look_at(view, (float)p.x, (float)p.y, (float)(p.size_z / 2), n[0], n[1], n[2], (float)(size * 4 + 40));
+                RequestDraw();
+            }
+        }
+        else if (verb == L"ringdrag" && words.size() >= 2)
+        {
+            // ringdrag axis degrees: a drag on a ring along the path that
+            // a point of the part takes in a right-hand turn of that many
+            // degrees, as Plate.turn makes it. The log has the angle.
+            zs_part p{};
+            if (!selected_parts.empty() && zs_app_part_get(model->Active(), (size_t)selected_parts[0], &p) == ZS_OK)
+            {
+                int axis = (int)number(0);
+                double degrees = number(1), s = Scale();
+                double radius = 0.62 * std::max({ p.size_x, p.size_y, p.size_z }) + 4, cz = p.size_z / 2;
+                auto at = [&](double angle, double &x, double &y) {
+                    float px = 0, py = 0;
+                    double a = angle * 3.14159265358979 / 180, u = radius * std::cos(a), v = radius * std::sin(a);
+                    if (axis == 0)
+                        zs_view_pixel_of(view, p.x, p.y + u, cz + v, &px, &py);
+                    else if (axis == 1)
+                        zs_view_pixel_of(view, p.x + u, p.y, cz - v, &px, &py);
+                    else
+                        zs_view_pixel_of(view, p.x + u, p.y + v, cz, &px, &py);
+                    x = px / s;
+                    y = py / s;
+                };
+                double x = 0, y = 0;
+                at(33, x, y);
+                if (ToolPress(x, y, false) && turn_axis >= 0)
+                {
+                    int picked = turn_axis;
+                    for (int k = 1; k <= 12; k++)
+                    {
+                        at(33 + degrees * k / 12, x, y);
+                        ToolDrag(x, y, false);
+                    }
+                    zs::Log("dev: ring asked %d picked %d, drag %+.0f shows %+.0f, part rotation %.0f\n", axis, picked, degrees, turn_want, p.rotation);
+                    ToolRelease();
+                }
+                else
+                {
+                    zs::Log("dev: ring asked %d, no ring at the point\n", axis);
                 }
             }
         }
