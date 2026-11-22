@@ -8,33 +8,26 @@
 //!    (printables.com/model/<id>-<name>) or a Thingiverse thing
 //!    (thingiverse.com/thing:<id>). It gives the site, the id, and a clean
 //!    page URL.
-//! 2. Printables: the shell sends `filesRequest` (a GraphQL query) to
-//!    `printables_api` with a POST, and gives the answer to `readPrintables`.
-//!    The query is the query of the model page of the site itself: the
-//!    model files ("stls", which has each model format) and the other files.
-//!    It needs no key and no login. Thingiverse: its API needs an app token
-//!    for each call, and a token cannot be secret in an open app. So
-//!    zslice opens the page in the browser, and the user downloads the ZIP
-//!    file of the thing ("Download all files"). `readZip` then lists that
-//!    ZIP file. The web app does the same for Printables: the API answers
-//!    only the pages of printables.com (CORS).
+//! 2. zslice does not call the API of a site. The API of Printables is
+//!    private, and the terms of Prusa forbid the automated extraction of
+//!    content. The API of Thingiverse needs an app token for each call, and
+//!    a token cannot be secret in an open app. So zslice shows `pageText`
+//!    and opens the page in the browser. The user downloads the ZIP file of
+//!    the model there ("Download all"), and opens it in zslice. `readZip`
+//!    then lists that ZIP file.
 //! 3. The list groups the files by kind (3MF, STL, STEP, OBJ, then the
 //!    other files, which zslice does not load), and checks the files to
 //!    load first (`preselect`). The shell shows the list and asks. The list
-//!    is the question before each download.
-//! 4. Printables: for each checked file, the shell sends `linkRequest` (the
-//!    download link mutation of the site) and checks the answer with
-//!    `readLink`: an https URL on printables.com. The download then follows
-//!    the rules of open_link.zig. A ZIP file: `zipFile` gives the bytes of
-//!    an entry.
+//!    is the question before the load.
+//! 4. For each checked file, `zipFile` gives the bytes of its entry.
 //! 5. The shell adds the files as parts on a new plate, and puts the parts
 //!    that do not fit on more plates (Set.spill). It never starts a print.
 //!
 //! This module does no I/O. Its functions read and write text and bytes
 //! that the shell gives. The contract for the shells is in
-//! docs/internals/model-import.md. The query, the mutation, and the forms
-//! of the page addresses come from the sites (docs/references/printables.md
-//! and docs/references/thingiverse.md).
+//! docs/internals/model-import.md. The forms of the page addresses come
+//! from the sites (docs/references/printables.md and
+//! docs/references/thingiverse.md).
 //!
 //! SPDX-License-Identifier: AGPL-3.0-or-later
 
@@ -44,17 +37,9 @@ const ol = @import("open_link.zig");
 const zipfile = @import("zipfile.zig");
 const root = @import("root.zig");
 
-/// The User-Agent of each request of an import: the app, its version, and
-/// the project. No request has personal data.
+/// The User-Agent of each download of a file link: the app, its version,
+/// and the project. No request has personal data.
 pub const user_agent = "zslice/" ++ root.version ++ " (+https://github.com/beetlebugorg/zslice)";
-/// The GraphQL endpoint of Printables. The slash at the end is necessary.
-pub const printables_api = "https://api.printables.com/graphql/";
-/// The host of the preview images of Printables.
-const printables_media = "https://media.printables.com/";
-/// The largest answer of an API call.
-pub const max_answer: usize = 4 << 20;
-/// The largest preview image.
-pub const max_preview: usize = 2 << 20;
 /// The most files that one import loads.
 pub const max_files = 100;
 /// The most entries of a list. A ZIP file with more lists the first ones.
@@ -63,17 +48,16 @@ const max_entries = 2000;
 pub const Site = enum(c_int) { none = 0, printables = 1, thingiverse = 2 };
 
 /// The result of a step. The numbers are the C API (enum zs_import_result).
+/// The numbers 4 and 9 are not used.
 pub const Result = enum(c_int) {
     ok = 0,
     not_a_page = 1,
     no_api = 2,
     bad_answer = 3,
-    not_found = 4,
     no_files = 5,
     nothing_checked = 6,
     too_many = 7,
     too_large = 8,
-    bad_link = 9,
     not_zip = 10,
 };
 
@@ -82,15 +66,23 @@ pub fn message(r: Result) [:0]const u8 {
     return switch (r) {
         .ok => "",
         .not_a_page => "This is not the address of a model on Printables or Thingiverse.",
-        .no_api => "Thingiverse lets only registered apps read the files of a thing, so zslice cannot read them. zslice opens the page in your browser. Click \"Download all files\" there, then open the ZIP file in zslice. zslice then lists the files, and you choose the files to load.",
-        .bad_answer => "The site sent an answer that zslice cannot read.",
-        .not_found => "The site has no public model at this address.",
+        .no_api => "zslice does not read the files of a model from the site. Open the page, and download all the files of the model as one ZIP file. Then open the ZIP file in zslice. zslice lists its files, and you choose the files to load.",
+        .bad_answer => "The import did not work.",
         .no_files => "The model has no file that zslice can load (STL, 3MF, STEP, or OBJ).",
         .nothing_checked => "Check one or more files to load.",
         .too_many => "Check at most 100 files.",
         .too_large => "The checked files are larger than 512 MB together.",
-        .bad_link => "The site sent a download address that zslice does not trust.",
         .not_zip => "The file is not a ZIP file that zslice can read.",
+    };
+}
+
+/// The text for the user for a model page of a site. zslice does not call
+/// the API of the site, so the user downloads the ZIP file of the model.
+pub fn pageText(site: Site) [:0]const u8 {
+    return switch (site) {
+        .none => message(.not_a_page),
+        .printables => "zslice does not read the files of a model from Printables. Open the page, and click \"Download all\" there. Printables gives one ZIP file with all the files of the model. Open that ZIP file in zslice, or drop it on the window. zslice lists its files, and you choose the files to load.",
+        .thingiverse => "zslice does not read the files of a thing from Thingiverse. Open the page, and click \"Download all files\" there. Thingiverse gives one ZIP file with all the files of the thing. Open that ZIP file in zslice, or drop it on the window. zslice lists its files, and you choose the files to load.",
     };
 }
 
@@ -224,58 +216,14 @@ fn eqlAny(text: []const u8, options: []const []const u8) bool {
     return false;
 }
 
-// ---- the requests to Printables ----
-
-/// The query of the files of a model, as the model page of Printables
-/// asks for them: the model files ("stls" has each model format), the
-/// other files, the name, the author, and the license.
-const files_query =
-    "query ModelFiles($id: ID!) { model: print(id: $id) { id name " ++
-    "user { publicUsername } license { name } " ++
-    "stls { id name folder fileSize filePreviewPath } " ++
-    "otherFiles { id name folder fileSize } } }";
-
-/// The download link of one file, as the model page of Printables asks
-/// for it.
-const link_mutation =
-    "mutation GetDownloadLink($id: ID!, $modelId: ID!, $fileType: DownloadFileTypeEnum!, $source: DownloadSourceEnum!) " ++
-    "{ getDownloadLink(id: $id, printId: $modelId, fileType: $fileType, source: $source) " ++
-    "{ ok errors { field messages } output { link } } }";
-
-/// The body of the POST that asks Printables for the files of a model
-/// (JSON, for Content-Type application/json). The id is digits.
-pub fn filesRequest(gpa: Allocator, id: []const u8) Allocator.Error![]u8 {
-    return std.json.Stringify.valueAlloc(gpa, .{
-        .operationName = "ModelFiles",
-        .query = files_query,
-        .variables = .{ .id = id },
-    }, .{});
-}
-
-/// The body of the POST that asks Printables for the download link of
-/// entry i of the list.
-pub fn linkRequest(gpa: Allocator, list: *const List, i: usize) error{ OutOfMemory, OutOfRange }![]u8 {
-    if (i >= list.entries.len or list.site != .printables) return error.OutOfRange;
-    const e = list.entries[i];
-    return std.json.Stringify.valueAlloc(gpa, .{
-        .operationName = "GetDownloadLink",
-        .query = link_mutation,
-        .variables = .{ .id = e.id, .modelId = list.model_id, .fileType = "stl", .source = "model_detail" },
-    }, .{});
-}
-
 // ---- the list ----
 
 /// A file of the model.
 pub const Entry = struct {
-    /// The id of the file at the site, or "" in a ZIP file.
-    id: [:0]const u8 = "",
     /// The file name: no folder, no control character (open_link.cleanName).
     name: [:0]const u8,
-    /// The folder of the file at the site or in the ZIP file, or "".
+    /// The folder of the file in the ZIP file, or "".
     folder: [:0]const u8 = "",
-    /// An https URL of a preview image, or "".
-    preview: [:0]const u8 = "",
     /// Why the file does not load, or a note for the user, or "".
     note: [:0]const u8 = "",
     size: u64,
@@ -283,8 +231,7 @@ pub const Entry = struct {
     can_load: bool,
     checked: bool = false,
     /// The plates of a 3MF file (Bambu Studio and OrcaSlicer projects),
-    /// or 0 when the list does not know (a file at a site: the count
-    /// comes with the download, see `plates3mf`).
+    /// or 0 when the list does not know.
     plates: u32 = 0,
     /// The index of the entry in the ZIP file.
     zip_index: u32 = 0,
@@ -293,7 +240,6 @@ pub const Entry = struct {
 pub const List = struct {
     arena: std.heap.ArenaAllocator,
     site: Site = .none,
-    model_id: [:0]const u8 = "",
     title: [:0]const u8 = "",
     author: [:0]const u8 = "",
     license: [:0]const u8 = "",
@@ -336,27 +282,6 @@ pub const List = struct {
     }
 };
 
-/// The text of a JSON value that is a string, else null.
-fn str(v: ?std.json.Value) ?[]const u8 {
-    const x = v orelse return null;
-    return if (x == .string) x.string else null;
-}
-
-fn field(v: ?std.json.Value, name: []const u8) ?std.json.Value {
-    const x = v orelse return null;
-    return if (x == .object) x.object.get(name) else null;
-}
-
-fn size(v: ?std.json.Value) u64 {
-    const x = v orelse return 0;
-    return switch (x) {
-        .integer => |n| if (n > 0) @intCast(n) else 0,
-        .float => |f| if (f > 0 and f < 1e18) @intFromFloat(f) else 0,
-        .number_string => |s| std.fmt.parseInt(u64, s, 10) catch 0,
-        else => 0,
-    };
-}
-
 /// A copy of text with no control character and at most `max` bytes (at
 /// a UTF-8 boundary). Empty for text that is not UTF-8.
 fn plainText(a: Allocator, text: []const u8, max: usize) Allocator.Error![:0]const u8 {
@@ -376,70 +301,6 @@ fn cleanName(a: Allocator, raw: []const u8) Allocator.Error![:0]const u8 {
     var buf: [ol.name_cap]u8 = undefined;
     const name = ol.cleanName(raw, &buf);
     return a.dupeZ(u8, name);
-}
-
-/// The preview URL of a file of Printables: the media host and the path
-/// of the answer. "" for a path that fails the open_link check.
-fn previewUrl(a: Allocator, path: []const u8) Allocator.Error![:0]const u8 {
-    if (path.len == 0 or path.len > 1024 or path[0] == '/') return "";
-    var text: [1100]u8 = undefined;
-    const joined = std.fmt.bufPrint(&text, "{s}{s}", .{ printables_media, path }) catch return "";
-    var url_buf: [ol.url_cap]u8 = undefined;
-    var host_buf: [ol.host_cap]u8 = undefined;
-    const u = ol.checkUrl(joined, &url_buf, &host_buf) orelse return "";
-    return a.dupeZ(u8, u.url);
-}
-
-/// The list of the files of a Printables model, from the answer to
-/// `filesRequest`. `page` gives the id of the model.
-pub fn readPrintables(gpa: Allocator, json: []const u8, page: Page) error{ OutOfMemory, BadAnswer, NotFound, NoFiles }!List {
-    if (json.len > max_answer) return error.BadAnswer;
-    var list: List = .{ .arena = .init(gpa), .site = .printables };
-    errdefer list.deinit();
-    const a = list.arena.allocator();
-    const parsed = std.json.parseFromSliceLeaky(std.json.Value, a, json, .{}) catch |e| switch (e) {
-        error.OutOfMemory => return error.OutOfMemory,
-        else => return error.BadAnswer,
-    };
-    const data = field(parsed, "data") orelse return error.BadAnswer;
-    const model = field(data, "model") orelse return error.NotFound;
-    if (model != .object) return error.NotFound;
-    list.model_id = try a.dupeZ(u8, page.id);
-    list.page_url = try a.dupeZ(u8, page.url);
-    list.title = try plainText(a, str(field(model, "name")) orelse "", 200);
-    list.author = try plainText(a, str(field(field(model, "user"), "publicUsername")) orelse "", 100);
-    list.license = try plainText(a, str(field(field(model, "license"), "name")) orelse "", 100);
-
-    var entries: std.ArrayList(Entry) = .empty;
-    for ([_][]const u8{ "stls", "otherFiles" }) |section| {
-        const arr = field(model, section) orelse continue;
-        if (arr != .array) continue;
-        for (arr.array.items) |item| {
-            if (entries.items.len >= max_entries) break;
-            const id = str(field(item, "id")) orelse continue;
-            if (id.len == 0 or id.len > 32) continue;
-            const name = try cleanName(a, str(field(item, "name")) orelse "");
-            if (name.len == 0) continue;
-            const kind = kindOf(name);
-            // Only a file of the model files has a download link of the
-            // type "stl". zslice does not download the other files.
-            const model_file = std.mem.eql(u8, section, "stls");
-            var e: Entry = .{
-                .id = try a.dupeZ(u8, id),
-                .name = name,
-                .folder = try plainText(a, str(field(item, "folder")) orelse "", 200),
-                .preview = try previewUrl(a, str(field(item, "filePreviewPath")) orelse ""),
-                .size = size(field(item, "fileSize")),
-                .kind = if (model_file) kind else .other,
-                .can_load = model_file and kind != .other,
-            };
-            if (!e.can_load) e.note = "zslice does not load this kind of file.";
-            try entries.append(a, e);
-        }
-    }
-    list.entries = try entries.toOwnedSlice(a);
-    try finish(&list);
-    return list;
 }
 
 /// The plates of a 3MF file: the <plate> elements of the
@@ -542,7 +403,7 @@ pub fn zipFile(gpa: Allocator, list: *const List, bytes: []const u8, i: usize) e
     };
 }
 
-/// Sorts the entries by kind (the site order stays in a kind), refuses
+/// Sorts the entries by kind (the ZIP order stays in a kind), refuses
 /// a list with no file to load, and checks the files to load first.
 fn finish(list: *List) error{ OutOfMemory, NoFiles }!void {
     std.mem.sort(Entry, list.entries, {}, struct {
@@ -550,7 +411,7 @@ fn finish(list: *List) error{ OutOfMemory, NoFiles }!void {
             return x.kind.order() < y.kind.order();
         }
     }.lt);
-    // std.mem.sort is stable (a block sort): the order of the site stays.
+    // std.mem.sort is stable (a block sort): the order of the ZIP file stays.
     var any = false;
     for (list.entries) |e| any = any or e.can_load;
     if (!any) return error.NoFiles;
@@ -611,31 +472,6 @@ fn preselect(list: *List) Allocator.Error!void {
     }
 }
 
-/// Reads the answer to `linkRequest` for entry i. The download link must
-/// be an https URL on printables.com or one of its subdomains. The link
-/// gets the name of the entry.
-pub fn readLink(json: []const u8, list: *const List, i: usize, b: *ol.Buffers) error{ BadAnswer, NotFound, BadLink, OutOfRange }!ol.Link {
-    if (i >= list.entries.len or list.site != .printables) return error.OutOfRange;
-    if (json.len > max_answer) return error.BadAnswer;
-    var buf: [64 * 1024]u8 = undefined;
-    var fba: std.heap.FixedBufferAllocator = .init(&buf);
-    const parsed = std.json.parseFromSliceLeaky(std.json.Value, fba.allocator(), json, .{}) catch return error.BadAnswer;
-    const data = field(parsed, "data") orelse return error.BadAnswer;
-    const result = field(data, "getDownloadLink") orelse return error.BadAnswer;
-    if (result != .object) return error.NotFound;
-    const link = str(field(field(result, "output"), "link")) orelse return error.NotFound;
-    if (link.len > ol.max_link) return error.BadLink;
-    var copy: [ol.max_link]u8 = undefined;
-    @memcpy(copy[0..link.len], link);
-    const u = ol.checkUrl(copy[0..link.len], &b.url, &b.host) orelse return error.BadLink;
-    if (!(std.mem.eql(u8, u.host, "printables.com") or std.mem.endsWith(u8, u.host, ".printables.com"))) return error.BadLink;
-    const name = list.entries[i].name;
-    const n = @min(name.len, b.name.len - 1);
-    @memcpy(b.name[0..n], name[0..n]);
-    b.name[n] = 0;
-    return .{ .url = u.url, .host = u.host, .name = b.name[0..n] };
-}
-
 // ---- tests ----
 
 const testing = std.testing;
@@ -676,106 +512,6 @@ test "the address of a model page" {
             return error.TestUnexpectedResult;
         }
     }
-}
-
-test "the requests to Printables are JSON with the id" {
-    const gpa = testing.allocator;
-    const body = try filesRequest(gpa, "3161");
-    defer gpa.free(body);
-    const v = try std.json.parseFromSlice(std.json.Value, gpa, body, .{});
-    defer v.deinit();
-    try testing.expectEqualStrings("3161", v.value.object.get("variables").?.object.get("id").?.string);
-    try testing.expect(std.mem.indexOf(u8, v.value.object.get("query").?.string, "stls {") != null);
-}
-
-const printables_answer =
-    \\{"data":{"model":{"id":"9","name":"A box\u0007 set","user":{"publicUsername":"maker"},
-    \\"license":{"name":"Creative Commons - Attribution"},
-    \\"stls":[
-    \\ {"id":"1","name":"lid.stl","folder":"","fileSize":2048,"filePreviewPath":"media/prints/9/stls/1_a/lid_preview.png"},
-    \\ {"id":"2","name":"box.3mf","folder":"","fileSize":900000,"filePreviewPath":"media/prints/9/stls/2_b/box_preview.png"},
-    \\ {"id":"3","name":"lid.step","folder":"cad","fileSize":50000,"filePreviewPath":""},
-    \\ {"id":"4","name":"../../base.STL","folder":"","fileSize":4096,"filePreviewPath":"//evil.test/x.png"},
-    \\ {"id":"5","name":"huge.stl","folder":"","fileSize":900000000,"filePreviewPath":null},
-    \\ {"id":"6","name":"insert.obj","folder":"","fileSize":10}
-    \\],
-    \\"otherFiles":[{"id":"7","name":"manual.pdf","folder":"","fileSize":30000},
-    \\ {"id":"8","name":"part.step","folder":"","fileSize":3000}]}}}
-;
-
-test "the files of a Printables model: groups, checks, and notes" {
-    const gpa = testing.allocator;
-    var buf: [page_url_cap]u8 = undefined;
-    const page = parsePage("https://www.printables.com/model/9-box", &buf).?;
-    var list = try readPrintables(gpa, printables_answer, page);
-    defer list.deinit();
-    try testing.expectEqualStrings("A box  set", list.title);
-    try testing.expectEqualStrings("maker", list.author);
-    try testing.expectEqualStrings("Creative Commons - Attribution", list.license);
-    try testing.expectEqualStrings("https://www.printables.com/model/9", list.page_url);
-    try testing.expect(list.note.len > 0);
-    const want = [_]struct { name: []const u8, kind: Kind, checked: bool, can_load: bool }{
-        .{ .name = "box.3mf", .kind = .threemf, .checked = false, .can_load = true },
-        .{ .name = "lid.stl", .kind = .stl, .checked = true, .can_load = true },
-        .{ .name = "base.STL", .kind = .stl, .checked = true, .can_load = true },
-        .{ .name = "huge.stl", .kind = .stl, .checked = false, .can_load = false },
-        .{ .name = "lid.step", .kind = .step, .checked = false, .can_load = true },
-        .{ .name = "insert.obj", .kind = .obj, .checked = true, .can_load = true },
-        .{ .name = "manual.pdf", .kind = .other, .checked = false, .can_load = false },
-        .{ .name = "part.step", .kind = .other, .checked = false, .can_load = false },
-    };
-    try testing.expectEqual(want.len, list.entries.len);
-    for (want, list.entries) |w, e| {
-        try testing.expectEqualStrings(w.name, e.name);
-        try testing.expectEqual(w.kind, e.kind);
-        try testing.expectEqual(w.checked, e.checked);
-        try testing.expectEqual(w.can_load, e.can_load);
-    }
-    try testing.expectEqualStrings("https://media.printables.com/media/prints/9/stls/1_a/lid_preview.png", list.entries[1].preview);
-    // A path that is not a plain path gives no preview.
-    try testing.expectEqualStrings("", list.entries[2].preview);
-    try testing.expectEqualStrings("cad", list.entries[4].folder);
-    // A checked list is ready; a check of a file that does not load does
-    // nothing.
-    try testing.expectEqual(Result.ok, list.ready());
-    try list.check(3, true);
-    try testing.expect(!list.entries[3].checked);
-    try list.check(0, true);
-    try testing.expectEqual(@as(usize, 4), list.sum().files);
-    for (0..list.entries.len) |i| try list.check(i, false);
-    try testing.expectEqual(Result.nothing_checked, list.ready());
-    try testing.expectError(error.OutOfRange, list.check(99, true));
-}
-
-test "a Printables answer with no model, an error, or no files" {
-    const gpa = testing.allocator;
-    var buf: [page_url_cap]u8 = undefined;
-    const page = parsePage("printables.com/model/1", &buf).?;
-    try testing.expectError(error.NotFound, readPrintables(gpa, "{\"data\":{\"model\":null}}", page));
-    try testing.expectError(error.BadAnswer, readPrintables(gpa, "{\"errors\":[{\"message\":\"x\"}]}", page));
-    try testing.expectError(error.BadAnswer, readPrintables(gpa, "<html>", page));
-    try testing.expectError(error.NoFiles, readPrintables(gpa, "{\"data\":{\"model\":{\"stls\":[],\"otherFiles\":[{\"id\":\"1\",\"name\":\"a.pdf\",\"fileSize\":1}]}}}", page));
-}
-
-test "the download link of a Printables file" {
-    const gpa = testing.allocator;
-    var buf: [page_url_cap]u8 = undefined;
-    const page = parsePage("printables.com/model/9", &buf).?;
-    var list = try readPrintables(gpa, printables_answer, page);
-    defer list.deinit();
-    const body = try linkRequest(gpa, &list, 1);
-    defer gpa.free(body);
-    try testing.expect(std.mem.indexOf(u8, body, "\"id\":\"1\"") != null);
-    try testing.expect(std.mem.indexOf(u8, body, "\"modelId\":\"9\"") != null);
-    var b: ol.Buffers = .{};
-    const l = try readLink("{\"data\":{\"getDownloadLink\":{\"ok\":true,\"errors\":null,\"output\":{\"link\":\"https://files.printables.com/media/prints/9/stls/1_a/lid.stl\"}}}}", &list, 1, &b);
-    try testing.expectEqualStrings("files.printables.com", l.host);
-    try testing.expectEqualStrings("lid.stl", l.name);
-    try testing.expectError(error.BadLink, readLink("{\"data\":{\"getDownloadLink\":{\"output\":{\"link\":\"https://evil.test/lid.stl\"}}}}", &list, 1, &b));
-    try testing.expectError(error.BadLink, readLink("{\"data\":{\"getDownloadLink\":{\"output\":{\"link\":\"http://files.printables.com/a.stl\"}}}}", &list, 1, &b));
-    try testing.expectError(error.BadLink, readLink("{\"data\":{\"getDownloadLink\":{\"output\":{\"link\":\"https://10.0.0.1/a.stl\"}}}}", &list, 1, &b));
-    try testing.expectError(error.NotFound, readLink("{\"data\":{\"getDownloadLink\":{\"ok\":false,\"errors\":[{\"field\":\"id\",\"messages\":[\"x\"]}],\"output\":null}}}", &list, 1, &b));
-    try testing.expectError(error.OutOfRange, readLink("{}", &list, 50, &b));
 }
 
 fn testZip(gpa: Allocator, entries: []const zipfile.Entry) ![]u8 {
@@ -842,6 +578,15 @@ test "a STEP file next to its STL file is not checked" {
     try testing.expect(!list.entries[1].checked);
     try testing.expect(list.entries[1].note.len > 0);
     try testing.expect(list.entries[2].checked);
+}
+
+test "the text for a model page names the site and the ZIP file" {
+    for ([_]Site{ .printables, .thingiverse }, [_][]const u8{ "Printables", "Thingiverse" }) |site, name| {
+        const t = pageText(site);
+        try testing.expect(std.mem.indexOf(u8, t, name) != null);
+        try testing.expect(std.mem.indexOf(u8, t, "ZIP file") != null);
+        try testing.expect(std.mem.indexOf(u8, t, "Download all") != null);
+    }
 }
 
 test "the kinds of files" {

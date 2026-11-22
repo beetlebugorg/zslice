@@ -58,7 +58,7 @@ The app handles one link at a time. A second link while a dialog or a download i
 
 `zs_link_message(result)` gives the text for the user of each `enum zs_link_result`.
 
-A link to a model page (for example `zslice://open?file=https://www.printables.com/model/3161`) does not download the page. After `zs_link_check`, the app checks `link.url` with `zs_import_page_check`. For a model page, it lists the files of the model, and the user chooses. See [Import a model from a model page](model-import.md).
+A link to a model page (for example `zslice://open?file=https://www.printables.com/model/3161`) does not download the page. After `zs_link_check`, the app checks `link.url` with `zs_import_page_check`. For a model page, it shows the text of `zs_import_page_text` and offers to open the page. The user downloads the ZIP file of the model there. zslice calls no API of the site. See [Import a model from a model page](model-import.md).
 
 ## The apps
 

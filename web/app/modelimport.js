@@ -4,21 +4,19 @@
 // docs/internals/model-import.md), so the web app lists, groups, and
 // checks the files as the other apps do.
 //
-// What a browser does not let the page do: the API of Printables
-// (api.printables.com/graphql/) answers only the pages of printables.com
-// (its CORS headers name no other origin), and the API of Thingiverse
-// needs an app token that an open app cannot keep secret. So the web app
-// does not ask a site for the list of files. For a model page it opens
-// the page, and the user downloads the ZIP file of the model ("Download
-// all"). The user drops the ZIP file on zslice, and the list comes from
-// the ZIP file. The GTK app reads the list of Printables itself.
+// zslice calls no API of a site, in any app: the API of Printables is
+// private, and the terms of Prusa forbid the automated extraction of
+// content; the API of Thingiverse needs an app token. For a model page
+// the web app shows the text of the core (zs_import_page_text) and opens
+// the page. The user downloads the ZIP file of the model ("Download
+// all"), and drops it on zslice. The list comes from the ZIP file.
 //
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 // enum zs_import_result, enum zs_import_site, and enum zs_import_kind.
 export const IMPORT = {
-  ok: 0, notAPage: 1, noApi: 2, badAnswer: 3, notFound: 4, noFiles: 5,
-  nothingChecked: 6, tooMany: 7, tooLarge: 8, badLink: 9, notZip: 10,
+  ok: 0, notAPage: 1, noApi: 2, badAnswer: 3, noFiles: 5,
+  nothingChecked: 6, tooMany: 7, tooLarge: 8, notZip: 10,
 };
 export const SITE = { none: 0, printables: 1, thingiverse: 2 };
 export const KIND = { other: 0, stl: 1, threemf: 2, step: 3, obj: 4 };
@@ -26,24 +24,15 @@ export const KIND = { other: 0, stl: 1, threemf: 2, step: 3, obj: 4 };
 // The layout of the structs in wasm32 memory. zs_import_limits gives the
 // sizes, and the constructor checks them.
 const PAGE = { site: 0, id: 4, url: 36, size: 164 };
-const FILE = { name: 0, folder: 4, preview: 8, note: 12, kindLabel: 16, size: 24, kind: 32, canLoad: 36, checked: 40, plates: 44, bytes: 48 };
+const FILE = { name: 0, folder: 4, note: 8, kindLabel: 12, size: 16, kind: 24, canLoad: 28, checked: 32, plates: 36, bytes: 40 };
 const INFO = { site: 0, title: 4, author: 8, license: 12, pageUrl: 16, note: 20, bytes: 24 };
-
-// The text for the web app when it cannot read the list of a site.
-export function webPageText(site) {
-  const siteName = site === SITE.printables ? "Printables" : "Thingiverse";
-  const why = site === SITE.printables
-    ? "The browser does not let zslice read the list of files of Printables: the site answers only its own pages (CORS)."
-    : "Thingiverse lets only registered apps read the files of a thing, so zslice cannot read them.";
-  return `${why} Open the page, and download all the files of the model as one ZIP file ("Download all" on ${siteName}). Then drop the ZIP file on zslice, or open it with Open. zslice lists its files, and you choose the files to load.`;
-}
 
 // The calls of the core with a Wasm (wasm.js) of the page.
 export class ImportRules {
   constructor(wasm) {
     this.w = wasm;
     const cell = wasm.alloc(32);
-    wasm.x.zs_import_limits(0, 0, cell, cell + 8, cell + 16);
+    wasm.x.zs_import_limits(cell, cell + 8, cell + 16);
     this.maxFiles = wasm.u32(cell);
     const pageSize = wasm.u32(cell + 8);
     const fileSize = wasm.u32(cell + 16);
@@ -53,6 +42,12 @@ export class ImportRules {
 
   message(code) {
     return this.w.cstr(this.w.x.zs_import_message(code));
+  }
+
+  // The text for a model page of a site: it names the site, and says how
+  // to get the ZIP file of the model.
+  pageText(site) {
+    return this.w.cstr(this.w.x.zs_import_page_text(site));
   }
 
   // Reads the address of a model page: { ok, site, id, url } or
@@ -110,7 +105,7 @@ export class ImportList {
     }
   }
 
-  // The files: { index, name, folder, preview, note, kindLabel, size,
+  // The files: { index, name, folder, note, kindLabel, size,
   // kind, canLoad, checked, plates }.
   files() {
     const w = this.w;
@@ -125,7 +120,6 @@ export class ImportList {
           index: i,
           name: s(FILE.name),
           folder: s(FILE.folder),
-          preview: s(FILE.preview),
           note: s(FILE.note),
           kindLabel: s(FILE.kindLabel),
           size: Number(w.dv.getBigUint64(p + FILE.size, true)),
@@ -187,9 +181,8 @@ function formatSize(n) {
   return `${n} bytes`;
 }
 
-// The dialog for the address of a model page. The web app cannot read
-// the list of a site, so the dialog says how to get the ZIP file, and
-// opens the page.
+// The dialog for the address of a model page. zslice reads no list from
+// a site, so the dialog says how to get the ZIP file, and opens the page.
 export function askImportPage(rules, text = "") {
   const d = el("dialog", { className: "printers-dialog pair-dialog import-dialog" });
   const title = el("h3", { textContent: "Import a model" });
@@ -223,7 +216,7 @@ export function askImportPage(rules, text = "") {
       go.hidden = false;
       return;
     }
-    note.textContent = webPageText(page.site);
+    note.textContent = rules.pageText(page.site);
     openPage.hidden = false;
     go.hidden = true;
   };

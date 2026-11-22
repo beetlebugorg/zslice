@@ -56,19 +56,18 @@ A link opens only STL, 3MF, STEP, and OBJ files. It never opens a zslice project
 
 ## Import a model from a model page
 
-A model on Printables or Thingiverse often has many files. zslice lists them, and you choose the files to load.
+A model on Printables or Thingiverse often has many files. zslice lists the files of the ZIP file of the model, and you choose the files to load.
 
 1. Open the search (`/`) and choose **Import from a model page**, or open the menu of the plate. In the web app, open the **Open** menu.
-2. Paste the address of the model page, for example `https://www.printables.com/model/3161-3d-benchy`.
-3. zslice lists the files of the model in groups: 3MF, STL, STEP, OBJ, and the other files (which zslice does not load). It checks the files to load first. A STEP file of a part with an STL file is not checked. When the model has 3MF files and STL files, only the STL files are checked, because they often hold the same parts.
-4. Check and uncheck the files, then press **Download and load**.
-5. zslice downloads the files and puts their parts on a new plate. The parts that do not fit go on more plates. It never starts a print.
+2. Paste the address of the model page, for example `https://www.printables.com/model/3161-3d-benchy`, and press **Continue**.
+3. zslice says how to get the files, and shows **Open the page**. Press it. The page opens in your browser.
+4. On the page, click "Download all" ("Download all files" on Thingiverse). The site gives one ZIP file with all the files of the model.
+5. Open the ZIP file in zslice with **Open**, or drop it on the window.
+6. zslice lists the files of the ZIP file in groups: 3MF, STL, STEP, OBJ, and the other files (which zslice does not load). It checks the files to load first. A STEP file of a part with an STL file is not checked. When the model has 3MF files and STL files, only the STL files are checked, because they often hold the same parts.
+7. Check and uncheck the files, then press **Load**.
+8. zslice puts the parts on a new plate. The parts that do not fit go on more plates. It never starts a print.
 
-You can also open the ZIP file of a model ("Download all" on the site) with **Open**, or drop it on the window. zslice then lists its files in the same way.
-
-- **Printables.** The Linux app reads the list of files from Printables, with a picture of each file.
-- **Thingiverse.** Thingiverse lets only registered apps read its lists. zslice opens the page in your browser. Download all the files as a ZIP file there, then open the ZIP file in zslice.
-- **The web app.** The browser does not let a page read the lists of Printables or Thingiverse. The web app opens the page. Download the ZIP file there, then drop it on the window.
+zslice does not read the files of a model from the site. The API of Printables is private, and the terms of the site forbid automated extraction. Thingiverse lets only registered apps read its lists. A link to one file (for example an "Open in slicer" link) is different: zslice downloads that one file.
 
 ## The command line
 

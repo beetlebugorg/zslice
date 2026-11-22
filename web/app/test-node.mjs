@@ -11,7 +11,7 @@ import { Core, STATE } from "./core.js";
 import { View3D } from "./view.js";
 import { clipText, parseClipText } from "./clipboard.js";
 import { LinkRules, downloadModel, LINK, webAppLink } from "./openlink.js";
-import { ImportRules, IMPORT, SITE, KIND, webPageText } from "./modelimport.js";
+import { ImportRules, IMPORT, SITE, KIND } from "./modelimport.js";
 import { outlineOf, placeAt, newItem, scaleLabel, withAngle, angleOf, turned, nextFilament, changeShape, labelName, svgItem, resizeBox, resized, turnedAbout, toBed, handleGeom, hitHandle } from "./label.js";
 
 const [wasmPath, stlPath] = process.argv.slice(2);
@@ -664,7 +664,10 @@ check(clipText({ kind: "setting", id: "s", data: { value: "0.2" } }) === "0.2", 
   page = rules.page("thingiverse.com/thing:763622");
   check(page.ok && page.site === SITE.thingiverse && page.url === "https://www.thingiverse.com/thing:763622", "a Thingiverse page");
   check(!rules.page("https://example.com/model/1").ok, "another site");
-  check(webPageText(SITE.printables).includes("CORS"), "the text for a page in the browser");
+  for (const [site, name] of [[SITE.printables, "Printables"], [SITE.thingiverse, "Thingiverse"]]) {
+    const t = rules.pageText(site);
+    check(t.includes(name) && t.includes("ZIP file") && t.includes("Download all"), `the text for a page of ${name}`);
+  }
   // A ZIP file with stored entries, as a site gives it.
   const crcTable = Array.from({ length: 256 }, (_, n) => {
     let c = n;

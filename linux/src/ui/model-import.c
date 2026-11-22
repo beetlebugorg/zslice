@@ -1,19 +1,16 @@
 /* model-import.c: see model-import.h. The steps and the rules are in the
- * core (zs_import_* in zslice.h, docs/internals/model-import.md). The
- * network part is net/model-download.c.
+ * core (zs_import_* in zslice.h, docs/internals/model-import.md). zslice
+ * calls no API of a site: for a model page, the dialog opens the page, and
+ * the user downloads the ZIP file of the model.
  *
  * SPDX-License-Identifier: AGPL-3.0-or-later
  */
 #include "model-import.h"
 
-#include "../net/model-download.h"
 #include "window.h"
 #include "zslice-app.h"
 
 #include <string.h>
-
-/* The most preview images of one list. */
-enum { MAX_PREVIEWS = 40, PREVIEW_SIZE = 64 };
 
 typedef struct {
     GtkWindow *parent;
@@ -27,15 +24,12 @@ typedef struct {
     GBytes *zip;
     char *zip_name;
     GCancellable *cancel_op;
-    /* For each file of the list: its check box (or NULL), and its
-     * picture (or NULL). */
-    GPtrArray *checks, *pictures;
-    guint preview_next, previews;
-    /* The download: the next file, and the files so far. */
+    /* For each file of the list: its check box (or NULL). */
+    GPtrArray *checks;
+    /* The load: the next file, and the files so far. */
     gboolean loading;
     gsize next;
     guint index, total;
-    zs_link link;
     GPtrArray *names, *bytes;
     GString *errors;
     /* The window is gone, and the operations that run. */
@@ -54,7 +48,6 @@ static void import_free(Import *im) {
     g_clear_object(&im->cancel_op);
     g_clear_object(&im->parent);
     if (im->checks) g_ptr_array_unref(im->checks);
-    if (im->pictures) g_ptr_array_unref(im->pictures);
     if (im->names) g_ptr_array_unref(im->names);
     if (im->bytes) g_ptr_array_unref(im->bytes);
     if (im->errors) g_string_free(im->errors, TRUE);
@@ -114,7 +107,7 @@ static void update_sum(Import *im) {
         return;
     }
     char *size = g_format_size(bytes);
-    char *text = g_strdup_printf("%zu %s, %s. zslice downloads the checked files and puts their parts on plates. It does not start a print.",
+    char *text = g_strdup_printf("%zu %s, %s. zslice puts the parts of the checked files on plates. It does not start a print.",
                                  files, files == 1 ? "file" : "files", size);
     set_status(im, text, FALSE);
     g_free(text);
@@ -126,48 +119,6 @@ static void on_toggled(GtkCheckButton *b, gpointer data) {
     size_t i = GPOINTER_TO_SIZE(g_object_get_data(G_OBJECT(b), "zg-index"));
     zs_import_check(im->list, i, gtk_check_button_get_active(b));
     update_sum(im);
-}
-
-/* ---- the preview images ---- */
-
-static void next_preview(Import *im);
-
-static void on_preview(GObject *source, GAsyncResult *res, gpointer data) {
-    Import *im = data;
-    GError *error = NULL;
-    GBytes *bytes = zg_net_request_finish(res, &error);
-    if (!op_done(im)) {
-        if (bytes) g_bytes_unref(bytes);
-        g_clear_error(&error);
-        return;
-    }
-    size_t i = im->preview_next - 1;
-    if (bytes) {
-        GdkTexture *t = gdk_texture_new_from_bytes(bytes, NULL);
-        GtkWidget *pic = g_ptr_array_index(im->pictures, i);
-        if (t && pic) gtk_picture_set_paintable(GTK_PICTURE(pic), GDK_PAINTABLE(t));
-        g_clear_object(&t);
-        g_bytes_unref(bytes);
-    }
-    g_clear_error(&error);
-    next_preview(im);
-}
-
-/* The previews load one at a time, after the list shows. A preview that
- * does not load leaves its place empty. */
-static void next_preview(Import *im) {
-    if (im->loading) return;
-    while (im->preview_next < im->pictures->len && im->previews < MAX_PREVIEWS) {
-        size_t i = im->preview_next++;
-        zs_import_file f;
-        if (zs_import_file_get(im->list, i, &f) != ZS_IMPORT_OK || !f.preview[0]) continue;
-        zs_link link;
-        if (zs_link_check_url(f.preview, &link) != ZS_LINK_OK) continue;
-        im->previews++;
-        im->pending++;
-        zg_net_request(&link, NULL, ZS_IMPORT_MAX_PREVIEW, im->cancel_op, on_preview, im);
-        return;
-    }
 }
 
 /* ---- the list ---- */
@@ -189,7 +140,6 @@ static void show_list(Import *im) {
 
     size_t n = zs_import_count(im->list);
     im->checks = g_ptr_array_new();
-    im->pictures = g_ptr_array_new();
     const char *group = NULL;
     for (size_t i = 0; i < n; i++) {
         zs_import_file f;
@@ -209,15 +159,6 @@ static void show_list(Import *im) {
         g_signal_connect(check, "toggled", G_CALLBACK(on_toggled), im);
         gtk_box_append(GTK_BOX(row), check);
         g_ptr_array_add(im->checks, f.can_load ? check : NULL);
-        GtkWidget *pic = NULL;
-        if (info.site != ZS_IMPORT_SITE_NONE) {
-            pic = gtk_picture_new();
-            gtk_picture_set_content_fit(GTK_PICTURE(pic), GTK_CONTENT_FIT_CONTAIN);
-            gtk_widget_set_size_request(pic, PREVIEW_SIZE, PREVIEW_SIZE);
-            gtk_widget_set_valign(pic, GTK_ALIGN_CENTER);
-            gtk_box_append(GTK_BOX(row), pic);
-        }
-        g_ptr_array_add(im->pictures, pic);
         GtkWidget *text = gtk_box_new(GTK_ORIENTATION_VERTICAL, 2);
         gtk_widget_set_hexpand(text, TRUE);
         gtk_widget_set_valign(text, GTK_ALIGN_CENTER);
@@ -241,7 +182,6 @@ static void show_list(Import *im) {
     gtk_stack_set_visible_child_name(GTK_STACK(im->stack), "list");
     update_sum(im);
     gtk_widget_grab_focus(im->cancel);
-    next_preview(im);
     if (g_getenv("ZSLICE_IMPORT_YES") && gtk_widget_get_sensitive(im->load)) {
         g_message("zslice: import: %zu files listed; the test answers Load", n);
         g_signal_emit_by_name(im->load, "clicked");
@@ -256,60 +196,17 @@ static void list_failed(Import *im, const char *text) {
     gtk_widget_set_sensitive(im->entry, TRUE);
 }
 
-static void on_files(GObject *source, GAsyncResult *res, gpointer data) {
-    Import *im = data;
-    GError *error = NULL;
-    GBytes *bytes = zg_net_request_finish(res, &error);
-    if (!op_done(im)) {
-        if (bytes) g_bytes_unref(bytes);
-        g_clear_error(&error);
-        return;
-    }
-    if (!bytes) {
-        list_failed(im, error->message);
-        g_error_free(error);
-        return;
-    }
-    gsize len = 0;
-    const char *json = g_bytes_get_data(bytes, &len);
-    int rc = zs_import_list_read(&im->page, json, len, &im->list);
-    g_bytes_unref(bytes);
-    if (rc != ZS_IMPORT_OK) {
-        list_failed(im, zs_import_message(rc));
-        return;
-    }
-    show_list(im);
-}
-
-/* Asks the site for the files of the model of im->page. */
+/* zslice calls no API of a site. It says how to get the ZIP file of the
+ * model of im->page, and shows the button that opens the page. */
 static void find_files(Import *im) {
-    if (im->page.site == ZS_IMPORT_SITE_THINGIVERSE) {
-        gtk_stack_set_visible_child_name(GTK_STACK(im->stack), "ask");
-        gtk_label_set_text(GTK_LABEL(im->ask_note), zs_import_message(ZS_IMPORT_NO_API));
-        gtk_widget_remove_css_class(im->ask_note, "error");
-        gtk_widget_set_visible(im->open_page, TRUE);
-        gtk_widget_set_visible(im->find, FALSE);
-        return;
-    }
-    size_t len = 0;
-    if (zs_import_files_request(&im->page, NULL, 0, &len) != ZS_IMPORT_OK) return;
-    char *body = g_malloc(len + 1);
-    zs_import_files_request(&im->page, body, len + 1, NULL);
-    zs_link api;
-    if (zs_link_check_url(zs_import_api_url(im->page.site), &api) != ZS_LINK_OK) {
-        g_free(body);
-        return;
-    }
-    gtk_label_set_text(GTK_LABEL(im->ask_note), "Reading the list of files…");
+    gtk_stack_set_visible_child_name(GTK_STACK(im->stack), "ask");
+    gtk_label_set_text(GTK_LABEL(im->ask_note), zs_import_page_text(im->page.site));
     gtk_widget_remove_css_class(im->ask_note, "error");
-    gtk_widget_set_sensitive(im->find, FALSE);
-    gtk_widget_set_sensitive(im->entry, FALSE);
-    im->pending++;
-    zg_net_request(&api, body, ZS_IMPORT_MAX_ANSWER, im->cancel_op, on_files, im);
-    g_free(body);
+    gtk_widget_set_visible(im->open_page, TRUE);
+    gtk_widget_set_visible(im->find, FALSE);
 }
 
-/* ---- the download ---- */
+/* ---- the load ---- */
 
 static void next_file(Import *im);
 
@@ -340,62 +237,6 @@ static void file_error(Import *im, const char *name, const char *text) {
     g_string_append_printf(im->errors, "%s: %s\n", name, text);
 }
 
-static void on_progress(double fraction, gpointer data) {
-    Import *im = data;
-    if (im->closed) return;
-    gtk_progress_bar_set_fraction(GTK_PROGRESS_BAR(im->progress), (im->index - 1 + fraction) / MAX(im->total, 1));
-}
-
-static void on_file(GObject *source, GAsyncResult *res, gpointer data) {
-    Import *im = data;
-    char *name = NULL;
-    GError *error = NULL;
-    GBytes *bytes = zg_model_download_finish(res, &name, &error);
-    if (!op_done(im)) {
-        if (bytes) g_bytes_unref(bytes);
-        g_clear_error(&error);
-        g_free(name);
-        return;
-    }
-    if (bytes)
-        add_file(im, name, bytes);
-    else
-        file_error(im, im->link.name, error->message);
-    g_clear_error(&error);
-    g_free(name);
-    next_file(im);
-}
-
-static void on_link(GObject *source, GAsyncResult *res, gpointer data) {
-    Import *im = data;
-    GError *error = NULL;
-    GBytes *answer = zg_net_request_finish(res, &error);
-    if (!op_done(im)) {
-        if (answer) g_bytes_unref(answer);
-        g_clear_error(&error);
-        return;
-    }
-    zs_import_file f;
-    zs_import_file_get(im->list, im->next - 1, &f);
-    if (!answer) {
-        file_error(im, f.name, error->message);
-        g_error_free(error);
-        next_file(im);
-        return;
-    }
-    gsize len = 0;
-    const char *json = g_bytes_get_data(answer, &len);
-    int rc = zs_import_link_read(im->list, im->next - 1, json, len, &im->link);
-    g_bytes_unref(answer);
-    if (rc != ZS_IMPORT_OK) {
-        file_error(im, f.name, zs_import_message(rc));
-        next_file(im);
-        return;
-    }
-    im->pending++;
-    zg_model_download(&im->link, im->cancel_op, on_progress, on_file, im);
-}
-
 /* The next checked file: one at a time, in the order of the list. */
 static void next_file(Import *im) {
     size_t n = zs_import_count(im->list);
@@ -408,37 +249,21 @@ static void next_file(Import *im) {
         set_status(im, text, FALSE);
         g_free(text);
         gtk_progress_bar_set_fraction(GTK_PROGRESS_BAR(im->progress), (im->index - 1) / (double)MAX(im->total, 1));
-        if (im->zip) {
-            gsize len = 0;
-            const uint8_t *zip = g_bytes_get_data(im->zip, &len);
-            uint8_t *out = NULL;
-            size_t out_len = 0;
-            if (zs_import_zip_file(im->list, zip, len, i, &out, &out_len) != ZS_IMPORT_OK) {
-                file_error(im, f.name, zs_import_message(ZS_IMPORT_NOT_ZIP));
-                continue;
-            }
-            if (zs_project_file_is(out, out_len)) {
-                file_error(im, f.name, zs_link_message(ZS_LINK_PROJECT));
-                zs_buffer_free(out, out_len);
-                continue;
-            }
-            add_file(im, f.name, g_bytes_new(out, out_len));
+        gsize len = 0;
+        const uint8_t *zip = g_bytes_get_data(im->zip, &len);
+        uint8_t *out = NULL;
+        size_t out_len = 0;
+        if (zs_import_zip_file(im->list, zip, len, i, &out, &out_len) != ZS_IMPORT_OK) {
+            file_error(im, f.name, zs_import_message(ZS_IMPORT_NOT_ZIP));
+            continue;
+        }
+        if (zs_project_file_is(out, out_len)) {
+            file_error(im, f.name, zs_link_message(ZS_LINK_PROJECT));
             zs_buffer_free(out, out_len);
             continue;
         }
-        size_t len = 0;
-        if (zs_import_link_request(im->list, i, NULL, 0, &len) != ZS_IMPORT_OK) {
-            file_error(im, f.name, zs_import_message(ZS_IMPORT_NO_API));
-            continue;
-        }
-        char *body = g_malloc(len + 1);
-        zs_import_link_request(im->list, i, body, len + 1, NULL);
-        zs_link api;
-        zs_link_check_url(zs_import_api_url(im->page.site), &api);
-        im->pending++;
-        zg_net_request(&api, body, ZS_IMPORT_MAX_ANSWER, im->cancel_op, on_link, im);
-        g_free(body);
-        return;
+        add_file(im, f.name, g_bytes_new(out, out_len));
+        zs_buffer_free(out, out_len);
     }
     load_done(im);
 }
@@ -479,7 +304,7 @@ static void on_find(GtkWidget *w, gpointer data) {
     find_files(im);
 }
 
-/* A new address: the List button comes back. */
+/* A new address: the Continue button comes back. */
 static void on_entry_changed(GtkEditable *e, gpointer data) {
     Import *im = data;
     gtk_widget_set_visible(im->open_page, FALSE);
@@ -544,10 +369,10 @@ static Import *import_new(GtkWindow *parent) {
     g_signal_connect(im->entry, "activate", G_CALLBACK(on_find), im);
     g_signal_connect(im->entry, "changed", G_CALLBACK(on_entry_changed), im);
     gtk_box_append(GTK_BOX(ask), im->entry);
-    im->ask_note = wrap_label("zslice reads the list of files of the model. You choose the files to load next.", "dim-label");
+    im->ask_note = wrap_label("zslice then says how to get all the files of the model as one ZIP file.", "dim-label");
     gtk_box_append(GTK_BOX(ask), im->ask_note);
     GtkWidget *ask_cancel;
-    GtkWidget *ask_bar = button_bar(&ask_cancel, &im->find, "List the files", im, G_CALLBACK(on_find));
+    GtkWidget *ask_bar = button_bar(&ask_cancel, &im->find, "Continue", im, G_CALLBACK(on_find));
     im->open_page = gtk_button_new_with_label("Open the page");
     gtk_widget_add_css_class(im->open_page, "suggested-action");
     gtk_widget_set_visible(im->open_page, FALSE);
@@ -578,7 +403,7 @@ static Import *import_new(GtkWindow *parent) {
     im->status = wrap_label("", NULL);
     im->progress = gtk_progress_bar_new();
     gtk_widget_set_visible(im->progress, FALSE);
-    GtkWidget *bar = button_bar(&im->cancel, &im->load, "Download and load", im, G_CALLBACK(on_load));
+    GtkWidget *bar = button_bar(&im->cancel, &im->load, "Load", im, G_CALLBACK(on_load));
     gtk_box_append(GTK_BOX(list), im->title);
     gtk_box_append(GTK_BOX(list), im->sub);
     gtk_box_append(GTK_BOX(list), im->note);
@@ -608,8 +433,8 @@ void zg_model_import_ask(GtkWindow *window, const char *text) {
     }
     gtk_window_present(GTK_WINDOW(im->win));
     gtk_widget_grab_focus(im->entry);
-    /* For tests: ZSLICE_IMPORT_LIST lists the files of the address at once.
-     * ZSLICE_IMPORT_YES also presses Download and load. */
+    /* For tests: ZSLICE_IMPORT_LIST and ZSLICE_IMPORT_YES press Continue
+     * at once. For a ZIP file, ZSLICE_IMPORT_YES presses Load. */
     if (text && *text && (g_getenv("ZSLICE_IMPORT_YES") || g_getenv("ZSLICE_IMPORT_LIST"))) on_find(im->entry, im);
 }
 

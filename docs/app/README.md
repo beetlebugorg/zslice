@@ -87,7 +87,7 @@ The GTK shell is in `linux/src`. Each `.c` file has a header that explains its i
 | `prefs/` | `printers` | The printers of the user, and the app settings file |
 | `net/` | `printer-link` | HTTP and USB connections to printers |
 | | `discovery` | The search of the network for printers (mDNS), with the packets of the core |
-| | `model-download` | The download of a `zslice://` link, and the requests of an import (`zg_net_request`): the address checks, the redirects, and the size limit |
+| | `model-download` | The download of a `zslice://` link: the address checks, the redirects, and the size limit |
 | | `project-source` | The files of a printdeck.yml project: a folder, or a public GitHub repository |
 | `ui/` | `window` | The main window: the header bar, the file dialogs, the send to a printer, and the status bar |
 | | `preview` | The 2D and 3D preview with the tool strip, the layer slider, the dock under the view (the plates, undo, redo, the history button, and the replay), the place of the print card, the sign of the 2D view, the measure readout, and the keyboard navigation |
@@ -98,7 +98,7 @@ The GTK shell is in `linux/src`. Each `.c` file has a header that explains its i
 | | `bed-model` | The bed model of the current printer in the 3D view: finds the bed folder and reads the files |
 | | `native-surface` | The Wayland subsurface for the 3D view |
 | | `open-link` | A `zslice://` link: the dialog, the download, and the new plate (see [Links that open a model](../internals/open-links.md)) |
-| | `model-import` | An import from a model page or a ZIP file: the address, the list of files with check boxes and previews, the downloads, and the plates (see [Import a model from a model page](../internals/model-import.md)) |
+| | `model-import` | An import from a model page or a ZIP file: the address, the text and the button that open the page, the list of the files of a ZIP file with check boxes, and the plates (see [Import a model from a model page](../internals/model-import.md)) |
 | | `float` | The cards over the view: their places in the overlay of the preview, and the drag of their head |
 | | `search` | The settings search (`/`): a field in the header bar or a card over the view, settings with live controls, and actions |
 | | `line-card` | The card of a selected line: its numbers, and the settings that matter for it |

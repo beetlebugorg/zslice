@@ -33,7 +33,7 @@ zslice has ports of the code of CuraEngine (see [Cura](cura.md)) and boost::poly
 | [Papers and algorithms](papers-and-algorithms.md) | Geometry, sorting, and other general techniques. |
 | [Physics and materials](physics-and-materials.md) | The print simulation, the bond, and the material data. |
 | [Formats and protocols](formats-and-protocols.md) | File formats, network protocols, and printer APIs. |
-| [Printables](printables.md) | The API of the list of files of a model, its terms, and the projects that showed its fields. |
+| [Printables](printables.md) | The form of a model address, the ZIP file of a model, and the terms that keep zslice off the site API. |
 | [Thingiverse](thingiverse.md) | The address of a thing, its ZIP file, and why zslice does not call its API. |
 
 ## The form of an entry
