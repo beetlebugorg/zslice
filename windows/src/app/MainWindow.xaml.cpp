@@ -423,6 +423,7 @@ namespace winrt::ZSlice::implementation
         LineLightAfterSlice();
         RangeScene();
         ProfilesRefresh();
+        ScopeRefresh();
 #ifdef ZS_DEV_HOOKS
         StartDevHooks();
 #endif

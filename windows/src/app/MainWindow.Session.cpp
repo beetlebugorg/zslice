@@ -71,6 +71,37 @@ namespace
         zs_session_snapshot_free(snapshot);
     }
 
+    // The formulas of a plate, as hex: the text of the app has no escapes.
+    std::string FormulasHex(zs_app *app)
+    {
+        size_t len = 0;
+        if (zs_app_formulas_write(app, nullptr, 0, &len) != ZS_OK || len == 0)
+            return {};
+        std::string text(len + 1, '\0');
+        if (zs_app_formulas_write(app, text.data(), text.size(), &len) != ZS_OK)
+            return {};
+        text.resize(len);
+        std::string hex;
+        hex.reserve(2 * len);
+        char const *const digits = "0123456789abcdef";
+        for (unsigned char c : text)
+        {
+            hex += digits[c >> 4];
+            hex += digits[c & 15];
+        }
+        return hex;
+    }
+
+    std::string FromHex(std::string const &hex)
+    {
+        auto digit = [](char c) { return c >= 'a' ? c - 'a' + 10 : c - '0'; };
+        std::string text;
+        text.reserve(hex.size() / 2);
+        for (size_t i = 0; i + 1 < hex.size(); i += 2)
+            text += (char)(digit(hex[i]) * 16 + digit(hex[i + 1]));
+        return text;
+    }
+
     int JsonInt(std::string const &text, char const *key)
     {
         size_t at = text.find(key);
@@ -134,6 +165,11 @@ namespace winrt::ZSlice::implementation
         app_text += ",\"refine\":\"";
         for (size_t i = 0; i < refine_ids.size(); i++)
             app_text += (i > 0 ? "," : "") + refine_ids[i];
+        // The session of the core has no formulas: each plate keeps its own
+        // here.
+        app_text += "\",\"formulas\":\"";
+        for (size_t i = 0, n = zs_set_count(model->Set()); i < n; i++)
+            app_text += (i > 0 ? "," : "") + FormulasHex(zs_set_app(model->Set(), i));
         app_text += "\"" + ProjectSessionText() + "}";
         zs_session_snapshot *snapshot = nullptr;
         if (zs_session_snapshot_take(model->Set(), has_camera ? camera : nullptr, app_text.c_str(), &snapshot) != ZS_OK)
@@ -195,6 +231,25 @@ namespace winrt::ZSlice::implementation
                 {
                     size_t comma = list.find(',', start);
                     refine_ids.push_back(list.substr(start, comma == std::string::npos ? comma : comma - start));
+                    if (comma == std::string::npos)
+                        break;
+                    start = comma + 1;
+                }
+            }
+            char const *const formulas_key = "\"formulas\":\"";
+            at = text.find(formulas_key);
+            if (at != std::string::npos)
+            {
+                at += strlen(formulas_key);
+                std::string list = text.substr(at, text.find('"', at) - at);
+                size_t plate = 0;
+                for (size_t start = 0; start <= list.size(); plate++)
+                {
+                    size_t comma = list.find(',', start);
+                    std::string saved = FromHex(list.substr(start, comma == std::string::npos ? comma : comma - start));
+                    zs_app *app = plate < zs_set_count(model->Set()) ? zs_set_app(model->Set(), plate) : nullptr;
+                    if (app != nullptr && !saved.empty())
+                        zs_app_formulas_read(app, saved.data(), saved.size());
                     if (comma == std::string::npos)
                         break;
                     start = comma + 1;

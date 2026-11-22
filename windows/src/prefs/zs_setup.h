@@ -40,8 +40,13 @@ namespace zs
 
         // Loads the printers and the saved settings into the active plate.
         void Start();
-        // Writes each group that changed since the last write.
+        // Writes each group that changed since the last write, and the
+        // formulas.
         void SaveState();
+        // Writes global.toml: the global settings of the active plate.
+        void SaveGlobal();
+        // The global settings as a profile text, for the other plates.
+        std::string const &GlobalText() const { return global_text_; }
 
         // The plates of a printdeck.yml project have the machine of their
         // Cura stack. While this is on, SaveState writes no machine profile
@@ -99,6 +104,8 @@ namespace zs
         // A pick of a printer then keeps the guard of SaveState.
         bool KeepProject() const;
         std::string GroupText(int group) const;
+        std::string FormulasText() const;
+        std::string GlobalWritten() const;
         bool ApplyText(int group, std::string const &text, std::string &message);
         // True if the text loaded and has settings that moved to another
         // group (zs_profile_moved).
@@ -108,6 +115,7 @@ namespace zs
 
         Model &model_;
         std::string written_[3];
+        std::string global_text_, formulas_;
         // The profile in use, and the text right after it loaded.
         std::string profile_[3];
         std::string loaded_[3];

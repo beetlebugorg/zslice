@@ -123,10 +123,20 @@
                         <RowDefinition Height="Auto" />
                         <RowDefinition Height="Auto" />
                         <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
                         <RowDefinition Height="*" />
                     </Grid.RowDefinitions>
+                    <Grid Grid.Row="1" ColumnSpacing="8">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="Settings for" VerticalAlignment="Center" Foreground="{ThemeResource ZsDim}" />
+                        <ComboBox x:Name="SettingsScope" Grid.Column="1" HorizontalAlignment="Stretch" AutomationProperties.Name="Settings for"
+                                  ToolTipService.ToolTip="What a change here is for: this print (all parts on the plate), your global settings (all prints, under the quality profile), or one part (the values of the print, and its own changes on top)." />
+                    </Grid>
                     <TextBox x:Name="SettingsSearch" AutomationProperties.Name="Search the settings" Grid.Row="0" PlaceholderText="Search the settings" />
-                    <StackPanel Grid.Row="1" Orientation="Horizontal" Spacing="6">
+                    <StackPanel Grid.Row="2" Orientation="Horizontal" Spacing="6">
                         <Button x:Name="SettingsBack" AutomationProperties.Name="Back" Background="Transparent" BorderThickness="0"
                                 Visibility="Collapsed" ToolTipService.ToolTip="Back">
                             <FontIcon Glyph="&#xE72B;" FontSize="12" />
@@ -134,7 +144,7 @@
                         <TextBlock x:Name="SettingsCrumb" VerticalAlignment="Center" FontWeight="SemiBold" />
                     </StackPanel>
                     <!-- The bar of the layer profile in edit. -->
-                    <Border x:Name="ProfileBar" Grid.Row="2" Visibility="Collapsed" Padding="10,8" CornerRadius="8" BorderThickness="1"
+                    <Border x:Name="ProfileBar" Grid.Row="3" Visibility="Collapsed" Padding="10,8" CornerRadius="8" BorderThickness="1"
                             Background="{ThemeResource ZsFloat}" BorderBrush="{ThemeResource ZsLine}">
                         <Grid ColumnSpacing="4">
                             <Grid.ColumnDefinitions>
@@ -164,7 +174,7 @@
                                     ToolTipService.ToolTip="Stop the edit of this profile. Changes then go to all prints again." />
                         </Grid>
                     </Border>
-                    <ScrollViewer x:Name="SettingsScroll" Grid.Row="3" HorizontalScrollBarVisibility="Disabled">
+                    <ScrollViewer x:Name="SettingsScroll" Grid.Row="4" HorizontalScrollBarVisibility="Disabled">
                         <StackPanel x:Name="SettingsList" Spacing="2" Padding="0,0,14,0" />
                     </ScrollViewer>
                 </Grid>

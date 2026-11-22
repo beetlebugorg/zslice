@@ -83,6 +83,40 @@ namespace zs
         return text;
     }
 
+    std::string PrinterSetup::FormulasText() const
+    {
+        size_t len = 0;
+        zs_app *app = model_.Active();
+        if (zs_app_formulas_write(app, nullptr, 0, &len) != ZS_OK)
+            return {};
+        std::string text(len + 1, '\0');
+        if (zs_app_formulas_write(app, text.data(), text.size(), &len) != ZS_OK)
+            return {};
+        text.resize(len);
+        return text;
+    }
+
+    std::string PrinterSetup::GlobalWritten() const
+    {
+        size_t len = 0;
+        zs_app *app = model_.Active();
+        if (zs_app_global_write(app, nullptr, 0, &len) != ZS_OK)
+            return {};
+        std::string text(len + 1, '\0');
+        if (zs_app_global_write(app, text.data(), text.size(), &len) != ZS_OK)
+            return {};
+        text.resize(len);
+        return text;
+    }
+
+    void PrinterSetup::SaveGlobal()
+    {
+        std::string text = GlobalWritten();
+        global_text_ = text;
+        if (!state::WriteBytes(state::PathOf(L"global.toml"), text))
+            Log("shell: the global settings were not saved\n");
+    }
+
     std::wstring PrinterSetup::StatePath(int group)
     {
         if (group == ZS_GROUP_MACHINE)
@@ -127,6 +161,27 @@ namespace zs
             if (zs_app_quality_set(model_.Active(), quality.c_str(), text.data(), text.size(), true, message, sizeof message) != ZS_OK)
                 Log("shell: the quality profile %s was not loaded (%s)\n", quality.c_str(), message);
         }
+        // The global settings of the user, under the quality.
+        bool global_moved = false;
+        {
+            std::string text;
+            if (state::ReadBytes(state::PathOf(L"global.toml"), text))
+            {
+                global_moved = zs_profile_moved(ZS_GROUP_PROJECT, text.data(), text.size()) > 0;
+                moved = moved || global_moved;
+                char message[256] = "";
+                if (zs_app_global_set(model_.Active(), text.data(), text.size(), message, sizeof message) != ZS_OK)
+                    Log("shell: the global settings were not loaded (%s)\n", message);
+            }
+            global_text_ = GlobalWritten();
+        }
+        // The formulas of the settings, on top.
+        {
+            std::string text;
+            if (state::ReadBytes(state::PathOf(L"formulas.txt"), text))
+                zs_app_formulas_read(model_.Active(), text.data(), text.size());
+            formulas_ = FormulasText();
+        }
         for (int g = 0; g < 3; g++)
         {
             written_[g] = GroupText(g);
@@ -143,6 +198,8 @@ namespace zs
             written_[ZS_GROUP_MACHINE].clear();
             written_[ZS_GROUP_PROJECT].clear();
             SaveState();
+            if (global_moved)
+                SaveGlobal();
         }
     }
 
@@ -165,6 +222,14 @@ namespace zs
                 written_[g] = std::move(text);
             else
                 Log("shell: the settings were not saved\n");
+        }
+        // The formulas of any group. A project plate has its own values, so
+        // the formulas of the user stay.
+        if (!project_)
+        {
+            std::string text = FormulasText();
+            if (text != formulas_ && state::WriteBytes(state::PathOf(L"formulas.txt"), text))
+                formulas_ = std::move(text);
         }
     }
 
