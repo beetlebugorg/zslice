@@ -79,7 +79,7 @@ import { attachViewInput } from "./input.js";
 import { FarmPage } from "./farm.js";
 import { Tools } from "./tools.js";
 import { SupportTool } from "./support.js";
-import { KINDS, send as sendToPrinter, test as testPrinter, requestKey, trustText, status as printerStatus, camera as printerCamera, detectKind, deckPrinters, deckAddress, plainName, loadedFilaments, webAddress, nozzleOfCode } from "./link.js";
+import { KINDS, send as sendToPrinter, test as testPrinter, requestKey, trustText, status as printerStatus, camera as printerCamera, detectKind, deckPrinters, deckAddress, deckRoot, plainName, loadedFilaments, webAddress, nozzleOfCode } from "./link.js";
 import { CameraView } from "./camera.js";
 import { signGcode, keyId as signingKeyId, supported as canSign, UNSUPPORTED as NO_SIGNATURES } from "./signing.js";
 import { contextItems } from "./context-menu.js";
@@ -1275,8 +1275,11 @@ function pairPrinter(name, fresh = false) {
               }
               store.printers[label] = {
                 profile: had?.profile ?? m?.profile ?? (fresh ? "" : p.profile ?? ""),
-                url: q.url ? deckAddress(base, q.url) : base, kind: "printdeck", apiKey: r.key,
-                https: httpsBase ? (q.url ? deckAddress(httpsBase, q.url) : httpsBase) : "", color: q.color || "", label: q.label || "",
+                // The printer at the deck's own address (url "") is at the
+                // root of the deck, also when the deck was added at the
+                // address of another of its printers.
+                url: q.url ? deckAddress(base, q.url) : deckRoot(base), kind: "printdeck", apiKey: r.key,
+                https: httpsBase ? (q.url ? deckAddress(httpsBase, q.url) : deckRoot(httpsBase)) : "", color: q.color || "", label: q.label || "",
                 // The name of the printer on the deck: a send checks it.
                 deckName: q.name,
                 files: q.files || "", model: q.model || "",
@@ -4670,6 +4673,49 @@ async function hostPrinter() {
   }
 }
 await hostPrinter();
+
+// Puts each saved printer of a deck on its own address. An older pairing
+// at the address of one printer of the deck gave the printer at the root
+// of the deck (url "") that same address, so two entries showed one
+// printer (issue #24). The deck lists its printers: each saved printer
+// with a deckName takes the path of the printer of that name. In the
+// background, with no wait for the start.
+async function repairDeckPrinters() {
+  const decks = new Map();
+  for (const [name, pr] of Object.entries(store.printers ?? {})) {
+    if (pr?.kind !== "printdeck" || !pr.deckName || !pr.url) continue;
+    const root = deckRoot(pr.url).replace(/\/$/, "");
+    if (!decks.has(root)) decks.set(root, []);
+    decks.get(root).push([name, pr]);
+  }
+  let changed = false;
+  for (const [root, list] of decks) {
+    if (list.length < 2) continue;
+    const [, any] = list[0];
+    const dp = await deckPrinters({ ...any, name: list[0][0] }).catch(() => null);
+    if (!dp?.ok) continue;
+    const hroot = (dp.https || deckRoot(any.https || "") || "").replace(/\/$/, "");
+    for (const [, pr] of list) {
+      const q = dp.printers.find((x) => x?.name === pr.deckName);
+      if (!q) continue;
+      const url = q.url ? deckAddress(root, q.url) : root + "/";
+      const https = hroot ? (q.url ? deckAddress(hroot, q.url) : hroot + "/") : pr.https || "";
+      if (url && url.replace(/\/$/, "") !== pr.url.replace(/\/$/, "")) {
+        pr.url = url;
+        changed = true;
+      }
+      if (https && https.replace(/\/$/, "") !== (pr.https || "").replace(/\/$/, "")) {
+        pr.https = https;
+        changed = true;
+      }
+    }
+  }
+  if (changed) {
+    saveStore();
+    toast("The printers of a deck pointed at one printer. Each one has its own address again.", 8000);
+  }
+}
+repairDeckPrinters();
 
 const init = await client.call("init", { module, saved: store.saved ?? null, mode: app.mode });
 if (init.errors?.length) toast(`Some saved settings did not load: ${init.errors.join("; ")}`);
