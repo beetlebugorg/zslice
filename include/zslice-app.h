@@ -1329,6 +1329,12 @@ size_t zs_app_ams_mapping(const zs_app *app, int32_t *out, size_t cap);
  * the changes to each), the number of filament changes, and the grams of
  * all flushes. Each pointer can be NULL. */
 int zs_app_filament_stats(const zs_app *app, double *grams, size_t cap, uint32_t *changes, double *flush_g);
+/* The waste of the last slice: the grams of the flushes out of the print
+ * (the chute of a Bambu Lab printer), the grams of the prime towers (all
+ * their lines, with the purge in them), the grams of the whole print with
+ * the waste, and the seconds of the filament changes. Each pointer can be
+ * NULL. */
+int zs_app_waste(const zs_app *app, double *chute_g, double *tower_g, double *total_g, double *change_s);
 /* Moves a part (the center of its footprint) to (x, y) on the bed. */
 int zs_app_part_move(zs_app *app, size_t i, double x, double y);
 /* Sets the turn of a part, in degrees, around the center of its footprint. */

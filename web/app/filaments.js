@@ -190,7 +190,8 @@ export class FilamentList {
     if (st && st.changes > 0) {
       const ch = document.createElement("span");
       ch.className = "dim";
-      ch.textContent = ` · ${st.changes} ${st.changes === 1 ? "change" : "changes"}${st.flushG > 0.05 ? ` · flush ${st.flushG.toFixed(1)} g` : ""}`;
+      ch.textContent = ` · ${wasteText(st)}`;
+      ch.title = wasteTip(st);
       head.append(ch);
     }
     rows.push(head);
@@ -262,4 +263,25 @@ export class FilamentList {
     }
     this.node.replaceChildren(...rows);
   }
+}
+
+// The changes and the waste of a slice, in one line: "3 changes, about
+// 2 min · waste 10.3 g (12 %)". The waste is the flushes out of the print
+// and all lines of the prime towers.
+export function wasteText(st) {
+  const words = `${st.changes} ${st.changes === 1 ? "change" : "changes"}`;
+  const time = st.changeS >= 60 ? `, about ${Math.round(st.changeS / 60)} min` : st.changeS > 0 ? `, about ${Math.round(st.changeS)} s` : "";
+  const waste = st.chuteG + st.towerG;
+  if (waste < 0.05) return words + time;
+  const part = st.totalG > 0 ? ` (${Math.round((100 * waste) / st.totalG)} %)` : "";
+  return `${words}${time} · waste ${waste.toFixed(1)} g${part}`;
+}
+
+// The parts of the waste, for the tooltip.
+export function wasteTip(st) {
+  const lines = [];
+  if (st.chuteG > 0.05) lines.push(`Flush out of the print: ${st.chuteG.toFixed(1)} g`);
+  if (st.towerG > 0.05) lines.push(`Prime tower: ${st.towerG.toFixed(1)} g`);
+  if (st.changeS > 0) lines.push(`Filament changes: ${Math.round(st.changeS)} s`);
+  return lines.join("\n");
 }

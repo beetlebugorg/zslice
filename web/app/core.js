@@ -1357,7 +1357,7 @@ export class Core {
   }
 
   // The filament of the last slice: { grams: [g of each filament],
-  // changes, flushG }, or null.
+  // changes, flushG, chuteG, towerG, totalG, changeS }, or null.
   filamentStats() {
     const w = this.w;
     const n = w.x.zs_app_filament_count(this.app);
@@ -1366,7 +1366,14 @@ export class Core {
     if (w.x.zs_app_filament_stats(this.app, c, 16, c + 128, c + 136) !== 0) return null;
     const grams = [];
     for (let i = 0; i < Math.min(n, 16); i++) grams.push(w.f64(c + 8 * i));
-    return { grams, changes: w.u32(c + 128), flushG: w.f64(c + 136) };
+    const out = { grams, changes: w.u32(c + 128), flushG: w.f64(c + 136), chuteG: 0, towerG: 0, totalG: 0, changeS: 0 };
+    if (w.x.zs_app_waste(this.app, c, c + 8, c + 16, c + 24) === 0) {
+      out.chuteG = w.f64(c);
+      out.towerG = w.f64(c + 8);
+      out.totalG = w.f64(c + 16);
+      out.changeS = w.f64(c + 24);
+    }
+    return out;
   }
 
   // The value of a setting of part i, or null (the value of the plate).

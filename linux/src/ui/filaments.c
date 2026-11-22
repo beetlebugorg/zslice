@@ -487,11 +487,27 @@ static void update_list(Button *b) {
 
     GString *head = g_string_new(n > 1 ? NULL : "Filament");
     if (n > 1) g_string_append_printf(head, "%zu filaments", n);
+    GString *tip = g_string_new(NULL);
     if (n_grams && changes > 0) {
+        /* The changes and the waste: the flushes out of the print and all
+         * lines of the prime towers (zs_app_waste). */
+        double chute = 0, tower = 0, total = 0, change_s = 0;
+        zs_app_waste(core, &chute, &tower, &total, &change_s);
         g_string_append_printf(head, " · %u %s", changes, changes == 1 ? "change" : "changes");
-        if (flush > 0.05) g_string_append_printf(head, " · flush %.1f g", flush);
+        if (change_s >= 60) g_string_append_printf(head, ", about %.0f min", change_s / 60);
+        else if (change_s > 0) g_string_append_printf(head, ", about %.0f s", change_s);
+        double waste = chute + tower;
+        if (waste >= 0.05) {
+            g_string_append_printf(head, " · waste %.1f g", waste);
+            if (total > 0) g_string_append_printf(head, " (%.0f %%)", 100 * waste / total);
+        }
+        if (chute >= 0.05) g_string_append_printf(tip, "Flush out of the print: %.1f g\n", chute);
+        if (tower >= 0.05) g_string_append_printf(tip, "Prime tower: %.1f g\n", tower);
+        if (change_s > 0) g_string_append_printf(tip, "Filament changes: %.0f s", change_s);
     }
     gtk_label_set_text(GTK_LABEL(b->head), head->str);
+    gtk_widget_set_tooltip_text(b->head, tip->len ? tip->str : NULL);
+    g_string_free(tip, TRUE);
     g_string_free(head, TRUE);
     gtk_widget_set_visible(b->add, n < MAX_FILAMENTS);
 

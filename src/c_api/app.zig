@@ -2655,6 +2655,22 @@ export fn zs_app_filament_stats(a: ?*const App, grams: ?[*]f64, cap: usize, chan
     return ok;
 }
 
+/// The waste of the last slice: `chute_g` the flushes that went out of
+/// the print (the chute of a Bambu Lab printer), `tower_g` all lines of
+/// the prime towers (their walls, grid, brim, and the purge in them),
+/// `total_g` all filament of the print with the waste, and `change_s` the
+/// time of the filament changes. Each pointer can be NULL.
+export fn zs_app_waste(a: ?*const App, chute_g: ?*f64, tower_g: ?*f64, total_g: ?*f64, change_s: ?*f64) c_int {
+    const app = a orelse return @intFromEnum(Status.invalid_argument);
+    const st = app.result() orelse return @intFromEnum(Status.no_result);
+    const g_per_mm = if (st.filament_mm > 0) st.filament_g / st.filament_mm else 0;
+    if (chute_g) |p| p.* = st.chute_mm * g_per_mm;
+    if (tower_g) |p| p.* = st.tower_mm * g_per_mm;
+    if (total_g) |p| p.* = st.filament_g;
+    if (change_s) |p| p.* = st.change_s;
+    return ok;
+}
+
 /// The settings of part i and of its modifier volumes, as text (see
 /// App.partSettingsText). The same buffer rules as zs_app_setting_get.
 /// Sets a zslice setting of part i (value NULL: the part has the value of

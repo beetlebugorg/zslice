@@ -3974,3 +3974,31 @@ test "tool changer: the XL and INDX models print two filaments with tool changes
         try testing.expect(std.mem.indexOf(u8, g, "; filament change") != null);
     }
 }
+
+test "plate job: the waste of a print with a tower: the tower lines and the change time" {
+    const gpa = testing.allocator;
+    var b: mesh_mod.Builder = .init(gpa);
+    try mesh_mod.shapes.addBox(&b, 0, 0, 0, 40, 20, 3);
+    var m = try b.finish();
+    defer m.deinit(gpa);
+    var s: Settings = .{};
+    s.engine.threads = 2;
+    s.machine.filament_change = .tool;
+    s.project.flush_into_hidden = false;
+    var red = s.filament;
+    red.color = "#e03030";
+    const ov = [_]settings_mod.Override{.{ .z_min = 2, .z_max = 10, .name = "project.filament", .value = "2" }};
+    const parts = [_]PartInput{.{ .mesh = &m, .part = 0 }};
+    var pj = try PlateJob.init(gpa, s, &parts, .{ .filaments = &.{red}, .overrides = &ov });
+    defer pj.deinit();
+    var out: Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    const st = try pj.writeGcode(&out.writer);
+    try testing.expectEqual(@as(u32, 1), st.changes);
+    // A tool change with no change G-code flushes into the tower: no
+    // chute, and the tower lines hold the flush.
+    try testing.expectEqual(@as(f64, 0), st.chute_mm);
+    try testing.expect(st.tower_mm >= st.flush_mm - 1e-6);
+    try testing.expect(st.tower_mm < st.filament_mm);
+    try testing.expectApproxEqAbs(s.machine.change_time, st.change_s, 1e-9);
+}

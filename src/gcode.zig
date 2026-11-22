@@ -136,6 +136,14 @@ pub const Stats = struct {
     /// lines after the changes (see `Emitter.hiddenRun`). The lines count
     /// in `filament_mm`, and this part is not in `flush_mm`.
     flush_hidden_mm: f64 = 0,
+    /// The filament length (mm) of the flushes that went out of the
+    /// print (into the chute of a Bambu Lab printer): waste.
+    chute_mm: f64 = 0,
+    /// The filament length (mm) of all lines of the prime towers: their
+    /// walls, grid, brim, and the purge in them. Waste too.
+    tower_mm: f64 = 0,
+    /// The time (s) of the filament changes (`Machine.change_time` each).
+    change_s: f64 = 0,
 };
 
 /// A part of the print for the object labels of the firmware (see
@@ -2045,12 +2053,14 @@ pub const Emitter = struct {
             try self.w.writeAll("\n");
         }
         try self.addTime(m.change_time);
+        self.stats.change_s += m.change_time;
         self.stop = true;
         self.stats.flush_mm += flush_mm;
         // With a tower and no change G-code, the flush goes into the tower
         // (its lines count the filament); else into the chute.
         const into_tower = self.towers.n > 0 and m.filament_change == .tool and m.change_gcode.len == 0;
         if (!into_tower) {
+            self.stats.chute_mm += flush_mm;
             self.stats.filament_mm += flush_mm;
             self.stats.slot_mm[next] += flush_mm;
         }
@@ -2420,7 +2430,10 @@ pub const Emitter = struct {
         const e = flow.beadArea(self.layer_w, h) / self.r.filament_area;
         const speed = self.lr.nozzleSpeed(self.lr.speed(.skirt, self.layer_w, h, t_first), self.nozzleNow());
         for (pts[1..], 1..) |q, j| {
-            if (j == jump) try self.move(q[0], q[1]) else try self.extrude(q[0], q[1], e, speed);
+            if (j == jump) try self.move(q[0], q[1]) else {
+                self.stats.tower_mm += geom.hypot(q[0] - pts[j - 1][0], q[1] - pts[j - 1][1]) * e;
+                try self.extrude(q[0], q[1], e, speed);
+            }
         }
         self.extruded = true;
         if (down > 1e-6) {
