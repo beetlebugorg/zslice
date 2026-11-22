@@ -133,11 +133,21 @@ pub const FillRule = enum {
 /// counterclockwise outer boundaries and clockwise holes. The caller owns
 /// the result.
 pub fn boolean(gpa: Allocator, subject: Paths, clip: Paths, op: Op, rule: FillRule) Allocator.Error!Paths {
+    return booleanWith(gpa, subject, clip, op, rule, true);
+}
+
+/// `boolean`. With `simple` false, the arrangement makes each result (for
+/// the tests that compare it with `Simple`).
+fn booleanWith(gpa: Allocator, subject: Paths, clip: Paths, op: Op, rule: FillRule, simple: bool) Allocator.Error!Paths {
     // All temporary memory comes from one arena and is freed in one step.
     var arena_state = scratch.get(gpa);
     defer arena_state.release();
     const arena = arena_state.allocator();
-    const merged = try arrange(arena, subject, clip);
+    const start = try begin(arena, subject, clip) orelse return .empty;
+    if (simple and start.splits.len == 0) {
+        if (try Simple.of(arena, subject, clip)) |s| return s.result(gpa, arena, op, rule, false);
+    }
+    const merged = try finish(arena, start);
     return extract(gpa, arena, merged, op, rule, false);
 }
 
@@ -148,22 +158,50 @@ pub fn differences(gpa: Allocator, a: Paths, b: Paths) Allocator.Error![2]Paths 
     var arena_state = scratch.get(gpa);
     defer arena_state.release();
     const arena = arena_state.allocator();
-    const merged = try arrange(arena, a, b);
+    const start = try begin(arena, a, b) orelse return .{ .empty, .empty };
+    if (start.splits.len == 0) {
+        if (try Simple.of(arena, a, b)) |s| {
+            var ab = try s.result(gpa, arena, .difference, .non_zero, false);
+            errdefer ab.deinit(gpa);
+            const ba = try s.result(gpa, arena, .difference, .non_zero, true);
+            return .{ ab, ba };
+        }
+    }
+    const merged = try finish(arena, start);
     var ab = try extract(gpa, arena, merged, .difference, .non_zero, false);
     errdefer ab.deinit(gpa);
     const ba = try extract(gpa, arena, merged, .difference, .non_zero, true);
     return .{ ab, ba };
 }
 
-/// Steps 1 to 4: the edges of the arrangement, with the winding numbers on
-/// each side.
-fn arrange(arena: Allocator, subject: Paths, clip: Paths) Allocator.Error![]Merged {
-    // Step 1: collect the edges.
+/// Step 1 and the first search of step 2 (see `finish`).
+const Start = struct {
+    edges: []InEdge,
+    narrow: bool,
+    /// The split points of the first pass.
+    splits: []Split,
+};
+
+/// Step 1: collect the edges. Then the search of the first pass of step 2.
+/// Null if there are no edges.
+fn begin(arena: Allocator, subject: Paths, clip: Paths) Allocator.Error!?Start {
     var edges: std.ArrayList(InEdge) = .empty;
     try addEdges(arena, &edges, subject, 0);
     try addEdges(arena, &edges, clip, 1);
-    if (edges.items.len == 0) return &.{};
+    if (edges.items.len == 0) return null;
+    const narrow = isNarrow(subject) and isNarrow(clip);
+    var splits: std.ArrayList(Split) = .empty;
+    if (narrow) {
+        try findIntersections(true, arena, edges.items, &splits, false);
+    } else {
+        try findIntersections(false, arena, edges.items, &splits, false);
+    }
+    return .{ .edges = edges.items, .narrow = narrow, .splits = splits.items };
+}
 
+/// Steps 2 to 4 after `begin`: the edges of the arrangement, with the
+/// winding numbers on each side.
+fn finish(arena: Allocator, start: Start) Allocator.Error![]Merged {
     // Steps 2 and 3: split the edges and merge equal edges. A split point
     // is rounded to the grid, and the rounded point can make a new crossing.
     // So the code repeats the steps on the result until a pass finds no
@@ -176,14 +214,182 @@ fn arrange(arena: Allocator, subject: Paths, clip: Paths) Allocator.Error![]Merg
     // wrong, and the result can lose a large area. Then the code starts
     // again with snap rounding (see `splitsAt`). Snap rounding adds points
     // to edges near other points, so the code uses it only in this case.
-    const narrow = isNarrow(subject) and isNarrow(clip);
-    var merged = try splitPasses(narrow, arena, edges.items, false);
-    if (merged.crossed) merged = try splitPasses(narrow, arena, edges.items, true);
+    const narrow = start.narrow;
+    var merged = try splitPasses(narrow, arena, start.edges, false, start.splits);
+    if (merged.crossed) merged = try splitPasses(narrow, arena, start.edges, true, null);
     if (merged.edges.len == 0) return merged.edges;
 
     // Step 4: winding numbers on each side of each edge.
     if (narrow) try computeWinding(true, arena, merged.edges) else try computeWinding(false, arena, merged.edges);
     return merged.edges;
+}
+
+/// The result of an operation whose first pass finds no split point. Then
+/// no two edges cross or touch, except at the end points that they share.
+/// If also no point is in two loops (or two times in one loop), each loop
+/// is a simple polygon apart from all others, and the steps 3 to 6 are
+/// not necessary:
+///
+/// - The winding number of each operand is the same along each side of a
+///   loop: the sum of the winding numbers of the loops around it, and
+///   plus or minus 1 inside the loop for its own operand. A point of the
+///   loop is inside or outside each other loop (the crossing test with
+///   exact integers).
+/// - So a loop is in the output as a whole, or not at all. Its direction
+///   puts the inside on the left.
+/// - The output of `chainLoops` follows from the edges alone: each loop
+///   from its least point (each point has one edge out), then
+///   `geom.simplifyClosed` and the test of the least area, and the loops
+///   in the order of their least points. `result` does the same.
+///
+/// The result is the same as from the arrangement, point for point.
+const Simple = struct {
+    /// The points of all loops, without repeated points.
+    points: []Point,
+    loops: []Loop,
+
+    const Loop = struct {
+        start: u32,
+        len: u32,
+        operand: u1,
+        /// True if counterclockwise.
+        ccw: bool,
+        /// The winding numbers of the two operands around the loop.
+        around: [2]i32,
+    };
+
+    /// Null if a point is in two loops, a loop has less than 3 points or
+    /// no area, or the tests of the loops against each other need more
+    /// than about 4 tests for each point: then the arrangement gives the
+    /// result.
+    fn of(arena: Allocator, subject: Paths, clip: Paths) Allocator.Error!?Simple {
+        var points: std.ArrayList(Point) = .empty;
+        try points.ensureTotalCapacity(arena, subject.points.items.len + clip.points.items.len);
+        var loops: std.ArrayList(Loop) = .empty;
+        for ([2]Paths{ subject, clip }, 0..) |paths, operand| {
+            for (0..paths.count()) |i| {
+                const poly = paths.get(i);
+                // As `addEdges`: no edges for a path of less than 2 points,
+                // and no edges of length 0.
+                if (poly.len < 2) continue;
+                const start = points.items.len;
+                for (poly) |p| {
+                    if (points.items.len > start and points.items[points.items.len - 1].eql(p)) continue;
+                    points.appendAssumeCapacity(p);
+                }
+                while (points.items.len - start > 1 and points.items[points.items.len - 1].eql(points.items[start])) _ = points.pop();
+                const loop = points.items[start..];
+                if (loop.len < 3) return null;
+                const a2 = geom.area2(loop);
+                if (a2 == 0) return null;
+                try loops.append(arena, .{ .start = @intCast(start), .len = @intCast(loop.len), .operand = @intCast(operand), .ccw = a2 > 0, .around = .{ 0, 0 } });
+            }
+        }
+        const pts = points.items;
+        if (!try allDifferent(arena, pts)) return null;
+
+        // The winding number of each loop at the first point of each other
+        // loop. The boxes skip most pairs.
+        const boxes = try arena.alloc(geom.Box, loops.items.len);
+        for (loops.items, boxes) |l, *b| {
+            b.* = .empty;
+            for (pts[l.start..][0..l.len]) |p| b.extend(p);
+        }
+        var work: usize = 0;
+        for (loops.items, 0..) |*l, i| {
+            const p = pts[l.start];
+            for (loops.items, boxes, 0..) |m, b, k| {
+                if (k == i) continue;
+                if (p.x < b.min.x or p.x > b.max.x or p.y < b.min.y or p.y > b.max.y) continue;
+                work += m.len;
+                if (work > 4 * pts.len + 4096) return null;
+                l.around[m.operand] += windingAt(pts[m.start..][0..m.len], p);
+            }
+        }
+        return .{ .points = pts, .loops = loops.items };
+    }
+
+    /// The loops of the result of the operation, as `extract` makes them.
+    /// With `swap`, the operands change places.
+    fn result(self: Simple, gpa: Allocator, arena: Allocator, op: Op, rule: FillRule, swap: bool) Allocator.Error!Paths {
+        const Kept = struct { first: Point, at: u32, len: u32 };
+        var kept: std.ArrayList(Kept) = .empty;
+        var buf: std.ArrayList(Point) = .empty;
+        for (self.loops) |l| {
+            // The winding numbers on the left and on the right of each
+            // edge, in the direction of the loop.
+            var left = l.around;
+            var right = l.around;
+            if (l.ccw) left[l.operand] += 1 else right[l.operand] -= 1;
+            if (swap) {
+                std.mem.swap(i32, &left[0], &left[1]);
+                std.mem.swap(i32, &right[0], &right[1]);
+            }
+            const in_left = isInside(left, op, rule);
+            if (in_left == isInside(right, op, rule)) continue;
+            const src = self.points[l.start..][0..l.len];
+            const at = buf.items.len;
+            try buf.appendSlice(arena, src);
+            const loop = buf.items[at..];
+            if (!in_left) std.mem.reverse(Point, loop);
+            // As `chainLoops`.
+            const n = geom.simplifyClosed(loop, 0);
+            if (n < 3 or @abs(geom.area2(loop[0..n])) < min_loop_area2) {
+                buf.shrinkRetainingCapacity(at);
+                continue;
+            }
+            buf.shrinkRetainingCapacity(at + n);
+            try kept.append(arena, .{ .first = loop[0], .at = @intCast(at), .len = @intCast(n) });
+        }
+        std.mem.sortUnstable(Kept, kept.items, {}, struct {
+            fn lt(_: void, a: Kept, b: Kept) bool {
+                return a.first.lessThan(b.first);
+            }
+        }.lt);
+        var out: Paths = .empty;
+        errdefer out.deinit(gpa);
+        try out.points.ensureTotalCapacity(gpa, buf.items.len);
+        try out.ends.ensureTotalCapacity(gpa, kept.items.len);
+        for (kept.items) |k| {
+            out.points.appendSliceAssumeCapacity(buf.items[k.at..][0..k.len]);
+            out.ends.appendAssumeCapacity(@intCast(out.points.items.len));
+        }
+        return out;
+    }
+};
+
+/// True if no point is in the list two times. A hash table with open
+/// addressing.
+fn allDifferent(arena: Allocator, pts: []const Point) Allocator.Error!bool {
+    var size: usize = 16;
+    while (size < 2 * pts.len) size *= 2;
+    const slots = try arena.alloc(u32, size);
+    @memset(slots, std.math.maxInt(u32));
+    const mask = size - 1;
+    for (pts, 0..) |p, i| {
+        const h = (@as(u64, @bitCast(p.x)) *% 0x9E3779B97F4A7C15) ^ (@as(u64, @bitCast(p.y)) *% 0xC2B2AE3D27D4EB4F);
+        var at: usize = @intCast((h ^ (h >> 29)) & mask);
+        while (slots[at] != std.math.maxInt(u32)) : (at = (at + 1) & mask) {
+            if (pts[slots[at]].eql(p)) return false;
+        }
+        slots[at] = @intCast(i);
+    }
+    return true;
+}
+
+/// The winding number of the closed loop around p. p is not on the loop.
+fn windingAt(loop: []const Point, p: Point) i32 {
+    var w: i32 = 0;
+    var prev = loop[loop.len - 1];
+    for (loop) |q| {
+        if (prev.y <= p.y) {
+            if (q.y > p.y and cross3(prev, q, p) > 0) w += 1;
+        } else {
+            if (q.y <= p.y and cross3(prev, q, p) < 0) w -= 1;
+        }
+        prev = q;
+    }
+    return w;
 }
 
 /// The result of `splitPasses`.
@@ -200,13 +406,16 @@ const Passes = struct {
 /// tested in the pass before. A crossing point is between the end points
 /// of its edges, so the points of all passes stay in the range of the
 /// input.
-fn splitPasses(narrow: bool, arena: Allocator, edges: []InEdge, snap: bool) Allocator.Error!Passes {
+fn splitPasses(narrow: bool, arena: Allocator, edges: []InEdge, snap: bool, first: ?[]Split) Allocator.Error!Passes {
     var cur: []InEdge = edges;
     var merged: []Merged = &.{};
     var pass: usize = 0;
     while (true) : (pass += 1) {
         var splits: std.ArrayList(Split) = .empty;
-        if (narrow) {
+        if (pass == 0 and first != null) {
+            // The search of the first pass is done (see `begin`).
+            splits = .fromOwnedSlice(first.?);
+        } else if (narrow) {
             try findIntersections(true, arena, cur, &splits, snap and pass == 0);
         } else {
             try findIntersections(false, arena, cur, &splits, snap and pass == 0);
@@ -1731,6 +1940,66 @@ test "many random squares: union area is exact" {
     var d = try difference(gpa, a, r);
     defer d.deinit(gpa);
     try testing.expectApproxEqAbs(@as(f64, 0), d.areaMm2(), 1e-6);
+}
+
+test "without split points, the result of the loops is the result of the arrangement" {
+    // Random loops that do not cross: squares, circles of many points, and
+    // triangles, some inside others, in both directions, and a few that
+    // touch or share points (then the arrangement makes the result).
+    const gpa = testing.allocator;
+    var prng = std.Random.DefaultPrng.init(7);
+    const rand = prng.random();
+    var simple_calls: usize = 0;
+    for (0..300) |round| {
+        var ops: [2]Paths = .{ .empty, .empty };
+        defer for (&ops) |*o| o.deinit(gpa);
+        for (&ops) |*o| {
+            const count = rand.intRangeAtMost(usize, 0, 6);
+            for (0..count) |_| {
+                const cx = rand.intRangeAtMost(i64, -20_000, 20_000);
+                const cy = rand.intRangeAtMost(i64, -20_000, 20_000);
+                const r = rand.intRangeAtMost(i64, 5, 9_000);
+                const n = switch (rand.intRangeAtMost(u8, 0, 2)) {
+                    0 => @as(usize, 3),
+                    1 => 4,
+                    else => rand.intRangeAtMost(usize, 5, 80),
+                };
+                const turn = rand.float(f64);
+                for (0..n) |k| {
+                    const t = 2 * std.math.pi * (@as(f64, @floatFromInt(k)) + turn) / @as(f64, @floatFromInt(n));
+                    try o.appendPoint(gpa, .{ .x = cx + @as(i64, @intFromFloat(@round(@as(f64, @floatFromInt(r)) * @cos(t)))), .y = cy + @as(i64, @intFromFloat(@round(@as(f64, @floatFromInt(r)) * @sin(t)))) });
+                }
+                // Some loops clockwise, and some points two times.
+                const pts = o.points.items[o.points.items.len - n ..];
+                if (rand.boolean()) std.mem.reverse(Point, pts);
+                if (round % 7 == 0) try o.appendPoint(gpa, pts[0]);
+                try o.endPath(gpa, 1);
+            }
+        }
+        for ([_]Op{ .union_, .intersection, .difference, .xor }) |op| for ([_]FillRule{ .non_zero, .positive, .even_odd }) |rule| {
+            var want = try booleanWith(gpa, ops[0], ops[1], op, rule, false);
+            defer want.deinit(gpa);
+            var got = try booleanWith(gpa, ops[0], ops[1], op, rule, true);
+            defer got.deinit(gpa);
+            try testing.expectEqualSlices(u32, want.ends.items, got.ends.items);
+            for (want.points.items, got.points.items) |p, q| try testing.expect(p.eql(q));
+        };
+        // The same check for the two differences of one arrangement.
+        var both = try differences(gpa, ops[0], ops[1]);
+        defer for (&both) |*o| o.deinit(gpa);
+        for ([2][2]Paths{ .{ ops[0], ops[1] }, .{ ops[1], ops[0] } }, both) |pair, got| {
+            var want = try booleanWith(gpa, pair[0], pair[1], .difference, .non_zero, false);
+            defer want.deinit(gpa);
+            try testing.expectEqualSlices(u32, want.ends.items, got.ends.items);
+            for (want.points.items, got.points.items) |p, q| try testing.expect(p.eql(q));
+        }
+        var arena_state = std.heap.ArenaAllocator.init(gpa);
+        defer arena_state.deinit();
+        const start = (try begin(arena_state.allocator(), ops[0], ops[1])) orelse continue;
+        if (start.splits.len == 0 and (try Simple.of(arena_state.allocator(), ops[0], ops[1])) != null) simple_calls += 1;
+    }
+    // The test covers the new path.
+    try testing.expect(simple_calls > 30);
 }
 
 fn exactUnionArea(rects: Paths) f64 {
