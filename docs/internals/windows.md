@@ -38,7 +38,7 @@ A build with `-p:ZsDevHooks=true` reads `ZSLICE_DO`: steps with `;` between them
 | `src/app/MainWindow.View.cpp` | The line colors, the print as it forms, the replay, the gaps, the check, and the bed. |
 | `src/app/MainWindow.Filaments.cpp` | The filament button and its list, the round chips, and the filament, label, and paint rows of the part card. |
 | `src/app/MainWindow.Paint.cpp` | The Paint tool and its card. |
-| `src/app/MainWindow.Label.cpp` | The Label tool, its card, and the handle that scales a label. |
+| `src/app/MainWindow.Label.cpp` | The Label tool, its card, the handles on the surface, the smart guides, and SVG pictures. |
 | `src/app/MainWindow.Support.cpp` | The Support tool: the areas, the trees, its card, and the pick of a support line by the Select tool. |
 | `src/app/MainWindow.Session.cpp` | The session: written after a slice and at the close, and put back at the start. |
 | `src/app/MainWindow.Menu.cpp` | The main menu, the sheet of the keys, Licenses, About, and the theme. |
@@ -76,6 +76,8 @@ A build with `-p:ZsDevHooks=true` reads `ZSLICE_DO`: steps with `;` between them
 - A left drag orbits. A right drag orbits with a mouse and pans with a two-finger click on a touchpad. The middle button and Shift pan. The wheel and a pinch zoom.
 - The Paint tool gives the view the mesh of the part (`zs_view_paint_mesh`), and the view draws it in place of the beads. A stroke changes the paint session at once. Its end gives the paint to the part: one step of the history, and a slice. A reload after a slice or an undo compares the text of the paint, so the session follows an undo.
 - The Label tool keeps a copy of the labels of one part. An edit shows at once, and goes to the core 400 ms after the last change or at the end of a drag, so it is one step of the history.
+- The handles of a label are decals of the core view (`zs_view_label_add`) in the plane of the label, with sizes in points of the screen. A zoom of more than 8 % draws them again. A move or a resize calls `zs_label_snap` at each step, with the face of `zs_label_face`. A drag shares the JSON items of the label, so an SVG source is not written to text at each step.
+- "Place an SVG…" uses `IFileOpenDialog`, for the title and the filter name of the GTK dialog. A drop of an `.svg` file goes to the Label tool when the 3D view is the top element at the point of the drop.
 - The state of Paint, Label, and the filaments is in structs inside their `.cpp` files. `MainWindow.xaml.h` has only a pointer to each and the calls that other files need. Their cards are built in code, so `MainWindow.xaml` has only the filament button.
 - The Support tool keeps a copy of the areas and the trees. It reads them again after a load of the view, an undo, and a switch of the plate. During a drag the copy leads, and the slices wait for the release. A drag of a tree sends its edit at most each 60 ms, and slices at most each 150 ms.
 - A change of a plate with a slice gives a draft (`zs_app_set_draft`). `Model::LiveChange` starts a timer of 300 ms, and `Model::Settle` starts the exact slice at its end or at the end of a drag. A draft has no G-code, so the file, the session, the refinements, and a batch wait for the exact slice.

@@ -26,8 +26,12 @@
 // tool: lface dx dz (a click on the
 // front face of part 0), ltext T ('_' is a space), lset i field value,
 // lshape i kind, ladd kind, lremove i, lfilament n, laddfilament, ldepth mm,
-// lturn deg, lwheel n, lswheel n, ldrag dx dy, lsdrag dx dy, lscale k,
-// ldraw i, linfo, lflush, llog.
+// lturn deg, lwheel n, lswheel n, ldrag dx dy, lsdrag dx dy, laltdrag dx dy
+// (with Alt), lhold dx dy (stays pressed), lrelease, lscale k (a corner
+// handle), lsscale kx ky (with Shift), lturnh deg (the turn handle),
+// lsturnh deg (with Shift), lhandleclick, lcursor, lsvg path, ldropsvg path
+// dx dz, ldropsvg path away|card, lmode ink|raised|cut [mm], ldraw i, linfo,
+// lflush, llog.
 // The Support tool adds, in MainWindow.Support.cpp:
 //   orbit dx dy     turns the view
 //   zoom f          zooms toward part 0 (under 1 zooms in)

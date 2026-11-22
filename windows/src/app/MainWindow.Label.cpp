@@ -13,11 +13,19 @@
 // shapes change. A move or a turn changes only its frame, and the core view
 // keeps the fill of an outline that it had (zs_view_label_add).
 //
+// The selected label has handles on the surface: a frame, a square at each
+// corner (a drag resizes it, Shift frees the aspect), and a round handle
+// over it (a drag turns it, Shift gives steps of 15 degrees). They are
+// decals in the plane of the label, with sizes in points of the screen. A
+// move or a resize snaps to the smart guides of the core (zs_label_face,
+// zs_label_snap). Alt moves free. The guides show as thin lines.
+//
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 #include "pch.h"
 #include "MainWindow.xaml.h"
 
+#include <chrono>
 #include <cmath>
 #include <map>
 #include <optional>
@@ -33,7 +41,14 @@ namespace Input = Microsoft::UI::Xaml::Input;
 namespace Primitives = Microsoft::UI::Xaml::Controls::Primitives;
 namespace Formatting = Windows::Globalization::NumberFormatting;
 namespace JsonNs = Windows::Data::Json;
+using Microsoft::UI::Input::InputSystemCursor;
+using Microsoft::UI::Input::InputSystemCursorShape;
 using Windows::System::VirtualKey;
+
+namespace winrt::ZSlice::implementation
+{
+    Media::Brush TokenBrush(FrameworkElement const &element, wchar_t const *key);
+}
 
 namespace
 {
@@ -43,15 +58,46 @@ namespace
     constexpr int commit_ms = 400;
     // The margin around the box of a label that still hits it, mm.
     constexpr double hit_margin = 1.0;
-    // The room for the handle around the box of a label on the screen.
-    constexpr double handle_room = 12.0;
+    // The room around the handles of a label on the screen, points.
+    constexpr double handle_room = 8.0;
+    // The gap between the card and the edges of the free area, points.
+    constexpr double card_margin = 10.0;
+    // The colors of the handles and the guides (as the GTK shell).
+    constexpr uint32_t handle_accent = 0x2980ffu;
+    constexpr uint32_t handle_fill = 0xffffffu;
+    constexpr uint32_t guide_color = 0xf2339au;
+    // The longest SVG file that the tool reads. The core reads 512 KiB.
+    constexpr DWORD svg_file_limit = 1u << 20;
     constexpr double pi = 3.14159265358979323846;
 
     wchar_t const *const card_markup = LR"xaml(
 <Border xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Width="340" Padding="12" Visibility="Collapsed"
-        Background="#FAFFFFFF" BorderBrush="#DDE0E4" BorderThickness="1" CornerRadius="8">
+        Background="{ThemeResource ZsPopover}" BorderBrush="{ThemeResource ZsPopoverBorder}" BorderThickness="1" CornerRadius="8">
+  <!-- A chip that is on has the accent colors of App.xaml, as in the web app. -->
+  <Border.Resources>
+    <ResourceDictionary>
+      <ResourceDictionary.ThemeDictionaries>
+        <ResourceDictionary x:Key="Light">
+          <SolidColorBrush x:Key="ToggleButtonBackgroundChecked" Color="#1C71D8" />
+          <SolidColorBrush x:Key="ToggleButtonBackgroundCheckedPointerOver" Color="#1B66C4" />
+          <SolidColorBrush x:Key="ToggleButtonBackgroundCheckedPressed" Color="#185AAD" />
+          <SolidColorBrush x:Key="ToggleButtonForegroundChecked" Color="#FFFFFF" />
+          <SolidColorBrush x:Key="ToggleButtonForegroundCheckedPointerOver" Color="#FFFFFF" />
+          <SolidColorBrush x:Key="ToggleButtonForegroundCheckedPressed" Color="#FFFFFF" />
+        </ResourceDictionary>
+        <ResourceDictionary x:Key="Dark">
+          <SolidColorBrush x:Key="ToggleButtonBackgroundChecked" Color="#1C5FB0" />
+          <SolidColorBrush x:Key="ToggleButtonBackgroundCheckedPointerOver" Color="#2468BD" />
+          <SolidColorBrush x:Key="ToggleButtonBackgroundCheckedPressed" Color="#18528F" />
+          <SolidColorBrush x:Key="ToggleButtonForegroundChecked" Color="#FFFFFF" />
+          <SolidColorBrush x:Key="ToggleButtonForegroundCheckedPointerOver" Color="#FFFFFF" />
+          <SolidColorBrush x:Key="ToggleButtonForegroundCheckedPressed" Color="#FFFFFF" />
+        </ResourceDictionary>
+      </ResourceDictionary.ThemeDictionaries>
+    </ResourceDictionary>
+  </Border.Resources>
   <StackPanel Spacing="6">
     <Grid x:Name="Head" Background="Transparent" ToolTipService.ToolTip="Drag to move the card">
       <Grid.ColumnDefinitions>
@@ -67,18 +113,22 @@ namespace
     <ScrollViewer x:Name="Scroll" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto" MaxHeight="600">
       <StackPanel Spacing="6" Padding="0,0,12,0">
         <StackPanel x:Name="Notice" Spacing="4" Visibility="Collapsed">
-          <TextBlock x:Name="NoticeText" FontSize="12" Foreground="#B45309" TextWrapping="WrapWholeWords" />
+          <TextBlock x:Name="NoticeText" FontSize="12" Foreground="{ThemeResource ZsWarning}" TextWrapping="WrapWholeWords" />
           <Button x:Name="NoticeAdd" Content="Add a filament"
                   ToolTipService.ToolTip="Add a second filament to the plate, and print the label with it" />
         </StackPanel>
-        <TextBlock x:Name="CurveNote" Visibility="Collapsed" FontSize="12" Foreground="#B45309" TextWrapping="WrapWholeWords" />
+        <TextBlock x:Name="CurveNote" Visibility="Collapsed" FontSize="12" Foreground="{ThemeResource ZsWarning}" TextWrapping="WrapWholeWords" />
         <StackPanel x:Name="Items" Spacing="6" />
-        <DropDownButton x:Name="AddShape" Content="+ Add a shape…"
-                        ToolTipService.ToolTip="Add a shape to this label: it shares the place, the turn, and the filament. Ticks go around the center, under the text.">
-          <DropDownButton.Flyout>
-            <MenuFlyout x:Name="AddShapeMenu" Placement="BottomEdgeAlignedLeft" />
-          </DropDownButton.Flyout>
-        </DropDownButton>
+        <StackPanel Orientation="Horizontal" Spacing="6">
+          <DropDownButton x:Name="AddShape" Content="+ Add a shape…"
+                          ToolTipService.ToolTip="Add a shape to this label: it shares the place, the turn, and the filament. Ticks go around the center, under the text.">
+            <DropDownButton.Flyout>
+              <MenuFlyout x:Name="AddShapeMenu" Placement="BottomEdgeAlignedLeft" />
+            </DropDownButton.Flyout>
+          </DropDownButton>
+          <Button x:Name="PlaceSvg" Content="Place an SVG…"
+                  ToolTipService.ToolTip="Put the filled shapes of an SVG file on the label. You can also drop an SVG file on a part." />
+        </StackPanel>
         <Grid ColumnSpacing="6">
           <Grid.ColumnDefinitions>
             <ColumnDefinition Width="*" />
@@ -89,39 +139,60 @@ namespace
           <NumberBox x:Name="Turn" Grid.Column="1" Minimum="-180" Maximum="180" SmallChange="1" SpinButtonPlacementMode="Compact"
                      AutomationProperties.Name="The turn of the label"
                      ToolTipService.ToolTip="The turn of the label on the face (0: level). The wheel over the label turns it 1° (Shift: 15°)." />
-          <TextBlock Grid.Column="2" Text="°" Foreground="#5B6168" VerticalAlignment="Center" />
+          <TextBlock Grid.Column="2" Text="°" Foreground="{ThemeResource ZsDim}" VerticalAlignment="Center" />
+        </Grid>
+        <Grid ColumnSpacing="6">
+          <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="*" />
+            <ColumnDefinition Width="Auto" />
+          </Grid.ColumnDefinitions>
+          <TextBlock Text="Print" VerticalAlignment="Center" />
+          <StackPanel Grid.Column="1" Orientation="Horizontal">
+            <ToggleButton x:Name="Mode0" Content="Ink" CornerRadius="6,0,0,6" AllowFocusOnInteraction="False"
+                          ToolTipService.ToolTip="Flush with the surface, in the filament of the label" />
+            <ToggleButton x:Name="Mode1" Content="Raised" CornerRadius="0" AllowFocusOnInteraction="False"
+                          ToolTipService.ToolTip="Out of the surface by the relief" />
+            <ToggleButton x:Name="Mode2" Content="Cut in" CornerRadius="0,6,6,0" AllowFocusOnInteraction="False"
+                          ToolTipService.ToolTip="Cut into the surface by the relief" />
+          </StackPanel>
+        </Grid>
+        <Grid x:Name="ReliefRow" ColumnSpacing="6" Visibility="Collapsed">
+          <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="*" />
+            <ColumnDefinition Width="116" />
+            <ColumnDefinition Width="24" />
+          </Grid.ColumnDefinitions>
+          <TextBlock Text="Relief" VerticalAlignment="Center" />
+          <NumberBox x:Name="Relief" Grid.Column="1" Minimum="0.1" Maximum="10" SmallChange="0.1" SpinButtonPlacementMode="Compact"
+                     AutomationProperties.Name="The relief of the label"
+                     ToolTipService.ToolTip="The height of a raised label, or the depth of a cut, mm" />
+          <TextBlock Grid.Column="2" Text="mm" FontSize="12" Foreground="{ThemeResource ZsDim}" VerticalAlignment="Center" />
         </Grid>
         <TextBlock Text="Filament" FontSize="12" FontWeight="SemiBold" />
         <VariableSizedWrapGrid x:Name="Chips" Orientation="Horizontal" ItemWidth="30" ItemHeight="30" MaximumRowsOrColumns="10" />
-        <StackPanel Spacing="4">
-          <Grid ColumnSpacing="6">
-            <Grid.ColumnDefinitions>
-              <ColumnDefinition Width="*" />
-              <ColumnDefinition Width="Auto" />
-              <ColumnDefinition Width="Auto" />
-            </Grid.ColumnDefinitions>
-            <TextBlock Text="Depth" VerticalAlignment="Center" />
-            <ToggleButton x:Name="Depth1" Grid.Column="1" Content="1 line" AllowFocusOnInteraction="False"
+        <Grid ColumnSpacing="6">
+          <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="*" />
+            <ColumnDefinition Width="Auto" />
+            <ColumnDefinition Width="88" />
+            <ColumnDefinition Width="Auto" />
+          </Grid.ColumnDefinitions>
+          <TextBlock Text="Depth" VerticalAlignment="Center" />
+          <StackPanel Grid.Column="1" Orientation="Horizontal">
+            <ToggleButton x:Name="Depth1" Content="1 line" Padding="8,5" CornerRadius="6,0,0,6" AllowFocusOnInteraction="False"
                           ToolTipService.ToolTip="The color is one line deep (the outer wall)" />
-            <ToggleButton x:Name="Depth2" Grid.Column="2" Content="2 lines" AllowFocusOnInteraction="False"
+            <ToggleButton x:Name="Depth2" Content="2 lines" Padding="8,5" CornerRadius="0,6,6,0" AllowFocusOnInteraction="False"
                           ToolTipService.ToolTip="The color is two lines deep: more color for a light filament over a dark part" />
-          </Grid>
-          <Grid ColumnSpacing="6">
-            <Grid.ColumnDefinitions>
-              <ColumnDefinition Width="*" />
-              <ColumnDefinition Width="116" />
-              <ColumnDefinition Width="24" />
-            </Grid.ColumnDefinitions>
-            <NumberBox x:Name="DepthMm" Grid.Column="1" Minimum="0" Maximum="10" SmallChange="0.01" SpinButtonPlacementMode="Compact"
-                       AutomationProperties.Name="The depth of the color"
-                       ToolTipService.ToolTip="The depth of the color from the surface, mm (0: one line)" />
-            <TextBlock Grid.Column="2" Text="mm" FontSize="12" Foreground="#5B6168" VerticalAlignment="Center" />
-          </Grid>
-        </StackPanel>
+          </StackPanel>
+          <NumberBox x:Name="DepthMm" Grid.Column="2" Minimum="0" Maximum="10" SmallChange="0.01" SpinButtonPlacementMode="Compact"
+                     AutomationProperties.Name="The depth of the color"
+                     ToolTipService.ToolTip="The depth of the color from the surface, mm (0: one line)" />
+          <TextBlock Grid.Column="3" Text="mm" FontSize="12" Foreground="{ThemeResource ZsDim}" VerticalAlignment="Center" />
+        </Grid>
         <TextBlock Text="Print" FontSize="12" FontWeight="SemiBold" />
         <StackPanel x:Name="Check" Spacing="4" />
         <StackPanel x:Name="Cost" Spacing="4" />
-        <Button x:Name="Delete" Content="Delete the label" Foreground="#B91C1C" Margin="0,4,0,0"
+        <Button x:Name="Delete" Content="Delete the label" Foreground="{ThemeResource ZsError}" Margin="0,4,0,0"
                 ToolTipService.ToolTip="Remove the label from the part (Delete)" />
       </StackPanel>
     </ScrollViewer>
@@ -131,11 +202,40 @@ namespace
     struct Outline
     {
         std::string key;
+        // The items and the stretch of the key. A drag shares the items, so
+        // an SVG source is not written to text again at each step.
+        JsonNs::JsonArray items{ nullptr };
+        bool has_stretch = false;
+        double stretch[2] = { 1, 1 };
         std::vector<float> pts;
         std::vector<uint32_t> ends;
         size_t n = 0;
         double box[4] = { 0, 0, 0, 0 };
     };
+
+    bool SameShapes(zs::Label const &a, zs::Label const &b)
+    {
+        return a.items == b.items && a.has_stretch == b.has_stretch && (!a.has_stretch || (a.stretch[0] == b.stretch[0] && a.stretch[1] == b.stretch[1]));
+    }
+
+    // The text of an SVG file, in UTF-8 with or without a mark. A file over
+    // the limit gives an empty text, which has no shape.
+    bool ReadSvgFile(std::wstring const &path, std::wstring &out)
+    {
+        out.clear();
+        WIN32_FILE_ATTRIBUTE_DATA info{};
+        if (!::GetFileAttributesExW(path.c_str(), GetFileExInfoStandard, &info))
+            return false;
+        if (info.nFileSizeHigh != 0 || info.nFileSizeLow > svg_file_limit)
+            return true;
+        std::string bytes;
+        if (!zs::Model::ReadFile(path, bytes))
+            return false;
+        if (bytes.rfind("\xEF\xBB\xBF", 0) == 0)
+            bytes.erase(0, 3);
+        out = zs::ToWide(bytes);
+        return true;
+    }
 
     // The outline of the shapes of a JSON (zs_label_outline).
     std::optional<Outline> OutlineOfJson(std::string const &key)
@@ -185,14 +285,14 @@ namespace
         return std::wstring(o.GetNamedString(key));
     }
 
-    TextBlock SmallText(std::wstring const &text, bool dim)
+    TextBlock SmallText(FrameworkElement const &theme, std::wstring const &text, bool dim)
     {
         TextBlock t;
         t.Text(text);
         t.FontSize(12);
         t.TextWrapping(TextWrapping::WrapWholeWords);
         if (dim)
-            t.Foreground(Media::SolidColorBrush(Windows::UI::Color{ 255, 0x5b, 0x61, 0x68 }));
+            t.Foreground(winrt::ZSlice::implementation::TokenBrush(theme, L"ZsDim"));
         return t;
     }
 
@@ -210,16 +310,16 @@ namespace
         return g;
     }
 
-    void Fact(Grid const &g, std::wstring const &name, std::wstring const &value, bool warn)
+    void Fact(FrameworkElement const &theme, Grid const &g, std::wstring const &name, std::wstring const &value, bool warn)
     {
         int row = (int)g.RowDefinitions().Size();
         RowDefinition def;
         def.Height(GridLengthHelper::Auto());
         g.RowDefinitions().Append(def);
-        TextBlock k = SmallText(name, true);
-        TextBlock v = SmallText(value, false);
+        TextBlock k = SmallText(theme, name, true);
+        TextBlock v = SmallText(theme, value, false);
         if (warn)
-            v.Foreground(Media::SolidColorBrush(Windows::UI::Color{ 255, 0xb4, 0x53, 0x09 }));
+            v.Foreground(winrt::ZSlice::implementation::TokenBrush(theme, L"ZsWarning"));
         Grid::SetRow(k, row);
         Grid::SetRow(v, row);
         Grid::SetColumn(v, 1);
@@ -296,28 +396,45 @@ namespace winrt::ZSlice::implementation
         uint32_t drag_id = 0;
         double drag_dx = 0, drag_dy = 0, press_x = 0, press_y = 0;
         std::optional<zs::Label> drag_start;
-        // A drag of the handle.
-        bool scaling = false;
-        std::optional<zs::Label> scale_start;
-        double scale_c[2] = {}, scale_d0 = 0;
+        // What the drag does. A resize: the corner, the box at the press,
+        // and the offset from the pointer to the corner. A turn: the center
+        // of the label on the screen and in its plane, the angle of the
+        // press, the way the label turns on the screen, and its angle.
+        enum DragMode { drag_move, drag_resize, drag_turn };
+        int drag_mode = drag_move;
+        int corner[2] = { 1, 1 };
+        double box0[4] = {}, grab[2] = {};
+        double turn_c[2] = {}, turn_center[2] = {}, turn_a0 = 0, turn_sign = 1, turn_base = 0;
+        // The guide lines of the snap (s0, t0, s1, t1 each), the features of
+        // the face and the plane they are of, and the mm in one point of the
+        // handles that show.
+        std::vector<double> guides;
+        std::string face_json;
+        int64_t face_index = -1;
+        std::chrono::steady_clock::time_point face_time{};
+        double face_origin[3] = {}, face_normal[3] = {};
+        double handle_mpp = 0;
+        bool picking = false;
         // A free line that draws: its item and its points.
         int drawing = -1;
         std::vector<double> drawn;
         Microsoft::UI::Dispatching::DispatcherQueueTimer timer{ nullptr };
         int64_t pending = -1;
 
-        Border card{ nullptr }, handle{ nullptr };
+        Border card{ nullptr };
         TextBlock title{ nullptr }, notice_text{ nullptr }, curve_note{ nullptr };
         StackPanel notice{ nullptr }, items{ nullptr }, check{ nullptr }, cost{ nullptr };
         Button notice_add{ nullptr };
         ScrollViewer scroll{ nullptr };
-        NumberBox turn{ nullptr }, depth_mm{ nullptr };
+        NumberBox turn{ nullptr }, relief{ nullptr }, depth_mm{ nullptr };
+        Grid relief_row{ nullptr };
         Primitives::ToggleButton depth1{ nullptr }, depth2{ nullptr };
+        Primitives::ToggleButton mode_buttons[zs::label_mode_count]{ nullptr, nullptr, nullptr };
         VariableSizedWrapGrid chips{ nullptr };
         std::vector<InputField> inputs;
         std::string key, chips_key;
         bool updating = false, card_queued = false, focus_text = false, card_moved = false;
-        double last_box[4] = { 0, 0, 0, 0 };
+        double last_box[4] = { 0, 0, 0, 0 }, last_height = 0;
         bool has_last_box = false;
 
         // ---- the labels ----
@@ -345,15 +462,31 @@ namespace winrt::ZSlice::implementation
         // The outline of a label, made again only when its shapes change.
         Outline *OutlineFor(zs::Label const &l)
         {
-            std::string shapes = zs::LabelJson(l, true);
             auto found = outlines.find(l.id);
-            if (found != outlines.end() && found->second.key == shapes)
+            auto same = [&](Outline const &o) {
+                return o.items != nullptr && o.items == l.items && o.has_stretch == l.has_stretch &&
+                       (!l.has_stretch || (o.stretch[0] == l.stretch[0] && o.stretch[1] == l.stretch[1]));
+            };
+            if (found != outlines.end() && same(found->second))
                 return &found->second;
+            auto keep = [&](Outline &o) {
+                o.items = l.items;
+                o.has_stretch = l.has_stretch;
+                o.stretch[0] = l.stretch[0];
+                o.stretch[1] = l.stretch[1];
+            };
+            std::string shapes = zs::LabelJson(l, true);
+            if (found != outlines.end() && found->second.key == shapes)
+            {
+                keep(found->second);
+                return &found->second;
+            }
             auto made = OutlineOfJson(shapes);
             if (!made.has_value())
                 return found != outlines.end() ? &found->second : nullptr;
             auto &slot = outlines[l.id];
             slot = std::move(*made);
+            keep(slot);
             return &slot;
         }
 
@@ -376,8 +509,213 @@ namespace winrt::ZSlice::implementation
                     std::copy_n(l.right, 3, frame + 6);
                     zs_view_label_add(w.view, frame, o->pts.data(), o->ends.data(), o->n, w.FilamentRgb(l.filament), l.id == (uint32_t)sel ? 1 : 0);
                 }
+                if (zs::Label *s = Selected())
+                    DrawHandles(*s);
             }
             w.RequestDraw();
+        }
+
+        // ---- the handles and the smart guides ----
+
+        // The mm of the plane of label l in one point of the view, at its
+        // center.
+        double MmPerPoint(zs::Label const &l)
+        {
+            Outline *o = OutlineFor(l);
+            if (o == nullptr)
+                return 0.1;
+            double cx = (o->box[0] + o->box[2]) / 2, cy = (o->box[1] + o->box[3]) / 2, p0[2], pr[2], pu[2];
+            if (!ScreenOf(l, cx, cy, p0) || !ScreenOf(l, cx + 1, cy, pr) || !ScreenOf(l, cx, cy + 1, pu))
+                return 0.1;
+            double d = std::max(std::hypot(pr[0] - p0[0], pr[1] - p0[1]), std::hypot(pu[0] - p0[0], pu[1] - p0[1]));
+            return d > 1e-6 ? 1 / d : 0.1;
+        }
+
+        bool HandlesOf(zs::Label const &l, zs::LabelHandles &g)
+        {
+            Outline *o = OutlineFor(l);
+            if (o == nullptr)
+                return false;
+            zs::LabelHandlesOf(o->box, MmPerPoint(l), g);
+            return true;
+        }
+
+        // The handle of the selected label at x, y: as LabelHandleHit.
+        int HandleAt(double x, double y, int out[2])
+        {
+            zs::Label *l = Selected();
+            zs::LabelHandles g;
+            float r[6];
+            double o[3], d[3], p[3], px, py;
+            if (l == nullptr || !Live() || !HandlesOf(*l, g) || !Ray(x, y, r, o, d) || !zs::LabelPlaneHit(*l, o, d, p, &px, &py))
+                return 0;
+            return zs::LabelHandleHit(g, px, py, out);
+        }
+
+        // A decal of polygons (x, y pairs) in the plane of l.
+        void AddDecal(zs::Label const &l, float const *pts, uint32_t const *ends, size_t n, uint32_t rgb, int edge)
+        {
+            double frame[9];
+            std::copy_n(l.origin, 3, frame);
+            std::copy_n(l.normal, 3, frame + 3);
+            std::copy_n(l.right, 3, frame + 6);
+            zs_view_label_add(w.view, frame, pts, ends, n, rgb, edge);
+        }
+
+        void AddRect(zs::Label const &l, double x0, double y0, double x1, double y1, uint32_t rgb, int edge)
+        {
+            float const pts[8] = { (float)x0, (float)y0, (float)x1, (float)y0, (float)x1, (float)y1, (float)x0, (float)y1 };
+            uint32_t const ends[1] = { 4 };
+            AddDecal(l, pts, ends, 1, rgb, edge);
+        }
+
+        // The decals of the handles and the guides of the selected label.
+        void DrawHandles(zs::Label const &l)
+        {
+            double mpp = MmPerPoint(l);
+            handle_mpp = mpp;
+            Outline *o = OutlineFor(l);
+            if (o == nullptr)
+                return;
+            zs::LabelHandles g;
+            zs::LabelHandlesOf(o->box, mpp, g);
+            double const lw = 1.5 * mpp;
+            double const *b = g.box;
+            // The frame: a ring of the width of a line. The inner path turns
+            // the other way, so it is a hole.
+            float const ring[16] = {
+                (float)(b[0] - lw / 2), (float)(b[1] - lw / 2), (float)(b[2] + lw / 2), (float)(b[1] - lw / 2),
+                (float)(b[2] + lw / 2), (float)(b[3] + lw / 2), (float)(b[0] - lw / 2), (float)(b[3] + lw / 2),
+                (float)(b[0] + lw / 2), (float)(b[1] + lw / 2), (float)(b[0] + lw / 2), (float)(b[3] - lw / 2),
+                (float)(b[2] - lw / 2), (float)(b[3] - lw / 2), (float)(b[2] - lw / 2), (float)(b[1] + lw / 2),
+            };
+            uint32_t const ring_ends[2] = { 4, 8 };
+            AddDecal(l, ring, ring_ends, 2, handle_accent, 0);
+            // The stem and the turn handle.
+            double mx = (b[0] + b[2]) / 2;
+            AddRect(l, mx - lw / 2, b[3], mx + lw / 2, g.turn[1] - g.r, handle_accent, 0);
+            float circle[48];
+            for (int k = 0; k < 24; k++)
+            {
+                circle[2 * k] = (float)(g.turn[0] + g.r * std::cos(2 * pi * k / 24));
+                circle[2 * k + 1] = (float)(g.turn[1] + g.r * std::sin(2 * pi * k / 24));
+            }
+            uint32_t const circle_end[1] = { 24 };
+            AddDecal(l, circle, circle_end, 1, handle_fill, 1);
+            // The corners.
+            for (int k = 0; k < 4; k++)
+            {
+                double x = (k == 1 || k == 2) ? b[2] : b[0], y = k >= 2 ? b[3] : b[1];
+                AddRect(l, x - g.hs, y - g.hs, x + g.hs, y + g.hs, handle_fill, 1);
+            }
+            // The guides: thin rectangles along each line.
+            double const gw = 1.2 * mpp;
+            for (size_t i = 0; i + 3 < guides.size(); i += 4)
+            {
+                double const *s = &guides[i];
+                double dx = s[2] - s[0], dy = s[3] - s[1], len = std::hypot(dx, dy);
+                if (!(len > 1e-9))
+                    continue;
+                double nx = -dy / len * gw / 2, ny = dx / len * gw / 2;
+                float const pts[8] = { (float)(s[0] - nx), (float)(s[1] - ny), (float)(s[2] - nx), (float)(s[3] - ny),
+                                       (float)(s[2] + nx), (float)(s[3] + ny), (float)(s[0] + nx), (float)(s[1] + ny) };
+                uint32_t const ends[1] = { 4 };
+                AddDecal(l, pts, ends, 1, guide_color, 0);
+            }
+        }
+
+        // The features of the face under label l (zs_label_face), kept while
+        // the label stays in its plane. Null with no face or no mesh.
+        std::string const *FaceAt(zs::Label const &l)
+        {
+            zs_paint *s = Session(index);
+            if (s == nullptr)
+                return nullptr;
+            if (face_index == index && zs::LabelSamePlane(face_origin, face_normal, l))
+                return face_json.empty() ? nullptr : &face_json;
+            // A curved face changes the plane at each step: a new face at
+            // most each 150 ms there.
+            auto now = std::chrono::steady_clock::now();
+            if (face_index == index && now - face_time < std::chrono::milliseconds(150))
+                return nullptr;
+            double frame[9];
+            std::copy_n(l.origin, 3, frame);
+            std::copy_n(l.normal, 3, frame + 3);
+            std::copy_n(l.right, 3, frame + 6);
+            face_json.clear();
+            size_t len = 0;
+            if (zs_label_face(s, frame, nullptr, 0, &len) == ZS_OK)
+            {
+                std::string text(len + 1, '\0');
+                if (zs_label_face(s, frame, text.data(), text.size(), nullptr) == ZS_OK)
+                {
+                    text.resize(len);
+                    if (text != "null")
+                        face_json = std::move(text);
+                }
+            }
+            face_index = index;
+            face_time = now;
+            std::copy_n(l.origin, 3, face_origin);
+            std::copy_n(l.normal, 3, face_normal);
+            return face_json.empty() ? nullptr : &face_json;
+        }
+
+        // The snap of a box of label l (zs_label_snap): out_box gets the
+        // box, d the move, and guides the lines. False: no snap.
+        bool SnapBox(zs::Label const &l, double const box[4], char const *op, int const *at_corner, bool aspect, double out_box[4], double d[2])
+        {
+            std::vector<zs::LabelSnapOther> others;
+            for (auto const &x : labels)
+            {
+                if (x.id == l.id)
+                    continue;
+                Outline *o = OutlineFor(x);
+                if (o == nullptr || o->n == 0)
+                    continue;
+                zs::LabelSnapOther other{ &x, {} };
+                std::copy_n(o->box, 4, other.box);
+                others.push_back(other);
+            }
+            std::string const *face = FaceAt(l);
+            std::string json = zs::LabelSnapJson(l, box, op, at_corner, aspect, zs::label_snap_px * MmPerPoint(l), others, face);
+            guides.clear();
+            size_t len = 0;
+            if (zs_label_snap(json.data(), json.size(), nullptr, 0, &len) != ZS_OK)
+                return false;
+            std::string text(len + 1, '\0');
+            if (zs_label_snap(json.data(), json.size(), text.data(), text.size(), nullptr) != ZS_OK)
+                return false;
+            text.resize(len);
+            return zs::LabelSnapParse(text, out_box, d, guides);
+        }
+
+        // The shape of the pointer over the view.
+        int CursorAt(double x, double y)
+        {
+            int at[2];
+            int h = drawing < 0 ? HandleAt(x, y, at) : 0;
+            if (h == 1)
+                return (int)(at[0] == at[1] ? InputSystemCursorShape::SizeNortheastSouthwest : InputSystemCursorShape::SizeNorthwestSoutheast);
+            if (h == 2 || (drawing < 0 && LabelAt(x, y, nullptr, nullptr) != nullptr))
+                return (int)InputSystemCursorShape::Hand;
+            return (int)InputSystemCursorShape::Cross;
+        }
+
+        // The Support tool sets the same cursor of the panel, so this reads
+        // the shape that the panel has.
+        void SetCursor(int shape)
+        {
+            auto panel = w.ViewPanel().try_as<IUIElementProtected>();
+            if (panel == nullptr)
+                return;
+            auto now = panel.ProtectedCursor().try_as<InputSystemCursor>();
+            if ((now != nullptr ? (int)now.CursorShape() : -1) == shape)
+                return;
+            if (shape < 0)
+                panel.ProtectedCursor(nullptr);
+            else
+                panel.ProtectedCursor(InputSystemCursor::Create(static_cast<InputSystemCursorShape>(shape)));
         }
 
         // ---- the picks ----
@@ -454,20 +792,20 @@ namespace winrt::ZSlice::implementation
             return true;
         }
 
-        // The box of the selected label on the screen, with the room of its
-        // handle.
+        // The box of the selected label on the screen, with its handles.
         bool ScreenBox(double box[4])
         {
             zs::Label *l = Selected();
-            Outline *o = l != nullptr ? OutlineFor(*l) : nullptr;
-            if (o == nullptr)
+            zs::LabelHandles g;
+            if (l == nullptr || !HandlesOf(*l, g))
                 return false;
             box[0] = box[1] = INFINITY;
             box[2] = box[3] = -INFINITY;
-            for (int k = 0; k < 4; k++)
+            double const pts[5][2] = { { g.box[0], g.box[1] }, { g.box[2], g.box[1] }, { g.box[2], g.box[3] }, { g.box[0], g.box[3] }, { g.turn[0], g.turn[1] + g.r } };
+            for (int k = 0; k < 5; k++)
             {
                 double q[2];
-                if (!ScreenOf(*l, k & 1 ? o->box[2] + hit_margin : o->box[0] - hit_margin, k & 2 ? o->box[3] + hit_margin : o->box[1] - hit_margin, q))
+                if (!ScreenOf(*l, pts[k][0], pts[k][1], q))
                     continue;
                 box[0] = std::min(box[0], q[0]);
                 box[1] = std::min(box[1], q[1]);
@@ -547,9 +885,11 @@ namespace winrt::ZSlice::implementation
 
         void Reload()
         {
-            if (!on || dragging || scaling || w.model == nullptr)
+            if (!on || dragging || w.model == nullptr)
                 return;
             w.meshes.CheckAll();
+            // The mesh can be another one: the next snap reads its face.
+            face_index = -1;
             if (core != w.model->Active())
             {
                 // Another plate: its labels are on other parts.
@@ -607,8 +947,8 @@ namespace winrt::ZSlice::implementation
                 sel = -1;
                 info = nullptr;
                 curve = 0;
+                guides.clear();
                 ShowCard();
-                handle.Visibility(Visibility::Collapsed);
                 Redraw();
                 return;
             }
@@ -628,9 +968,13 @@ namespace winrt::ZSlice::implementation
             zs::Label *l = Selected();
             if (l == nullptr)
                 return false;
-            std::string a = zs::LabelJson(*l, true), b = zs::LabelJson(next, true);
-            if (a != b && !OutlineOfJson(b).has_value())
-                return false;
+            // A move or a turn shares the items: its shapes are the same.
+            if (!SameShapes(*l, next))
+            {
+                std::string a = zs::LabelJson(*l, true), b = zs::LabelJson(next, true);
+                if (a != b && !OutlineOfJson(b).has_value())
+                    return false;
+            }
             next.id = l->id;
             *l = std::move(next);
             Redraw();
@@ -640,7 +984,7 @@ namespace winrt::ZSlice::implementation
             // A drag sends the label at its end (one step of the history).
             if (commit)
                 Flush();
-            else if (!dragging && !scaling)
+            else if (!dragging)
                 timer.Start();
             return true;
         }
@@ -852,6 +1196,172 @@ namespace winrt::ZSlice::implementation
             Change(std::move(*c), true);
         }
 
+        void SetMode(int mode)
+        {
+            int next = std::clamp(mode, 0, zs::label_mode_count - 1);
+            zs::Label *now = Selected();
+            if (now != nullptr && now->mode == next)
+            {
+                ShowCard();
+                return;
+            }
+            auto c = EditCopy();
+            if (!c.has_value())
+                return;
+            c->mode = next;
+            if (next != zs::label_ink && !(c->relief > 0))
+                c->relief = zs::label_default_relief;
+            Change(std::move(*c), true);
+        }
+
+        void SetRelief(double mm)
+        {
+            double next = std::clamp(mm, 0.0, 10.0);
+            zs::Label *now = Selected();
+            if (now != nullptr && now->relief == next)
+            {
+                ShowCard();
+                return;
+            }
+            auto c = EditCopy();
+            if (!c.has_value())
+                return;
+            c->relief = next;
+            Change(std::move(*c), true);
+        }
+
+        // ---- SVG pictures ----
+
+        // An SVG source has a shape that the core reads.
+        static bool SvgOk(std::wstring const &svg)
+        {
+            zs::Label l;
+            l.items.Append(zs::LabelSvgItem(svg));
+            auto o = OutlineOfJson(zs::LabelJson(l, true));
+            return o.has_value() && o->n > 0;
+        }
+
+        bool PlaceSvg(std::wstring const &svg, std::wstring const &path)
+        {
+            if (!SvgOk(svg))
+            {
+                w.ShowToast(L"The SVG has no filled shape to place.");
+                return false;
+            }
+            zs::Label *l = Selected();
+            Outline *o = l != nullptr ? OutlineFor(*l) : nullptr;
+            auto c = EditCopy();
+            if (!c.has_value())
+                return false;
+            bool fresh = c->name.empty();
+            zs::LabelAddSvg(*c, svg, o != nullptr ? o->box : nullptr);
+            if (fresh && zs::LabelItemCount(*c) == 1)
+                c->name = zs::LabelSvgName(path);
+            bool ok = Change(std::move(*c), true);
+            ShowCard();
+            return ok;
+        }
+
+        void PlaceSvgFile(std::wstring const &path)
+        {
+            std::wstring svg;
+            if (ReadSvgFile(path, svg))
+                PlaceSvg(svg, path);
+        }
+
+        // "Place an SVG…": a file dialog for an SVG file.
+        void PickSvg()
+        {
+            if (picking)
+                return;
+            picking = true;
+            std::wstring path;
+            com_ptr<IFileOpenDialog> dialog;
+            if (SUCCEEDED(::CoCreateInstance(__uuidof(FileOpenDialog), nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(dialog.put()))))
+            {
+                COMDLG_FILTERSPEC filter{ L"SVG pictures", L"*.svg" };
+                dialog->SetFileTypes(1, &filter);
+                dialog->SetTitle(L"Place an SVG");
+                DWORD options = 0;
+                if (SUCCEEDED(dialog->GetOptions(&options)))
+                    dialog->SetOptions(options | FOS_FORCEFILESYSTEM | FOS_FILEMUSTEXIST);
+                com_ptr<IShellItem> item;
+                if (SUCCEEDED(dialog->Show(w.hwnd)) && SUCCEEDED(dialog->GetResult(item.put())))
+                {
+                    PWSTR name = nullptr;
+                    if (SUCCEEDED(item->GetDisplayName(SIGDN_FILESYSPATH, &name)))
+                    {
+                        path = name;
+                        ::CoTaskMemFree(name);
+                    }
+                }
+            }
+            picking = false;
+            if (!path.empty())
+                PlaceSvgFile(path);
+        }
+
+        // The 3D view is the top element at x, y (points of the view): no
+        // card or pane covers it there.
+        bool OverView(double x, double y)
+        {
+            auto at = w.ViewPanel().TransformToVisual(w.Root()).TransformPoint({ (float)x, (float)y });
+            for (auto const &element : Media::VisualTreeHelper::FindElementsInHostCoordinates(at, w.Root()))
+                return element == w.ViewPanel();
+            return false;
+        }
+
+        // An SVG file dropped at x, y: a new label of it on the part there.
+        void DropSvg(std::wstring const &svg, std::wstring const &path, double x, double y, bool over_view)
+        {
+            if (!SvgOk(svg))
+            {
+                w.ShowToast(L"The SVG has no filled shape to place.");
+                return;
+            }
+            if (w.model == nullptr || w.view == nullptr)
+            {
+                w.ShowToast(L"Drop the SVG on a part.");
+                return;
+            }
+            if (w.tool != Tool::Label)
+                w.SetTool(Tool::Label);
+            int64_t part = over_view ? w.PartAt(x, y, nullptr, nullptr) : -1;
+            if (part < 0)
+            {
+                w.ShowToast(L"Drop the SVG on a part.");
+                return;
+            }
+            if (part != index)
+                Load(part, -1);
+            double at[10];
+            if (!PlaceAt(part, x, y, at))
+            {
+                w.ShowToast(L"Drop the SVG on a face of the part.");
+                return;
+            }
+            zs::Label l;
+            std::copy_n(at, 3, l.origin);
+            std::copy_n(at + 3, 3, l.normal);
+            std::copy_n(at + 6, 3, l.right);
+            l.filament = zs::LabelNextFilament(base, (int)zs_app_filament_count(w.model->Active()));
+            l.name = zs::LabelSvgName(path);
+            // The picture is centered on the point of the drop, as in the
+            // web app.
+            l.items.Append(zs::LabelSvgItem(svg));
+            std::string json = zs::LabelJson(l, false);
+            Flush();
+            uint32_t id = 0;
+            if (zs_app_label_add(w.model->Active(), (size_t)part, json.data(), json.size(), &id) != ZS_OK)
+            {
+                w.ShowToast(L"The SVG does not fit here.");
+                return;
+            }
+            LabelsChanged();
+            curve = at[9];
+            Load(part, id);
+        }
+
         void Remove()
         {
             zs::Label *l = Selected();
@@ -940,10 +1450,76 @@ namespace winrt::ZSlice::implementation
 
         // ---- the pointer ----
 
+        // A press on a handle of the selected label: a resize or a turn.
+        bool PressHandle(double x, double y)
+        {
+            int at[2];
+            int h = HandleAt(x, y, at);
+            zs::Label *l = Selected();
+            Outline *o = l != nullptr ? OutlineFor(*l) : nullptr;
+            if (h == 0 || o == nullptr)
+                return false;
+            Flush();
+            l = Selected();
+            o = l != nullptr ? OutlineFor(*l) : nullptr;
+            if (o == nullptr)
+                return false;
+            dragging = true;
+            moved = false;
+            drag_id = l->id;
+            press_x = x;
+            press_y = y;
+            drag_start = *l;
+            std::copy_n(o->box, 4, box0);
+            Session(index);
+            if (h == 1)
+            {
+                drag_mode = drag_resize;
+                corner[0] = at[0];
+                corner[1] = at[1];
+                // The first move of the drag starts at a scale of 1, with
+                // no jump: the handle is on the frame, outside the box.
+                grab[0] = grab[1] = 0;
+                float r[6];
+                double ro[3], rd[3], rp[3], hx, hy;
+                if (Ray(x, y, r, ro, rd) && zs::LabelPlaneHit(*l, ro, rd, rp, &hx, &hy))
+                {
+                    grab[0] = hx - (at[0] > 0 ? o->box[2] : o->box[0]);
+                    grab[1] = hy - (at[1] > 0 ? o->box[3] : o->box[1]);
+                }
+                return true;
+            }
+            drag_mode = drag_turn;
+            double cx = (o->box[0] + o->box[2]) / 2, cy = (o->box[1] + o->box[3]) / 2, p0[2], pr[2], pu[2];
+            if (!ScreenOf(*l, cx, cy, p0))
+            {
+                dragging = false;
+                drag_start.reset();
+                return false;
+            }
+            // The way the label turns on the screen: its right and up axes
+            // as the screen shows them.
+            double cr = ScreenOf(*l, cx + 1, cy, pr) && ScreenOf(*l, cx, cy + 1, pu) ? (pr[0] - p0[0]) * (pu[1] - p0[1]) - (pr[1] - p0[1]) * (pu[0] - p0[0]) : -1;
+            turn_c[0] = p0[0];
+            turn_c[1] = p0[1];
+            turn_center[0] = cx;
+            turn_center[1] = cy;
+            turn_a0 = std::atan2(y - p0[1], x - p0[0]);
+            turn_sign = cr < 0 ? -1 : 1;
+            turn_base = zs::LabelAngle(*l);
+            return true;
+        }
+
         bool Press(double x, double y)
         {
             if (!Live() || drawing >= 0)
                 return false;
+            if (PressHandle(x, y))
+            {
+                SetCursor((int)InputSystemCursorShape::SizeAll);
+                return true;
+            }
+            drag_mode = drag_move;
             double lx, ly;
             zs::Label *l = LabelAt(x, y, &lx, &ly);
             if (l == nullptr)
@@ -965,14 +1541,31 @@ namespace winrt::ZSlice::implementation
             drag_start = *l;
             // The mesh for the pick, before the first move.
             Session(index);
+            SetCursor((int)InputSystemCursorShape::SizeAll);
             return true;
         }
 
-        // The selected label under the pointer while it drags: on the
-        // surface, or in its plane with Shift.
-        void MoveTo(double x, double y, bool keep_plane)
+        // The snap of the label c that moves (free: none). Its origin moves
+        // to the guides.
+        void SnapMove(zs::Label &c, bool free)
         {
-            if (!drag_start.has_value())
+            guides.clear();
+            Outline *o = OutlineFor(c);
+            double box[4], d[2], up[3];
+            if (free || o == nullptr || !SnapBox(c, o->box, "move", nullptr, true, box, d))
+                return;
+            zs::LabelUp(c, up);
+            for (int k = 0; k < 3; k++)
+                c.origin[k] += d[0] * c.right[k] + d[1] * up[k];
+        }
+
+        // The selected label under the pointer while it drags: on the
+        // surface, or in its plane with Shift. It snaps to the guides (Alt:
+        // free). The copy shares the items, because the shapes stay.
+        void MoveTo(double x, double y, bool keep_plane, bool free)
+        {
+            zs::Label *now = Selected();
+            if (!drag_start.has_value() || now == nullptr)
                 return;
             zs::Label const &s = *drag_start;
             if (keep_plane)
@@ -982,35 +1575,75 @@ namespace winrt::ZSlice::implementation
                 if (!Ray(x, y, r, o, d) || !zs::LabelPlaneHit(s, o, d, p, &hx, &hy))
                     return;
                 zs::LabelUp(s, up);
-                auto c = EditCopy();
-                if (!c.has_value())
-                    return;
+                zs::Label c = *now;
                 for (int k = 0; k < 3; k++)
                 {
-                    c->origin[k] = p[k] - drag_dx * s.right[k] - drag_dy * up[k];
-                    c->normal[k] = s.normal[k];
-                    c->right[k] = s.right[k];
+                    c.origin[k] = p[k] - drag_dx * s.right[k] - drag_dy * up[k];
+                    c.normal[k] = s.normal[k];
+                    c.right[k] = s.right[k];
                 }
-                Change(std::move(*c), false);
+                SnapMove(c, free);
+                Change(std::move(c), false);
                 return;
             }
             double at[10];
             if (!PlaceAt(index, x, y, at))
                 return;
-            auto c = EditCopy();
-            if (!c.has_value())
-                return;
-            zs::LabelMove(*c, at, at + 3);
+            zs::Label c = *now;
+            zs::LabelMove(c, at, at + 3);
             double up[3];
-            zs::LabelUp(*c, up);
+            zs::LabelUp(c, up);
             for (int k = 0; k < 3; k++)
-                c->origin[k] -= drag_dx * c->right[k] + drag_dy * up[k];
-            Change(std::move(*c), false);
+                c.origin[k] -= drag_dx * c.right[k] + drag_dy * up[k];
+            SnapMove(c, free);
+            Change(std::move(c), false);
             if (std::abs(at[9] - curve) > 1e-6)
             {
                 curve = at[9];
                 curve_note.Visibility(curve > zs::label_curve_limit ? Visibility::Visible : Visibility::Collapsed);
             }
+        }
+
+        // A corner handle under the pointer: the opposite corner stays.
+        // Shift: each axis on its own. It snaps to the guides (Alt: free).
+        void ResizeTo(double x, double y, bool free_aspect, bool free)
+        {
+            if (!drag_start.has_value())
+                return;
+            zs::Label const &s = *drag_start;
+            float r[6];
+            double o[3], d[3], p[3], hp[2];
+            if (!Ray(x, y, r, o, d) || !zs::LabelPlaneHit(s, o, d, p, &hp[0], &hp[1]))
+                return;
+            double box[4], anchor[2], k[2], snapped[4], dd[2];
+            hp[0] -= grab[0];
+            hp[1] -= grab[1];
+            zs::LabelResizeBox(box0, corner, hp, free_aspect, box, anchor, k);
+            guides.clear();
+            if (!free && SnapBox(s, box, "resize", corner, !free_aspect, snapped, dd))
+            {
+                k[0] = (snapped[2] - snapped[0]) / std::max(1e-12, box0[2] - box0[0]);
+                k[1] = free_aspect ? (snapped[3] - snapped[1]) / std::max(1e-12, box0[3] - box0[1]) : k[0];
+            }
+            zs::Label c = s;
+            zs::LabelOwnItems(c);
+            zs::LabelResize(c, anchor, k, free_aspect);
+            Change(std::move(c), false);
+        }
+
+        // The turn handle under the pointer: the label turns about the
+        // center of its box. Shift: steps of 15 degrees.
+        void TurnTo(double x, double y, bool steps)
+        {
+            if (!drag_start.has_value())
+                return;
+            zs::Label const &s = *drag_start;
+            double deg = turn_sign * (std::atan2(y - turn_c[1], x - turn_c[0]) - turn_a0) * 180 / pi;
+            if (steps)
+                deg = std::round((turn_base + deg) / 15) * 15 - turn_base;
+            zs::Label c = s;
+            zs::LabelTurnAbout(c, deg, turn_center);
+            Change(std::move(c), false);
         }
 
         void Drag(double x, double y, bool shift)
@@ -1020,7 +1653,13 @@ namespace winrt::ZSlice::implementation
             if (!moved && std::hypot(x - press_x, y - press_y) < 3)
                 return;
             moved = true;
-            MoveTo(x, y, shift);
+            bool alt = w.pointer_alt;
+            if (drag_mode == drag_resize)
+                ResizeTo(x, y, shift, alt);
+            else if (drag_mode == drag_turn)
+                TurnTo(x, y, shift);
+            else
+                MoveTo(x, y, shift, alt);
         }
 
         void Release()
@@ -1029,9 +1668,13 @@ namespace winrt::ZSlice::implementation
                 return;
             dragging = false;
             drag_start.reset();
+            guides.clear();
+            Redraw();
             if (moved)
                 Flush();
             moved = false;
+            if (on)
+                SetCursor(CursorAt(w.pointer_x, w.pointer_y));
         }
 
         void Click(double x, double y)
@@ -1043,6 +1686,11 @@ namespace winrt::ZSlice::implementation
                 DrawPoint(x, y);
                 return;
             }
+            // A click on a handle is a drag that did not move, as in the
+            // web app.
+            int at_corner[2];
+            if (HandleAt(x, y, at_corner) != 0)
+                return;
             zs::Label *l = LabelAt(x, y, nullptr, nullptr);
             if (l != nullptr)
             {
@@ -1089,76 +1737,41 @@ namespace winrt::ZSlice::implementation
             return false;
         }
 
-        // ---- the handle: a drag scales the label ----
-
-        void ScaleBegin(double x, double y)
-        {
-            zs::Label *l = Selected();
-            double c[2];
-            if (l == nullptr || !ScreenCenter(c))
-                return;
-            Flush();
-            l = Selected();
-            if (l == nullptr)
-                return;
-            scaling = true;
-            scale_start = *l;
-            scale_c[0] = c[0];
-            scale_c[1] = c[1];
-            scale_d0 = std::max(4.0, std::hypot(x - c[0], y - c[1]));
-        }
-
-        void ScaleTo(double x, double y)
-        {
-            if (!scaling || !scale_start.has_value())
-                return;
-            double k = std::max(0.05, std::hypot(x - scale_c[0], y - scale_c[1]) / scale_d0);
-            zs::Label c = *scale_start;
-            zs::LabelScale(c, k);
-            Change(std::move(c), false);
-        }
-
-        void ScaleEnd()
-        {
-            if (!scaling)
-                return;
-            scaling = false;
-            scale_start.reset();
-            Flush();
-        }
-
-        // After each frame: the handle at the upper right corner of the
-        // label, and the card beside the label.
+        // After each frame: the handles keep their size on the screen (a
+        // zoom draws them again), and the card goes beside the label.
         void Place()
         {
             zs::Label *l = on && sel >= 0 ? Selected() : nullptr;
-            Outline *o = l != nullptr ? OutlineFor(*l) : nullptr;
-            double q[2];
-            bool at = o != nullptr && ScreenOf(*l, o->box[2] + 0.5, o->box[3] + 0.5, q);
-            handle.Visibility(at ? Visibility::Visible : Visibility::Collapsed);
-            if (at)
-            {
-                Canvas::SetLeft(handle, q[0] - 7);
-                Canvas::SetTop(handle, q[1] - 7);
-            }
+            if (l != nullptr && handle_mpp > 0 && std::abs(MmPerPoint(*l) - handle_mpp) > 0.08 * handle_mpp)
+                Redraw();
             if (l == nullptr || card.Visibility() != Visibility::Visible)
                 return;
-            double room = std::max(160.0, w.CardLayer().ActualHeight() - 150);
-            if (scroll.MaxHeight() != room)
+            // The body scrolls in a short view: the card ends over the
+            // bottom bar.
+            double floor = w.Dock().TransformToVisual(w.CardLayer()).TransformPoint({ 0, 0 }).Y;
+            double frame = card.ActualHeight() > 0 ? card.ActualHeight() - scroll.ActualHeight() : 70;
+            double room = std::max(160.0, floor - 2 * card_margin - frame);
+            if (std::abs(scroll.MaxHeight() - room) > 0.5)
                 scroll.MaxHeight(room);
             if (card_moved)
                 return;
             double box[4];
             if (!ScreenBox(box))
                 return;
-            bool same = has_last_box;
+            card.UpdateLayout();
+            double height = card.ActualHeight();
+            bool same = has_last_box && std::abs(height - last_height) < 0.5;
             for (int k = 0; same && k < 4; k++)
                 same = std::abs(box[k] - last_box[k]) < 0.5;
             if (same)
                 return;
             std::copy_n(box, 4, last_box);
+            last_height = height;
             has_last_box = true;
             w.PlaceCard(card, box);
+            double top = Canvas::GetTop(card), lowest = std::max(card_margin, floor - card_margin - height);
+            if (top > lowest)
+                Canvas::SetTop(card, lowest);
         }
 
         // ---- the card ----
@@ -1270,6 +1883,8 @@ namespace winrt::ZSlice::implementation
                 return std::round(zs::LabelAngle(l) * 10) / 10;
             if (field == "depth")
                 return l.depth;
+            if (field == "relief")
+                return l.relief > 0 ? l.relief : zs::label_default_relief;
             auto it = zs::LabelItem(l, (size_t)std::max(item, 0));
             if (field == "at:0")
                 return zs::LabelItemAt(it, 0);
@@ -1291,6 +1906,8 @@ namespace winrt::ZSlice::implementation
                 SetAngle(v);
             else if (field == "depth")
                 SetDepth(v);
+            else if (field == "relief")
+                SetRelief(v);
             else if (field.rfind("at:", 0) == 0)
             {
                 zs::Label *l = Selected();
@@ -1330,24 +1947,41 @@ namespace winrt::ZSlice::implementation
             head.ColumnDefinitions().Append(chips_column);
             head.ColumnDefinitions().Append(close_column);
             Grid row;
-            for (size_t k = 0; k < zs::label_kind_count; k++)
-            {
+            auto add_chip = [&](wchar_t const *text, int32_t column) {
                 ColumnDefinition c;
                 c.Width(GridLengthHelper::FromValueAndType(1, GridUnitType::Star));
                 row.ColumnDefinitions().Append(c);
                 Primitives::ToggleButton b;
-                b.Content(box_value(zs::label_kind_names[k]));
+                b.Content(box_value(text));
                 b.FontSize(12);
                 b.Padding(ThicknessHelper::FromLengths(2, 3, 2, 3));
                 b.MinWidth(0);
                 b.HorizontalAlignment(HorizontalAlignment::Stretch);
                 b.AllowFocusOnInteraction(false);
+                Automation::AutomationProperties::SetName(b, text);
+                Grid::SetColumn(b, column);
+                row.Children().Append(b);
+                return b;
+            };
+            // An SVG picture: its chip, and the chips to make it another
+            // shape.
+            int32_t first_chip = 0;
+            if (kind == "svg")
+            {
+                Primitives::ToggleButton b = add_chip(L"SVG", 0);
+                b.IsChecked(true);
+                ToolTipService::SetToolTip(b, box_value(L"An SVG picture"));
+                b.Click([](IInspectable const &sender, auto &&) { sender.as<Primitives::ToggleButton>().IsChecked(true); });
+                first_chip = 1;
+            }
+            for (size_t k = 0; k < zs::label_kind_count; k++)
+            {
+                Primitives::ToggleButton b = add_chip(zs::label_kind_names[k], first_chip + (int32_t)k);
                 b.IsChecked(kind == zs::label_kinds[k]);
                 std::wstring tip = std::strcmp(zs::label_kinds[k], "polyline") == 0
                                        ? std::wstring(L"A free line: click points on the face")
                                        : L"Make this shape a " + zs::ToWide(zs::label_kinds[k]);
                 ToolTipService::SetToolTip(b, box_value(tip));
-                Automation::AutomationProperties::SetName(b, zs::label_kind_names[k]);
                 std::string to = zs::label_kinds[k];
                 b.Click([this, i, to](IInspectable const &sender, auto &&) {
                     // The chips act as a radio group: the chip of the shape
@@ -1362,8 +1996,6 @@ namespace winrt::ZSlice::implementation
                             SetShape(i, to);
                     });
                 });
-                Grid::SetColumn(b, (int32_t)k);
-                row.Children().Append(b);
             }
             head.Children().Append(row);
             if (zs::LabelItemCount(l) > 1)
@@ -1436,7 +2068,7 @@ namespace winrt::ZSlice::implementation
                 Automation::AutomationProperties::SetName(number, f[k].name);
                 Grid::SetColumn(number, 1);
                 line.Children().Append(number);
-                TextBlock unit = SmallText(f[k].unit, true);
+                TextBlock unit = SmallText(w.Root(), f[k].unit, true);
                 unit.VerticalAlignment(VerticalAlignment::Center);
                 Grid::SetColumn(unit, 2);
                 line.Children().Append(unit);
@@ -1483,7 +2115,7 @@ namespace winrt::ZSlice::implementation
                 });
                 box.Children().Append(draw);
                 if (now)
-                    box.Children().Append(SmallText(L"Click points on the face. Click Done at the end.", true));
+                    box.Children().Append(SmallText(w.Root(), L"Click points on the face. Click Done at the end.", true));
             }
 
             // The place of the shape in the label.
@@ -1510,7 +2142,7 @@ namespace winrt::ZSlice::implementation
                 Grid::SetColumn(number, k + 1);
                 at.Children().Append(number);
             }
-            TextBlock mm = SmallText(L"mm", true);
+            TextBlock mm = SmallText(w.Root(), L"mm", true);
             mm.VerticalAlignment(VerticalAlignment::Center);
             Grid::SetColumn(mm, 3);
             at.Children().Append(mm);
@@ -1520,8 +2152,9 @@ namespace winrt::ZSlice::implementation
 
         void BuildItems(zs::Label const &l)
         {
-            // The inputs of the items go. Turn and depth stay (the first two).
-            inputs.resize(std::min<size_t>(inputs.size(), 2));
+            // The inputs of the items go. Turn, relief, and depth stay (the
+            // first three).
+            inputs.resize(std::min<size_t>(inputs.size(), 3));
             items.Children().Clear();
             for (size_t i = 0; i < zs::LabelItemCount(l); i++)
             {
@@ -1529,7 +2162,7 @@ namespace winrt::ZSlice::implementation
                 {
                     Border rule;
                     rule.Height(1);
-                    rule.Background(Media::SolidColorBrush(Windows::UI::Color{ 255, 0xdd, 0xe0, 0xe4 }));
+                    rule.Background(TokenBrush(w.Root(), L"ZsLine"));
                     items.Children().Append(rule);
                 }
                 items.Children().Append(ItemBox(l, i));
@@ -1577,8 +2210,8 @@ namespace winrt::ZSlice::implementation
                 });
                 chips.Children().Append(plus);
             }
-            // A label in the filament of the part does not show.
-            bool same = l.filament == base;
+            // An ink label in the filament of the part does not show.
+            bool same = l.filament == base && l.mode == zs::label_ink;
             notice.Visibility(same ? Visibility::Visible : Visibility::Collapsed);
             notice_add.Visibility(same && n <= 1 ? Visibility::Visible : Visibility::Collapsed);
             notice_text.Text(n <= 1 ? L"The plate has one filament, so this label does not show."
@@ -1614,6 +2247,9 @@ namespace winrt::ZSlice::implementation
             double lw = InfoNumber(info, L"line_width", 0.42);
             depth1.IsChecked(!(l.depth > 0));
             depth2.IsChecked(std::abs(l.depth - 2 * lw) < 1e-6);
+            for (int k = 0; k < zs::label_mode_count; k++)
+                mode_buttons[k].IsChecked(l.mode == k);
+            relief_row.Visibility(l.mode != zs::label_ink ? Visibility::Visible : Visibility::Collapsed);
             updating = false;
             DrawChips(l);
         }
@@ -1627,47 +2263,49 @@ namespace winrt::ZSlice::implementation
             double lw = InfoNumber(info, L"line_width", 0.42);
             Grid stats = FactsGrid();
             if (InfoNumber(info, L"thinnest") > 0)
-                Fact(stats, L"Thinnest stroke", Format(L"%.2f mm", InfoNumber(info, L"thinnest")), InfoNumber(info, L"thinnest") < 2 * lw);
+                Fact(w.Root(), stats, L"Thinnest stroke", Format(L"%.2f mm", InfoNumber(info, L"thinnest")), InfoNumber(info, L"thinnest") < 2 * lw);
             if (InfoNumber(info, L"clean_size") > 0)
             {
                 wchar_t text[96];
                 swprintf_s(text, L"clean from %.1f mm, fair from %.1f mm", InfoNumber(info, L"clean_size"), InfoNumber(info, L"fair_size"));
-                Fact(stats, L"Text size", text, false);
+                Fact(w.Root(), stats, L"Text size", text, false);
             }
             check.Children().Append(stats);
             std::wstring advice = InfoText(info, L"advice");
             if (!advice.empty())
-                check.Children().Append(SmallText(advice, false));
+                check.Children().Append(SmallText(w.Root(), advice, false));
             if (InfoFlag(info, L"same_filament"))
                 return;
             bool sliced = InfoFlag(info, L"sliced");
             int n = (int)std::lround(InfoNumber(info, sliced ? L"changes" : L"estimate_changes"));
             Grid facts = FactsGrid();
-            Fact(facts, sliced ? L"Adds" : L"Adds about", std::to_wstring(n) + (n == 1 ? L" filament change" : L" filament changes"), false);
-            Fact(facts, L"Time", std::to_wstring(std::lround(InfoNumber(info, L"minutes"))) + L" min", false);
-            Fact(facts, L"Flush", Format(L"%.1f g", InfoNumber(info, L"grams")), false);
+            Fact(w.Root(), facts, sliced ? L"Adds" : L"Adds about", std::to_wstring(n) + (n == 1 ? L" filament change" : L" filament changes"), false);
+            Fact(w.Root(), facts, L"Time", std::to_wstring(std::lround(InfoNumber(info, L"minutes"))) + L" min", false);
+            Fact(w.Root(), facts, L"Flush", Format(L"%.1f g", InfoNumber(info, L"grams")), false);
             if (InfoNumber(info, L"layers") > 0)
             {
                 wchar_t text[64];
                 swprintf_s(text, L"%ld (%.1f to %.1f mm)", std::lround(InfoNumber(info, L"layers")), InfoNumber(info, L"z_min"), InfoNumber(info, L"z_max"));
-                Fact(facts, L"Layers", text, false);
+                Fact(w.Root(), facts, L"Layers", text, false);
             }
             cost.Children().Append(facts);
             if (!sliced)
-                cost.Children().Append(SmallText(L"An estimate. The slice gives the count.", true));
+                cost.Children().Append(SmallText(w.Root(), L"An estimate. The slice gives the count.", true));
             int top = (int)std::lround(InfoNumber(info, L"top_changes", -1));
             if (InfoText(info, L"kind") == L"side" && n > 10 && top >= 0)
-                cost.Children().Append(SmallText(L"On the top face, this label costs " + std::to_wstring(top) + (top == 1 ? L" change." : L" changes."), false));
+                cost.Children().Append(SmallText(w.Root(), L"On the top face, this label costs " + std::to_wstring(top) + (top == 1 ? L" change." : L" changes."), false));
         }
 
         void CloseTool()
         {
             Flush();
             Release();
-            ScaleEnd();
             w.meshes.CheckAll();
             labels.clear();
             outlines.clear();
+            guides.clear();
+            face_index = -1;
+            handle_mpp = 0;
             index = -1;
             drawing = -1;
             Select(-1);
@@ -1699,6 +2337,8 @@ namespace winrt::ZSlice::implementation
         l.items = find(L"Items").as<StackPanel>();
         l.scroll = find(L"Scroll").as<ScrollViewer>();
         l.turn = find(L"Turn").as<NumberBox>();
+        l.relief = find(L"Relief").as<NumberBox>();
+        l.relief_row = find(L"ReliefRow").as<Grid>();
         l.depth_mm = find(L"DepthMm").as<NumberBox>();
         l.depth1 = find(L"Depth1").as<Primitives::ToggleButton>();
         l.depth2 = find(L"Depth2").as<Primitives::ToggleButton>();
@@ -1706,14 +2346,44 @@ namespace winrt::ZSlice::implementation
         l.check = find(L"Check").as<StackPanel>();
         l.cost = find(L"Cost").as<StackPanel>();
         SetRounder(l.turn, 0.1);
+        SetRounder(l.relief, 0.01);
         SetRounder(l.depth_mm, 0.001);
+        l.relief.Value(zs::label_default_relief);
         CardLayer().Children().Append(l.card);
 
-        // The turn and the depth are the first two inputs.
+        // The turn, the relief, and the depth are the first three inputs.
         l.AddInput(l.turn, -1, "turn");
+        l.AddInput(l.relief, -1, "relief");
         l.AddInput(l.depth_mm, -1, "depth");
         l.turn.ValueChanged([this](NumberBox const &, NumberBoxValueChangedEventArgs const &e) { label->OnNumber(-1, "turn", e.NewValue(), 0.05); });
+        l.relief.ValueChanged([this](NumberBox const &, NumberBoxValueChangedEventArgs const &e) { label->OnNumber(-1, "relief", e.NewValue(), 0.005); });
         l.depth_mm.ValueChanged([this](NumberBox const &, NumberBoxValueChangedEventArgs const &e) { label->OnNumber(-1, "depth", e.NewValue(), 0.0005); });
+
+        // The modes act as a radio group: the button of the mode stays on.
+        for (int k = 0; k < zs::label_mode_count; k++)
+        {
+            l.mode_buttons[k] = find((L"Mode" + std::to_wstring(k)).c_str()).as<Primitives::ToggleButton>();
+            l.mode_buttons[k].Click([this, k](IInspectable const &sender, auto &&) {
+                sender.as<Primitives::ToggleButton>().IsChecked(label->Selected() != nullptr && label->Selected()->mode == k);
+                queue.TryEnqueue([weak = get_weak(), k] {
+                    if (auto self = weak.get())
+                        self->label->SetMode(k);
+                });
+            });
+        }
+        find(L"PlaceSvg").as<Button>().Click([this](auto &&, auto &&) {
+            // The dialog runs after the click ends.
+            queue.TryEnqueue([weak = get_weak()] {
+                if (auto self = weak.get())
+                    self->label->PickSvg();
+            });
+        });
+        // The color tokens in code follow the theme: the fields again.
+        l.card.ActualThemeChanged([this](auto &&, auto &&) {
+            label->key.clear();
+            label->chips_key.clear();
+            label->ShowCard();
+        });
 
         auto on_depth = [this](bool two) {
             auto &s = *label;
@@ -1752,40 +2422,6 @@ namespace winrt::ZSlice::implementation
             ViewPanel().Focus(FocusState::Programmatic);
             e.Handled(true);
         });
-
-        // The handle at the corner: a drag scales the label.
-        l.handle = Border();
-        l.handle.Width(14);
-        l.handle.Height(14);
-        l.handle.Background(Media::SolidColorBrush(Windows::UI::Color{ 255, 0xf5, 0xc2, 0x11 }));
-        l.handle.BorderBrush(Media::SolidColorBrush(Windows::UI::Color{ 255, 0x1b, 0x1b, 0x1d }));
-        l.handle.BorderThickness(ThicknessHelper::FromUniformLength(1.5));
-        l.handle.Visibility(Visibility::Collapsed);
-        ToolTipService::SetToolTip(l.handle, box_value(L"Drag to make the label larger or smaller"));
-        l.handle.PointerPressed([this](auto &&, Input::PointerRoutedEventArgs const &e) {
-            auto at = e.GetCurrentPoint(ViewPanel()).Position();
-            label->ScaleBegin(at.X, at.Y);
-            if (label->scaling)
-                label->handle.CapturePointer(e.Pointer());
-            e.Handled(true);
-        });
-        l.handle.PointerMoved([this](auto &&, Input::PointerRoutedEventArgs const &e) {
-            if (!label->scaling)
-                return;
-            auto at = e.GetCurrentPoint(ViewPanel()).Position();
-            label->ScaleTo(at.X, at.Y);
-            e.Handled(true);
-        });
-        auto end = [this](auto &&, Input::PointerRoutedEventArgs const &e) {
-            if (!label->scaling)
-                return;
-            label->ScaleEnd();
-            label->handle.ReleasePointerCapture(e.Pointer());
-            e.Handled(true);
-        };
-        l.handle.PointerReleased(end);
-        l.handle.PointerCaptureLost(end);
-        CardLayer().Children().Append(l.handle);
     }
 
     void MainWindow::LabelTool(bool on)
@@ -1798,10 +2434,11 @@ namespace winrt::ZSlice::implementation
             l.CloseTool();
             l.on = false;
             l.ShowCard();
-            l.handle.Visibility(Visibility::Collapsed);
+            l.SetCursor(-1);
             return;
         }
         l.on = true;
+        l.SetCursor((int)InputSystemCursorShape::Cross);
         l.core = model != nullptr ? model->Active() : nullptr;
         if (model != nullptr && !selected_parts.empty())
             l.Load(selected_parts[0], -1);
@@ -1837,6 +2474,19 @@ namespace winrt::ZSlice::implementation
     bool MainWindow::LabelWheel(double x, double y, int delta, bool shift)
     {
         return label->Wheel(x, y, delta, shift);
+    }
+
+    void MainWindow::LabelHover(double x, double y)
+    {
+        if (label->on && !label->dragging)
+            label->SetCursor(label->CursorAt(x, y));
+    }
+
+    void MainWindow::LabelDropSvg(std::wstring const &path, double x, double y)
+    {
+        std::wstring svg;
+        if (ReadSvgFile(path, svg))
+            label->DropSvg(svg, path, x, y, label->OverView(x, y));
     }
 
     bool MainWindow::LabelKey(VirtualKey key)
@@ -1938,23 +2588,134 @@ namespace winrt::ZSlice::implementation
             else
                 zs::Log("dev: no label to drag\n");
         }
-        else if (verb == L"lscale")
+        else if (verb == L"laltdrag")
         {
-            zs::Label *s = l.Selected();
-            Outline *o = s != nullptr ? l.OutlineFor(*s) : nullptr;
-            double q[2];
-            if (o != nullptr && l.ScreenCenter(c) && l.ScreenOf(*s, o->box[2] + 0.5, o->box[3] + 0.5, q))
+            // A move with Alt: no snap.
+            if (l.ScreenCenter(c) && ToolPress(c[0], c[1], false))
             {
-                l.ScaleBegin(q[0], q[1]);
+                pointer_alt = true;
+                for (int k = 1; k <= 10; k++)
+                    ToolDrag(c[0] + number(0) * k / 10, c[1] + number(1) * k / 10, false);
+                zs::Log("dev: label: %zu guide lines\n", l.guides.size() / 4);
+                ToolRelease();
+                pointer_alt = false;
+            }
+            else
+                zs::Log("dev: no label to drag\n");
+        }
+        else if (verb == L"lhold")
+        {
+            // A drag from the center that stays pressed, so the guides show.
+            if (l.ScreenCenter(c) && ToolPress(c[0], c[1], false))
+            {
+                for (int k = 1; k <= 10; k++)
+                    ToolDrag(c[0] + number(0) * k / 10, c[1] + number(1) * k / 10, false);
+                zs::Log("dev: label: %zu guide lines\n", l.guides.size() / 4);
+            }
+            else
+                zs::Log("dev: no label to hold\n");
+        }
+        else if (verb == L"lrelease")
+            ToolRelease();
+        else if (verb == L"lscale" || verb == L"lsscale")
+        {
+            // A drag of the upper right corner handle to k times its
+            // distance from the center. lsscale: with Shift.
+            zs::Label *s = l.Selected();
+            zs::LabelHandles g;
+            double q[2];
+            if (s != nullptr && l.HandlesOf(*s, g) && l.ScreenCenter(c) && l.ScreenOf(*s, g.box[2], g.box[3], q) && ToolPress(q[0], q[1], false))
+            {
                 for (int k = 1; k <= 10; k++)
                 {
                     double kk = 1 + (number(0) - 1) * k / 10;
-                    l.ScaleTo(c[0] + (q[0] - c[0]) * kk, c[1] + (q[1] - c[1]) * kk);
+                    double ky = verb == L"lsscale" && words.size() > 1 ? 1 + (number(1) - 1) * k / 10 : kk;
+                    ToolDrag(c[0] + (q[0] - c[0]) * kk, c[1] + (q[1] - c[1]) * ky, verb == L"lsscale");
                 }
-                l.ScaleEnd();
+                ToolRelease();
             }
             else
                 zs::Log("dev: no handle\n");
+        }
+        else if (verb == L"lturnh" || verb == L"lsturnh")
+        {
+            // A drag of the turn handle by deg degrees around the center.
+            // lsturnh: with Shift.
+            zs::Label *s = l.Selected();
+            zs::LabelHandles g;
+            double q[2];
+            if (s != nullptr && l.HandlesOf(*s, g) && l.ScreenCenter(c) && l.ScreenOf(*s, g.turn[0], g.turn[1], q) && ToolPress(q[0], q[1], false))
+            {
+                double r0 = std::hypot(q[0] - c[0], q[1] - c[1]), a0 = std::atan2(q[1] - c[1], q[0] - c[0]);
+                for (int k = 1; k <= 10; k++)
+                {
+                    double ang = a0 - number(0) * pi / 180 * k / 10;
+                    ToolDrag(c[0] + r0 * std::cos(ang), c[1] + r0 * std::sin(ang), verb == L"lsturnh");
+                }
+                ToolRelease();
+            }
+            else
+                zs::Log("dev: no turn handle\n");
+        }
+        else if (verb == L"lhandleclick")
+        {
+            // A press and a release on the turn handle, with no move.
+            zs::Label *s = l.Selected();
+            zs::LabelHandles g;
+            double q[2];
+            if (s != nullptr && l.HandlesOf(*s, g) && l.ScreenOf(*s, g.turn[0], g.turn[1], q) && ToolPress(q[0], q[1], false))
+            {
+                ToolRelease();
+                l.Click(q[0], q[1]);
+            }
+            else
+                zs::Log("dev: no turn handle\n");
+        }
+        else if (verb == L"lcursor")
+        {
+            // The pointer over the corner, the turn handle, the body, and
+            // a place away from the label.
+            zs::Label *s = l.Selected();
+            zs::LabelHandles g;
+            double a[2], b[2];
+            if (s != nullptr && l.HandlesOf(*s, g) && l.ScreenCenter(c) && l.ScreenOf(*s, g.box[2], g.box[3], a) && l.ScreenOf(*s, g.turn[0], g.turn[1], b))
+                zs::Log("dev: label cursors: corner %d, turn %d, body %d, away %d\n", l.CursorAt(a[0], a[1]), l.CursorAt(b[0], b[1]), l.CursorAt(c[0], c[1]), l.CursorAt(4, 4));
+        }
+        else if (verb == L"lsvg")
+            l.PlaceSvgFile(words.empty() ? std::wstring() : words[0]);
+        else if (verb == L"ldropsvg")
+        {
+            // An SVG file dropped on the front face of part 0, dx and dz mm
+            // from its middle. "away": on the bed beside the part. "card":
+            // on the middle of the label card.
+            zs_part part{};
+            float qx, qy;
+            std::wstring where = words.size() > 1 ? words[1] : L"";
+            if (where == L"away" && zs_app_part_get(model->Active(), 0, &part) == ZS_OK &&
+                zs_view_pixel_of(view, part.x + part.size_x / 2 + 25, part.y, 0, &qx, &qy))
+                LabelDropSvg(words[0], qx / Scale(), qy / Scale());
+            else if (where == L"card")
+            {
+                auto at = l.card.TransformToVisual(ViewPanel()).TransformPoint({ (float)(l.card.ActualWidth() / 2), (float)(l.card.ActualHeight() / 2) });
+                zs::Log("dev: label: over the view at the card: %d\n", l.OverView(at.X, at.Y) ? 1 : 0);
+                LabelDropSvg(words[0], at.X, at.Y);
+            }
+            else if (words.size() > 2 && zs_app_part_get(model->Active(), 0, &part) == ZS_OK &&
+                     zs_view_pixel_of(view, part.x + number(1), part.y - part.size_y / 2, part.size_z / 2 + number(2), &qx, &qy))
+            {
+                zs::Log("dev: label: over the view at the part: %d\n", l.OverView(qx / Scale(), qy / Scale()) ? 1 : 0);
+                LabelDropSvg(words[0], qx / Scale(), qy / Scale());
+            }
+            else
+                zs::Log("dev: no front face\n");
+        }
+        else if (verb == L"lmode")
+        {
+            for (int k = 0; k < zs::label_mode_count; k++)
+                if (narrow(0) == zs::label_modes[k])
+                    l.SetMode(k);
+            if (words.size() > 1)
+                l.SetRelief(number(1));
         }
         else if (verb == L"ldraw")
             l.DrawPoints((int)number(0));
@@ -1964,14 +2725,18 @@ namespace winrt::ZSlice::implementation
             l.Flush();
         else if (verb != L"llog")
             return false;
-        zs::Log("dev: label: tool %s, part %lld, %zu labels, sel %lld, pending %lld, drawing %d, curve %.0f, card %s, handle %s, history %zu of %zu\n", l.on ? "on" : "off",
+        zs::Log("dev: label: tool %s, part %lld, %zu labels, sel %lld, pending %lld, drawing %d, curve %.0f, card %s, relief row %s, guides %zu, history %zu of %zu, toast \"%s\"\n", l.on ? "on" : "off",
                 (long long)l.index, l.labels.size(), (long long)l.sel, (long long)l.pending, l.drawing, l.curve,
-                l.card.Visibility() == Visibility::Visible ? "shown" : "hidden", l.handle.Visibility() == Visibility::Visible ? "shown" : "hidden",
-                zs_app_history_current(model->Active()) + 1, zs_app_history_count(model->Active()));
+                l.card.Visibility() == Visibility::Visible ? "shown" : "hidden", l.relief_row.Visibility() == Visibility::Visible ? "shown" : "hidden",
+                l.guides.size() / 4, zs_app_history_current(model->Active()) + 1, zs_app_history_count(model->Active()), zs::ToUtf8(std::wstring(ToastText().Text())).c_str());
         for (auto const &x : l.labels)
         {
-            zs::Log("dev: label %u %s: %zu items, filament %d, depth %.2f, at %.2f %.2f %.2f, normal %.2f %.2f %.2f, turn %.1f, size %.2f%s\n", x.id,
-                    zs::ToUtf8(zs::LabelTitle(x)).c_str(), zs::LabelItemCount(x), x.filament, x.depth, x.origin[0], x.origin[1], x.origin[2], x.normal[0],
+            std::string kinds;
+            for (size_t i = 0; i < zs::LabelItemCount(x); i++)
+                kinds += (i > 0 ? "," : "") + zs::LabelItemKind(zs::LabelItem(x, i));
+            zs::Log("dev: label %u %s: %zu items (%s), filament %d, depth %.2f, mode %s, relief %.2f, stretch %.3f %.3f, at %.2f %.2f %.2f, normal %.2f %.2f %.2f, turn %.1f, size %.2f%s\n", x.id,
+                    zs::ToUtf8(zs::LabelTitle(x)).c_str(), zs::LabelItemCount(x), kinds.c_str(), x.filament, x.depth, zs::label_modes[x.mode], x.relief,
+                    x.has_stretch ? x.stretch[0] : 1.0, x.has_stretch ? x.stretch[1] : 1.0, x.origin[0], x.origin[1], x.origin[2], x.normal[0],
                     x.normal[1], x.normal[2], zs::LabelAngle(x), zs::LabelItemCount(x) > 0 ? zs::LabelItemSize(zs::LabelItem(x, 0)) : 0.0,
                     x.id == (uint32_t)l.sel ? ", selected" : "");
         }

@@ -23,6 +23,8 @@ namespace zs
 {
     char const *const label_kinds[label_kind_count] = { "text", "line", "bar", "ring", "ticks", "polyline" };
     wchar_t const *const label_kind_names[label_kind_count] = { L"Text", L"Line", L"Bar", L"Ring", L"Ticks", L"Free" };
+    char const *const label_modes[label_mode_count] = { "ink", "raised", "cut" };
+    wchar_t const *const label_mode_names[label_mode_count] = { L"Ink", L"Raised", L"Cut in" };
 
     namespace
     {
@@ -56,6 +58,9 @@ namespace zs
         };
         LabelField const poly_fields[] = {
             { "width", L"Width", L"mm", 0, 100, 0.1, L"The width of the line (0 with Filled)" },
+        };
+        LabelField const svg_fields[] = {
+            { "size", L"Height", L"mm", 0.1, 500, 0.1, L"The height of the picture" },
         };
 
         hstring Key(char const *name)
@@ -144,6 +149,14 @@ namespace zs
             if (o.HasKey(L"name") && o.GetNamedValue(L"name").ValueType() == JsonValueType::String)
                 l.name = ToUtf8(std::wstring(o.GetNamedString(L"name")));
             l.has_stretch = VectorOf(o, L"stretch", l.stretch, 2);
+            l.relief = NumberOf(o, L"relief", 0);
+            if (o.HasKey(L"mode") && o.GetNamedValue(L"mode").ValueType() == JsonValueType::String)
+            {
+                std::string mode = ToUtf8(std::wstring(o.GetNamedString(L"mode")));
+                for (int k = 0; k < label_mode_count; k++)
+                    if (mode == label_modes[k])
+                        l.mode = k;
+            }
             if (!VectorOf(o, L"origin", l.origin, 3) || !VectorOf(o, L"normal", l.normal, 3) || !VectorOf(o, L"right", l.right, 3) ||
                 !Unit(l.normal) || !Unit(l.right))
                 return false;
@@ -183,6 +196,8 @@ namespace zs
                 return { "radius", "length", "length_end", "width" };
             if (kind == "polyline")
                 return { "width" };
+            if (kind == "svg")
+                return { "size" };
             return {};
         }
     }
@@ -199,6 +214,7 @@ namespace zs
             { "text", text_fields, std::size(text_fields) },    { "line", line_fields, std::size(line_fields) },
             { "bar", bar_fields, std::size(bar_fields) },       { "ring", ring_fields, std::size(ring_fields) },
             { "ticks", ticks_fields, std::size(ticks_fields) }, { "polyline", poly_fields, std::size(poly_fields) },
+            { "svg", svg_fields, std::size(svg_fields) },
         };
         for (auto const &e : all)
         {
@@ -259,6 +275,14 @@ namespace zs
             s += ",\"filament\":" + std::to_string(l.filament) + ",\"depth\":";
             AppendNumber(s, l.depth);
             s += ",";
+            if (l.mode > label_ink && l.mode < label_mode_count)
+            {
+                s += "\"mode\":\"";
+                s += label_modes[l.mode];
+                s += "\",\"relief\":";
+                AppendNumber(s, l.relief);
+                s += ",";
+            }
         }
         if (l.has_stretch)
         {
@@ -411,6 +435,8 @@ namespace zs
             return 2 * NumberOf(item, L"outer", 0);
         if (k == "ticks")
             return 2 * (NumberOf(item, L"radius", 0) + std::max(NumberOf(item, L"length", 0), NumberOf(item, L"length_end", 0)));
+        if (k == "svg")
+            return NumberOf(item, L"size", 0);
         if (k == "polyline" && item.HasKey(L"points") && item.GetNamedValue(L"points").ValueType() == JsonValueType::Array)
         {
             JsonArray a = item.GetNamedArray(L"points");
@@ -509,6 +535,8 @@ namespace zs
         for (size_t i = 0; i < LabelItemCount(l); i++)
         {
             std::string kind = LabelItemKind(LabelItem(l, i));
+            if (kind == "svg" && out.find(L"SVG") == std::wstring::npos)
+                out += out.empty() ? L"SVG" : L" and SVG";
             for (size_t j = 0; j < label_kind_count; j++)
             {
                 if (kind != label_kinds[j] || seen[j])
@@ -631,5 +659,218 @@ namespace zs
         if (base + 1 <= count)
             return base + 1;
         return base == 1 ? 2 : 1;
+    }
+
+    // ---- the handles and the smart guides ----
+
+    void LabelHandlesOf(double const box[4], double mpp, LabelHandles &g)
+    {
+        double const gap = 4 * mpp;
+        g.box[0] = box[0] - gap;
+        g.box[1] = box[1] - gap;
+        g.box[2] = box[2] + gap;
+        g.box[3] = box[3] + gap;
+        g.hs = 4.5 * mpp;
+        g.turn[0] = (g.box[0] + g.box[2]) / 2;
+        g.turn[1] = g.box[3] + 22 * mpp;
+        g.r = 5 * mpp;
+    }
+
+    int LabelHandleHit(LabelHandles const &g, double x, double y, int corner[2])
+    {
+        // A handle has a hit area a little larger than its decal.
+        double const m = 1.6;
+        if (std::hypot(x - g.turn[0], y - g.turn[1]) <= g.r * m)
+            return 2;
+        for (int sx = -1; sx <= 1; sx += 2)
+        {
+            for (int sy = -1; sy <= 1; sy += 2)
+            {
+                double cx = sx > 0 ? g.box[2] : g.box[0];
+                double cy = sy > 0 ? g.box[3] : g.box[1];
+                if (std::abs(x - cx) <= g.hs * m && std::abs(y - cy) <= g.hs * m)
+                {
+                    corner[0] = sx;
+                    corner[1] = sy;
+                    return 1;
+                }
+            }
+        }
+        return 0;
+    }
+
+    void LabelResizeBox(double const b0[4], int const corner[2], double const p[2], bool free, double box[4], double anchor[2], double k[2])
+    {
+        anchor[0] = corner[0] > 0 ? b0[0] : b0[2];
+        anchor[1] = corner[1] > 0 ? b0[1] : b0[3];
+        double c0[2] = { corner[0] > 0 ? b0[2] : b0[0], corner[1] > 0 ? b0[3] : b0[1] };
+        double v[2] = { c0[0] - anchor[0], c0[1] - anchor[1] };
+        if (free)
+        {
+            k[0] = std::abs(v[0]) > 1e-9 ? (p[0] - anchor[0]) / v[0] : 1;
+            k[1] = std::abs(v[1]) > 1e-9 ? (p[1] - anchor[1]) / v[1] : 1;
+        }
+        else
+        {
+            k[0] = k[1] = ((p[0] - anchor[0]) * v[0] + (p[1] - anchor[1]) * v[1]) / std::max(1e-12, v[0] * v[0] + v[1] * v[1]);
+        }
+        for (int a = 0; a < 2; a++)
+        {
+            k[a] = std::max(0.05, k[a]);
+            double c = anchor[a] + k[a] * v[a];
+            box[a] = std::min(anchor[a], c);
+            box[a + 2] = std::max(anchor[a], c);
+        }
+    }
+
+    void LabelResize(Label &l, double const anchor[2], double const k[2], bool free)
+    {
+        if (free)
+        {
+            if (!l.has_stretch)
+                l.stretch[0] = l.stretch[1] = 1;
+            l.has_stretch = true;
+            l.stretch[0] *= k[0];
+            l.stretch[1] *= k[1];
+        }
+        else
+        {
+            LabelScale(l, k[0]);
+        }
+        double up[3];
+        LabelUp(l, up);
+        for (int a = 0; a < 3; a++)
+            l.origin[a] += (1 - k[0]) * anchor[0] * l.right[a] + (1 - k[1]) * anchor[1] * up[a];
+    }
+
+    void LabelTurnAbout(Label &l, double degrees, double const c[2])
+    {
+        double r0[3], u0[3], u1[3];
+        std::memcpy(r0, l.right, sizeof r0);
+        LabelUp(l, u0);
+        LabelTurn(l, degrees);
+        LabelUp(l, u1);
+        for (int a = 0; a < 3; a++)
+            l.origin[a] += c[0] * (r0[a] - l.right[a]) + c[1] * (u0[a] - u1[a]);
+    }
+
+    JsonObject LabelSvgItem(std::wstring const &svg)
+    {
+        JsonObject o;
+        o.SetNamedValue(L"kind", JsonValue::CreateStringValue(L"svg"));
+        o.SetNamedValue(L"svg", JsonValue::CreateStringValue(svg));
+        o.SetNamedValue(L"size", JsonValue::CreateNumberValue(label_svg_size));
+        return o;
+    }
+
+    void LabelAddSvg(Label &l, std::wstring const &svg, double const box[4])
+    {
+        JsonObject it = LabelSvgItem(svg);
+        JsonObject first = LabelItem(l, 0);
+        bool fresh = LabelItemCount(l) == 1 && LabelItemKind(first) == "text" && LabelItemText(first) == L"LABEL";
+        LabelOwnItems(l);
+        if (fresh)
+            l.items = JsonArray();
+        else
+            LabelItemSetAt(it, 0, (box != nullptr ? box[1] : 0) - label_svg_size / 2 - 1);
+        l.items.Append(it);
+    }
+
+    std::string LabelSvgName(std::wstring const &path)
+    {
+        size_t slash = path.find_last_of(L"\\/");
+        std::wstring base = slash == std::wstring::npos ? path : path.substr(slash + 1);
+        if (base.size() >= 4 && _wcsicmp(base.c_str() + base.size() - 4, L".svg") == 0)
+            base.resize(base.size() - 4);
+        std::string name = ToUtf8(base);
+        if (name.size() > 120)
+        {
+            size_t end = 120;
+            while (end > 0 && (static_cast<unsigned char>(name[end]) & 0xC0) == 0x80)
+                end--;
+            name.resize(end);
+        }
+        return name;
+    }
+
+    bool LabelSamePlane(double const origin[3], double const normal[3], Label const &l)
+    {
+        if (Dot(normal, l.normal) < std::cos(2.5 * pi / 180))
+            return false;
+        double v[3] = { l.origin[0] - origin[0], l.origin[1] - origin[1], l.origin[2] - origin[2] };
+        return std::abs(Dot(v, normal)) < 0.2;
+    }
+
+    namespace
+    {
+        void AppendFrame(std::string &s, Label const &l)
+        {
+            s += "\"origin\":";
+            AppendVector(s, l.origin, 3);
+            s += ",\"normal\":";
+            AppendVector(s, l.normal, 3);
+            s += ",\"right\":";
+            AppendVector(s, l.right, 3);
+        }
+    }
+
+    std::string LabelSnapJson(Label const &l, double const box[4], char const *op, int const *corner, bool aspect, double tol,
+                              std::vector<LabelSnapOther> const &others, std::string const *face)
+    {
+        std::string s = "{\"op\":\"";
+        s += op;
+        s += "\",\"frame\":{";
+        AppendFrame(s, l);
+        s += "},\"box\":";
+        AppendVector(s, box, 4);
+        s += ",\"tol\":";
+        AppendNumber(s, tol);
+        s += ",\"others\":[";
+        for (size_t i = 0; i < others.size(); i++)
+        {
+            if (i > 0)
+                s += ',';
+            s += '{';
+            AppendFrame(s, *others[i].label);
+            s += ",\"box\":";
+            AppendVector(s, others[i].box, 4);
+            s += '}';
+        }
+        s += "],\"face\":";
+        s += face != nullptr ? *face : std::string("null");
+        if (corner != nullptr)
+        {
+            double c[2] = { (double)corner[0], (double)corner[1] };
+            s += ",\"corner\":";
+            AppendVector(s, c, 2);
+            s += aspect ? ",\"aspect\":true" : ",\"aspect\":false";
+        }
+        s += '}';
+        return s;
+    }
+
+    bool LabelSnapParse(std::string const &json, double box[4], double d[2], std::vector<double> &guides)
+    {
+        guides.clear();
+        JsonObject o{ nullptr };
+        if (!JsonObject::TryParse(ToWide(json), o) || !VectorOf(o, L"box", box, 4) || !VectorOf(o, L"d", d, 2) || !o.HasKey(L"guides") ||
+            o.GetNamedValue(L"guides").ValueType() != JsonValueType::Array)
+            return false;
+        JsonArray lines = o.GetNamedArray(L"guides");
+        for (uint32_t i = 0; i < lines.Size(); i++)
+        {
+            IJsonValue line = lines.GetAt(i);
+            if (line.ValueType() != JsonValueType::Array || line.GetArray().Size() != 4)
+                continue;
+            JsonArray a = line.GetArray();
+            bool numbers = true;
+            for (uint32_t k = 0; k < 4; k++)
+                numbers = numbers && a.GetAt(k).ValueType() == JsonValueType::Number;
+            if (!numbers)
+                continue;
+            for (uint32_t k = 0; k < 4; k++)
+                guides.push_back(a.GetAt(k).GetNumber());
+        }
+        return true;
     }
 }
