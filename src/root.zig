@@ -74,6 +74,8 @@ pub const label = @import("label.zig");
 /// The smart guides of the labels: the features of a face, and the snap
 /// (see label_snap.zig).
 pub const label_snap = @import("label_snap.zig");
+/// The smart guides of a part that moves on the bed (see part_snap.zig).
+pub const part_snap = @import("part_snap.zig");
 pub const font = @import("font.zig");
 pub const motion = @import("motion.zig");
 pub const parallel = @import("parallel.zig");

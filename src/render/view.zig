@@ -65,6 +65,11 @@
 //! picks a layer (`setLayer`). One or two fingers turn, zoom, and move the
 //! camera (`touch`). The reduced view leaves out the tools and the marks,
 //! and uses the coarse bead mesh.
+//!
+//! The gizmo of the transform tool (`setGizmo`): a ring and an arrow for
+//! each axis, as the gizmos of PrusaSlicer and OrcaSlicer (see
+//! docs/references/prusaslicer.md), and the guides of a snap
+//! (`setGuides`).
 
 const std = @import("std");
 const builtin = @import("builtin");
@@ -318,10 +323,17 @@ pub const View = struct {
     light_layers: ?[2]usize = null,
     /// The rings of the Turn tool around the selected part (see
     /// `setRings`): the center and the radius, mm.
-    rings: ?struct { c: [3]f32, r: f32 } = null,
+    rings: ?struct { c: [3]f32, r: f32, arrows: bool = false } = null,
+    /// The guides of a part that moves on the bed (part_snap.zig): lines
+    /// x0, y0, x1, y1 on the bed (mm). See `setGuides`.
+    guides: std.ArrayList([4]f32) = .empty,
+    /// The press of an arrow of the transform tool: the place on the
+    /// axis (mm from the center) under the pointer at the press.
+    arrow_t0: f32 = 0,
     /// The plane of a cut (see `setCut`): x0, y0, x1, y1, and z (mm).
     cut_plane: ?[5]f32 = null,
-    /// The ring of a turn in progress (0 X, 1 Y, 2 Z), or -1.
+    /// The handle of a drag in progress: the ring of a turn (0 X, 1 Y,
+    /// 2 Z), the arrow of a move (3 X, 4 Y, 5 Z), or -1.
     ring_axis: i8 = -1,
     /// The press of a turn: the center of the ring on the screen, the
     /// angle of the press about it, and the sense of the ring.
@@ -543,6 +555,7 @@ pub const View = struct {
         v.draw_dist.deinit(gpa);
         v.layer_end.deinit(gpa);
         v.part_boxes.deinit(gpa);
+        v.guides.deinit(gpa);
         v.mark_rings.deinit(gpa);
         v.sup_pts.deinit(gpa);
         v.sup_areas.deinit(gpa);
@@ -2200,6 +2213,13 @@ pub const View = struct {
         try v.part_boxes.appendSlice(gpa, boxes);
     }
 
+    /// The guides of a snap (part_snap.zig): thin lines on the bed while a
+    /// part moves. An empty list hides them.
+    pub fn setGuides(v: *View, lines: []const [4]f32) Error!void {
+        v.guides.clearRetainingCapacity();
+        try v.guides.appendSlice(gpa, lines);
+    }
+
     /// Lights the layers lo to hi (a drag of the Select tool over the
     /// print), or none (null). The frame shows them in the color of a
     /// selection, and the other layers as they are: it uses the highlight
@@ -2914,8 +2934,93 @@ pub const View = struct {
     /// c, with radius r mm (0: none). The view draws them (red X, green Y,
     /// blue Z), and finds them under a pixel (`ringAt`).
     pub fn setRings(v: *View, c: [3]f32, r: f32) void {
-        v.rings = if (r > 0) .{ .c = c, .r = r } else null;
+        v.setGizmo(c, r, false);
+    }
+
+    /// The gizmo of the transform tool: the rings, and with `arrows` an
+    /// arrow along each axis out of the rings (red X, green Y, blue Z).
+    /// A drag of an arrow moves the part along its axis (`arrowPress`,
+    /// `arrowDrag`); the arrow of Z lifts it.
+    pub fn setGizmo(v: *View, c: [3]f32, r: f32, arrows: bool) void {
+        v.rings = if (r > 0) .{ .c = c, .r = r, .arrows = arrows } else null;
         if (v.rings == null) v.ring_axis = -1;
+    }
+
+    /// Where an arrow starts and ends, in radii of the rings from the
+    /// center.
+    pub const arrow_from = 1.06;
+    pub const arrow_to = 1.5;
+
+    /// The two ends of the arrow of `axis` (mm), or null with no arrows.
+    pub fn arrowEnds(v: *const View, axis: usize) ?[2][3]f32 {
+        const rg = v.rings orelse return null;
+        if (!rg.arrows) return null;
+        var a = rg.c;
+        var b = rg.c;
+        a[axis] += rg.r * arrow_from;
+        b[axis] += rg.r * arrow_to;
+        return .{ a, b };
+    }
+
+    /// The handle under the pixel (px, py) within tol pixels: a ring (0,
+    /// 1, 2), an arrow (3 X, 4 Y, 5 Z), or -1. The nearest one wins.
+    pub fn gizmoAt(v: *const View, px: f32, py: f32, tol: f32) i32 {
+        var best: i32 = -1;
+        var best_d = tol;
+        // The arrows count a little nearer: their heads are wider than
+        // their lines.
+        for (0..3) |axis| {
+            const e = v.arrowEnds(axis) orelse break;
+            const a = v.pixelOf(e[0]) orelse continue;
+            const b = v.pixelOf(e[1]) orelse continue;
+            const d = segDist(px, py, a, b) * 0.8;
+            if (d < best_d) {
+                best_d = d;
+                best = @intCast(3 + axis);
+            }
+        }
+        // A ring nearer than the arrow wins (the start of an arrow is
+        // near its ring).
+        const ring = v.ringAt(px, py, best_d);
+        return if (ring >= 0) ring else best;
+    }
+
+    /// The place on the line of `axis` through the center of the gizmo
+    /// (mm from the center) nearest to the ray of the pixel, or null if the
+    /// ray runs along the axis.
+    fn axisParam(v: *const View, axis: u2, px: f32, py: f32) ?f32 {
+        const rg = v.rings orelse return null;
+        const r = v.ray(px, py);
+        const e = [3]f32{ r[0], r[1], r[2] };
+        const d = [3]f32{ r[3], r[4], r[5] };
+        var a = [3]f32{ 0, 0, 0 };
+        a[axis] = 1;
+        // The nearest points of two lines c + t a and e + s d.
+        const w = [3]f32{ rg.c[0] - e[0], rg.c[1] - e[1], rg.c[2] - e[2] };
+        const b = d[axis];
+        const denom = 1 - b * b;
+        if (denom < 1e-4) return null;
+        const dw = d[0] * w[0] + d[1] * w[1] + d[2] * w[2];
+        return (b * dw - w[axis]) / denom;
+    }
+
+    /// Starts a move along the arrow of `axis` (0 X, 1 Y, 2 Z) at the
+    /// pixel (px, py). False with no arrows, or a ray along the axis.
+    pub fn arrowPress(v: *View, axis: u2, px: f32, py: f32) bool {
+        if (v.rings == null or !v.rings.?.arrows) return false;
+        v.arrow_t0 = v.axisParam(axis, px, py) orelse return false;
+        v.ring_axis = @as(i8, axis) + 3;
+        return true;
+    }
+
+    /// The move along the arrow since the press (mm), so the point of the
+    /// arrow under the pointer stays under it. 0 with no press, or when
+    /// the ray runs along the axis (then the last move stays: send no
+    /// change).
+    pub fn arrowDrag(v: *const View, px: f32, py: f32) ?f32 {
+        if (v.ring_axis < 3) return null;
+        const t = v.axisParam(@intCast(v.ring_axis - 3), px, py) orelse return null;
+        return t - v.arrow_t0;
     }
 
     pub const ring_samples = 48;
@@ -4772,7 +4877,7 @@ pub const View = struct {
     /// also puts the lowest bead on the bed. `centered`: the x and y of
     /// the move are the center of the box of the turned part, as the core
     /// places a turned part (Plate.turn keeps the center of its footprint).
-    pub const PreviewPlace = struct { on_bed: bool = false, centered: bool = false };
+    pub const PreviewPlace = struct { on_bed: bool = false, centered: bool = false, sink: bool = false };
 
     /// Shows part `part` of the plate (Toolpaths.path_part) turned by the
     /// unit quaternion q (x, y, z, w) about `pivot`, then moved by `move`
@@ -4868,8 +4973,11 @@ pub const View = struct {
             };
             if (std.math.isFinite(zmin)) {
                 if (place.on_bed) {
-                    mv[2] = -(zmin + pivot[2]);
-                } else if (zmin + pivot[2] + mv[2] < 0) {
+                    // The lowest bead at the z of the move (0: on the
+                    // bed; a part with a lift keeps it).
+                    mv[2] = move[2] - (zmin + pivot[2]);
+                    if (!place.sink and zmin + pivot[2] + mv[2] < 0) mv[2] = -(zmin + pivot[2]);
+                } else if (!place.sink and zmin + pivot[2] + mv[2] < 0) {
                     mv[2] = -(zmin + pivot[2]);
                 }
             }
@@ -5435,6 +5543,59 @@ pub const View = struct {
                             n_extras += 1;
                         };
                     }
+                }
+                // The arrows of the transform tool: a line and a head of
+                // six slices, each narrower, along each axis, out of the
+                // rings. A bead is level: the arrow of Z is a stack of
+                // short beads, each as long as it is wide.
+                if (v.rings) |rg| if (rg.arrows) {
+                    const span = std.math.clamp(v.dist * 0.003, 0.12, 2);
+                    const colors = [3][4]u8{ .{ 0xe5, 0x48, 0x4d, code_overlay }, .{ 0x30, 0xa4, 0x6c, code_overlay }, .{ 0x3e, 0x8e, 0xf7, code_overlay } };
+                    for (0..3) |axis| {
+                        const e = v.arrowEnds(axis).?;
+                        const active = v.ring_axis == @as(i8, @intCast(axis + 3));
+                        const w = if (active) span * 2.8 else span * 1.8;
+                        const len = rg.r * (arrow_to - arrow_from);
+                        const head = @min(len * 0.35, w * 7);
+                        const slices = 6;
+                        // Piece k: the line (k < pieces of the line), then
+                        // the slices of the head. t0, t1 along the arrow
+                        // (mm from its start), and the width.
+                        const line_pieces: usize = if (axis == 2) @intFromFloat(@min(@ceil((len - head) / w), 40)) else 1;
+                        for (0..line_pieces + slices) |k| {
+                            if (n_extras == extras.len) break;
+                            var t0: f32 = undefined;
+                            var t1: f32 = undefined;
+                            var bw: f32 = w;
+                            if (k < line_pieces) {
+                                const step = (len - head) / @as(f32, @floatFromInt(line_pieces));
+                                t0 = step * @as(f32, @floatFromInt(k));
+                                t1 = t0 + step;
+                            } else {
+                                const j: f32 = @floatFromInt(k - line_pieces);
+                                t0 = len - head + head * j / slices;
+                                t1 = t0 + head / slices;
+                                bw = w * (2.8 - 2.2 * j / (slices - 1));
+                            }
+                            var a = e[0];
+                            var b = e[0];
+                            a[axis] += t0;
+                            b[axis] += t1;
+                            extras[n_extras] = if (axis == 2)
+                                .{ .ax = a[0] - bw / 2, .ay = a[1], .bx = a[0] + bw / 2, .by = a[1], .z = b[2], .h = b[2] - a[2], .w = bw, .rgba = colors[axis] }
+                            else
+                                .{ .ax = a[0], .ay = a[1], .bx = b[0], .by = b[1], .z = a[2] + bw / 2, .h = bw, .w = bw, .rgba = colors[axis] };
+                            n_extras += 1;
+                        }
+                    }
+                };
+                // The guides of a part that moves (part_snap.zig): thin
+                // magenta lines on the bed.
+                for (v.guides.items) |g| {
+                    if (n_extras + 16 >= extras.len) break;
+                    const span = std.math.clamp(v.dist * 0.002, 0.1, 1.2);
+                    extras[n_extras] = .{ .ax = g[0], .ay = g[1], .bx = if (g[0] == g[2] and g[1] == g[3]) g[2] + 0.001 else g[2], .by = g[3], .z = 0.3, .h = 0.3, .w = span, .rgba = .{ 0xe0, 0x3c, 0xd8, code_overlay } };
+                    n_extras += 1;
                 }
                 // The plane of a cut: a frame and lines across it, orange.
                 if (v.cut_plane) |cp| {
@@ -6293,6 +6454,21 @@ test "a part preview draws the beads of the part apart, turned" {
     try std.testing.expect(v.preview.?.move[2] > 0);
     try v.setPartPreview(1, .{ 0, 0, 0, 1 }, .{ 0, 0, 0 }, .{ 0, 0, 50 }, .{});
     try std.testing.expectApproxEqAbs(@as(f32, 50), v.preview.?.move[2], 1e-5);
+    // No preview goes under the bed: a move down stops at the bed, also
+    // on the bed with a turn. The lowest bead of the scene is at z 0
+    // (the bottom of the first layer).
+    for ([_]View.PreviewPlace{ .{}, .{ .on_bed = true } }) |pl| {
+        try v.setPartPreview(1, .{ 0, 0, 0, 1 }, .{ 0, 0, 0 }, .{ 0, 0, -30 }, pl);
+        try std.testing.expect(v.preview.?.move[2] >= -1e-4);
+        try v.setPartPreview(1, .{ 1, 0, 0, 0 }, .{ 0, 0, 0.5 }, .{ 0, 0, -30 }, pl);
+        try std.testing.expect(v.preview.?.move[2] > -30);
+    }
+    // On the bed with a lift: the lowest bead goes to the lift.
+    try v.setPartPreview(1, .{ 0, 0, 0, 1 }, .{ 0, 0, 0 }, .{ 0, 0, 5 }, .{ .on_bed = true });
+    try std.testing.expectApproxEqAbs(@as(f32, 5), v.preview.?.move[2], 0.25);
+    // A part that sinks (the flag of the arrow of Z): it goes under.
+    try v.setPartPreview(1, .{ 0, 0, 0, 1 }, .{ 0, 0, 0 }, .{ 0, 0, -0.6 }, .{ .sink = true });
+    try std.testing.expectApproxEqAbs(@as(f32, -0.6), v.preview.?.move[2], 1e-5);
     // Centered: the box of the part goes to x 10, y 20.
     try v.setPartPreview(1, .{ 0, 0, 0, 1 }, .{ 0, 0, 0 }, .{ 10, 20, 0 }, .{ .centered = true });
     const lo = v.preview_box[0];
@@ -6301,6 +6477,39 @@ test "a part preview draws the beads of the part apart, turned" {
     try std.testing.expectApproxEqAbs(@as(f32, 20), (lo[1] + hi[1]) / 2 + v.preview.?.move[1], 1e-3);
     v.clearPreview();
     try std.testing.expect(v.preview == null);
+}
+
+test "the arrows of the gizmo: the pick, and a drag along X and Z" {
+    var v = try testScene(2, 2, 5);
+    defer destroyTest(&v);
+    v.target = .{ 0, 0, 5 };
+    v.extent = 80;
+    v.dist = 100;
+    v.setAngles(0.5, 0.5);
+    v.setGizmo(.{ 0, 0, 5 }, 10, true);
+    // The middle of each arrow picks it.
+    for (0..3) |axis| {
+        const e = v.arrowEnds(axis).?;
+        const m = [3]f32{ (e[0][0] + e[1][0]) / 2, (e[0][1] + e[1][1]) / 2, (e[0][2] + e[1][2]) / 2 };
+        const q = v.pixelOf(m).?;
+        try std.testing.expectEqual(@as(i32, @intCast(3 + axis)), v.gizmoAt(q[0], q[1], 6));
+    }
+    // A drag from the middle of the arrow of X to the pixel of a point
+    // 7 mm further along it moves 7 mm.
+    for ([_]u2{ 0, 2 }) |axis| {
+        const e = v.arrowEnds(axis).?;
+        const a = v.pixelOf(e[0]).?;
+        var far = e[0];
+        far[axis] += 7;
+        const b = v.pixelOf(far).?;
+        try std.testing.expect(v.arrowPress(axis, a[0], a[1]));
+        try std.testing.expectApproxEqAbs(@as(f32, 7), v.arrowDrag(b[0], b[1]).?, 0.05);
+        v.ringRelease();
+        try std.testing.expectEqual(@as(?f32, null), v.arrowDrag(b[0], b[1]));
+    }
+    // No arrows: no press.
+    v.setGizmo(.{ 0, 0, 5 }, 10, false);
+    try std.testing.expect(!v.arrowPress(0, 50, 50));
 }
 
 test "the pick index finds the same bead as a test of each bead" {

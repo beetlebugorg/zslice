@@ -522,6 +522,60 @@ export fn zs_view_set_rings(view: ?*View, x: f64, y: f64, z: f64, radius: f64) v
     v.setRings(.{ @floatCast(x), @floatCast(y), @floatCast(z) }, @floatCast(radius));
 }
 
+/// The gizmo of the transform tool: the rings around (x, y, z) with
+/// radius `radius` mm (0: none), and with flags 1 an arrow along each axis
+/// out of the rings.
+export fn zs_view_set_gizmo(view: ?*View, x: f64, y: f64, z: f64, radius: f64, flags: c_int) void {
+    if (!render_on) return;
+    const v = view orelse return;
+    v.setGizmo(.{ @floatCast(x), @floatCast(y), @floatCast(z) }, @floatCast(radius), flags & 1 != 0);
+}
+
+/// The handle of the gizmo under the pixel within tol pixels: a ring (0
+/// X, 1 Y, 2 Z), an arrow (3 X, 4 Y, 5 Z), or -1.
+export fn zs_view_gizmo_at(view: ?*const View, px: f32, py: f32, tol: f32) c_int {
+    if (!render_on) return -1;
+    const v = view orelse return -1;
+    return v.gizmoAt(px, py, tol);
+}
+
+/// Starts a move along the arrow of `axis` (0 X, 1 Y, 2 Z) at the pixel.
+/// 1 if it started.
+export fn zs_view_arrow_press(view: ?*View, axis: c_int, px: f32, py: f32) c_int {
+    if (!render_on) return 0;
+    const v = view orelse return 0;
+    if (axis < 0 or axis > 2) return 0;
+    return @intFromBool(v.arrowPress(@intCast(axis), px, py));
+}
+
+/// The move along the arrow since the press, mm, to `out`. 0 if there is
+/// none now (no press, or the ray runs along the axis): keep the last
+/// move. zs_view_ring_release ends the drag.
+export fn zs_view_arrow_drag(view: ?*const View, px: f32, py: f32, out: ?*f64) c_int {
+    if (!render_on) return 0;
+    const v = view orelse return 0;
+    const d = v.arrowDrag(px, py) orelse return 0;
+    if (out) |o| o.* = d;
+    return 1;
+}
+
+/// The guides of a snap (zs_part_snap): n lines of 4 values (x0, y0, x1,
+/// y1, mm) on the bed. n = 0 hides them.
+export fn zs_view_set_guides(view: ?*View, lines: ?[*]const f64, n: usize) c_int {
+    if (!render_on) return @intFromEnum(Status.ok);
+    const v = view orelse return @intFromEnum(Status.invalid_argument);
+    var buf: [32][4]f32 = undefined;
+    const k = @min(n, buf.len);
+    if (k > 0) {
+        const l = lines orelse return @intFromEnum(Status.invalid_argument);
+        for (0..k) |i| for (0..4) |j| {
+            buf[i][j] = @floatCast(l[i * 4 + j]);
+        };
+    }
+    v.setGuides(buf[0..k]) catch |e| return status(e);
+    return @intFromEnum(Status.ok);
+}
+
 /// The ring under the pixel (px, py) within tol pixels: 0 X, 1 Y, 2 Z,
 /// or -1.
 export fn zs_view_ring_at(view: ?*const View, px: f32, py: f32, tol: f32) c_int {
@@ -681,7 +735,7 @@ export fn zs_view_part_preview(view: ?*View, part: c_int, qx: f32, qy: f32, qz: 
     const q = [4]f32{ qx, qy, qz, qw };
     for (q) |k| if (!std.math.isFinite(k)) return @intFromEnum(Status.invalid_argument);
     if (part >= 0 and q[0] * q[0] + q[1] * q[1] + q[2] * q[2] + q[3] * q[3] < 1e-12) return @intFromEnum(Status.invalid_argument);
-    v.setPartPreview(if (part < 0) null else @intCast(part), q, .{ px, py, pz }, .{ mx, my, mz }, .{ .on_bed = flags & 1 != 0, .centered = flags & 2 != 0 }) catch |e| return status(e);
+    v.setPartPreview(if (part < 0) null else @intCast(part), q, .{ px, py, pz }, .{ mx, my, mz }, .{ .on_bed = flags & 1 != 0, .centered = flags & 2 != 0, .sink = flags & 4 != 0 }) catch |e| return status(e);
     return ok;
 }
 

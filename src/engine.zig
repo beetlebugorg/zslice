@@ -33,6 +33,11 @@
 //! Polyholes (`Project.polyholes`): in pass 1, the round holes of the
 //! outlines become the polygons of nophead (see `polyholes` and
 //! docs/references/slicer-techniques.md).
+//!
+//! A bed z (`Options.bed_z`): the slice starts at the bed, not at the
+//! lowest point of the mesh, so a part can float over the bed or sink
+//! into it (the sinking objects of PrusaSlicer and OrcaSlicer, see
+//! docs/references/prusaslicer.md).
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
@@ -435,6 +440,13 @@ pub const Job = struct {
         /// The nozzle of each filament of the plate: a part or its infill
         /// on the second nozzle gets the line width of that nozzle.
         slots: settings_mod.SlotNozzles = .{},
+        /// The z of the bed in the frame of the mesh, or null: the bed is
+        /// at the lowest point of the mesh. With a bed z, a mesh over it
+        /// floats (its first layers are empty: it prints on support), and
+        /// a mesh under it sinks (the slice starts at the bed, so the
+        /// part under the bed does not print). A plate gives 0 (see
+        /// plate.Part.z).
+        bed_z: ?f64 = null,
     };
 
     /// The gap (mm) between the walls of a part and the root of a painted
@@ -485,7 +497,7 @@ pub const Job = struct {
         var outline_overrides: std.ArrayList(settings_mod.Override) = .empty;
         defer outline_overrides.deinit(gpa);
         for (overrides) |o| if (isOutlineSetting(o.name)) try outline_overrides.append(gpa, o);
-        var job = try initBase(gpa, mesh, settings, outline_overrides.items, opts.marks, opts.monitor, opts.old, opts.offset, opts.trees, opts.trees_layers, opts.islands, opts.slots);
+        var job = try initBase(gpa, mesh, settings, outline_overrides.items, opts.marks, opts.monitor, opts.old, opts.offset, opts.trees, opts.trees_layers, opts.islands, opts.slots, opts.bed_z);
         errdefer job.deinit();
         job.rings = opts.rings;
         if (overrides.len > 0) try job.resolveLayers(settings, overrides);
@@ -689,7 +701,7 @@ pub const Job = struct {
         self.layer_resolved = try list.toOwnedSlice(gpa);
     }
 
-    fn initBase(gpa: Allocator, mesh: *const Mesh, settings: Settings, outline_overrides: []const settings_mod.Override, marks: []const support_mod.Mark, monitor: Monitor, old: ?*Job, offset: ?[2]f64, trees: ?*const skel_mod.Skeleton, trees_layers: u64, find_islands: bool, slots: settings_mod.SlotNozzles) Error!Job {
+    fn initBase(gpa: Allocator, mesh: *const Mesh, settings: Settings, outline_overrides: []const settings_mod.Override, marks: []const support_mod.Mark, monitor: Monitor, old: ?*Job, offset: ?[2]f64, trees: ?*const skel_mod.Skeleton, trees_layers: u64, find_islands: bool, slots: settings_mod.SlotNozzles, bed_z: ?f64) Error!Job {
         // Step 1.
         const r = settings.resolveFor(slots) catch return error.InvalidSettings;
         const threads = parallel.threadCount(settings.engine.threads);
@@ -698,7 +710,11 @@ pub const Job = struct {
         if (mesh.faces.items.len == 0) return error.EmptyMesh;
         const b = mesh.bounds();
         const f = settings.filament;
-        const height = (b.max[2] - b.min[2]) * f.shrinkage_z;
+        // The bed: the lowest point of the mesh, or the bed z of the
+        // options (a part that floats or sinks).
+        const bed = bed_z orelse b.min[2];
+        if (!(b.max[2] - b.min[2] > 0)) return error.EmptyMesh;
+        const height = (b.max[2] - bed) * f.shrinkage_z;
         if (!(height > 0)) return error.EmptyMesh;
         const m = settings.machine;
         if (height > m.max_height) return error.PartTooLarge;
@@ -726,7 +742,7 @@ pub const Job = struct {
         job.dx = dx;
         job.dy = dy;
         job.center = .{ (b.min[0] + b.max[0]) / 2 + dx, (b.min[1] + b.max[1]) / 2 + dy };
-        job.z_base = b.min[2];
+        job.z_base = bed;
         if (old) |o| if (o.outline_key == key and o.outlines.len > 0) {
             // The same outlines: take them, with the surfaces and the memos.
             job.z_base = o.z_base;
@@ -756,8 +772,10 @@ pub const Job = struct {
             // Steps 3 and 4. If the first layers have no material (a tiny
             // tip of the mesh at the bottom, thinner than the resolution),
             // the print would start in the air: slice again from the first
-            // layer with material, as the part sits on the bed there.
-            var z_base = b.min[2];
+            // layer with material, as the part sits on the bed there. A
+            // part that floats over the bed (a lift) keeps its empty
+            // layers: support fills them.
+            var z_base = bed;
             var sliced = try slicePart(gpa, mesh, settings, outline_overrides, height, z_base, b, dx, dy, threads, monitor);
             var empty: usize = 0;
             while (empty < sliced.outlines.len and sliced.outlines[empty].isEmpty()) empty += 1;
@@ -765,12 +783,13 @@ pub const Job = struct {
                 sliced.deinit(gpa);
                 return error.EmptyMesh;
             }
-            if (empty > 0) {
+            const floats = b.min[2] > bed + 1e-6;
+            if (empty > 0 and !floats) {
                 // The first cut plane with material becomes the cut plane of
                 // the first layer.
                 const lift = sliced.layers[empty].sliceZ() - settings.project.first_layer_height / 2;
                 sliced.deinit(gpa);
-                z_base = b.min[2] + lift / f.shrinkage_z;
+                z_base = bed + lift / f.shrinkage_z;
                 sliced = try slicePart(gpa, mesh, settings, outline_overrides, height - lift, z_base, b, dx, dy, threads, monitor);
             }
             job.z_base = z_base;

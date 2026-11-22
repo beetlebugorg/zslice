@@ -967,6 +967,8 @@ typedef struct zs_part {
     double rotation;    /* degrees around the vertical axis */
     double size_x, size_y, size_z; /* the footprint and the height, mm */
     double scale_x, scale_y, scale_z; /* along the axes of the file, 1 = 100 % */
+    double z;           /* the lift: the lowest point over the bed, mm (under 0: it sinks into the bed) */
+    double angle_x, angle_y, angle_z; /* the orientation: turns about X, then Y, then Z of the bed, degrees (R = Rz Ry Rx) */
 } zs_part;
 
 /* How part i fits the printer of its plate: cause 0 fits, 1 too high,
@@ -1274,6 +1276,17 @@ int zs_label_outline(const char *json, size_t len, const float **pts, const uint
  * lines to draw in the plane). The buffer rules of zs_app_setting_get. */
 int zs_label_face(const zs_paint *mesh, const double frame[9], char *buf, size_t cap, size_t *out_len);
 int zs_label_snap(const char *json, size_t len, char *buf, size_t cap, size_t *out_len);
+/* The snap of a part that moves on the bed, as the smart guides of a
+ * drawing tool (src/part_snap.zig): `box` is the footprint of the part
+ * (x0, y0, x1, y1 mm) at the place of the drag, and `others` has n boxes
+ * of the other parts. On each axis the edges and the center of the box go
+ * to the nearest edge or center of another box, or to the center of the
+ * bed, within tol mm (a shell gives about 8 pixels). out gets the move
+ * of the snap (dx, dy); `guides` gets up to cap lines (x0, y0, x1, y1
+ * each) for zs_view_set_guides. Returns the count of the guides. A drag
+ * with Shift does not snap. */
+size_t zs_part_snap(const double box[4], const double *others, size_t n, double bed_x, double bed_y, double tol,
+                    double out[2], double *guides, size_t cap);
 /* The facts of label `id` of part i for its card, as JSON:
  *   "kind": "side", "top", or "bottom" (|normal.z| <= 0.7 is a side);
  *   "same_filament": the label has the filament of the part;
@@ -1359,8 +1372,26 @@ int zs_app_part_rotate(zs_app *app, size_t i, double degrees);
  * value mirrors). */
 int zs_app_part_scale(zs_app *app, size_t i, double sx, double sy, double sz);
 /* Turns a part by `degrees` about the X (axis 0) or Y (axis 1) axis of the
- * bed; it then rests on the bed. */
+ * bed (the axes of the rings, also for a part with a turn about Z); its
+ * lowest point keeps its lift (on the bed: it rests on the bed). */
 int zs_app_part_turn(zs_app *app, size_t i, int axis, double degrees);
+/* The lift of a part (zs_part.z), mm. Over 0 the part floats over the bed:
+ * with support on, it prints on support; with support off nothing holds
+ * it, and zs_app_fall_start or zs_app_part_settle drop it to the bed (say
+ * why: zs_app_part_float_note). Under 0 the part sinks into the bed, and
+ * the slice starts at z 0, so the part below the bed does not print (as
+ * the sinking objects of PrusaSlicer and OrcaSlicer). A part keeps at
+ * least 0.5 mm over the bed. A 3MF file of the plate keeps the lift. */
+int zs_app_part_lift(zs_app *app, size_t i, double z);
+/* The orientation of a part from three angles in degrees: turns about X,
+ * then Y, then Z of the bed from the orientation of its file (R = Rz Ry
+ * Rx; zs_part.angle_x, angle_y, angle_z give them). The part keeps its
+ * place and its lift. */
+int zs_app_part_set_angles(zs_app *app, size_t i, double ax, double ay, double az);
+/* Why part i floats, in words for its card ("Support is off: ..."), or
+ * ZS_NO_RESULT for a part on the bed or in it. The same buffer rules as
+ * zs_app_setting_get. */
+int zs_app_part_float_note(const zs_app *app, size_t i, char *buf, size_t cap, size_t *out_len);
 /* Part `part` slices coarse in the next slices (thicker layers, one wall,
  * no skin, no infill), a few times faster; part < 0: none. For the live
  * slice of a part while a turn ring drags; the full slice comes after the
@@ -1908,6 +1939,27 @@ int zs_view_paint_states(zs_view *view, const uint8_t *states, size_t n, const f
 void zs_view_pick_skip_support(zs_view *view, int on);
 /* The ring under the pixel within tol pixels: 0 X, 1 Y, 2 Z, or -1. */
 int zs_view_ring_at(const zs_view *view, float px, float py, float tol);
+/* The gizmo of the transform tool: the rings of zs_view_set_rings around
+ * (x, y, z), and with flags 1 an arrow along each axis out of the rings
+ * (from 1.06 to 1.5 radii: red X, green Y, blue Z; the arrow of a drag
+ * is thicker). A drag of an arrow moves the part along its axis; the
+ * arrow of Z lifts it (zs_app_part_lift). */
+void zs_view_set_gizmo(zs_view *view, double x, double y, double z, double radius, int flags);
+/* The handle under the pixel within tol pixels: a ring (0 X, 1 Y, 2 Z),
+ * an arrow (3 X, 4 Y, 5 Z), or -1. */
+int zs_view_gizmo_at(const zs_view *view, float px, float py, float tol);
+/* Starts a move along the arrow of axis (0 X, 1 Y, 2 Z) at the pixel. 1 if
+ * it started. */
+int zs_view_arrow_press(zs_view *view, int axis, float px, float py);
+/* The move along the arrow since the press (mm) to out: the point of the
+ * arrow under the pointer stays under it. 0 when the ray of the pointer
+ * runs along the axis: keep the last move. zs_view_ring_release ends the
+ * drag. */
+int zs_view_arrow_drag(const zs_view *view, float px, float py, double *out);
+/* The guides of a snap (zs_part_snap): n lines (x0, y0, x1, y1 mm each)
+ * on the bed, drawn as thin magenta lines while a part moves. n = 0 hides
+ * them. At most 32. */
+int zs_view_set_guides(zs_view *view, const double *lines, size_t n);
 /* Starts a turn on the ring of axis at the pixel of the press. 1 if it
  * started. */
 int zs_view_ring_press(zs_view *view, int axis, float px, float py);
@@ -1992,14 +2044,17 @@ void zs_view_set_bed_hidden(zs_view *view, int hidden);
 /* Shows part `part` of the plate (the part index of zs_app) turned and
  * moved in the view only: the turn is the unit quaternion (qx, qy, qz,
  * qw) about the point (px, py, pz), then the part moves by (mx, my, mz)
- * mm. Flag ZS_PREVIEW_ON_BED also puts its lowest bead on the bed. Flag
+ * mm. Flag ZS_PREVIEW_ON_BED also puts its lowest bead at z mz (0: on the
+ * bed; a part with a lift gives its lift). The view never draws a preview
+ * under the bed, except with flag ZS_PREVIEW_SINK (a part that sinks into
+ * the bed: the bed hides the part under it). Flag
  * ZS_PREVIEW_CENTERED puts the center of the box of the turned part at
  * x mx, y my, as the core places a turned part (zs_app_part_turn keeps
  * the center of the footprint). The beads of the last slice turn at once,
  * for the drag of a turn ring or the fall of a part; the next
  * zs_view_load (the slice of the new place) ends it. part < 0 ends it
  * now. Each call replaces the last one. */
-enum { ZS_PREVIEW_ON_BED = 1, ZS_PREVIEW_CENTERED = 2 };
+enum { ZS_PREVIEW_ON_BED = 1, ZS_PREVIEW_CENTERED = 2, ZS_PREVIEW_SINK = 4 };
 int zs_view_part_preview(zs_view *view, int part, float qx, float qy, float qz, float qw,
                          float px, float py, float pz, float mx, float my, float mz, int flags);
 /* The move of the part preview after its turn, as the view placed it, to

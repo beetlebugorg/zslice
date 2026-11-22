@@ -636,6 +636,14 @@ pub const App = struct {
                 try app.edits.put(app.gpa, .{ .key = key, .kind = @enumFromInt(kind), .value = value, .layer = layer, .x = x, .y = y, .z = z });
                 continue;
             }
+            // "lift <tab> part <tab> z": the lift of a part (plate.Part.z).
+            if (std.mem.startsWith(u8, line, "lift\t")) {
+                var f = std.mem.splitScalar(u8, line["lift\t".len..], '\t');
+                const k = std.fmt.parseInt(usize, f.next() orelse continue, 10) catch continue;
+                const z = std.fmt.parseFloat(f64, f.next() orelse continue) catch continue;
+                app.plate.lift(first + k, z);
+                continue;
+            }
             // "profile <tab> z_min <tab> z_max <tab> name": a layer profile.
             if (std.mem.startsWith(u8, line, "profile\t")) {
                 var f = std.mem.splitScalar(u8, line["profile\t".len..], '\t');
@@ -697,6 +705,9 @@ pub const App = struct {
         try filament_slots.write3mfLines(app, w);
         try support_trees.write3mfLines(app, w);
         for (app.edits.list.items) |e| try w.print("edit\t{x}\t{d}\t{d}\t{d}\t{d}\t{d}\t{d}\n", .{ e.key, @intFromEnum(e.kind), e.value, e.layer, e.x, e.y, e.z });
+        // The lift of each part that floats or sinks (plate.Part.z), by its
+        // index on the plate.
+        for (app.plate.parts.items, 0..) |p, k| if (p.z != 0) try w.print("lift\t{d}\t{d}\n", .{ k, p.z });
         for (app.overrides.items) |o| try w.print("{d}\t{d}\t{s}\t{s}\n", .{ o.z_min, o.z_max, o.name, o.value });
     }
 
@@ -1254,6 +1265,35 @@ pub const App = struct {
         try app.plateChanged();
     }
 
+    /// The lift of part i (see plate.Part.z): over 0 it floats over the
+    /// bed, under 0 it sinks into it. A part that floats with support off
+    /// falls at the next `fallStart` or `settlePart`.
+    pub fn liftPart(app: *App, i: usize, z: f64) Allocator.Error!void {
+        if (i >= app.plate.count()) return;
+        const before = app.plate.parts.items[i].z;
+        app.plate.lift(i, z);
+        if (app.plate.parts.items[i].z != before) try app.plateChanged();
+    }
+
+    /// Sets the orientation of part i from the angles about X, Y, and Z
+    /// of the bed, in degrees (see plate.Plate.angles).
+    pub fn setPartAngles(app: *App, i: usize, a: [3]f64) Allocator.Error!void {
+        if (i >= app.plate.count()) return;
+        try app.plate.setAngles(app.gpa, i, a);
+        app.plate.keepOnBed(i, app.bedSize(), app.partGap());
+        try app.plateChanged();
+    }
+
+    /// Why part i floats with no support under it, or null: the words for
+    /// the card of a part (it falls when the drag ends).
+    pub fn floatNote(app: *const App, i: usize) ?[]const u8 {
+        if (i >= app.plate.count()) return null;
+        const p = &app.plate.parts.items[i];
+        if (!(p.z > lift_eps)) return null;
+        if (app.settings.project.support != .off or p.trees != null) return "It floats: it prints on support.";
+        return "Support is off: nothing holds the part in the air, so it falls to the bed.";
+    }
+
     /// Physics: part i falls over if it cannot stand as it is (see
     /// `standOf`), and rolls until it rests (see physics.zig). With support
     /// on, the support holds it, and it stays. Returns the angle of the
@@ -1269,6 +1309,20 @@ pub const App = struct {
     /// stands).
     fn fallNow(app: *App, i: usize) Allocator.Error!f64 {
         if (i >= app.plate.count()) return 0;
+        // A part in the air with nothing under it drops to the bed first.
+        const pz = &app.plate.parts.items[i].z;
+        var dropped = false;
+        if (pz.* > lift_eps and (try app.standOf(i)) != .stands) {
+            pz.* = 0;
+            dropped = true;
+        }
+        const deg = try app.fallOnBed(i);
+        // A drop with no turn still changes the plate.
+        return if (deg == 0 and dropped) 1e-6 else deg;
+    }
+
+    /// fallNow for a part on the bed.
+    fn fallOnBed(app: *App, i: usize) Allocator.Error!f64 {
         const mesh = &app.plate.parts.items[i].mesh;
         const s = switch (try app.standOf(i)) {
             .stands, .weak => return 0,
@@ -1335,8 +1389,15 @@ pub const App = struct {
         if (p.trees != null) support_trees.check(app);
         if (p.trees != null) return if (try support_trees.holds(app, i)) .stands else .rolls;
         if (app.settings.project.support != .off) return .stands;
+        // A part in the air with no support falls; a part that sinks into
+        // the bed stands on its cut face.
+        if (p.z > lift_eps) return .rolls;
+        if (p.z < -lift_eps) return .stands;
         return (try app.bondOf(i)).stand;
     }
+
+    /// A lift (mm) under this is on the bed.
+    pub const lift_eps = 1e-3;
 
     /// True if the bond of the first layer of part i (and its brim) holds
     /// it as it is, whatever the support setting.
@@ -1528,6 +1589,8 @@ pub const App = struct {
         if (i >= app.plate.count()) return;
         try app.plate.applyTurn(app.gpa, i, zs.rigid.quatMat(f.body.rot));
         const part = &app.plate.parts.items[i];
+        // The body rests on the bed: a part that floated is on it now.
+        if (part.z > 0) part.z = 0;
         if (app.settings.project.support == .off) {
             const st = try zs.physics.settle(app.gpa, &part.mesh);
             if (st.rolls > 0) try app.plate.putDown(app.gpa, i, zs.physics.downOf(st));
@@ -1881,6 +1944,7 @@ pub const App = struct {
             try w.print("part:{s}\t(part)\tyes\n", .{name});
             try w.print("part:{s}\tposition\t{d:.2}, {d:.2}\n", .{ name, p.x, p.y });
             if (p.rot != 0) try w.print("part:{s}\trotation\t{d:.1}\n", .{ name, p.rot });
+            if (p.z != 0) try w.print("part:{s}\theight\t{d:.2}\n", .{ name, p.z });
             // The orientation of the part (a side on the bed), as the rows of
             // its pose.
             const id = zs.plate.identity;
@@ -5982,4 +6046,152 @@ test "app: the skin and infill angles turn with a part, unless the setting is of
     base.project.angles_follow_part = false;
     const off = try angleChanges(ar, base, &.{}, 30);
     try testing.expectEqual(@as(usize, 0), off.len);
+}
+
+/// A box of 20 x 20 x 10 mm on a new app, for the tests of the lift.
+fn liftTestApp(gpa: Allocator) !*App {
+    var b: zs.mesh.Builder = .init(gpa);
+    try zs.mesh.shapes.addBox(&b, 0, 0, 0, 20, 20, 10);
+    var mesh = try b.finish();
+    var bytes: std.Io.Writer.Allocating = .init(gpa);
+    defer bytes.deinit();
+    try mesh.writeStl(&bytes.writer);
+    mesh.deinit(gpa);
+    const app = try App.create(gpa, null, null);
+    errdefer app.destroy();
+    try app.loadStl("box.stl", bytes.written());
+    return app;
+}
+
+/// The lowest and the highest Z of the moves that print in G-code.
+fn printZ(g: []const u8) [2]f64 {
+    var lo: f64 = std.math.inf(f64);
+    var hi: f64 = -std.math.inf(f64);
+    var z: f64 = 0;
+    var lines = std.mem.tokenizeScalar(u8, g, '\n');
+    while (lines.next()) |line| {
+        if (!std.mem.startsWith(u8, line, "G1 ") and !std.mem.startsWith(u8, line, "G0 ")) continue;
+        var f = std.mem.tokenizeScalar(u8, line, ' ');
+        var prints = false;
+        while (f.next()) |w| {
+            if (w[0] == ';') break;
+            if (w[0] == 'Z') z = std.fmt.parseFloat(f64, w[1..]) catch z;
+            if (w[0] == 'E') prints = (std.fmt.parseFloat(f64, w[1..]) catch 0) > 0;
+        }
+        if (prints) {
+            lo = @min(lo, z);
+            hi = @max(hi, z);
+        }
+    }
+    return .{ lo, hi };
+}
+
+test "app: a part that sinks into the bed slices from z 0, with no layer under the bed" {
+    const gpa = testing.allocator;
+    const app = try liftTestApp(gpa);
+    defer app.destroy();
+    try app.startSlice();
+    app.stopWorkerForTest();
+    const full = app.layerCount();
+    const top = printZ(app.gcode().?)[1];
+    try testing.expectApproxEqAbs(@as(f64, 10), top, 0.21);
+    // 4 mm into the bed: 6 mm of the part print, from the first layer up.
+    try app.liftPart(0, -4);
+    try testing.expectEqual(@as(f64, -4), app.plate.parts.items[0].z);
+    try app.startSlice();
+    app.stopWorkerForTest();
+    try testing.expectEqual(State.done, app.getState());
+    try testing.expect(app.layerCount() < full);
+    const z = printZ(app.gcode().?);
+    try testing.expectApproxEqAbs(@as(f64, 6), z[1], 0.21);
+    try testing.expectApproxEqAbs(app.settings.project.first_layer_height, z[0], 1e-6);
+    // The cut at z 0 stands on the bed (no fall), and the card has no
+    // note.
+    try testing.expect(try app.unstablePart() == null);
+    try testing.expectEqual(@as(?[]const u8, null), app.floatNote(0));
+    // A part sinks at most to 0.5 mm over the bed.
+    try app.liftPart(0, -50);
+    try testing.expectApproxEqAbs(@as(f64, -9.5), app.plate.parts.items[0].z, 1e-9);
+}
+
+test "app: a part that floats prints on support; with support off it falls to the bed" {
+    const gpa = testing.allocator;
+    const app = try liftTestApp(gpa);
+    defer app.destroy();
+    try app.setSetting("project.support", "everywhere");
+    try app.liftPart(0, 5);
+    try testing.expect(try app.unstablePart() == null);
+    try testing.expect(std.mem.startsWith(u8, app.floatNote(0).?, "It floats"));
+    try app.startSlice();
+    app.stopWorkerForTest();
+    try testing.expectEqual(State.done, app.getState());
+    const g = app.gcode().?;
+    // Support from the bed up to the part, and the top of the part at 15.
+    try testing.expect(std.mem.indexOf(u8, g, ";TYPE:SUPPORT") != null);
+    const z = printZ(g);
+    try testing.expectApproxEqAbs(app.settings.project.first_layer_height, z[0], 1e-6);
+    try testing.expectApproxEqAbs(@as(f64, 15), z[1], 0.21);
+    // Support off: nothing holds it. The card says why, and the fall drops
+    // it to the bed.
+    try app.setSetting("project.support", "off");
+    try testing.expect(std.mem.startsWith(u8, app.floatNote(0).?, "Support is off"));
+    try testing.expectEqual(@as(?usize, 0), try app.unstablePart());
+    try testing.expect(try app.fallStart(0));
+    var frames: usize = 0;
+    while (try app.fallStep(1.0 / 60.0)) |fr| {
+        frames += 1;
+        if (fr.done) break;
+        try testing.expect(frames < 60 * 8);
+    }
+    try testing.expectEqual(@as(f64, 0), app.plate.parts.items[0].z);
+    try testing.expect(try app.unstablePart() == null);
+    // settlePart drops a part in the air at once.
+    try app.liftPart(0, 3);
+    try testing.expect(try app.settlePart(0) > 0);
+    try testing.expectEqual(@as(f64, 0), app.plate.parts.items[0].z);
+}
+
+test "app: a lift back to 0 gives the same G-code, and a 3MF keeps the lift" {
+    const gpa = testing.allocator;
+    const app = try liftTestApp(gpa);
+    defer app.destroy();
+    try app.startSlice();
+    app.stopWorkerForTest();
+    const before = try gpa.dupe(u8, app.gcode().?);
+    defer gpa.free(before);
+    try app.liftPart(0, 3);
+    try app.liftPart(0, 0);
+    try app.startSlice();
+    app.stopWorkerForTest();
+    try testing.expectEqualStrings(before, app.gcode().?);
+    // The lift goes into the 3MF of the plate and comes back.
+    try app.liftPart(0, -2.5);
+    const snap = try app.writeSnapshotAlloc(gpa);
+    defer gpa.free(snap);
+    const other = try App.create(gpa, null, null);
+    defer other.destroy();
+    try other.loadSnapshot(snap);
+    try testing.expectApproxEqAbs(@as(f64, -2.5), other.plate.parts.items[0].z, 1e-9);
+}
+
+test "app: the angles of a part come back, and a turn about X is about the X of the bed" {
+    const gpa = testing.allocator;
+    const app = try liftTestApp(gpa);
+    defer app.destroy();
+    try app.setPartAngles(0, .{ 30, -20, 75 });
+    const a = app.plate.angles(0);
+    try testing.expectApproxEqAbs(@as(f64, 30), a[0], 1e-6);
+    try testing.expectApproxEqAbs(@as(f64, -20), a[1], 1e-6);
+    try testing.expectApproxEqAbs(@as(f64, 75), a[2], 1e-6);
+    // A part turned 90 degrees about Z, then 90 about the X of the bed:
+    // the file Y (turned to -X by the turn about Z) stays on the X axis
+    // of the bed.
+    try app.setPartAngles(0, .{ 0, 0, 90 });
+    try app.turnPart(0, 0, 90);
+    const r = zs.plate.orientation(&app.plate.parts.items[0]);
+    try testing.expectApproxEqAbs(@as(f64, -1), r[0][1], 1e-9);
+    // The lift stays after a turn.
+    try app.liftPart(0, 4);
+    try app.turnPart(0, 1, 30);
+    try testing.expectEqual(@as(f64, 4), app.plate.parts.items[0].z);
 }
