@@ -2693,6 +2693,208 @@ test "plate job: each Bambu Lab model of the library prints two filaments in the
     try testing.expectEqual(@as(usize, 14), count);
 }
 
+/// The printer model that the start G-code of each Prusa model of the
+/// library checks (M862.3 P "..."), as the printer firmware names it
+/// (Prusa-Firmware-Buddy printer_model_data.hpp, Prusa-Firmware
+/// util.cpp). The Cura models of the old Prusa i3 printers have no check.
+const prusa_checks = [_][2][]const u8{
+    .{ "prusa-core-one", "COREONE" },
+    .{ "prusa-core-one-core-one", "COREONE" },
+    .{ "prusa-core-one-core-one-mmu3", "COREONE" },
+    .{ "prusa-core-one-hf", "COREONE" },
+    .{ "prusa-core-one-indx-4t", "COREONEINDX" },
+    .{ "prusa-core-one-indx-8t", "COREONEINDX" },
+    .{ "prusa-core-one-l", "COREONEL" },
+    .{ "prusa-core-one-l-hf", "COREONEL" },
+    .{ "prusa-core-one-l-mmu3", "COREONEL" },
+    .{ "prusa-core-one-mmu3", "COREONE" },
+    .{ "prusa-signature-oak", "COREONEOAK" },
+    .{ "prusa-i3", "" },
+    .{ "prusa-i3-mk2", "" },
+    .{ "prusa-i3-mk3-mk3s", "" },
+    .{ "prusa-i3-xl", "" },
+    .{ "prusa-mini", "MINI" },
+    .{ "prusa-mini-mini", "MINI" },
+    .{ "prusa-mini-mini-input-shaper", "MINI" },
+    .{ "prusa-mini-is", "MINI" },
+    .{ "prusa-mk3-5", "MK3.5" },
+    .{ "prusa-mk3s", "MK3S" },
+    .{ "prusa-mk4", "MK4" },
+    .{ "prusa-mk4-mmu3-hf", "MK4" },
+    .{ "prusa-mk4s-hf", "MK4S" },
+    .{ "prusa-i3-mk2s", "MK2S" },
+    .{ "prusa-i3-mk2s-mmu1", "MK2SMM" },
+    .{ "prusa-i3-mk2-5", "MK2.5" },
+    .{ "prusa-i3-mk2-5-mmu2", "MK2.5MMU2" },
+    .{ "prusa-i3-mk2-5s", "MK2.5S" },
+    .{ "prusa-i3-mk2-5s-mmu2s", "MK2.5SMMU2S" },
+    .{ "prusa-i3-mk3", "MK3" },
+    .{ "prusa-i3-mk3-mmu2", "MK3MMU2" },
+    .{ "prusa-i3-mk3s-mk3s", "MK3S" },
+    .{ "prusa-i3-mk3s-mk3s-mmu2s", "MK3SMMU2S" },
+    .{ "prusa-i3-mk3s-mk3s-mmu3", "MK3SMMU3" },
+    .{ "prusa-mk3-5-mk3-5s", "MK3.5" },
+    .{ "prusa-mk3-5-mk3-5s-mmu3", "MK3.5" },
+    .{ "prusa-mk3-9-input-shaper", "MK3.9" },
+    .{ "prusa-mk3-9-mmu3", "MK3.9" },
+    .{ "prusa-mk3-9s", "MK3.9S" },
+    .{ "prusa-mk3-9s-mmu3", "MK3.9S" },
+    .{ "prusa-mk4-input-shaper", "MK4" },
+    .{ "prusa-mk4-mmu3", "MK4" },
+    .{ "prusa-mk4s", "MK4S" },
+    .{ "prusa-mk4s-mmu3", "MK4S" },
+    .{ "prusa-xl", "XL" },
+    .{ "prusa-xl-2t", "XL" },
+    .{ "prusa-xl-5t", "XL" },
+    .{ "prusa-xl-2t-input-shaper", "XL" },
+    .{ "prusa-xl-5t-input-shaper", "XL" },
+    .{ "prusa-xl-input-shaper", "XL" },
+};
+
+/// The check of one Prusa model of the library (see the test below): a
+/// plate of two cubes of two filaments.
+fn checkPrusaModel(gpa: Allocator, lib: *const @import("printers.zig").Library, i: usize, check: []const u8) !void {
+    const m = lib.models[i];
+    var arena_state: std.heap.ArenaAllocator = .init(gpa);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    var text: Writer.Allocating = .init(a);
+    try lib.profileText(i, 0, &text.writer);
+    var s: Settings = .{};
+    s.engine.threads = 1;
+    var diag: @import("profile.zig").Diagnostic = .{};
+    try @import("profile.zig").apply(a, &s, .machine, m.id, text.written(), null, &diag);
+    // An MMU changes the filament with a T command; the other models
+    // pause for a change by hand (M600).
+    const tools = s.machine.filament_change == .tool;
+    try testing.expectEqual(m.tool_change, tools);
+    const cx = s.machine.bed_size_x / 2;
+    const cy = s.machine.bed_size_y / 2;
+    var m1 = try testBox(cx - 15, cy - 5, cx - 5, cy + 5, 2);
+    defer m1.deinit(gpa);
+    var m2 = try testBox(cx + 5, cy - 5, cx + 15, cy + 5, 2);
+    defer m2.deinit(gpa);
+    var second = s.filament;
+    second.color = "#d93a3a";
+    second.material = "PETG";
+    const parts = [_]PartInput{
+        .{ .mesh = &m1, .part = 0 },
+        .{ .mesh = &m2, .part = 1, .changes = &.{.{ .name = "project.filament", .value = "2" }} },
+    };
+    var pj = try PlateJob.init(gpa, s, &parts, .{ .filaments = &.{second} });
+    defer pj.deinit();
+    var out: Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    const st = try pj.writeGcode(&out.writer);
+    const g = out.written();
+    try testing.expect(st.slot_g[0] > 0 and st.slot_g[1] > 0);
+
+    // The printer model check of the maker's start G-code.
+    if (check.len > 0) {
+        var want: [64]u8 = undefined;
+        const line = try std.fmt.bufPrint(&want, "\nM862.3 P \"{s}\"", .{check});
+        try testing.expect(std.mem.indexOf(u8, g, line) != null);
+    } else try testing.expect(std.mem.indexOf(u8, g, "M862.3") == null);
+
+    // The statistics that the Buddy firmware reads, one item for each
+    // tool: two tools with an MMU, one tool with a pause.
+    const used = std.mem.indexOf(u8, g, "\n; filament used [g] = ") orelse return error.TestUnexpectedResult;
+    const used_line = g[used + 1 ..][0..std.mem.indexOfScalar(u8, g[used + 1 ..], '\n').?];
+    try testing.expectEqual(tools, std.mem.indexOf(u8, used_line, ", ") != null);
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, g, "\n; estimated printing time (normal mode) = "));
+    try testing.expect(std.mem.indexOf(u8, g, if (tools) "\n; filament_type = PLA;PETG\n" else "\n; filament_type = PLA\n") != null);
+
+    var lines = std.mem.splitScalar(u8, g, '\n');
+    var x: f64 = 0;
+    var y: f64 = 0;
+    var z: f64 = 0;
+    var relative = false;
+    var printing = false;
+    var t1: usize = 0;
+    var pauses: usize = 0;
+    while (lines.next()) |line| {
+        if (std.mem.startsWith(u8, line, ";LAYER:0")) printing = true;
+        if (std.mem.startsWith(u8, line, ";Filament used:")) printing = false;
+        // Each variable of the maker's G-code has a value.
+        if (std.mem.indexOf(u8, line, "zslice: no value for ") != null) {
+            std.debug.print("{s}: {s}\n", .{ m.id, line });
+            return error.TestUnexpectedResult;
+        }
+        const cmd = std.mem.trim(u8, if (std.mem.indexOfScalar(u8, line, ';')) |c| line[0..c] else line, " \t\r");
+        if (cmd.len == 0) continue;
+        if (std.mem.indexOfAny(u8, cmd, "{}[]") != null) {
+            std.debug.print("{s}: {s}\n", .{ m.id, line });
+            return error.TestUnexpectedResult;
+        }
+        var words = std.mem.tokenizeScalar(u8, cmd, ' ');
+        const op = words.next().?;
+        if (std.mem.eql(u8, cmd, "T1")) t1 += 1;
+        if (std.mem.eql(u8, op, "M600")) pauses += 1;
+        if (std.mem.eql(u8, op, "G90")) relative = false;
+        if (std.mem.eql(u8, op, "G91")) relative = true;
+        // The temperatures: off, or in the range of the nozzle (the maker's
+        // G-code also sets 70 to 170 °C to wait or to probe) and the bed.
+        const nozzle = std.mem.eql(u8, op, "M104") or std.mem.eql(u8, op, "M109");
+        const bed = std.mem.eql(u8, op, "M140") or std.mem.eql(u8, op, "M190");
+        if (nozzle or bed) while (words.next()) |w| {
+            if (w.len < 2 or (w[0] != 'S' and w[0] != 'R')) continue;
+            const v = try std.fmt.parseFloat(f64, w[1..]);
+            if (nozzle) try testing.expect(v == 0 or (v >= 50 and v <= 300));
+            if (bed) try testing.expect(v >= 0 and v <= 120);
+        };
+        if (!(std.mem.eql(u8, op, "G0") or std.mem.eql(u8, op, "G1"))) continue;
+        var e: f64 = 0;
+        while (words.next()) |w| {
+            if (w.len < 2) continue;
+            const v = std.fmt.parseFloat(f64, w[1..]) catch continue;
+            switch (w[0]) {
+                'X' => x = if (relative) x + v else v,
+                'Y' => y = if (relative) y + v else v,
+                'Z' => z = if (relative) z + v else v,
+                'E' => e = v,
+                else => {},
+            }
+        }
+        // The extrusions of the print stay on the bed and under the height.
+        if (e <= 0 or !printing) continue;
+        const eps = 1e-3;
+        try testing.expect(x >= -eps and x <= s.machine.bed_size_x + eps);
+        try testing.expect(y >= -eps and y <= s.machine.bed_size_y + eps);
+        try testing.expect(z > 0 and z <= s.machine.max_height + eps);
+    }
+    if (tools) {
+        try testing.expect(t1 > 0);
+        try testing.expectEqual(@as(usize, 0), pauses);
+    } else {
+        try testing.expectEqual(@as(usize, 0), t1);
+        try testing.expect(pauses > 0);
+    }
+}
+
+test "plate job: each Prusa model of the library prints two filaments with its checks" {
+    const printers = @import("printers.zig");
+    if (printers.builtin_data.len == 0) return error.SkipZigTest;
+    const gpa = testing.allocator;
+    const lib = try printers.Library.parse(gpa, printers.builtin_data);
+    defer lib.deinit();
+    var count: usize = 0;
+    for (lib.models, 0..) |m, i| {
+        if (!std.mem.startsWith(u8, m.id, "prusa-")) continue;
+        const check = for (prusa_checks) |c| {
+            if (std.mem.eql(u8, c[0], m.id)) break c[1];
+        } else {
+            std.debug.print("{s}: not in prusa_checks\n", .{m.id});
+            return error.TestUnexpectedResult;
+        };
+        checkPrusaModel(gpa, lib, i, check) catch |e| {
+            std.debug.print("{s}: {s}\n", .{ m.id, @errorName(e) });
+            return e;
+        };
+        count += 1;
+    }
+    try testing.expectEqual(prusa_checks.len, count);
+}
+
 test "plate job: a PLA part with a PETG support interface, and a tower for each" {
     const gpa = testing.allocator;
     // A post with a shelf on one side, 4 mm over the bed: support under
