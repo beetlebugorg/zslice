@@ -6,7 +6,7 @@ Open a model, slice it, and print it. You need only this page.
 
 ![The printer picker of the first start: the search found the Prusa MK4S, and its card draws its build volume](../img/start-picker.webp "At the first start, pick your printer.")
 
-1. **Open zslice.** Go to [zslice.beetlebug.org](https://zslice.beetlebug.org/). The web app needs no install. For the Linux and the Mac app, see [Web, Linux, and Mac](apps.md).
+1. **Open zslice.** Go to [zslice.beetlebug.org](https://zslice.beetlebug.org/): the web app needs no install. Or install the native app for Linux, macOS, or Windows: see [the apps](apps.md).
 2. **Pick your printer.** The picker opens at the first start. Type a part of the name, for example "ender 3" or "mk4". Click the printer, then **Next**, then **Add printer**.
 3. **Open a model.** Drop an STL, 3MF, OBJ, or STEP file on the view, or click **Open a model** on the plate. zslice slices the model at once.
 4. **Pick the filament and the quality.** Use the two menus next to the printer in the header, for example "generic PLA" and "Standard" (0.2 mm layers).

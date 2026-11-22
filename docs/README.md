@@ -2,6 +2,8 @@
 
 ## Start
 
+zslice runs in your browser at [zslice.beetlebug.org](https://zslice.beetlebug.org/), and as a native app on Linux, macOS, and Windows ([the apps](user/apps.md)).
+
 - [Your first print](user/getting-started.md): open a model, slice it, and print it.
 
 ## Everyday tasks

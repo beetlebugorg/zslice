@@ -2,7 +2,10 @@
 
 <img width="720" src="docs/img/hero.webp" alt="The zslice web app: a 3DBenchy, sliced, in the colors of its features">
 
-zslice is a slicer for FDM 3D printers, written from scratch in Zig. It shows the print as the plastic forms it, before you print. It runs in your browser: **[open zslice.beetlebug.org](https://zslice.beetlebug.org/)**. No install is necessary, and your files stay on your computer.
+zslice is a slicer for FDM 3D printers, written from scratch in Zig. It shows the print as the plastic forms it, before you print.
+
+- **In your browser:** **[open zslice.beetlebug.org](https://zslice.beetlebug.org/)**. No install is necessary, and your files stay on your computer.
+- **On your computer:** native apps for **Linux** (GTK 4 and Vulkan), **macOS** (SwiftUI and Metal), and **Windows** (WinUI 3 and Direct3D 12). See [Install](#install).
 
 > **zslice is an experimental slicer.** It has three goals:
 > - **Very fast slicing:** a change of a setting shows in the view at once, at 60 frames a second.
