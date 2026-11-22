@@ -55,7 +55,7 @@
 //   sumopen, sumshot path, sumlog, tipapply
 //   histcard i, histclose, histopen, histshot path, histrevert i,
 //   histclear i, histlog, worklog, draftset name value, draftgo,
-//   exportall
+//   exportall, draftremove
 //   curaopen [all], curaclose, curamenu, curamenupress, curaall 0|1,
 //   curareload, curause i, curauseall, curascroll y, curasize w h,
 //   curatheme light|dark, curashot path, curashot menu path, curalog
@@ -520,6 +520,15 @@ namespace winrt::ZSlice::implementation
         else if (verb == L"exportall")
         {
             printers->ExportAll();
+        }
+        else if (verb == L"draftremove")
+        {
+            // A change, and its plate goes before the timer of the exact
+            // slice ends.
+            std::string error;
+            model->SetSetting("project.wall_count", "5", error);
+            if (model->RemovePlate(model->ActivePlate()))
+                ShowPlate();
         }
         else if (verb == L"draftgo")
         {
