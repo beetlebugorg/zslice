@@ -839,7 +839,7 @@ struct BottomBar: View {
                 workspace.detailsOpen.toggle()
             } label: {
                 HStack(spacing: 6) {
-                    if let s = model.stats {
+                    if model.failure == nil, let s = model.stats {
                         // The time, and under it the plastic, the cost, and
                         // the layers (the web dock).
                         VStack(alignment: .leading, spacing: 0) {
@@ -851,6 +851,24 @@ struct BottomBar: View {
                                 .fixedSize(horizontal: false, vertical: true)
                         }
                         .opacity(model.state == .slicing ? 0.5 : 1)
+                    } else if let why = model.failure {
+                        // A slice that failed says why in the bar, not only
+                        // in the details.
+                        VStack(alignment: .leading, spacing: 0) {
+                            Label("Did not slice", systemImage: "exclamationmark.triangle.fill")
+                                .font(.title3.weight(.semibold))
+                                .foregroundStyle(Color(red: 0xb4 / 255, green: 0x23 / 255, blue: 0x18 / 255))
+                            // The short line (else the first sentence); the
+                            // details and the tip have all of it.
+                            let lines = why.split(separator: "\n", maxSplits: 1)
+                            let short = lines.count > 1 ? String(lines[0]) : String(why.split(separator: ".", maxSplits: 1).first ?? "")
+                            if !short.isEmpty {
+                                Text(short)
+                                    .font(.caption.monospacedDigit())
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                        .help(why.replacingOccurrences(of: "\n", with: ". "))
                     } else {
                         Text("Slicing…").font(.title3.weight(.semibold))
                     }
