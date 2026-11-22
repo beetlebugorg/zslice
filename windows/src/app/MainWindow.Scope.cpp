@@ -464,6 +464,25 @@ namespace winrt::ZSlice::implementation
             SelectPart(_wtoi(words[0].c_str()));
         else if (verb == L"scopeparttoggle" && !words.empty())
             TogglePart(_wtoi(words[0].c_str()));
+        else if (verb == L"scopepartscale" && !words.empty() && !selected_parts.empty())
+        {
+            // A percent, for a part that does not fit or is too thin.
+            double k = _wtof(words[0].c_str()) / 100;
+            for (int64_t part : selected_parts)
+                zs_app_part_scale(model->Active(), (size_t)part, k, k, k);
+            PlateEdited();
+            zs_part_fit fit{};
+            size_t len = 0;
+            std::string words_of_fit;
+            if (zs_app_part_fit_text(model->Active(), (size_t)selected_parts[0], nullptr, 0, &len) == ZS_OK)
+            {
+                words_of_fit.assign(len + 1, '\0');
+                zs_app_part_fit_text(model->Active(), (size_t)selected_parts[0], words_of_fit.data(), words_of_fit.size(), &len);
+                words_of_fit.resize(len);
+            }
+            zs_app_part_fit(model->Active(), (size_t)selected_parts[0], &fit);
+            zs::Log("dev: part fit cause %d '%s'\n", fit.cause, words_of_fit.c_str());
+        }
         else if (verb == L"scopepartlog")
         {
             std::string own;
