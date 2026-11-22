@@ -50,7 +50,7 @@ A build with `-p:ZsDevHooks=true` reads `ZSLICE_DO`: steps with `;` between them
 | `src/app/MainWindow.Summary.cpp` | The details of the print: the facts, the warning, and the refinements (`refine.txt` in the state folder). |
 | `src/app/MainWindow.History.cpp` | The hover card of a history step, the list of the steps, the undo of one change, and the line edits. |
 | `src/app/MainWindow.Open.cpp` | A file or a `zslice://` link from outside the app. A link asks before it downloads. |
-| `src/net/zs_open_link` | The rules of a link, and its download: https, public hosts and addresses, each redirect checked, 512 MB at most. |
+| `src/net/zs_open_link` | The download of a link, with the rules of the core (`zs_link_check`, see [Links that open a model](open-links.md)). It resolves the host first, and it closes a connection to a local address before the TLS handshake. |
 | `src/prefs/zs_app_shell` | The file types and the link scheme in HKCU, and the hand-off to the first window through a named pipe. |
 | `src/app/App.xaml` | The color tokens of `web/app/style.css` for light and dark, and the flat button styles. |
 | `src/app/MainWindow.DevHooks.cpp` | The test hooks, in a build with `ZsDevHooks`. |

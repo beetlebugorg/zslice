@@ -168,7 +168,7 @@ namespace winrt::ZSlice::implementation
         // A project replaces the plates and brings its own printer settings.
         if (zs_project_file_is(reinterpret_cast<uint8_t const *>(result.bytes.data()), result.bytes.size()))
         {
-            ShowError(L"A link does not open a zslice project. Save the file, then open it.");
+            ShowError(zs::ToWide(zs_link_message(ZS_LINK_PROJECT)));
             return;
         }
         FinishLoad(result.name, result.bytes, true, true);
