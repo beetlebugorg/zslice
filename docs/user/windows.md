@@ -14,7 +14,7 @@ A model site can link to the app with `zslice://open?file=` and the address of t
 
 | Do this | To |
 |---|---|
-| Drag with the left button | Turn the view |
+| Drag with the left button | Turn the view. With the Select tool, a drag that starts on a line selects layers |
 | Drag with the right mouse button | Turn the view |
 | Click with two fingers on a touchpad and slide | Move the view |
 | Drag with the middle button, or hold Shift and drag | Move the view |
