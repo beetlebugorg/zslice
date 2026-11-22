@@ -2639,7 +2639,7 @@ pub const App = struct {
         app.slice_draft = app.draft;
         if (app.draft) {
             const s = &app.slice_settings;
-            s.engine.resolution = @max(s.engine.resolution, draft_resolution);
+            s.project.resolution = @max(s.project.resolution, draft_resolution);
             s.project.gap_fill = false;
             s.project.wall_generator = .classic;
         }
@@ -4394,8 +4394,8 @@ test "app: a draft slice has no gap fill and no G-code for a printer, and the ex
     try testing.expectEqual(layers, app.layerCount());
     try testing.expect(app.gcode() != null);
     try testing.expect(app.exactGcode() == null);
-    try testing.expectEqual(@as(f64, 0.005), app.settings.engine.resolution);
-    try testing.expectEqual(@as(f64, 0.05), app.slice_settings.engine.resolution);
+    try testing.expectEqual(@as(f64, 0.005), app.settings.project.resolution);
+    try testing.expectEqual(@as(f64, 0.05), app.slice_settings.project.resolution);
     try testing.expect(!app.slice_settings.project.gap_fill);
     app.setDraft(false);
     try app.startSlice();
@@ -4422,7 +4422,7 @@ test "app: Faster slicing on and back off gives the exact G-code; no draft with 
     try app.setFasterSlicing(true);
     try testing.expectEqual(speed.State.on, app.speedState());
     try testing.expect(app.settings.project.fast_offsets);
-    try testing.expectEqual(@as(f64, 0.01), app.settings.engine.resolution);
+    try testing.expectEqual(@as(f64, 0.01), app.settings.project.resolution);
     try app.startSlice();
     app.stopWorkerForTest();
     try app.setSetting("project.fast_offsets", "false");

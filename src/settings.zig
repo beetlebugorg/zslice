@@ -1126,6 +1126,14 @@ pub const Project = struct {
     /// itself, and a part has no strings to the others. No prime tower.
     print_sequence: PrintSequence = .by_layer,
 
+    // Outlines
+    /// The largest change to the shape (mm) that the slicer makes when it
+    /// removes points from the mesh outlines. A larger value gives fewer
+    /// points and a faster slice, and changes the G-code: 0.01 slices a
+    /// 3DBenchy about 19 % faster, and moves its outer walls up to 10 µm.
+    /// The name before: `engine.resolution`.
+    resolution: f64 = 0.005,
+
     // Experimental
     /// An experiment: a faster offset of the outlines. A closing corner
     /// of an offset gets the crossing point of its two edges in place of a
@@ -1224,11 +1232,6 @@ pub const Project = struct {
 pub const EngineOptions = struct {
 
     // Slicer
-    /// The largest change to the shape (mm) that the slicer makes when it
-    /// removes points from the mesh outlines. A larger value gives fewer
-    /// points and a faster slice, and changes the G-code: 0.01 slices a
-    /// 3DBenchy about 19 % faster, and moves its outer walls up to 10 µm.
-    resolution: f64 = 0.005,
     /// The largest gap (mm) that the slicer closes in a mesh with holes.
     gap_closing: f64 = 1.0,
     /// The number of threads. 0 uses one thread for each CPU but one, so
@@ -1985,7 +1988,7 @@ pub const limits = [_]struct { []const u8, f64, f64 }{
     .{ "project.coasting_speed", 0.1, 1 },
     .{ "project.first_layer_xy_offset", -2, 2 },
     // engine
-    .{ "engine.resolution", 0.0005, 0.5 },
+    .{ "project.resolution", 0.0005, 0.5 },
     .{ "engine.gap_closing", 0, 10 },
     .{ "engine.threads", 0, 256 },
 };
@@ -2227,6 +2230,7 @@ pub const moved_settings = [_][2][]const u8{
     .{ "machine.nozzle2_retract_speed", "machine.nozzle.1.retract_speed" },
     .{ "machine.nozzle2_min_x", "machine.nozzle.1.min_x" },
     .{ "machine.nozzle2_max_height", "machine.nozzle.1.max_height" },
+    .{ "engine.resolution", "project.resolution" },
 };
 
 /// The value of a setting now: an old value of a setting that changed its
@@ -2502,14 +2506,16 @@ test "a setting that moved loads by its old name" {
     try std.testing.expect(isPatchSetting("project.skin_accel"));
     try std.testing.expectEqualStrings("machine.skin_accel", currentName("project.skin_accel"));
     try std.testing.expectEqualStrings("project.skin_speed", currentName("project.skin_speed"));
-    // Each new name is a machine setting, or the combing mode.
+    // Each new name is a machine setting, the combing mode, or the
+    // outline tolerance (engine.resolution before).
     for (moved_settings) |m| {
         var t: Settings = .{};
         const bool_value = std.mem.indexOf(u8, m[1], "wipe") != null or std.mem.indexOf(u8, m[1], "only") != null or std.mem.indexOf(u8, m[1], "layer_change") != null;
         const enum_value = std.mem.eql(u8, m[1], "project.combing_mode");
         const ratio = std.mem.endsWith(u8, m[1], ".speed") or std.mem.endsWith(u8, m[1], ".diameter") or std.mem.endsWith(u8, m[1], ".line_width");
-        try t.set(m[1], if (bool_value) "true" else if (enum_value) "off" else if (ratio) "0.7" else "7");
-        try std.testing.expect(std.mem.startsWith(u8, m[1], "machine.") or enum_value);
+        const resolution = std.mem.eql(u8, m[1], "project.resolution");
+        try t.set(m[1], if (bool_value) "true" else if (enum_value) "off" else if (ratio) "0.7" else if (resolution) "0.01" else "7");
+        try std.testing.expect(std.mem.startsWith(u8, m[1], "machine.") or enum_value or resolution);
         if (nozzleSetting(m[1])) |ns| {
             var buf: [32]u8 = undefined;
             var w: std.Io.Writer = .fixed(&buf);

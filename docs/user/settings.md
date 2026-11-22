@@ -950,6 +950,12 @@ Where the part goes on the bed. auto: at the X and Y of the file if the part is 
 
 The order of the parts of the plate. `by_layer`: each layer of all parts, then the next layer. `by_object`: one part from the bottom to the top, then the next part, in the order of the plate list. Between the parts, the head goes up over the printed parts. The parts must keep `machine.clearance_radius` from each other, and only the last part can be higher than `machine.clearance_height` (the Check lists each problem). A part that fails then stops only itself, and a part has no strings to the others. No prime tower.
 
+### Outlines
+
+**`project.resolution`** (number). Default: `0.005`
+
+The largest change to the shape (mm) that the slicer makes when it removes points from the mesh outlines. A larger value gives fewer points and a faster slice, and changes the G-code: 0.01 slices a 3DBenchy about 19 % faster, and moves its outer walls up to 10 µm. The name before: `engine.resolution`.
+
 ### Experimental
 
 **`project.fast_offsets`** (true or false). Default: `false`
@@ -1019,10 +1025,6 @@ The shape of the root of a painted feature (see `paint_anchor_depth`). `footprin
 Options for the engine. They do not change the print.
 
 ### Slicer
-
-**`engine.resolution`** (number). Default: `0.005`
-
-The largest change to the shape (mm) that the slicer makes when it removes points from the mesh outlines. A larger value gives fewer points and a faster slice, and changes the G-code: 0.01 slices a 3DBenchy about 19 % faster, and moves its outer walls up to 10 µm.
 
 **`engine.gap_closing`** (number). Default: `1.0`
 

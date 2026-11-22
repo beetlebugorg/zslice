@@ -82,11 +82,11 @@ The gap fill and the offsets are furthest from their bounds. Together with the b
 
 ## The outline tolerance
 
-The cost of each stage follows the count of the outline points. The slicer removes the points within `engine.resolution` (0.005 mm) of a straight line before all other work (`geom.simplifyClosed`). A larger value gives fewer points to each offset, boolean, and line of G-code.
+The cost of each stage follows the count of the outline points. The slicer removes the points within `project.resolution` (0.005 mm, `engine.resolution` before 2026-11-22) of a straight line before all other work (`geom.simplifyClosed`). A larger value gives fewer points to each offset, boolean, and line of G-code.
 
 The 3DBenchy, with the outer walls compared to the walls at 0.005 mm (`tools/gcode_distance.py`, the distance of each end and each middle of a bead segment to the nearest bead of the other file):
 
-| `engine.resolution` | Outline points | Points into the offsets | Points into the booleans | CPU of a full slice | G-code | Outer wall: median, 99 % | Points over 0.1 mm |
+| `project.resolution` | Outline points | Points into the offsets | Points into the booleans | CPU of a full slice | G-code | Outer wall: median, 99 % | Points over 0.1 mm |
 |---|---|---|---|---|---|---|---|
 | 0.005 mm (the default) | 35 739 | 265 420 | 1 097 282 | 1477 ms | 2.77 MB | | |
 | 0.010 mm | 25 790 | 192 039 | 815 679 | 1200 ms (19 % less) | 2.24 MB | 3.2 µm, 10.4 µm | 55 of 174 162 |
@@ -123,7 +123,7 @@ In the apps, for a 3DBenchy and a run of wall count changes (the times include t
 
 ## The Speed settings
 
-The settings panel has one Speed section with the options that change the time of a slice (`src/app/speed.zig`, `zs_speed_get`). Each option has a note with its gain and its cost. The Faster slicing switch sets `project.fast_offsets` to on and `engine.resolution` to 0.010 mm. Off puts back the defaults. The switch has no value of its own: `zs_app_speed_state` reads its state from the two options, so a change of one gives "custom". With `engine.draft_slices` off, `App.setDraft` keeps the slices exact.
+The settings panel has one Speed section with the options that change the time of a slice (`src/app/speed.zig`, `zs_speed_get`). Each option has a note with its gain and its cost. The Faster slicing switch sets `project.fast_offsets` to on and `project.resolution` to 0.010 mm. Both change the G-code, so both are print settings, and a project keeps them. Off puts back the defaults. The switch has no value of its own: `zs_app_speed_state` reads its state from the two options, so a change of one gives "custom". With `engine.draft_slices` off, `App.setDraft` keeps the slices exact.
 
 The 3DBenchy, `zslice bench --only full --runs 5`, the CPU median, on 2026-11-22 with a load average of 11:
 
@@ -131,7 +131,7 @@ The 3DBenchy, `zslice bench --only full --runs 5`, the CPU median, on 2026-11-22
 |---|---|
 | The defaults | 1579 ms |
 | `project.fast_offsets` on | 1406 ms (11 % less) |
-| `engine.resolution` 0.010 mm | 1260 ms (20 % less) |
+| `project.resolution` 0.010 mm | 1260 ms (20 % less) |
 | Both (Faster slicing on) | 1140 ms (28 % less) |
 | `project.gap_fill` off | 1091 ms (31 % less) |
 | `project.wall_generator` arachne | 1832 ms (16 % more) |

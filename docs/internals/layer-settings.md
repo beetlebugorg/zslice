@@ -107,6 +107,7 @@ An adaptive layer height (thin layers where a surface has a small slope) can use
 | `skirt_loops`, `skirt_distance`, `skirt_layers`, `brim_width` | no | layer, engine | The skirt and the brim are on the first layers, around the first layer. The engine also uses them to place the part. |
 | `first_layer_xy_offset` | no | engine | The first layer only. |
 | `placement` | no | engine | The place of the whole part. |
+| `resolution` | no | engine (pass 1) | The outline tolerance of the mesh cut. It is in the outline key. It was `engine.resolution`. |
 
 ## Add a per-layer setting
 

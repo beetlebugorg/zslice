@@ -446,7 +446,7 @@ const units = [_][2][]const u8{
     .{ "project.prime_tower_x", "mm" },
     .{ "project.prime_tower_y", "mm" },
     // engine
-    .{ "engine.resolution", "mm" },
+    .{ "project.resolution", "mm" },
     .{ "engine.gap_closing", "mm" },
     .{ "engine.threads", "threads" },
 };

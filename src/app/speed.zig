@@ -42,7 +42,7 @@ pub const options = [_]Option{
         .note = "About 11 % faster slices. The outer walls stay within 1.4 µm. Some skin and fill lines move where a thin piece is at a threshold.",
     },
     .{
-        .name = "engine.resolution",
+        .name = "project.resolution",
         .faster = "0.01",
         .gcode = true,
         .note = "0.01 mm: about 19 % faster slices of a fine mesh, and 19 % less G-code. The outer walls move up to 10 µm (99 % of the points).",
@@ -145,17 +145,26 @@ test "speed: the switch sets and clears its options, and one change is custom" {
     s = applied(s, true);
     try testing.expectEqual(State.on, state(s));
     try testing.expect(s.project.fast_offsets);
-    try testing.expectEqual(@as(f64, 0.01), s.engine.resolution);
+    try testing.expectEqual(@as(f64, 0.01), s.project.resolution);
     // The options outside the switch keep their values.
     try testing.expect(s.engine.draft_slices);
     try testing.expect(s.project.gap_fill);
-    try s.set("engine.resolution", "0.02");
+    try s.set("project.resolution", "0.02");
     try testing.expectEqual(State.custom, state(s));
     s = applied(s, false);
     try testing.expectEqual(State.off, state(s));
     try testing.expect(!s.project.fast_offsets);
-    try testing.expectEqual(@as(f64, 0.005), s.engine.resolution);
+    try testing.expectEqual(@as(f64, 0.005), s.project.resolution);
     // A change of an option outside the switch keeps its state.
     try s.set("project.gap_fill", "false");
     try testing.expectEqual(State.off, state(s));
+}
+
+test "speed: the old name engine.resolution sets project.resolution" {
+    var s: Settings = .{};
+    try s.set("engine.resolution", "0.01");
+    try testing.expectEqual(@as(f64, 0.01), s.project.resolution);
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    try testing.expectEqual(@as(usize, 1), try zs.profile.movedKeys(arena.allocator(), .project, "[engine]\nresolution = 0.01\n"));
 }
