@@ -92,7 +92,7 @@ kind: idea
 source: Bambu Studio
 license: AGPL-3.0
 version: Bambu Studio 02.09.01.70
-files: src/gcode.zig, src/plate_job.zig, src/render/view.zig
+files: src/gcode.zig, src/tower.zig, src/plate_job.zig, src/render/view.zig
 area: gcode
 summary: The order of a change (change, flush, prime and wipe on a tower at the z of the layer, then the part), the prime volume, the grid layers of the tower, the idle nozzle of a head with two nozzles, and the reheat after the cooling before the tower.
 ```
@@ -108,9 +108,36 @@ The prime tower and the filament change of Bambu Studio, as a .gcode.3mf of the 
 
 **License:** AGPL-3.0 (the method and the values, no code)
 
-**Used in:** `src/gcode.zig` (`Emitter.changeTool`, `towerPurge`, `towerFinish`, `towerWipe`, `tower_prime_mm3`, `idle_nozzle_delta`, `grid_gap`), `src/plate_job.zig` (`PlateJob.towers`), `src/render/view.zig` (`View.loadTower`)
+**Used in:** `src/gcode.zig` (`Emitter.changeTool`, `towerPurge`, `towerFinish`, `towerWipe`, `tower_prime_mm3`, `idle_nozzle_delta`), `src/plate_job.zig` (`PlateJob.towers`), `src/render/view.zig` (`View.loadTower`)
 
-**How zslice uses it:** The same order of a change, the prime of 45 mm³, no flush at a switch of the nozzles, a tower that grows on each layer up to its last change with a grid of lines at most 5 mm apart, the print temperature after M620.15, and the idle nozzle at 10 °C below its temperature (zslice does not turn it off: it does not know the time to the next use).
+**How zslice uses it:** The same order of a change, the prime of 45 mm³, no flush at a switch of the nozzles, a tower that grows on each layer up to its last change, the print temperature after M620.15, and the idle nozzle at 10 °C below its temperature (zslice does not turn it off: it does not know the time to the next use). The layers of the tower without a prime have sparse lines of zslice's own pattern (see "Rib wall prime tower" below).
+
+### Rib wall prime tower
+
+```ref
+kind: idea
+source: Bambu Studio
+license: AGPL-3.0
+link: https://github.com/bambulab/BambuStudio/blob/8e524a39d4c4cd0541801c1c46d2f77debb0bf1d/src/libslic3r/GCode/WipeTower.cpp
+version: commit 8e524a39d4c4cd0541801c1c46d2f77debb0bf1d
+files: src/tower.zig, src/plate_job.zig, src/settings.zig
+area: gcode
+summary: The shape of the rib wall tower (the box and two strips along its diagonals, the extra rib length that shrinks to the top, the least depth for the height, the fillets of 2 mm), and its settings.
+```
+
+The rib wall of the prime tower of Bambu Studio, in `src/libslic3r/GCode/WipeTower.cpp` and `src/libslic3r/PrintConfig.cpp` of https://github.com/bambulab/BambuStudio, commit `8e524a39d4c4cd0541801c1c46d2f77debb0bf1d` (17 November 2026), and a photo of a Bambu Studio tower of the user (22 November 2026):
+
+- `WipeTower::generate_rib_polygon`: the wall is the union of the box of the tower and two strips along its diagonals. Each strip is `prime_tower_rib_width` wide (8 mm). Each strip is as long as the diagonal plus the extra length, and the part past the diagonal shrinks in a straight line to 0 at the top of the tower.
+- `WipeTower::plan_tower_new`: the rib length is the diagonal, or the diagonal of the least depth for the height of the tower (`min_depth_per_height`: 5 mm at 5 mm, 20 mm at 100 mm, 40 mm at 250 mm, 60 mm at 350 mm), plus `prime_tower_extra_rib_length` (0 mm), never less than the diagonal. The rib width is at most half the side of the tower. A tower with ribs is square.
+- `WipeTower::rounding_polygon`: with `prime_tower_fillet_wall`, each corner of the wall that turns by 30° to 150° gets an arc that starts 2 mm before the corner.
+- The settings `prime_tower_rib_wall` (on), `prime_tower_rib_width`, `prime_tower_extra_rib_length`, and `prime_tower_fillet_wall` (on), with their meanings.
+- The photo: a wall of 4 or 5 loops, and a block of zigzag rows from wall to wall for each filament.
+
+**License:** AGPL-3.0 (the method and the values, no code)
+
+**Used in:** `src/tower.zig` (`Layer.loopAt`, `ribOf`, `leastDepth`, `roundCorners`, `fillet_mm`), `src/plate_job.zig` (`PlateJob.towers`: a square tower with ribs), `src/settings.zig` (`project.prime_tower_rib_wall`, `prime_tower_rib_width`, `prime_tower_extra_rib_length`, `prime_tower_fillet_wall`)
+
+**How zslice uses it:** The same outline, rib length, and fillets. zslice finds the outline from the three convex shapes along rays from the center, and moves the fillets in for each inner loop. Bambu Studio prints one wall loop and a chamfer of brim loops that gets one loop less on each layer; zslice prints `project.prime_tower_wall_loops` loops (4) on each layer. Bambu Studio fills the layers without a prime with a sparse grid; zslice puts a solid base under the rows of the next prime, and sparse lines that are close at the walls, on the rest.
 
 ### Bambu Lab LAN mode
 

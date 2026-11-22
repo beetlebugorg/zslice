@@ -56,9 +56,10 @@
 //! - The prime tower (see `Tower`): each change flushes or primes the new
 //!   filament on a tower at the z of the layer, and wipes the nozzle
 //!   there, before the first line of the new filament on the part. The
-//!   tower grows on each layer up to its last change: its loop and a grid
-//!   of lines on the rest of its area. This is the order and the tower of
-//!   Bambu Studio and of the wipe tower of PrusaSlicer (see
+//!   tower grows on each layer up to its last change: its wall with ribs,
+//!   a solid base under the next prime, and sparse lines (see tower.zig).
+//!   This is the order and the tower of Bambu Studio and of the wipe
+//!   tower of PrusaSlicer (see
 //!   docs/references/bambu-studio.md and docs/references/prusaslicer.md).
 //!   A printer with more than one nozzle switches nozzles with no color
 //!   flush. On a tool changer (`machine.tool_numbers = nozzle`), Tn is the
@@ -95,6 +96,7 @@
 //! The emitter also adds up statistics: filament used and a time estimate.
 
 const std = @import("std");
+const tower_mod = @import("tower.zig");
 const Writer = std.Io.Writer;
 const geom = @import("geom.zig");
 const flow = @import("flow.zig");
@@ -481,133 +483,12 @@ pub fn prepare(gpa: std.mem.Allocator, r: *const Resolved, lp: *const LayerPlan,
 
 pub const Error = Writer.Error || std.mem.Allocator.Error;
 
-/// The prime tower of a print with tool changes (Project.prime_tower): a
-/// box of `size` by `ySize()` mm at (x, y) on the bed. Each layer up to
-/// `last_layer` prints a layer of it at the z of the layer, so the tower
-/// is as high as the nozzle at each change. A change primes the new
-/// filament in rows of lines inside its loop (see `Emitter.towerPurge`).
-/// At the end of the layer, the tower gets its loop and a grid of lines
-/// across the rows on the rest of its area (see `Emitter.towerFinish`),
-/// so the rows of the next layer have a base.
-pub const Tower = struct {
-    x: f64,
-    y: f64,
-    size: f64,
-    /// The last layer with a change into a filament of this tower: the
-    /// tower grows on each layer up to it.
-    last_layer: usize,
-    /// The family of its materials (see filaments.family), for the view.
-    family: [8]u8 = .{0} ** 8,
-    /// Its depth in y (mm): `size`, or more for the rows that the most
-    /// purge of one layer needs (see PlateJob.towers). 0: `size`.
-    depth: f64 = 0,
-
-    pub fn ySize(t: Tower) f64 {
-        return if (t.depth > t.size) t.depth else t.size;
-    }
-
-    /// The lines of one layer of the tower with lines `w` mm wide, after
-    /// `rows` rows of purge (see `towerRow`): the loop on its edge, then a
-    /// grid of lines in y across the rest of the area. The lines of the
-    /// grid are at most `grid_gap` mm apart, so a row of the next layer
-    /// bridges no longer gap. Writes the points to `out`: the loop is
-    /// `out[0..5]`, and the grid is one line through `out[5..n]` (the
-    /// nozzle travels from the loop to it). Returns n.
-    pub fn finishLines(t: Tower, w: f64, rows: u32, out: *[finish_points_max][2]f64) usize {
-        const x0 = t.x - t.size / 2 + w / 2;
-        const x1 = t.x + t.size / 2 - w / 2;
-        const y0 = t.y - t.ySize() / 2 + w / 2;
-        const y1 = t.y + t.ySize() / 2 - w / 2;
-        out[0] = .{ x0, y0 };
-        out[1] = .{ x1, y0 };
-        out[2] = .{ x1, y1 };
-        out[3] = .{ x0, y1 };
-        out[4] = .{ x0, y0 };
-        var n: usize = 5;
-        // The grid: from the row after the last purge row to the back of
-        // the loop, a zigzag of lines in y that joins at the ends.
-        const ya = y0 + w / 2 + @as(f64, @floatFromInt(rows)) * w + w / 2;
-        const yb = y1 - w;
-        if (yb - ya < w) return n;
-        const span = x1 - x0;
-        const gaps: usize = @min(finish_points_max / 2 - 4, @max(2, @as(usize, @intFromFloat(@ceil(span / grid_gap)))));
-        var up = true;
-        for (1..gaps) |k| {
-            const x = x0 + span * @as(f64, @floatFromInt(k)) / @as(f64, @floatFromInt(gaps));
-            out[n] = .{ x, if (up) ya else yb };
-            out[n + 1] = .{ x, if (up) yb else ya };
-            n += 2;
-            up = !up;
-        }
-        return n;
-    }
-
-    /// Loop `i` (from 1) of the brim of the tower, for lines `w` mm wide:
-    /// a loop `i` line widths outside the loop of the tower, on its first
-    /// layer, so the tower holds to the bed.
-    pub fn brimLoop(t: Tower, w: f64, i: u32, out: *[5][2]f64) void {
-        const d = w * @as(f64, @floatFromInt(i));
-        const x0 = t.x - t.size / 2 + w / 2 - d;
-        const x1 = t.x + t.size / 2 - w / 2 + d;
-        const y0 = t.y - t.ySize() / 2 + w / 2 - d;
-        const y1 = t.y + t.ySize() / 2 - w / 2 + d;
-        out.* = .{ .{ x0, y0 }, .{ x1, y0 }, .{ x1, y1 }, .{ x0, y1 }, .{ x0, y0 } };
-    }
-
-    /// The count of the loops of the brim of a tower: `brim` mm of lines
-    /// `w` mm wide.
-    pub fn brimLoops(brim: f64, w: f64) u32 {
-        if (brim <= 0 or w <= 0) return 0;
-        return @min(40, @as(u32, @intFromFloat(@ceil(brim / w - 1e-9))));
-    }
-
-    /// The row `row` of the purge rows of a layer, for lines `w` mm wide:
-    /// its y, and the x of its two ends. The rows fill the area inside the
-    /// loop from the front, one line width apart. Their ends go half a
-    /// line into the loop, so each row holds to the walls of the tower.
-    pub fn towerRow(t: Tower, w: f64, row: u32) struct { y: f64, x0: f64, x1: f64 } {
-        return .{
-            .y = t.y - t.ySize() / 2 + w + (@as(f64, @floatFromInt(row)) + 0.5) * w,
-            .x0 = t.x - t.size / 2 + w,
-            .x1 = t.x + t.size / 2 - w,
-        };
-    }
-
-    /// The count of purge rows that fit in one layer, for lines `w` mm
-    /// wide: the depth inside the loop.
-    pub fn rowsMax(t: Tower, w: f64) u32 {
-        const inside = t.ySize() - 2 * w;
-        return @min(max_tower_rows, @max(1, @as(u32, @intFromFloat(@max(0, inside) / w))));
-    }
-};
-
-/// The most points of the lines of `Tower.finishLines`.
-pub const finish_points_max = 64;
-
-/// The largest gap (mm) between the lines of the grid of a tower layer:
-/// a row of purge over the grid bridges no more. The grid of Bambu Studio
-/// ("CP EMPTY GRID") has gaps of about 9 mm (see
-/// docs/references/bambu-studio.md); 2 mm gives a prime row a close base
-/// to stick to (5 mm let the prime lift).
-pub const grid_gap = 2.0;
-
-/// The prime towers of a print: one, or one for each family of materials
-/// (Project.prime_tower_split), and the tower of each filament slot. Each
-/// tower grows on each layer up to its own last layer.
-pub const Towers = struct {
-    pub const max = 4;
-    list: [max]Tower = undefined,
-    n: usize = 0,
-    /// The tower of each slot (index in `list`).
-    of_slot: [filaments.max_slots]u8 = .{0} ** filaments.max_slots,
-
-    pub fn items(t: *const Towers) []const Tower {
-        return t.list[0..t.n];
-    }
-};
+/// The prime tower and its lines: see tower.zig.
+pub const Tower = tower_mod.Tower;
+pub const Towers = tower_mod.Towers;
 
 /// The most rows of a tower on one layer.
-pub const max_tower_rows = 512;
+pub const max_tower_rows = tower_mod.max_rows;
 
 /// The prime volume (mm³) of the new filament on the tower after a
 /// change whose G-code flushes into a chute (Bambu Lab): the
@@ -2403,12 +2284,13 @@ pub const Emitter = struct {
         self.stop = true;
     }
 
-    /// Lines of tower k at the z of its layer: a travel to the first point
-    /// at the z of the print, then extrusions through `pts`, with a travel
-    /// (no retraction: it stays on the tower) to `pts[jump]`. A tower
-    /// below the print (it missed a layer, see `towerLayer`): the nozzle
-    /// goes down to its layer, and back up.
-    fn towerLines(self: *Emitter, k: usize, pts: []const [2]f64, jump: usize, first: bool) Error!void {
+    /// Lines of tower k at the z of its layer (see tower.Lines): a travel
+    /// to the first point at the z of the print, then the lines and the
+    /// travels of `lines` (no retraction: the travels stay on the tower).
+    /// A tower below the print (it missed a layer, see `towerLayer`): the
+    /// nozzle goes down to its layer, and back up.
+    fn towerLines(self: *Emitter, k: usize, lines: *const tower_mod.Lines, first: bool) Error!void {
+        const pts = lines.points();
         if (pts.len < 2) return;
         if (!self.dry) try self.w.writeAll(";TYPE:PRIME-TOWER\n");
         if (!self.dry and self.bambu_blocks) try self.w.writeAll("; FEATURE: Prime tower\n");
@@ -2430,10 +2312,10 @@ pub const Emitter = struct {
         const e = flow.beadArea(self.layer_w, h) / self.r.filament_area;
         const speed = self.lr.nozzleSpeed(self.lr.speed(.skirt, self.layer_w, h, t_first), self.nozzleNow());
         for (pts[1..], 1..) |q, j| {
-            if (j == jump) try self.move(q[0], q[1]) else {
+            if (lines.isLine(j)) {
                 self.stats.tower_mm += geom.hypot(q[0] - pts[j - 1][0], q[1] - pts[j - 1][1]) * e;
                 try self.extrude(q[0], q[1], e, speed);
-            }
+            } else try self.move(q[0], q[1]);
         }
         self.extruded = true;
         if (down > 1e-6) {
@@ -2469,37 +2351,27 @@ pub const Emitter = struct {
         self.stats.tower_layers[k] = @intCast(self.tower_count[k]);
     }
 
-    /// Purges `volume` mm³ into tower k: rows of lines inside its loop,
-    /// from the row after the last one of this layer, then a wipe on the
-    /// tower. A purge past the last row stops there (counted in
-    /// Stats.tower_short_mm3); the depth of the tower makes room for the
-    /// most purge of a layer (PlateJob.towers).
+    /// Purges `volume` mm³ into tower k: rows of lines inside its wall,
+    /// from the row after the last one of this layer (see
+    /// tower.Layer.purge), then a wipe on the tower. A purge past the last
+    /// row stops there (counted in Stats.tower_short_mm3); the depth of
+    /// the tower makes room for the most purge of a layer
+    /// (PlateJob.towers).
     fn towerPurge(self: *Emitter, k: usize, volume: f64, first: bool) Error!void {
-        const t = self.towers.list[k];
         self.towerLayer(k);
         const w = self.layer_w;
-        // A row never prints over another one of the same layer.
-        const rows_max = t.rowsMax(w);
         const h = self.tower_z[k] - self.tower_top[k];
         const area = flow.beadArea(w, @max(h, 0.01));
-        var len = volume / area;
-        var pts: [2 * max_tower_rows + 2][2]f64 = undefined;
-        var n: usize = 0;
-        while (len > 1e-9 and self.tower_rows[k] < rows_max) {
-            const row = t.towerRow(w, self.tower_rows[k]);
-            const ltr = self.tower_rows[k] % 2 == 0;
-            // Each row goes from wall to wall, also the last one: a row
-            // that stops inside the tower has no hold at its end.
-            const run = row.x1 - row.x0;
-            pts[n] = .{ if (ltr) row.x0 else row.x1, row.y };
-            pts[n + 1] = .{ if (ltr) row.x1 else row.x0, row.y };
-            n += 2;
-            len -= run;
-            self.tower_rows[k] += 1;
-        }
-        if (len > 1e-9) self.stats.tower_short_mm3 += len * area;
-        try self.towerLines(k, pts[0..n], n, first);
-        if (n >= 2) try self.towerWipe(pts[n - 2], pts[n - 1]);
+        const shape = self.towers.list[k].layer(w, self.tower_z[k]);
+        const lines = try self.gpa.create(tower_mod.Lines);
+        defer self.gpa.destroy(lines);
+        lines.* = .{};
+        const got = shape.purge(self.tower_rows[k], volume / area, lines);
+        self.tower_rows[k] = got.rows;
+        if (got.short > 1e-9) self.stats.tower_short_mm3 += got.short * area;
+        try self.towerLines(k, lines, first);
+        const n = lines.n;
+        if (n >= 2) try self.towerWipe(lines.pts[n - 2], lines.pts[n - 1]);
     }
 
     /// True if a path of `lp` from path `i` on prints with a filament of
@@ -2514,27 +2386,27 @@ pub const Emitter = struct {
         return false;
     }
 
-    /// The end of a layer of tower k: its loop, and the grid on the area
-    /// that no row of this layer covers (see `Tower.finishLines`), once
-    /// for each layer.
+    /// The end of a layer of tower k, once for each layer (see
+    /// tower.Layer.finish): a solid base under the prime of the next
+    /// layer (the whole inside on the first layer of the tower), sparse
+    /// lines on the rest of the inside, the loops of the wall, and the
+    /// brim on the first layer of the print (project.prime_tower_brim).
     fn towerFinish(self: *Emitter, k: usize, first: bool) Error!void {
         self.towerLayer(k);
         if (self.tower_done[k]) return;
         self.tower_done[k] = true;
-        // The brim of the tower on the first layer of the print: loops out
-        // from the loop of the tower (project.prime_tower_brim).
-        if (self.layer_index == 0) {
-            const loops = Tower.brimLoops(self.lr.settings.project.prime_tower_brim, self.layer_w);
-            var i: u32 = 1;
-            while (i <= loops) : (i += 1) {
-                var ring: [5][2]f64 = undefined;
-                self.towers.list[k].brimLoop(self.layer_w, i, &ring);
-                try self.towerLines(k, &ring, ring.len, first);
-            }
-        }
-        var pts: [finish_points_max][2]f64 = undefined;
-        const n = self.towers.list[k].finishLines(self.layer_w, self.tower_rows[k], &pts);
-        try self.towerLines(k, pts[0..n], 5, first);
+        const t = self.towers.list[k];
+        const shape = t.layer(self.layer_w, self.tower_z[k]);
+        const solid = if (self.tower_count[k] == 1)
+            shape.rowsMax()
+        else
+            shape.solidRows(self.towers.needAt(self.layer_index + 1, k));
+        const brim = if (self.layer_index == 0) Tower.brimLoops(self.lr.settings.project.prime_tower_brim, self.layer_w) else 0;
+        const lines = try self.gpa.create(tower_mod.Lines);
+        defer self.gpa.destroy(lines);
+        lines.* = .{};
+        shape.finish(self.tower_rows[k], solid, brim, lines);
+        try self.towerLines(k, lines, first);
     }
 
     /// A retraction while the nozzle moves back on the last line of the
@@ -4565,27 +4437,4 @@ test "bambu progress: each layer gets its percent and its minutes left" {
     try std.testing.expectEqual(head.len, text.len);
     try std.testing.expect(std.mem.indexOf(u8, text, "\nM73 P0 R60 ") != null);
     try std.testing.expect(std.mem.indexOf(u8, text, "\nM73 P50 R30 ") != null);
-}
-
-test "tower: the brim loops step out by a line width, and the grid lines are close" {
-    const t = Tower{ .x = 100, .y = 100, .size = 20, .last_layer = 5 };
-    const w: f64 = 0.45;
-    try std.testing.expectEqual(@as(u32, 7), Tower.brimLoops(3, w));
-    try std.testing.expectEqual(@as(u32, 0), Tower.brimLoops(0, w));
-    var ring: [5][2]f64 = undefined;
-    t.brimLoop(w, 1, &ring);
-    try std.testing.expectApproxEqAbs(90 + w / 2 - w, ring[0][0], 1e-9);
-    try std.testing.expectApproxEqAbs(110 - w / 2 + w, ring[1][0], 1e-9);
-    try std.testing.expectEqual(ring[0], ring[4]);
-    var pts: [finish_points_max][2]f64 = undefined;
-    const n = t.finishLines(w, 0, &pts);
-    // The grid: the points after the loop and the jump, in pairs along y.
-    var prev: ?f64 = null;
-    var i: usize = 5;
-    while (i < n) : (i += 1) {
-        const x = pts[i][0];
-        if (prev) |p| if (@abs(x - p) > 1e-9) try std.testing.expect(@abs(x - p) <= grid_gap + 1e-9);
-        prev = x;
-    }
-    try std.testing.expect(n > 5 + 2 * 8);
 }

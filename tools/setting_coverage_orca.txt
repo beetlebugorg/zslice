@@ -393,3 +393,8 @@ support_speed | same | project.support_speed
 support_interface_speed | same | project.support_interface_speed
 pressure_advance | same | filament.pressure_advance
 enable_pressure_advance | derived | filament.pressure_advance 0 is off
+# Prime tower
+wipe_tower_wall_type | derived | project.prime_tower_rib_wall (rib or rectangle; no cone)
+wipe_tower_extra_rib_length | same | project.prime_tower_extra_rib_length
+wipe_tower_rib_width | same | project.prime_tower_rib_width
+wipe_tower_fillet_wall | same | project.prime_tower_fillet_wall
