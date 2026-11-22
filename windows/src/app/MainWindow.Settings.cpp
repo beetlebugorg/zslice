@@ -188,7 +188,7 @@ namespace winrt::ZSlice::implementation
         SettingsBack().Visibility(Visibility::Collapsed);
         SettingsCrumb().Text(L"Settings");
         size_t n = zs_setting_count();
-        settings_two_nozzles = TwoNozzles();
+        settings_nozzles = NozzleCount();
         for (auto const &g : group_titles)
         {
             TextBlock heading;
@@ -205,8 +205,9 @@ namespace winrt::ZSlice::implementation
                     continue;
                 if (last != nullptr && strcmp(last, info.section) == 0)
                     continue;
-                // "Second nozzle" only on a printer with two nozzles.
-                if (!settings_two_nozzles && strcmp(info.group, "machine") == 0 && strcmp(info.section, "Second nozzle") == 0)
+                // The section of nozzle k only on a printer with more
+                // than k nozzles.
+                if (info.nozzle >= settings_nozzles)
                     continue;
                 last = info.section;
                 Button row = RowButton(info.section[0] != 0 ? zs::ToWide(info.section) : L"General");
@@ -217,9 +218,9 @@ namespace winrt::ZSlice::implementation
         }
     }
 
-    bool MainWindow::TwoNozzles()
+    int MainWindow::NozzleCount()
     {
-        return model != nullptr && strtod(model->GetSetting("machine.nozzles").c_str(), nullptr) >= 2;
+        return model != nullptr ? std::max(1, atoi(model->GetSetting("machine.nozzles").c_str())) : 1;
     }
 
     void MainWindow::ShowSection(char const *group, char const *section)
@@ -255,8 +256,18 @@ namespace winrt::ZSlice::implementation
         ClearSettingsList();
         settings_page = SettingsPage::Search;
         SettingsBack().Visibility(Visibility::Collapsed);
-        std::vector<uint32_t> hits(60);
-        size_t count = zs_setting_search(zs::ToUtf8(query).c_str(), 0, hits.data(), nullptr, hits.size());
+        // All matches first: the settings of nozzles that the printer does
+        // not have go before the limit of the list.
+        std::vector<uint32_t> hits(std::max<size_t>(zs_setting_count(), 1));
+        size_t found = std::min(zs_setting_search(zs::ToUtf8(query).c_str(), 0, hits.data(), nullptr, hits.size()), hits.size());
+        size_t count = 0;
+        int nozzles = NozzleCount();
+        for (size_t i = 0; i < found && count < 60; i++)
+        {
+            zs_setting_info info{};
+            if (zs_setting_get_info(hits[i], &info) == ZS_OK && info.nozzle < nozzles)
+                hits[count++] = hits[i];
+        }
         SettingsCrumb().Text(count == 0 ? L"No setting matches" : L"Search");
         for (size_t i = 0; i < count; i++)
         {
@@ -608,8 +619,23 @@ namespace winrt::ZSlice::implementation
     {
         if (model == nullptr)
             return;
-        // The "Second nozzle" section comes and goes with the second nozzle.
-        if (settings_page == SettingsPage::Sections && TwoNozzles() != settings_two_nozzles)
+        // The section of each nozzle comes and goes with the number of
+        // nozzles. An open section of a nozzle that went closes.
+        int nozzles = NozzleCount();
+        bool gone = false;
+        if (nozzles != settings_nozzles && settings_page == SettingsPage::Section && settings_group != nullptr)
+        {
+            for (size_t i = 0, n = zs_setting_count(); i < n && !gone; i++)
+            {
+                zs_setting_info info{};
+                if (zs_setting_get_info(i, &info) == ZS_OK && strcmp(info.group, settings_group) == 0 &&
+                    strcmp(info.section, settings_section) == 0)
+                    gone = info.nozzle >= nozzles;
+            }
+        }
+        if (nozzles != settings_nozzles && settings_page != SettingsPage::Sections && !gone)
+            settings_nozzles = nozzles;
+        if (nozzles != settings_nozzles)
         {
             ShowSections();
             // The list of the pane also refreshes the line card.

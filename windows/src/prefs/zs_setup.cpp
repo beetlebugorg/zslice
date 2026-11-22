@@ -510,6 +510,11 @@ namespace zs
         SaveState();
     }
 
+    int PrinterSetup::NozzleCount() const
+    {
+        return std::max(1, atoi(model_.GetSetting("machine.nozzles").c_str()));
+    }
+
     bool PrinterSetup::TwoNozzles() const
     {
         return atof(model_.GetSetting("machine.nozzles").c_str()) >= 2;

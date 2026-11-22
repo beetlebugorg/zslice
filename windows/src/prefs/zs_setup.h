@@ -90,6 +90,7 @@ namespace zs
         void ApplySpools(DeckFilaments const &spools, bool two_nozzles);
 
         bool TwoNozzles() const;
+        int NozzleCount() const;
         // A file name: letters, digits, dashes, and underscores.
         static std::string ProfileFileName(std::string const &name);
 
