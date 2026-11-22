@@ -23,7 +23,7 @@
 //        activatePlate(i, frame), signMenu(i, x, y), range: { start(px, py) -> drag state
 //        or null, move(state, px, py), end(state), clear() } }
 export function attachViewInput(canvas, ctx) {
-  const { app, view, view2d, tools, supportTool, requestFrame, pickAt, pickRun, hitAt, select, showContextMenu, activatePlate, signMenu, grab, range } = ctx;
+  const { app, view, view2d, tools, supportTool, requestFrame, pickAt, pickRun, hitAt, select, showContextMenu, activatePlate, signMenu, range } = ctx;
   let drag = null;
   // The last scroll came from a touchpad (see the wheel below).
   let touchpad = false;
@@ -84,59 +84,6 @@ export function attachViewInput(canvas, ctx) {
   canvas.addEventListener("pointerup", touchUp, { capture: true });
   canvas.addEventListener("pointercancel", touchUp, { capture: true });
 
-  // The hand of the Grab tool is sticky (the user's design): a click on a
-  // part picks it up, and the hand keeps it with no button held. A move of
-  // the pointer carries it; Alt and a move turn it (Shift snaps to 15°);
-  // the wheel lifts it. The next click, or Esc, lets it go.
-  let handTurn = null;
-  canvas.addEventListener("pointerdown", (e) => {
-    if (pinch || !grab || tools.tool !== "grab" || app.page !== "3d" || e.button !== 0) return;
-    e.stopImmediatePropagation();
-    e.preventDefault();
-    if (grab.holding()) {
-      grab.end();
-      return;
-    }
-    if (!view.loaded) return;
-    const r = canvas.getBoundingClientRect();
-    handTurn = null;
-    grab.start((e.clientX - r.left) * dpr(), (e.clientY - r.top) * dpr());
-  }, { capture: true });
-  canvas.addEventListener("pointermove", (e) => {
-    if (!grab?.holding()) return;
-    const r = canvas.getBoundingClientRect();
-    const px = (e.clientX - r.left) * dpr();
-    const py = (e.clientY - r.top) * dpr();
-    if (e.altKey) {
-      // Turn by 0.5° a pixel of the move; Shift snaps the sum to 15°.
-      const t = (handTurn ??= { yaw: 0, tilt: 0, sentYaw: 0, sentTilt: 0, x: e.clientX, y: e.clientY });
-      t.yaw += (e.clientX - t.x) * 0.5;
-      t.tilt += (e.clientY - t.y) * 0.5;
-      t.x = e.clientX;
-      t.y = e.clientY;
-      const snap = (v) => (e.shiftKey ? Math.round(v / 15) * 15 : v);
-      const yaw = snap(t.yaw) - t.sentYaw;
-      const tilt = snap(t.tilt) - t.sentTilt;
-      if (yaw || tilt) {
-        grab.turn(yaw, tilt);
-        t.sentYaw += yaw;
-        t.sentTilt += tilt;
-      }
-      return;
-    }
-    if (handTurn) {
-      // After a turn, the hand moves on from here: no jump.
-      handTurn = null;
-    }
-    grab.move(px, py);
-  });
-  window.addEventListener("keydown", (e) => {
-    if (e.key === "Escape" && grab?.holding()) {
-      grab.end();
-      e.preventDefault();
-    }
-  });
-
   canvas.addEventListener("pointerdown", (e) => {
     if (pinch) return;
     canvas.setPointerCapture(e.pointerId);
@@ -167,6 +114,8 @@ export function attachViewInput(canvas, ctx) {
       const r = canvas.getBoundingClientRect();
       tools.moveStart((e.clientX - r.left) * dpr(), (e.clientY - r.top) * dpr()).then((ok) => {
         if (drag === d) d.part = ok ? "moving" : null;
+        // The button came up before the part was found: no drag.
+        else if (ok) tools.moveEnd();
       });
     }
   });
@@ -185,7 +134,7 @@ export function attachViewInput(canvas, ctx) {
     }
     if (drag.part === "moving") {
       const r = canvas.getBoundingClientRect();
-      tools.moveTo((e.clientX - r.left) * dpr(), (e.clientY - r.top) * dpr());
+      tools.moveTo((e.clientX - r.left) * dpr(), (e.clientY - r.top) * dpr(), e.shiftKey, e);
       return;
     }
 
@@ -253,8 +202,8 @@ export function attachViewInput(canvas, ctx) {
     // the selection. Ctrl with a click selects that part alone. In the
     // other tools, Shift with a click adds the part, or takes it out.
     else if (d.button === 0 && e.shiftKey && !e.ctrlKey && tools.tool === "select") pickRun(px, py);
-    else if (d.button === 0 && app.page === "3d" && e.shiftKey && tools.tool !== "grab") tools.addPart(px, py);
-    else if (d.button === 0 && app.page === "3d" && (tools.tool === "move" || tools.tool === "turn" || e.ctrlKey)) tools.pickPart(px, py);
+    else if (d.button === 0 && app.page === "3d" && e.shiftKey) tools.addPart(px, py);
+    else if (d.button === 0 && app.page === "3d" && (tools.tool === "move" || e.ctrlKey)) tools.pickPart(px, py);
     else if (d.button === 0) pickAt(px, py, true);
     else if (d.button === 2) {
       // A right click on a handle of a picked support tree: its menu.
@@ -328,11 +277,6 @@ export function attachViewInput(canvas, ctx) {
   canvas.addEventListener("wheel", (e) => {
     e.preventDefault();
     const r = canvas.getBoundingClientRect();
-    // The hand holds a part: the wheel lifts it or lowers it.
-    if (grab?.holding()) {
-      grab.lift(e.deltaMode === 1 ? e.deltaY * 33 : e.deltaY);
-      return;
-    }
     // The move tool and a mouse wheel: turn the selected part 15° a step.
     if (tools.tool === "move" && tools.part && !e.ctrlKey && !fromTrackpad(e)) {
       tools.turn(e.deltaY);

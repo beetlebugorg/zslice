@@ -94,7 +94,7 @@ The GTK shell is in `linux/src`. Each `.c` file has a header that explains its i
 | | `layer-draw` | The cairo drawing of one layer in the 2D view |
 | | `toolpath-nav` | The next segment and the nearest line, for the keyboard navigation |
 | | `layer-range` | The slider with two knobs for the layers that show |
-| | `view3d` | The widget of the 3D view, the drag of a part, and the rings of the Turn tool |
+| | `view3d` | The widget of the 3D view, and the gizmo of the Move tool: the drag of a part, its rings, and its arrows |
 | | `bed-model` | The bed model of the current printer in the 3D view: finds the bed folder and reads the files |
 | | `native-surface` | The Wayland subsurface for the 3D view |
 | | `open-link` | A `zslice://` link: the dialog, the download, and the new plate (see [Links that open a model](../internals/open-links.md)) |
@@ -141,13 +141,13 @@ These environment variables change the start of the GTK shell, for development, 
 | `ZSLICE_USE_PRINTERS=id,id` | Changes to each printer in turn, 4 s apart, after the start. The log gives the filament and `machine.outer_wall_accel` after each change. | `model/app-model.c` |
 | `ZSLICE_PROFILE=up` or `down` | With `ZSLICE_PICK`: runs "New profile from here up" (or down) on the picked line. `ZSLICE_PROFILE_SET=name=value` then changes one setting in it. | `ui/view3d.c` |
 | `ZSLICE_PART=i` | Selects part `i` of the plate after the first load. | `ui/view3d.c` |
-| `ZSLICE_RING_DRAG=x0,y0,x1,y1` or `auto` | With `ZSLICE_PART`: picks the Turn tool, and drags a ring of the part from the pixel x0, y0 to x1, y1 (`auto`: from the point of the rings at +X to the point at +Y) of the 3D view in 12 steps, 1 s after the first slice. The log gives the axis and the turn. | `ui/view3d.c` |
+| `ZSLICE_RING_DRAG=x0,y0,x1,y1` or `auto` | With `ZSLICE_PART`: picks the Move tool, and drags a ring of the gizmo of the part from the pixel x0, y0 to x1, y1 (`auto`: from the point of the rings at +X to the point at +Y) of the 3D view in 12 steps, 1 s after the first slice. The log gives the axis and the turn. | `ui/view3d.c` |
+| `ZSLICE_ARROW_DRAG=axis,mm` | With `ZSLICE_PART`: picks the Move tool, and drags the arrow of the axis (0 X, 1 Y, 2 Z: the lift) from its middle to `mm` further along it, in 12 steps, 1 s after the first slice. The log gives the place and the lift of the part 3 s later. `ZSLICE_RING_DRAG_MS` sets the time of a step. | `ui/view3d.c` |
 | `ZSLICE_BENCH=1` | Logs the times of the app: the start of the 3D view (and of Vulkan), each slice, the first frame of the slice, an orbit of 240 frames (the rate, the draw times, and each frame over 40 ms), an edit (the wall count) to the load of its slice, then a move of part 0, each history commit, the session save, and the refinements. | `ui/view3d.c`, `ui/window.c`, `main.c` |
 | `ZSLICE_BENCH_LOAD=1` | Logs the time of each `zs_view_load` (a new slice in the 3D view). | `ui/view3d.c` |
 | `ZSLICE_MENU=x,y` | Opens the context menu at the pixel x, y of the 3D view 1 s after the first slice, as a right click there does. | `ui/view3d.c` |
 | `ZSLICE_PLATES=file;file;...` | Adds a plate for each file and loads the file on it, one each 1.5 s, then goes back to plate 1. | `ui/window.c` |
 | `ZSLICE_BENCH_WAIT=ms` | With `ZSLICE_BENCH`: the orbit starts that long after the start (for example after `ZSLICE_PLATES` and Home). | `ui/view3d.c` |
-| `ZSLICE_GRAB=x0,y0,x1,y1[,turn]` | Takes the part at the pixel x0, y0 of the 3D view with the Grab tool 1 s after the first slice, carries it to x1, y1 in 12 steps, turns it `turn` degrees about Z on the way, and lets go. The log gives the place of each part 3 s later. | `ui/view3d.c` |
 | `ZSLICE_SUPPORT_DO=steps` | Picks the Support tool 1 s after the first slice, and runs one step each 600 ms, as the mouse and the keys would. Steps, with `;` between them: `orbit dx dy`, `hover x y` (the pointer over x, y: the log says if an overhang lights up), `click x y`, `shift x y` (a click with Shift), `alt x y` (a click with Alt: a point of an area), `key Return` (a key by its GDK name), `drag i j x y` (point j of area i to x, y), `kind k` (button k of the card), `see 0` or `see 1`, `undo`, `redo`, and for the trees `tclick k` (a click on node k of the first tree), `tdrag k dx dy` (drag node k by dx, dy points), `tseg k dx dy` (drag the segment under node k), `tring dx` (drag the ring of the selected node), `tadd fx fy tx ty` (Add a branch from the bed pixel fx, fy to the part pixel tx, ty), `tdel`, `treset`. x, y are points of the 3D view. The log gives the areas, their points on the screen, the history, and the filament after each step. | `ui/support-tool.c` |
 | `ZSLICE_ZOOM=z` | Starts the 3D view at the zoom `z` (for example 0.3: nearer). | `ui/view3d.c` |
 | `ZSLICE_ZOOM_AT=x,y,n` | Zooms `n` wheel steps toward the pixel x, y after the first load. | `ui/view3d.c` |

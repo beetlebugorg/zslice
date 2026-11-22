@@ -15,14 +15,24 @@
  * Frames are drawn on demand: one idle callback for each change, so a view
  * that does not change uses no CPU.
  *
- * The rings of the Turn tool (as web/app/turn.js): with the Turn tool and
- * a selected part, three rings go around the part: red turns it about X,
- * green about Y, and blue about Z (on the bed). The core view draws them,
- * finds the ring under the pointer, and gives the angle of a drag
- * (zs_view_set_rings, zs_view_ring_*). A drag turns the part in steps of
- * 15 degrees (Shift: 5); each step goes to the core at once, and the part
- * slices once, at the end of the drag. The widget draws over the
- * subsurface with cairo: the label of the angle.
+ * The gizmo of the transform tool (as web/app/gizmo.js): with the Move
+ * tool (M; R and G pick it too) and a selected part, three rings and three
+ * arrows go on the part. A drag of a ring turns the part about X (red), Y
+ * (green), or Z (blue) of the bed, in steps of 15 degrees (Shift: 1); each
+ * step goes to the core at once, and the part slices at the end of the
+ * drag. A drag of an arrow moves the part along X or Y, or lifts it (Z):
+ * up it floats, down it sinks into the bed. A drag of the part carries it
+ * on the bed, with smart guides (zs_part_snap; Shift: no snap). A move is
+ * live: the beads move on each frame (zs_view_part_preview), and the
+ * slice follows as a draft (see live_push). The release ends the drag:
+ * one step of the history, the exact slice, and the physics (a part on an
+ * edge, or in the air with support off, falls). The core view draws the
+ * rings, the arrows, and the guides, finds the handle under the pointer,
+ * and gives the angle or the distance of a drag (zs_view_set_gizmo,
+ * zs_view_gizmo_at, zs_view_ring_*, zs_view_arrow_*). The widget draws
+ * over the subsurface with cairo: the label of a drag. References: the
+ * gizmos of PrusaSlicer and OrcaSlicer (docs/references/prusaslicer.md),
+ * and the smart guides (docs/references/papers-and-algorithms.md).
  *
  * The Support tool (support-tool.h) gets the clicks, the drags, and the
  * keys of the view while it is on. The Label tool (label-tool.h) gets
@@ -142,7 +152,7 @@ typedef struct {
     /* The pointer is over the view (a paste goes to it). */
     gboolean pointer_in;
     gboolean gaps_hook, gap_hook; /* the test hooks ran */
-    gboolean dbl_hook, ring_hook, grab_hook, menu_hook, select_hook, clip_hook;
+    gboolean dbl_hook, ring_hook, menu_hook, select_hook, clip_hook;
     /* ZSLICE_BENCH: the step (0 off, 1 wait for the first frame, 2 orbit,
      * 3 wait for the slice of an edit, 4 done), the frames of the orbit,
      * their draw times (ms), the time of the last tick, and the time of
@@ -162,18 +172,40 @@ typedef struct {
     size_t sign_n;
     guint sign_w, sign_h;
     float sign_scale;
-    /* The rings of the Turn tool are on (the core view draws them). */
+    /* The gizmo of the transform tool is on (the core view draws it). */
     gboolean rings_on;
-    /* A drag of a ring: its axis (-1: none), the angle of the press, the
-     * sense of the ring on the screen, the turn that the drag wants, the
-     * turn sent to the core, and the pointer (for the label). */
+    /* A drag of a ring: its axis (-1: none), the turn that the drag wants,
+     * and the turn sent to the core. */
     int turn_axis;
     double turn_want, turn_sent;
-    double turn_px, turn_py;
-    /* The part of a ring drag, and its pivot and its turn about Z at the
-     * press. */
+    /* The label of a drag of the gizmo (the angle, or the distance) and
+     * the pointer, or an empty label. */
+    char drag_label[64];
+    double drag_label_x, drag_label_y;
+    /* The part of a ring drag, and its pivot at the press. */
     gint64 turn_part;
-    double turn_pivot[3], turn_rot;
+    double turn_pivot[3];
+    /* A live move (an arrow, or a drag of the part; see live_begin): the
+     * part, the axis of the arrow (-1: on the bed), the pose (x, y, lift)
+     * at the press, that the drag wants, that the core has, and of the
+     * slice in the view, and the size of the part. live_gen: the change
+     * of the plate of the last pose sent. live_done: the drag ended, and
+     * the preview waits for the slice of the last pose. live_hz: the
+     * height of the point of the press (the plane of a drag of the part). */
+    gboolean live_on, live_done, live_pushing;
+    gint64 live_part, live_gen;
+    int arrow_axis;
+    double live_start[3], live_target[3], live_sent[3], live_shown[3], live_size[3];
+    double live_hz;
+    /* The poses sent to the core in this drag, with the change of the
+     * plate of each (the last 8): a load of change g shows the last pose
+     * sent at or before g. */
+    gint64 live_hist_gen[8];
+    double live_hist[8][3];
+    int live_hist_n;
+    /* The beads of a fall start at this offset from the body (the end of
+     * a live move). */
+    double fall_off[3];
     /* The slices wait for the end of a ring drag, so the beads of the
      * view show the part before the turn until the slice of its new place
      * comes. The base is the turn that puts them where the part is now
@@ -199,18 +231,10 @@ typedef struct {
     ZgPaintTool *paint;
     ZgPartMeshes *meshes;
     const char *cursor;
-    /* The fall of a part, or the hand that holds it: a tick on each frame
-     * runs the rigid body (zg_model_fall_step). */
+    /* The fall of a part: a tick on each frame runs the rigid body
+     * (zg_model_fall_step). */
     guint fall_tick;
     gint64 fall_part, fall_last;
-    /* The hand (the Grab tool) is sticky: a click picks a part up, and
-     * the hand keeps it with no button held, until the next click or Esc.
-     * Its height over the bed (mm), its last pointer, the pointer of an
-     * Alt move, and the turn of the Alt moves (degrees: the sum, and the
-     * part sent). hand_click: the press of that click (no orbit). */
-    gboolean hand, hand_click, turning;
-    double hand_h, hand_px, hand_py, turn_x, turn_y;
-    double yaw, tilt, yaw_sent, tilt_sent;
 } View3d;
 
 static void apply_signs(View3d *v);
@@ -445,7 +469,7 @@ static void on_gaps_changed(ZgModel *model, gpointer data) {
 
 static gboolean look_at_side(View3d *v, double x, double y);
 static void ring_drag_hook(gpointer data);
-static void grab_hook(gpointer data);
+static void live_loaded(View3d *v);
 static void menu_hook(gpointer data);
 static void select_hook(gpointer data);
 static void clip_hook(gpointer data);
@@ -494,7 +518,8 @@ static void load_data(View3d *v) {
         if (shown >= v->base_gen) v->base_on = FALSE;
         if (shown >= v->fall_gen) v->fall_shown = FALSE;
     }
-    if (v->base_on || v->fall_shown) show_preview(v);
+    live_loaded(v);
+    if (v->base_on || v->fall_shown || v->live_on) show_preview(v);
     zg_bed_model_update(v->view, zg_model_core(v->model));
     /* The other plates of the set, in a row beside the active plate. */
     zs_set_view_sync(zg_model_plate_set(v->model), v->view);
@@ -538,14 +563,10 @@ static void load_data(View3d *v) {
             g_strfreev(kv);
         }
     }
-    if (g_getenv("ZSLICE_RING_DRAG") && !v->ring_hook && zs_app_state(zg_model_core(v->model)) == ZS_STATE_DONE &&
+    if ((g_getenv("ZSLICE_RING_DRAG") || g_getenv("ZSLICE_ARROW_DRAG")) && !v->ring_hook && zs_app_state(zg_model_core(v->model)) == ZS_STATE_DONE &&
         zg_model_selected_part(v->model) >= 0) {
         v->ring_hook = TRUE;
         g_timeout_add_once(1000, ring_drag_hook, v);
-    }
-    if (g_getenv("ZSLICE_GRAB") && !v->grab_hook && zs_app_state(zg_model_core(v->model)) == ZS_STATE_DONE) {
-        v->grab_hook = TRUE;
-        g_timeout_add_once(1000, grab_hook, v);
     }
     if (g_getenv("ZSLICE_DOUBLE_CLICK") && !v->dbl_hook && zs_app_state(zg_model_core(v->model)) == ZS_STATE_DONE) {
         v->dbl_hook = TRUE;
@@ -769,17 +790,15 @@ static void on_resize(GtkDrawingArea *area, int width, int height, gpointer data
  * stays transparent. */
 static const char *const axis_names[] = {"X", "Y", "Z"};
 
-/* The core view draws the rings. Here: the label of a turn. */
+/* The core view draws the gizmo. Here: the label of a drag of it (the
+ * angle of a turn, or the distance of a move). */
 static void draw_rings(View3d *v, cairo_t *cr) {
-    if (v->turn_axis < 0) return;
-    /* The turn of the drag, next to the pointer. */
-    char text[48];
-    double deg = v->turn_want;
-    g_snprintf(text, sizeof text, "%s%.0f° about %s", deg > 0 ? "+" : "", deg, axis_names[v->turn_axis]);
-    PangoLayout *layout = gtk_widget_create_pango_layout(v->area, text);
+    if (!v->drag_label[0]) return;
+    /* Next to the pointer. */
+    PangoLayout *layout = gtk_widget_create_pango_layout(v->area, v->drag_label);
     int tw, th;
     pango_layout_get_pixel_size(layout, &tw, &th);
-    double x = v->turn_px + 16, y = v->turn_py - 30;
+    double x = v->drag_label_x + 16, y = v->drag_label_y - 30;
     cairo_set_source_rgba(cr, 0.12, 0.13, 0.15, 0.85);
     cairo_rectangle(cr, x - 6, y - 3, tw + 12, th + 6);
     cairo_fill(cr);
@@ -854,7 +873,7 @@ void zg_view3d_set_cut(GtkWidget *view, double x0, double y0, double x1, double 
 
 gboolean zg_view3d_moving(GtkWidget *view) {
     View3d *v = g_object_get_data(G_OBJECT(view), "zg-view3d");
-    return v && (v->anim || v->fall_tick || v->hand || v->bench == 2);
+    return v && (v->anim || v->fall_tick || v->bench == 2);
 }
 
 gboolean zg_view3d_path_rect(GtkWidget *view, gint64 path, double out[4]) {
@@ -893,34 +912,48 @@ void zg_view3d_on_frame(GtkWidget *view, GtkWidget *owner, void (*fn)(gpointer),
     g_signal_connect(owner, "destroy", G_CALLBACK(on_hook_owner_gone), v);
 }
 
-/* ---- the rings of the Turn tool ---- */
+/* ---- the gizmo of the transform tool ---- */
 
-/* The rings around the selected part: the core view draws them, and finds
- * the ring under a pixel (zs_view_set_rings, zs_view_ring_at). */
+static gint64 part_at(View3d *v, double x, double y, double *bx, double *by);
+
+/* The radius of the rings around a part, mm (as web/app/gizmo.js). */
+static double gizmo_radius(const zs_part *p) {
+    return 0.62 * MAX(p->size_x, MAX(p->size_y, p->size_z)) + 4;
+}
+
+/* The gizmo on the selected part: the core view draws the rings and the
+ * arrows, and finds the handle under a pixel (zs_view_set_gizmo,
+ * zs_view_gizmo_at). During a drag it goes with the part. */
 static void compute_rings(View3d *v) {
     gboolean was = v->rings_on;
     v->rings_on = FALSE;
     gint64 i = zg_model_selected_part(v->model);
     zs_part p;
-    if (v->view && zg_model_tool(v->model) == ZG_TOOL_TURN && i >= 0 && zs_app_part_get(zg_model_core(v->model), (size_t)i, &p) == ZS_OK) {
-        zs_view_set_rings(v->view, p.x, p.y, p.size_z / 2, 0.62 * MAX(p.size_x, MAX(p.size_y, p.size_z)) + 4);
+    if (v->view && zg_model_tool(v->model) == ZG_TOOL_MOVE && i >= 0 && zs_app_part_get(zg_model_core(v->model), (size_t)i, &p) == ZS_OK) {
+        double x = p.x, y = p.y, z = p.z;
+        if (v->live_on && v->live_part == i) {
+            x = v->live_target[0];
+            y = v->live_target[1];
+            z = v->live_target[2];
+        }
+        zs_view_set_gizmo(v->view, x, y, MAX(z, 0) + p.size_z / 2, gizmo_radius(&p), 1);
         v->rings_on = TRUE;
     } else if (was && v->view) {
-        zs_view_set_rings(v->view, 0, 0, 0, 0);
+        zs_view_set_gizmo(v->view, 0, 0, 0, 0, 0);
     }
     if (was != v->rings_on) queue_frame(v);
 }
 
-/* The ring under the point x, y (within 8 points), or -1. */
-static int ring_at(View3d *v, double x, double y) {
+/* The handle under the point x, y (within 9 points): a ring (0-2), an
+ * arrow (3-5), or -1. */
+static int handle_at(View3d *v, double x, double y) {
     compute_rings(v);
     if (!v->rings_on) return -1;
     int s = gtk_widget_get_scale_factor(v->area);
-    return zs_view_ring_at(v->view, (float)(x * s), (float)(y * s), 8.0f * s);
+    return zs_view_gizmo_at(v->view, (float)(x * s), (float)(y * s), 9.0f * s);
 }
 
-/* One step of a ring drag to the core: the turn since the last step. The
- * part slices again at once. */
+/* One step of a ring drag to the core: the turn since the last step. */
 static void turn_send(View3d *v) {
     gint64 i = zg_model_selected_part(v->model);
     double step = v->turn_want - v->turn_sent;
@@ -934,24 +967,34 @@ static void turn_send(View3d *v) {
     }
 }
 
-/* A press on a ring at x, y starts a turn. FALSE if no ring is there. The
- * slices wait for the end of the drag. */
+static void live_begin(View3d *v, gint64 part, int axis);
+
+/* A press on a handle at x, y: a ring starts a turn, an arrow a move
+ * along its axis. FALSE if no handle is there. The slices wait for the
+ * end of the drag (a move slices live: see live_push). */
 static gboolean ring_press(View3d *v, double x, double y) {
-    int a = ring_at(v, x, y);
+    int a = handle_at(v, x, y);
     if (a < 0) return FALSE;
     int s = gtk_widget_get_scale_factor(v->area);
+    gint64 part = zg_model_selected_part(v->model);
+    if (a >= 3) {
+        if (part < 0 || !zs_view_arrow_press(v->view, a - 3, (float)(x * s), (float)(y * s))) return FALSE;
+        live_begin(v, part, a - 3);
+        v->drag_label_x = x;
+        v->drag_label_y = y;
+        return TRUE;
+    }
     if (!zs_view_ring_press(v->view, a, (float)(x * s), (float)(y * s))) return FALSE;
     v->turn_axis = a;
     v->turn_want = v->turn_sent = 0;
-    v->turn_px = x;
-    v->turn_py = y;
-    v->turn_part = zg_model_selected_part(v->model);
+    v->drag_label_x = x;
+    v->drag_label_y = y;
+    v->turn_part = part;
     zs_part p;
     if (v->turn_part >= 0 && zs_app_part_get(zg_model_core(v->model), (size_t)v->turn_part, &p) == ZS_OK) {
         v->turn_pivot[0] = p.x;
         v->turn_pivot[1] = p.y;
-        v->turn_pivot[2] = p.size_z / 2;
-        v->turn_rot = p.rotation;
+        v->turn_pivot[2] = MAX(p.z, 0) + p.size_z / 2;
     } else {
         v->turn_part = -1;
     }
@@ -987,16 +1030,27 @@ static void turn_compose(const double q1[4], const double c1[3], const double m1
     for (int k = 0; k < 4; k++) q[k] = t[k];
 }
 
+static void live_preview(View3d *v);
+
 /* The part in the view: the beads of the last slice turned by the base
  * (a ring drag, or a turn that waits for its slice), and by the fall on
- * top of it. */
+ * top of it, or moved by a live drag. */
 static void show_preview(View3d *v) {
     if (!v->view) return;
     if (v->fall_shown) {
         const double *f = v->fall_f;
         if (!v->base_on || v->fall_part != v->turn_part) {
+            /* The beads are at fall_off from the start of the fall (the
+             * slice of a live move came before its end): the fall moves
+             * them by its turn of that offset too. */
+            double m[3] = {f[7], f[8], f[9]};
+            const double *o = v->fall_off;
+            double x = f[0], y = f[1], z = f[2], w = f[3];
+            m[0] += (1 - 2 * (y * y + z * z)) * o[0] + 2 * (x * y - z * w) * o[1] + 2 * (x * z + y * w) * o[2];
+            m[1] += 2 * (x * y + z * w) * o[0] + (1 - 2 * (x * x + z * z)) * o[1] + 2 * (y * z - x * w) * o[2];
+            m[2] += 2 * (x * z - y * w) * o[0] + 2 * (y * z + x * w) * o[1] + (1 - 2 * (x * x + y * y)) * o[2];
             zs_view_part_preview(v->view, (int)v->fall_part, (float)f[0], (float)f[1], (float)f[2], (float)f[3], (float)f[4], (float)f[5],
-                                 (float)f[6], (float)f[7], (float)f[8], (float)f[9], 0);
+                                 (float)f[6], (float)m[0], (float)m[1], (float)m[2], 0);
             return;
         }
         double q[4], m[3];
@@ -1011,26 +1065,21 @@ static void show_preview(View3d *v) {
                              (float)v->base_m[2], 0);
         return;
     }
+    if (v->live_on) {
+        live_preview(v);
+        return;
+    }
     zs_view_part_preview(v->view, -1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0);
 }
 
-/* The beads of the part turn in the view at once, by the angle of the
- * drag (after the base at the press, if the slice of an earlier turn has
- * not come yet). */
+/* The beads of the part turn in the view at once, about the axis of the
+ * bed, by the angle of the drag (after the base at the press, if the
+ * slice of an earlier turn has not come yet). */
 static void turn_preview(View3d *v) {
     if (v->turn_part < 0) return;
     double t = v->turn_want * G_PI / 180 / 2;
-    double r = v->turn_rot * G_PI / 180;
-    double ax[3] = {0, 0, 1};
-    if (v->turn_axis == 0) {
-        ax[0] = cos(r);
-        ax[1] = sin(r);
-        ax[2] = 0;
-    } else if (v->turn_axis == 1) {
-        ax[0] = -sin(r);
-        ax[1] = cos(r);
-        ax[2] = 0;
-    }
+    double ax[3] = {0, 0, 0};
+    ax[v->turn_axis] = 1;
     double s = sin(t);
     double q1[4] = {ax[0] * s, ax[1] * s, ax[2] * s, cos(t)};
     double zero[3] = {0, 0, 0};
@@ -1050,33 +1099,44 @@ static void turn_preview(View3d *v) {
         return;
     }
     /* The view places the turned beads as the core places the part: the
-     * center of its box at the center of the footprint, on the bed. The
-     * base keeps the move that the view found. */
+     * center of its box at the center of the footprint, its lowest bead
+     * at the lift (on the bed for a part that sinks: the view never draws
+     * it under the bed). The base keeps the move that the view found. */
     float m[3];
     zs_view_part_preview(v->view, (int)v->turn_part, (float)v->base_q[0], (float)v->base_q[1], (float)v->base_q[2], (float)v->base_q[3],
-                         (float)v->base_c[0], (float)v->base_c[1], (float)v->base_c[2], (float)p.x, (float)p.y, 0,
+                         (float)v->base_c[0], (float)v->base_c[1], (float)v->base_c[2], (float)p.x, (float)p.y, (float)MAX(p.z, 0),
                          ZS_PREVIEW_ON_BED | ZS_PREVIEW_CENTERED);
     if (zs_view_part_preview_move(v->view, m))
         for (int k = 0; k < 3; k++) v->base_m[k] = m[k];
 }
 
-/* The pointer of a ring drag is at x, y: the part turns in steps (the core
- * gives the angle, in the sense of the ring on the screen). */
+/* The pointer of a ring drag is at x, y: the part turns in steps of 15
+ * degrees (fine: 1 degree; the core gives the angle, in the sense of the
+ * ring on the screen). */
 static void ring_move(View3d *v, double x, double y, gboolean fine) {
-    v->turn_px = x;
-    v->turn_py = y;
+    if (v->turn_axis < 0) return;
+    v->drag_label_x = x;
+    v->drag_label_y = y;
     int s = gtk_widget_get_scale_factor(v->area);
-    v->turn_want = round(zs_view_ring_drag(v->view, (float)(x * s), (float)(y * s), fine ? 5 : 15));
+    v->turn_want = round(zs_view_ring_drag(v->view, (float)(x * s), (float)(y * s), fine ? 1 : 15));
+    g_snprintf(v->drag_label, sizeof v->drag_label, "%s%.0f° about %s", v->turn_want > 0 ? "+" : "", v->turn_want, axis_names[v->turn_axis]);
     turn_send(v);
     turn_preview(v);
     queue_frame(v);
     gtk_widget_queue_draw(v->area);
 }
 
-/* The end of a ring drag: the part slices once. */
+static void live_end(View3d *v);
+
+/* The end of a drag of a ring or an arrow: the part slices once. */
 static void ring_release(View3d *v) {
+    if (v->live_on && !v->live_done) {
+        live_end(v);
+        return;
+    }
     if (v->turn_axis < 0) return;
     v->turn_axis = -1;
+    v->drag_label[0] = '\0';
     if (v->view) zs_view_ring_release(v->view);
     /* The release slices; a part that cannot stand as turned falls
      * (the model's "fall"). */
@@ -1085,11 +1145,245 @@ static void ring_release(View3d *v) {
     gtk_widget_queue_draw(v->area);
 }
 
+/* ---- a live move: an arrow, or a drag of the part ----
+ *
+ * The beads of the part move in the view on each frame
+ * (zs_view_part_preview, from the place of the slice in the view). The
+ * core gets the place when no slice runs, and slices it as a draft
+ * (zg_model_slice_now): the slice follows the drag. The release is one
+ * step of the history and the exact slice; then the physics (the model's
+ * "fall": a part in the air with support off falls to the bed). */
+
+/* Starts a live move of part `part`: along the arrow of `axis`, or on the
+ * bed (axis -1). */
+static void live_begin(View3d *v, gint64 part, int axis) {
+    zs_part p;
+    if (zs_app_part_get(zg_model_core(v->model), (size_t)part, &p) != ZS_OK) return;
+    v->live_on = TRUE;
+    v->live_done = FALSE;
+    v->live_part = part;
+    v->arrow_axis = axis;
+    double pose[3] = {p.x, p.y, p.z};
+    memcpy(v->live_start, pose, sizeof pose);
+    memcpy(v->live_target, pose, sizeof pose);
+    memcpy(v->live_sent, pose, sizeof pose);
+    memcpy(v->live_shown, pose, sizeof pose);
+    v->live_size[0] = p.size_x;
+    v->live_size[1] = p.size_y;
+    v->live_size[2] = p.size_z;
+    v->live_gen = -1;
+    v->live_hist_n = 0;
+    v->drag_label[0] = '\0';
+    zg_model_hold(v->model, TRUE);
+}
+
+/* The beads of the part at the target, from the place of the slice in
+ * the view. Down, the part sinks into the bed (the bed hides it). */
+static void live_preview(View3d *v) {
+    if (!v->view || !v->live_on) return;
+    const double *t = v->live_target, *s = v->live_shown;
+    zs_view_part_preview(v->view, (int)v->live_part, 0, 0, 0, 1, 0, 0, 0, (float)(t[0] - s[0]), (float)(t[1] - s[1]), (float)(t[2] - s[2]),
+                         t[2] < 0 ? ZS_PREVIEW_SINK : 0);
+}
+
+/* The target goes to the core when no slice runs, and slices as a draft
+ * while the drag goes on. */
+static void live_push(View3d *v) {
+    if (!v->live_on) return;
+    const double *t = v->live_target;
+    if (t[0] == v->live_sent[0] && t[1] == v->live_sent[1] && t[2] == v->live_sent[2]) return;
+    if (!v->live_done && zs_app_state(zg_model_core(v->model)) == ZS_STATE_SLICING) return;
+    size_t i = (size_t)v->live_part;
+    /* A change of the plate loads the view again (load_data, then
+     * live_loaded): the pose counts as sent before the calls. */
+    double was[3];
+    memcpy(was, v->live_sent, sizeof was);
+    memcpy(v->live_sent, t, sizeof v->live_sent);
+    v->live_pushing = TRUE;
+    if (t[0] != was[0] || t[1] != was[1]) zg_model_part_move(v->model, i, t[0], t[1]);
+    if (t[2] != was[2]) zg_model_part_lift(v->model, i, t[2]);
+    v->live_pushing = FALSE;
+    v->live_gen = zg_model_edit_gen(v->model);
+    int k = v->live_hist_n++ % 8;
+    v->live_hist_gen[k] = v->live_gen;
+    memcpy(v->live_hist[k], t, sizeof v->live_hist[k]);
+    if (!v->live_done) zg_model_slice_now(v->model);
+}
+
+/* After a load: the slice of the last place sent is in the view, so the
+ * preview moves on from there. The slice of the end of the drag ends it. */
+static void live_loaded(View3d *v) {
+    if (!v->live_on || v->live_gen < 0 || v->live_pushing) return;
+    gint64 shown = zg_model_shown_gen(v->model);
+    /* The last pose sent at or before the change that the view shows. */
+    gint64 best = -1;
+    for (int k = 0; k < MIN(v->live_hist_n, 8); k++) {
+        if (v->live_hist_gen[k] <= shown && v->live_hist_gen[k] > best) {
+            best = v->live_hist_gen[k];
+            memcpy(v->live_shown, v->live_hist[k], sizeof v->live_shown);
+        }
+    }
+    if (shown < v->live_gen) {
+        live_push(v);
+        return;
+    }
+    if (v->live_done) {
+        v->live_on = FALSE;
+        return;
+    }
+    live_push(v);
+}
+
+/* mm on the bed for one point of the screen near the point x, y. */
+static double mm_per_point(View3d *v, double x, double y) {
+    int s = gtk_widget_get_scale_factor(v->area);
+    double ax, ay, bx, by;
+    if (!zs_view_bed_point(v->view, (float)(x * s), (float)(y * s), &ax, &ay) ||
+        !zs_view_bed_point(v->view, (float)((x + 10) * s), (float)(y * s), &bx, &by))
+        return 0.2;
+    return MAX(hypot(bx - ax, by - ay) / 10, 0.01);
+}
+
+/* mm along `axis` for one point of the screen, at the center of the
+ * gizmo of the live part. */
+static double mm_per_point_axis(View3d *v, int axis) {
+    double c[3] = {v->live_start[0], v->live_start[1], MAX(v->live_start[2], 0) + v->live_size[2] / 2}, d[3];
+    memcpy(d, c, sizeof d);
+    d[axis] += 10;
+    double ax, ay, bx, by;
+    if (!zg_view3d_pixel_of(v->area, c[0], c[1], c[2], &ax, &ay) || !zg_view3d_pixel_of(v->area, d[0], d[1], d[2], &bx, &by)) return 0.2;
+    double px = hypot(bx - ax, by - ay);
+    return px > 0.5 ? 10 / px : 0.2;
+}
+
+/* The snap of the part at x, y (zs_part_snap): the move of the snap, and
+ * the guides in the view (only those along `axis`, for an arrow; -1:
+ * all). */
+static void live_snap(View3d *v, double *x, double *y, int axis, double px, double py) {
+    double tol = axis >= 0 ? mm_per_point_axis(v, axis) * 8 : mm_per_point(v, px, py) * 8;
+    zs_app *core = zg_model_core(v->model);
+    size_t n = zs_app_part_count(core);
+    double *others = g_new(double, 4 * (n > 0 ? n : 1));
+    size_t k = 0;
+    for (size_t i = 0; i < n; i++) {
+        zs_part q;
+        if ((gint64)i == v->live_part || zs_app_part_get(core, i, &q) != ZS_OK) continue;
+        double *b = others + 4 * k++;
+        b[0] = q.x - q.size_x / 2;
+        b[1] = q.y - q.size_y / 2;
+        b[2] = q.x + q.size_x / 2;
+        b[3] = q.y + q.size_y / 2;
+    }
+    char *bx = zg_model_get(v->model, "machine.bed_size_x");
+    char *by = zg_model_get(v->model, "machine.bed_size_y");
+    double bed_x = g_ascii_strtod(bx, NULL), bed_y = g_ascii_strtod(by, NULL);
+    g_free(bx);
+    g_free(by);
+    double box[4] = {*x - v->live_size[0] / 2, *y - v->live_size[1] / 2, *x + v->live_size[0] / 2, *y + v->live_size[1] / 2};
+    double d[2] = {0, 0}, guides[12 * 4];
+    size_t ng = zs_part_snap(box, others, k, bed_x > 0 ? bed_x : 220, bed_y > 0 ? bed_y : 220, tol, d, guides, 12);
+    g_free(others);
+    if (axis != 1) *x += d[0];
+    if (axis != 0) *y += d[1];
+    double keep[12 * 4];
+    size_t nk = 0;
+    for (size_t i = 0; i < ng; i++) {
+        const double *g = guides + 4 * i;
+        gboolean vertical = g[0] == g[2];
+        if ((axis == 0 && !vertical) || (axis == 1 && vertical)) continue;
+        memcpy(keep + 4 * nk++, g, 4 * sizeof(double));
+    }
+    zs_view_set_guides(v->view, keep, nk);
+}
+
+/* The part goes to the target: the view at once, the core when it can. */
+static void live_move(View3d *v) {
+    compute_rings(v);
+    live_preview(v);
+    live_push(v);
+    queue_frame(v);
+    gtk_widget_queue_draw(v->area);
+}
+
+/* The pointer of an arrow drag is at x, y: the part moves along the axis
+ * of the arrow (the arrow of Z lifts it). No snap with `free`. */
+static void arrow_move(View3d *v, double x, double y, gboolean free) {
+    int s = gtk_widget_get_scale_factor(v->area);
+    double d;
+    if (!zs_view_arrow_drag(v->view, (float)(x * s), (float)(y * s), &d)) return;
+    v->drag_label_x = x;
+    v->drag_label_y = y;
+    double *t = v->live_target;
+    memcpy(t, v->live_start, sizeof v->live_target);
+    int a = v->arrow_axis;
+    if (a == 2) {
+        t[2] = v->live_start[2] + d;
+        /* The bed snaps: a lift near 0 is 0. At least 0.5 mm of the part
+         * stays over the bed. */
+        if (!free && fabs(t[2]) < mm_per_point_axis(v, 2) * 8) t[2] = 0;
+        t[2] = round(MAX(t[2], -(v->live_size[2] - 0.5)) * 100) / 100;
+        if (t[2] == 0) g_snprintf(v->drag_label, sizeof v->drag_label, "On the bed");
+        else if (t[2] > 0) g_snprintf(v->drag_label, sizeof v->drag_label, "Lift %.2f mm", t[2]);
+        else g_snprintf(v->drag_label, sizeof v->drag_label, "%.2f mm into the bed", -t[2]);
+    } else {
+        t[a] = v->live_start[a] + d;
+        if (!free) live_snap(v, &t[0], &t[1], a, x, y);
+        else zs_view_set_guides(v->view, NULL, 0);
+        t[a] = round(t[a] * 100) / 100;
+        double dd = t[a] - v->live_start[a];
+        g_snprintf(v->drag_label, sizeof v->drag_label, "%s%.2f mm along %s", dd >= 0 ? "+" : "", dd, axis_names[a]);
+    }
+    live_move(v);
+}
+
+/* The drag of the part on the bed: the point of the press stays under the
+ * pointer, on the level plane of that point. The snap unless `free`. */
+static void body_move(View3d *v, double x, double y, gboolean free) {
+    int s = gtk_widget_get_scale_factor(v->area);
+    double bx, by;
+    if (!zs_view_plane_point(v->view, (float)(x * s), (float)(y * s), v->live_hz, &bx, &by)) return;
+    double *t = v->live_target;
+    t[0] = v->live_start[0] + bx - v->bed_x0;
+    t[1] = v->live_start[1] + by - v->bed_y0;
+    t[2] = v->live_start[2];
+    if (!free) live_snap(v, &t[0], &t[1], -1, x, y);
+    else zs_view_set_guides(v->view, NULL, 0);
+    t[0] = round(t[0] * 100) / 100;
+    t[1] = round(t[1] * 100) / 100;
+    live_move(v);
+}
+
+/* The end of a live move: the last place, one step of the history, the
+ * exact slice, and the physics. The preview stays until the slice of the
+ * last place is in the view. */
+static void live_end(View3d *v) {
+    if (!v->live_on || v->live_done) return;
+    v->live_done = TRUE;
+    v->arrow_axis = -1;
+    v->drag_label[0] = '\0';
+    if (v->view) {
+        zs_view_ring_release(v->view);
+        zs_view_set_guides(v->view, NULL, 0);
+    }
+    const double *t = v->live_target;
+    gboolean moved = t[0] != v->live_start[0] || t[1] != v->live_start[1] || t[2] != v->live_start[2];
+    live_push(v);
+    zg_model_hold(v->model, FALSE);
+    if (!moved) {
+        v->live_on = FALSE;
+        show_preview(v);
+    }
+    queue_frame(v);
+    gtk_widget_queue_draw(v->area);
+}
+
 /* For tests: ZSLICE_RING_DRAG=x0,y0,x1,y1 drags from x0, y0 to x1, y1 in
- * 12 steps (one each 50 ms), with the Turn tool. "auto" drags from the
- * point of the rings at +X to the point at +Y; "auto:45" stops the drag
- * at 45 degrees. ZSLICE_RING_DRAG_MS=400 sets the time of a step, for
- * screenshots during the drag. */
+ * 12 steps (one each 50 ms), with the transform tool. "auto" drags from
+ * the point of the rings at +X to the point at +Y; "auto:45" stops the
+ * drag at 45 degrees. ZSLICE_RING_DRAG_MS=400 sets the time of a step, for
+ * screenshots during the drag. ZSLICE_ARROW_DRAG=axis,mm drags the arrow
+ * of the axis (0 X, 1 Y, 2 Z) from its middle to mm further along it, in
+ * the same steps; the log gives the pose of the part 3 s later. */
 static guint ring_drag_ms(void) {
     const char *ms = g_getenv("ZSLICE_RING_DRAG_MS");
     return ms && atoi(ms) > 0 ? (guint)atoi(ms) : 50;
@@ -1101,21 +1395,38 @@ typedef struct {
     int step;
     /* The end of the drag at this angle (degrees), or 0. */
     double stop;
+    /* An arrow drag: its axis, else -1. */
+    int arrow;
 } RingDrag;
+
+static void arrow_log(gpointer data) {
+    View3d *v = data;
+    zs_part p;
+    gint64 i = zg_model_selected_part(v->model);
+    if (i >= 0 && zs_app_part_get(zg_model_core(v->model), (size_t)i, &p) == ZS_OK)
+        g_message("arrow drag: part %" G_GINT64_FORMAT " at %.2f, %.2f, lift %.2f, %s", i, p.x, p.y, p.z, zg_model_falling(v->model) ? "falling" : "at rest");
+}
 
 static gboolean ring_drag_step(gpointer data) {
     RingDrag *d = data;
     View3d *v = d->v;
     if (d->step == 0 && !ring_press(v, d->x0, d->y0)) {
-        g_message("ring drag: no ring at %.0f, %.0f", d->x0, d->y0);
+        g_message("gizmo drag: no handle at %.0f, %.0f", d->x0, d->y0);
         g_free(d);
         return G_SOURCE_REMOVE;
     }
     d->step++;
     double t = d->step / 12.0;
-    ring_move(v, d->x0 + (d->x1 - d->x0) * t, d->y0 + (d->y1 - d->y0) * t, FALSE);
+    double x = d->x0 + (d->x1 - d->x0) * t, y = d->y0 + (d->y1 - d->y0) * t;
+    if (d->arrow >= 0) arrow_move(v, x, y, FALSE);
+    else ring_move(v, x, y, FALSE);
     if (d->step < 12 && (d->stop <= 0 || fabs(v->turn_want) < d->stop)) return G_SOURCE_CONTINUE;
-    g_message("ring drag: axis %d, %.0f degrees", v->turn_axis, v->turn_want);
+    if (d->arrow >= 0) {
+        g_message("arrow drag: axis %d, target %.2f, %.2f, %.2f", d->arrow, v->live_target[0], v->live_target[1], v->live_target[2]);
+        g_timeout_add_once(3000, arrow_log, v);
+    } else {
+        g_message("ring drag: axis %d, %.0f degrees", v->turn_axis, v->turn_want);
+    }
     /* The end of the drag: the label goes, and the part slices. */
     ring_release(v);
     g_free(d);
@@ -1124,34 +1435,57 @@ static gboolean ring_drag_step(gpointer data) {
 
 static void ring_drag_hook(gpointer data) {
     View3d *v = data;
+    gint64 i = zg_model_selected_part(v->model);
+    zs_part p;
+    if (i < 0 || zs_app_part_get(zg_model_core(v->model), (size_t)i, &p) != ZS_OK) return;
+    double r = gizmo_radius(&p);
+    double c[3] = {p.x, p.y, MAX(p.z, 0) + p.size_z / 2};
+    zg_model_set_tool(v->model, ZG_TOOL_MOVE);
+    compute_rings(v);
+    const char *arrow = g_getenv("ZSLICE_ARROW_DRAG");
+    if (arrow) {
+        char **f = g_strsplit(arrow, ",", 2);
+        if (f[0] && f[1]) {
+            RingDrag *d = g_new0(RingDrag, 1);
+            d->v = v;
+            d->arrow = CLAMP(atoi(f[0]), 0, 2);
+            double a[3], b[3];
+            memcpy(a, c, sizeof a);
+            a[d->arrow] += r * 1.28;
+            memcpy(b, a, sizeof b);
+            b[d->arrow] += g_ascii_strtod(f[1], NULL);
+            if (zg_view3d_pixel_of(v->area, a[0], a[1], a[2], &d->x0, &d->y0) && zg_view3d_pixel_of(v->area, b[0], b[1], b[2], &d->x1, &d->y1))
+                g_timeout_add(ring_drag_ms(), ring_drag_step, d);
+            else
+                g_free(d);
+        }
+        g_strfreev(f);
+        return;
+    }
     /* "auto": from the point of the rings at +X to the point at +Y. */
     const char *spec = g_getenv("ZSLICE_RING_DRAG");
+    if (!spec) return;
     if (g_str_has_prefix(spec, "auto")) {
-        gint64 i = zg_model_selected_part(v->model);
-        zs_part p;
-        if (i < 0 || zs_app_part_get(zg_model_core(v->model), (size_t)i, &p) != ZS_OK) return;
-        double r = 0.62 * MAX(p.size_x, MAX(p.size_y, p.size_z)) + 4;
         RingDrag *d = g_new0(RingDrag, 1);
         d->v = v;
+        d->arrow = -1;
         if (spec[4] == ':') d->stop = g_ascii_strtod(spec + 5, NULL);
-        if (!zg_view3d_pixel_of(v->area, p.x + r, p.y, p.size_z / 2, &d->x0, &d->y0) ||
-            !zg_view3d_pixel_of(v->area, p.x, p.y + r, p.size_z / 2, &d->x1, &d->y1)) {
+        if (!zg_view3d_pixel_of(v->area, p.x + r, p.y, c[2], &d->x0, &d->y0) || !zg_view3d_pixel_of(v->area, p.x, p.y + r, c[2], &d->x1, &d->y1)) {
             g_free(d);
             return;
         }
-        zg_model_set_tool(v->model, ZG_TOOL_TURN);
         g_timeout_add(ring_drag_ms(), ring_drag_step, d);
         return;
     }
-    char **f = g_strsplit(g_getenv("ZSLICE_RING_DRAG"), ",", 4);
+    char **f = g_strsplit(spec, ",", 4);
     if (g_strv_length(f) == 4) {
         RingDrag *d = g_new0(RingDrag, 1);
         d->v = v;
+        d->arrow = -1;
         d->x0 = g_ascii_strtod(f[0], NULL);
         d->y0 = g_ascii_strtod(f[1], NULL);
         d->x1 = g_ascii_strtod(f[2], NULL);
         d->y1 = g_ascii_strtod(f[3], NULL);
-        zg_model_set_tool(v->model, ZG_TOOL_TURN);
         g_timeout_add(ring_drag_ms(), ring_drag_step, d);
     }
     g_strfreev(f);
@@ -1164,7 +1498,7 @@ static void ring_drag_hook(gpointer data) {
  * scroll), and a light two-finger swipe or a pinch zooms. */
 enum { DRAG_ORBIT, DRAG_PAN, DRAG_RIGHT };
 
-/* ---- the fall of a part, and the hand ---- */
+/* ---- the fall of a part ---- */
 
 static gboolean on_fall_tick(GtkWidget *w, GdkFrameClock *clock, gpointer data) {
     View3d *v = data;
@@ -1193,7 +1527,6 @@ static gboolean on_fall_tick(GtkWidget *w, GdkFrameClock *clock, gpointer data) 
     queue_frame(v);
     if (rc == 1) return G_SOURCE_CONTINUE;
     v->fall_tick = 0;
-    v->hand = FALSE;
     return G_SOURCE_REMOVE;
 }
 
@@ -1207,160 +1540,25 @@ static void fall_run(View3d *v, gint64 part) {
 static void fall_finish(View3d *v) {
     if (v->fall_tick) gtk_widget_remove_tick_callback(v->area, v->fall_tick);
     v->fall_tick = 0;
-    if (v->hand) zg_model_grab_end(v->model);
-    v->hand = FALSE;
     double f[10];
     for (int k = 0; k < 6000 && zg_model_fall_step(v->model, 1.0 / 60, f) == 1; k++) {}
     if (zg_model_falling(v->model)) zg_model_fall_cancel(v->model);
     v->fall_shown = FALSE;
 }
 
-/* A part that lost what held it (the model's "fall"). */
+/* A part that lost what held it (the model's "fall"): a part turned onto
+ * an edge, or a part in the air with support off. A live move first ends
+ * its own preview: the fall moves the beads from the place of the part. */
 static void on_fall(ZgModel *model, gint64 part, gpointer data) {
     View3d *v = data;
     if (!zg_model_fall_start(model, (size_t)part)) return;
+    memset(v->fall_off, 0, sizeof v->fall_off);
+    if (v->live_on && v->live_part == part) {
+        for (int k = 0; k < 3; k++) v->fall_off[k] = v->live_target[k] - v->live_shown[k];
+        v->live_on = FALSE;
+    }
     if (v->view && !v->hidden) fall_run(v, part);
     else fall_finish(v);
-}
-
-/* The hand moves to the pixel x, y: on the level plane at its height. */
-static void hand_move(View3d *v, double x, double y) {
-    v->hand_px = x;
-    v->hand_py = y;
-    int s = gtk_widget_get_scale_factor(v->area);
-    double bx, by;
-    if (zs_view_plane_point(v->view, (float)(x * s), (float)(y * s), v->hand_h, &bx, &by)) zg_model_grab_move(v->model, bx, by, v->hand_h);
-}
-
-static gint64 part_at(View3d *v, double x, double y, double *bx, double *by);
-
-/* A press of the Grab tool: the hand takes the part at the point under
- * the pointer, and holds it 15 mm over that point. */
-static gboolean hand_start(View3d *v, double x, double y) {
-    if (zg_model_falling(v->model)) return FALSE;
-    gint64 part = part_at(v, x, y, NULL, NULL);
-    int s = gtk_widget_get_scale_factor(v->area);
-    double p[3];
-    if (part < 0 || !zs_view_surface_point(v->view, (float)(x * s), (float)(y * s), 0, p)) return FALSE;
-    if (!zg_model_grab_start(v->model, (size_t)part, p[0], p[1], p[2])) return FALSE;
-    v->hand = TRUE;
-    v->hand_h = p[2] + 15;
-    v->yaw = v->tilt = v->yaw_sent = v->tilt_sent = 0;
-    hand_move(v, x, y);
-    fall_run(v, part);
-    return TRUE;
-}
-
-/* Alt and a drag turn the part in the hand: half a degree for each pixel,
- * about the vertical (x) and about the level axis of the screen (y).
- * Shift: steps of 15 degrees. */
-static void hand_turn(View3d *v, double dx, double dy, gboolean snap) {
-    v->yaw += dx * 0.5;
-    v->tilt += dy * 0.5;
-    double yaw = (snap ? round(v->yaw / 15) * 15 : v->yaw) - v->yaw_sent;
-    double tilt = (snap ? round(v->tilt / 15) * 15 : v->tilt) - v->tilt_sent;
-    if (yaw != 0) zg_model_grab_turn(v->model, 0, 0, 1, yaw);
-    if (tilt != 0) {
-        int s = gtk_widget_get_scale_factor(v->area);
-        double ax, ay, bx, by;
-        float px = (float)(v->hand_px * s), py = (float)(v->hand_py * s);
-        if (zs_view_plane_point(v->view, px, py, v->hand_h, &ax, &ay) && zs_view_plane_point(v->view, px + 50, py, v->hand_h, &bx, &by))
-            zg_model_grab_turn(v->model, bx - ax, by - ay, 0, tilt);
-    }
-    v->yaw_sent += yaw;
-    v->tilt_sent += tilt;
-}
-
-/* The hand lets go: the part keeps its speed, falls, and rests. */
-static gboolean hand_release(View3d *v) {
-    if (!v->hand) return FALSE;
-    zg_model_grab_end(v->model);
-    v->hand = FALSE;
-    set_cursor(v, zg_model_tool(v->model) == ZG_TOOL_GRAB ? "grab" : NULL);
-    return TRUE;
-}
-
-gboolean zg_view3d_hand_release(GtkWidget *view) {
-    View3d *v = g_object_get_data(G_OBJECT(view), "zg-view3d");
-    return v && hand_release(v);
-}
-
-/* A move of the pointer with the part in the hand: Alt turns it, else it
- * goes along. */
-static void hand_pointer(View3d *v, double x, double y, GdkModifierType mods) {
-    if (mods & GDK_ALT_MASK) {
-        if (!v->turning) {
-            v->turning = TRUE;
-            v->yaw = v->tilt = v->yaw_sent = v->tilt_sent = 0;
-            v->turn_x = x;
-            v->turn_y = y;
-        }
-        hand_turn(v, x - v->turn_x, y - v->turn_y, (mods & GDK_SHIFT_MASK) != 0);
-        v->turn_x = x;
-        v->turn_y = y;
-        return;
-    }
-    /* After a turn, the hand moves on from here: no jump. */
-    v->turning = FALSE;
-    hand_move(v, x, y);
-}
-
-/* The wheel lifts the part in the hand (mm), from the bed to 200 mm. */
-static void hand_lift(View3d *v, double mm) {
-    v->hand_h = CLAMP(v->hand_h + mm, 1, 200);
-    hand_move(v, v->hand_px, v->hand_py);
-}
-
-/* For tests: ZSLICE_GRAB=x0,y0,x1,y1[,turn] takes the part at the pixel
- * x0, y0 with the Grab tool, carries it to x1, y1 in 12 steps (one each
- * 50 ms), turns it `turn` degrees about Z on the way, and lets go. The log
- * gives the place of each part 3 s later. */
-typedef struct {
-    View3d *v;
-    double f[5];
-    int step;
-} GrabDrag;
-
-static void grab_log(gpointer data) {
-    View3d *v = data;
-    zs_part p;
-    for (size_t i = 0; zs_app_part_get(zg_model_core(v->model), i, &p) == ZS_OK; i++)
-        g_message("grab: part %zu at %.1f, %.1f, size %.1f x %.1f x %.1f, %s", i, p.x, p.y, p.size_x, p.size_y, p.size_z,
-                  zg_model_falling(v->model) ? "falling" : "at rest");
-}
-
-static gboolean grab_step(gpointer data) {
-    GrabDrag *d = data;
-    View3d *v = d->v;
-    if (d->step == 0) {
-        zg_model_set_tool(v->model, ZG_TOOL_GRAB);
-        if (!hand_start(v, d->f[0], d->f[1])) {
-            g_message("grab: no part at %.0f, %.0f", d->f[0], d->f[1]);
-            g_free(d);
-            return G_SOURCE_REMOVE;
-        }
-    }
-    d->step++;
-    double t = d->step / 12.0;
-    if (d->f[4] != 0) hand_turn(v, d->f[4] / 12 * 2, 0, FALSE);
-    hand_move(v, d->f[0] + (d->f[2] - d->f[0]) * t, d->f[1] + (d->f[3] - d->f[1]) * t);
-    if (d->step < 12) return G_SOURCE_CONTINUE;
-    hand_release(v);
-    g_timeout_add_once(3000, grab_log, v);
-    g_free(d);
-    return G_SOURCE_REMOVE;
-}
-
-static void grab_hook(gpointer data) {
-    char **f = g_strsplit(g_getenv("ZSLICE_GRAB"), ",", 5);
-    guint n = g_strv_length(f);
-    if (n >= 4) {
-        GrabDrag *d = g_new0(GrabDrag, 1);
-        d->v = data;
-        for (guint i = 0; i < n; i++) d->f[i] = g_ascii_strtod(f[i], NULL);
-        g_timeout_add(50, grab_step, d);
-    }
-    g_strfreev(f);
 }
 
 /* The part under a pixel: the part of the path there, or the part whose
@@ -1428,12 +1626,11 @@ static void set_cursor(View3d *v, const char *name) {
 
 static void tool_cursor(View3d *v) {
     ZgTool t = zg_model_tool(v->model);
-    set_cursor(v, t == ZG_TOOL_MEASURE || t == ZG_TOOL_SUPPORT || t == ZG_TOOL_LABEL || t == ZG_TOOL_PAINT ? "crosshair" : t == ZG_TOOL_GRAB ? "grab" : NULL);
+    set_cursor(v, t == ZG_TOOL_MEASURE || t == ZG_TOOL_SUPPORT || t == ZG_TOOL_LABEL || t == ZG_TOOL_PAINT ? "crosshair" : NULL);
 }
 
 static void on_tool_changed(ZgModel *model, gpointer data) {
     View3d *v = data;
-    if (zg_model_tool(model) != ZG_TOOL_GRAB) hand_release(v);
     tool_cursor(v);
     /* The Support tool: the support lines faint, or solid again. */
     apply_focus(v);
@@ -1735,9 +1932,10 @@ static void on_drag_begin(GtkGestureDrag *g, double x, double y, gpointer data) 
     v->range_on = FALSE;
     /* The measure tape: a left drag on an end of it moves that end. */
     int mode0 = GPOINTER_TO_INT(g_object_get_data(G_OBJECT(g), "zg-drag"));
-    /* The Turn tool: a drag along a ring turns the part. */
-    if (v->view && mode0 == DRAG_ORBIT && zg_model_tool(v->model) == ZG_TOOL_TURN && ring_press(v, x, y)) {
-        set_cursor(v, "grabbing");
+    /* The transform tool: a drag of a ring turns the part, a drag of an
+     * arrow moves it along the arrow (Z: lifts it). */
+    if (v->view && mode0 == DRAG_ORBIT && zg_model_tool(v->model) == ZG_TOOL_MOVE && !zg_model_falling(v->model) && ring_press(v, x, y)) {
+        set_cursor(v, v->live_on ? "move" : "grabbing");
         return;
     }
     if (v->view && mode0 == DRAG_ORBIT && zg_model_tool(v->model) == ZG_TOOL_MEASURE) {
@@ -1755,20 +1953,6 @@ static void on_drag_begin(GtkGestureDrag *g, double x, double y, gpointer data) 
             }
         }
         if (v->tape_end >= 0) {
-            set_cursor(v, "grabbing");
-            return;
-        }
-    }
-    /* The Grab tool: a click on a part picks it up; the next click lets
-     * go. */
-    if (v->view && mode0 == DRAG_ORBIT && zg_model_tool(v->model) == ZG_TOOL_GRAB) {
-        if (hand_release(v)) {
-            v->hand_click = TRUE;
-            return;
-        }
-        if (hand_start(v, x, y)) {
-            v->hand_click = TRUE;
-            v->turning = FALSE;
             set_cursor(v, "grabbing");
             return;
         }
@@ -1830,6 +2014,14 @@ static void on_drag_begin(GtkGestureDrag *g, double x, double y, gpointer data) 
                 }
             } else {
                 zg_model_select_part(v->model, part);
+                /* One part: a live move, with the snap (live_begin). The
+                 * point of the press stays under the pointer, on its
+                 * level plane. */
+                int s = gtk_widget_get_scale_factor(v->area);
+                double sp[3];
+                v->live_hz = zs_view_surface_point(v->view, (float)(x * s), (float)(y * s), 0, sp) ? MAX(sp[2], 0) : 0;
+                if (!zs_view_plane_point(v->view, (float)(x * s), (float)(y * s), v->live_hz, &bx, &by)) v->live_hz = 0;
+                if (!zg_model_falling(v->model)) live_begin(v, part, -1);
             }
             v->moving = part;
             v->move_x0 = p.x;
@@ -1851,11 +2043,6 @@ static void on_drag_end(GtkGestureDrag *g, double dx, double dy, gpointer data) 
     View3d *v = data;
     v->moving = -1;
     v->tape_end = -1;
-    /* The hand keeps the part after the release of its click. */
-    if (v->hand_click) {
-        v->hand_click = FALSE;
-        return;
-    }
     ring_release(v);
     zg_support_release(v->support);
     zg_label_release(v->label);
@@ -1889,17 +2076,18 @@ static void on_drag_update(GtkGestureDrag *g, double dx, double dy, gpointer dat
     int mode = GPOINTER_TO_INT(g_object_get_data(G_OBJECT(g), "zg-drag"));
     int scale = gtk_widget_get_scale_factor(v->area);
     float ddx = (float)(dx - v->drag_x), ddy = (float)(dy - v->drag_y);
-    if (v->turn_axis >= 0) {
+    if (v->turn_axis >= 0 || (v->live_on && !v->live_done)) {
         double sx, sy;
         gtk_gesture_drag_get_start_point(g, &sx, &sy);
         GdkModifierType mods = gtk_event_controller_get_current_event_state(GTK_EVENT_CONTROLLER(g));
-        ring_move(v, sx + dx, sy + dy, (mods & GDK_SHIFT_MASK) != 0);
+        gboolean shift = (mods & GDK_SHIFT_MASK) != 0;
+        if (v->turn_axis >= 0) ring_move(v, sx + dx, sy + dy, shift);
+        else if (v->arrow_axis >= 0) arrow_move(v, sx + dx, sy + dy, shift);
+        else body_move(v, sx + dx, sy + dy, shift);
         v->drag_x = dx;
         v->drag_y = dy;
         return;
     }
-    /* The click of the hand: the pointer moves carry the part. */
-    if (v->hand_click) return;
     if (v->range_on) {
         double sx, sy;
         gtk_gesture_drag_get_start_point(g, &sx, &sy);
@@ -1987,13 +2175,15 @@ static void on_motion(GtkEventControllerMotion *c, double x, double y, gpointer 
     v->pointer_x = x;
     v->pointer_y = y;
     v->pointer_in = TRUE;
-    if (v->hand) {
-        hand_pointer(v, x, y, gtk_event_controller_get_current_event_state(GTK_EVENT_CONTROLLER(c)));
-        return;
-    }
     /* The Support tool: a hand over a point of an area. */
     GdkModifierType mods = gtk_event_controller_get_current_event_state(GTK_EVENT_CONTROLLER(c));
     gboolean pressed = (mods & (GDK_BUTTON1_MASK | GDK_BUTTON2_MASK | GDK_BUTTON3_MASK)) != 0;
+    /* The transform tool: a hand over a ring, a cross of arrows over an
+     * arrow. */
+    if (zg_model_tool(v->model) == ZG_TOOL_MOVE && v->view && !pressed) {
+        int h = handle_at(v, x, y);
+        set_cursor(v, h >= 3 ? "move" : h >= 0 ? "grab" : NULL);
+    }
     if (zg_model_tool(v->model) == ZG_TOOL_SUPPORT && v->view && !pressed) {
         set_cursor(v, zg_support_cursor(v->support, x, y));
         zg_support_hover(v->support, x, y);
@@ -2031,13 +2221,6 @@ static gboolean on_scroll(GtkEventControllerScroll *c, double dx, double dy, gpo
     v->touchpad = gtk_event_controller_scroll_get_unit(c) == GDK_SCROLL_UNIT_SURFACE;
     /* Ctrl and the wheel: turn the selected part by 15 degrees a step. */
     GdkModifierType mods = gtk_event_controller_get_current_event_state(GTK_EVENT_CONTROLLER(c));
-    /* The hand: the wheel lifts the part (10 mm a step, 0.1 mm a pixel of
-     * a touchpad). */
-    if (v->hand) {
-        gboolean px = gtk_event_controller_scroll_get_unit(c) == GDK_SCROLL_UNIT_SURFACE;
-        hand_lift(v, -dy * (px ? 0.1 : 10));
-        return TRUE;
-    }
     /* The Label tool: the wheel over the selected label turns it. */
     if (zg_model_tool(v->model) == ZG_TOOL_LABEL && !(mods & GDK_CONTROL_MASK) &&
         zg_label_wheel(v->label, v->pointer_x, v->pointer_y, dy != 0 ? dy : dx, (mods & GDK_SHIFT_MASK) != 0))
@@ -2173,14 +2356,14 @@ static void on_release(GtkGestureClick *g, int n, double x, double y, gpointer d
         return;
     }
     gboolean add = shift && (!select_tool || ctrl);
-    if (add && zg_model_tool(v->model) != ZG_TOOL_GRAB) {
+    if (add) {
         gint64 part = part_at(v, x, y, NULL, NULL);
         if (part >= 0) {
             zg_model_toggle_part(v->model, part);
             return;
         }
     }
-    if ((ctrl && !(add && select_tool)) || zg_model_tool(v->model) == ZG_TOOL_MOVE || zg_model_tool(v->model) == ZG_TOOL_TURN) {
+    if ((ctrl && !(add && select_tool)) || zg_model_tool(v->model) == ZG_TOOL_MOVE) {
         zg_model_select_part(v->model, part_at(v, x, y, NULL, NULL));
         return;
     }

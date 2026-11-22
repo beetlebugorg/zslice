@@ -135,6 +135,7 @@ static const char *ZG_CSS =
     ".zg-keys-group { font-weight: 700; margin-top: 12px; margin-bottom: 2px; }"
     ".zg-card-heading { font-size: 0.8em; font-weight: 700; opacity: 0.6; margin-top: 4px; }"
     "button.zg-card-action { min-height: 26px; padding: 2px 8px; }"
+    ".zg-note { padding: 4px 8px; border-radius: 6px; background: alpha(#e0a020, 0.18); }"
     /* The facts of the print card: small buttons. */
     "button.zg-fact { min-height: 22px; padding: 1px 7px; font-size: 0.85em; font-weight: normal; border-radius: 11px; }"
     "flowboxchild { padding: 0; }"

@@ -49,10 +49,8 @@ Each paste is one step: Ctrl+Z undoes it. A label, a support area, layer changes
 | Keys | What they do |
 |---|---|
 | V | Select: a click selects a line or a support. A drag from a line selects layers. |
-| M | Move: a drag moves a part, the wheel turns it 15° |
-| R | Turn: drag a ring of the selected part |
+| M, R, G | Move: click a part for its gizmo. Drag the part to carry it (it snaps; Shift: no snap). Drag an arrow to move it along X or Y, or to lift it (Z). Drag a ring to turn it 15° (Shift: 1°). The wheel turns it 15°. See [Parts](parts.md). |
 | S | Support: click an overhang, or draw an area. S again opens or closes the card of the tool. |
-| G | Grab: pick up a part, carry it, and let go |
 | T | Measure: two clicks |
 | P | Paint: paint filaments on a part (Smart select or Brush) |
 | E | Label: click a face of a part to put text or marks on it ([Labels on a part](labels.md)) |
@@ -65,9 +63,10 @@ Each paste is one step: Ctrl+Z undoes it. A label, a support area, layer changes
 | Ctrl+Shift+click (Select tool), Shift+click (other tools) | Add a part to the selection, or take it out |
 | Tab, Shift+Tab | The next part, or the part before |
 | Arrow keys (selected parts) | Move the parts 1 mm (Shift: 10 mm) |
-| ←, → (Turn tool) | Turn the part on the bed, 15° (Shift: 5°) |
-| ↑, ↓ (Turn tool) | Tilt the part about X |
-| Page Up, Page Down (Turn tool) | Tilt the part about Y |
+| Page Up, Page Down (a selected part) | Lift the part 1 mm, or lower it (Shift: 10 mm). Under the bed, it sinks into it. |
+| [, ] (a selected part) | Turn the part about Z, 15° (Shift: 1°) |
+| Ctrl+↑, Ctrl+↓ (a selected part) | Turn the part about X, 15° (Shift: 1°) |
+| Ctrl+←, Ctrl+→ (a selected part) | Turn the part about Y, 15° (Shift: 1°) |
 | D, Ctrl+D | Duplicate the selected parts |
 | Delete | Remove the selected parts or the selected support, or take the selected line out of the print |
 | Shift (Measure, Support) | No snap |

@@ -1692,6 +1692,8 @@ ZgTool zg_model_tool(ZgModel *self) {
 }
 
 void zg_model_set_tool(ZgModel *self, ZgTool tool) {
+    /* The old Turn and Grab tools are the transform tool now. */
+    if (tool == ZG_TOOL_TURN || tool == ZG_TOOL_GRAB) tool = ZG_TOOL_MOVE;
     if (self->tool == (int)tool) return;
     self->tool = (int)tool;
     /* The tape goes with its tool. */
@@ -2288,22 +2290,16 @@ gint64 zg_model_shown_gen(ZgModel *self) {
     return self->shown_gen;
 }
 
-gboolean zg_model_grab_start(ZgModel *self, size_t i, double x, double y, double z) {
-    if (self->falling || zs_app_grab_start(self->core, i, x, y, z) != 1) return FALSE;
-    self->falling = TRUE;
-    return TRUE;
+void zg_model_fall_check(ZgModel *self) {
+    fall_check(self);
 }
 
-void zg_model_grab_move(ZgModel *self, double x, double y, double z) {
-    zs_app_grab_move(self->core, x, y, z);
+void zg_model_part_lift(ZgModel *self, size_t i, double z) {
+    if (zs_app_part_lift(self->core, i, z) == ZS_OK) plate_changed(self);
 }
 
-void zg_model_grab_turn(ZgModel *self, double ax, double ay, double az, double degrees) {
-    zs_app_grab_turn(self->core, ax, ay, az, degrees);
-}
-
-void zg_model_grab_end(ZgModel *self) {
-    zs_app_grab_end(self->core);
+void zg_model_part_set_angles(ZgModel *self, size_t i, double ax, double ay, double az) {
+    if (zs_app_part_set_angles(self->core, i, ax, ay, az) == ZS_OK) plate_changed(self);
 }
 
 void zg_model_part_scale(ZgModel *self, size_t i, double s) {
