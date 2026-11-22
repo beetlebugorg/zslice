@@ -19,7 +19,9 @@
 //! `render` writes a text with the values of the variables. It reads the
 //! text once, from the start to the end. A `{...}` block is a control
 //! block (if, elsif, else, endif) or a list of statements. The value of
-//! the last statement goes into the G-code. A `[name]` is a variable.
+//! each statement goes into the G-code, as in PrusaSlicer, and a line
+//! break in a text of the template is a new line. A `[name]` is a
+//! variable.
 //!
 //! The map (`names`) gives each variable name of the four slicers a key,
 //! and `Renderer.value` gives each key a zslice value. A list variable of
@@ -78,6 +80,42 @@ pub const Value = union(enum) {
 
 pub const Phase = enum { start, end };
 
+/// The global variables of the texts of one print (`{global x = 1}` in
+/// PrusaSlicer and OrcaSlicer): the start G-code sets them, and the change
+/// G-code and the end G-code read and change them. The CORE One INDX
+/// keeps the state of each tool in one (tool_init).
+pub const Globals = struct {
+    arena: std.heap.ArenaAllocator,
+    map: std.StringHashMapUnmanaged(Value) = .empty,
+
+    pub fn init(gpa: Allocator) Globals {
+        return .{ .arena = .init(gpa) };
+    }
+
+    pub fn deinit(g: *Globals) void {
+        g.arena.deinit();
+    }
+
+    fn put(g: *Globals, name: []const u8, v: Value) Allocator.Error!void {
+        const a = g.arena.allocator();
+        const key = if (g.map.getKey(name)) |k| k else try a.dupe(u8, name);
+        try g.map.put(a, key, try copyValue(a, v));
+    }
+};
+
+/// A copy of `v` in `a`, with its texts and lists.
+fn copyValue(a: Allocator, v: Value) Allocator.Error!Value {
+    return switch (v) {
+        .text => |t| .{ .text = try a.dupe(u8, t) },
+        .list => |items| blk: {
+            const out = try a.alloc(Value, items.len);
+            for (items, out) |x, *y| y.* = try copyValue(a, x);
+            break :blk .{ .list = out };
+        },
+        else => v,
+    };
+}
+
 /// The facts of the print that the settings do not have.
 pub const Context = struct {
     r: *const Resolved,
@@ -105,7 +143,7 @@ pub const Context = struct {
     /// for a nozzle with none; null as a whole: not known, and the first
     /// slot of the plate on that nozzle stands in (a test, or a G-code
     /// with no plate).
-    first_of_nozzles: ?[2]?u32 = null,
+    first_of_nozzles: ?[settings_mod.max_nozzles]?u32 = null,
     /// The tool now (a slot, from 0). In a filament change, the old tool.
     tool: u32 = 0,
     /// The layer now, or null (the start and the end G-code).
@@ -113,6 +151,9 @@ pub const Context = struct {
     /// The facts of a filament change, in the change G-code
     /// (`Machine.change_gcode`), or null.
     change: ?Change = null,
+    /// The global variables of the print, or null: a global variable
+    /// lives in one text only.
+    globals: ?*Globals = null,
 
     pub const Change = struct {
         /// The new tool (a slot, from 0).
@@ -128,12 +169,26 @@ pub const Context = struct {
         after: [3]f64 = .{ 0, 0, 0 },
     };
 
-    /// The filament of slot `i` (from 0), or of the tool now.
     /// The nozzle of filament slot k: 0 on a printer with one nozzle.
     fn nozzleOf(c: *const Context, k: u32) u32 {
-        if (c.r.settings.machine.nozzles < 2) return 0;
+        const m = c.r.settings.machine;
+        if (m.nozzles < 2) return 0;
         const f = if (k < c.slots.len) c.slots[k] else c.r.settings.filament;
-        return @min(f.nozzle, 1);
+        return m.nozzleIndex(f.nozzle);
+    }
+
+    /// A tool changer (`machine.tool_numbers = nozzle`): the extruder of
+    /// the variables of PrusaSlicer is a nozzle, and a filament list
+    /// (`filament_type[2]`) has the filament of each nozzle.
+    fn tools(c: *const Context) bool {
+        const m = c.r.settings.machine;
+        return m.nozzles >= 2 and m.tool_numbers == .nozzle;
+    }
+
+    /// The extruder of slot `k` in the variables: its nozzle on a tool
+    /// changer, else the slot.
+    fn extruderOf(c: *const Context, k: u32) u32 {
+        return if (c.tools()) c.nozzleOf(k) else k;
     }
 
     /// The first filament slot with nozzle `n` (a list index), or null.
@@ -144,7 +199,7 @@ pub const Context = struct {
         // The print's own first filament of the nozzle. A filament of the
         // plate that the print does not use has no AMS tray: the X2D
         // stopped 37 s into a print that named one for its idle nozzle.
-        if (c.first_of_nozzles) |f| return if (n >= 0 and n < 2) f[@intFromFloat(n)] else null;
+        if (c.first_of_nozzles) |f| return if (n >= 0 and n < settings_mod.max_nozzles) f[@intFromFloat(n)] else null;
         const count: u32 = @intCast(@max(c.slots.len, 1));
         for (0..count) |k| if (@as(f64, @floatFromInt(c.nozzleOf(@intCast(k)))) == n) return @intCast(k);
         return null;
@@ -168,8 +223,15 @@ pub const Context = struct {
         return if (of_filament) c.nozzleOf(k) else @min(k, 1);
     }
 
+    /// The filament of list index `i`, or of the tool now. On a tool
+    /// changer, the index is a nozzle: the filament of that nozzle (the
+    /// one in use, else the first of the plate on it).
     fn slot(c: *const Context, i: ?f64) settings_mod.Filament {
-        const k: usize = if (i) |v| (if (v >= 0 and v < 64) @intFromFloat(v) else 0) else c.tool;
+        var k: usize = if (i) |v| (if (v >= 0 and v < 64) @intFromFloat(v) else 0) else c.tool;
+        if (i != null and c.tools()) {
+            const n = i.?;
+            k = if (@as(f64, @floatFromInt(c.nozzleOf(c.tool))) == n) c.tool else if (c.firstOfNozzle(n)) |f| f else c.slots.len;
+        }
         if (k < c.slots.len) return c.slots[k];
         return c.r.settings.filament;
     }
@@ -226,6 +288,13 @@ pub const Key = enum {
     layer_z,
     // A filament change.
     next_tool,
+    /// The extruder of the tool now, and of the next tool in a change: the
+    /// nozzle on a tool changer (`machine.tool_numbers = nozzle`), else
+    /// the filament slot.
+    extruder,
+    next_extruder,
+    /// The position of the head: z only (the z of the layer).
+    position,
     flush_length,
     old_filament_temp,
     new_filament_temp,
@@ -280,7 +349,7 @@ pub const Key = enum {
     // Extruders: zslice prints with tool 0.
     tool,
     one,
-    /// The nozzle (0 main, 1 second) of the filament now, of the next
+    /// The nozzle (from 0: 0 main, 1 second) of the filament now, of the next
     /// filament in a change, and of the filament of the list index.
     nozzle_now,
     nozzle_next,
@@ -309,6 +378,7 @@ pub const Key = enum {
     ten,
     forty,
     seventy,
+    fifteen,
     /// The glass point of the material (°C): Bambu Studio's
     /// temperature_vitrification of its generic filaments.
     vitrification,
@@ -449,6 +519,10 @@ pub const names = std.StaticStringMap(Entry).initComptime(.{
     .{ "bed_mesh_algo", just(.lagrange) },
     .{ "max_layer_z", just(.max_layer_z) },
     .{ "layer_z", just(.layer_z) },
+    // p: the position of the head (x, y, z). The change G-code of the
+    // Prusa XL lifts it (position[2] = position[2] + 2.0); zslice moves
+    // back to the layer after each change, so only z has a value.
+    .{ "position", each(.position) },
     .{ "layer_num", just(.layer_num) },
     .{ "total_layer_count", just(.layer_count) },
     .{ "total_layers", just(.layer_count) },
@@ -531,6 +605,14 @@ pub const names = std.StaticStringMap(Entry).initComptime(.{
     .{ "zhop", just(.z_hop) },
     // p: the length that is retracted now (0 at the start).
     .{ "e_retracted", each(.zero) },
+    // p, o: the purge of a tool on the wipe tower (the default of
+    // PrusaSlicer, 15 mm³), the flush speed of OrcaSlicer (0: none of its
+    // own), and the retraction of a tool change of the filament (no
+    // value: the one of the printer). The tool change G-code of the CORE
+    // One INDX reads them.
+    .{ "filament_minimal_purge_on_wipe_tower", each(.fifteen) },
+    .{ "filament_flush_volumetric_speed", each(.zero) },
+    .{ "filament_retract_length_toolchange", each(.no_value) },
     // p: the loading moves of a multi material unit.
     .{ "parking_pos_retraction", just(.no_value) },
     .{ "extra_loading_move", just(.no_value) },
@@ -706,15 +788,15 @@ pub const names = std.StaticStringMap(Entry).initComptime(.{
 
     // Extruders: zslice prints with one nozzle. Each filament of the
     // plate is a tool (T0, T1, ...) of a unit that feeds the filaments.
-    .{ "initial_tool", just(.tool) },
-    .{ "initial_extruder", just(.tool) },
-    .{ "initial_extruder_nr", just(.tool) },
-    .{ "current_extruder", just(.tool) },
-    .{ "initial_no_support_extruder", just(.tool) },
-    .{ "initial_no_support_tool", just(.tool) },
-    .{ "extruder_nr", just(.tool) },
-    .{ "next_extruder", just(.next_tool) },
-    .{ "previous_extruder", just(.tool) },
+    .{ "initial_tool", just(.extruder) },
+    .{ "initial_extruder", just(.extruder) },
+    .{ "initial_extruder_nr", just(.extruder) },
+    .{ "current_extruder", just(.extruder) },
+    .{ "initial_no_support_extruder", just(.extruder) },
+    .{ "initial_no_support_tool", just(.extruder) },
+    .{ "extruder_nr", just(.extruder) },
+    .{ "next_extruder", just(.next_extruder) },
+    .{ "previous_extruder", just(.extruder) },
     .{ "num_extruders", just(.nozzle_count) },
     .{ "extruders_count", just(.nozzle_count) },
     .{ "machine_extruder_count", just(.nozzle_count) },
@@ -791,12 +873,25 @@ const Renderer = struct {
             try self.w.print("; zslice: {s}: ", .{why});
             self.result.no_value += 1;
         } else if (!blank) {
-            self.scanLine(text);
+            // A block can write more than one line.
+            var lines = std.mem.splitScalar(u8, text, '\n');
+            while (lines.next()) |l| self.scanLine(l);
         }
         // A line of control blocks only: no empty line in the G-code.
         const skip = blank and self.control;
         if (!skip) {
-            try self.w.writeAll(text);
+            if (self.missing != null) {
+                // Each line of a block with no value is a comment.
+                var lines = std.mem.splitScalar(u8, text, '\n');
+                var first = true;
+                while (lines.next()) |l| {
+                    if (!first) try self.w.writeAll("\n; ");
+                    first = false;
+                    try self.w.writeAll(l);
+                }
+            } else {
+                try self.w.writeAll(text);
+            }
             if (newline) try self.w.writeByte('\n');
         }
         self.line.clearRetainingCapacity();
@@ -861,16 +956,17 @@ const Renderer = struct {
         try self.line.appendSlice(self.arena, text);
     }
 
-    /// A text value on the line, with a space for each line end. A text
-    /// comes from outside (a part, a file, or a filament name of an
-    /// imported profile): "PLA\nM104 S350" must not become a command of
-    /// its own. A firmware also ends a line at '\r'.
-    fn putOneLine(self: *Renderer, text: []const u8) Error!void {
-        const start = self.line.items.len;
-        try self.put(text);
-        for (self.line.items[start..]) |*c| {
-            if (c.* == '\n' or c.* == '\r') c.* = ' ';
-        }
+    /// A text of the settings on one line, with a space for each line
+    /// end. A text comes from outside (a part, a file, or a filament name
+    /// of an imported profile): "PLA\nM104 S350" must not become a
+    /// command of its own. A firmware also ends a line at '\r'.
+    fn oneLine(self: *Renderer, text: []const u8) Value {
+        if (std.mem.indexOfAny(u8, text, "\n\r") == null) return .{ .text = text };
+        const out = self.arena.dupe(u8, text) catch return .nil;
+        for (out) |*c| if (c.* == '\n' or c.* == '\r') {
+            c.* = ' ';
+        };
+        return .{ .text = out };
     }
 
     fn putValue(self: *Renderer, v: Value) Error!void {
@@ -878,7 +974,10 @@ const Renderer = struct {
             .nil => return error.NoValue,
             .boolean => |b| try self.put(if (b) "1" else "0"),
             .num => |n| try self.put(try numText(self.arena, n)),
-            .text => |t| try self.putOneLine(t),
+            // A text of the template can have lines ("G1 F" + v + "\n" in
+            // a change G-code); the texts of the settings have one line
+            // (see `oneLine`).
+            .text => |t| try self.put(t),
             .list => |items| for (items, 0..) |x, i| {
                 if (i > 0) try self.put(",");
                 try self.putValue(x);
@@ -1034,6 +1133,7 @@ const Renderer = struct {
     /// The value of a variable, or `error.Unknown`.
     fn variable(self: *Renderer, name: []const u8, index: ?f64) Error!Value {
         if (self.vars.get(name)) |v| return pick(v, index);
+        if (self.ctx.globals) |g| if (g.map.get(name)) |v| return pick(v, index);
         if (names.get(name)) |en| {
             const v = self.value(en.key, index);
             switch (en.key) {
@@ -1081,14 +1181,15 @@ const Renderer = struct {
             .first_layer_bed_temp => num(@round(f.firstBedTemp())),
             .standby_temp => num(@round(f.standby_temp)),
             .idle_temp => if (f.standby_temp > 0) num(@round(f.standby_temp)) else .nil,
-            // The PrusaSlicer default: a tool that waits is 5 °C cooler.
-            .standby_delta => num(-5),
+            // machine.standby_delta, else the PrusaSlicer default: a tool
+            // that waits is 5 °C cooler.
+            .standby_delta => num(if (m.standby_delta != 0) m.standby_delta else -5),
             .nozzle_range_low => num(@round(@min(f.nozzle_temp, f.first_layer_nozzle_temp))),
             .nozzle_range_high => num(@round(@max(f.nozzle_temp, f.first_layer_nozzle_temp))),
             .chamber_temp => num(0),
             .layer_height => num(round3(p.layer_height)),
             .first_layer_height => num(round3(p.first_layer_height)),
-            .nozzle_diameter => num(round3(m.nozzle_diameter)),
+            .nozzle_diameter => num(round3(nozzleDiameter(m, index))),
             .filament_diameter => num(round3(f.diameter)),
             .line_width => num(round3(r.line_width)),
             .z_offset, .zero => num(0),
@@ -1118,6 +1219,9 @@ const Renderer = struct {
             .layer_z => num(round3(c.layer_z)),
             .layer_num => num(if (c.layer_index) |i| @floatFromInt(i) else if (end and c.layer_count > 0) @floatFromInt(c.layer_count - 1) else 0),
             .next_tool => num(@floatFromInt(if (c.change) |ch| ch.next else c.tool)),
+            .extruder => num(@floatFromInt(c.extruderOf(c.tool))),
+            .position => if (index) |i| (if (i == 2) num(round3(c.layer_z)) else .nil) else .nil,
+            .next_extruder => num(@floatFromInt(c.extruderOf(if (c.change) |ch| ch.next else c.tool))),
             .flush_length => if (c.change) |ch| num(round3(ch.flush_mm)) else num(0),
             .old_filament_temp => num(@round(if (c.change) |ch| ch.old_temp else f.nozzle_temp)),
             .new_filament_temp => num(@round(if (c.change) |ch| ch.new_temp else f.nozzle_temp)),
@@ -1144,8 +1248,8 @@ const Renderer = struct {
             .z_hop => num(m.z_hop),
             .fan_speed => num(@round(f.fan_speed * 100)),
             .fan_max_speed => num(@round(f.fan_max_speed * 100)),
-            .material => .{ .text = f.material },
-            .filament_name => .{ .text = f.name },
+            .material => self.oneLine(f.material),
+            .filament_name => self.oneLine(f.name),
             .max_flow => num(f.max_flow),
             .flow_percent => num(@round(f.flow_ratio * 100)),
             .filament_mm => num(round3(c.filament_mm)),
@@ -1153,8 +1257,8 @@ const Renderer = struct {
             .filament_g => num(round3(c.filament_g)),
             .filament_cost => num(round3(c.filament_g * f.price_per_kg / 1000)),
             .filament_volume => num(round3(c.filament_mm * r.filament_area)),
-            .machine_name => .{ .text = m.name },
-            .job_name => .{ .text = s.engine.job_name },
+            .machine_name => self.oneLine(m.name),
+            .job_name => self.oneLine(s.engine.job_name),
             .print_time => if (end) num(@round(c.print_time_s)) else .nil,
             .infill_percent => num(@round(p.infill_density * 100)),
             .support => .{ .boolean = p.support != .off },
@@ -1183,6 +1287,7 @@ const Renderer = struct {
             .ten => num(10),
             .forty => num(40),
             .seventy => num(70),
+            .fifteen => num(15),
             .vitrification => num(vitrificationOf(f.material)),
             .bambu_vitrification => if (c.bambu()) num(vitrificationOf(f.material)) else .nil,
             .toolchange_retract => if (c.facts()) |b| num(b.toolchange_retract[c.nozzleIndex(index, false)]) else num(round3(r.retract_length)),
@@ -1222,6 +1327,14 @@ fn num(v: f64) Value {
 /// A value of the presets: 0 is no value.
 fn nonzero(v: f64) Value {
     return if (v != 0) num(v) else .nil;
+}
+
+/// The diameter of nozzle `index` (a list index), or of the nozzle now: a
+/// nozzle after the first with a diameter of its own has it.
+fn nozzleDiameter(m: settings_mod.Machine, index: ?f64) f64 {
+    const v = index orelse return m.nozzle_diameter;
+    if (!(v >= 1 and v < settings_mod.max_nozzles)) return m.nozzle_diameter;
+    return m.nozzleValue(@intFromFloat(v), "diameter") orelse m.nozzle_diameter;
 }
 
 fn round3(v: f64) f64 {
@@ -1403,16 +1516,27 @@ const Parser = struct {
     /// `if e then ... elsif e then ... else ... endif`, and expressions.
     /// ';' and line ends split them. The value is the value of the last
     /// expression, or null if there is none.
+    /// The statements of a block, up to its end or an elsif, else, or
+    /// endif. Each statement with a value writes it, as in PrusaSlicer: a
+    /// change G-code writes its lines from a list of texts. One value
+    /// keeps its kind; more become one text.
     fn statements(p: *Parser, run: bool) Error!?Value {
-        var last: ?Value = null;
+        var out: ?Value = null;
+        var joined = false;
         while (true) {
             while (p.peek() == ';') p.pos += 1;
             if (p.pos >= p.src.len) break;
             const w = p.peekWord();
             if (eqlAny(w, &.{ "elsif", "else", "endif" })) break;
-            if (try p.statement(run)) |v| last = v else last = null;
+            const v = (try p.statement(run)) orelse continue;
+            if (!run) continue;
+            if (out) |o| {
+                const a = if (joined) o.text else try p.r.textOf(o);
+                out = .{ .text = try std.mem.concat(p.r.arena, u8, &.{ a, try p.r.textOf(v) }) };
+                joined = true;
+            } else out = v;
         }
-        return last;
+        return out;
     }
 
     fn statement(p: *Parser, run: bool) Error!?Value {
@@ -1450,7 +1574,10 @@ const Parser = struct {
             if (name.len == 0) return error.Syntax;
             try p.expect("=");
             const v = try p.expression(run);
-            if (run) try p.r.vars.put(p.r.arena, name, v);
+            if (run) {
+                const global = std.mem.eql(u8, w, "global");
+                if (global and p.r.ctx.globals != null) try p.r.ctx.globals.?.put(name, v) else try p.r.vars.put(p.r.arena, name, v);
+            }
             return null;
         }
         // An assignment: name = e, or name[i] = e.
@@ -1483,10 +1610,16 @@ const Parser = struct {
 
     fn assign(p: *Parser, name: []const u8, index: ?f64, v: Value) Error!void {
         const vars = &p.r.vars;
-        const i = index orelse return vars.put(p.r.arena, name, v);
+        // A global variable of the print, if no local one has the name.
+        const global: ?*Globals = if (vars.get(name) == null) (if (p.r.ctx.globals) |g| (if (g.map.get(name) != null) g else null) else null) else null;
+        const i = index orelse {
+            if (global) |g| return g.put(name, v);
+            return vars.put(p.r.arena, name, v);
+        };
         if (i < 0 or i > 64) return error.Syntax;
         const k: usize = @intFromFloat(i);
-        const old: []const Value = if (vars.get(name)) |o| (if (o == .list) o.list else &.{}) else &.{};
+        const current: ?Value = if (global) |g| g.map.get(name) else vars.get(name);
+        const old: []const Value = if (current) |o| (if (o == .list) o.list else &.{}) else &.{};
         const items = try p.r.arena.alloc(Value, @max(old.len, k + 1));
         @memcpy(items[0..old.len], old);
         // A list of the slicer has a value for each extruder: the others
@@ -1494,6 +1627,7 @@ const Parser = struct {
         const base: Value = if (old.len == 0) (p.r.variable(name, 0) catch Value{ .num = 0 }) else Value{ .num = 0 };
         for (items[old.len..]) |*x| x.* = base;
         items[k] = v;
+        if (global) |g| return g.put(name, .{ .list = items });
         try vars.put(p.r.arena, name, .{ .list = items });
     }
 
@@ -2045,6 +2179,67 @@ test "gcode vars: two nozzles of the X2D: the extruder of each filament, and hot
     try testing.expectEqualStrings("M1 M1 M1 N0 C0 T1 H-1 B-1 E1 U0 F-1", one);
 }
 
+/// The first filament of each nozzle, from a list of the first nozzles.
+fn firstOf(list: anytype) [settings_mod.max_nozzles]?u32 {
+    var out: [settings_mod.max_nozzles]?u32 = .{null} ** settings_mod.max_nozzles;
+    inline for (list, 0..) |v, k| out[k] = v;
+    return out;
+}
+
+test "gcode vars: a tool changer: the extruder of each variable is a nozzle" {
+    var r = try (settings_mod.Settings{}).resolve();
+    r.settings.machine.nozzles = 5;
+    r.settings.machine.tool_numbers = .nozzle;
+    var a = r.settings.filament;
+    a.nozzle_temp = 215;
+    var b = a;
+    b.nozzle = 3;
+    b.nozzle_temp = 240;
+    b.material = "PETG";
+    var c = a;
+    c.nozzle = 1;
+    c.nozzle_temp = 230;
+    const slots = [_]settings_mod.Filament{ a, b, c };
+    const text = "P{previous_extruder} N{next_extruder} I{initial_tool} T{temperature[next_extruder]} F{filament_type[3]} U{is_extruder_used[3]}{is_extruder_used[2]} E{num_extruders} M{filament_map[1]} S{standby_temperature_delta}";
+    const out = try testRender(text, .{ .r = &r, .slots = &slots, .tool = 0, .layer_index = 2, .first_of_nozzles = firstOf(.{ 0, 2, null, 1 }), .change = .{ .next = 1 } });
+    defer testing.allocator.free(out);
+    try testing.expectEqualStrings("P0 N3 I0 T240 FPETG U10 E5 M4 S-5", out);
+}
+
+test "gcode vars: the tool change G-code of the Prusa XL renders" {
+    var r = try (settings_mod.Settings{}).resolve();
+    r.settings.machine.nozzles = 5;
+    r.settings.machine.tool_numbers = .nozzle;
+    var b = r.settings.filament;
+    b.nozzle = 3;
+    b.nozzle_temp = 240;
+    const slots = [_]settings_mod.Filament{ r.settings.filament, b };
+    const text = "; Change Tool[previous_extruder] -> Tool[next_extruder] (layer [layer_num])\n{\nlocal max_speed_toolchange = 350.0;\nlocal wait_for_extruder_temp = true;\nposition[2] = position[2] + 2.0;\n\nlocal speed_toolchange = max_speed_toolchange;\nif travel_speed < max_speed_toolchange then\n      speed_toolchange = travel_speed;\nendif\n\"G1 F\" + (speed_toolchange * 60) + \"\n\";\nif wait_for_extruder_temp and not((layer_num < 0) and (next_extruder == initial_tool)) then\n      \"P0 S1 L2 D0\n\";\n      \"; \" + layer_num + \"\n\";\n      if layer_num == 0 then\n            \"M109 S\" + first_layer_temperature[next_extruder] + \" T\" + next_extruder + \"\n\";\n      else\n            \"M109 S\" + temperature[next_extruder] + \" T\" + next_extruder + \"\n\";\n      endif\nendif\n\"T\" + next_extruder + \" S1 L0 D0\n\";\n}";
+    const out = try testRender(text, .{ .r = &r, .slots = &slots, .tool = 0, .layer_index = 3, .layer_z = 0.8, .first_of_nozzles = firstOf(.{ 0, null, null, 1 }), .change = .{ .next = 1 } });
+    defer testing.allocator.free(out);
+    errdefer std.debug.print("{s}\n", .{out});
+    try testing.expect(std.mem.indexOf(u8, out, "zslice: no value") == null);
+    try testing.expect(std.mem.indexOf(u8, out, "; Change Tool0 -> Tool3 (layer 3)\n") != null);
+    try testing.expect(std.mem.indexOf(u8, out, "P0 S1 L2 D0\n") != null);
+    try testing.expect(std.mem.indexOf(u8, out, "M109 S240 T3\n") != null);
+    try testing.expect(std.mem.indexOf(u8, out, "T3 S1 L0 D0\n") != null);
+}
+
+test "gcode vars: a global variable of the start G-code lives on in the change G-code" {
+    var g: Globals = .init(testing.allocator);
+    defer g.deinit();
+    const r = try (settings_mod.Settings{}).resolve();
+    const start = try testRender("{global tool_init = (0,0,0)}{global n = 8}", .{ .r = &r, .globals = &g });
+    defer testing.allocator.free(start);
+    const change = try testRender("{tool_init[1] = 1}T{n} {tool_init[1]} {tool_init[2]}", .{ .r = &r, .globals = &g });
+    defer testing.allocator.free(change);
+    try testing.expectEqualStrings("T8 1 0", change);
+    // With no globals, a global lives in one text only.
+    const alone = try testRender("{global n = 8}{n}", .{ .r = &r });
+    defer testing.allocator.free(alone);
+    try testing.expectEqualStrings("8", alone);
+}
+
 test "gcode vars: the first filament of a nozzle is one that the print uses" {
     var r = try testResolved();
     r.settings.machine.model = "bambu-lab-x2d";
@@ -2055,12 +2250,12 @@ test "gcode vars: the first filament of a nozzle is one that the print uses" {
     const f = r.settings.filament;
     const slots = [_]settings_mod.Filament{ f, f, f, f, f };
     const text = "L{first_filaments[0]} L{first_filaments[1]} N{first_non_support_filaments[1]}";
-    const out = try testRender(text, .{ .r = &r, .slots = &slots, .tool = 3, .layer_index = 4, .first_of_nozzles = .{ 3, null } });
+    const out = try testRender(text, .{ .r = &r, .slots = &slots, .tool = 3, .layer_index = 4, .first_of_nozzles = firstOf(.{ 3, null }) });
     defer testing.allocator.free(out);
     try testing.expectEqualStrings("L3 L-1 N-1", out);
     // The start G-code: the filament that it loads comes first on its
     // nozzle.
-    const start = try testRender(text, .{ .r = &r, .slots = &slots, .tool = 3, .first_of_nozzles = .{ 3, null } });
+    const start = try testRender(text, .{ .r = &r, .slots = &slots, .tool = 3, .first_of_nozzles = firstOf(.{ 3, null }) });
     defer testing.allocator.free(start);
     try testing.expectEqualStrings("L3 L-1 N-1", start);
 }

@@ -60,8 +60,13 @@
 //!   of lines on the rest of its area. This is the order and the tower of
 //!   Bambu Studio and of the wipe tower of PrusaSlicer (see
 //!   docs/references/bambu-studio.md and docs/references/prusaslicer.md).
-//!   A head with two nozzles switches with no color flush, and its idle
-//!   nozzle waits a little below its temperature.
+//!   A printer with more than one nozzle switches nozzles with no color
+//!   flush. On a tool changer (`machine.tool_numbers = nozzle`), Tn is the
+//!   nozzle, the idle nozzle waits at its standby temperature, the next
+//!   nozzle heats a little before its change, and the lines of each
+//!   nozzle move by minus its tool offset, as the ooze prevention and the
+//!   extruder offset of PrusaSlicer and the preheat of OrcaSlicer (see
+//!   docs/references/prusaslicer.md and docs/references/orcaslicer.md).
 //! - Comments mark each layer (";LAYER:n") and each feature
 //!   (";TYPE:WALL-OUTER"). These follow the CuraEngine convention (see
 //!   docs/references/), which G-code viewers and printdeck read.
@@ -822,7 +827,7 @@ pub const Emitter = struct {
     slots: []const settings_mod.Filament = &.{},
     /// The first filament slot of each nozzle in the print, or null: not
     /// known (see gcode_vars.Context.first_of_nozzles).
-    first_of_nozzles: ?[2]?u32 = null,
+    first_of_nozzles: ?[settings_mod.max_nozzles]?u32 = null,
     /// The slot of the filament in the nozzle, from 0. The start G-code
     /// loads it: set it to the first filament of the print (`startTool`)
     /// before `begin`.
@@ -840,10 +845,19 @@ pub const Emitter = struct {
     tower_z: [Towers.max]f64 = .{0} ** Towers.max,
     tower_count: [Towers.max]usize = .{0} ** Towers.max,
     tower_done: [Towers.max]bool = .{false} ** Towers.max,
-    /// A head with two nozzles (`machine.nozzles`): the slot of the
-    /// filament in each nozzle, or null before its first load. A switch
-    /// to the other nozzle flushes from the filament in that nozzle.
-    nozzle_slot: [2]?u32 = .{ null, null },
+    /// A printer with more than one nozzle (`machine.nozzles`): the slot
+    /// of the filament in each nozzle, or null before its first load. A
+    /// switch to another nozzle flushes from the filament in that nozzle.
+    nozzle_slot: [settings_mod.max_nozzles]?u32 = .{null} ** settings_mod.max_nozzles,
+    /// A tool changer (`machine.tool_numbers = nozzle`): the temperature
+    /// that the G-code set last for each nozzle, or null: not known.
+    nozzle_target: [settings_mod.max_nozzles]?f64 = .{null} ** settings_mod.max_nozzles,
+    /// The slots whose nozzle heated before its change in this layer (see
+    /// `preheatNext`), as bits.
+    preheated: u64 = 0,
+    /// The global variables of the G-code texts of the print (the start,
+    /// the change, and the end G-code), or null: each text has its own.
+    globals: ?*gcode_vars.Globals = null,
     /// The parts of the print for the object labels (see `Object`), and
     /// the index of the part whose label is open in the layer, or null.
     objects: []const Object = &.{},
@@ -1249,11 +1263,11 @@ pub const Emitter = struct {
         // Each filament: the variant of its extruder, its extruder (from
         // 1), and its nozzle (from 0).
         try cw.writeAll("; filament_extruder_variant = ");
-        for (fils, 0..) |f, k| try cw.print("{s}\"{s} {s}\"", .{ if (k > 0) ";" else "", types[if (n >= 2) @min(f.nozzle, 1) else 0], vol });
+        for (fils, 0..) |f, k| try cw.print("{s}\"{s} {s}\"", .{ if (k > 0) ";" else "", types[@min(fileNozzle(n, f), 1)], vol });
         try cw.writeAll("\n; filament_map = ");
-        for (fils, 0..) |f, k| try cw.print("{s}{d}", .{ if (k > 0) "," else "", if (n >= 2) @as(u32, @min(f.nozzle, 1)) + 1 else 1 });
+        for (fils, 0..) |f, k| try cw.print("{s}{d}", .{ if (k > 0) "," else "", fileNozzle(n, f) + 1 });
         try cw.writeAll("\n; filament_nozzle_map = ");
-        for (fils, 0..) |f, k| try cw.print("{s}{d}", .{ if (k > 0) "," else "", if (n >= 2) @as(u32, @min(f.nozzle, 1)) else 0 });
+        for (fils, 0..) |f, k| try cw.print("{s}{d}", .{ if (k > 0) "," else "", fileNozzle(n, f) });
         try cw.writeAll("\n; filament_type = ");
         for (fils, 0..) |f, k| try cw.print("{s}{f}", .{ if (k > 0) ";" else "", oneLine(f.material) });
         try cw.writeAll("\n; filament_colour = ");
@@ -1824,23 +1838,42 @@ pub const Emitter = struct {
         return filaments.slotOfPath(path, r.settings.project, self.slots.len);
     }
 
-    /// The nozzle (0 or 1) of the filament in the nozzle (`tool`).
+    /// The nozzle of the filament in the nozzle (`tool`), from 0.
     fn nozzleNow(self: *const Emitter) u32 {
         if (self.slots.len < 2 or self.tool >= self.slots.len) return 0;
-        return if (self.r.settings.machine.nozzles >= 2 and self.slots[self.tool].nozzle >= 1) 1 else 0;
+        const m = self.r.settings.machine;
+        return if (m.nozzles >= 2) m.nozzleIndex(self.slots[self.tool].nozzle) else 0;
     }
 
-    /// The nozzle of slot `k` on a head with two nozzles (0 or 1), or null
-    /// for a head with one nozzle.
+    /// The nozzle of slot `k` on a printer with more than one nozzle, or
+    /// null for a printer with one nozzle.
     fn nozzleOf(self: *const Emitter, k: u32) ?u32 {
-        if (self.r.settings.machine.nozzles < 2 or k >= self.slots.len) return null;
-        return @min(self.slots[k].nozzle, 1);
+        const m = self.r.settings.machine;
+        if (m.nozzles < 2 or k >= self.slots.len) return null;
+        return m.nozzleIndex(self.slots[k].nozzle);
+    }
+
+    /// The G-code X of bed x `x` for the nozzle now: with the origin of
+    /// the bed, and minus the tool offset of the nozzle.
+    fn headX(self: *const Emitter, x: f64) f64 {
+        const m = self.r.settings.machine;
+        const k = self.nozzleNow();
+        if (k == 0) return x + m.origin_x;
+        return x + m.origin_x - m.nozzleOffset(k)[0];
+    }
+
+    /// The G-code Y of bed y `y` for the nozzle now. See `headX`.
+    fn headY(self: *const Emitter, y: f64) f64 {
+        const m = self.r.settings.machine;
+        const k = self.nozzleNow();
+        if (k == 0) return y + m.origin_y;
+        return y + m.origin_y - m.nozzleOffset(k)[1];
     }
 
     /// The flush volume (mm³) of a change from slot `a` to slot `b`, for
-    /// the flush planner: the color flush of one nozzle. A switch to the
-    /// other nozzle of a head with two flushes nothing: that nozzle holds
-    /// its own filament (Bambu Studio: L0 in M620.10).
+    /// the flush planner: the color flush of one nozzle. A switch to
+    /// another nozzle flushes nothing: that nozzle holds its own filament
+    /// (Bambu Studio: L0 in M620.10).
     fn flushOf(self: *const Emitter, a: u32, b: u32) f64 {
         const g = self.r.settings;
         if (g.machine.filament_change != .tool or a >= self.slots.len or b >= self.slots.len) return 0;
@@ -1862,17 +1895,23 @@ pub const Emitter = struct {
     /// starts at (x, y) mm. The order makes the new filament ready before
     /// it touches the part:
     ///
-    /// 1. The change: the change G-code of the machine, or the command of
+    /// 1. A tool changer (`machine.tool_numbers = nozzle`): the old nozzle
+    ///    goes to its standby temperature (`standbyTemp`), as the ooze
+    ///    prevention of PrusaSlicer does before the change.
+    /// 2. The change: the change G-code of the machine, or the command of
     ///    the flavor (see filaments.zig). A Bambu Lab change flushes the
     ///    old color into its chute; a plain tool change flushes into the
-    ///    tower in step 3.
-    /// 2. A head with two nozzles: the idle nozzle waits a little below
-    ///    its temperature (`idle_nozzle_delta`). A change G-code that cools
-    ///    the new nozzle before the tower (M620.15) gets its temperature
-    ///    back here.
-    /// 3. The tower at the z of the layer (see `towerPurge`): the flush,
+    ///    tower in step 4. A tool changer picks the tool of the nozzle of
+    ///    the new filament, and pauses (M600) for a new filament on the
+    ///    same nozzle.
+    /// 3. A printer with more than one nozzle: the new nozzle waits for
+    ///    its temperature. On a Bambu Lab head, the idle nozzle waits a
+    ///    little below its temperature (`idle_nozzle_delta`). A change
+    ///    G-code that cools the new nozzle before the tower (M620.15) gets
+    ///    its temperature back here.
+    /// 4. The tower at the z of the layer (see `towerPurge`): the flush,
     ///    or the prime of the new filament, then a wipe on the tower.
-    /// 4. The part: the hidden lines first (see `hiddenRun`), which take a
+    /// 5. The part: the hidden lines first (see `hiddenRun`), which take a
     ///    part of the flush, down to `min_flush_mm3`.
     ///
     /// The change takes `change_time`.
@@ -1890,9 +1929,9 @@ pub const Emitter = struct {
         try self.retractHop(false, false);
         self.stats.changes += 1;
         // The flush: from the filament in the nozzle that prints next. On
-        // a head with two nozzles, that nozzle can hold another filament
-        // than the one now in use, or none yet (then no flush, as in
-        // Bambu Studio).
+        // a printer with more than one nozzle, that nozzle can hold
+        // another filament than the one now in use, or none yet (then no
+        // flush, as in Bambu Studio).
         const from_n = self.nozzleOf(self.tool);
         const to_n = self.nozzleOf(next);
         if (from_n) |n| self.nozzle_slot[n] = self.tool;
@@ -1904,26 +1943,48 @@ pub const Emitter = struct {
         self.stats.flush_hidden_mm += hidden_mm3 / self.r.filament_area;
         const old_temp = self.nozzle_temp orelse from.nozzle_temp;
         const new_temp = if (first) to.first_layer_nozzle_temp else to.nozzle_temp;
-        const template = if (m.change_gcode.len > 0) makerTemplate(m.model, m.change_gcode, .change) else "";
+        // A switch to another nozzle, and a tool changer: the tool of each
+        // nozzle.
+        const other_nozzle = from_n != null and to_n != null and from_n.? != to_n.?;
+        const tools = m.tool_numbers == .nozzle and m.filament_change == .tool and from_n != null;
+        // A tool changer with a new filament on the same nozzle: a pause.
+        const pause = m.filament_change == .pause or (tools and !other_nozzle);
+        const template = if (m.change_gcode.len > 0 and !(tools and pause)) makerTemplate(m.model, m.change_gcode, .change) else "";
         if (!self.dry) {
             try self.w.print("; filament change {d}: filament {d} to filament {d}\n", .{ self.stats.changes, self.tool + 1, next + 1 });
+            if (tools and other_nozzle) {
+                if (self.standbyTemp(from_n.?, from, old_temp)) |t| {
+                    try self.w.print("M104 T{d} S", .{from_n.?});
+                    try writeNum(self.w, t, 0);
+                    try self.w.writeAll(" ; the nozzle waits\n");
+                    self.nozzle_target[from_n.?] = t;
+                }
+            }
             if (template.len > 0) {
                 try self.writeChange(template, next, flush_mm, old_temp, new_temp, x, y);
+            } else if (pause) {
+                try self.w.writeAll(if (m.gcode_flavor == .klipper) "PAUSE ; change the filament, then resume\n" else "M600 ; change the filament\n");
             } else {
-                switch (m.filament_change) {
-                    .pause => try self.w.writeAll(if (m.gcode_flavor == .klipper) "PAUSE ; change the filament, then resume\n" else "M600 ; change the filament\n"),
-                    .tool => try self.w.print("T{d}\n", .{next}),
-                }
-                if (new_temp != old_temp) {
-                    try self.w.writeAll("M109 S");
+                try self.w.print("T{d}\n", .{if (tools) to_n.? else next});
+            }
+            if (tools and other_nozzle) {
+                // The new nozzle waits for its temperature, unless the
+                // change G-code waits for it.
+                if (std.mem.indexOf(u8, template, "M109") == null) {
+                    try self.w.print("M109 T{d} S", .{to_n.?});
                     try writeNum(self.w, new_temp, 0);
                     try self.w.writeAll("\n");
                 }
+                self.nozzle_target[to_n.?] = new_temp;
+            } else if (template.len == 0 and new_temp != old_temp) {
+                try self.w.writeAll("M109 S");
+                try writeNum(self.w, new_temp, 0);
+                try self.w.writeAll("\n");
             }
             // A switch of the nozzles of a Bambu Lab head: the old nozzle
             // waits below its temperature (Bambu Studio: "Multi extruder
             // pre heating", M104 T S).
-            if (from_n != null and to_n != null and from_n.? != to_n.?) {
+            if (other_nozzle) {
                 if (self.bambuNozzleIndex(from_n.?)) |p| {
                     try self.w.print("M104 T{d} S", .{p});
                     try writeNum(self.w, old_temp - idle_nozzle_delta, 0);
@@ -1956,6 +2017,7 @@ pub const Emitter = struct {
         self.tool = next;
         if (to_n) |n| self.nozzle_slot[n] = next;
         self.nozzle_temp = new_temp;
+        self.preheated &= ~slotBit(next);
         // The change loads the new filament to the nozzle tip.
         self.retracted = false;
         self.hopped = false;
@@ -1964,8 +2026,81 @@ pub const Emitter = struct {
         self.accel = Exit.unset;
         self.fan = -1;
         if (self.towers.n > 0 and m.filament_change == .tool) {
-            try self.towerPurge(self.towers.of_slot[@min(next, filaments.max_slots - 1)], if (into_tower) flush_mm3 else tower_prime_mm3, first);
+            // A tool changer primes the nozzle that waited: it oozed
+            // while it was idle (the minimal purge of PrusaSlicer on its
+            // wipe tower).
+            const prime: f64 = if (tools and other_nozzle) @max(flush_mm3, tower_prime_mm3) else if (into_tower) flush_mm3 else tower_prime_mm3;
+            try self.towerPurge(self.towers.of_slot[@min(next, filaments.max_slots - 1)], prime, first);
         }
+    }
+
+    /// The temperature (°C) at which nozzle `n` of a tool changer waits
+    /// for its next filament, with the filament `f` at `temp` now, or null:
+    /// it keeps its temperature. A filament with a standby temperature
+    /// waits at it (the idle_temperature of PrusaSlicer), else the nozzle
+    /// changes by `standby_delta`.
+    fn standbyTemp(self: *const Emitter, n: u32, f: settings_mod.Filament, temp: f64) ?f64 {
+        if (f.standby_temp > 0) return f.standby_temp;
+        const d = self.r.settings.machine.standbyDelta(n);
+        if (d == 0) return null;
+        return @max(0, temp + d);
+    }
+
+    /// A tool changer with a preheat time (`machine.preheat_time`): before
+    /// path `i` of `lp`, the nozzle of the next change of the layer heats
+    /// to its print temperature if the change comes in less than that
+    /// time. `times` has the estimated time of each path (see
+    /// `pathTimes`). Each change heats once.
+    fn preheatNext(self: *Emitter, lp: *const LayerPlan, i: usize, times: []const f64, first: bool) Error!void {
+        const m = self.r.settings.machine;
+        const now_n = self.nozzleOf(self.tool) orelse return;
+        var t: f64 = 0;
+        var j = i;
+        while (j < lp.paths.items.len) : (j += 1) {
+            if (lp.points.get(j).len == 0) continue;
+            const path = lp.paths.items[j];
+            const slot = self.toolOf(path, lp.pathResolved(path) orelse self.lr);
+            if (slot != self.tool) {
+                const n = self.nozzleOf(slot) orelse return;
+                if (n == now_n or self.preheated & slotBit(slot) != 0) return;
+                const wait = m.preheatTime(n);
+                if (!(wait > 0) or t > wait) return;
+                const f = self.slots[slot];
+                const temp = if (first) f.first_layer_nozzle_temp else f.nozzle_temp;
+                self.preheated |= slotBit(slot);
+                if (self.nozzle_target[n] == temp) return;
+                if (!self.dry) {
+                    try self.w.print("M104 T{d} S", .{n});
+                    try writeNum(self.w, temp, 0);
+                    try self.w.writeAll(" ; the next nozzle heats\n");
+                }
+                self.nozzle_target[n] = temp;
+                return;
+            }
+            t += times[j];
+        }
+    }
+
+    /// The estimated time (s) of each path of `lp`, for the preheat: its
+    /// length over its speed, with no acceleration. Null if no nozzle has
+    /// a preheat time, or the print has one filament.
+    fn pathTimes(self: *const Emitter, lp: *const LayerPlan) Error!?[]f64 {
+        const m = self.r.settings.machine;
+        if (self.slots.len < 2 or m.nozzles < 2 or m.tool_numbers != .nozzle or m.filament_change != .tool) return null;
+        var any = false;
+        for (0..@min(m.nozzles, settings_mod.max_nozzles)) |k| any = any or m.preheatTime(@intCast(k)) > 0;
+        if (!any) return null;
+        const out = self.gpa.alloc(f64, lp.paths.items.len) catch return error.WriteFailed;
+        const lr = lp.resolved orelse self.r;
+        for (lp.paths.items, 0..) |path, i| {
+            const pts = lp.points.get(i);
+            var len: f64 = 0;
+            for (1..pts.len) |k| len += geom.hypot(geom.toMm(pts[k].x - pts[k - 1].x), geom.toMm(pts[k].y - pts[k - 1].y));
+            const pr = lp.pathResolved(path) orelse lr;
+            const v = pr.speedAt(path.feature, lp.width, lp.height, lp.index);
+            out[i] = if (v > 0) len / v else 0;
+        }
+        return out;
     }
 
     /// True if path `path` of slot `to` is a hidden line for the flush of
@@ -2356,9 +2491,9 @@ pub const Emitter = struct {
         const speed = @min(m.travel_speed, go / @max(t, 1e-3));
         if (!self.dry) {
             try self.w.writeAll(";WIPE\nG1 X");
-            try writeNum(self.w, x + m.origin_x, 3);
+            try writeNum(self.w, self.headX(x), 3);
             try self.w.writeAll(" Y");
-            try writeNum(self.w, y + m.origin_y, 3);
+            try writeNum(self.w, self.headY(y), 3);
             try self.w.writeAll(" E-");
             try writeNum(self.w, len, 4);
             try self.w.writeAll(" F");
@@ -2379,6 +2514,9 @@ pub const Emitter = struct {
     /// change (see gcode_vars.Context.change).
     fn writeChange(self: *Emitter, text: []const u8, next: u32, flush_mm: f64, old_temp: f64, new_temp: f64, x: f64, y: f64) Writer.Error!void {
         const m = self.r.settings.machine;
+        // The head after the change: with the tool offset of the new
+        // nozzle.
+        const after_off = m.nozzleOffset(self.nozzleOf(next) orelse 0);
         const ctx: gcode_vars.Context = .{
             .r = self.r,
             .layer_count = self.layer_count,
@@ -2387,15 +2525,32 @@ pub const Emitter = struct {
             .object_model = m.gcode_flavor == .reprap,
             .slots = self.slots,
             .first_of_nozzles = self.first_of_nozzles,
+            .globals = self.globals,
             .tool = self.tool,
             .layer_index = self.layer_index,
-            .change = .{ .next = next, .flush_mm = flush_mm, .count = self.stats.changes, .old_temp = old_temp, .new_temp = new_temp, .after = .{ x + m.origin_x, y + m.origin_y, self.z } },
+            .change = .{ .next = next, .flush_mm = flush_mm, .count = self.stats.changes, .old_temp = old_temp, .new_temp = new_temp, .after = .{ x + m.origin_x - after_off[0], y + m.origin_y - after_off[1], self.z } },
         };
-        _ = gcode_vars.render(self.gpa, self.w, text, &ctx) catch |err| switch (err) {
+        const tool = if (m.tool_numbers == .nozzle) self.nozzleOf(next) else null;
+        if (tool == null) {
+            _ = gcode_vars.render(self.gpa, self.w, text, &ctx) catch |err| switch (err) {
+                error.OutOfMemory => return error.WriteFailed,
+                error.WriteFailed => return error.WriteFailed,
+            };
+            try self.w.writeAll("\n");
+            return;
+        }
+        // A tool changer: the T command of the new nozzle follows a change
+        // G-code that has none (a line that zslice cannot fill becomes a
+        // comment), as in PrusaSlicer.
+        var buf: Writer.Allocating = .init(self.gpa);
+        defer buf.deinit();
+        _ = gcode_vars.render(self.gpa, &buf.writer, text, &ctx) catch |err| switch (err) {
             error.OutOfMemory => return error.WriteFailed,
             error.WriteFailed => return error.WriteFailed,
         };
+        try self.w.writeAll(buf.written());
         try self.w.writeAll("\n");
+        if (!hasToolLine(buf.written(), tool.?)) try self.w.print("T{d}\n", .{tool.?});
     }
 
     /// The fan of a layer: off on the first layers, the boost speed on a
@@ -2483,6 +2638,10 @@ pub const Emitter = struct {
         // The filament length for 1 mm of line.
         const e_per_mm = flow.beadArea(lp.width, lp.height) / self.r.filament_area * s.filament.flow_ratio;
 
+        // A tool changer with a preheat: the estimated time of each path.
+        self.preheated = 0;
+        const times = try self.pathTimes(lp);
+        defer if (times) |t| self.gpa.free(t);
         for (lp.paths.items, 0..) |path, i| {
             const pts = lp.points.get(i);
             if (pts.len == 0) {
@@ -2492,6 +2651,7 @@ pub const Emitter = struct {
             const retractions = self.stats.retractions;
             // A path of another filament: a filament change first.
             const next_tool = self.toolOf(path, lp.pathResolved(path) orelse lr);
+            if (times) |t| if (next_tool == self.tool) try self.preheatNext(lp, i, t, first);
             // The label of the part of the path (see `Object`): a filament
             // change is outside of all labels, so a skipped part keeps it.
             const obj = self.objectOf(lp, path);
@@ -2757,9 +2917,9 @@ pub const Emitter = struct {
         if (d < 1e-4) return;
         var line: Line = .{ .skip = self.dry };
         line.add("G1 X");
-        line.num(x + self.r.settings.machine.origin_x, 3);
+        line.num(self.headX(x), 3);
         line.add(" Y");
-        line.num(y + self.r.settings.machine.origin_y, 3);
+        line.num(self.headY(y), 3);
         self.addFeed(&line, speed);
         line.add("\n");
         try line.put(self.w);
@@ -2803,9 +2963,9 @@ pub const Emitter = struct {
             if (@abs(dz) > 0) v = geom.fmin(v, m.max_z_speed * d / @abs(dz));
             var line: Line = .{ .skip = self.dry };
             line.add("G1 X");
-            line.num(x + m.origin_x, 3);
+            line.num(self.headX(x), 3);
             line.add(" Y");
-            line.num(y + m.origin_y, 3);
+            line.num(self.headY(y), 3);
             line.add(" Z");
             line.num(z, 3);
             line.add(" E");
@@ -2932,9 +3092,9 @@ pub const Emitter = struct {
             }
             const step = @import("geom.zig").hypot(x - self.x, y - self.y);
             try self.w.writeAll("G0 X");
-            try writeNum(self.w, x + self.r.settings.machine.origin_x, 3);
+            try writeNum(self.w, self.headX(x), 3);
             try self.w.writeAll(" Y");
-            try writeNum(self.w, y + self.r.settings.machine.origin_y, 3);
+            try writeNum(self.w, self.headY(y), 3);
             try self.writeFeed(speed);
             try self.w.writeAll("\n");
             self.x = x;
@@ -3099,9 +3259,9 @@ pub const Emitter = struct {
     /// feed rate if `speed` is set.
     fn wipeStep(self: *Emitter, x: f64, y: f64, e: f64, speed: ?f64) Error!void {
         try self.w.writeAll("G1 X");
-        try writeNum(self.w, x + self.r.settings.machine.origin_x, 3);
+        try writeNum(self.w, self.headX(x), 3);
         try self.w.writeAll(" Y");
-        try writeNum(self.w, y + self.r.settings.machine.origin_y, 3);
+        try writeNum(self.w, self.headY(y), 3);
         try self.w.writeAll(" E-");
         try writeNum(self.w, e, 4);
         if (speed) |v| {
@@ -3458,9 +3618,9 @@ pub const Emitter = struct {
         const speed = self.travelSpeed();
         var line: Line = .{ .skip = self.dry };
         line.add("G0 X");
-        line.num(x + self.r.settings.machine.origin_x, 3);
+        line.num(self.headX(x), 3);
         line.add(" Y");
-        line.num(y + self.r.settings.machine.origin_y, 3);
+        line.num(self.headY(y), 3);
         self.addFeed(&line, speed);
         line.add("\n");
         try line.put(self.w);
@@ -3793,9 +3953,9 @@ pub const Emitter = struct {
         const e = d * e_per_mm;
         var line: Line = .{ .skip = self.dry };
         line.add("G1 X");
-        line.num(x + self.r.settings.machine.origin_x, 3);
+        line.num(self.headX(x), 3);
         line.add(" Y");
-        line.num(y + self.r.settings.machine.origin_y, 3);
+        line.num(self.headY(y), 3);
         line.add(" E");
         line.num(e, 5);
         self.addFeed(&line, speed);
@@ -3852,6 +4012,7 @@ pub const Emitter = struct {
             .layer_index = lp.index,
             .slots = self.slots,
             .first_of_nozzles = self.first_of_nozzles,
+            .globals = self.globals,
             .tool = self.tool,
             .first_layer_box = self.first_layer_box,
         };
@@ -3882,6 +4043,7 @@ pub const Emitter = struct {
             // in the start G-code, the first filament of the print.
             .slots = self.slots,
             .first_of_nozzles = self.first_of_nozzles,
+            .globals = self.globals,
             .tool = self.tool,
         };
         return gcode_vars.render(self.gpa, w, text, &ctx) catch |err| switch (err) {
@@ -3899,6 +4061,33 @@ const OneLine = struct {
         for (o.text) |c| try w.writeByte(if (c == '\n' or c == '\r') ' ' else c);
     }
 };
+
+/// True if `text` has a line that starts with the command T`n` (as
+/// "T3" or "T3 S1 L0 D0").
+fn hasToolLine(text: []const u8, n: u32) bool {
+    var it = std.mem.splitScalar(u8, text, '\n');
+    var buf: [12]u8 = undefined;
+    const cmd = std.fmt.bufPrint(&buf, "T{d}", .{n}) catch return false;
+    while (it.next()) |raw| {
+        const line = std.mem.trimStart(u8, raw, " \t");
+        if (!std.mem.startsWith(u8, line, cmd)) continue;
+        if (line.len == cmd.len or line[cmd.len] == ' ' or line[cmd.len] == ';' or line[cmd.len] == '\r') return true;
+    }
+    return false;
+}
+
+/// The bit of filament slot `slot` in a set of slots (64 at most).
+fn slotBit(slot: u32) u64 {
+    return if (slot < 64) @as(u64, 1) << @intCast(slot) else 0;
+}
+
+/// The nozzle of filament `f` in the file of a Bambu Lab printer with `n`
+/// nozzles, from 0: 0 for a printer with one, and for a nozzle that the
+/// printer does not have.
+fn fileNozzle(n: u32, f: settings_mod.Filament) u32 {
+    if (n < 2) return 0;
+    return if (f.nozzle < n) f.nozzle else 0;
+}
 
 fn oneLine(text: []const u8) OneLine {
     return .{ .text = text };

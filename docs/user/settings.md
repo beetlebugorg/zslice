@@ -216,7 +216,11 @@ How the printer changes to another filament of the plate. `pause`: one filament 
 
 **`machine.nozzles`** (integer). Default: `1`
 
-The number of nozzles of the print head: 1, or 2 for a head with a second nozzle (the Bambu Lab X2D and H2D). Each filament prints with its own nozzle (`filament.nozzle`). The firmware calibrates the offset between the nozzles: the G-code has one frame for both.
+The number of nozzles of the printer, 1 to 16. Each nozzle has its own hot end, and each filament prints with its own nozzle (`filament.nozzle`). Examples: 2 on the Bambu Lab X2D and H2D and on an IDEX printer, 5 on a Prusa XL 5T, 8 on a CORE One INDX 8T. The first nozzle has the settings of the Nozzle section. Each other nozzle has a section of its own (`nozzle.k.diameter` and the others), with the values of the first nozzle as defaults.
+
+**`machine.tool_numbers`** (one of: `filament`, `nozzle`). Default: `filament`
+
+The number n of a tool change command Tn. `filament`: the filament (from 0). A unit that feeds many filaments (a Bambu Lab AMS, a Prusa MMU) and the Bambu Lab X2D and H2D use it. `nozzle`: the nozzle of the filament (from 0), for a printer with a hot end for each filament (a tool changer, an IDEX printer). Two filaments on one nozzle then change with a pause (M600).
 
 **`machine.nozzle1_max_x`** (number). Default: `0`
 
@@ -226,13 +230,13 @@ The right edge of the area that the first nozzle reaches, in bed X (mm). The lef
 
 The highest z that the first nozzle reaches (mm). 0: `max_height`.
 
-**`machine.nozzle2_min_x`** (number). Default: `0`
+**`machine.standby_delta`** (number). Default: `0`
 
-The left edge of the area that the second nozzle reaches, in bed X (mm). The second nozzle of the X2D stops 20.5 mm from the left side of the bed. 0: the whole bed.
+The temperature of a nozzle that waits for its next filament on a printer with more than one nozzle, in °C, as a change from the print temperature of its filament: -110 waits 110 °C below it. 0: the nozzle keeps its temperature. A filament with a `standby_temp` waits at that temperature. The next nozzle heats again before its first line. As "Temperature variation" of the ooze prevention in PrusaSlicer (standby_temperature_delta). A Bambu Lab X2D or H2D waits 10 °C below, as in Bambu Studio.
 
-**`machine.nozzle2_max_height`** (number). Default: `0`
+**`machine.preheat_time`** (number). Default: `0`
 
-The highest z that the second nozzle reaches (mm). 0: `max_height`.
+The time before a change to another nozzle at which that nozzle heats to its print temperature, in seconds. It is then hot, or almost hot, at the change. 0: it heats at the change. As "Preheat time" in OrcaSlicer. Only a change in the middle of a layer gets a preheat.
 
 **`machine.change_gcode`** (text). Default: `""`
 
@@ -245,36 +249,6 @@ The time of one filament change, in seconds, for the time estimate: the cut, the
 **`machine.flush_volume`** (number). Default: `140`
 
 The plastic (mm³) that the nozzle flushes after a change to a filament of the same color. A change from a dark color to a light color flushes up to 5 times more (see `project.flush_multiplier`). A pause flushes nothing: you push the new filament through by hand.
-
-### Second nozzle
-
-**`machine.nozzle2_diameter`** (number). Default: `0`
-
-The diameter of the second nozzle of a head with two (`nozzles = 2`). 0: `nozzle_diameter`. With the automatic line width (`project.line_width = 0`), the lines of the second nozzle are 1.1 times this wide.
-
-**`machine.nozzle2_line_width`** (number). Default: `0`
-
-The line width of the walls, the skin, and the infill of the second nozzle, in mm. 0: the line width of the first nozzle, times `nozzle2_diameter` / `nozzle_diameter`. The first layer gets the same ratio to its own width.
-
-**`machine.nozzle2_speed`** (number). Default: `0`
-
-The speed of the lines of the second nozzle, as a ratio of the speed that the same line gets on the first nozzle. The ratios of the features to each other stay. 0: the same speeds. Travel moves keep `travel_speed`: one head moves both nozzles.
-
-**`machine.nozzle2_max_speed`** (number). Default: `0`
-
-The highest speed of the lines of the second nozzle, in mm/s, after `nozzle2_speed`. 0: no limit of its own. A Bambu Lab X2D prints with its second nozzle (a bowden extruder) at most at 200 mm/s.
-
-**`machine.nozzle2_max_accel`** (number). Default: `0`
-
-The highest acceleration of the lines of the second nozzle, in mm/s². 0: no limit of its own. The G-code has it only with `accel_control`; the time estimate always uses it.
-
-**`machine.nozzle2_retract_length`** (number). Default: `0`
-
-The retraction length of the second nozzle, in mm. 0: `retract_length`. The X2D feeds its second nozzle through a bowden tube: Bambu Studio retracts 2 mm there and 0.8 mm on the first.
-
-**`machine.nozzle2_retract_speed`** (number). Default: `0`
-
-The speed of the filament in a retraction of the second nozzle, in mm/s. 0: `retract_speed`.
 
 ### G-code
 
@@ -324,6 +298,66 @@ M84
 
 The text after the print. The same values as in `start_gcode` are replaced.
 
+### Other nozzles
+
+The settings of each nozzle after the first, on a printer with more than one nozzle (`machine.nozzles`). k is the nozzle, from 1 (the second nozzle, tool T1) to 15. A value of 0 is the value of the first nozzle. In a profile: `nozzle.1.diameter = 0.6`.
+
+**`machine.nozzle.k.diameter`** (number). Default: `0`
+
+The diameter of this nozzle, in mm. 0: `nozzle_diameter`. With the automatic line width (`project.line_width = 0`), its lines are 1.1 times this wide.
+
+**`machine.nozzle.k.line_width`** (number). Default: `0`
+
+The line width of the walls, the skin, and the infill of this nozzle, in mm. 0: the line width of the first nozzle, times `diameter` / `nozzle_diameter`. The first layer gets the same ratio to its own width.
+
+**`machine.nozzle.k.speed`** (number). Default: `0`
+
+The speed of the lines of this nozzle, as a ratio of the speed that the same line gets on the first nozzle. The ratios of the features to each other stay. 0: the same speeds. Travel moves keep `travel_speed`.
+
+**`machine.nozzle.k.max_speed`** (number). Default: `0`
+
+The highest speed of the lines of this nozzle, in mm/s, after `speed`. 0: no limit of its own. A Bambu Lab X2D prints with its second nozzle (a bowden extruder) at most at 200 mm/s.
+
+**`machine.nozzle.k.max_accel`** (number). Default: `0`
+
+The highest acceleration of the lines of this nozzle, in mm/s². 0: no limit of its own. The G-code has it only with `accel_control`; the time estimate always uses it.
+
+**`machine.nozzle.k.retract_length`** (number). Default: `0`
+
+The retraction length of this nozzle, in mm. 0: `retract_length`. The X2D feeds its second nozzle through a bowden tube: Bambu Studio retracts 2 mm there and 0.8 mm on the first.
+
+**`machine.nozzle.k.retract_speed`** (number). Default: `0`
+
+The speed of the filament in a retraction of this nozzle, in mm/s. 0: `retract_speed`.
+
+**`machine.nozzle.k.offset_x`** (number). Default: `0`
+
+The position of this nozzle from the first nozzle in X, in mm, when the firmware does not correct it (the tool offset). The G-code moves the head by minus this offset for the lines and the travels of this nozzle. As extruder_offset in PrusaSlicer. 0: the firmware corrects the offset (Prusa XL, Bambu Lab X2D, Klipper tool changers with offsets in printer.cfg).
+
+**`machine.nozzle.k.offset_y`** (number). Default: `0`
+
+The position of this nozzle from the first nozzle in Y, in mm. See `offset_x`.
+
+**`machine.nozzle.k.min_x`** (number). Default: `0`
+
+The left edge of the area that this nozzle reaches, in bed X (mm). The second nozzle of the X2D stops 20.5 mm from the left side of the bed. 0: the left side of the bed.
+
+**`machine.nozzle.k.max_x`** (number). Default: `0`
+
+The right edge of the area that this nozzle reaches, in bed X (mm). 0: the right side of the bed.
+
+**`machine.nozzle.k.max_height`** (number). Default: `0`
+
+The highest z that this nozzle reaches (mm). 0: `max_height`.
+
+**`machine.nozzle.k.standby_delta`** (number). Default: `0`
+
+The temperature change of this nozzle while it waits, in °C. 0: `standby_delta`.
+
+**`machine.nozzle.k.preheat_time`** (number). Default: `0`
+
+The time before a change to this nozzle at which it heats, in seconds. 0: `preheat_time`.
+
 ## filament
 
 Facts about the material.
@@ -344,7 +378,7 @@ The color of the filament, as "#rrggbb". The 3D view draws the print in this col
 
 **`filament.nozzle`** (integer). Default: `0`
 
-The nozzle of this filament on a printer with two nozzles (`machine.nozzles = 2`): 0 is the main nozzle, 1 is the second one. On the X2D, the AMS feeds the main nozzle, and the external spool feeds the second one. A printer with one nozzle: 0.
+The nozzle of this filament on a printer with more than one nozzle (`machine.nozzles`), from 0: 0 is the first (main) nozzle, 1 the second, and on. On the X2D, the AMS feeds the main nozzle, and the external spool feeds the second one. On a tool changer, the nozzle is the tool (T0, T1, and on). A printer with one nozzle: 0. A nozzle that the printer does not have prints on the first nozzle, and the Check tells it.
 
 **`filament.diameter`** (number). Default: `1.75`
 
@@ -930,7 +964,7 @@ The filament that prints this part, or these layers: 1 is the first filament of 
 
 **`project.support_filament`** (integer). Default: `0`
 
-The filament of the support: 1 is the first filament of the plate, 2 the second, and so on. 0: the filament of the part. A filament for support only (one that breaks away, or one that dissolves in water) makes support easy to take off. On a printer with two nozzles, the support prints with the nozzle of that filament.
+The filament of the support: 1 is the first filament of the plate, 2 the second, and so on. 0: the filament of the part. A filament for support only (one that breaks away, or one that dissolves in water) makes support easy to take off. On a printer with more than one nozzle, the support prints with the nozzle of that filament.
 
 **`project.support_interface_filament`** (integer). Default: `0`
 
@@ -938,7 +972,7 @@ The filament of the support interface (the layers that touch the part). 0: the s
 
 **`project.infill_filament`** (integer). Default: `0`
 
-The filament of the sparse infill: 1 is the first filament of the plate, 2 the second, and so on. 0: the filament of the part. On a printer with two nozzles, a filament of the second nozzle prints the infill with that nozzle, at its line width. With combined infill (`infill_layers` above 1), this filament prints only the tall beads, and the filament of the part prints the narrow areas of infill that print on each layer: the nozzle then changes once in each group of layers.
+The filament of the sparse infill: 1 is the first filament of the plate, 2 the second, and so on. 0: the filament of the part. On a printer with more than one nozzle, a filament of another nozzle prints the infill with that nozzle, at its line width. With combined infill (`infill_layers` above 1), this filament prints only the tall beads, and the filament of the part prints the narrow areas of infill that print on each layer: the nozzle then changes once in each group of layers.
 
 **`project.prime_tower`** (true or false). Default: `true`
 

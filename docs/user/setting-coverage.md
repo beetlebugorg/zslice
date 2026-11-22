@@ -17,8 +17,8 @@ The lists come from Cura `resources/definitions/fdmprinter.def.json` and `fdmext
 
 | Slicer | Settings | Same | Covered | Missing | Not for zslice |
 |---|---|---|---|---|---|
-| Cura | 762 | 171 | 92 | 436 | 63 |
-| OrcaSlicer | 1013 | 164 | 122 | 495 | 232 |
+| Cura | 762 | 173 | 92 | 434 | 63 |
+| OrcaSlicer | 1013 | 167 | 122 | 491 | 233 |
 
 ## Cura
 
@@ -776,7 +776,7 @@ The lists come from Cura `resources/definitions/fdmprinter.def.json` and `fdmext
 | `machine_heated_build_volume` (Has Build Volume Temperature Stabilization) | Missing | a heated chamber: zslice has `machine.chamber_temp` for the simulation only |
 | `machine_always_write_active_tool` (Always Write Active Tool) | Missing | write T0 on a printer with one extruder |
 | `machine_center_is_zero` (Is Center Origin) | Same | `machine.origin_x` and `machine.origin_y` (the importer sets them) |
-| `machine_extruder_count` (Number of Extruders) | Same | `machine.nozzles` (1 or 2) |
+| `machine_extruder_count` (Number of Extruders) | Same | `machine.nozzles` (1 to 16) |
 | `extruders_enabled_count` (Number of Extruders That Are Enabled) | Covered | the filaments of the plate |
 | `machine_nozzle_tip_outer_diameter` (Outer Nozzle Diameter) | Same | `machine.nozzle_tip_radius` |
 | `machine_nozzle_expansion_angle` (Nozzle Angle) | Same | `machine.nozzle_cone_angle` |
@@ -797,7 +797,7 @@ The lists come from Cura `resources/definitions/fdmprinter.def.json` and `fdmext
 | `machine_time_estimation_factor` (Print Time Estimation Factor) | Not for zslice | zslice plans each move with the motion limits for the time |
 | `machine_nozzle_id` (Nozzle ID) | Covered | `machine.nozzle_diameter` and `machine.nozzle_type` |
 | `machine_nozzle_size` (Nozzle Diameter) | Same | `machine.nozzle_diameter` |
-| `machine_use_extruder_offset_to_offset_coords` (Offset with Extruder) | Covered | zslice moves the second nozzle in the G-code of the printer (`machine.nozzles`) |
+| `machine_use_extruder_offset_to_offset_coords` (Offset with Extruder) | Covered | `machine.nozzle.k.offset_x` and `machine.nozzle.k.offset_y` at 0: the firmware corrects the offset |
 | `machine_start_gcode_first` (Start GCode must be first) | Missing | the start G-code before the heat commands |
 | `extruder_prime_pos_z` (Extruder Prime Z Position) | Not for zslice | the prime blob of Ultimaker printers |
 | `extruder_prime_pos_abs` (Absolute Extruder Prime Position) | Not for zslice | the prime blob of Ultimaker printers |
@@ -839,8 +839,8 @@ The lists come from Cura `resources/definitions/fdmprinter.def.json` and `fdmext
 | `machine_extruder_start_pos_x` (Extruder Start Position X) | Not for zslice | the park place of an extruder of an Ultimaker printer |
 | `machine_extruder_start_pos_y` (Extruder Start Position Y) | Not for zslice | the park place of an extruder of an Ultimaker printer |
 | `machine_nozzle_head_distance` (Nozzle Length) | Not for zslice | the height of a nozzle under the head of an Ultimaker printer |
-| `machine_nozzle_offset_x` (Nozzle X Offset) | Missing | the X offset of a second nozzle |
-| `machine_nozzle_offset_y` (Nozzle Y Offset) | Missing | the Y offset of a second nozzle |
+| `machine_nozzle_offset_x` (Nozzle X Offset) | Same | `machine.nozzle.k.offset_x` |
+| `machine_nozzle_offset_y` (Nozzle Y Offset) | Same | `machine.nozzle.k.offset_y` |
 
 ### Command line
 
@@ -901,8 +901,9 @@ The print, printer, and filament settings first, by status. The settings of resi
 | `enable_support` (Enable support) | `project.support` |
 | `extruder_clearance_height_to_rod` (Height to rod) | `machine.clearance_height` |
 | `extruder_clearance_radius` (Radius) | `machine.clearance_radius` |
-| `extruder_printable_area` (Extruder printable area) | `machine.nozzle2_min_x` and `machine.nozzle1_max_x` |
-| `extruder_printable_height` (Extruder printable height) | `machine.nozzle1_max_height` and `machine.nozzle2_max_height` |
+| `extruder_offset` (Extruder offset) | `machine.nozzle.k.offset_x` and `machine.nozzle.k.offset_y` |
+| `extruder_printable_area` (Extruder printable area) | `machine.nozzle1_max_x`, `machine.nozzle.k.min_x`, and `machine.nozzle.k.max_x` |
+| `extruder_printable_height` (Extruder printable height) | `machine.nozzle1_max_height` and `machine.nozzle.k.max_height` |
 | `fan_cooling_layer_time` (Layer time) | `filament.fan_boost_time` |
 | `fan_max_speed` (Fan speed) | `filament.fan_max_speed` |
 | `fan_min_speed` (Fan speed) | `filament.fan_speed` |
@@ -967,6 +968,7 @@ The print, printer, and filament settings first, by status. The settings of resi
 | `outer_wall_acceleration` (Outer wall) | `machine.outer_wall_accel` |
 | `outer_wall_speed` (Outer wall) | `project.outer_wall_speed` (a ratio of `machine.max_speed`) |
 | `overhang_fan_speed` (Overhangs and external bridges fan speed) | `project.bridge_fan` |
+| `preheat_time` (Preheat time) | `machine.preheat_time` |
 | `pressure_advance` (Pressure advance) | `filament.pressure_advance` |
 | `prime_tower_width` (Width) | `project.prime_tower_width` |
 | `print_sequence` (Print sequence) | `project.print_sequence` |
@@ -997,6 +999,7 @@ The print, printer, and filament settings first, by status. The settings of resi
 | `sparse_infill_pattern` (Sparse infill pattern) | `project.infill_pattern` |
 | `sparse_infill_speed` (Sparse infill) | `project.infill_speed` |
 | `spiral_mode` (Spiral vase) | `project.spiral_vase` |
+| `standby_temperature_delta` (Temperature variation) | `machine.standby_delta` |
 | `support_angle` (Pattern angle) | `project.support_angle` |
 | `support_base_pattern_spacing` (Base pattern spacing) | `project.support_density` (a density in place of a spacing) |
 | `support_filament` (Support/raft base) | `project.support_filament` |
@@ -1096,6 +1099,7 @@ The print, printer, and filament settings first, by status. The settings of resi
 | `nozzle_hrc` (Nozzle HRC) | `machine.nozzle_type` |
 | `nozzle_temperature_range_high` (Max) | the G-code variable nozzle_temperature_range_high |
 | `nozzle_temperature_range_low` (Min) | the G-code variable nozzle_temperature_range_low |
+| `ooze_prevention` (Enable) | `machine.standby_delta` (0 is off) |
 | `overhang_1_4_speed` (10%) | `project.overhang_wall_speed` (one speed for all overhangs over `project.overhang_wall_threshold`) |
 | `overhang_2_4_speed` (25%) | `project.overhang_wall_speed` (one speed for all overhangs over `project.overhang_wall_threshold`) |
 | `overhang_3_4_speed` (50%) | `project.overhang_wall_speed` (one speed for all overhangs over `project.overhang_wall_threshold`) |
@@ -1107,7 +1111,6 @@ The print, printer, and filament settings first, by status. The settings of resi
 | `retract_length_toolchange` (Retraction Length (Toolchange)) | `machine.change_gcode` and the Bambu Lab presets |
 | `slow_down_for_layer_cooling` (Slow printing down for better layer cooling) | `filament.min_layer_time` 0 is no slow down |
 | `spaghetti_detector` (Enable spaghetti detector) | zslice turns the spaghetti detector of a Bambu Lab printer on (M981) |
-| `standby_temperature_delta` (Temperature variation) | the G-code variable standby_temperature_delta |
 | `supertack_plate_temp` (Other layers) | `filament.bed_temp` (one bed temperature for the plate of the printer) |
 | `supertack_plate_temp_initial_layer` (First layer) | `filament.first_layer_bed_temp` |
 | `support_bottom_z_distance` (Bottom Z distance) | `project.support_z_gap_layers` |
@@ -1226,7 +1229,6 @@ The print, printer, and filament settings first, by status. The settings of resi
 | `extruder_nozzle_count` (extruder nozzle count) | extruder nozzle count |
 | `extruder_nozzle_stats` (Extruder nozzle stats) | Extruder nozzle stats |
 | `extruder_nozzle_volume_type` (Extruder nozzle volume type) | Extruder nozzle volume type |
-| `extruder_offset` (Extruder offset) | the X and Y offset of a second nozzle |
 | `extruder_type` (Type) | direct drive or Bowden, for the retraction |
 | `extruder_variant_list` (Extruder variant list) | Extruder variant list |
 | `extrusion_rate_smoothing_external_perimeter_only` (Apply only on external features) | Apply only on external features |
@@ -1428,7 +1430,6 @@ The print, printer, and filament settings first, by status. The settings of resi
 | `nozzle_volume_type` (Nozzle Volume Type) | Nozzle Volume Type |
 | `only_one_wall_first_layer` (Only one wall on first layer) | Only one wall on first layer |
 | `only_one_wall_top` (Only one wall on top surfaces) | Only one wall on top surfaces |
-| `ooze_prevention` (Enable) | Enable |
 | `other_layers_print_sequence` (Other layers print sequence) | Other layers print sequence |
 | `other_layers_print_sequence_nums` (The number of other layers print sequence) | The number of other layers print sequence |
 | `other_layers_sequence_choice` (Other layers filament sequence) | Other layers filament sequence |
@@ -1445,8 +1446,6 @@ The print, printer, and filament settings first, by status. The settings of resi
 | `part_cooling_fan_min_pwm` (Minimum non-zero part cooling fan speed) | Minimum non-zero part cooling fan speed |
 | `physical_extruder_map` (Map the logical extruder to physical extruder) | Map the logical extruder to physical extruder |
 | `precise_outer_wall` (Precise wall) | Precise wall |
-| `preheat_steps` (Preheat steps) | Preheat steps |
-| `preheat_time` (Preheat time) | Preheat time |
 | `prime_tower_brim_width` (Brim width) | Brim width |
 | `prime_tower_enable_framework` (Internal ribs) | Internal ribs |
 | `prime_tower_flat_ironing` |  |
@@ -1654,6 +1653,7 @@ The print, printer, and filament settings first, by status. The settings of resi
 | `plugins` (Plugins Used) | plugins of the OrcaSlicer app |
 | `post_process` (Post-processing Scripts) | scripts that change the G-code after the slice |
 | `preferred_orientation` (Preferred orientation) | the angle of the bed in the 3D view of the app |
+| `preheat_steps` (Preheat steps) | zslice heats the next nozzle in one step |
 | `preset_name` | preset metadata of the OrcaSlicer app |
 | `preset_names` (Printer preset names) | preset metadata of the OrcaSlicer app |
 | `print_compatible_printers` | preset metadata of the OrcaSlicer app |

@@ -21,6 +21,14 @@
 //! "filament.nozzle_temp", and a text value. It uses comptime reflection, so
 //! each new field is available in the C API, the wasm API, and the command
 //! line with no more code.
+//!
+//! A printer with more than one nozzle has the settings of each nozzle
+//! after the first in `Machine.nozzle` (`Nozzle`), by names with the
+//! number of the nozzle: "machine.nozzle.3.diameter". A value of 0 is the
+//! value of the first nozzle. The tool change settings have the meaning
+//! of the ooze prevention and the extruder offset of PrusaSlicer and the
+//! preheat time of OrcaSlicer (see docs/references/prusaslicer.md and
+//! docs/references/orcaslicer.md).
 
 const std = @import("std");
 const flow = @import("flow.zig");
@@ -89,6 +97,74 @@ pub const BedType = enum {
 pub const NozzleType = enum { hardened_steel, stainless_steel, tungsten_carbide, brass };
 /// The flow of the hot end. See `Machine.nozzle_flow`.
 pub const NozzleFlow = enum { standard, high_flow };
+/// The number of a tool change command. See `Machine.tool_numbers`.
+pub const ToolNumbers = enum { filament, nozzle };
+
+/// The most nozzles of a printer (`Machine.nozzles`).
+pub const max_nozzles = 16;
+
+/// The settings of one nozzle after the first, on a printer with more
+/// than one nozzle (`Machine.nozzle`). Each nozzle has its own hot end. A
+/// value of 0 is the value of the first nozzle: the nozzle is the same as
+/// the first, and only its differences need a value. The setting names
+/// are `machine.nozzle.k.diameter` and the others, for nozzle k (tool Tk)
+/// from 1.
+pub const Nozzle = struct {
+    /// The diameter of this nozzle, in mm. 0: `nozzle_diameter`. With the
+    /// automatic line width (`project.line_width = 0`), its lines are 1.1
+    /// times this wide.
+    diameter: f64 = 0,
+    /// The line width of the walls, the skin, and the infill of this
+    /// nozzle, in mm. 0: the line width of the first nozzle, times
+    /// `diameter` / `nozzle_diameter`. The first layer gets the same ratio
+    /// to its own width.
+    line_width: f64 = 0,
+    /// The speed of the lines of this nozzle, as a ratio of the speed that
+    /// the same line gets on the first nozzle. The ratios of the features
+    /// to each other stay. 0: the same speeds. Travel moves keep
+    /// `travel_speed`.
+    speed: f64 = 0,
+    /// The highest speed of the lines of this nozzle, in mm/s, after
+    /// `speed`. 0: no limit of its own. A Bambu Lab X2D prints with its
+    /// second nozzle (a bowden extruder) at most at 200 mm/s.
+    max_speed: f64 = 0,
+    /// The highest acceleration of the lines of this nozzle, in mm/s². 0:
+    /// no limit of its own. The G-code has it only with `accel_control`;
+    /// the time estimate always uses it.
+    max_accel: f64 = 0,
+    /// The retraction length of this nozzle, in mm. 0: `retract_length`.
+    /// The X2D feeds its second nozzle through a bowden tube: Bambu Studio
+    /// retracts 2 mm there and 0.8 mm on the first.
+    retract_length: f64 = 0,
+    /// The speed of the filament in a retraction of this nozzle, in mm/s.
+    /// 0: `retract_speed`.
+    retract_speed: f64 = 0,
+    /// The position of this nozzle from the first nozzle in X, in mm, when
+    /// the firmware does not correct it (the tool offset). The G-code
+    /// moves the head by minus this offset for the lines and the travels
+    /// of this nozzle. As extruder_offset in PrusaSlicer. 0: the firmware
+    /// corrects the offset (Prusa XL, Bambu Lab X2D, Klipper tool
+    /// changers with offsets in printer.cfg).
+    offset_x: f64 = 0,
+    /// The position of this nozzle from the first nozzle in Y, in mm. See
+    /// `offset_x`.
+    offset_y: f64 = 0,
+    /// The left edge of the area that this nozzle reaches, in bed X (mm).
+    /// The second nozzle of the X2D stops 20.5 mm from the left side of
+    /// the bed. 0: the left side of the bed.
+    min_x: f64 = 0,
+    /// The right edge of the area that this nozzle reaches, in bed X (mm).
+    /// 0: the right side of the bed.
+    max_x: f64 = 0,
+    /// The highest z that this nozzle reaches (mm). 0: `max_height`.
+    max_height: f64 = 0,
+    /// The temperature change of this nozzle while it waits, in °C. 0:
+    /// `standby_delta`.
+    standby_delta: f64 = 0,
+    /// The time before a change to this nozzle at which it heats, in
+    /// seconds. 0: `preheat_time`.
+    preheat_time: f64 = 0,
+};
 
 pub const Machine = struct {
 
@@ -277,23 +353,42 @@ pub const Machine = struct {
     /// Bambu Lab AMS, a Prusa MMU) changes it with a tool change (T0, T1,
     /// and on).
     filament_change: FilamentChange = .pause,
-    /// The number of nozzles of the print head: 1, or 2 for a head with a
-    /// second nozzle (the Bambu Lab X2D and H2D). Each filament prints
-    /// with its own nozzle (`filament.nozzle`). The firmware calibrates the
-    /// offset between the nozzles: the G-code has one frame for both.
+    /// The number of nozzles of the printer, 1 to 16. Each nozzle has its
+    /// own hot end, and each filament prints with its own nozzle
+    /// (`filament.nozzle`). Examples: 2 on the Bambu Lab X2D and H2D and
+    /// on an IDEX printer, 5 on a Prusa XL 5T, 8 on a CORE One INDX 8T.
+    /// The first nozzle has the settings of the Nozzle section. Each other
+    /// nozzle has a section of its own (`nozzle.k.diameter` and the
+    /// others), with the values of the first nozzle as defaults.
     nozzles: u32 = 1,
+    /// The number n of a tool change command Tn. `filament`: the filament
+    /// (from 0). A unit that feeds many filaments (a Bambu Lab AMS, a
+    /// Prusa MMU) and the Bambu Lab X2D and H2D use it. `nozzle`: the
+    /// nozzle of the filament (from 0), for a printer with a hot end for
+    /// each filament (a tool changer, an IDEX printer). Two filaments on
+    /// one nozzle then change with a pause (M600).
+    tool_numbers: ToolNumbers = .filament,
     /// The right edge of the area that the first nozzle reaches, in bed X
     /// (mm). The left nozzle of the H2D stops 25 mm from the right side.
     /// 0: the whole bed.
     nozzle1_max_x: f64 = 0,
     /// The highest z that the first nozzle reaches (mm). 0: `max_height`.
     nozzle1_max_height: f64 = 0,
-    /// The left edge of the area that the second nozzle reaches, in bed X
-    /// (mm). The second nozzle of the X2D stops 20.5 mm from the left side
-    /// of the bed. 0: the whole bed.
-    nozzle2_min_x: f64 = 0,
-    /// The highest z that the second nozzle reaches (mm). 0: `max_height`.
-    nozzle2_max_height: f64 = 0,
+    /// The temperature of a nozzle that waits for its next filament on a
+    /// printer with more than one nozzle, in °C, as a change from the
+    /// print temperature of its filament: -110 waits 110 °C below it. 0:
+    /// the nozzle keeps its temperature. A filament with a
+    /// `standby_temp` waits at that temperature. The next nozzle heats
+    /// again before its first line. As "Temperature variation" of the
+    /// ooze prevention in PrusaSlicer (standby_temperature_delta). A
+    /// Bambu Lab X2D or H2D waits 10 °C below, as in Bambu Studio.
+    standby_delta: f64 = 0,
+    /// The time before a change to another nozzle at which that nozzle
+    /// heats to its print temperature, in seconds. It is then hot, or
+    /// almost hot, at the change. 0: it heats at the change. As "Preheat
+    /// time" in OrcaSlicer. Only a change in the middle of a layer gets a
+    /// preheat.
+    preheat_time: f64 = 0,
     /// The text of a filament change. Empty: zslice writes the command of
     /// the G-code flavor (M600 for a pause, Tn for a tool change). The
     /// variables of Bambu Studio and PrusaSlicer work here:
@@ -311,37 +406,13 @@ pub const Machine = struct {
     /// A pause flushes nothing: you push the new filament through by hand.
     flush_volume: f64 = 140,
 
-    // Second nozzle
-    /// The diameter of the second nozzle of a head with two (`nozzles =
-    /// 2`). 0: `nozzle_diameter`. With the automatic line width
-    /// (`project.line_width = 0`), the lines of the second nozzle are 1.1
-    /// times this wide.
-    nozzle2_diameter: f64 = 0,
-    /// The line width of the walls, the skin, and the infill of the second
-    /// nozzle, in mm. 0: the line width of the first nozzle, times
-    /// `nozzle2_diameter` / `nozzle_diameter`. The first layer gets the
-    /// same ratio to its own width.
-    nozzle2_line_width: f64 = 0,
-    /// The speed of the lines of the second nozzle, as a ratio of the
-    /// speed that the same line gets on the first nozzle. The ratios of
-    /// the features to each other stay. 0: the same speeds. Travel moves
-    /// keep `travel_speed`: one head moves both nozzles.
-    nozzle2_speed: f64 = 0,
-    /// The highest speed of the lines of the second nozzle, in mm/s, after
-    /// `nozzle2_speed`. 0: no limit of its own. A Bambu Lab X2D prints
-    /// with its second nozzle (a bowden extruder) at most at 200 mm/s.
-    nozzle2_max_speed: f64 = 0,
-    /// The highest acceleration of the lines of the second nozzle, in
-    /// mm/s². 0: no limit of its own. The G-code has it only with
-    /// `accel_control`; the time estimate always uses it.
-    nozzle2_max_accel: f64 = 0,
-    /// The retraction length of the second nozzle, in mm. 0:
-    /// `retract_length`. The X2D feeds its second nozzle through a bowden
-    /// tube: Bambu Studio retracts 2 mm there and 0.8 mm on the first.
-    nozzle2_retract_length: f64 = 0,
-    /// The speed of the filament in a retraction of the second nozzle, in
-    /// mm/s. 0: `retract_speed`.
-    nozzle2_retract_speed: f64 = 0,
+    // Other nozzles
+    /// The settings of each nozzle after the first (`nozzles` > 1):
+    /// `machine.nozzle.k.diameter` and the others, for nozzle k from 1
+    /// (the second nozzle, tool T1) to 15. A value of 0 is the value of
+    /// the first nozzle. Entry 0 has no use: the first nozzle has the
+    /// settings of the Nozzle section.
+    nozzle: [max_nozzles]Nozzle = [_]Nozzle{.{}} ** max_nozzles,
 
     // G-code
     /// The pictures of the print at the top of the G-code, for the screen
@@ -396,6 +467,38 @@ pub const Machine = struct {
         \\G90
         \\M84
     ,
+
+    /// Nozzle `n` of the machine, from 0, or 0 for a nozzle that it does
+    /// not have.
+    pub fn nozzleIndex(m: Machine, n: u32) u32 {
+        return if (n < m.nozzles and n < max_nozzles) n else 0;
+    }
+
+    /// The value of `field` of nozzle `k` (see `Nozzle`) if it has one (not
+    /// 0), else null: the first nozzle, a nozzle that the machine does not
+    /// have, and a nozzle with no value of its own.
+    pub fn nozzleValue(m: Machine, k: u32, comptime field: []const u8) ?f64 {
+        if (k == 0 or k >= m.nozzles or k >= max_nozzles) return null;
+        const v = @field(m.nozzle[k], field);
+        return if (v != 0) v else null;
+    }
+
+    /// The tool offset of nozzle `k` (mm): the head moves by minus it.
+    pub fn nozzleOffset(m: Machine, k: u32) [2]f64 {
+        if (k == 0 or k >= m.nozzles or k >= max_nozzles) return .{ 0, 0 };
+        return .{ m.nozzle[k].offset_x, m.nozzle[k].offset_y };
+    }
+
+    /// The temperature change of nozzle `k` while it waits (°C; 0: it
+    /// keeps its temperature).
+    pub fn standbyDelta(m: Machine, k: u32) f64 {
+        return m.nozzleValue(k, "standby_delta") orelse m.standby_delta;
+    }
+
+    /// The preheat time of nozzle `k` (s; 0: no preheat).
+    pub fn preheatTime(m: Machine, k: u32) f64 {
+        return m.nozzleValue(k, "preheat_time") orelse m.preheat_time;
+    }
 };
 
 pub const Filament = struct {
@@ -409,10 +512,13 @@ pub const Filament = struct {
     /// The color of the filament, as "#rrggbb". The 3D view draws the
     /// print in this color.
     color: []const u8 = "#d0d0cc",
-    /// The nozzle of this filament on a printer with two nozzles
-    /// (`machine.nozzles = 2`): 0 is the main nozzle, 1 is the second one.
-    /// On the X2D, the AMS feeds the main nozzle, and the external spool
-    /// feeds the second one. A printer with one nozzle: 0.
+    /// The nozzle of this filament on a printer with more than one nozzle
+    /// (`machine.nozzles`), from 0: 0 is the first (main) nozzle, 1 the
+    /// second, and on. On the X2D, the AMS feeds the main nozzle, and the
+    /// external spool feeds the second one. On a tool changer, the nozzle
+    /// is the tool (T0, T1, and on). A printer with one nozzle: 0. A
+    /// nozzle that the printer does not have prints on the first nozzle,
+    /// and the Check tells it.
     nozzle: u32 = 0,
     /// The diameter of the filament.
     diameter: f64 = 1.75,
@@ -1039,16 +1145,16 @@ pub const Project = struct {
     /// The filament of the support: 1 is the first filament of the plate,
     /// 2 the second, and so on. 0: the filament of the part. A filament
     /// for support only (one that breaks away, or one that dissolves in
-    /// water) makes support easy to take off. On a printer with two
-    /// nozzles, the support prints with the nozzle of that filament.
+    /// water) makes support easy to take off. On a printer with more than
+    /// one nozzle, the support prints with the nozzle of that filament.
     support_filament: u32 = 0,
     /// The filament of the support interface (the layers that touch the
     /// part). 0: the support filament.
     support_interface_filament: u32 = 0,
     /// The filament of the sparse infill: 1 is the first filament of the
     /// plate, 2 the second, and so on. 0: the filament of the part. On a
-    /// printer with two nozzles, a filament of the second nozzle prints
-    /// the infill with that nozzle, at its line width. With combined
+    /// printer with more than one nozzle, a filament of another nozzle
+    /// prints the infill with that nozzle, at its line width. With combined
     /// infill (`infill_layers` above 1), this filament prints only the
     /// tall beads, and the filament of the part prints the narrow areas of
     /// infill that print on each layer: the nozzle then changes once in
@@ -1149,6 +1255,7 @@ pub const Settings = struct {
             const v = std.fmt.parseFloat(f64, std.mem.trim(u8, value, " ")) catch return error.InvalidValue;
             if (!(v >= l[0] and v <= l[1])) return error.OutOfRange;
         }
+        if (nozzleSetting(name)) |ns| return setField(&self.machine.nozzle[ns.k], ns.field, value);
         inline for (@typeInfo(Settings).@"struct".fields) |g| {
             if (std.mem.eql(u8, g.name, group)) return setField(&@field(self, g.name), field, value);
         }
@@ -1162,8 +1269,8 @@ pub const Settings = struct {
     }
 
     /// `resolve`, for a plate of the filaments `slots`: on a printer with
-    /// two nozzles, a part (or its infill) whose filament is on the second
-    /// nozzle gets the line width of that nozzle.
+    /// more than one nozzle, a part (or its infill) whose filament is on
+    /// another nozzle gets the line width of that nozzle.
     pub fn resolveFor(self: Settings, slots: SlotNozzles) error{InvalidValue}!Resolved {
         const m = self.machine;
         const f = self.filament;
@@ -1175,15 +1282,7 @@ pub const Settings = struct {
         };
         // Each number must be finite and of a size that the integer
         // coordinates can hold.
-        inline for (@typeInfo(Settings).@"struct".fields) |g| {
-            const group = @field(self, g.name);
-            inline for (@typeInfo(@TypeOf(group)).@"struct".fields) |field| {
-                if (field.type == f64) {
-                    const v = @field(group, field.name);
-                    if (!(@abs(v) <= 1e6)) return error.InvalidValue;
-                }
-            }
-        }
+        if (!allFinite(self)) return error.InvalidValue;
         for (positive) |v| if (!(v > 0)) return error.InvalidValue;
         const ratios = [_]f64{
             f.fan_speed,     p.infill_density, p.outer_wall_speed,  p.inner_wall_speed,
@@ -1201,6 +1300,7 @@ pub const Settings = struct {
         if (p.slope_smoothing and (p.slope_smoothing_speed == 0 or !(p.slope_smoothing_min_width < p.slope_smoothing_max_width))) return error.InvalidValue;
         if (p.support != .off and (p.support_density == 0 or p.support_interface_density == 0 or !(p.support_angle > 0 and p.support_angle < 90))) return error.InvalidValue;
 
+        if (m.nozzles < 1 or m.nozzles > max_nozzles) return error.InvalidValue;
         const lines = nozzleLines(m, p);
         // The part prints with the nozzle of its filament, and the sparse
         // infill with the nozzle of the infill filament.
@@ -1214,7 +1314,7 @@ pub const Settings = struct {
         // A wall thickness sets the wall count, as in Cura.
         var out_settings = self;
         if (p.wall_thickness > 0) out_settings.project.wall_count = @max(1, @as(u32, @intFromFloat(@round(p.wall_thickness / w))));
-        // The lines of a part on the second nozzle come from its diameter.
+        // The lines of a part on another nozzle come from its diameter.
         out_settings.machine.nozzle_diameter = lines.diameter[nozzle];
         if (!(m.max_accel > 0 and m.corner_speed >= 0)) return error.InvalidValue;
         return .{
@@ -1240,49 +1340,123 @@ fn filaments_slot(number: u32, count: u32) u32 {
     return number - 1;
 }
 
-/// The nozzle of each filament of a plate, for a printer with two
-/// nozzles (see `Settings.resolveFor`).
+/// The most filament slots whose nozzle `SlotNozzles` keeps: as
+/// filaments.max_slots.
+pub const max_slot_nozzles = 32;
+
+/// The nozzle of each filament of a plate, for a printer with more than
+/// one nozzle (see `Settings.resolveFor`).
 pub const SlotNozzles = struct {
     /// The number of filaments of the plate.
     count: u32 = 1,
-    /// Bit k is 1 if the filament of slot k prints with the second nozzle.
-    second: u32 = 0,
+    /// The nozzle of the filament of each slot (`Filament.nozzle`).
+    nozzle: [max_slot_nozzles]u8 = [_]u8{0} ** max_slot_nozzles,
 
     /// The nozzles of the filaments `slots` (each `Filament.nozzle`).
     pub fn of(slots: []const Filament) SlotNozzles {
         var out: SlotNozzles = .{ .count = @intCast(@max(1, slots.len)) };
-        for (slots, 0..) |f, k| if (k < 32 and f.nozzle >= 1) {
-            out.second |= @as(u32, 1) << @intCast(k);
+        for (slots, 0..) |f, k| if (k < max_slot_nozzles) {
+            out.nozzle[k] = @intCast(@min(f.nozzle, max_nozzles - 1));
         };
         return out;
     }
 
-    /// The nozzle (0 or 1) of slot `slot` on the machine `m`. A printer
-    /// with one nozzle: 0.
+    /// The nozzle of slot `slot` on the machine `m`, from 0. A printer
+    /// with one nozzle: 0. A nozzle that the machine does not have: 0.
     pub fn nozzleOf(self: SlotNozzles, m: Machine, slot: u32) u32 {
-        if (m.nozzles < 2 or slot >= 32 or slot >= self.count) return 0;
-        return @intFromBool(self.second & (@as(u32, 1) << @intCast(slot)) != 0);
+        if (m.nozzles < 2 or slot >= max_slot_nozzles or slot >= self.count) return 0;
+        return m.nozzleIndex(self.nozzle[slot]);
+    }
+
+    /// A hash of the nozzles, for the stamp of a plan.
+    pub fn key(self: SlotNozzles) u64 {
+        var h = std.hash.Wyhash.init(self.count);
+        h.update(self.nozzle[0..@min(self.count, max_slot_nozzles)]);
+        return h.final();
     }
 };
 
-/// The nozzle diameter and the line widths of each nozzle (0: the first,
-/// 1: the second). With no values of its own, the second nozzle has the
-/// values of the first.
+/// The nozzle diameter and the line widths of each nozzle. With no values
+/// of its own, a nozzle has the values of the first.
 pub const NozzleLines = struct {
-    diameter: [2]f64,
-    width: [2]f64,
-    first: [2]f64,
+    diameter: [max_nozzles]f64,
+    width: [max_nozzles]f64,
+    first: [max_nozzles]f64,
 };
 
 pub fn nozzleLines(m: Machine, p: Project) NozzleLines {
     const d = m.nozzle_diameter;
     const w = if (p.line_width > 0) p.line_width else 1.1 * d;
     const w0 = if (p.first_layer_line_width > 0) p.first_layer_line_width else 1.25 * d;
-    const d2 = if (m.nozzle2_diameter > 0) m.nozzle2_diameter else d;
-    // The same diameter gives the same widths, bit for bit.
-    const w2 = if (m.nozzle2_line_width > 0) m.nozzle2_line_width else if (d2 == d) w else w * d2 / d;
-    const w02 = if (w2 == w) w0 else w0 * w2 / w;
-    return .{ .diameter = .{ d, d2 }, .width = .{ w, w2 }, .first = .{ w0, w02 } };
+    var out: NozzleLines = .{
+        .diameter = [_]f64{d} ** max_nozzles,
+        .width = [_]f64{w} ** max_nozzles,
+        .first = [_]f64{w0} ** max_nozzles,
+    };
+    for (1..max_nozzles) |k| {
+        const n = m.nozzle[k];
+        const dk = if (n.diameter > 0) n.diameter else d;
+        // The same diameter gives the same widths, bit for bit.
+        const wk = if (n.line_width > 0) n.line_width else if (dk == d) w else w * dk / d;
+        out.diameter[k] = dk;
+        out.width[k] = wk;
+        out.first[k] = if (wk == w) w0 else w0 * wk / w;
+    }
+    return out;
+}
+
+/// The name of a setting of a nozzle after the first,
+/// "machine.nozzle.3.diameter": the nozzle (3) and the field
+/// ("diameter"). Null for another name, or a nozzle out of 1 to
+/// `max_nozzles` - 1.
+pub fn nozzleSetting(name: []const u8) ?struct { k: u32, field: []const u8 } {
+    const prefix = "machine.nozzle.";
+    if (!std.mem.startsWith(u8, name, prefix)) return null;
+    const rest = name[prefix.len..];
+    const dot = std.mem.indexOfScalar(u8, rest, '.') orelse return null;
+    const k = std.fmt.parseInt(u32, rest[0..dot], 10) catch return null;
+    if (k < 1 or k >= max_nozzles) return null;
+    return .{ .k = k, .field = rest[dot + 1 ..] };
+}
+
+/// The names of the settings of a nozzle in the form of the docs, with
+/// "k" for the nozzle: "machine.nozzle.k.diameter".
+pub const nozzle_patterns = blk: {
+    const fields = @typeInfo(Nozzle).@"struct".fields;
+    var out: [fields.len][]const u8 = undefined;
+    for (fields, 0..) |f, i| out[i] = "machine.nozzle.k." ++ f.name;
+    const final = out;
+    break :blk final;
+};
+
+/// The name of a setting with "k" for the nozzle of a nozzle setting
+/// ("machine.nozzle.3.diameter" -> "machine.nozzle.k.diameter"), else
+/// `name`. The tables of the settings (the limits, the units) have one
+/// entry for each nozzle setting, by this name.
+pub fn patternName(name: []const u8) []const u8 {
+    const ns = nozzleSetting(name) orelse return name;
+    for (nozzle_patterns) |pat| if (std.mem.eql(u8, pat["machine.nozzle.k.".len..], ns.field)) return pat;
+    return name;
+}
+
+/// True if each number in `v` (a settings struct, or a part of one) is
+/// finite and of a size that the integer coordinates can hold.
+fn allFinite(v: anytype) bool {
+    const T = @TypeOf(v);
+    switch (@typeInfo(T)) {
+        .float => return @abs(v) <= 1e6,
+        .array => {
+            for (v) |x| if (!allFinite(x)) return false;
+            return true;
+        },
+        .@"struct" => |st| {
+            inline for (st.fields) |f| {
+                if (!allFinite(@field(v, f.name))) return false;
+            }
+            return true;
+        },
+        else => return true,
+    }
 }
 
 pub const Feature = enum(u8) {
@@ -1317,7 +1491,7 @@ pub const Resolved = struct {
     retract_length: f64,
     /// The nozzle of each filament of the plate.
     slots: SlotNozzles = .{},
-    /// The nozzle of the filament of the part (0 or 1). `line_width` and
+    /// The nozzle of the filament of the part, from 0. `line_width` and
     /// `settings.machine.nozzle_diameter` are of this nozzle.
     nozzle: u32 = 0,
     /// The line width of the sparse infill: of the nozzle of
@@ -1359,9 +1533,8 @@ pub const Resolved = struct {
         return if (a > 0) @min(max, a) else max;
     }
 
-    /// `speedAt` for a line of nozzle `nozzle` (0 or 1): the second
-    /// nozzle scales it by `machine.nozzle2_speed` and limits it to
-    /// `machine.nozzle2_max_speed`.
+    /// `speedAt` for a line of nozzle `nozzle`: a nozzle after the first
+    /// scales it by its `speed` and limits it to its `max_speed`.
     pub fn speedOn(self: Resolved, feature: Feature, width: f64, height: f64, layer: usize, nozzle: u32) f64 {
         return self.nozzleSpeed(self.speedAt(feature, width, height, layer), nozzle);
     }
@@ -1370,40 +1543,43 @@ pub const Resolved = struct {
     /// `nozzle`.
     pub fn nozzleSpeed(self: Resolved, v: f64, nozzle: u32) f64 {
         const m = self.settings.machine;
-        if (nozzle == 0 or m.nozzles < 2) return v;
         var out = v;
-        if (m.nozzle2_speed > 0) out *= m.nozzle2_speed;
-        if (m.nozzle2_max_speed > 0) out = @min(out, m.nozzle2_max_speed);
+        if (m.nozzleValue(nozzle, "speed")) |k| if (k > 0) {
+            out *= k;
+        };
+        if (m.nozzleValue(nozzle, "max_speed")) |max| if (max > 0) {
+            out = @min(out, max);
+        };
         return out;
     }
 
-    /// `accel` for a line of nozzle `nozzle`: the second nozzle limits it
-    /// to `machine.nozzle2_max_accel`. Travel (`feature` null) keeps its
-    /// acceleration: one head moves both nozzles.
+    /// `accel` for a line of nozzle `nozzle`: a nozzle after the first
+    /// limits it to its `max_accel`. Travel (`feature` null) keeps its
+    /// acceleration: the head moves the same way for each nozzle.
     pub fn accelOn(self: Resolved, feature: ?Feature, first_layer: bool, nozzle: u32) f64 {
         const a = self.accel(feature, first_layer);
-        const m = self.settings.machine;
-        if (feature == null or nozzle == 0 or m.nozzles < 2 or !(m.nozzle2_max_accel > 0)) return a;
-        return @min(a, m.nozzle2_max_accel);
+        if (feature == null) return a;
+        const max = self.settings.machine.nozzleValue(nozzle, "max_accel") orelse return a;
+        return if (max > 0) @min(a, max) else a;
     }
 
-    /// The retraction length of nozzle `nozzle` (mm): the second nozzle
-    /// has `machine.nozzle2_retract_length`, if it is set. The ratio of
-    /// the filament applies to both.
+    /// The retraction length of nozzle `nozzle` (mm): a nozzle after the
+    /// first has its `retract_length`, if it is set. The ratio of the
+    /// filament applies to each.
     pub fn retractLengthOn(self: Resolved, nozzle: u32) f64 {
-        const m = self.settings.machine;
-        if (nozzle == 0 or m.nozzles < 2 or !(m.nozzle2_retract_length > 0)) return self.retract_length;
-        return m.nozzle2_retract_length * self.settings.filament.retract_ratio;
+        const len = self.settings.machine.nozzleValue(nozzle, "retract_length") orelse return self.retract_length;
+        if (!(len > 0)) return self.retract_length;
+        return len * self.settings.filament.retract_ratio;
     }
 
     /// The retraction speed of nozzle `nozzle` (mm/s).
     pub fn retractSpeedOn(self: Resolved, nozzle: u32) f64 {
         const m = self.settings.machine;
-        if (nozzle == 0 or m.nozzles < 2 or !(m.nozzle2_retract_speed > 0)) return m.retract_speed;
-        return m.nozzle2_retract_speed;
+        const v = m.nozzleValue(nozzle, "retract_speed") orelse return m.retract_speed;
+        return if (v > 0) v else m.retract_speed;
     }
 
-    /// The nozzle (0 or 1) of the filament slot `slot`.
+    /// The nozzle of the filament slot `slot`, from 0.
     pub fn nozzleOfSlot(self: Resolved, slot: u32) u32 {
         return self.slots.nozzleOf(self.settings.machine, slot);
     }
@@ -1486,6 +1662,9 @@ test "infill angles: a list, with or without brackets" {
 fn setField(target: anytype, name: []const u8, value: []const u8) Settings.SetError!void {
     const T = @typeInfo(@TypeOf(target)).pointer.child;
     inline for (@typeInfo(T).@"struct".fields) |f| {
+        // The nozzles after the first have names of their own (see
+        // `nozzleSetting`).
+        if (comptime f.type == [max_nozzles]Nozzle) continue;
         if (std.mem.eql(u8, f.name, name)) {
             @field(target, f.name) = try parseValue(f.type, value);
             return;
@@ -1624,12 +1803,27 @@ test "resolve derives layers and speeds" {
 /// test checks that each number setting has a limit, and each default is
 /// in it.
 pub const limits = [_]struct { []const u8, f64, f64 }{
-    .{ "machine.nozzles", 1, 2 },
-    .{ "machine.nozzle2_min_x", 0, 1000 },
+    .{ "machine.nozzles", 1, 16 },
     .{ "machine.nozzle1_max_x", 0, 1000 },
     .{ "machine.nozzle1_max_height", 0, 1000 },
-    .{ "machine.nozzle2_max_height", 0, 1000 },
-    .{ "filament.nozzle", 0, 1 },
+    .{ "machine.standby_delta", -300, 100 },
+    .{ "machine.preheat_time", 0, 600 },
+    .{ "filament.nozzle", 0, 15 },
+    // nozzle.k: each nozzle after the first
+    .{ "machine.nozzle.k.diameter", 0, 2 },
+    .{ "machine.nozzle.k.line_width", 0, 2 },
+    .{ "machine.nozzle.k.speed", 0, 1 },
+    .{ "machine.nozzle.k.max_speed", 0, 2000 },
+    .{ "machine.nozzle.k.max_accel", 0, 100000 },
+    .{ "machine.nozzle.k.retract_length", 0, 20 },
+    .{ "machine.nozzle.k.retract_speed", 0, 200 },
+    .{ "machine.nozzle.k.offset_x", -1000, 1000 },
+    .{ "machine.nozzle.k.offset_y", -1000, 1000 },
+    .{ "machine.nozzle.k.min_x", 0, 1000 },
+    .{ "machine.nozzle.k.max_x", 0, 1000 },
+    .{ "machine.nozzle.k.max_height", 0, 1000 },
+    .{ "machine.nozzle.k.standby_delta", -300, 100 },
+    .{ "machine.nozzle.k.preheat_time", 0, 600 },
     // machine
     .{ "machine.bed_size_x", 10, 2000 },
     .{ "machine.bed_size_y", 10, 2000 },
@@ -1771,13 +1965,6 @@ pub const limits = [_]struct { []const u8, f64, f64 }{
     .{ "project.prime_tower_y", -1, 2000 },
     .{ "machine.change_time", 0, 3600 },
     .{ "machine.flush_volume", 0, 5000 },
-    .{ "machine.nozzle2_diameter", 0, 2 },
-    .{ "machine.nozzle2_line_width", 0, 2 },
-    .{ "machine.nozzle2_speed", 0, 1 },
-    .{ "machine.nozzle2_max_speed", 0, 2000 },
-    .{ "machine.nozzle2_max_accel", 0, 100000 },
-    .{ "machine.nozzle2_retract_length", 0, 20 },
-    .{ "machine.nozzle2_retract_speed", 0, 200 },
     .{ "project.skirt_distance", 0, 50 },
     .{ "project.skirt_layers", 0, 50 },
     .{ "project.brim_width", 0, 50 },
@@ -1792,7 +1979,8 @@ pub const limits = [_]struct { []const u8, f64, f64 }{
 };
 
 /// The limits of a setting, or null for a setting with none.
-pub fn limitOf(name: []const u8) ?[2]f64 {
+pub fn limitOf(full_name: []const u8) ?[2]f64 {
+    const name = patternName(full_name);
     for (limits) |l| if (std.mem.eql(u8, l[0], name)) return .{ l[1], l[2] };
     return null;
 }
@@ -1820,6 +2008,7 @@ test "limits: each number has one, and each default is in it" {
             }
         }
     }
+    for (nozzle_patterns) |pat| try std.testing.expect(limitOf(pat) != null);
     var s: Settings = .{};
     try std.testing.expectError(error.OutOfRange, s.set("project.brim_width", "300"));
     try s.set("project.brim_width", "8");
@@ -2015,6 +2204,17 @@ pub const moved_settings = [_][2][]const u8{
     .{ "project.retract_wipe", "machine.retract_wipe" },
     .{ "project.retract_layer_change", "machine.retract_layer_change" },
     .{ "project.combing", "project.combing_mode" },
+    // The second nozzle of a printer with two is nozzle 1 now, one of
+    // up to 15 nozzles after the first.
+    .{ "machine.nozzle2_diameter", "machine.nozzle.1.diameter" },
+    .{ "machine.nozzle2_line_width", "machine.nozzle.1.line_width" },
+    .{ "machine.nozzle2_speed", "machine.nozzle.1.speed" },
+    .{ "machine.nozzle2_max_speed", "machine.nozzle.1.max_speed" },
+    .{ "machine.nozzle2_max_accel", "machine.nozzle.1.max_accel" },
+    .{ "machine.nozzle2_retract_length", "machine.nozzle.1.retract_length" },
+    .{ "machine.nozzle2_retract_speed", "machine.nozzle.1.retract_speed" },
+    .{ "machine.nozzle2_min_x", "machine.nozzle.1.min_x" },
+    .{ "machine.nozzle2_max_height", "machine.nozzle.1.max_height" },
 };
 
 /// The value of a setting now: an old value of a setting that changed its
@@ -2187,6 +2387,41 @@ test "overrides cover a z range" {
     try std.testing.expect(!isLayerSetting("project.support_angle"));
 }
 
+test "the settings of each nozzle after the first" {
+    var s: Settings = .{};
+    try s.set("machine.nozzles", "5");
+    try s.set("machine.nozzle.4.diameter", "0.6");
+    try s.set("machine.nozzle.3.offset_x", "-12.5");
+    try std.testing.expectEqual(@as(f64, 0.6), s.machine.nozzle[4].diameter);
+    try std.testing.expectEqual(@as(f64, -12.5), s.machine.nozzle[3].offset_x);
+    // Nozzle 0 has the settings of the Nozzle section; 16 and on do not
+    // exist.
+    try std.testing.expectError(error.UnknownSetting, s.set("machine.nozzle.0.diameter", "0.6"));
+    try std.testing.expectError(error.UnknownSetting, s.set("machine.nozzle.16.diameter", "0.6"));
+    try std.testing.expectError(error.UnknownSetting, s.set("machine.nozzle.2.size", "0.6"));
+    try std.testing.expectError(error.OutOfRange, s.set("machine.nozzle.2.diameter", "5"));
+    try std.testing.expectError(error.OutOfRange, s.set("machine.nozzles", "17"));
+    try std.testing.expectEqualStrings("machine.nozzle.k.diameter", patternName("machine.nozzle.4.diameter"));
+    // The lines of each nozzle: 1.1 times its diameter.
+    var slots: SlotNozzles = .{ .count = 3 };
+    slots.nozzle = .{ 0, 4, 2 } ++ [_]u8{0} ** (max_slot_nozzles - 3);
+    s.project.filament = 2;
+    const r = try s.resolveFor(slots);
+    try std.testing.expectEqual(@as(u32, 4), r.nozzle);
+    try std.testing.expectApproxEqAbs(@as(f64, 0.66), r.line_width, 1e-9);
+    try std.testing.expectEqual(@as(u32, 2), r.nozzleOfSlot(2));
+    // The tool offset, the standby, and the preheat of a nozzle.
+    try std.testing.expectEqual([2]f64{ -12.5, 0 }, s.machine.nozzleOffset(3));
+    s.machine.standby_delta = -100;
+    s.machine.nozzle[2].standby_delta = -50;
+    try std.testing.expectEqual(@as(f64, -100), s.machine.standbyDelta(1));
+    try std.testing.expectEqual(@as(f64, -50), s.machine.standbyDelta(2));
+    // A nozzle that the printer does not have: the first.
+    s.machine.nozzles = 3;
+    try std.testing.expectEqual(@as(u32, 0), slots.nozzleOf(s.machine, 1));
+    try std.testing.expectEqual([2]f64{ 0, 0 }, s.machine.nozzleOffset(3));
+}
+
 test "a setting that moved loads by its old name" {
     var s: Settings = .{};
     try s.set("project.outer_wall_accel", "500");
@@ -2210,9 +2445,28 @@ test "a setting that moved loads by its old name" {
         var t: Settings = .{};
         const bool_value = std.mem.indexOf(u8, m[1], "wipe") != null or std.mem.indexOf(u8, m[1], "only") != null or std.mem.indexOf(u8, m[1], "layer_change") != null;
         const enum_value = std.mem.eql(u8, m[1], "project.combing_mode");
-        try t.set(m[1], if (bool_value) "true" else if (enum_value) "off" else "7");
+        const ratio = std.mem.endsWith(u8, m[1], ".speed") or std.mem.endsWith(u8, m[1], ".diameter") or std.mem.endsWith(u8, m[1], ".line_width");
+        try t.set(m[1], if (bool_value) "true" else if (enum_value) "off" else if (ratio) "0.7" else "7");
         try std.testing.expect(std.mem.startsWith(u8, m[1], "machine.") or enum_value);
+        if (nozzleSetting(m[1])) |ns| {
+            var buf: [32]u8 = undefined;
+            var w: std.Io.Writer = .fixed(&buf);
+            inline for (@typeInfo(Nozzle).@"struct".fields) |f| {
+                if (std.mem.eql(u8, f.name, ns.field)) try w.print("{d}", .{@field(t.machine.nozzle[ns.k], f.name)});
+            }
+            try std.testing.expectEqualStrings(if (ratio) "0.7" else "7", w.buffered());
+        }
     }
+    // The settings of the second nozzle are of nozzle 1 now.
+    var two: Settings = .{};
+    try two.set("machine.nozzle2_diameter", "0.6");
+    try two.set("machine.nozzle2_retract_length", "2");
+    try two.set("machine.nozzle2_min_x", "20.5");
+    try std.testing.expectEqual(@as(f64, 0.6), two.machine.nozzle[1].diameter);
+    try std.testing.expectEqual(@as(f64, 2), two.machine.nozzle[1].retract_length);
+    try std.testing.expectEqual(@as(f64, 20.5), two.machine.nozzle[1].min_x);
+    try std.testing.expectEqualStrings("machine.nozzle.1.max_speed", currentName("machine.nozzle2_max_speed"));
+    try std.testing.expectError(error.OutOfRange, two.set("machine.nozzle2_speed", "2"));
     // The travel retraction moved too, with its overrides.
     var r: Settings = .{};
     try r.set("project.z_hop", "0.4");

@@ -226,6 +226,21 @@ summary: The import of a PrusaSlicer config file, a config bundle, and the confi
 
 PrusaSlicer saves its settings as `key = value` lines: an exported config (`.ini`), a config bundle with a section for each preset (`[print:Name]`) and a `[presets]` section, the end of a G-code file (`; key = value`), and `Metadata/Slic3r_PE.config` in a 3MF project. A text escapes a line break as `\n`. A value for each extruder is a list with commas. Some speeds are percentages of other speeds (`external_perimeter_speed` of `perimeter_speed`, `solid_infill_speed` of `infill_speed`), and a line width in percent is of the layer height. `support_material_threshold` is an angle from the horizontal plane. zslice reads these files and maps the keys to its settings. The format and the names only; no code is copied.
 
+### Tool changers: the tool change G-code, the ooze prevention, and the extruder offset
+
+```ref
+kind: setting
+source: PrusaSlicer
+license: AGPL-3.0
+link: https://github.com/prusa3d/PrusaSlicer/tree/version_2.9.7
+version: PrusaSlicer 2.9.7, commit 450d70dd (src/libslic3r/GCode.cpp, PrintConfig.cpp, GCode/GCodeProcessor.cpp; resources/profiles/PrusaResearch.ini)
+files: src/settings.zig, src/gcode.zig, src/gcode_vars.zig, src/printers.zig, tools/printer_library.py
+area: gcode
+summary: The tool change of a printer with a hot end for each extruder: toolchange_gcode and its variables, the standby temperature of the ooze prevention (standby_temperature_delta, idle_temperature), the extruder_offset, and the XL presets.
+```
+
+PrusaSlicer changes the extruder with `GCodeGenerator::set_extruder`: the ooze prevention sets the old extruder to its standby temperature first (`OozePrevention::pre_toolchange`: the filament `idle_temperature`, else the print temperature plus `standby_temperature_delta`), then the `toolchange_gcode` runs with `previous_extruder`, `next_extruder`, `layer_num`, `layer_z`, `toolchange_z`, and `max_layer_z`, and a `T` command follows if the template has none. `extruder_offset` moves the G-code of each extruder by minus its offset. A filament list variable has the filament of each extruder. zslice has the same steps for a tool changer (`machine.tool_numbers = nozzle`, `machine.standby_delta`, `machine.nozzle.k.offset_x`), and the printer library reads `toolchange_gcode`, `extruder_offset`, and the ooze prevention of the default print profile of each printer with more than one extruder and no `single_extruder_multi_material`. The XL presets park the tool (`P0`), wait with `M109 T`, and pick the next tool (`T<n> S1 L0 D0`); their print profiles have `ooze_prevention = 1` and `standby_temperature_delta = -110`. PrusaSlicer also writes `M104.1` preheat lines up to 120 s before each `T` line of an XL in its post-processing (`GCodeProcessor`, `process_line_T`); zslice heats the next tool with `M104 T` at `machine.preheat_time` before the change in its place (see the OrcaSlicer page). No code is copied.
+
 ### Complete individual objects and the extruder clearance
 
 ```ref

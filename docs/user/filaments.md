@@ -56,13 +56,13 @@ After a change, the nozzle flushes the old color out: into the chute of a Bambu 
 A printer that changes the filament by itself (an AMS, a tool changer) prints a prime tower next to the parts. The tower makes the new filament ready before it touches the part. At each change, the steps are:
 
 1. The change. A Bambu Lab printer flushes the old color into its chute. Other printers flush into the tower in step 3.
-2. On a head with two nozzles, the nozzle that stops printing waits 10 °C below its temperature. The new nozzle gets its print temperature back after the cooling of the change.
+2. On a printer with more than one nozzle, the nozzle that stops printing waits at its standby temperature (see [Standby and preheat](#standby-and-preheat)). The new nozzle gets its print temperature back after the cooling of the change.
 3. The tower. The nozzle primes the new filament in rows on the tower, and wipes on it. A Bambu Lab printer primes 45 mm³ there, as Bambu Studio does.
 4. The part. The hidden lines print first (see **Flush into hidden lines**), then the walls and the skin.
 
 The tower grows on each layer up to the last change. A layer with no change prints the loop of the tower and a grid of lines on it. So the tower is always at the height of the nozzle, and the rows of the next change have a base.
 
-On the X2D and the H2D, each nozzle holds its own filament. A switch to the other nozzle has no color flush. Only a change of the filament in one nozzle flushes.
+On a printer with more than one nozzle, each nozzle holds its own filament. A switch to another nozzle has no color flush, and the new nozzle primes on the tower. Only a change of the filament in one nozzle flushes.
 
 Keep the parts away from the tower. The Check tells you when the tower is on a part or off the bed. Set **prime tower x** and **prime tower y** to move it.
 
@@ -79,24 +79,62 @@ A filament that you change by hand stays as you set it. To make it follow the pr
 
 The print starts with the first filament of the plate. A plate of filament 4 only loads filament 4, so the printer needs only the tray of filament 4.
 
-## Two nozzles
+## More than one nozzle
 
-The Bambu Lab X2D and H2D have two nozzles. Each filament has a nozzle: **Main** or **2nd**.
+Some printers have more than one nozzle, each with its own hot end:
+
+- The Bambu Lab X2D and H2D have two nozzles.
+- A tool changer has a tool for each nozzle: the Prusa XL 2T and 5T, the Prusa CORE One INDX 4T and 8T, and the E3D and Voron tool changers.
+- An IDEX printer has two heads on one X axis.
+
+zslice supports up to 16 nozzles. Set **Nozzles** (`machine.nozzles`) in the printer settings. The models of the printer library with a hot end for each extruder have it set.
+
+Each filament has a nozzle. In the filament list, each filament has a nozzle choice: **Main** or **2nd** for two nozzles, or the tools **T0**, **T1**, and on for more. A filament on a nozzle that the printer does not have prints on the first nozzle, and the Check tells you.
 
 - On the X2D, the AMS feeds the main nozzle. The external spool feeds the second one.
-- The second nozzle does not reach the whole bed. The Check tells you when a part on it is out of its reach.
+- A nozzle can have a limited reach. The second nozzle of the X2D does not reach the whole bed. The Check tells you when a part on a nozzle is out of its reach.
+- A change to another nozzle has no color flush: each nozzle holds its own filament. Only a new filament in the same nozzle flushes.
 
-### Settings of the second nozzle
+### Tool changes
 
-The printer settings have a **Second nozzle** section. It shows only for a printer with two nozzles. Each setting at 0 has the value of the first nozzle.
+On a tool changer, the number of each tool change command is the nozzle: filament 2 on nozzle 3 prints after `T3`. **Tool numbers** (`machine.tool_numbers`) sets this. `filament` is for an AMS, an MMU, and the X2D and H2D: the number is the filament. `nozzle` is for a tool changer and an IDEX printer.
 
-- **Nozzle2 speed**: the speed of each line of the second nozzle, as a part of the speed of the same line on the first nozzle. At 50 %, each line prints at half its speed. The speeds of the walls, the skin, and the infill keep their ratios.
-- **Nozzle2 max speed**: the highest speed of a line of the second nozzle, in mm/s.
-- **Nozzle2 max accel**: the highest acceleration of a line of the second nozzle.
-- **Nozzle2 diameter** and **Nozzle2 line width**: the nozzle size and the line width of the walls, the skin, and the infill of the second nozzle.
-- **Nozzle2 retract length** and **Nozzle2 retract speed**: the retraction of the second nozzle.
+At each change to another nozzle, zslice writes these steps:
 
-Travel moves keep the travel speed of the printer: one head moves both nozzles.
+1. The old nozzle goes to its standby temperature (see below).
+2. The change G-code of the printer, or `T` and the nozzle. The XL and INDX models of the printer library have the change G-code of PrusaSlicer and OrcaSlicer: it parks the old tool, waits for the temperature of the new tool, and picks it up.
+3. The new nozzle waits for the temperature of its filament (`M109 T`), if the change G-code does not wait.
+4. The new nozzle primes on the prime tower: it oozed while it waited.
+
+Two filaments on one nozzle of a tool changer change with a pause (M600). You change the filament of that tool by hand.
+
+The start G-code of the printer heats only the tools that the print uses. The variables of PrusaSlicer, such as `is_extruder_used[3]`, `first_layer_temperature[3]`, and `filament_type[initial_tool]`, have the values of the filament of each nozzle.
+
+### Standby and preheat
+
+A nozzle that waits for its next filament oozes. Two printer settings change its temperature:
+
+- **Standby delta** (`machine.standby_delta`): the change of the temperature of a nozzle that waits, in °C. At -110, a nozzle that prints at 215 °C waits at 105 °C. 0 keeps its temperature. A filament with a **Standby temp** waits at that temperature. The XL models of the printer library have -110, as the print profiles of PrusaSlicer have.
+- **Preheat time** (`machine.preheat_time`): the next nozzle heats to its print temperature this many seconds before its change. It is then hot at the change. zslice estimates the time of the lines before a change in the same layer.
+
+The X2D and the H2D keep their own rule: the nozzle that stops printing waits 10 °C below its temperature, as in Bambu Studio.
+
+### Settings of each nozzle
+
+The printer settings have a section for each nozzle after the first: **Second nozzle (T1)**, **Third nozzle (T2)**, and on. A section shows only when the printer has that nozzle. Each setting at 0 has the value of the first nozzle.
+
+- **Speed**: the speed of each line of the nozzle, as a part of the speed of the same line on the first nozzle. At 50 %, each line prints at half its speed. The speeds of the walls, the skin, and the infill keep their ratios.
+- **Max speed**: the highest speed of a line of the nozzle, in mm/s.
+- **Max accel**: the highest acceleration of a line of the nozzle.
+- **Diameter** and **Line width**: the nozzle size and the line width of the walls, the skin, and the infill of the nozzle.
+- **Retract length** and **Retract speed**: the retraction of the nozzle.
+- **Offset x** and **Offset y**: the tool offset, when the firmware does not correct it. The G-code moves the head by minus the offset for the lines of the nozzle, as PrusaSlicer does. The XL, the INDX, the X2D, and Klipper tool changers with offsets in their config correct it: keep 0.
+- **Min x**, **Max x**, and **Max height**: the reach of the nozzle.
+- **Standby delta** and **Preheat time**: the standby and the preheat of this nozzle.
+
+Travel moves keep the travel speed of the printer: the head moves the same way for each nozzle.
+
+In a profile file, the settings of nozzle k have dotted names: `nozzle.1.max_speed = 200`. A profile from before, with `nozzle2_max_speed`, still loads: the settings of the second nozzle are those of nozzle 1 now.
 
 The X2D profile of the printer library has the values of Bambu Studio for its second nozzle, a bowden extruder: at most 200 mm/s, an acceleration of 1000 mm/s², and a 2 mm retraction at 20 mm/s.
 
@@ -104,17 +142,17 @@ The X2D profile of the printer library has the values of Bambu Studio for its se
 
 To print the second nozzle at 50 mm/s:
 
-1. Open the settings, and pick **Printer** > **Second nozzle**.
-2. Set **Nozzle2 max speed** to 50.
+1. Open the settings, and pick **Printer** > **Second nozzle (T1)**.
+2. Set **Max speed** to 50.
 3. Slice again.
 
-Click a line of the second nozzle. The line card shows **2nd nozzle** and the speed of the line.
+Click a line of the second nozzle. The line card shows **2nd nozzle** and the speed of the line. On a printer with more nozzles, it shows the tool, for example **nozzle T3**.
 
-### Infill with the second nozzle
+### Infill with another nozzle
 
-Search for **infill filament**, and pick a filament of the second nozzle. The second nozzle then prints the sparse infill, at its own line width. The walls and the skin stay on the filament of the part.
+Search for **infill filament**, and pick a filament of another nozzle. That nozzle then prints the sparse infill, at its own line width. The walls and the skin stay on the filament of the part.
 
-With **Infill layers** at 2, the infill prints once every two layers, as one bead two layers tall. Example: layers of 0.1 mm for the walls, and the infill in beads of 0.2 mm. The second nozzle then prints the infill on every second layer: it prints after the walls of that layer, and the first nozzle starts the next layer. The narrow areas of infill that print on each layer stay on the filament of the part. A bead is never taller than the diameter of its nozzle or its line width. When the layers of the group are too thick for that, the Check tells you.
+With **Infill layers** at 2, the infill prints once every two layers, as one bead two layers tall. Example: layers of 0.1 mm for the walls, and the infill in beads of 0.2 mm. The other nozzle then prints the infill on every second layer: it prints after the walls of that layer, and the first nozzle starts the next layer. The narrow areas of infill that print on each layer stay on the filament of the part. A bead is never taller than the diameter of its nozzle or its line width. When the layers of the group are too thick for that, the Check tells you.
 
 ## Where to go next
 

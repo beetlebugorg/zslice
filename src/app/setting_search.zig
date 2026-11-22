@@ -128,6 +128,12 @@ pub fn score(s: *const SettingInfo, query: []const u8) f64 {
     if (std.mem.eql(u8, s.group, "project")) total += 2;
     if (std.mem.eql(u8, s.group, "engine")) total -= 2;
     if (isCommon(s.name)) total += 4;
+    // A setting of a nozzle after the first: after the settings of the
+    // printer, which most printers have. The settings of the second
+    // nozzle stand for each nozzle: the search lists them once, and the
+    // section of each nozzle has its own.
+    if (s.nozzle >= 2) return 0;
+    if (s.nozzle == 1) total -= 30;
     return @max(total, 0.001);
 }
 

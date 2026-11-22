@@ -49,8 +49,9 @@ pub const Inspection = struct {
     /// For a support line: the line of the part that it holds up (the
     /// first line above it that is not support), or null.
     holds: ?Held = null,
-    /// The nozzle of the line on a printer with two nozzles: 1 the main
-    /// nozzle, 2 the second. 0: a printer with one nozzle.
+    /// The nozzle of the line on a printer with more than one nozzle,
+    /// from 1: 1 the main nozzle, 2 the second, and on. 0: a printer with
+    /// one nozzle.
     nozzle: u8 = 0,
     /// The nozzle of the line and its speed limits, in words, or "".
     nozzle_text: [:0]const u8 = "",
@@ -95,7 +96,7 @@ pub fn inspect(arena: Allocator, t: *const Toolpaths, pj: *const zs.PlateJob, pa
     const pm = pj.resolved.settings.machine;
     const tool: usize = if (path < t.path_tool.items.len) t.path_tool.items[path] else 0;
     const two = pm.nozzles >= 2;
-    const nozzle: u32 = if (two and tool < pj.slots.len and pj.slots[tool].nozzle >= 1) 1 else 0;
+    const nozzle: u32 = if (two and tool < pj.slots.len) pm.nozzleIndex(pj.slots[tool].nozzle) else 0;
     const area: f64 = t.path_area.items[path];
     // A path with a z for each point (slope smoothing): the bead is under
     // the nozzle, down to the top of the layer below. Its height is the
@@ -186,7 +187,7 @@ pub fn inspect(arena: Allocator, t: *const Toolpaths, pj: *const zs.PlateJob, pa
     try nw.writeAll("# Speed\n");
     try nw.print("{s}\n", .{fs.speedRatioSetting(feature, first)});
     try nw.writeAll("machine.max_speed\n");
-    if (nozzle == 1) try nw.writeAll("machine.nozzle2_speed\nmachine.nozzle2_max_speed\n");
+    if (nozzle >= 1) try nw.print("machine.nozzle.{d}.speed\nmachine.nozzle.{d}.max_speed\n", .{ nozzle, nozzle });
     if (feature != .ironing and feature != .slope_ironing) try nw.writeAll("filament.max_flow\n");
     for (fs.cooling_speed_settings) |n| try nw.print("{s}\n", .{n});
     try nw.writeAll("# Shape\n");
@@ -220,9 +221,11 @@ pub fn inspect(arena: Allocator, t: *const Toolpaths, pj: *const zs.PlateJob, pa
         if (planned < full * 0.999) {
             try pw.print("\n\nLayer {d} is one of the slow first layers ({{{{project.slow_layers}}}}): its speed goes up in steps from the first layer speed ({{{{project.first_layer_speed}}}}), so it prints at {d:.0} mm/s.", .{ layer + 1, planned });
         }
-        if (nozzle == 1 and (pm.nozzle2_speed > 0 or pm.nozzle2_max_speed > 0)) {
-            try pw.print("\n\nThe second nozzle prints it: {d:.0} % of that speed ({{{{machine.nozzle2_speed}}}})", .{if (pm.nozzle2_speed > 0) pm.nozzle2_speed * 100 else 100});
-            if (pm.nozzle2_max_speed > 0) try pw.print(", at most {d:.0} mm/s ({{{{machine.nozzle2_max_speed}}}})", .{pm.nozzle2_max_speed});
+        const n_speed = pm.nozzleValue(nozzle, "speed") orelse 0;
+        const n_max = pm.nozzleValue(nozzle, "max_speed") orelse 0;
+        if (nozzle >= 1 and (n_speed > 0 or n_max > 0)) {
+            try pw.print("\n\nNozzle {d} (T{d}) prints it: {d:.0} % of that speed ({{{{machine.nozzle.{d}.speed}}}})", .{ nozzle + 1, nozzle, if (n_speed > 0) n_speed * 100 else 100, nozzle });
+            if (n_max > 0) try pw.print(", at most {d:.0} mm/s ({{{{machine.nozzle.{d}.max_speed}}}})", .{ n_max, nozzle });
             try pw.print(": {d:.0} mm/s.", .{planned});
         }
         try pw.print("\n\nTo print it faster: raise {{{{{s}}}}} (up to 100 %), or the limit that applies.", .{ratio_name});
@@ -352,13 +355,13 @@ fn heldBy(t: *const Toolpaths, path: usize, layer: usize, w: f64) ?Held {
     return null;
 }
 
-/// The nozzle of a line of filament slot `tool` on a printer with two
-/// nozzles, and the speed limits of the second nozzle.
+/// The nozzle of a line of filament slot `tool` on a printer with more
+/// than one nozzle, and the speed limits of that nozzle.
 fn nozzleText(w: *std.Io.Writer, m: zs.settings.Machine, nozzle: u32, tool: usize) std.Io.Writer.Error!void {
-    if (nozzle == 0) return w.print("Main nozzle, filament {d}.", .{tool + 1});
-    try w.print("Second nozzle, filament {d}.", .{tool + 1});
-    if (m.nozzle2_speed > 0) try w.print(" Its lines print at {d:.0} % of the speed of the main nozzle (machine.nozzle2_speed).", .{m.nozzle2_speed * 100});
-    if (m.nozzle2_max_speed > 0) try w.print(" Its lines print at most at {d:.0} mm/s (machine.nozzle2_max_speed).", .{m.nozzle2_max_speed});
+    if (nozzle == 0) return w.print("Main nozzle (T0), filament {d}.", .{tool + 1});
+    try w.print("Nozzle {d} (T{d}), filament {d}.", .{ nozzle + 1, nozzle, tool + 1 });
+    if (m.nozzleValue(nozzle, "speed")) |v| try w.print(" Its lines print at {d:.0} % of the speed of the main nozzle (machine.nozzle.{d}.speed).", .{ v * 100, nozzle });
+    if (m.nozzleValue(nozzle, "max_speed")) |v| try w.print(" Its lines print at most at {d:.0} mm/s (machine.nozzle.{d}.max_speed).", .{ v, nozzle });
 }
 
 fn hours(t: f64) u64 {

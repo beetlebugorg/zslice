@@ -1140,7 +1140,7 @@ pub const PlanSource = struct {
     towers: gcode.Towers = .{},
     /// The first filament slot of each nozzle in the print, or null: not
     /// known (see PlateJob.firstOfNozzles).
-    first_of_nozzles: ?[2]?u32 = null,
+    first_of_nozzles: ?[settings_mod.max_nozzles]?u32 = null,
     /// The parts of the print for the object labels (see gcode.Object).
     objects: []const gcode.Object = &.{},
 };
@@ -1207,6 +1207,12 @@ pub fn emitAll(gpa: Allocator, src: PlanSource, threads: usize, monitor: Monitor
     em.towers = src.towers;
     em.objects = src.objects;
     em.first_of_nozzles = src.first_of_nozzles;
+    // The global variables of the texts: the start G-code sets them, and
+    // the changes of this emitter read them. An early run of a layer has
+    // none: a layer with a filament change runs again here.
+    var globals: @import("gcode_vars.zig").Globals = .init(gpa);
+    defer globals.deinit();
+    em.globals = &globals;
     var record: std.ArrayList(gcode.PathInfo) = .empty;
     defer record.deinit(gpa);
     if (sink != null) em.record = &record;
@@ -1245,6 +1251,7 @@ pub fn emitAll(gpa: Allocator, src: PlanSource, threads: usize, monitor: Monitor
     defer gpa.destroy(base);
     base.* = em;
     base.record = null;
+    base.globals = null;
     var pipe: Pipeline = .{ .gpa = gpa, .src = src, .slots = slots, .n = src.layers, .monitor = monitor, .record = sink != null, .out = out, .sink = sink, .reporter = &reporter, .guesses = guesses, .base = base };
 
     // All threads plan layers, run them early, write their text, and

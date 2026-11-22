@@ -3,6 +3,7 @@
 //! Supported:
 //!   # comments
 //!   key = value             (bare keys: letters, digits, _ and -)
+//!   a.b.c = value           (dotted bare keys, with no spaces at the dots)
 //!   [table]                 (one level)
 //!   "basic strings" with \" \\ \n \t escapes
 //!   'literal strings'
@@ -12,7 +13,10 @@
 //!   true and false
 //!
 //! Not supported (the parser reports an error): arrays, inline tables,
-//! dotted keys, dates, and nested tables. Profiles do not need them.
+//! dates, dotted table names, and nested tables. Profiles do not need
+//! them. A dotted key is one key with its dots, "nozzle.1.diameter": the
+//! dotted name of a setting (the settings of each nozzle of a printer
+//! with more than one).
 //!
 //! The parser gives each value as text: the content of a string, or the
 //! token of a number or a boolean. `Settings.set` then parses the text to
@@ -114,14 +118,20 @@ const Parser = struct {
         return std.ascii.isAlphanumeric(c) or c == '_' or c == '-';
     }
 
-    fn parseKey(p: *Parser) Error![]const u8 {
+    /// A bare key. `dotted`: a key of parts with dots between them.
+    fn parseKey(p: *Parser, dotted: bool) Error![]const u8 {
         const start = p.pos;
-        while (p.peek()) |c| {
-            if (!isBare(c)) break;
+        while (true) {
+            const part = p.pos;
+            while (p.peek()) |c| {
+                if (!isBare(c)) break;
+                p.pos += 1;
+            }
+            if (p.pos == part) return p.fail("expected a key");
+            if (p.peek() != '.') break;
+            if (!dotted) return p.fail("dotted table names are not supported");
             p.pos += 1;
         }
-        if (p.pos == start) return p.fail("expected a key");
-        if (p.peek() == '.') return p.fail("dotted keys are not supported: use a [table]");
         return p.text[start..p.pos];
     }
 
@@ -129,7 +139,7 @@ const Parser = struct {
         p.pos += 1;
         if (p.peek() == '[') return p.fail("arrays of tables are not supported");
         p.skipSpace();
-        p.table = try p.parseKey();
+        p.table = try p.parseKey(false);
         p.skipSpace();
         if (p.peek() != ']') return p.fail("expected ] after the table name");
         p.pos += 1;
@@ -138,7 +148,7 @@ const Parser = struct {
 
     fn parseKeyValue(p: *Parser) Error!void {
         const line = p.line;
-        const key = try p.parseKey();
+        const key = try p.parseKey(true);
         p.skipSpace();
         if (p.peek() != '=') return p.fail("expected = after the key");
         p.pos += 1;
@@ -270,6 +280,16 @@ test "parse a profile" {
     try testing.expectEqualStrings("C:\\profiles\n", entries[6].value);
 }
 
+test "a dotted key is one key" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    var diag: Diagnostic = .{};
+    const entries = try parse(arena.allocator(), "nozzles = 5\nnozzle.4.diameter = 0.6\n", &diag);
+    try testing.expectEqual(@as(usize, 2), entries.len);
+    try testing.expectEqualStrings("nozzle.4.diameter", entries[1].key);
+    try testing.expectEqualStrings("0.6", entries[1].value);
+}
+
 test "syntax errors have a line" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
@@ -277,7 +297,9 @@ test "syntax errors have a line" {
     try testing.expectError(error.SyntaxError, parse(arena.allocator(), "a = 1\nb = hello\n", &diag));
     try testing.expectEqual(@as(usize, 2), diag.line);
     try testing.expectError(error.SyntaxError, parse(arena.allocator(), "a = [1, 2]\n", &diag));
-    try testing.expectError(error.SyntaxError, parse(arena.allocator(), "a.b = 1\n", &diag));
+    try testing.expectError(error.SyntaxError, parse(arena.allocator(), "[a.b]\nc = 1\n", &diag));
+    try testing.expectError(error.SyntaxError, parse(arena.allocator(), "a. = 1\n", &diag));
+    try testing.expectError(error.SyntaxError, parse(arena.allocator(), "a..b = 1\n", &diag));
     try testing.expectError(error.SyntaxError, parse(arena.allocator(), "a = 1\na = 2\n", &diag));
     try testing.expectError(error.SyntaxError, parse(arena.allocator(), "a = \"open\n", &diag));
 }

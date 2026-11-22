@@ -270,6 +270,11 @@ pub fn write(settings: Settings, group: Group, w: *std.Io.Writer) std.Io.Writer.
         inline else => |g| {
             const values = @field(settings, @tagName(g));
             inline for (@typeInfo(@TypeOf(values)).@"struct".fields) |f| {
+                if (comptime f.type == [settings_mod.max_nozzles]settings_mod.Nozzle) {
+                    // The nozzles after the first that the printer has.
+                    for (1..@min(settings.machine.nozzles, settings_mod.max_nozzles)) |k| try writeNozzle(@field(values, f.name)[k], null, k, w);
+                    continue;
+                }
                 const full = @tagName(g) ++ "." ++ f.name;
                 const doc = comptime findDoc(full);
                 try w.writeByte('\n');
@@ -300,6 +305,10 @@ pub fn writeChangedFrom(settings: Settings, from: Settings, group: Group, w: *st
             const values = @field(settings, @tagName(g));
             const defaults = @field(from, @tagName(g));
             inline for (@typeInfo(@TypeOf(values)).@"struct".fields) |f| {
+                if (comptime f.type == [settings_mod.max_nozzles]settings_mod.Nozzle) {
+                    for (1..settings_mod.max_nozzles) |k| try writeNozzle(@field(values, f.name)[k], @field(defaults, f.name)[k], k, w);
+                    continue;
+                }
                 const v = @field(values, f.name);
                 const d = @field(defaults, f.name);
                 const same = switch (@typeInfo(f.type)) {
@@ -320,6 +329,23 @@ pub fn writeChangedFrom(settings: Settings, from: Settings, group: Group, w: *st
                 }
             }
         },
+    }
+}
+
+/// Writes the settings of nozzle `k` (after the first) as dotted keys,
+/// "nozzle.1.diameter = 0.6": each one, or with `from` only the ones that
+/// differ from it.
+fn writeNozzle(n: settings_mod.Nozzle, from: ?settings_mod.Nozzle, k: usize, w: *std.Io.Writer) std.Io.Writer.Error!void {
+    inline for (@typeInfo(settings_mod.Nozzle).@"struct".fields) |f| {
+        const v = @field(n, f.name);
+        if (from == null or v != @field(from.?, f.name)) {
+            const doc = comptime findDoc("machine.nozzle.k." ++ f.name);
+            try w.writeByte('\n');
+            if (doc.len > 0) try writeComment(w, doc);
+            try w.print("nozzle.{d}.{s} = ", .{ k, f.name });
+            try writeValue(w, v);
+            try w.writeByte('\n');
+        }
     }
 }
 
