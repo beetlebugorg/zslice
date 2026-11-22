@@ -1172,8 +1172,9 @@ pub const Project = struct {
     /// change (`machine.filament_change = tool`): after each change, the
     /// nozzle flushes the old color out into a small tower next to the
     /// parts, and wipes there, before the new filament touches the part.
-    /// The tower grows on each layer up to the last change (its loop and a
-    /// grid of lines), so it is at the height of the nozzle at each change.
+    /// The tower grows on each layer up to the last change (its wall, a
+    /// solid base under the next prime, and sparse lines), so it is at the
+    /// height of the nozzle at each change.
     /// A Bambu Lab printer flushes into its chute (its change G-code); its
     /// tower then gets a prime of 45 mm³ of the new filament.
     prime_tower: bool = true,
@@ -1181,7 +1182,7 @@ pub const Project = struct {
     /// ABS and ASA, and the others): a change purges into the tower of
     /// the new filament, so PETG never purges on PLA. Each tower grows on
     /// each layer up to its last change; on a layer with no filament of
-    /// its family, its loop and grid print with the filament in the
+    /// its family, its wall and its inside print with the filament in the
     /// nozzle. With one family, one tower.
     prime_tower_split: bool = true,
     /// The width of the square prime tower.
@@ -1189,6 +1190,24 @@ pub const Project = struct {
     /// The brim of the prime tower (mm): loops around the first layer of
     /// the tower, so it holds to the bed. 0: no brim.
     prime_tower_brim: f64 = 3,
+    /// The loops of the wall of the prime tower. The rows of each prime
+    /// end on the inner loop. More loops make a stiffer tower that holds
+    /// to the bed better, and use more plastic.
+    prime_tower_wall_loops: u32 = 4,
+    /// Ribs at the four corners of the prime tower: two strips along its
+    /// diagonals stick out at the corners, so the wall has a wavy outline
+    /// and the tower is stiff. As the rib wall of Bambu Studio. Off: a
+    /// square wall.
+    prime_tower_rib_wall: bool = true,
+    /// The width of a rib of the prime tower (mm), at most half the side
+    /// of the tower.
+    prime_tower_rib_width: f64 = 8,
+    /// The length of the ribs of the prime tower past its diagonal on the
+    /// bed (mm). The extra length gets less on each layer, to 0 at the
+    /// top. The ribs are never shorter than the diagonal.
+    prime_tower_extra_rib_length: f64 = 0,
+    /// Round corners on the wall of a prime tower with ribs.
+    prime_tower_fillet_wall: bool = true,
     /// The x of the center of the prime tower on the bed. -1: near the
     /// right side.
     prime_tower_x: f64 = -1,
@@ -1981,6 +2000,9 @@ pub const limits = [_]struct { []const u8, f64, f64 }{
     .{ "project.flush_multiplier", 0, 3 },
     .{ "project.prime_tower_width", 5, 100 },
     .{ "project.prime_tower_brim", 0, 20 },
+    .{ "project.prime_tower_wall_loops", 1, 10 },
+    .{ "project.prime_tower_rib_width", 0, 300 },
+    .{ "project.prime_tower_extra_rib_length", -300, 300 },
     .{ "project.paint_anchor_depth", 0, 10 },
     .{ "project.prime_tower_x", -1, 2000 },
     .{ "project.prime_tower_y", -1, 2000 },
@@ -2165,6 +2187,8 @@ pub const plate_settings = [_][]const u8{
     "project.print_sequence",
     "project.prime_tower",            "project.prime_tower_width",  "project.prime_tower_x",
     "project.prime_tower_y",          "project.flush_into_hidden",      "project.prime_tower_brim",
+    "project.prime_tower_wall_loops", "project.prime_tower_rib_wall", "project.prime_tower_rib_width",
+    "project.prime_tower_extra_rib_length", "project.prime_tower_fillet_wall",
 };
 
 /// True for a setting that is the same for all the parts of a plate (see

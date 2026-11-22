@@ -62,7 +62,14 @@ A printer that changes the filament by itself (an AMS, a tool changer) prints a 
 3. The tower. The nozzle primes the new filament in rows on the tower, and wipes on it. A Bambu Lab printer primes 45 mm³ there, as Bambu Studio does.
 4. The part. The hidden lines print first (see **Flush into hidden lines**), then the walls and the skin.
 
-The tower grows on each layer up to the last change. A layer with no change prints the loop of the tower and a grid of lines on it. So the tower is always at the height of the nozzle, and the rows of the next change have a base.
+The tower grows on each layer up to the last change. So the tower is always at the height of the nozzle. Each layer of the tower has:
+
+- A wall of loops (**Prime tower wall loops**, 4). Ribs at the four corners make the tower stiff (**Prime tower rib wall**, as in Bambu Studio). The rows of each prime go from the inner loop to the inner loop.
+- The rows of the primes of the layer: each filament primes its own block of rows.
+- A solid base under the area where the next layer primes, so each prime prints on a full surface. The first layer is solid.
+- Sparse lines on the rest of the inside: close at the walls, and further apart toward the center.
+
+The first layer also has a brim (**Prime tower brim**).
 
 On a printer with more than one nozzle, each nozzle holds its own filament. A switch to another nozzle has no color flush, and the new nozzle primes on the tower. Only a change of the filament in one nozzle flushes.
 

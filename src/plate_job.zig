@@ -739,6 +739,7 @@ pub const PlateJob = struct {
             map[k] = @intCast(n);
             var t = one;
             t.last_layer = last[k].?;
+            t.height = self.levels[t.last_layer].z;
             @memcpy(t.family[0..lens[k]], names[k][0..lens[k]]);
             out.list[n] = t;
             n += 1;
@@ -749,54 +750,44 @@ pub const PlateJob = struct {
         }
         out.n = n;
         for (out.of_slot[0..n_slots]) |*k| k.* = if (used[k.*]) map[k.*] else 0;
-        // The size of each tower: room for the most purge of one layer.
-        // A layer changes into each of its filaments at most once (it
-        // prints each filament in one run), and into none when it prints
-        // only the filament that the layer before ended with. So a layer
-        // purges into tower k at most the largest flush into each filament
-        // of k that it prints, and the tower holds the most of all layers.
+        // The size of each tower: room for the most purge of one layer
+        // (see `towerNeed`). The tower holds the most of all layers.
         const m = s.machine;
         const w = if (self.resolved.line_width > 0) self.resolved.line_width else 0.45;
         const h = @max(0.01, @min(p.layer_height, p.first_layer_height));
-        var into = [_]f64{0} ** filaments_mod.max_slots;
-        for (self.slots[0..n_slots], 0..) |to, i| {
-            into[i] = gcode.tower_prime_mm3;
-            if (m.change_gcode.len == 0) for (self.slots[0..n_slots], 0..) |from, j2| {
-                if (i != j2) into[i] = @max(into[i], filaments_mod.flushVolume(from.color, to.color, m.flush_volume, p.flush_multiplier));
-            };
-        }
-        var support_mask: u32 = 0;
-        if (sup_top != null) support_mask = (@as(u32, 1) << @intCast(sup)) | (@as(u32, 1) << @intCast(iface));
-        var fill_mask: u32 = 0;
-        if (fill_top != null) fill_mask = @as(u32, 1) << @intCast(fill);
+        const into = self.towerInto();
+        const tm = self.towerMasks();
         var most = [_]f64{0} ** gcode.Towers.max;
-        var prev: u32 = 1; // The start G-code loads filament 1.
-        for (self.levels, 0..) |lv, li| {
-            var mask: u32 = if (li <= sup_top orelse 0) support_mask else 0;
-            if (li <= fill_top orelse 0) mask |= fill_mask;
-            for (self.entries[lv.first..lv.end]) |e| {
-                const t = self.toolAt(self.instances[e.instance].group, e.layer);
-                mask |= @as(u32, 1) << @intCast(@min(t, n_slots - 1));
-            }
-            if (mask != prev or @popCount(mask) > 1) {
-                var need = [_]f64{0} ** gcode.Towers.max;
-                for (0..n_slots) |i| if (mask & (@as(u32, 1) << @intCast(i)) != 0) {
-                    need[out.of_slot[i]] += into[i];
-                };
-                for (0..n) |k| most[k] = @max(most[k], need[k]);
-            }
-            prev = mask;
+        var tool: u32 = 0; // The start G-code loads filament 1.
+        for (0..self.levels.len) |li| {
+            const mask = self.levelMask(li, tm);
+            if (mask == 0) continue;
+            const got = needAfter(mask, li, tool, &into, &out.of_slot, n_slots);
+            for (0..n) |k| most[k] = @max(most[k], got.need[k]);
+            tool = got.last;
         }
         // A tower as wide as Project.prime_tower_width, or wider for a
-        // large purge: a square of the area of the purge, then as deep as
-        // its rows (at most `max_tower_rows`) inside its loop. Side by
-        // side to the left, a gap of one width between them.
+        // large purge: a square of the area of the purge inside its wall,
+        // then as deep as its rows (at most `max_tower_rows`). A tower
+        // with ribs stays square, as in Bambu Studio. Side by side to the
+        // left, a gap of one width between them.
+        const wall = 2 * @as(f64, @floatFromInt(@max(1, p.prime_tower_wall_loops))) * w;
         var right = if (n > 0) out.list[0].x + out.list[0].size / 2 else 0;
         for (out.list[0..n], 0..) |*t, k| {
             const area = most[k] / (flowArea(w, h) / w);
-            t.size = @max(t.size, @sqrt(area) + 2 * w);
-            const rows = @ceil(most[k] / ((t.size - 3 * w) * flowArea(w, h)));
-            t.depth = @min(@max(t.size, rows * w + 2 * w), @as(f64, @floatFromInt(gcode.max_tower_rows)) * w + 2 * w);
+            t.size = @max(t.size, @sqrt(area) + wall);
+            const rows = @ceil(most[k] / ((t.size - wall) * flowArea(w, h)));
+            t.depth = @min(@max(t.size, rows * w + wall), @as(f64, @floatFromInt(gcode.max_tower_rows)) * w + wall);
+            if (t.rib) {
+                // Square: each step makes the rows longer, so fewer.
+                var guard: usize = 0;
+                while (t.depth > t.size + 1e-9 and guard < 200) : (guard += 1) {
+                    t.size = @min(t.depth, t.size + w);
+                    const r2 = @ceil(most[k] / ((t.size - wall) * flowArea(w, h)));
+                    t.depth = @max(t.size, r2 * w + wall);
+                }
+                t.depth = t.size;
+            }
             if (k > 0) t.x = right - t.size / 2;
             right = t.x - t.size / 2 - @max(t.size, 10);
             if (p.prime_tower_x < 0 and k == 0) {
@@ -805,7 +796,99 @@ pub const PlateJob = struct {
             }
             if (p.prime_tower_y < 0) t.y = m.bed_size_y - t.depth / 2 - 10;
         }
+        out.need_ctx = self;
+        out.need_fn = towerNeed;
         return out;
+    }
+
+    /// The levels that can change the filament of the support or of the
+    /// sparse infill (see `towers`).
+    const TowerMasks = struct { support_mask: u32, sup_top: ?usize, fill_mask: u32, fill_top: ?usize, n_slots: usize };
+
+    fn towerMasks(self: *const PlateJob) TowerMasks {
+        const p = self.resolved.settings.project;
+        const n_slots = @max(1, @min(self.slots.len, filaments_mod.max_slots));
+        const sup = filaments_mod.pathSlot(.support, p, n_slots);
+        const iface = filaments_mod.pathSlot(.support_interface, p, n_slots);
+        const fill = filaments_mod.lineSlot(.infill, true, p, n_slots);
+        const own_support = p.support != .off and (p.support_filament > 0 or p.support_interface_filament > 0);
+        const sup_top = if (own_support) self.supportTop() else null;
+        const fill_top = if (ownInfill(p, n_slots)) self.infillTop() else null;
+        return .{
+            .support_mask = if (sup_top != null) (@as(u32, 1) << @intCast(sup)) | (@as(u32, 1) << @intCast(iface)) else 0,
+            .sup_top = sup_top,
+            .fill_mask = if (fill_top != null) @as(u32, 1) << @intCast(fill) else 0,
+            .fill_top = fill_top,
+            .n_slots = n_slots,
+        };
+    }
+
+    /// The filaments of level `li`, as a mask of slots.
+    fn levelMask(self: *const PlateJob, li: usize, tm: TowerMasks) u32 {
+        var mask: u32 = if (li <= tm.sup_top orelse 0) tm.support_mask else 0;
+        if (li <= tm.fill_top orelse 0) mask |= tm.fill_mask;
+        const lv = self.levels[li];
+        for (self.entries[lv.first..lv.end]) |e| {
+            const t = self.toolAt(self.instances[e.instance].group, e.layer);
+            mask |= @as(u32, 1) << @intCast(@min(t, tm.n_slots - 1));
+        }
+        return mask;
+    }
+
+    /// The most purge (mm³) of a change into each slot: the prime after a
+    /// change G-code (gcode.tower_prime_mm3), or the largest flush into
+    /// it from another slot.
+    fn towerInto(self: *const PlateJob) [filaments_mod.max_slots]f64 {
+        const gcode = @import("gcode.zig");
+        const s = self.resolved.settings;
+        const n_slots = @min(self.slots.len, filaments_mod.max_slots);
+        var into = [_]f64{0} ** filaments_mod.max_slots;
+        for (self.slots[0..n_slots], 0..) |to, i| {
+            into[i] = gcode.tower_prime_mm3;
+            if (s.machine.change_gcode.len == 0) for (self.slots[0..n_slots], 0..) |from, j2| {
+                if (i != j2) into[i] = @max(into[i], filaments_mod.flushVolume(from.color, to.color, s.machine.flush_volume, s.project.flush_multiplier));
+            };
+        }
+        return into;
+    }
+
+    /// The purge (mm³) into each tower on a level of filaments `mask`
+    /// (level `li`), after a level that ended with slot `tool`. The level
+    /// prints its filaments up by slot on even levels and down on odd
+    /// levels (LayerPlan.groupByFilament), so it changes into each of its
+    /// filaments but the first one if that one is `tool`. Returns the
+    /// purge and the slot that the level ends with.
+    fn needAfter(mask: u32, li: usize, tool: u32, into: *const [filaments_mod.max_slots]f64, of_slot: *const [filaments_mod.max_slots]u8, n_slots: usize) struct { need: [@import("gcode.zig").Towers.max]f64, last: u32 } {
+        var need = [_]f64{0} ** @import("gcode.zig").Towers.max;
+        var t = tool;
+        for (0..n_slots) |k| {
+            const i: u32 = @intCast(if (li % 2 == 0) k else n_slots - 1 - k);
+            if (mask & (@as(u32, 1) << @intCast(i)) == 0) continue;
+            if (i != t) need[of_slot[i]] += into[i];
+            t = i;
+        }
+        return .{ .need = need, .last = t };
+    }
+
+    /// The purge (mm³) into each tower on level `level` (see
+    /// gcode.Towers.needAt): the layer before gives it a solid base.
+    fn towerNeed(ctx: ?*const anyopaque, of_slot: *const [filaments_mod.max_slots]u8, level: usize) [@import("gcode.zig").Towers.max]f64 {
+        const self: *const PlateJob = @ptrCast(@alignCast(ctx.?));
+        if (level >= self.levels.len) return @splat(0);
+        const tm = self.towerMasks();
+        const into = self.towerInto();
+        const n_slots = @min(self.slots.len, filaments_mod.max_slots);
+        // The slot that the last level with paths before it ended with.
+        var tool: u32 = 0;
+        var j = level;
+        while (j > 0) {
+            j -= 1;
+            const m = self.levelMask(j, tm);
+            if (m == 0) continue;
+            tool = needAfter(m, j, 0, &into, of_slot, n_slots).last;
+            break;
+        }
+        return needAfter(self.levelMask(level, tm), level, tool, &into, of_slot, n_slots).need;
     }
 
     /// The sparse infill has a filament of its own (see
@@ -855,6 +938,13 @@ pub const PlateJob = struct {
             .y = if (s.project.prime_tower_y >= 0) s.project.prime_tower_y else s.machine.bed_size_y - size / 2 - margin,
             .size = size,
             .last_layer = last.?,
+            .walls = @max(1, p.prime_tower_wall_loops),
+            .rib = p.prime_tower_rib_wall,
+            .rib_width = p.prime_tower_rib_width,
+            .rib_extra = p.prime_tower_extra_rib_length,
+            .fillet = p.prime_tower_fillet_wall,
+            .height = if (last.? < self.levels.len) self.levels[last.?].z else 0,
+            .layer_h = p.layer_height,
         };
     }
 
@@ -3193,7 +3283,10 @@ test "plate job: a tower holds the whole purge of a layer, row by row" {
     // The rows fill the area inside the loop.
     const lw = pj.resolved.line_width;
     const square = (tw.list[0].size - 3 * lw) * (tw.list[0].size - 2 * lw) * s.project.layer_height;
-    if (per_layer > square) try testing.expect(tw.list[0].ySize() > tw.list[0].size);
+    // A tower with ribs stays square, as in Bambu Studio.
+    if (tw.list[0].rib) {
+        try testing.expectEqual(tw.list[0].size, tw.list[0].ySize());
+    } else if (per_layer > square) try testing.expect(tw.list[0].ySize() > tw.list[0].size);
     // No two purge rows of one layer at one y. The purge is the tower
     // block after a change, up to its wipe.
     var it = std.mem.splitScalar(u8, out.written(), '\n');
@@ -4005,4 +4098,112 @@ test "plate job: the waste of a print with a tower: the tower lines and the chan
     try testing.expect(st.tower_mm >= st.flush_mm - 1e-6);
     try testing.expect(st.tower_mm < st.filament_mm);
     try testing.expectApproxEqAbs(s.machine.change_time, st.change_s, 1e-9);
+}
+
+/// The lines of the prime tower in a G-code, layer by layer: each line
+/// with its ends, and true for a line of a prime (after a change, up to
+/// its wipe).
+pub const TowerLine = struct { layer: usize, a: [2]f64, b: [2]f64, prime: bool };
+
+pub fn towerLinesOf(gpa: Allocator, g: []const u8) !std.ArrayList(TowerLine) {
+    var out: std.ArrayList(TowerLine) = .empty;
+    errdefer out.deinit(gpa);
+    var layer: usize = 0;
+    var pos: [2]f64 = .{ 0, 0 };
+    var in_tower = false;
+    var after_change = false;
+    var prime = false;
+    var it = std.mem.splitScalar(u8, g, '\n');
+    while (it.next()) |line| {
+        if (std.mem.startsWith(u8, line, ";LAYER:")) {
+            layer = try std.fmt.parseInt(usize, line[7..], 10);
+            in_tower = false;
+        } else if (std.mem.startsWith(u8, line, "; filament change")) {
+            after_change = true;
+            in_tower = false;
+        } else if (std.mem.startsWith(u8, line, ";TYPE:")) {
+            in_tower = std.mem.eql(u8, line[6..], "PRIME-TOWER");
+            prime = in_tower and after_change;
+            after_change = false;
+        } else if (std.mem.eql(u8, line, ";WIPE")) {
+            prime = false;
+        }
+        if (!(std.mem.startsWith(u8, line, "G0 ") or std.mem.startsWith(u8, line, "G1 "))) continue;
+        var next = pos;
+        var e: f64 = 0;
+        var words = std.mem.tokenizeScalar(u8, line[3..], ' ');
+        while (words.next()) |word| {
+            if (word.len < 2) continue;
+            const v = std.fmt.parseFloat(f64, word[1..]) catch continue;
+            switch (word[0]) {
+                'X' => next[0] = v,
+                'Y' => next[1] = v,
+                'E' => e = v,
+                else => {},
+            }
+            if (word[0] == ';') break;
+        }
+        if (in_tower and e > 0 and (next[0] != pos[0] or next[1] != pos[1])) {
+            try out.append(gpa, .{ .layer = layer, .a = pos, .b = next, .prime = prime });
+        }
+        pos = next;
+    }
+    return out;
+}
+
+test "plate job: the rib tower of an X2D: each prime row ends on the wall, and has a solid base" {
+    const gpa = testing.allocator;
+    const g = try towerPlate(gpa, "bambu-lab-x2d", false, "PLA", false);
+    defer gpa.free(g);
+    var lines = try towerLinesOf(gpa, g);
+    defer lines.deinit(gpa);
+    // Half the line width of the X2D (wider on the first layer), and a
+    // little for the rounding of the G-code.
+    const half_w = 0.25 + 0.02;
+    var primes: usize = 0;
+    var first_prime: ?usize = null;
+    for (lines.items) |l| {
+        if (!l.prime or @abs(l.a[1] - l.b[1]) > 1e-6) continue;
+        primes += 1;
+        if (first_prime == null) first_prime = l.layer;
+        // Each end of a row is on a closed loop of the wall of its layer:
+        // the end of the row is half a line width from a wall line.
+        for ([_][2]f64{ l.a, l.b }) |p| {
+            var best: f64 = std.math.inf(f64);
+            for (lines.items) |q| {
+                if (q.layer != l.layer or q.prime) continue;
+                if (@abs(q.a[1] - q.b[1]) < 1e-6 and @abs(q.a[1] - p[1]) < 1e-3) continue;
+                best = @min(best, segDist(q.a, q.b, p));
+            }
+            if (best > half_w) {
+                std.debug.print("layer {d}: a row ends at {d:.3},{d:.3}, {d:.3} mm from the wall\n", .{ l.layer, p[0], p[1], best });
+                return error.TestUnexpectedResult;
+            }
+        }
+        // The layer below has a solid line at the y of the row (a row of
+        // a prime or of the solid base) across it.
+        // The first layer of the tower is solid, with wider lines: its
+        // rows have other places, and its inner loop is under the first
+        // rows of the layer above it.
+        if (l.layer <= first_prime.? + 1) continue;
+        var below = false;
+        for (lines.items) |q| {
+            if (q.layer + 1 != l.layer or @abs(q.a[1] - q.b[1]) > 1e-6) continue;
+            if (@abs(q.a[1] - l.a[1]) > half_w) continue;
+            if (@min(q.a[0], q.b[0]) <= @min(l.a[0], l.b[0]) + 0.05 and @max(q.a[0], q.b[0]) >= @max(l.a[0], l.b[0]) - 0.05) below = true;
+        }
+        if (!below) {
+            std.debug.print("layer {d}: no solid base under the row at y {d:.3}\n", .{ l.layer, l.a[1] });
+            return error.TestUnexpectedResult;
+        }
+    }
+    try testing.expect(primes > 50);
+}
+
+/// The distance from p to the segment a-b.
+fn segDist(a: [2]f64, b: [2]f64, p: [2]f64) f64 {
+    const d: [2]f64 = .{ b[0] - a[0], b[1] - a[1] };
+    const len2 = d[0] * d[0] + d[1] * d[1];
+    const f = if (len2 > 0) std.math.clamp(((p[0] - a[0]) * d[0] + (p[1] - a[1]) * d[1]) / len2, 0, 1) else 0;
+    return std.math.hypot(p[0] - a[0] - f * d[0], p[1] - a[1] - f * d[1]);
 }

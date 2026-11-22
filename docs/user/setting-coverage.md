@@ -11,14 +11,14 @@ The status of a setting:
 - **Missing**: zslice does not have it yet.
 - **Not for zslice**: a setting for other hardware, for the app of the other slicer, or for a method that zslice does in another way.
 
-The lists come from Cura `resources/definitions/fdmprinter.def.json` and `fdmextruder.def.json` (commit `1a221ec29a86`) and OrcaSlicer `src/libslic3r/PrintConfig.cpp` (commit `97e2d0a6e687`).
+The lists come from Cura `resources/definitions/fdmprinter.def.json` and `fdmextruder.def.json` (commit `1a221ec29a86`) and OrcaSlicer `src/libslic3r/PrintConfig.cpp` (commit `0a2cdfc1a3dd`).
 
 ## Totals
 
 | Slicer | Settings | Same | Covered | Missing | Not for zslice |
 |---|---|---|---|---|---|
 | Cura | 762 | 173 | 92 | 434 | 63 |
-| OrcaSlicer | 1013 | 167 | 122 | 491 | 233 |
+| OrcaSlicer | 1013 | 170 | 124 | 486 | 233 |
 
 ## Cura
 
@@ -1038,6 +1038,9 @@ The print, printer, and filament settings first, by status. The settings of resi
 | `wall_transition_angle` (Wall transitioning threshold angle) | `project.wall_transition_angle` |
 | `wall_transition_length` (Wall transition length) | `project.wall_transition_length` |
 | `wipe` (Wipe while retracting) | `machine.retract_wipe` |
+| `wipe_tower_extra_rib_length` (Extra rib length) | `project.prime_tower_extra_rib_length` |
+| `wipe_tower_fillet_wall` (Fillet wall) | `project.prime_tower_fillet_wall` |
+| `wipe_tower_rib_width` (Rib width) | `project.prime_tower_rib_width` |
 | `wipe_tower_x` (Position X) | `project.prime_tower_x` |
 | `wipe_tower_y` (Position Y) | `project.prime_tower_y` |
 | `xy_contour_compensation` (X-Y contour compensation) | `filament.xy_offset` |
@@ -1130,6 +1133,7 @@ The print, printer, and filament settings first, by status. The settings of resi
 | `wall_sequence` (Walls printing order) | `project.wall_order` (inner first or outer first; no inner-outer-inner order) |
 | `wall_transition_filter_deviation` (Wall transitioning filter margin) | zslice uses the default (a quarter of the nozzle) |
 | `wipe_distance` (Wipe distance) | `machine.retract_wipe_distance` |
+| `wipe_tower_wall_type` (Wall type) | `project.prime_tower_rib_wall` (rib or rectangle; no cone) |
 | `z_hop_types` (Z-hop type) | `machine.z_hop` (a straight lift); Auto Lift is `machine.z_hop_only_crossing` |
 | `zaa_dont_alternate_fill_direction` (Don't alternate fill direction) | `project.slope_smoothing` |
 | `zaa_min_z` (Minimum Z height) | `project.slope_smoothing_min_width` |
@@ -1592,17 +1596,13 @@ The print, printer, and filament settings first, by status. The settings of resi
 | `wipe_tower_bridging` (Maximal bridging distance) | Maximal bridging distance |
 | `wipe_tower_cone_angle` (Stabilization cone apex angle) | Stabilization cone apex angle |
 | `wipe_tower_extra_flow` (Extra flow for purging) | Extra flow for purging |
-| `wipe_tower_extra_rib_length` (Extra rib length) | Extra rib length |
 | `wipe_tower_extra_spacing` (Wipe tower purge lines spacing) | Wipe tower purge lines spacing |
 | `wipe_tower_filament` (Wipe tower) | Wipe tower |
-| `wipe_tower_fillet_wall` (Fillet wall) | Fillet wall |
 | `wipe_tower_max_purge_speed` (Maximum wipe tower print speed) | Maximum wipe tower print speed |
 | `wipe_tower_no_sparse_layers` (No sparse layers (beta)) | No sparse layers (beta) |
-| `wipe_tower_rib_width` (Rib width) | Rib width |
 | `wipe_tower_rotation_angle` (Wipe tower rotation angle) | Wipe tower rotation angle |
 | `wipe_tower_sparse_layers_combination` (Combine sparse layers) | Combine sparse layers |
 | `wipe_tower_type` (Wipe tower type) | Wipe tower type |
-| `wipe_tower_wall_type` (Wall type) | Wall type |
 | `wiping_volumes_extruders` (Purging volumes - load/unload volumes) | Purging volumes - load/unload volumes |
 | `z_offset` (Z offset) | a Z offset of the whole print |
 
@@ -1826,7 +1826,7 @@ The print, printer, and filament settings first, by status. The settings of resi
 | `e_position` | Missing | a G-code variable |
 | `e_restart_extra` | Missing | a G-code variable |
 | `e_retracted` | Covered | a G-code variable that zslice fills in (src/gcode_vars.zig) |
-| `position` | Missing | a G-code variable |
+| `position` | Covered | a G-code variable that zslice fills in (src/gcode_vars.zig) |
 | `day` | Covered | a G-code variable that zslice fills in (src/gcode_vars.zig) |
 | `hour` | Covered | a G-code variable that zslice fills in (src/gcode_vars.zig) |
 | `minute` | Covered | a G-code variable that zslice fills in (src/gcode_vars.zig) |

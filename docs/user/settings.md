@@ -982,11 +982,11 @@ The filament of the sparse infill: 1 is the first filament of the plate, 2 the s
 
 **`project.prime_tower`** (true or false). Default: `true`
 
-A prime tower for a printer that changes the filament with a tool change (`machine.filament_change = tool`): after each change, the nozzle flushes the old color out into a small tower next to the parts, and wipes there, before the new filament touches the part. The tower grows on each layer up to the last change (its loop and a grid of lines), so it is at the height of the nozzle at each change. A Bambu Lab printer flushes into its chute (its change G-code); its tower then gets a prime of 45 mm³ of the new filament.
+A prime tower for a printer that changes the filament with a tool change (`machine.filament_change = tool`): after each change, the nozzle flushes the old color out into a small tower next to the parts, and wipes there, before the new filament touches the part. The tower grows on each layer up to the last change (its wall, a solid base under the next prime, and sparse lines), so it is at the height of the nozzle at each change. A Bambu Lab printer flushes into its chute (its change G-code); its tower then gets a prime of 45 mm³ of the new filament.
 
 **`project.prime_tower_split`** (true or false). Default: `true`
 
-A prime tower for each family of materials that bond (PLA, PETG, ABS and ASA, and the others): a change purges into the tower of the new filament, so PETG never purges on PLA. Each tower grows on each layer up to its last change; on a layer with no filament of its family, its loop and grid print with the filament in the nozzle. With one family, one tower.
+A prime tower for each family of materials that bond (PLA, PETG, ABS and ASA, and the others): a change purges into the tower of the new filament, so PETG never purges on PLA. Each tower grows on each layer up to its last change; on a layer with no filament of its family, its wall and its inside print with the filament in the nozzle. With one family, one tower.
 
 **`project.prime_tower_width`** (number). Default: `20`
 
@@ -995,6 +995,26 @@ The width of the square prime tower.
 **`project.prime_tower_brim`** (number). Default: `3`
 
 The brim of the prime tower (mm): loops around the first layer of the tower, so it holds to the bed. 0: no brim.
+
+**`project.prime_tower_wall_loops`** (integer). Default: `4`
+
+The loops of the wall of the prime tower. The rows of each prime end on the inner loop. More loops make a stiffer tower that holds to the bed better, and use more plastic.
+
+**`project.prime_tower_rib_wall`** (true or false). Default: `true`
+
+Ribs at the four corners of the prime tower: two strips along its diagonals stick out at the corners, so the wall has a wavy outline and the tower is stiff. As the rib wall of Bambu Studio. Off: a square wall.
+
+**`project.prime_tower_rib_width`** (number). Default: `8`
+
+The width of a rib of the prime tower (mm), at most half the side of the tower.
+
+**`project.prime_tower_extra_rib_length`** (number). Default: `0`
+
+The length of the ribs of the prime tower past its diagonal on the bed (mm). The extra length gets less on each layer, to 0 at the top. The ribs are never shorter than the diagonal.
+
+**`project.prime_tower_fillet_wall`** (true or false). Default: `true`
+
+Round corners on the wall of a prime tower with ribs.
 
 **`project.prime_tower_x`** (number). Default: `-1`
 

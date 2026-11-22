@@ -83,6 +83,7 @@ const app_mod = @import("../app.zig");
 const zs_filaments = @import("../filaments.zig");
 const zs_gcode = @import("../gcode.zig");
 const zs_flow = @import("../flow.zig");
+const zs_tower = @import("../tower.zig");
 const Draw = @import("frame.zig").Draw;
 const PlateFrame = @import("frame.zig").PlateFrame;
 const Push = @import("frame.zig").Push;
@@ -3367,11 +3368,12 @@ pub const View = struct {
     }
 
     /// The beads of the prime towers (see `tower_beads`), as the G-code
-    /// prints them (see gcode.Tower): each tower has a layer on each print
-    /// layer up to its last one. A layer with a change into a filament of
-    /// the tower has the rows of its purge (the flush into the tower, or
-    /// the prime after a change G-code), then the loop and the grid on the
-    /// rest; the other layers have the loop and the grid.
+    /// prints them (see tower.zig): each tower has a layer on each print
+    /// layer up to its last one. Each change into a filament of the tower
+    /// primes rows (the flush into the tower, or the prime after a change
+    /// G-code). Then the end of the layer: a solid base under the prime of
+    /// the next layer, sparse lines, the wall, and the brim on the first
+    /// layer.
     fn loadTower(v: *View, job_in: ?*const PlateJob, tp: *const app_mod.Toolpaths, filament: [3]u8, center: [2]f32, sxy: f32, sz: f32) Error!void {
         v.tower_beads.clearRetainingCapacity();
         v.tower_layer.clearRetainingCapacity();
@@ -3391,58 +3393,58 @@ pub const View = struct {
         const m = job.resolved.settings.machine;
         const into_tower = m.change_gcode.len == 0;
         const n_layers = tp.layer_z.items.len;
+        const lines = try gpa.create(zs_tower.Lines);
+        defer gpa.destroy(lines);
         // The start G-code loads the filament of the first path.
         var tool: u8 = if (tp.path_tool.items.len > 0) tp.path_tool.items[0] else 0;
         var path: usize = 0;
+        var count = [_]usize{0} ** zs_gcode.Towers.max;
         for (0..n_layers) |l| {
             const end = tp.layer_ends.items[l];
             const lz: f64 = tp.layer_z.items[l];
             const lh: f64 = tp.layer_height.items[l];
             const lw: f64 = if (l < tp.layer_width.items.len) tp.layer_width.items[l] else 0.45;
-            // The purge into each tower on this layer (mm³).
-            var purge = [_]f64{0} ** zs_gcode.Towers.max;
+            const area = zs_flow.beadArea(lw, @max(lh, 0.01));
+            var shapes: [zs_gcode.Towers.max]zs_tower.Layer = undefined;
+            for (towers.items(), 0..) |t, k| shapes[k] = t.layer(lw, lz);
+            // The rows of each prime, as gcode.Emitter.towerPurge makes
+            // them: each change from the row after the change before.
+            var rows = [_]u32{0} ** zs_gcode.Towers.max;
+            var primed = [_]bool{false} ** zs_gcode.Towers.max;
             while (path < end) : (path += 1) {
                 const t = if (path < tp.path_tool.items.len) tp.path_tool.items[path] else tool;
                 if (t == tool) continue;
                 const k = towers.of_slot[@min(t, zs_filaments.max_slots - 1)];
-                purge[k] += if (into_tower and t < job.slots.len and tool < job.slots.len)
+                const purge = if (into_tower and t < job.slots.len and tool < job.slots.len)
                     zs_filaments.flushVolume(job.slots[tool].color, job.slots[t].color, m.flush_volume, job.resolved.settings.project.flush_multiplier)
                 else
                     zs_gcode.tower_prime_mm3;
                 tool = t;
+                lines.* = .{};
+                rows[k] = shapes[k].purge(rows[k], purge / area, lines).rows;
+                primed[k] = true;
+                try v.towerLines(lines, l, lz, lh, lw, colors[k], center, sxy, sz);
             }
             for (towers.items(), 0..) |t, k| {
-                if (l > t.last_layer and purge[k] == 0) continue;
-                // The rows of the purge, as gcode.Emitter.towerPurge makes
-                // them.
-                const area = zs_flow.beadArea(lw, @max(lh, 0.01));
-                var len = purge[k] / area;
-                var rows: u32 = 0;
-                const rows_max = t.rowsMax(lw);
-                while (len > 1e-9 and rows < rows_max) : (rows += 1) {
-                    const row = t.towerRow(lw, rows);
-                    const run = row.x1 - row.x0;
-                    try v.towerBead(.{ row.x0, row.y }, .{ row.x1, row.y }, l, @floatCast(lz), @floatCast(lh), @floatCast(lw), colors[k], center, sxy, sz);
-                    len -= run;
-                }
-                // The brim of the tower on the first layer, as
-                // gcode.Emitter.towerFinish prints it.
-                if (l == 0) {
-                    const loops = zs_gcode.Tower.brimLoops(job.resolved.settings.project.prime_tower_brim, lw);
-                    var i: u32 = 1;
-                    while (i <= loops) : (i += 1) {
-                        var ring: [5][2]f64 = undefined;
-                        t.brimLoop(lw, i, &ring);
-                        for (ring[0..4], ring[1..5]) |a, b| try v.towerBead(a, b, l, @floatCast(lz), @floatCast(lh), @floatCast(lw), colors[k], center, sxy, sz);
-                    }
-                }
-                var pts: [zs_gcode.finish_points_max][2]f64 = undefined;
-                const n = t.finishLines(lw, rows, &pts);
-                // The loop is pts[0..5]; the nozzle travels to the grid.
-                for (pts[0 .. n - 1], pts[1..n], 1..) |a, b, j| {
-                    if (j != 5) try v.towerBead(a, b, l, @floatCast(lz), @floatCast(lh), @floatCast(lw), colors[k], center, sxy, sz);
-                }
+                if (l > t.last_layer and !primed[k]) continue;
+                count[k] += 1;
+                // The end of the layer, as gcode.Emitter.towerFinish
+                // prints it.
+                const solid = if (count[k] == 1) shapes[k].rowsMax() else shapes[k].solidRows(towers.needAt(l + 1, k));
+                const brim = if (l == 0) zs_gcode.Tower.brimLoops(job.resolved.settings.project.prime_tower_brim, lw) else 0;
+                lines.* = .{};
+                shapes[k].finish(rows[k], solid, brim, lines);
+                try v.towerLines(lines, l, lz, lh, lw, colors[k], center, sxy, sz);
             }
+        }
+    }
+
+    /// The beads of the lines of `lines` (see tower.Lines) on layer `l`.
+    fn towerLines(v: *View, lines: *const zs_tower.Lines, l: usize, z: f64, h: f64, w: f64, rgb: [3]u8, center: [2]f32, sxy: f32, sz: f32) Error!void {
+        const pts = lines.points();
+        if (pts.len < 2) return;
+        for (pts[0 .. pts.len - 1], pts[1..], 1..) |a, b, j| {
+            if (lines.isLine(j)) try v.towerBead(a, b, l, @floatCast(z), @floatCast(h), @floatCast(w), rgb, center, sxy, sz);
         }
     }
 
@@ -7431,4 +7433,61 @@ test "a smooth zoom toward a wall moves the eye forward on each frame, with no j
     }
     try std.testing.expectEqual(@as(usize, 0), back);
     try std.testing.expect(worst < 15);
+}
+
+test "the view draws the lines of the prime tower that the G-code prints" {
+    const g = std.testing.allocator;
+    const mesh_mod = @import("../mesh.zig");
+    const pj_mod = @import("../plate_job.zig");
+    var b: mesh_mod.Builder = .init(g);
+    try mesh_mod.shapes.addBox(&b, 0, 0, 0, 20, 20, 4);
+    var mesh = try b.finish();
+    defer mesh.deinit(g);
+    var bytes: std.Io.Writer.Allocating = .init(g);
+    defer bytes.deinit();
+    try mesh.writeStl(&bytes.writer);
+    const app = try app_mod.App.create(g, null, null);
+    defer app.destroy();
+    try app.setSetting("machine.filament_change", "tool");
+    try app.loadStl("box.stl", bytes.written());
+    _ = try app_mod.filament_slots.add(app);
+    try app_mod.filament_slots.set(app, 1, "filament.color", "#d93a3a");
+    // Filament 2 on two bands: four changes.
+    try app.setOverride(1, 1.6, "project.filament", "2");
+    try app.setOverride(2.4, 3, "project.filament", "2");
+    try app.startSlice();
+    app.stopWorkerForTest();
+    var v: View = .{ .renderer = undefined, .headless = true, .width = 1, .height = 1 };
+    defer v.deinitData();
+    try v.load(app);
+    try std.testing.expectEqual(@as(f32, 1), v.xf_sxy);
+    const gcode = app.gcode() orelse return error.TestUnexpectedResult;
+    var lines = try pj_mod.towerLinesOf(g, gcode);
+    defer lines.deinit(g);
+    try std.testing.expect(lines.items.len > 100);
+    try std.testing.expectEqual(lines.items.len, v.tower_beads.items.len);
+    // Each line of the G-code has a bead of the view on the same layer,
+    // with the same ends.
+    const used = try g.alloc(bool, v.tower_beads.items.len);
+    defer g.free(used);
+    @memset(used, false);
+    for (lines.items) |l| {
+        const found = for (v.tower_beads.items, v.tower_layer.items, 0..) |bd, layer, i| {
+            if (used[i] or layer != l.layer) continue;
+            const same = @abs(bd.ax - l.a[0]) < 0.01 and @abs(bd.ay - l.a[1]) < 0.01 and @abs(bd.bx - l.b[0]) < 0.01 and @abs(bd.by - l.b[1]) < 0.01;
+            if (same) {
+                used[i] = true;
+                break true;
+            }
+        } else false;
+        if (!found) {
+            std.debug.print("layer {d}: no bead for the tower line {d:.3},{d:.3} to {d:.3},{d:.3}\n", .{ l.layer, l.a[0], l.a[1], l.b[0], l.b[1] });
+            return error.TestUnexpectedResult;
+        }
+    }
+    // And no bead more.
+    for (used, v.tower_beads.items, v.tower_layer.items) |u, bd, layer| if (!u) {
+        std.debug.print("layer {d}: a bead with no tower line {d:.3},{d:.3} to {d:.3},{d:.3}\n", .{ layer, bd.ax, bd.ay, bd.bx, bd.by });
+        return error.TestUnexpectedResult;
+    };
 }

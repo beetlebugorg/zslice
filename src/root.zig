@@ -56,6 +56,8 @@ pub const lightning = @import("lightning.zig");
 pub const layer = @import("layer.zig");
 pub const slope = @import("slope.zig");
 pub const gcode = @import("gcode.zig");
+/// The prime tower: its shape and its lines (see tower.zig).
+pub const tower = @import("tower.zig");
 pub const stream = @import("stream.zig");
 pub const gcode_vars = @import("gcode_vars.zig");
 pub const filaments = @import("filaments.zig");
