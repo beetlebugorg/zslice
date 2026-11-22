@@ -46,7 +46,52 @@ pub const SettingInfo = struct {
     limit_max: f64 = 0,
     /// For text: true if the value can have more than one line.
     multiline: bool,
+    /// 0: a setting of the printer, the filament, or the part. k from 1:
+    /// a setting of nozzle k (`machine.nozzle.k.diameter` and the
+    /// others). A settings panel shows it only for a printer with more
+    /// than k nozzles (`machine.nozzles`).
+    nozzle: u32 = 0,
 };
+
+/// The section of the settings of nozzle k (from 1): "Second nozzle (T1)"
+/// and on.
+pub fn nozzleSection(comptime k: usize) [:0]const u8 {
+    const ordinals = [_][]const u8{ "First", "Second", "Third", "Fourth", "Fifth", "Sixth", "Seventh", "Eighth", "Ninth", "Tenth", "Eleventh", "Twelfth", "Thirteenth", "Fourteenth", "Fifteenth", "Sixteenth" };
+    return std.fmt.comptimePrint("{s} nozzle (T{d})", .{ ordinals[k], k });
+}
+
+/// The settings of the nozzles after the first: for each nozzle, a
+/// section with a setting for each field of `Nozzle`.
+fn nozzleInfos() []const SettingInfo {
+    var list: []const SettingInfo = &.{};
+    const Nozzle = zs.settings.Nozzle;
+    for (1..zs.settings.max_nozzles) |k| {
+        for (@typeInfo(Nozzle).@"struct".fields) |f| {
+            const pattern = "machine.nozzle.k." ++ f.name;
+            const name = std.fmt.comptimePrint("machine.nozzle.{d}.{s}", .{ k, f.name });
+            const m = findMeta(pattern);
+            list = list ++ [_]SettingInfo{.{
+                .name = name,
+                .group = "machine",
+                .section = nozzleSection(k),
+                .label = labelOf(f.name),
+                .doc = std.fmt.comptimePrint("{s}", .{m.doc}),
+                .kind = .number,
+                .choices = "",
+                .multiline = false,
+                .unit = unitOf(pattern),
+                .default_value = defaultText(Nozzle, f.name),
+                .slider_min = sliderOf(pattern)[0],
+                .slider_max = sliderOf(pattern)[1],
+                .slider_step = sliderOf(pattern)[2],
+                .limit_min = (zs.settings.limitOf(pattern) orelse [2]f64{ 0, 0 })[0],
+                .limit_max = (zs.settings.limitOf(pattern) orelse [2]f64{ 0, 0 })[1],
+                .nozzle = k,
+            }};
+        }
+    }
+    return list;
+}
 
 /// The settings in the order of the settings panel: the sections and the
 /// settings that most people change come first (see `section_order` and
@@ -60,6 +105,10 @@ const struct_order: []const SettingInfo = blk: {
     var list: []const SettingInfo = &.{};
     for (@typeInfo(Settings).@"struct".fields) |g| {
         for (@typeInfo(g.type).@"struct".fields) |f| {
+            if (f.type == [zs.settings.max_nozzles]zs.settings.Nozzle) {
+                list = list ++ nozzleInfos();
+                continue;
+            }
             const name = std.fmt.comptimePrint("{s}.{s}", .{ g.name, f.name });
             const m = findMeta(name);
             const kind: SettingKind = switch (@typeInfo(f.type)) {
@@ -255,17 +304,25 @@ const units = [_][2][]const u8{
     .{ "machine.retract_speed", "mm/s" },
     .{ "machine.change_time", "s" },
     .{ "machine.nozzles", "nozzles" },
-    .{ "machine.nozzle2_min_x", "mm" },
     .{ "machine.nozzle1_max_x", "mm" },
     .{ "machine.nozzle1_max_height", "mm" },
-    .{ "machine.nozzle2_max_height", "mm" },
-    .{ "machine.nozzle2_diameter", "mm" },
-    .{ "machine.nozzle2_line_width", "mm" },
-    .{ "machine.nozzle2_speed", "%" },
-    .{ "machine.nozzle2_max_speed", "mm/s" },
-    .{ "machine.nozzle2_max_accel", "mm/s²" },
-    .{ "machine.nozzle2_retract_length", "mm" },
-    .{ "machine.nozzle2_retract_speed", "mm/s" },
+    .{ "machine.standby_delta", "\u{b0}C" },
+    .{ "machine.preheat_time", "s" },
+    // Each nozzle after the first (k: the nozzle).
+    .{ "machine.nozzle.k.diameter", "mm" },
+    .{ "machine.nozzle.k.line_width", "mm" },
+    .{ "machine.nozzle.k.speed", "%" },
+    .{ "machine.nozzle.k.max_speed", "mm/s" },
+    .{ "machine.nozzle.k.max_accel", "mm/s²" },
+    .{ "machine.nozzle.k.retract_length", "mm" },
+    .{ "machine.nozzle.k.retract_speed", "mm/s" },
+    .{ "machine.nozzle.k.offset_x", "mm" },
+    .{ "machine.nozzle.k.offset_y", "mm" },
+    .{ "machine.nozzle.k.min_x", "mm" },
+    .{ "machine.nozzle.k.max_x", "mm" },
+    .{ "machine.nozzle.k.max_height", "mm" },
+    .{ "machine.nozzle.k.standby_delta", "\u{b0}C" },
+    .{ "machine.nozzle.k.preheat_time", "s" },
     .{ "filament.nozzle", "nozzle" },
     .{ "machine.flush_volume", "mm\u{b3}" },
     // filament
@@ -419,13 +476,13 @@ const sliders = [_]struct { []const u8, f64, f64, f64 }{
     .{ "machine.retract_length", 0, 8, 0.1 },
     .{ "machine.clearance_radius", 5, 100, 1 },
     .{ "machine.clearance_height", 5, 300, 1 },
-    .{ "machine.nozzle2_diameter", 0, 1.2, 0.05 },
-    .{ "machine.nozzle2_line_width", 0, 1.5, 0.01 },
-    .{ "machine.nozzle2_speed", 0, 1, 0.05 },
-    .{ "machine.nozzle2_max_speed", 0, 500, 5 },
-    .{ "machine.nozzle2_max_accel", 0, 20000, 100 },
-    .{ "machine.nozzle2_retract_length", 0, 8, 0.1 },
-    .{ "machine.nozzle2_retract_speed", 0, 80, 5 },
+    .{ "machine.nozzle.k.diameter", 0, 1.2, 0.05 },
+    .{ "machine.nozzle.k.line_width", 0, 1.5, 0.01 },
+    .{ "machine.nozzle.k.speed", 0, 1, 0.05 },
+    .{ "machine.nozzle.k.max_speed", 0, 500, 5 },
+    .{ "machine.nozzle.k.max_accel", 0, 20000, 100 },
+    .{ "machine.nozzle.k.retract_length", 0, 8, 0.1 },
+    .{ "machine.nozzle.k.retract_speed", 0, 80, 5 },
     .{ "machine.retract_speed", 10, 80, 5 },
     // filament
     .{ "filament.nozzle_temp", 160, 300, 5 },
@@ -547,7 +604,7 @@ fn sliderOf(comptime name: []const u8) [3]f64 {
 test "each slider is for a number setting" {
     for (sliders) |sl| {
         const info = for (settings_info) |s| {
-            if (std.mem.eql(u8, s.name, sl[0])) break s;
+            if (std.mem.eql(u8, zs.settings.patternName(s.name), sl[0])) break s;
         } else return error.TestUnexpectedResult;
         try testing.expect(info.kind == .number or info.kind == .integer);
         try testing.expect(sl[1] < sl[2]);
@@ -584,7 +641,7 @@ test "each number setting has a unit" {
         }
     }
     for (units) |u| try testing.expect(for (settings_info) |s| {
-        if (std.mem.eql(u8, s.name, u[0])) break true;
+        if (std.mem.eql(u8, zs.settings.patternName(s.name), u[0])) break true;
     } else false);
 }
 

@@ -136,6 +136,21 @@ summary: `project.overhang_wall_speed`, `project.overhang_wall_fan`, and `projec
 
 OrcaSlicer slows the parts of a wall by how much of the line hangs over the layer below (`overhang_1_4_speed` to `overhang_4_4_speed`), and turns the fan up from `overhang_fan_threshold`. Cura slows the walls over `wall_overhang_angle`. zslice has one speed and one fan for all wall parts that hang over air by more than a share of the line width. It finds them by the middle of each segment against the outline of the layer below, grown or shrunk by the threshold. The settings and the idea only; no code is copied.
 
+### Preheat time and the change G-code of a tool changer
+
+```ref
+kind: setting
+source: OrcaSlicer
+license: AGPL-3.0
+link: https://github.com/SoftFever/OrcaSlicer/tree/e76b4d676c74f43ee1736675e0e8894425179cc4
+version: OrcaSlicer commit e76b4d67 (resources/profiles)
+files: src/settings.zig, src/gcode.zig, src/printers.zig, tools/printer_library.py
+area: gcode
+summary: `machine.preheat_time` has the meaning of the preheat_time of the ooze prevention of OrcaSlicer; the printer library reads change_filament_gcode, extruder_offset, and the ooze prevention of the default process of each printer with more than one extruder.
+```
+
+OrcaSlicer heats the next tool of a multi-tool printer `preheat_time` seconds before its change, so the change waits less. zslice has `machine.preheat_time` with this meaning: before each path, it estimates the time of the lines up to the next change in the layer (length over speed), and writes `M104 T<n> S<temp>` when that time is less than the preheat time. The printer library takes `change_filament_gcode` (the tool change of the Prusa XL 5T and the CORE One INDX presets), `extruder_offset`, and `ooze_prevention`, `standby_temperature_delta`, and `preheat_time` of the default process of each printer. A printer whose own presets set `single_extruder_multi_material` is a unit that feeds many filaments to one nozzle, and gets no tool changer. The OrcaSlicer presets of the UltiMaker S5 have an `extruder_offset` of `0x22`; Cura has 22 mm in X for the same nozzle. The library keeps the values of each source as they are. No code is copied.
+
 ### OrcaSlicer presets and their keys
 
 ```ref

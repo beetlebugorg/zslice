@@ -23,10 +23,18 @@ GROUPS = [
     ("EngineOptions", "engine", "Options for the engine. They do not change the print."),
 ]
 
+# The settings of each nozzle after the first: the fields of `Nozzle`, by
+# the names machine.nozzle.k.<field> (k: the nozzle, from 1). They are a
+# section of the machine group.
+NOZZLE = ("Nozzle", "machine.nozzle.k", "Other nozzles",
+          "The settings of each nozzle after the first, on a printer with more than one nozzle "
+          "(`machine.nozzles`). k is the nozzle, from 1 (the second nozzle, tool T1) to 15. "
+          "A value of 0 is the value of the first nozzle. In a profile: `nozzle.1.diameter = 0.6`.")
+
 
 def parse(src):
     groups = {}
-    for struct, _, _ in GROUPS:
+    for struct in [g[0] for g in GROUPS] + [NOZZLE[0]]:
         m = re.search(r"pub const %s = struct \{\n(.*?)\n\};" % struct, src, re.S)
         body = m.group(1)
         fields = []
@@ -53,6 +61,10 @@ def parse(src):
                 doc = []
                 continue
             name, typ, default = m.groups()
+            if typ.startswith("[max_nozzles]"):
+                # The list of the nozzles after the first: see NOZZLE.
+                doc = []
+                continue
             if default == "":
                 # A multi-line string: the lines that start with \\.
                 parts = []
@@ -62,6 +74,8 @@ def parse(src):
                 default = "(multi-line text)\n\n```gcode\n" + "\n".join(parts) + "\n```"
             else:
                 default = "`" + default.rstrip(",").lstrip(".") + "`"
+            if struct == NOZZLE[0]:
+                section = NOZZLE[2]
             fields.append((section, name, typ.strip(), default, " ".join(doc)))
             doc = []
         groups[struct] = fields
@@ -84,7 +98,7 @@ def main_zig(groups):
     out.write("//! setting has an entry.\n\n")
     out.write("pub const Meta = struct {\n    name: []const u8,\n    section: []const u8,\n    doc: []const u8,\n};\n\n")
     out.write("pub const all = [_]Meta{\n")
-    for struct, key, _ in GROUPS:
+    for struct, key, _ in GROUPS + [NOZZLE[:3]]:
         for sec, name, typ, default, doc in groups[struct]:
             out.write("    .{ .name = %s, .section = %s, .doc = %s },\n" % (
                 zig_string(key + "." + name), zig_string(sec or ""), zig_string(doc)))
@@ -123,6 +137,12 @@ def main():
             out.write("**`%s.%s`** (%s). Default: %s\n\n" % (key, name, t, default))
             if doc:
                 out.write("%s\n\n" % doc)
+        if key == "machine":
+            out.write("### %s\n\n%s\n\n" % (NOZZLE[2], NOZZLE[3]))
+            for sec, name, typ, default, doc in groups[NOZZLE[0]]:
+                out.write("**`%s.%s`** (%s). Default: %s\n\n" % (NOZZLE[1], name, type_name(typ), default))
+                if doc:
+                    out.write("%s\n\n" % doc)
 
 
 main()

@@ -122,7 +122,7 @@ def gcode_variable_names():
 def zslice_settings():
     """The dotted names of the zslice settings (src/settings_meta.zig)."""
     text = (HERE.parent / "src/settings_meta.zig").read_text(encoding="utf-8")
-    return set(re.findall(r'\.name = "([a-z]+\.[a-z0-9_]+)"', text))
+    return set(re.findall(r'\.name = "([a-z]+\.[a-z0-9_.]+)"', text))
 
 
 def classify(root):
@@ -138,7 +138,7 @@ def classify(root):
             if k not in keys:
                 problems.append(f"{who}: {k} is not a setting of the source")
             if status == "same":
-                for n in re.findall(r"\b(?:machine|filament|project|engine)\.[a-z0-9_]+", text):
+                for n in re.findall(r"\b(?:machine|filament|project|engine)\.[a-z0-9_]+(?:\.k\.[a-z0-9_]+)?", text):
                     if n not in names:
                         problems.append(f"{who}: {k}: {n} is not a zslice setting")
     for s in cura:
@@ -160,7 +160,7 @@ def classify(root):
 
 def code(text):
     """The zslice setting names of a text in backticks."""
-    return re.sub(r"(?<!`)\b((?:machine|filament|project|engine)\.[a-z0-9_]+(?: = [a-z_]+)?)", r"`\1`", text)
+    return re.sub(r"(?<!`)\b((?:machine|filament|project|engine)\.[a-z0-9_]+(?:\.k\.[a-z0-9_]+)?(?: = [a-z_]+)?)", r"`\1`", text)
 
 
 def counts(rows):

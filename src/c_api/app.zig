@@ -103,6 +103,7 @@ pub const SettingInfo = extern struct {
     slider_step: f64,
     per_layer: c_int,
     per_part: c_int,
+    nozzle: c_int,
 };
 
 /// The text of a value of setting `name`, as an editor shows it (a ratio as
@@ -877,6 +878,7 @@ export fn zs_setting_get_info(index: usize, out: ?*SettingInfo) c_int {
         .slider_step = s.slider_step,
         .per_layer = @intFromBool(s.per_layer),
         .per_part = @intFromBool(zs.settings.isPerPartSetting(s.name)),
+        .nozzle = @intCast(s.nozzle),
     };
     return ok;
 }

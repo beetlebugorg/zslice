@@ -124,6 +124,11 @@ typedef struct zs_setting_info {
                                       its own value in a slice
                                       (zs_app_part_setting_set); 0: the
                                       same for all parts */
+    int nozzle;                    /* 0: a setting of the printer, the
+                                      filament, or the part; k >= 1: a
+                                      setting of nozzle k
+                                      (machine.nozzle.k.*): show it only
+                                      when machine.nozzles > k */
 } zs_setting_info;
 
 /* The text of a value of setting `name`, as an editor shows it: a ratio as

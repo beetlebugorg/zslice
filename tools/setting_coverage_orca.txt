@@ -8,7 +8,7 @@
 # Printer: the bed and the machine
 printer_technology | not | FDM or SLA: zslice is for FDM printers
 printable_area | same | machine.bed_size_x and machine.bed_size_y (the printer library has the shape)
-extruder_printable_area | same | machine.nozzle2_min_x and machine.nozzle1_max_x
+extruder_printable_area | same | machine.nozzle1_max_x, machine.nozzle.k.min_x, and machine.nozzle.k.max_x
 support_parallel_printheads | not | printers with many heads that print copies at once
 parallel_printheads_count | not | printers with many heads that print copies at once
 parallel_printheads_bed_exclude_areas | not | printers with many heads that print copies at once
@@ -19,7 +19,7 @@ extruder_bed_exclude_volumes | missing | volumes where a nozzle cannot go
 bed_custom_texture | derived | the printer library has the bed textures
 bed_custom_model | derived | the printer library has the bed models
 printable_height | same | machine.max_height
-extruder_printable_height | same | machine.nozzle1_max_height and machine.nozzle2_max_height
+extruder_printable_height | same | machine.nozzle1_max_height and machine.nozzle.k.max_height
 preferred_orientation | not | the angle of the bed in the 3D view of the app
 preset_names | not | preset metadata of the OrcaSlicer app
 bbl_use_printhost | not | a printer connection of the OrcaSlicer app (zslice has its own printer links)
@@ -131,7 +131,7 @@ textured_plate_temp_initial_layer | derived | filament.first_layer_bed_temp
 support_multi_bed_types | derived | machine.bed_type
 pellet_modded_printer | not | pellet printers
 pellet_flow_coefficient | not | pellet printers
-extruder_offset | missing | the X and Y offset of a second nozzle
+extruder_offset | same | machine.nozzle.k.offset_x and machine.nozzle.k.offset_y
 extruder_colour | derived | filament.color
 extruder | derived | filament.nozzle
 extruder_type | missing | direct drive or Bowden, for the retraction
@@ -330,7 +330,10 @@ nozzle_temperature_initial_layer | same | filament.first_layer_nozzle_temp
 nozzle_temperature_range_low | derived | the G-code variable nozzle_temperature_range_low
 nozzle_temperature_range_high | derived | the G-code variable nozzle_temperature_range_high
 idle_temperature | same | filament.standby_temp
-standby_temperature_delta | derived | the G-code variable standby_temperature_delta
+standby_temperature_delta | same | machine.standby_delta
+ooze_prevention | derived | machine.standby_delta (0 is off)
+preheat_time | same | machine.preheat_time
+preheat_steps | not | zslice heats the next nozzle in one step
 chamber_temperature | same | machine.chamber_temp
 filament_shrink | same | filament.shrinkage_xy
 filament_shrinkage_compensation_z | same | filament.shrinkage_z

@@ -217,7 +217,7 @@ fn projectSettings(a: Allocator, info: PlateInfo) Allocator.Error![]u8 {
                     text = switch (ki) {
                         0 => f.kind,
                         1 => if (f.color.len == 7) f.color else "#FFFFFF",
-                        else => std.fmt.bufPrint(&mb, "{d}", .{@as(u32, @min(f.nozzle, 1)) + 1}) catch "1",
+                        else => std.fmt.bufPrint(&mb, "{d}", .{@as(u32, useNozzle(f, info.nozzles)) + 1}) catch "1",
                     };
                 };
                 if (ki == 0 and info.filaments.len == 0 and info.material.len > 0) text = info.material;
@@ -395,7 +395,8 @@ pub const FilamentUse = struct {
     color: []const u8,
     meters: f64,
     grams: f64,
-    /// The nozzle of the filament on a printer with two: 0 main, 1 second.
+    /// The nozzle of the filament on a printer with more than one, from
+    /// 0: 0 main, 1 second.
     nozzle: u32 = 0,
     /// The filament prints the parts, and the support.
     for_object: bool = true,
@@ -404,6 +405,12 @@ pub const FilamentUse = struct {
     /// "": the generic id of the material (genericFilament).
     idx: []const u8 = "",
 };
+
+/// The nozzle of filament `f` on a printer with `nozzles` nozzles: 0 for a
+/// nozzle that the printer does not have.
+fn useNozzle(f: FilamentUse, nozzles: u32) u32 {
+    return if (f.nozzle < nozzles) f.nozzle else 0;
+}
 
 /// `text` with the 5 special characters of XML escaped.
 fn xmlText(a: Allocator, text: []const u8) Allocator.Error![]u8 {
@@ -490,7 +497,7 @@ fn sliceInfo(a: Allocator, info: PlateInfo) Allocator.Error![]u8 {
         for (1..last + 1) |id| {
             var e: u32 = 1;
             for (info.filaments) |f| if (f.id == id) {
-                e = @as(u32, @min(f.nozzle, 1)) + 1;
+                e = @as(u32, useNozzle(f, info.nozzles)) + 1;
             };
             ww.print("{s}{d}", .{ if (id > 1) " " else "", e }) catch return error.OutOfMemory;
         }
@@ -510,7 +517,7 @@ fn sliceInfo(a: Allocator, info: PlateInfo) Allocator.Error![]u8 {
         const idx = if (f.idx.len > 0) f.idx else genericFilament(f.kind);
         if (idx.len > 0) ww.print(" tray_info_idx=\"{s}\"", .{try xmlText(a, idx)}) catch return error.OutOfMemory;
         ww.print(" type=\"{s}\" color=\"{s}\" used_m=\"{d:.2}\" used_g=\"{d:.2}\"", .{ try xmlText(a, f.kind), try xmlText(a, color), @max(0, f.meters), @max(0, f.grams) }) catch return error.OutOfMemory;
-        ww.print(" group_id=\"{d}\" nozzle_diameter=\"{d:.2}\" volume_type=\"Standard\"", .{ if (two) @min(f.nozzle, 1) else 0, nozzle }) catch return error.OutOfMemory;
+        ww.print(" group_id=\"{d}\" nozzle_diameter=\"{d:.2}\" volume_type=\"Standard\"", .{ if (two) useNozzle(f, info.nozzles) else 0, nozzle }) catch return error.OutOfMemory;
         ww.print(" used_for_object=\"{s}\" used_for_support=\"{s}\" directly_used=\"true\"", .{ if (f.for_object) "true" else "false", if (f.for_support) "true" else "false" }) catch return error.OutOfMemory;
         // The time of a filament change (s), as Studio writes it for the
         // X2D: 29 s to load, no unload.
@@ -524,7 +531,7 @@ fn sliceInfo(a: Allocator, info: PlateInfo) Allocator.Error![]u8 {
     if (two or info.model_id.len > 0) for (0..n_noz) |g| {
         var used = g == 0 and !two;
         if (two) for (info.filaments) |f| {
-            used = used or @min(f.nozzle, 1) == g;
+            used = used or useNozzle(f, info.nozzles) == g;
         };
         if (!used) continue;
         ww.print("    <nozzle id=\"{d}\" extruder_id=\"{d}\" nozzle_diameter=\"{d}\" volume_type=\"Standard\"/>\n", .{ g, g + 1, nozzle }) catch return error.OutOfMemory;
@@ -611,7 +618,7 @@ pub fn gcode3mfPlate(gpa: Allocator, gcode: []const u8, title: []const u8, info:
         for (1..last + 1) |id| {
             var e: u32 = 1;
             for (info.filaments) |f| if (f.id == id and info.nozzles >= 2) {
-                e = @as(u32, @min(f.nozzle, 1)) + 1;
+                e = @as(u32, useNozzle(f, info.nozzles)) + 1;
             };
             try maps.writer.print("{s}{d}", .{ if (id > 1) " " else "", e });
         }
@@ -651,14 +658,14 @@ pub fn gcode3mfPlate(gpa: Allocator, gcode: []const u8, title: []const u8, info:
         const nozzleOfTool = struct {
             fn f(fs: []const FilamentUse, nozzles: u32, t: u32) u32 {
                 if (nozzles < 2) return 0;
-                for (fs) |fu| if (fu.id == t + 1) return @min(fu.nozzle, 1);
+                for (fs) |fu| if (fu.id == t + 1) return useNozzle(fu, nozzles);
                 return 0;
             }
         }.f;
         try seq.writer.writeAll("{\"plate_1\":{\"nozzle_sequence\":[");
         for (tools.items, 0..) |t, k| try seq.writer.print("{s}{d}", .{ if (k > 0) "," else "", nozzleOfTool(info.filaments, info.nozzles, t) });
         try seq.writer.writeAll("],\"optimal_assignment\":[");
-        for (info.filaments, 0..) |f, k| try seq.writer.print("{s}{d}", .{ if (k > 0) "," else "", if (info.nozzles >= 2) @min(f.nozzle, 1) else 0 });
+        for (info.filaments, 0..) |f, k| try seq.writer.print("{s}{d}", .{ if (k > 0) "," else "", if (info.nozzles >= 2) useNozzle(f, info.nozzles) else 0 });
         try seq.writer.writeAll("],\"sequence\":[");
         for (tools.items, 0..) |t, k| try seq.writer.print("{s}{d}", .{ if (k > 0) "," else "", t + 1 });
         try seq.writer.writeAll("]}}");
@@ -675,7 +682,7 @@ pub fn gcode3mfPlate(gpa: Allocator, gcode: []const u8, title: []const u8, info:
         for (info.filaments, 0..) |f, n| try w.print("{s}\"{s}\"", .{ if (n > 0) "," else "", try jsonText(a, if (f.color.len == 7) f.color else "#FFFFFF") });
         try w.writeAll("],\"filament_ids\":[");
         for (info.filaments, 0..) |f, n| try w.print("{s}{d}", .{ if (n > 0) "," else "", f.id - 1 });
-        const first: u32 = if (info.filaments.len > 0 and info.nozzles >= 2) @min(info.filaments[0].nozzle, 1) else 0;
+        const first: u32 = if (info.filaments.len > 0 and info.nozzles >= 2) useNozzle(info.filaments[0], info.nozzles) else 0;
         try w.print("],\"first_extruder\":{d},\"first_layer_time\":{d},\"is_seq_print\":false,\"nozzle_diameter\":{d},\"version\":2}}", .{ first, info.first_layer_time, if (info.nozzle > 0) info.nozzle else 0.4 });
     }
     const entries = [_]zipfile.Entry{

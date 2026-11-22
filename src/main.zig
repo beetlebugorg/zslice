@@ -1412,6 +1412,14 @@ fn listSettings(w: *Io.Writer) !void {
     inline for (@typeInfo(zslice.Settings).@"struct".fields) |g| {
         const group = @field(defaults, g.name);
         inline for (@typeInfo(@TypeOf(group)).@"struct".fields) |f| {
+            if (comptime f.type == [zslice.settings.max_nozzles]zslice.settings.Nozzle) {
+                // The settings of each nozzle after the first, once, with
+                // k for the nozzle (1 to 15).
+                inline for (@typeInfo(zslice.settings.Nozzle).@"struct".fields) |nf| {
+                    try w.print("{s}.{s}.k.{s} = {d}\n", .{ g.name, f.name, nf.name, @field(@field(group, f.name)[1], nf.name) });
+                }
+                continue;
+            }
             const v = @field(group, f.name);
             try w.print("{s}.{s} = ", .{ g.name, f.name });
             switch (@typeInfo(f.type)) {

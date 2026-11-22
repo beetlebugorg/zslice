@@ -23,6 +23,10 @@
 //!        extruders bed z_hop hop wipe wipe_distance layer_change min_travel
 //!        [change]
 //!
+//!     T  change standby preheat diameters offsets
+//!                                         the hot ends of the P line
+//!                                         before it (see `Tools`)
+//!
 //! In a P line: `sources` has one letter for each source (l Cura LulzBot Edition, c Cura,
 //! p PrusaSlicer, o OrcaSlicer). `shape` is "r" for a round bed.
 //! `nozzles` lists the nozzle sizes with ";". `heat` has "b" for a heated
@@ -65,6 +69,10 @@
 //! word of the brand, the series, or the model. A match at the start of the
 //! model name, and an exact match of the whole name, rank first.
 //!
+//! A model with a hot end for each extruder (a T line) gets a nozzle for
+//! each, and the tool change, the standby, and the offsets of its source
+//! (see docs/references/prusaslicer.md and docs/references/orcaslicer.md).
+//!
 //! References (see docs/references/printer-data.md): the Cura definition format, the
 //! PrusaSlicer vendor bundles, and the OrcaSlicer profiles.
 
@@ -72,6 +80,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 const Allocator = std.mem.Allocator;
 const Writer = std.Io.Writer;
+const settings = @import("settings.zig");
 
 /// The library file, in native builds. The wasm module leaves it out: the
 /// web app loads it as a separate file.
@@ -149,6 +158,30 @@ pub const Model = struct {
     /// A unit feeds many filaments to one nozzle and changes them with a
     /// tool change (the `change` field "t").
     tool_change: bool = false,
+    /// A hot end for each extruder (a T line), or null.
+    tools: ?Tools = null,
+};
+
+/// The facts of a model with a hot end for each of its extruders (a tool
+/// changer such as the Prusa XL and the CORE One INDX, or an IDEX
+/// printer), from its T line. A machine profile of the model has a nozzle
+/// for each extruder, and a tool change to the nozzle of each filament
+/// (`Machine.tool_numbers = nozzle`).
+pub const Tools = struct {
+    /// The G line of the change G-code of the source (PrusaSlicer
+    /// toolchange_gcode, OrcaSlicer change_filament_gcode), or null.
+    change: ?u32 = null,
+    /// The temperature change of an idle nozzle (the ooze prevention of
+    /// the default print profile of the source), or 0.
+    standby: f64 = 0,
+    /// The preheat time of the next nozzle (OrcaSlicer preheat_time), or 0.
+    preheat: f64 = 0,
+    /// The diameter of each nozzle, as "0.4;0.6", or "": each is the
+    /// nozzle of the model.
+    diameters: []const u8 = "",
+    /// The offset of each nozzle, as "x,y;x,y" (as extruder_offset of
+    /// PrusaSlicer: the G-code moves the head by minus it), or "": none.
+    offsets: []const u8 = "",
 };
 
 /// The retraction of the travels of a model, as its source tells it
@@ -281,6 +314,17 @@ pub const Library = struct {
                 },
                 'G' => try gcodes.append(a, try unescape(a, rest)),
                 'D' => try beds.append(a, try parseBed(a, rest)),
+                'T' => {
+                    if (models.items.len == 0) return error.InvalidLibrary;
+                    var f: Fields = .init(rest);
+                    models.items[models.items.len - 1].tools = .{
+                        .change = f.index(gcodes.items.len),
+                        .standby = f.num(),
+                        .preheat = f.num(),
+                        .diameters = f.next(),
+                        .offsets = f.next(),
+                    };
+                },
                 'B' => {
                     if (brands.items.len > 0) brands.items[brands.items.len - 1].end = @intCast(models.items.len);
                     try brands.append(a, .{ .name = rest, .first = @intCast(models.items.len), .end = @intCast(models.items.len) });
@@ -492,8 +536,12 @@ pub const Library = struct {
         try writeEscaped(w, m.id);
         try w.writeAll("\"\n");
         try w.print("bed_size_x = {d}\nbed_size_y = {d}\nmax_height = {d}\n", .{ m.bed_x, m.bed_y, m.height });
-        if (m.origin_x != 0) try w.print("origin_x = {d}\n", .{m.origin_x});
-        if (m.origin_y != 0) try w.print("origin_y = {d}\n", .{m.origin_y});
+        // A tool changer with an offset of its first nozzle: the origin
+        // moves by it, and the other nozzles have their offsets from it.
+        const tools = self.toolsOf(i);
+        const first_off = if (tools) |t| offsetAt(t.offsets, 0) else [2]f64{ 0, 0 };
+        if (m.origin_x - first_off[0] != 0) try w.print("origin_x = {d}\n", .{m.origin_x - first_off[0]});
+        if (m.origin_y - first_off[1] != 0) try w.print("origin_y = {d}\n", .{m.origin_y - first_off[1]});
         try w.print("nozzle_diameter = {d}\n", .{if (nozzle > 0) nozzle else m.nozzle});
         const speeds = printSpeed(m);
         try w.print("max_speed = {d}\ntravel_speed = {d}\n", .{ speeds.print, speeds.travel });
@@ -534,16 +582,16 @@ pub const Library = struct {
             try w.writeAll("nozzles = 2\n");
             if (b.max_x[0] > 0 and b.max_x[0] < m.bed_x) try w.print("nozzle1_max_x = {d}\n", .{b.max_x[0]});
             if (b.height[0] > 0 and b.height[0] < m.height) try w.print("nozzle1_max_height = {d}\n", .{b.height[0]});
-            if (b.min_x[1] > 0) try w.print("nozzle2_min_x = {d}\n", .{b.min_x[1]});
-            if (b.height[1] > 0 and b.height[1] < m.height) try w.print("nozzle2_max_height = {d}\n", .{b.height[1]});
+            if (b.min_x[1] > 0) try w.print("nozzle.1.min_x = {d}\n", .{b.min_x[1]});
+            if (b.height[1] > 0 and b.height[1] < m.height) try w.print("nozzle.1.max_height = {d}\n", .{b.height[1]});
             // The values of the second nozzle that differ from the first,
             // from the per-extruder lists of Bambu Studio.
             if (bambuProject(m.id)) |json| if (secondNozzle(json)) |n2| {
                 try w.writeAll("# The second nozzle: the per-extruder values of Bambu Studio.\n");
-                if (n2.max_speed > 0 and n2.max_speed < speeds.print) try w.print("nozzle2_max_speed = {d}\n", .{n2.max_speed});
-                if (n2.max_accel > 0 and n2.max_accel < std.math.clamp(m.max_accel, 100, 30000)) try w.print("nozzle2_max_accel = {d}\n", .{n2.max_accel});
-                if (n2.retract_length > 0 and n2.retract_length != m.retract) try w.print("nozzle2_retract_length = {d}\n", .{n2.retract_length});
-                if (n2.retract_speed > 0 and n2.retract_speed != m.retract_speed) try w.print("nozzle2_retract_speed = {d}\n", .{n2.retract_speed});
+                if (n2.max_speed > 0 and n2.max_speed < speeds.print) try w.print("nozzle.1.max_speed = {d}\n", .{n2.max_speed});
+                if (n2.max_accel > 0 and n2.max_accel < std.math.clamp(m.max_accel, 100, 30000)) try w.print("nozzle.1.max_accel = {d}\n", .{n2.max_accel});
+                if (n2.retract_length > 0 and n2.retract_length != m.retract) try w.print("nozzle.1.retract_length = {d}\n", .{n2.retract_length});
+                if (n2.retract_speed > 0 and n2.retract_speed != m.retract_speed) try w.print("nozzle.1.retract_speed = {d}\n", .{n2.retract_speed});
             };
         };
         if (changeGcode(m.id)) |g| {
@@ -555,6 +603,39 @@ pub const Library = struct {
             // command, as in the G-code of PrusaSlicer.
             try w.writeAll("filament_change = \"tool\"\n");
         }
+        // A hot end for each extruder: a nozzle for each, and a tool
+        // change to the nozzle of each filament, with the change G-code,
+        // the standby, and the offsets of the source.
+        if (tools) |t| {
+            const n = @min(m.extruders, settings.max_nozzles);
+            try w.print("# A hot end for each of the {d} extruders: each filament prints with its own nozzle (T0 to T{d}).\n", .{ n, n - 1 });
+            try w.print("nozzles = {d}\nfilament_change = \"tool\"\ntool_numbers = \"nozzle\"\n", .{n});
+            if (t.standby != 0) try w.print("standby_delta = {d}\n", .{std.math.clamp(t.standby, -300, 100)});
+            if (t.preheat > 0) try w.print("preheat_time = {d}\n", .{@min(t.preheat, 600)});
+            const d0 = if (nozzle > 0) nozzle else m.nozzle;
+            for (1..n) |k| {
+                const d = diameterAt(t.diameters, k) orelse m.nozzle;
+                const dk = if (d == m.nozzle) d0 else d;
+                if (dk != d0) try w.print("nozzle.{d}.diameter = {d}\n", .{ k, std.math.clamp(dk, 0.1, 2) });
+                const off = offsetAt(t.offsets, k);
+                if (off[0] - first_off[0] != 0) try w.print("nozzle.{d}.offset_x = {d}\n", .{ k, std.math.clamp(off[0] - first_off[0], -1000, 1000) });
+                if (off[1] - first_off[1] != 0) try w.print("nozzle.{d}.offset_y = {d}\n", .{ k, std.math.clamp(off[1] - first_off[1], -1000, 1000) });
+            }
+            if (self.gcode(t.change)) |g| {
+                try w.writeAll("change_gcode = ");
+                try writeMultiline(w, g);
+                try w.writeByte('\n');
+            }
+        }
+    }
+
+    /// The facts of the hot ends of model `i` if it has one for each
+    /// extruder and no facts of a Bambu Lab printer, else null.
+    pub fn toolsOf(self: *const Library, i: usize) ?Tools {
+        const m = self.models[i];
+        const t = m.tools orelse return null;
+        if (m.extruders < 2 or m.tool_change or bambu(m.id) != null or changeGcode(m.id) != null) return null;
+        return t;
     }
 };
 
@@ -992,6 +1073,7 @@ fn parseModel(text: []const u8, brand: u32, n_gcodes: usize, n_beds: usize) Erro
     var f: Fields = .init(text);
     var m: Model = undefined;
     m.brand = brand;
+    m.tools = null;
     m.id = f.next();
     m.name = f.next();
     m.series = f.next();
@@ -1038,6 +1120,30 @@ fn parseModel(text: []const u8, brand: u32, n_gcodes: usize, n_beds: usize) Erro
     if (!(m.nozzle > 0)) m.nozzle = 0.4;
     if (!(m.filament > 0)) m.filament = 1.75;
     return m;
+}
+
+/// The diameter of nozzle `k` in a list "0.4;0.6", or null.
+fn diameterAt(list: []const u8, k: usize) ?f64 {
+    var it = std.mem.splitScalar(u8, list, ';');
+    var i: usize = 0;
+    while (it.next()) |t| : (i += 1) {
+        if (i == k) return if (t.len > 0) (std.fmt.parseFloat(f64, t) catch null) else null;
+    }
+    return null;
+}
+
+/// The offset of nozzle `k` in a list "x,y;x,y" (0, 0 if none).
+fn offsetAt(list: []const u8, k: usize) [2]f64 {
+    var it = std.mem.splitScalar(u8, list, ';');
+    var i: usize = 0;
+    while (it.next()) |t| : (i += 1) {
+        if (i != k) continue;
+        var xy = std.mem.splitScalar(u8, t, ',');
+        const x = std.fmt.parseFloat(f64, xy.next() orelse "") catch 0;
+        const y = std.fmt.parseFloat(f64, xy.next() orelse "") catch 0;
+        return .{ x, y };
+    }
+    return .{ 0, 0 };
 }
 
 fn unescape(a: Allocator, text: []const u8) Allocator.Error![]const u8 {

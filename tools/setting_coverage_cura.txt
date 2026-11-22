@@ -32,7 +32,7 @@ machine_heated_bed | derived | filament.bed_temp 0 is no heat
 machine_heated_build_volume | missing | a heated chamber: zslice has machine.chamber_temp for the simulation only
 machine_always_write_active_tool | missing | write T0 on a printer with one extruder
 machine_center_is_zero | same | machine.origin_x and machine.origin_y (the importer sets them)
-machine_extruder_count | same | machine.nozzles (1 or 2)
+machine_extruder_count | same | machine.nozzles (1 to 16)
 extruders_enabled_count | derived | the filaments of the plate
 machine_nozzle_tip_outer_diameter | same | machine.nozzle_tip_radius
 machine_nozzle_expansion_angle | same | machine.nozzle_cone_angle
@@ -53,7 +53,7 @@ gantry_height | same | machine.clearance_height
 machine_time_estimation_factor | not | zslice plans each move with the motion limits for the time
 machine_nozzle_id | derived | machine.nozzle_diameter and machine.nozzle_type
 machine_nozzle_size | same | machine.nozzle_diameter
-machine_use_extruder_offset_to_offset_coords | derived | zslice moves the second nozzle in the G-code of the printer (machine.nozzles)
+machine_use_extruder_offset_to_offset_coords | derived | machine.nozzle.k.offset_x and machine.nozzle.k.offset_y at 0: the firmware corrects the offset
 machine_start_gcode_first | missing | the start G-code before the heat commands
 extruder_prime_pos_z | not | the prime blob of Ultimaker printers
 extruder_prime_pos_abs | not | the prime blob of Ultimaker printers
@@ -95,8 +95,8 @@ machine_extruder_start_pos_abs | not | the park place of an extruder of an Ultim
 machine_extruder_start_pos_x | not | the park place of an extruder of an Ultimaker printer
 machine_extruder_start_pos_y | not | the park place of an extruder of an Ultimaker printer
 machine_nozzle_head_distance | not | the height of a nozzle under the head of an Ultimaker printer
-machine_nozzle_offset_x | missing | the X offset of a second nozzle
-machine_nozzle_offset_y | missing | the Y offset of a second nozzle
+machine_nozzle_offset_x | same | machine.nozzle.k.offset_x
+machine_nozzle_offset_y | same | machine.nozzle.k.offset_y
 
 # resolution
 layer_height | same | project.layer_height

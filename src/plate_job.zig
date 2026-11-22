@@ -378,7 +378,7 @@ pub const PlateJob = struct {
         // A sequential plate has no move streams: a stream starts where the
         // level before it ends, and a lift moves the head between parts.
         if (opts.streams) |extra| if (!pj.sequential) {
-            pj.stamp = planStamp(settings, parts, opts.overrides, keys, boxes, extra ^ (@as(u64, slot_nozzles.second) << 32 | slot_nozzles.count));
+            pj.stamp = planStamp(settings, parts, opts.overrides, keys, boxes, extra ^ slot_nozzles.key());
             const old_streams: ?*PlateJob = if (opts.old) |o| (if (o.stamp == pj.stamp and o.streams.len == pj.levels.len) o else null) else null;
             if (old_streams) |o| {
                 // The same inputs of the plans: the streams are still right,
@@ -812,12 +812,17 @@ pub const PlateJob = struct {
     }
 
     /// The right edge of the place of a tower near the right side: the
-    /// side of the bed, or the edge of the reach of the first nozzle of a
-    /// head with two (the left nozzle of the H2D stops 25 mm from the
-    /// right side), so both nozzles reach the tower.
+    /// side of the bed, or the edge of the reach of a nozzle of a printer
+    /// with more than one (the left nozzle of the H2D stops 25 mm from the
+    /// right side), so each nozzle reaches the tower.
     fn towerEdge(m: settings_mod.Machine) f64 {
-        if (m.nozzles >= 2 and m.nozzle1_max_x > 0) return @min(m.bed_size_x, m.nozzle1_max_x);
-        return m.bed_size_x;
+        var edge = m.bed_size_x;
+        if (m.nozzles < 2) return edge;
+        if (m.nozzle1_max_x > 0) edge = @min(edge, m.nozzle1_max_x);
+        for (1..@min(m.nozzles, settings_mod.max_nozzles)) |k| {
+            if (m.nozzle[k].max_x > 0) edge = @min(edge, m.nozzle[k].max_x);
+        }
+        return edge;
     }
 
     /// The prime tower of the print (see gcode.Tower), or null: a tool
@@ -946,21 +951,34 @@ pub const PlateJob = struct {
     /// The slot of the filament of layer `layer` of the job of group `g`
     /// (see filaments.zig).
     /// The first filament slot that the print uses on each nozzle (0 the
-    /// first, 1 the second of a printer with two nozzles), in print order,
-    /// or null for a nozzle that prints nothing. Support filaments do not
-    /// count (Bambu Studio's first_non_support_filaments). The start
-    /// G-code of a two-nozzle printer prepares this filament for each
-    /// nozzle (M620.17): a filament that the print does not use has no
-    /// tray in the AMS mapping, and the print stops.
-    pub fn firstOfNozzles(self: *const PlateJob) [2]?u32 {
-        var out: [2]?u32 = .{ null, null };
+    /// first, 1 the second, and on), in print order, or null for a nozzle
+    /// that prints nothing. Support filaments do not count (Bambu
+    /// Studio's first_non_support_filaments). The start G-code of a
+    /// two-nozzle Bambu Lab printer prepares this filament for each nozzle
+    /// (M620.17): a filament that the print does not use has no tray in
+    /// the AMS mapping, and the print stops. A tool changer heats only the
+    /// nozzles with a filament (is_extruder_used of PrusaSlicer).
+    pub fn firstOfNozzles(self: *const PlateJob) [settings_mod.max_nozzles]?u32 {
+        var out: [settings_mod.max_nozzles]?u32 = .{null} ** settings_mod.max_nozzles;
         if (self.slots.len < 2) return out;
-        const two = self.resolved.settings.machine.nozzles >= 2;
+        const m = self.resolved.settings.machine;
+        const many = m.nozzles >= 2;
+        // The nozzles that have a filament of the plate: the search stops
+        // when each has its first.
+        var left: usize = 0;
+        if (many) {
+            var seen: [settings_mod.max_nozzles]bool = .{false} ** settings_mod.max_nozzles;
+            for (self.slots) |f| seen[m.nozzleIndex(f.nozzle)] = true;
+            for (seen) |b| left += @intFromBool(b);
+        } else left = 1;
         for (self.levels) |lv| for (self.entries[lv.first..lv.end]) |e| {
             const t = self.toolAt(self.instances[e.instance].group, e.layer);
-            const n: usize = if (two and t < self.slots.len) @min(self.slots[t].nozzle, 1) else 0;
-            if (out[n] == null) out[n] = t;
-            if (out[0] != null and out[1] != null) return out;
+            const n: usize = if (many and t < self.slots.len) m.nozzleIndex(self.slots[t].nozzle) else 0;
+            if (out[n] == null) {
+                out[n] = t;
+                left -|= 1;
+                if (left == 0) return out;
+            }
         };
         return out;
     }
@@ -3309,7 +3327,7 @@ test "second nozzle: a speed limit of 50 mm/s slows only the lines of the second
     const a = arena_state.allocator();
     var s = twoNozzleSettings();
     const before = try ToolMoves.init(a, try twoNozzleGcode(a, s));
-    s.machine.nozzle2_max_speed = 50;
+    s.machine.nozzle[1].max_speed = 50;
     const after = try ToolMoves.init(a, try twoNozzleGcode(a, s));
     // Before, the second nozzle prints faster than 50 mm/s; after, no
     // line of it does (the F values of its lines).
@@ -3321,20 +3339,20 @@ test "second nozzle: a speed limit of 50 mm/s slows only the lines of the second
     try testing.expectEqual(before.lines[0].items.len, after.lines[0].items.len);
     for (before.lines[0].items, after.lines[0].items) |x, y| try testing.expectEqualStrings(x, y);
     // A ratio of the speeds: half the speed of each line.
-    s.machine.nozzle2_max_speed = 0;
-    s.machine.nozzle2_speed = 0.5;
+    s.machine.nozzle[1].max_speed = 0;
+    s.machine.nozzle[1].speed = 0.5;
     const half = try ToolMoves.init(a, try twoNozzleGcode(a, s));
     try testing.expectApproxEqAbs(before.max_feed[1] / 2, half.max_feed[1], 0.02);
     try testing.expectEqual(before.lines[0].items.len, half.lines[0].items.len);
     // On a printer with one nozzle, the settings of the second change no line.
     var one = s;
     one.machine.nozzles = 1;
-    one.machine.nozzle2_speed = 0;
+    one.machine.nozzle[1].speed = 0;
     const plain = try twoNozzleGcode(a, one);
-    one.machine.nozzle2_speed = 0.5;
-    one.machine.nozzle2_max_speed = 50;
-    one.machine.nozzle2_line_width = 0.6;
-    one.machine.nozzle2_retract_length = 3;
+    one.machine.nozzle[1].speed = 0.5;
+    one.machine.nozzle[1].max_speed = 50;
+    one.machine.nozzle[1].line_width = 0.6;
+    one.machine.nozzle[1].retract_length = 3;
     // The G-code, but the list of the settings at its end.
     const body = struct {
         fn f(g: []const u8) []const u8 {
@@ -3344,13 +3362,20 @@ test "second nozzle: a speed limit of 50 mm/s slows only the lines of the second
     try testing.expectEqualStrings(body(plain), body(try twoNozzleGcode(a, one)));
 }
 
+/// Two filaments: the second on the second nozzle.
+fn twoSlots() settings_mod.SlotNozzles {
+    var out: settings_mod.SlotNozzles = .{ .count = 2 };
+    out.nozzle[1] = 1;
+    return out;
+}
+
 test "second nozzle: its line width changes only its lines" {
     var arena_state: std.heap.ArenaAllocator = .init(testing.allocator);
     defer arena_state.deinit();
     const a = arena_state.allocator();
     var s = twoNozzleSettings();
     const before = try ToolMoves.init(a, try twoNozzleGcode(a, s));
-    s.machine.nozzle2_line_width = 0.6;
+    s.machine.nozzle[1].line_width = 0.6;
     const after = try ToolMoves.init(a, try twoNozzleGcode(a, s));
     // The main nozzle: the same lines.
     try testing.expectEqual(before.lines[0].items.len, after.lines[0].items.len);
@@ -3360,13 +3385,13 @@ test "second nozzle: its line width changes only its lines" {
     try testing.expect(after.lines[1].items.len < before.lines[1].items.len);
     try testing.expectApproxEqRel(before.e[1], after.e[1], 0.15);
     // A diameter of its own: 1.1 times it with the automatic width.
-    s.machine.nozzle2_line_width = 0;
-    s.machine.nozzle2_diameter = 0.6;
-    const r = try s.resolveFor(.{ .count = 2, .second = 0b10 });
+    s.machine.nozzle[1].line_width = 0;
+    s.machine.nozzle[1].diameter = 0.6;
+    const r = try s.resolveFor(twoSlots());
     try testing.expectApproxEqAbs(@as(f64, 0.44), r.line_width, 1e-9);
     var on2 = s;
     on2.project.filament = 2;
-    const r2 = try on2.resolveFor(.{ .count = 2, .second = 0b10 });
+    const r2 = try on2.resolveFor(twoSlots());
     try testing.expectApproxEqAbs(@as(f64, 0.66), r2.line_width, 1e-9);
     try testing.expectApproxEqAbs(@as(f64, 0.75), r2.first_layer_line_width, 1e-9);
     try testing.expectEqual(@as(f64, 0.6), r2.settings.machine.nozzle_diameter);
@@ -3378,8 +3403,8 @@ test "second nozzle: its retraction" {
     const a = arena_state.allocator();
     var s = twoNozzleSettings();
     s.machine.retract_length = 0.8;
-    s.machine.nozzle2_retract_length = 2;
-    s.machine.nozzle2_retract_speed = 20;
+    s.machine.nozzle[1].retract_length = 2;
+    s.machine.nozzle[1].retract_speed = 20;
     const g = try twoNozzleGcode(a, s);
     // Each retraction of the second nozzle is 2 mm at 20 mm/s, and each
     // of the first 0.8 mm.
@@ -3747,3 +3772,68 @@ test "plate job: infill on the second nozzle of the X2D: a tower on each layer u
     }
     try testing.expectEqual(changes, flushes);
 }
+
+test "tool changer: the moved settings of the second nozzle load into nozzle 1" {
+    var arena_state: std.heap.ArenaAllocator = .init(testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    var s: Settings = .{};
+    var diag: @import("profile.zig").Diagnostic = .{};
+    try @import("profile.zig").apply(a, &s, .machine, "old", "nozzles = 2\nnozzle2_diameter = 0.6\nnozzle2_max_speed = 200\nnozzle2_min_x = 20.5\nnozzle2_retract_length = 2\n", null, &diag);
+    try testing.expectEqual(@as(f64, 0.6), s.machine.nozzle[1].diameter);
+    try testing.expectEqual(@as(f64, 200), s.machine.nozzle[1].max_speed);
+    try testing.expectEqual(@as(f64, 20.5), s.machine.nozzle[1].min_x);
+    try testing.expectEqual(@as(f64, 2), s.machine.nozzle[1].retract_length);
+    // Saved again, the text has the new names, and loads the same.
+    var out: Writer.Allocating = .init(a);
+    try @import("profile.zig").writeChanged(s, .machine, &out.writer);
+    try testing.expect(std.mem.indexOf(u8, out.written(), "\nnozzle.1.diameter = 0.6\n") != null);
+    try testing.expect(std.mem.indexOf(u8, out.written(), "nozzle2_") == null);
+    var t: Settings = .{};
+    try @import("profile.zig").apply(a, &t, .machine, "new", out.written(), null, &diag);
+    try testing.expectEqual(s.machine.nozzle[1].diameter, t.machine.nozzle[1].diameter);
+    try testing.expectEqual(s.machine.nozzle[1].min_x, t.machine.nozzle[1].min_x);
+}
+
+test "tool changer: two filaments on one nozzle change with a pause" {
+    const gpa = testing.allocator;
+    var arena_state: std.heap.ArenaAllocator = .init(gpa);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    var s = twoNozzleSettings();
+    s.machine.nozzles = 3;
+    s.machine.tool_numbers = .nozzle;
+    s.machine.standby_delta = -50;
+    // Both filaments on nozzle 2: a pause, and no tool change.
+    var m1 = try testBox(60, 90, 90, 120, 3);
+    defer m1.deinit(gpa);
+    var m2 = try testBox(130, 90, 160, 120, 3);
+    defer m2.deinit(gpa);
+    s.filament.nozzle = 2;
+    var second = s.filament;
+    second.color = "#d93a3a";
+    const parts = [_]PartInput{
+        .{ .mesh = &m1, .part = 0 },
+        .{ .mesh = &m2, .part = 1, .changes = &.{.{ .name = "project.filament", .value = "2" }} },
+    };
+    var pj = try PlateJob.init(gpa, s, &parts, .{ .filaments = &.{second} });
+    defer pj.deinit();
+    var out: Writer.Allocating = .init(a);
+    _ = try pj.writeGcode(&out.writer);
+    const g = out.written();
+    try testing.expect(std.mem.indexOf(u8, g, "M600") != null);
+    try testing.expect(std.mem.indexOf(u8, g, "\nT1\n") == null);
+    try testing.expect(std.mem.indexOf(u8, g, "the nozzle waits") == null);
+    // Another nozzle for the second filament: T1 and its wait, the
+    // standby of nozzle 2, and no pause.
+    second.nozzle = 1;
+    var pj2 = try PlateJob.init(gpa, s, &parts, .{ .filaments = &.{second} });
+    defer pj2.deinit();
+    var out2: Writer.Allocating = .init(a);
+    _ = try pj2.writeGcode(&out2.writer);
+    const g2 = out2.written();
+    try testing.expect(std.mem.indexOf(u8, g2, "M600") == null);
+    try testing.expect(std.mem.indexOf(u8, g2, "\nT1\nM109 T1 S") != null);
+    try testing.expect(std.mem.indexOf(u8, g2, "\nM104 T2 S") != null);
+}
+
