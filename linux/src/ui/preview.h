@@ -32,6 +32,10 @@ void zg_preview_refresh(GtkWidget *preview);
  * zs_app_sim_adopt): the 3D view shows it. */
 void zg_preview_simulated(GtkWidget *preview);
 
+/* The count of the problems of the check on the Check button (0 hides
+ * it): the same count as the badge of the print card. */
+void zg_preview_set_check_count(GtkWidget *preview, int n);
+
 /* Shows layer `layer` on top (the top knob of the layer slider goes
  * there), for example to show an island. */
 void zg_preview_show_layer(GtkWidget *preview, size_t layer);

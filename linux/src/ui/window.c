@@ -345,17 +345,38 @@ static const char *warning_text(Window *w) {
     return NULL;
 }
 
+/* The problems of the check (a warning or worse), as the Check button
+ * and the print card count them. 0 until the check of the slice is
+ * ready. */
+static int check_problems(Window *w) {
+    zs_app *core = zg_model_core(w->model);
+    if (zs_app_state(core) != ZS_STATE_DONE || !zs_app_checks_ready(core)) return 0;
+    const zs_issue *issues = NULL;
+    size_t n = 0;
+    const char *text = NULL;
+    if (zs_app_checks(core, &issues, &n, &text) != ZS_OK) return 0;
+    int count = 0;
+    for (size_t i = 0; i < n; i++)
+        if (issues[i].severity >= 1) count++;
+    return count;
+}
+
 static void update_badge(Window *w) {
     if (!w->sum_badge) return;
     const char *warn = warning_text(w);
+    int problems = check_problems(w);
+    zg_preview_set_check_count(w->preview, problems);
     int tips = 0;
     for (GtkWidget *c = gtk_widget_get_first_child(w->refine_box); c; c = gtk_widget_get_next_sibling(c))
         if (g_object_get_data(G_OBJECT(c), "zg-line")) tips++;
-    if (warn) gtk_widget_add_css_class(w->sum_badge, "warn");
+    /* The badge counts the problems of the Check (the same list as the
+     * Check button), or a warning of the card, as on the web. */
+    if (warn || problems > 0) gtk_widget_add_css_class(w->sum_badge, "warn");
     else gtk_widget_remove_css_class(w->sum_badge, "warn");
-    gtk_widget_set_visible(w->sum_badge, warn || tips > 0);
+    gtk_widget_set_visible(w->sum_badge, warn || problems > 0 || tips > 0);
     char text[32];
-    if (warn) g_snprintf(text, sizeof text, "Check");
+    if (problems > 0) g_snprintf(text, sizeof text, "%d to check", problems);
+    else if (warn) g_snprintf(text, sizeof text, "Check");
     else if (tips == 1) g_snprintf(text, sizeof text, "1 refinement");
     else g_snprintf(text, sizeof text, "%d refinements", tips);
     gtk_label_set_text(GTK_LABEL(w->sum_badge), text);

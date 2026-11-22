@@ -60,6 +60,7 @@ typedef struct {
     /* The gaps view: the toggle, and the number of gaps of the layer. */
     GtkWidget *gaps, *gap_count;
     GtkWidget *check, *check_list; /* the printability check */
+    GtkWidget *check_count; /* the count of its problems, on the button */
     /* The plates: a button for each, and "+". */
     GtkWidget *plates, *plate_prev, *plate_name, *plate_next, *plate_all;
     /* The key of the signs of the plates that the view has (see
@@ -2129,10 +2130,20 @@ static GtkWidget *tool_strip(Preview *p) {
     p->check = strip_button(gtk_menu_button_new(), 5, NULL,
                             "Check the print: overhangs with no support, bridges, shapes in the air, lines over the flow of the hot end, layers that cool too little, parts that can tip over");
     gtk_menu_button_set_direction(GTK_MENU_BUTTON(p->check), GTK_ARROW_RIGHT);
+    /* The count of the problems, at the top right corner, as on the web. */
+    p->check_count = gtk_label_new("");
+    gtk_widget_add_css_class(p->check_count, "zg-check-count");
+    gtk_widget_set_halign(p->check_count, GTK_ALIGN_END);
+    gtk_widget_set_valign(p->check_count, GTK_ALIGN_START);
+    gtk_widget_set_can_target(p->check_count, FALSE);
+    gtk_widget_set_visible(p->check_count, FALSE);
+    gtk_overlay_add_overlay(GTK_OVERLAY(gtk_menu_button_get_child(GTK_MENU_BUTTON(p->check))), p->check_count);
     gtk_box_append(GTK_BOX(box), p->check);
     gtk_widget_set_halign(box, GTK_ALIGN_START);
-    gtk_widget_set_valign(box, GTK_ALIGN_CENTER);
+    /* At the top left of the view, as on the web. */
+    gtk_widget_set_valign(box, GTK_ALIGN_START);
     gtk_widget_set_margin_start(box, 10);
+    gtk_widget_set_margin_top(box, 18);
     return box;
 }
 
@@ -2567,6 +2578,19 @@ static void on_mark_activated(ZgLayerRange *range, guint index, gpointer data) {
             return;
         }
     }
+}
+
+void zg_preview_set_check_count(GtkWidget *preview, int n) {
+    Preview *p = g_object_get_data(G_OBJECT(preview), "zg-preview");
+    if (!p || !p->check_count) return;
+    char buf[16];
+    g_snprintf(buf, sizeof buf, "%d", n);
+    gtk_label_set_text(GTK_LABEL(p->check_count), buf);
+    gtk_widget_set_visible(p->check_count, n > 0);
+    char *tip = n > 0 ? g_strdup_printf("Check the print: %d %s to look at", n, n == 1 ? "problem" : "problems")
+                      : g_strdup("Check the print: overhangs with no support, bridges, shapes in the air, lines over the flow of the hot end, layers that cool too little, parts that can tip over");
+    gtk_widget_set_tooltip_text(p->check, tip);
+    g_free(tip);
 }
 
 void zg_preview_refresh(GtkWidget *preview) {

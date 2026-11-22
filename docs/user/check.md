@@ -6,7 +6,7 @@ Find the problems before you print: overhangs with no support, gaps in the solid
 
 ## Check
 
-Click **Check**, the last button of the tool strip. The list gives, the worst first:
+Click **Check**, the last button of the tool strip. A count on the button gives the number of problems. The print card gives the same count: "3 to check". The list gives, the worst first:
 
 - an overhang with support off;
 - a bridge, with its span (a long bridge can sag);
@@ -22,7 +22,7 @@ Each issue says what it is, and which setting changes it. Click an issue: the vi
 
 ![The 2D view of layer 50 of the Benchy with gap fill off: a gap in red between the walls. The header says 16 gaps, 34.39 mm²](../img/gaps.webp "Gaps show in red: areas that should be solid, with no line on them.")
 
-1. Press G. The gaps of the top layer show in red. The header gives their count and their area.
+1. Click **Gaps** in the tool strip. Gaps has no key. The gaps of the top layer show in red. The header gives their count and their area.
 2. Click a gap. The panel gives its size and the settings that can close it, the best first.
 3. Click **Apply** for the whole print, or **This layer** for the layer of the gap.
 
