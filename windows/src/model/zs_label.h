@@ -32,6 +32,17 @@ namespace zs
     extern char const *const label_kinds[label_kind_count];
     extern wchar_t const *const label_kind_names[label_kind_count];
 
+    // The modes of a label: their names in the JSON and on the card.
+    enum LabelMode { label_ink, label_raised, label_cut, label_mode_count };
+    extern char const *const label_modes[label_mode_count];
+    extern wchar_t const *const label_mode_names[label_mode_count];
+    // The relief of a raised or cut label with a relief of 0 (the core).
+    inline constexpr double label_default_relief = 0.6;
+    // The height of a new SVG shape, mm.
+    inline constexpr double label_svg_size = 15.0;
+    // The snap distance of the smart guides, points of the screen.
+    inline constexpr double label_snap_px = 6.0;
+
     // A number field of a kind: its name on the card, unit, range, and tip.
     struct LabelField
     {
@@ -54,6 +65,8 @@ namespace zs
         double depth = 0; // mm; 0 is one line width
         bool has_stretch = false;
         double stretch[2] = { 1, 1 };
+        int mode = label_ink;
+        double relief = 0; // mm; 0 is label_default_relief
         // The shapes. A copy of a Label shares them until LabelOwnItems.
         Json::JsonArray items;
     };
@@ -108,4 +121,55 @@ namespace zs
     void LabelToBed(Label const &l, double x, double y, double lift, double out[3]);
     // The filament of a new label on a part in filament base (from 1).
     int LabelNextFilament(int base, int count);
+
+    // ---- the handles and the smart guides ----
+    //
+    // The selected label has a frame on the surface, a square at each
+    // corner (a drag resizes it), and a round handle over it (a drag turns
+    // it). The sizes are points of the screen. mpp is the mm of the plane in
+    // one point.
+    struct LabelHandles
+    {
+        double box[4]; // the frame: s0, t0, s1, t1 (mm)
+        double hs;     // the half side of a corner square
+        double turn[2], r; // the turn handle
+    };
+    void LabelHandlesOf(double const box[4], double mpp, LabelHandles &g);
+    // The handle at (x, y) of the plane: 1 a corner (corner gets [sx, sy],
+    // +1 the high side), 2 the turn handle, 0 none.
+    int LabelHandleHit(LabelHandles const &g, double x, double y, int corner[2]);
+    // A resize from a corner of box b0 to the point p of the plane. The
+    // opposite corner (anchor) stays. free: each axis on its own, else one
+    // scale. box gets the new box, and k the scales.
+    void LabelResizeBox(double const b0[4], int const corner[2], double const p[2], bool free, double box[4], double anchor[2], double k[2]);
+    // Resizes a label by k about the point anchor of its plane. One scale
+    // changes the sizes of the shapes. Two scales change the stretch.
+    void LabelResize(Label &l, double const anchor[2], double const k[2], bool free);
+    // Turns the label by degrees about the point c of its plane.
+    void LabelTurnAbout(Label &l, double degrees, double const c[2]);
+    // An SVG shape of a source, at the height of a new shape.
+    Json::JsonObject LabelSvgItem(std::wstring const &svg);
+    // The SVG source as a shape of the label: in place of the new text
+    // "LABEL", else under the shapes. box is the outline box, or null.
+    void LabelAddSvg(Label &l, std::wstring const &svg, double const box[4]);
+    // The name of a label of an SVG file: the file name with no ".svg", at
+    // most 120 bytes of UTF-8.
+    std::string LabelSvgName(std::wstring const &path);
+    // Label l is in the plane of (origin, normal): the normals within 2.5
+    // degrees, and the origin within 0.2 mm of the plane.
+    bool LabelSamePlane(double const origin[3], double const normal[3], Label const &l);
+
+    // Another label for the snap: its frame and its outline box.
+    struct LabelSnapOther
+    {
+        Label const *label;
+        double box[4];
+    };
+    // The JSON of zs_label_snap. corner is null for a move. face is the JSON
+    // of zs_label_face, or null.
+    std::string LabelSnapJson(Label const &l, double const box[4], char const *op, int const *corner, bool aspect, double tol,
+                              std::vector<LabelSnapOther> const &others, std::string const *face);
+    // The answer of zs_label_snap: the box, the move, and the guide lines
+    // (s0, t0, s1, t1 each). False for bad JSON.
+    bool LabelSnapParse(std::string const &json, double box[4], double d[2], std::vector<double> &guides);
 }

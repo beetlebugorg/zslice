@@ -218,6 +218,8 @@ namespace winrt::ZSlice::implementation
         {
             if (tool == Tool::Paint)
                 PaintHover(position.X, position.Y);
+            if (tool == Tool::Label)
+                LabelHover(position.X, position.Y);
             SupportPointer(position.X, position.Y);
             return;
         }
@@ -227,6 +229,7 @@ namespace winrt::ZSlice::implementation
         last_y = position.Y;
         if (tool_drag)
         {
+            pointer_alt = Has(mods, VirtualKeyModifiers::Menu);
             ToolDrag(position.X, position.Y, Has(mods, VirtualKeyModifiers::Shift));
         }
         // An orbit is in points. A pan follows the pointer, in pixels.

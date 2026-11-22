@@ -470,6 +470,8 @@ namespace winrt::ZSlice::implementation
         void LabelRelease();
         void LabelClick(double x, double y);
         bool LabelWheel(double x, double y, int delta, bool shift);
+        void LabelHover(double x, double y);
+        void LabelDropSvg(std::wstring const &path, double x, double y);
         bool LabelKey(Windows::System::VirtualKey key);
         void LabelReload();
         void LabelPlace();

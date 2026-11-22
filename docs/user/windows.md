@@ -73,11 +73,14 @@ Each click or stroke is one step of the history. Esc closes the tool.
 Press **E**, and click a face of a part. A label "LABEL" goes there, and its card opens. Type the text. The view shows each key at once. See [Labels on a part](labels.md) for sizes and costs.
 
 - **Move**: drag the label. It follows the surface. Hold Shift to keep it in its plane.
-- **Turn**: turn the wheel over the label, 1° a step. Hold Shift for 15° steps.
-- **Scale**: drag the yellow handle at its corner.
+- **Resize**: drag a white corner square. The opposite corner stays. Hold Shift to change the width and the height on their own.
+- **Turn**: drag the round handle over the label, or turn the wheel over the label, 1° a step. Hold Shift for 15° steps.
+- **Smart guides**: a move or a resize snaps to the other labels, the holes, and the centers of the face and the part. A thin pink line shows each snap. Hold Alt for no snap.
 - **Delete**: press Delete, or click **Delete the label**.
 
-The card has the shapes (text, line, bar, ring, ticks, or a free line), the turn, the filament, the depth, and what the label costs in filament changes. Esc closes the card. Esc again closes the tool.
+The card has the shapes (text, line, bar, ring, ticks, a free line, or an SVG picture), the turn, the print mode (**Ink**, **Raised**, or **Cut in**) with its relief, the filament, the depth, and what the label costs in filament changes. Esc closes the card. Esc again closes the tool.
+
+**Place an SVG…** on the card puts the filled shapes of an SVG file on the label. You can also drop an SVG file on a part: a new label of the picture goes there.
 
 ## See the print
 

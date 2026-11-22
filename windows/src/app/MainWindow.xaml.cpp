@@ -501,7 +501,21 @@ namespace winrt::ZSlice::implementation
         auto data = e.DataView();
         if (!data.Contains(Windows::ApplicationModel::DataTransfer::StandardDataFormats::StorageItems()))
             co_return;
+        auto drop_at = e.GetPosition(ViewPanel());
         auto items = co_await data.GetStorageItemsAsync();
+        // An SVG file makes a label on the part under the pointer.
+        std::wstring svg;
+        for (auto const &item : items)
+        {
+            std::wstring path{ item.Path() };
+            if (item.IsOfType(Storage::StorageItemTypes::File) && path.size() >= 4 && _wcsicmp(path.c_str() + path.size() - 4, L".svg") == 0)
+                svg = path;
+        }
+        if (!svg.empty())
+        {
+            LabelDropSvg(svg, drop_at.X, drop_at.Y);
+            co_return;
+        }
         for (auto const &item : items)
         {
             std::wstring path{ item.Path() };
