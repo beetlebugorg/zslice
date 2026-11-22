@@ -481,7 +481,7 @@ select.choice {
 /* Over the panel (20) and the history card (40). */
 .menu-layer { position: fixed; inset: 0; z-index: 45; }
 .menu {
-  position: absolute; min-width: 180px; max-height: 70vh; overflow-y: auto;
+  position: absolute; min-width: 180px; max-height: calc(100vh - 8px); overflow-y: auto;
   background: var(--menu); color: var(--fg); border-radius: 10px; padding: 6px;
   box-shadow: 0 2px 12px var(--shadow), 0 0 0 1px var(--border);
 }

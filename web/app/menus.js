@@ -119,7 +119,16 @@ function open(items, place, closed) {
   const h = menu.offsetHeight;
   let [x, y] = place(w, h);
   x = Math.max(4, Math.min(x, window.innerWidth - w - 4));
-  y = Math.max(4, Math.min(y, window.innerHeight - h - 4));
+  // A long menu keeps its place and takes the height down to the bottom
+  // of the window, so that all of it shows. A menu with too little room
+  // there moves up.
+  const room = window.innerHeight - Math.max(4, y) - 4;
+  if (h > room && room >= 240) {
+    y = Math.max(4, y);
+    menu.style.maxHeight = `${room}px`;
+  } else {
+    y = Math.max(4, Math.min(y, window.innerHeight - h - 4));
+  }
   menu.style.left = `${x}px`;
   menu.style.top = `${y}px`;
   l.onpointerdown = (e) => {
