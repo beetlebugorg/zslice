@@ -85,6 +85,7 @@
 //   rangelog, rangeclose, rangeadd, rangeset name value, rangereset name,
 //   rangechip k, rangebody k, rangeshot path
 // The print order of the part card: orderlog.
+// Two nozzles: nozzleset i n, partfilament i k, settingspane 0|1, nozzlelog.
 // Each step writes the state to the log (ZSLICE_LOG).
 //
 // SPDX-License-Identifier: AGPL-3.0-or-later
@@ -504,6 +505,34 @@ namespace winrt::ZSlice::implementation
             zs::Log("dev: part order shown %d '%s' earlier %d later %d, sequence %s\n", PartOrderRow().Visibility() == Microsoft::UI::Xaml::Visibility::Visible ? 1 : 0,
                     to_string(PartOrderText().Text()).c_str(), PartEarlier().IsEnabled() ? 1 : 0, PartLater().IsEnabled() ? 1 : 0,
                     model->GetSetting("project.print_sequence").c_str());
+        }
+        else if (verb == L"nozzleset" && words.size() >= 2)
+        {
+            // nozzleset i n: filament i prints with nozzle n (0 main, 1 second).
+            int rc = zs_app_filament_set(model->Active(), (size_t)number(0), "filament.nozzle", zs::ToUtf8(words[1]).c_str());
+            zs::Log("dev: nozzle of filament %d set: %d\n", (int)number(0), rc);
+            model->RequestSlice();
+        }
+        else if (verb == L"partfilament" && words.size() >= 2)
+        {
+            // partfilament i k: part i prints with filament k.
+            int rc = zs_app_part_setting_set(model->Active(), (size_t)number(0), "project.filament", zs::ToUtf8(words[1]).c_str());
+            zs::Log("dev: nozzle test: part filament set: %d\n", rc);
+            model->RequestSlice();
+        }
+        else if (verb == L"nozzlelog")
+        {
+            // The sections of the pane, and the title and limits of the line card.
+            bool second = false;
+            for (auto const &child : SettingsList().Children())
+                if (auto row = child.try_as<Microsoft::UI::Xaml::Controls::Button>())
+                    second = second || unbox_value_or<hstring>(row.Content(), L"") == L"Second nozzle";
+            zs::Log("dev: nozzle count %s, sections page %d, second nozzle row %d, line title '%s', limits '%s'\n", model->GetSetting("machine.nozzles").c_str(),
+                    settings_page == SettingsPage::Sections ? 1 : 0, second ? 1 : 0, to_string(LineTitle().Text()).c_str(), to_string(LineNozzle().Text()).c_str());
+        }
+        else if (verb == L"settingspane")
+        {
+            ShowSettingsPane(number(0) != 0);
         }
         else if (verb == L"rangeshot")
         {

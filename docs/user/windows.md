@@ -108,6 +108,8 @@ When the plate prints one part at a time (`project.print_sequence` is `by_object
 
 The card of a line shows its planned speed, its real speed, and its flow, and the settings that matter most for it. **Fade the others** shows the line alone. **Don't print this line** and **±10 % plastic** change this line only, and the change stays through new slices.
 
+On a printer with two nozzles, the title of the card says **main nozzle** or **2nd nozzle**, and a line of the second nozzle shows its speed limits. The printer settings have a **Second nozzle** section only on such a printer.
+
 ## Layers
 
 With the Select tool, press on a line and drag up or down. The body of that line turns yellow, from its layer to the layer under the pointer. Shift+K and Shift+J grow a range of layers up or down from the selected line, or from the top layer. Shift+Up and Shift+Down move the bottom of the layers that show.

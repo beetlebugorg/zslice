@@ -411,7 +411,9 @@ namespace winrt::ZSlice::implementation
             LineCard().Visibility(Visibility::Collapsed);
             return;
         }
-        LineTitle().Text(zs::ToWide(info.title) + L" · layer " + std::to_wstring(info.layer + 1));
+        // A printer with two nozzles: the nozzle of the line.
+        wchar_t const *nozzle = info.nozzle == 2 ? L" · 2nd nozzle" : info.nozzle == 1 ? L" · main nozzle" : L"";
+        LineTitle().Text(zs::ToWide(info.title) + L" · layer " + std::to_wstring(info.layer + 1) + nozzle);
         wchar_t text[64];
         swprintf_s(text, L"%.0f mm/s", info.planned_speed);
         LinePlanned().Text(text);
@@ -422,6 +424,10 @@ namespace winrt::ZSlice::implementation
         std::wstring note = zs::ToWide(info.slow_text != nullptr ? info.slow_text : "");
         LineNote().Text(note);
         LineNote().Visibility(note.empty() ? Visibility::Collapsed : Visibility::Visible);
+        // The speed limits of the second nozzle.
+        std::wstring limits = info.nozzle == 2 && info.nozzle_text != nullptr ? zs::ToWide(info.nozzle_text) : L"";
+        LineNozzle().Text(limits);
+        LineNozzle().Visibility(limits.empty() ? Visibility::Collapsed : Visibility::Visible);
 
         zs_measure m{};
         size_t segment = selected_segment < 0 ? 0 : (size_t)selected_segment;

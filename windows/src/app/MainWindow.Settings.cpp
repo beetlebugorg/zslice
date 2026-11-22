@@ -182,6 +182,7 @@ namespace winrt::ZSlice::implementation
         SettingsBack().Visibility(Visibility::Collapsed);
         SettingsCrumb().Text(L"Settings");
         size_t n = zs_setting_count();
+        settings_two_nozzles = TwoNozzles();
         for (auto const &g : group_titles)
         {
             TextBlock heading;
@@ -198,6 +199,9 @@ namespace winrt::ZSlice::implementation
                     continue;
                 if (last != nullptr && strcmp(last, info.section) == 0)
                     continue;
+                // "Second nozzle" only on a printer with two nozzles.
+                if (!settings_two_nozzles && strcmp(info.group, "machine") == 0 && strcmp(info.section, "Second nozzle") == 0)
+                    continue;
                 last = info.section;
                 Button row = RowButton(info.section[0] != 0 ? zs::ToWide(info.section) : L"General");
                 char const *group = info.group, *section = info.section;
@@ -205,6 +209,11 @@ namespace winrt::ZSlice::implementation
                 SettingsList().Children().Append(row);
             }
         }
+    }
+
+    bool MainWindow::TwoNozzles()
+    {
+        return model != nullptr && strtod(model->GetSetting("machine.nozzles").c_str(), nullptr) >= 2;
     }
 
     void MainWindow::ShowSection(char const *group, char const *section)
@@ -593,6 +602,13 @@ namespace winrt::ZSlice::implementation
     {
         if (model == nullptr)
             return;
+        // The "Second nozzle" section comes and goes with the second nozzle.
+        if (settings_page == SettingsPage::Sections && TwoNozzles() != settings_two_nozzles)
+        {
+            ShowSections();
+            // The list of the pane also refreshes the line card.
+            setting_editors.insert(setting_editors.end(), line_editors.begin(), line_editors.end());
+        }
         for (auto &editor : setting_editors)
             editor.refresh();
         RefreshSearchValues();

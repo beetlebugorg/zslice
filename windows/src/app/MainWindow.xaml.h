@@ -163,6 +163,7 @@ namespace winrt::ZSlice::implementation
         void WireSettings();
         void ShowSettingsPane(bool show);
         void ShowSections();
+        bool TwoNozzles();
         void ShowSection(char const *group, char const *section);
         void ShowSearch(std::wstring const &query);
         void ShowDetail(char const *name);
@@ -589,6 +590,8 @@ namespace winrt::ZSlice::implementation
         char const *settings_group = nullptr;
         char const *settings_section = nullptr;
         std::wstring settings_query;
+        // The section list has the "Second nozzle" section.
+        bool settings_two_nozzles = false;
         // True while the code fills an editor: its change event is no edit.
         bool filling_editor = false;
 
