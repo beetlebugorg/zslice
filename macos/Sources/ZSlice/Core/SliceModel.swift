@@ -135,6 +135,13 @@ final class SliceModel {
             refreshSaveBytes()
         }
     }
+    /// The time of the last open or save of the window: the count of the
+    /// history button starts there. Before one (a session that comes
+    /// back), each change counts.
+    private(set) var savedAt = Date.distantPast
+
+    func markSaved() { savedAt = Date() }
+
     /// The project file of the plates for a save (ProjectFile.swift).
     @ObservationIgnored let saveBytes = SaveBytes()
     @ObservationIgnored var saveBytesDue = false
@@ -247,8 +254,11 @@ final class SliceModel {
         project = nil
         stats = nil
         state = .ready
-        // Opening a file is a step of the history.
+        // Opening a file is a step of the history, and the count of the
+        // history button starts after it.
         history.noteChange()
+        history.commit()
+        markSaved()
         requestSlice()
     }
 

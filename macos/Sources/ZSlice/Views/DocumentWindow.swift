@@ -117,6 +117,7 @@ struct DocumentWindow: View {
             w.title = doc.displayName
         }
         doc.updateChangeCount(.changeCleared)
+        workspace.model.markSaved()
         // For tests: ZSLICE_DOC_SAVE=path saves through the NSDocument, and
         // ZSLICE_DOC_AUTOSAVE=1 autosaves, after a change of the wall count.
         let env = ProcessInfo.processInfo.environment
@@ -152,12 +153,15 @@ struct DocumentWindow: View {
         return parts.joined(separator: " · ")
     }
 
-    /// The 3D view fills the window, under the toolbar too. Each control
+    /// The 3D view fills the window down to the bottom bar, under the
+    /// toolbar too. Each control
     /// is an overlay on an edge of the content area, so no control can make
     /// the window wider than it is: a narrow window shrinks the scrub bar.
     var body: some View {
         Color.clear
-            .background { SliceView(canvas: workspace.canvas).ignoresSafeArea() }
+            // The view ends at the top of the bottom bar, so the signs of
+            // the plates are never under it.
+            .background { SliceView(canvas: workspace.canvas).padding(.bottom, workspace.dockHeight).ignoresSafeArea() }
             // The work bar: the draft, the exact slice, and the simulation.
             .overlay(alignment: .top) { WorkBar(work: workspace.model.work) }
             .overlay(alignment: .topLeading) {
@@ -292,9 +296,6 @@ struct DocumentWindow: View {
                     }
                     if workspace.cardOpen, let info = workspace.lineInfo {
                         LineCard(workspace: workspace, info: info, area: geo.size)
-                    }
-                    if let c = workspace.historyCard {
-                        HistoryCard(workspace: workspace, state: c, origin: workspace.cardsOrigin, area: geo.size)
                     }
                 }
                 .ignoresSafeArea()
@@ -764,39 +765,52 @@ struct PrintAction: View {
 }
 
 /// The one bar at the bottom of the window (the slice is the UI, so the
-/// chrome stays small): the plates and the history in the first row, the
-/// replay in the second, and at the right end the time, a badge of the
-/// notes, and Export or Print. A click on the time opens the details above
-/// the bar (PrintCard): the notes, the totals, and the settings.
+/// chrome stays small), in one row: the plates | undo, redo, and the
+/// history | the replay, which fills the row | the time, a badge of the
+/// notes, and Export or Print. A thin line comes before each group. In a
+/// narrow window the replay goes to a second row. A click on the time
+/// opens the details above the bar (PrintCard): the notes, the totals, and
+/// the settings.
 struct BottomBar: View {
     let workspace: Workspace
     private var model: SliceModel { workspace.model }
+    /// The width of the bar: under it the replay has a row of its own.
+    @State private var width: CGFloat = 1200
+    static let oneRowWidth: CGFloat = 940
+
+    private var scrub: some View {
+        ScrubBar(workspace: workspace, bare: true)
+            .opacity(workspace.layerCount > 0 ? 1 : 0)
+            .disabled(workspace.layerCount == 0)
+    }
+
+    private var line: some View { Divider().frame(height: 26) }
 
     var body: some View {
-        HStack(spacing: 14) {
-            VStack(alignment: .leading, spacing: 4) {
-                HStack(spacing: 10) {
-                    PlateBar(workspace: workspace, bare: true)
-                    Spacer(minLength: 8)
-                    Timeline(history: model.history, bare: true, workspace: workspace) { workspace.historyOpen = true }
-                        .popover(isPresented: Bindable(workspace).historyOpen, arrowEdge: .top) {
-                            HistoryPage(history: model.history, workspace: workspace)
-                                .frame(width: 400, height: 480)
-                        }
-                        .fixedSize()
+        let narrow = width < Self.oneRowWidth
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 12) {
+                PlateBar(workspace: workspace, bare: true)
+                    .fixedSize()
+                line
+                HistoryTools(workspace: workspace)
+                if narrow {
+                    Spacer(minLength: 0)
+                } else {
+                    line
+                    scrub
                 }
-                ScrubBar(workspace: workspace, bare: true)
-                    .opacity(workspace.layerCount > 0 ? 1 : 0)
-                    .disabled(workspace.layerCount == 0)
+                if model.state != .empty {
+                    line
+                    summary
+                }
             }
-            if model.state != .empty {
-                Divider().frame(height: 44)
-                summary
-            }
+            if narrow { scrub }
         }
         .padding(.horizontal, 14)
-        .frame(height: 70)
+        .frame(height: narrow ? 84 : 56)
         .frame(maxWidth: .infinity)
+        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
         .background(.bar)
         .overlay(alignment: .top) { Divider() }
         .overlay(alignment: .top) {

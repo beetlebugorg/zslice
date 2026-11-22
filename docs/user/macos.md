@@ -60,13 +60,13 @@ The × at the top right of a card closes it. Notes of the app show at the bottom
 
 ### The bottom bar
 
-The bar at the bottom has two rows:
+The bar at the bottom is one row, with a thin line before each group:
 
 - **The plates**: the plate menu (all plates, add a plate, remove a plate), the printer of the plate, and a new plate.
-- **The history**: Undo, Redo, a bubble for each step, and History.
-- **The replay**: play, the time in the top layer, and the speed.
+- **The history**: Undo, Redo, and the History button (a clock).
+- **The replay**: play, the time in the top layer, and the speed. It fills the row. In a narrow window it moves to a second row.
 
-At the right end are the time of the print, with the plastic, the cost, and the layers under it. Next to them are a badge and Export (Command-E). With a connected printer, Export is Print (Command-P), and its menu has Upload Only and Export G-code.
+The 3D view ends at the top of the bar, so the bar never covers the signs of the plates. At the right end are the time of the print, with the plastic, the cost, and the layers under it. Next to them are a badge and Export (Command-E). With a connected printer, Export is Print (Command-P), and its menu has Upload Only and Export G-code.
 
 After a change, the view gets a quick draft of the slice first, and the exact slice follows when you stop changing for 0.3 s (or let go of a drag). While the view has a draft, Export and Print wait, and the details keep the numbers of the last exact slice. A thin bar at the top of the view shows the work that runs (the draft, the exact slice, the simulated print), with small dim text such as "Draft 161 ms · Exact 461 ms".
 
@@ -82,7 +82,7 @@ Put a card where you want it, and zslice keeps it there:
 - Drag the grip at the lower right corner to resize a card. Its kind keeps the size.
 - Double-click the head to forget the place and the size.
 
-The line card, the part card, the card of a range of layers, and the card of a history step each keep their own place and size.
+The line card, the part card, and the card of a range of layers each keep their own place and size.
 
 ### The settings drawer
 
@@ -402,13 +402,14 @@ After each slice, zslice simulates the plastic of the print in the background: i
 
 **Plates.** Each plate has a sign on the bed just in front of it, with its number and name, its printer, and its status, or its print time and filament after a slice. The signs turn and tilt with the plates, and the parts in front hide them. The sign of the active plate has a bar in the accent color. Click a sign to make its plate the active plate. An empty active plate has an **Open a model** button on its bed.
 
-**History.** The bottom bar shows a bubble for each step, in the color of its kind with its glyph. The step now is larger. Hold the pointer on a bubble to see its card:
+**History.** The History button in the bottom bar has a clock. Its badge counts the changes since you opened or saved the file. Click it, or press Command-Y, to open the list above the button. Esc closes it.
 
-- the changes in words;
-- an editor for each setting of the plate that the step changed, with its value now (a change there is a new step);
-- Go to This Step. A click on the bubble goes there too.
-
-History in the bottom bar (or View > History, Command-Y) opens the list of all the steps and the line edits.
+- The head says how many changes there are, and which change is now when it is not the last.
+- Each step shows the glyph of its kind on its color, its number and kind, its time, and Now or Go to. Go to slices the plate as it was then. The later changes stay until you change something.
+- The arrow of a change undoes only that change. Double-click a change to open its setting.
+- Right-click a step to go to it, or to clear the changes after it. "Clear the N later changes" at the foot does the same for the step now.
+- Up Arrow and Down Arrow go to the next and the previous step.
+- Line Edits at the top lists the edits of single lines.
 
 ## Files and projects
 
