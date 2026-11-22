@@ -186,7 +186,7 @@ namespace winrt::ZSlice::implementation
             ShowPlate();
         ProjectStart();
         ViewPanel().Focus(FocusState::Programmatic);
-        ApplyThreadsPref();
+        ApplyEnginePrefs();
         ApplyFirstViewPref();
 
         StartOpenLinks();
@@ -295,7 +295,7 @@ namespace winrt::ZSlice::implementation
         if (event.kind == ZS_EVENT_PLATES)
         {
             zs_set_view_sync(model->Set(), view);
-            ApplyThreadsPref();
+            ApplyEnginePrefs();
             RefreshPlates();
             RequestDraw();
             SessionSoon();

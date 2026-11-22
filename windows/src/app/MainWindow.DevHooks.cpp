@@ -86,6 +86,9 @@
 //   rangelog, rangeclose, rangeadd, rangeset name value, rangereset name,
 //   rangechip k, rangebody k, rangescope name, rangeshot path
 // The Filament row of the line card: linefil k, lineext 1|-1, linefillog.
+// The Speed section: speedshow, speedswitch, speedtry value, speedlog.
+// Preferences:
+// prefdraft 0|1, prefsimulate 0|1.
 // The print order of the part card: orderlog.
 // Two nozzles: nozzleset i n, partfilament i k, settingspane 0|1, nozzlelog.
 // Each step writes the state to the log (ZSLICE_LOG).
@@ -608,6 +611,36 @@ namespace winrt::ZSlice::implementation
         else if (verb == L"settingspane")
         {
             ShowSettingsPane(number(0) != 0);
+        }
+        else if (verb == L"speedshow")
+        {
+            ShowSettingsPane(true);
+            ShowSection("speed", "Speed");
+        }
+        else if (verb == L"speedswitch")
+        {
+            if (speed_toggle != nullptr)
+                speed_toggle.IsOn(!speed_toggle.IsOn());
+        }
+        else if (verb == L"speedtry" && !words.empty())
+        {
+            // A change, and whether its slice is a draft.
+            CommitSetting("project.infill_density", zs::ToUtf8(words[0]));
+            zs::Log("dev: speed try: is draft %d\n", zs_app_is_draft(model->Active()));
+        }
+        else if (verb == L"speedlog")
+        {
+            std::string values;
+            for (size_t i = 0, n = zs_speed_count(); i < n; i++)
+            {
+                zs_speed_option option{};
+                if (zs_speed_get(i, &option) == ZS_OK)
+                    values += std::string(option.name) + "=" + model->GetSetting(option.name) + " ";
+            }
+            zs::Log("dev: speed state %d, is draft %d, switch %d, rows %u, draft '%s' pref '%s', simulate '%s' pref '%s', history %zu pending %d | %s\n", zs_app_speed_state(model->Active()), zs_app_is_draft(model->Active()),
+                    speed_toggle != nullptr && speed_toggle.IsOn() ? 1 : 0, SettingsList().Children().Size(), model->GetSetting("engine.draft_slices").c_str(),
+                    zs::Printers().Pref("engine.draft_slices").c_str(), model->GetSetting("engine.auto_simulate").c_str(), zs::Printers().Pref("engine.auto_simulate").c_str(),
+                    zs_app_history_current(model->Active()), zs_app_history_pending(model->Active()), values.c_str());
         }
         else if (verb == L"rangeshot")
         {
