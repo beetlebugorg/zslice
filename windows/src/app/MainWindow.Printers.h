@@ -237,6 +237,9 @@ namespace winrt::ZSlice::implementation
             bool on = false;
             bool send = false;
             size_t i = 0, n = 0, back = 0, done = 0;
+            // The plates with a part that does not fit, and the first reason.
+            size_t skipped = 0;
+            std::wstring why;
             std::wstring dir;
         } batch;
     };

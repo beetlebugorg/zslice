@@ -473,6 +473,7 @@ namespace winrt::ZSlice::implementation
             size_t len = 0;
             sliced = zs_app_gcode(w.model->Active(), &g, &len) == ZS_OK && len > 0;
         }
+        std::wstring refusal = w.PlateRefusal(w.model->Active());
         auto action = [&] {
             if (t->needs_key)
             {
@@ -487,6 +488,7 @@ namespace winrt::ZSlice::implementation
             bool bambu = printer->kind == zs::LinkKind::Bambu;
             t->action.IsEnabled(sliced && t->state == ZS_FARM_IDLE && !bambu);
             wchar_t const *tip = bambu ? L"The Windows app reads a Bambu Lab printer, and sends it nothing."
+                                 : !refusal.empty() ? refusal.c_str()
                                  : !sliced ? L"Slice the plate first."
                                  : t->state == ZS_FARM_FINISHED ? L"A print waits on the bed: clear it first."
                                  : t->state != ZS_FARM_IDLE ? L"The printer is busy, or does not answer."

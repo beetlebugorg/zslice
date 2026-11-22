@@ -552,6 +552,9 @@ namespace winrt::ZSlice::implementation
             FontIcon icon;
             int severity = std::min<int>(issue.severity, 2);
             icon.Glyph(severity == 2 ? L"" : severity == 1 ? L"" : L"");
+            // A part that does not fit: a ruler.
+            if (issue.kind == ZS_ISSUE_FIT)
+                icon.Glyph(L"\xED5E");
             icon.FontSize(14);
             icon.VerticalAlignment(VerticalAlignment::Top);
             icon.Foreground(Media::SolidColorBrush(severity == 2 ? Windows::UI::Color{ 255, 0xC0, 0x1C, 0x28 }
@@ -574,7 +577,33 @@ namespace winrt::ZSlice::implementation
     void MainWindow::GoToIssue(zs_issue const &issue)
     {
         check_flyout.Hide();
-        if (model == nullptr || issue.layer >= layer_count)
+        if (model == nullptr)
+            return;
+        // A part that does not fit: its card has the scale, the turn, and
+        // the cut. The layer stays, so the whole part shows.
+        if (issue.kind == ZS_ISSUE_FIT)
+        {
+            zs_app *app = model->Active();
+            int64_t best = -1;
+            double best_d = 1e18;
+            for (size_t i = 0, n = zs_app_part_count(app); i < n; i++)
+            {
+                zs_part p{};
+                zs_part_fit fit{};
+                if (zs_app_part_get(app, i, &p) != ZS_OK || zs_app_part_fit(app, i, &fit) != ZS_OK || fit.cause == 0)
+                    continue;
+                double d = (p.x - issue.x) * (p.x - issue.x) + (p.y - issue.y) * (p.y - issue.y);
+                if (d < best_d)
+                {
+                    best_d = d;
+                    best = (int64_t)i;
+                }
+            }
+            if (best >= 0)
+                SelectPart(best);
+            return;
+        }
+        if (issue.layer >= layer_count)
             return;
         StopReplay();
         LayerSlider().Value((double)issue.layer + 1);

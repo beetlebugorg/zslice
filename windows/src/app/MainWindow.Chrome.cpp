@@ -318,7 +318,12 @@ namespace winrt::ZSlice::implementation
         // A draft has no G-code, and the numbers are of the last exact slice.
         bool draft = model->IsDraft();
         DockSummary().Opacity(state == ZS_STATE_SLICING || draft ? 0.55 : 1);
-        ExportButton().IsEnabled(state == ZS_STATE_DONE && !draft);
+        // A part that does not fit slices and shows, but the plate does not
+        // print. The group has the tip: a button that is off shows none.
+        std::wstring refusal = PlateRefusal(app);
+        ExportButton().IsEnabled(state == ZS_STATE_DONE && !draft && refusal.empty());
+        ToolTipService::SetToolTip(ExportGroup(), refusal.empty() ? nullptr : box_value(refusal));
+        Microsoft::UI::Xaml::Automation::AutomationProperties::SetHelpText(ExportButton(), refusal);
         if (printers != nullptr)
             printers->RefreshPrimary();
         if (state == ZS_STATE_EMPTY || state == ZS_STATE_FAILED)

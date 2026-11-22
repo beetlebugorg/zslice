@@ -63,6 +63,17 @@ namespace winrt::ZSlice::implementation
         }
     }
 
+    std::wstring MainWindow::PlateRefusal(zs_app *app)
+    {
+        size_t len = 0;
+        if (app == nullptr || zs_app_plate_printable(app, nullptr, 0, &len) != ZS_PART_TOO_LARGE)
+            return {};
+        std::string text(len + 1, '\0');
+        zs_app_plate_printable(app, text.data(), text.size(), &len);
+        text.resize(len);
+        return text.empty() ? std::wstring(L"A part does not fit the printer.") : zs::ToWide(text);
+    }
+
     std::string MainWindow::PrintersUi::GcodeName(zs_app *app, size_t plate)
     {
         zs_part first{};
@@ -82,6 +93,7 @@ namespace winrt::ZSlice::implementation
         bool has_parts = zs_app_part_count(app) > 0;
         bool draft = w.model->IsDraft();
         bool sliced = state == ZS_STATE_DONE && !draft;
+        bool printable = w.PlateRefusal(app).empty();
         zs::SavedPrinter const &printer = zs::Printers().Current();
         bool can_send = printer.kind != zs::LinkKind::None && printer.kind != zs::LinkKind::Bambu;
         auto add = [&](std::wstring const &text, bool enabled, std::function<void()> run) {
@@ -92,11 +104,11 @@ namespace winrt::ZSlice::implementation
             send_menu.Items().Append(item);
         };
         std::string id = printer.id;
-        add(L"Upload to " + zs::ToWide(printer.name), can_send && !sending && !batch.on && (sliced || state == ZS_STATE_SLICING),
+        add(L"Upload to " + zs::ToWide(printer.name), can_send && !sending && !batch.on && printable && (sliced || state == ZS_STATE_SLICING),
             [this, id] { SendPlate(id, (size_t)-1); });
         add(L"Send all plates", can_send && !sending && !batch.on, [this] { SendAll(); });
         send_menu.Items().Append(MenuFlyoutSeparator());
-        add(L"Export G-code…", sliced || state == ZS_STATE_SLICING, [this] { ExportGcode(); });
+        add(L"Export G-code…", printable && (sliced || state == ZS_STATE_SLICING), [this] { ExportGcode(); });
         add(L"Export all plates…", !batch.on, [this] { ExportAll(); });
         send_menu.Items().Append(MenuFlyoutSeparator());
         add(L"Save this plate as 3MF…", has_parts, [this] { SavePlate3mf(); });
@@ -119,6 +131,12 @@ namespace winrt::ZSlice::implementation
         zs_set *set = w.model->Set();
         size_t index = plate == (size_t)-1 ? zs_set_active(set) : plate;
         zs_app *app = zs_set_app(set, index);
+        std::wstring refusal = w.PlateRefusal(app);
+        if (!refusal.empty())
+        {
+            w.ShowError(refusal);
+            return;
+        }
         if (app == nullptr || zs_app_state(app) != ZS_STATE_DONE)
         {
             Note(L"No G-code: the plate has no slice yet.");
@@ -229,6 +247,12 @@ namespace winrt::ZSlice::implementation
         // The await can outlast the window: this keeps it.
         auto window = w.get_strong();
         zs_app *app = w.model->Active();
+        std::wstring refusal = w.PlateRefusal(app);
+        if (!refusal.empty())
+        {
+            w.ShowError(refusal);
+            co_return;
+        }
         int state = zs_app_state(app);
         if (state == ZS_STATE_DONE && zs_app_is_draft(app) != 0)
         {
@@ -253,7 +277,15 @@ namespace winrt::ZSlice::implementation
         hstring path = co_await PickSavePath(name, bambu ? L"Bambu Lab G-code 3MF" : L"G-code", bambu ? L".gcode.3mf" : L".gcode");
         if (path.empty() || w.model == nullptr || w.model->Active() != app || zs_app_state(app) != ZS_STATE_DONE)
             co_return;
-        std::string bytes = zs::signing::Sign(CopyGcode(app));
+        // The size can change while the file dialog is open.
+        std::string gcode = CopyGcode(app);
+        if (gcode.empty())
+        {
+            refusal = w.PlateRefusal(app);
+            w.ShowError(refusal.empty() ? std::wstring(L"The plate has no G-code.") : refusal);
+            co_return;
+        }
+        std::string bytes = zs::signing::Sign(gcode);
         if (EndsWith(std::wstring(path), L".3mf"))
         {
             std::string wrapped;
@@ -385,8 +417,22 @@ namespace winrt::ZSlice::implementation
     {
         zs_set *set = w.model->Set();
         zs_plate_info info{};
-        while (batch.i < batch.n && (zs_set_plate_info(set, batch.i, &info) != ZS_OK || info.part_count == 0 || info.status == ZS_PLATE_STATUS_CANNOT))
+        while (batch.i < batch.n)
+        {
+            if (zs_set_plate_info(set, batch.i, &info) != ZS_OK || info.part_count == 0 || info.status == ZS_PLATE_STATUS_CANNOT)
+            {
+                batch.i++;
+                continue;
+            }
+            // A plate with a part that does not fit stays here, and the
+            // last note says so.
+            std::wstring refusal = w.PlateRefusal(zs_set_app(set, batch.i));
+            if (refusal.empty())
+                break;
+            if (batch.skipped++ == 0)
+                batch.why = L"plate " + std::to_wstring(batch.i + 1) + L": " + refusal;
             batch.i++;
+        }
         if (batch.i >= batch.n)
         {
             BatchFinish({});
@@ -436,7 +482,8 @@ namespace winrt::ZSlice::implementation
             if (strchr("\\/:*?\"<>|", c) != nullptr)
                 c = '_';
         std::wstring path = batch.dir + L"\\" + zs::ToWide(base) + L"-plate-" + std::to_wstring(batch.i + 1) + L".gcode";
-        if (!zs::state::WriteBytes(path, zs::signing::Sign(CopyGcode(app))))
+        std::string gcode = CopyGcode(app);
+        if (gcode.empty() || !zs::state::WriteBytes(path, zs::signing::Sign(gcode)))
         {
             BatchFinish(L"A file did not write.");
             return;
@@ -459,10 +506,11 @@ namespace winrt::ZSlice::implementation
             return;
         }
         std::wstring count = std::to_wstring(done) + (done == 1 ? L" plate" : L" plates");
-        if (was_send)
-            Note(count + L" sent to " + zs::ToWide(zs::Printers().Current().name) + L".");
+        std::wstring result = was_send ? count + L" sent to " + zs::ToWide(zs::Printers().Current().name) + L"." : count + L" exported.";
+        if (batch.skipped > 0)
+            w.ShowError(result + L" " + std::to_wstring(batch.skipped) + (batch.skipped == 1 ? L" plate does not fit, " : L" plates do not fit, ") + batch.why);
         else
-            Note(count + L" exported.");
+            Note(result);
     }
 
     // ZSLICE_PLATES=file;file adds a plate for each file and loads the file
