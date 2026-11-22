@@ -62,7 +62,6 @@ static Group const shortcuts[] = {
         {"Left, Right (Turn tool)", "Turn the selected part on the bed, 15° (with Shift: 5°)"},
         {"Up, Down (Turn tool)", "Tilt the selected part about X, 15° (with Shift: 5°)"},
         {"Page Up, Page Down (Turn tool)", "Tilt the selected part about Y, 15° (with Shift: 5°)"},
-        {"[, ] (a part)", "Turn the selected part 15° on the bed (with Shift: 1°)"},
         {"D", "Duplicate the selected parts"},
         {"Delete (a selected line)", "Take the line out of the print: an edit, kept across slices"},
         {"Delete", "Remove the selected parts, or the selected support"},

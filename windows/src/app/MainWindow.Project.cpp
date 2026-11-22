@@ -1560,8 +1560,7 @@ namespace winrt::ZSlice::implementation
             StackPanel info;
             info.VerticalAlignment(VerticalAlignment::Center);
             auto part_title = line(part_name, 14, false, nullptr);
-            part_title.TextWrapping(TextWrapping::NoWrap);
-            part_title.TextTrimming(TextTrimming::CharacterEllipsis);
+            part_title.TextWrapping(TextWrapping::Wrap);
             info.Children().Append(part_title);
             info.Children().Append(line(Facts(part), 11.5, false, dim));
             // The tooltip: the description and the settings of the part.

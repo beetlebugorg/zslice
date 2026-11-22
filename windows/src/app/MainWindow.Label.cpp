@@ -58,7 +58,7 @@ namespace
         <ColumnDefinition Width="*" />
         <ColumnDefinition Width="Auto" />
       </Grid.ColumnDefinitions>
-      <TextBlock x:Name="Title" FontWeight="Bold" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+      <TextBlock x:Name="Title" FontWeight="Bold" VerticalAlignment="Center" TextWrapping="Wrap" />
       <Button x:Name="Close" Grid.Column="1" Background="Transparent" BorderThickness="0" Padding="6"
               AllowFocusOnInteraction="False" AutomationProperties.Name="Close the label card">
         <FontIcon Glyph="&#xE711;" FontSize="11" />

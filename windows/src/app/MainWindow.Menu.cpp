@@ -66,11 +66,11 @@ namespace winrt::ZSlice::implementation
             }
         });
         line();
-        add(L"Save the plate as 3MF…", [this] {
+        add(L"Save this plate as 3MF…", [this] {
             if (printers != nullptr)
                 printers->SavePlate3mf();
         });
-        add(L"Save project…", [this] {
+        add(L"Save project (all plates)…", [this] {
             if (printers != nullptr)
                 printers->SaveProject();
         });

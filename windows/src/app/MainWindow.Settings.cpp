@@ -404,11 +404,13 @@ namespace winrt::ZSlice::implementation
 
         Grid with_unit;
         with_unit.ColumnSpacing(6);
-        ColumnDefinition field, unit_column;
+        ColumnDefinition field, unit_column, hint_column;
         field.Width(GridLengthHelper::FromValueAndType(1, GridUnitType::Star));
         unit_column.Width(GridLengthHelper::Auto());
+        hint_column.Width(GridLengthHelper::Auto());
         with_unit.ColumnDefinitions().Append(field);
         with_unit.ColumnDefinitions().Append(unit_column);
+        with_unit.ColumnDefinitions().Append(hint_column);
         with_unit.Children().Append(box);
         TextBlock unit;
         unit.Text(zs::ToWide(info.unit));
@@ -417,6 +419,24 @@ namespace winrt::ZSlice::implementation
         unit.VerticalAlignment(VerticalAlignment::Center);
         Grid::SetColumn(unit, 1);
         with_unit.Children().Append(unit);
+        // A speed ratio: the speed in mm/s that it gives on this printer.
+        TextBlock hint;
+        hint.FontSize(12);
+        hint.Foreground(Brush(0x5B, 0x61, 0x68));
+        hint.VerticalAlignment(VerticalAlignment::Center);
+        hint.TextAlignment(TextAlignment::Right);
+        ToolTipService::SetToolTip(hint, box_value(L"The speed of this ratio on this printer, for a line of the line width at the layer height (the flow limit can make it lower)."));
+        Grid::SetColumn(hint, 2);
+        with_unit.Children().Append(hint);
+        auto fill_hint = [this, hint, name, value]() mutable {
+            double mm_s = 0;
+            bool shown = model != nullptr && zs_app_ratio_speed(model->Active(), name.c_str(), value().c_str(), &mm_s) == ZS_OK && mm_s > 0;
+            hint.Visibility(shown ? Visibility::Visible : Visibility::Collapsed);
+            if (shown)
+                hint.Text(L"≈ " + std::to_wstring(std::lround(mm_s)) + L" mm/s");
+        };
+        fill_hint();
+        setting_editors.push_back({ name, fill_hint });
         return with_unit;
     }
 

@@ -28,12 +28,12 @@ namespace
     };
     wchar_t const *const color_short[] = { L"Filament", L"Feature", L"Speed", L"Flow", L"Layer time", L"Line width" };
 
-    // The legend glyph of the line colors: three short colored stripes.
+    // The legend glyph of the line colors: three dots and three lines, in
+    // the color of the text.
     wchar_t const legend_glyph[] =
         L"<Grid xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation' Width='18' Height='18'>"
-        L"<Rectangle Width='12' Height='2.6' RadiusX='1' RadiusY='1' Fill='#d9480f' Margin='0,3,0,0' VerticalAlignment='Top'/>"
-        L"<Rectangle Width='12' Height='2.6' RadiusX='1' RadiusY='1' Fill='#f59f00' VerticalAlignment='Center'/>"
-        L"<Rectangle Width='12' Height='2.6' RadiusX='1' RadiusY='1' Fill='#1c7ed6' Margin='0,0,0,3' VerticalAlignment='Bottom'/>"
+        L"<Path Fill='{ThemeResource TextFillColorPrimaryBrush}' Data='M4.8 4.5a1.3 1.3 0 1 1-2.6 0a1.3 1.3 0 1 1 2.6 0zM4.8 9a1.3 1.3 0 1 1-2.6 0a1.3 1.3 0 1 1 2.6 0zM4.8 13.5a1.3 1.3 0 1 1-2.6 0a1.3 1.3 0 1 1 2.6 0z'/>"
+        L"<Path Stroke='{ThemeResource TextFillColorPrimaryBrush}' StrokeThickness='1.4' StrokeStartLineCap='Round' StrokeEndLineCap='Round' Data='M7 4.5h8M7 9h8M7 13.5h8'/>"
         L"</Grid>";
 
     wchar_t const gaps_glyph[] =
@@ -111,7 +111,8 @@ namespace winrt::ZSlice::implementation
         for (int i = 0; i < 6; i++)
         {
             RadioMenuFlyoutItem item;
-            item.Text(color_names[i]);
+            item.Text(color_short[i]);
+            ToolTipService::SetToolTip(item, box_value(color_names[i]));
             item.GroupName(L"colors");
             item.IsChecked(i == 0);
             item.Click([this, i](auto &&, auto &&) { SetColorMode(i); });

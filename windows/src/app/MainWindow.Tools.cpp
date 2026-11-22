@@ -1255,18 +1255,7 @@ namespace winrt::ZSlice::implementation
         {
             StepPart(shift ? -1 : 1);
         }
-        // With a selected part, [ and ] turn it. Else they change the plate.
-        else if ((key == bracket_left || key == bracket_right) && !selected_parts.empty())
-        {
-            zs_part p{};
-            double step = (shift ? 1.0 : 15.0) * (key == bracket_left ? -1 : 1);
-            if (zs_app_part_get(model->Active(), (size_t)selected_parts[0], &p) == ZS_OK &&
-                zs_app_part_rotate(model->Active(), (size_t)selected_parts[0], p.rotation + step) == ZS_OK)
-            {
-                PlateEdited();
-                UpdateRings();
-            }
-        }
+        // [ and ] are the plate before and the next plate.
         else if (key == bracket_left || key == bracket_right)
             StepPlate(key == bracket_left ? -1 : 1);
         else if (key == VirtualKey::Home && model->PlateCount() > 1)
