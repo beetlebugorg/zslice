@@ -218,7 +218,7 @@ export class SearchOverlay {
     const out = [];
     if (this.place !== "left") out.push(this.button("search-pin", svg("M2.5 2.5v11M5.5 4.5h8v7h-8z"), "Pin to the left rail: the search stays open at the left of the view", () => this.setPlace("left")));
     if (this.place !== "right") out.push(this.button("search-pin", svg("M13.5 2.5v11M2.5 4.5h8v7h-8z"), "Pin to the right rail: the search stays open at the right of the view", () => this.setPlace("right")));
-    if (this.place !== "card") out.push(this.button("search-pin", svg("M9.5 2.5h4v4M13.5 2.5 8 8M7 3.5H2.5v10h10V9"), "Undock the search: a card over the view that you can move and resize", () => this.setPlace("card")));
+    if (this.place !== "card") out.push(this.button("search-pin", svg("M2.5 3.5h11v9h-11zM2.5 6.5h11"), "Undock the search: a card over the view that you can move and resize", () => this.setPlace("card")));
     if (this.place !== "header") out.push(this.button("search-dock", svg("M2.5 2.5h11M8 13.5V6M5 9l3-3 3 3"), "Dock the search: put it back in the header", () => this.setPlace("header")));
     return out;
   }

@@ -694,17 +694,11 @@ static void draw_place(GtkDrawingArea *a, cairo_t *cr, int w, int h, gpointer da
         cairo_line_to(cr, rail, 13.5);
         cairo_rectangle(cr, box, 4.5, 8, 7);
     } else if (at == AT_CARD) {
-        /* A box with an arrow out of it. */
-        cairo_move_to(cr, 9.5, 2.5);
-        cairo_line_to(cr, 13.5, 2.5);
+        /* A card with a title bar: the search as a card over the view
+         * (not the "external link" box and arrow). */
+        cairo_rectangle(cr, 2.5, 3.5, 11, 9);
+        cairo_move_to(cr, 2.5, 6.5);
         cairo_line_to(cr, 13.5, 6.5);
-        cairo_move_to(cr, 13.5, 2.5);
-        cairo_line_to(cr, 8, 8);
-        cairo_move_to(cr, 7, 3.5);
-        cairo_line_to(cr, 2.5, 3.5);
-        cairo_line_to(cr, 2.5, 13.5);
-        cairo_line_to(cr, 12.5, 13.5);
-        cairo_line_to(cr, 12.5, 9);
     } else {
         /* Dock: an arrow up to a line (the header). */
         cairo_move_to(cr, 2.5, 2.5);
