@@ -66,6 +66,8 @@ The bar at the bottom has two rows:
 
 At the right end are the time of the print, with the plastic, the cost, and the layers under it. Next to them are a badge and Export (Command-E). With a connected printer, Export is Print (Command-P), and its menu has Upload Only and Export G-code.
 
+After a change, the view gets a quick draft of the slice first, and the exact slice follows when you stop changing for 0.3 s (or let go of a drag). While the view has a draft, Export and Print wait, and the details keep the numbers of the last exact slice. A thin bar at the top of the view shows the work that runs (the draft, the exact slice, the simulated print), with small dim text such as "Draft 161 ms · Exact 461 ms".
+
 Click the time to open the details: the notes, the totals, your usual refinements, the main settings, and the filaments. An orange badge such as "3 to check" counts the problems of the Check (a warning or worse), the same count as on the Check button of the tool strip. A red or orange badge that says Check means another note on the print. The details stay shut until you click, so they never cover the part. A blue badge counts your usual refinements.
 
 ### The cards

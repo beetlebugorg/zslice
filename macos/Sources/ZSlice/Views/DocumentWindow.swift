@@ -158,6 +158,8 @@ struct DocumentWindow: View {
     var body: some View {
         Color.clear
             .background { SliceView(canvas: workspace.canvas).ignoresSafeArea() }
+            // The work bar: the draft, the exact slice, and the simulation.
+            .overlay(alignment: .top) { WorkBar(work: workspace.model.work) }
             .overlay(alignment: .topLeading) {
                 HStack(alignment: .top, spacing: 10) {
                     ToolStrip(workspace: workspace)
@@ -743,7 +745,7 @@ struct PrintAction: View {
             .menuStyle(.button)
             .buttonStyle(.borderedProminent)
             .fixedSize()
-            .disabled(model.state != .done)
+            .disabled(!model.canExport)
             .help(p.kind == .printdeck
                 ? "Print on \(p.name) (⌘P), after you confirm that its bed is clear. A deck set to ask waits for a press of Print on it. Its menu: Upload Only, Export G-code."
                 : "Print on \(p.name) (⌘P), after you confirm that its bed is clear. Its menu: Upload Only, Export G-code.")
@@ -752,8 +754,8 @@ struct PrintAction: View {
             Button("Export…") { workspace.exportGcode(from: NSApp.keyWindow) }
                 .keyboardShortcut("e", modifiers: .command)
                 .buttonStyle(.borderedProminent)
-                .disabled(model.state != .done)
-                .help("Export the G-code (⌘E)")
+                .disabled(!model.canExport)
+                .help(model.draft ? "The exact slice comes in a moment" : "Export the G-code (⌘E)")
         }
 
     }

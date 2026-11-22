@@ -111,6 +111,7 @@
 		EC030D98DC7DFD503654B1B1 /* Refinements.swift in Sources */ = {isa = PBXBuildFile; fileRef = 78CA94BF667251FCE1DA9234 /* Refinements.swift */; };
 		F08937901A94D596F573EC16 /* Selection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6309A599D9FB3CD63D13AFFD /* Selection.swift */; };
 		F5987A16975072DD3B14EB37 /* LayerRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3C1CD092508B18D3F709B0F2 /* LayerRenderer.swift */; };
+		F8731289110FEBEE4E8CB950 /* WorkBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = C75BB2DDC459FFAC56735375 /* WorkBar.swift */; };
 		FACB41B6D3F563088A006CA0 /* Gzip.swift in Sources */ = {isa = PBXBuildFile; fileRef = 682988FB4AAED7CC864A3FFD /* Gzip.swift */; };
 /* End PBXBuildFile section */
 
@@ -241,6 +242,7 @@
 		BE3894912DD445B18809AAE5 /* HistoryGlyph.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HistoryGlyph.swift; sourceTree = "<group>"; };
 		BFC0A57D50B91B5DB8D9D2C4 /* ZSliceThumbnail.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = ZSliceThumbnail.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		C6B3D7F7FABAA30471ADBA1D /* Render.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Render.swift; sourceTree = "<group>"; };
+		C75BB2DDC459FFAC56735375 /* WorkBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkBar.swift; sourceTree = "<group>"; };
 		C875907B92CDD25A89C16567 /* ProjectFile.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectFile.swift; sourceTree = "<group>"; };
 		C9428DD624784183D949AFFB /* Printers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Printers.swift; sourceTree = "<group>"; };
 		C95D84552F7DB583D8D47BCA /* RangeCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RangeCard.swift; sourceTree = "<group>"; };
@@ -258,7 +260,7 @@
 		F817BC998AF3DF2ED3A00C81 /* Discovery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Discovery.swift; sourceTree = "<group>"; };
 		FA1563DC7A7E6004C5F6CF3E /* SupportTrees.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SupportTrees.swift; sourceTree = "<group>"; };
 		FEB19535AAD2F45E9ADECD3E /* Shaders.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Shaders.swift; sourceTree = "<group>"; };
-		"TEMP_45BBB1FF-24D3-448D-9F5E-7FC1A0010D5A" /* Signing.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Signing.xcconfig; sourceTree = "<group>"; };
+		"TEMP_5A9E8C79-DBDE-487A-A62B-C6F20F7A6D42" /* Signing.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Signing.xcconfig; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -407,6 +409,7 @@
 				102293E2868F8E5F219FD538 /* Timeline.swift */,
 				E4B7355FA4FD1905E69CECFB /* ToolGlyph.swift */,
 				0DE6FA41D66841A0EFB59308 /* ToolStrip.swift */,
+				C75BB2DDC459FFAC56735375 /* WorkBar.swift */,
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -466,10 +469,10 @@
 			path = Core;
 			sourceTree = "<group>";
 		};
-		"TEMP_52212441-2CC5-48FA-AF0F-4E7C34D8FF1C" /* macos */ = {
+		"TEMP_BB826859-8BC7-4CA5-A68C-D33149E0308B" /* macos */ = {
 			isa = PBXGroup;
 			children = (
-				"TEMP_45BBB1FF-24D3-448D-9F5E-7FC1A0010D5A" /* Signing.xcconfig */,
+				"TEMP_5A9E8C79-DBDE-487A-A62B-C6F20F7A6D42" /* Signing.xcconfig */,
 			);
 			path = macos;
 			sourceTree = "<group>";
@@ -728,6 +731,7 @@
 				2F22754FF17BEC9ED1171E54 /* ToolGlyph.swift in Sources */,
 				136849B27AD1F307F0D96FA2 /* ToolStrip.swift in Sources */,
 				4364B741E247D96B133E6FA6 /* Tools.swift in Sources */,
+				F8731289110FEBEE4E8CB950 /* WorkBar.swift in Sources */,
 				E65449D7495562F0928DFFCB /* Workspace.swift in Sources */,
 				C691136A254A7FD5213D9E18 /* ZSliceApp.swift in Sources */,
 			);
@@ -793,7 +797,7 @@
 		};
 		1BF4A7F21A34A94F2F8BE4A1 /* Release */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = "TEMP_45BBB1FF-24D3-448D-9F5E-7FC1A0010D5A" /* Signing.xcconfig */;
+			baseConfigurationReference = "TEMP_5A9E8C79-DBDE-487A-A62B-C6F20F7A6D42" /* Signing.xcconfig */;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
 				CLANG_ANALYZER_NONNULL = YES;
@@ -930,7 +934,7 @@
 		};
 		BB3F32C66D957B876F949001 /* Debug */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = "TEMP_45BBB1FF-24D3-448D-9F5E-7FC1A0010D5A" /* Signing.xcconfig */;
+			baseConfigurationReference = "TEMP_5A9E8C79-DBDE-487A-A62B-C6F20F7A6D42" /* Signing.xcconfig */;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
 				CLANG_ANALYZER_NONNULL = YES;
