@@ -1,6 +1,6 @@
 # A prompt that could build zslice
 
-Describes: main at commit `aab615cd` ("Fold the Windows bottom bar by its own width"), 2026-11-22.
+Describes: main at commit `58f58ca0` ("Add the part settings and failed slices to the Windows prompt"), 2026-11-22.
 
 ## Read this first
 
