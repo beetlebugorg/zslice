@@ -46,8 +46,24 @@ struct SettingInfo: Identifiable, Hashable {
     let defaultValue: String
     let sliderMin: Double, sliderMax: Double, sliderStep: Double
     let perLayer: Bool, perPart: Bool
+    /// k ≥ 1: a setting of nozzle k (machine.nozzle.k.*), for a printer
+    /// with more than k nozzles. 0: all printers.
+    let nozzle: Int
 
     var id: String { name }
+
+    /// The printer has this setting: a setting of nozzle k only on a
+    /// printer with more than k nozzles (the section of each nozzle comes
+    /// and goes with machine.nozzles).
+    func on(nozzles: Int) -> Bool { nozzle == 0 || nozzle < nozzles }
+
+    /// The sections of a group on a printer with `nozzles` nozzles, in
+    /// order.
+    static func sections(_ group: String, nozzles: Int) -> [String] {
+        var seen = Set<String>()
+        return all.filter { $0.group == group && $0.on(nozzles: nozzles) }
+            .compactMap { seen.insert($0.section).inserted ? $0.section : nil }
+    }
     var isNumber: Bool { kind == .number || kind == .integer }
     var isRatio: Bool { isNumber && unit == "%" }
     var hasSlider: Bool { isNumber && sliderMax > sliderMin }
@@ -62,7 +78,7 @@ struct SettingInfo: Identifiable, Hashable {
                            choices: coreText(c.choices).split(separator: "\n").map(String.init),
                            unit: coreText(c.unit), defaultValue: coreText(c.default_value),
                            sliderMin: c.slider_min, sliderMax: c.slider_max, sliderStep: c.slider_step,
-                           perLayer: c.per_layer != 0, perPart: c.per_part != 0)
+                           perLayer: c.per_layer != 0, perPart: c.per_part != 0, nozzle: Int(c.nozzle))
     }
 
     static let byName = Dictionary(all.map { ($0.name, $0) }, uniquingKeysWith: { a, _ in a })

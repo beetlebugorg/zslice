@@ -51,8 +51,8 @@ struct LineInfo {
     /// For a support line: the layer and the feature of the part line that
     /// it holds up.
     var holds: (layer: Int, feature: Int)?
-    /// The nozzle of the line on a printer with two nozzles, and the limits
-    /// of the second nozzle, in words ("" with one nozzle).
+    /// The nozzle of the line on a printer with more than one nozzle (its
+    /// tool), and the limits of that nozzle, in words ("" with one nozzle).
     var nozzleText = ""
     /// The warnings of the check at the line (a bridge, an overhang).
     var issues: [Issue] = []

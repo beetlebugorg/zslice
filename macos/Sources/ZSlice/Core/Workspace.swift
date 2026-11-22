@@ -625,6 +625,17 @@ final class Workspace {
             PrinterStore.shared.remove(p.id)
             NSLog("zslice key remove: key before %d, after %d", before ? 1 : 0, Keychain.read(account: p.id.uuidString) == nil ? 0 : 1)
         }
+        // ZSLICE_NOZZLE_TEST=n: a printer with n nozzles. It logs the
+        // sections of the printer, the settings that a search for "nozzle
+        // diameter" finds, and the nozzle choices of a filament.
+        if let n = env["ZSLICE_NOZZLE_TEST"].flatMap(Int.init) {
+            _ = model.set("machine.nozzles", String(n))
+            let k = model.nozzleCount
+            let found = SettingInfo.search("nozzle diameter").filter { $0.on(nozzles: k) }.map(\.name)
+            NSLog("zslice nozzle test: nozzles %ld; sections %@; search %@; choices %@", k,
+                  SettingInfo.sections("machine", nozzles: k).joined(separator: ", "), found.joined(separator: ","),
+                  FilamentSlot.nozzleChoices(k, current: 0).map(\.label).joined(separator: ","))
+        }
         // ZSLICE_HISTORY_BADGE=1 logs the count of the history button, 4 s
         // after the start (after ZSLICE_SET makes the steps), then an undo,
         // then a mark of a save.

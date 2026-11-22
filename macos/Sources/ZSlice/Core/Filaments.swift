@@ -32,6 +32,17 @@ struct FilamentSlot: Identifiable, Equatable {
     var tray = -1
     var slot = ""
     var id: Int { index }
+
+    /// The choices of the nozzle of a filament on a printer with `n`
+    /// nozzles (web/app/filaments.js, nozzleChoices): "Main" and "2nd" for
+    /// two (the X2D), else the tools T0 and on. A nozzle that the printer
+    /// does not have stays in the list, marked, so the value shows (the
+    /// Check tells it).
+    static func nozzleChoices(_ n: Int, current: Int) -> [(label: String, value: Int)] {
+        var out = (0 ..< n).map { k in (label: n == 2 ? (k == 0 ? "Main" : "2nd") : "T\(k)", value: k) }
+        if current >= n { out.append((label: "T\(current) (none)", value: current)) }
+        return out
+    }
 }
 
 /// The filament of the last slice: grams of each filament, the changes,

@@ -91,10 +91,13 @@ final class SearchState {
 
     var words: [String] { query.lowercased().split(separator: " ").map(String.init) }
 
-    var settings: [SettingInfo] {
+    /// The settings that match, without the settings of a nozzle that the
+    /// printer does not have.
+    func settings(_ workspace: Workspace) -> [SettingInfo] {
         guard !words.isEmpty else { return [] }
         // The core ranks the settings (zs_setting_search).
-        return SettingInfo.search(query, max: Self.maxSettings)
+        let nozzles = workspace.model.nozzleCount
+        return SettingInfo.search(query, max: Self.maxSettings).filter { $0.on(nozzles: nozzles) }
     }
 
     func actions(_ workspace: Workspace) -> [SearchAction] {
@@ -123,7 +126,7 @@ final class SearchState {
     }
 
     func move(_ d: Int, _ workspace: Workspace) -> KeyPress.Result {
-        let n = actions(workspace).count + settings.count
+        let n = actions(workspace).count + settings(workspace).count
         guard n > 0 else { return .ignored }
         index = (index + d + n) % n
         return .handled
@@ -132,7 +135,7 @@ final class SearchState {
     /// Return in a field: run the selected action, turn a switch, or go
     /// into the field of a number or a text.
     func runSelected(_ workspace: Workspace) {
-        let acts = actions(workspace), found = settings
+        let acts = actions(workspace), found = settings(workspace)
         if index < acts.count {
             acts[index].run()
         } else if index - acts.count < found.count {
@@ -254,7 +257,7 @@ struct SearchOverlay: View {
     }
 
     private var card: some View {
-        let found = search.settings
+        let found = search.settings(workspace)
         let acts = search.actions(workspace)
         return VStack(alignment: .leading, spacing: 0) {
             header
