@@ -23,6 +23,9 @@ namespace winrt::ZSlice::implementation
     {
         Media::Brush ThemeBrush(wchar_t const *key)
         {
+            // The theme of Preferences can differ from the theme of the app.
+            if (auto brush = PreferenceBrush(key))
+                return brush;
             return Application::Current().Resources().Lookup(box_value(key)).as<Media::Brush>();
         }
 
@@ -798,6 +801,7 @@ namespace winrt::ZSlice::implementation
             panel->closed = nullptr;
             closed();
         }
+        PreferencesPanelClosed(panel);
     }
 
     // ---- pairing ----

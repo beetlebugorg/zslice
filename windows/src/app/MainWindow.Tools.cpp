@@ -1195,7 +1195,7 @@ namespace winrt::ZSlice::implementation
 
     void MainWindow::OnKeyDown(Input::KeyRoutedEventArgs const &e)
     {
-        if (model == nullptr || view == nullptr)
+        if (model == nullptr || view == nullptr || PreferencesOpen())
             return;
         // A key in a text field is text.
         auto focused = Input::FocusManager::GetFocusedElement(Content().XamlRoot());

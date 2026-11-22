@@ -161,6 +161,7 @@ namespace winrt::ZSlice::implementation
         }
         ApplySize();
         WirePrinters();
+        ApplyThemePref();
         // ZSLICE_PRINTER=id: starts on a printer of the library, for tests.
         wchar_t printer[128];
         if (::GetEnvironmentVariableW(L"ZSLICE_PRINTER", printer, ARRAYSIZE(printer)) > 0)
@@ -174,6 +175,8 @@ namespace winrt::ZSlice::implementation
         if (!RestoreSession())
             ShowPlate();
         ViewPanel().Focus(FocusState::Programmatic);
+        ApplyThreadsPref();
+        ApplyFirstViewPref();
 
         StartOpenLinks();
         std::wstring argument = zs::appshell::FirstArgument();
@@ -278,6 +281,7 @@ namespace winrt::ZSlice::implementation
         if (event.kind == ZS_EVENT_PLATES)
         {
             zs_set_view_sync(model->Set(), view);
+            ApplyThreadsPref();
             RefreshPlates();
             RequestDraw();
             SessionSoon();

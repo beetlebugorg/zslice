@@ -129,6 +129,7 @@ namespace winrt::ZSlice::implementation
         MainMenu().Items().Append(menu_2d);
         line();
         add(L"Keyboard shortcuts", [this] { ShowShortcuts(); });
+        add(L"Preferences", [this] { ShowPreferences(); }).KeyboardAcceleratorTextOverride(L"Ctrl+,");
         add(L"Licenses", [this] { ShowLicenses(); });
         add(L"About zslice", [this] { ShowAbout(); });
         MainMenu().Opening([this](auto &&, auto &&) {
@@ -142,8 +143,9 @@ namespace winrt::ZSlice::implementation
             menu_2d.IsChecked(show_2d);
         });
 
-        // The theme follows the system.
+        // The theme follows the system, or the choice in Preferences.
         Root().ActualThemeChanged([this](auto &&, auto &&) { ApplyTheme(); });
+        WirePreferences();
 
         EmptyOpen().Click([this](auto &&, auto &&) { PickFile(); });
         toast_timer = queue.CreateTimer();
@@ -162,6 +164,7 @@ namespace winrt::ZSlice::implementation
 
     void MainWindow::ApplyTheme()
     {
+        PreferencesThemeChanged();
         if (view == nullptr || model == nullptr)
             return;
         bool dark = Root().ActualTheme() == ElementTheme::Dark;
@@ -182,6 +185,7 @@ namespace winrt::ZSlice::implementation
     {
         ContentDialog dialog;
         dialog.XamlRoot(Content().XamlRoot());
+        ThemeDialog(dialog);
         dialog.Title(box_value(title));
         ScrollViewer scroll;
         scroll.MaxHeight(560);

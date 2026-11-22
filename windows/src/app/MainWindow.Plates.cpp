@@ -106,6 +106,7 @@ namespace winrt::ZSlice::implementation
     void MainWindow::ShowPlateChrome()
     {
         layer2d_dirty = true;
+        ApplyThreadsPref();
         zs_app *app = model->Active();
         zs_plate_info info{};
         std::wstring name;

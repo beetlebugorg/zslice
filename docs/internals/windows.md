@@ -59,6 +59,7 @@ A build with `-p:ZsDevHooks=true` reads `ZSLICE_DO`: steps with `;` between them
 | `src/app/MainWindow.Printers` | The setup group of the top bar, the panels over the window, and the pairing. |
 | `src/app/MainWindow.Picker.cpp` | The printer picker. |
 | `src/app/MainWindow.Farm.cpp` | The Printers page and the list of the printers of the user. |
+| `src/app/MainWindow.Preferences.cpp` | Preferences: the printer list and form, the theme, the first view, and the slicer threads. |
 | `src/app/MainWindow.Send.cpp` | Send, export, the plate as 3MF, the project, and all plates. |
 | `src/app/MainWindow.CuraCompare.cpp` | The "Compare with Cura" window, as in `linux/src/ui/cura-compare.c`. It is a second XAML window, owned by the main window, so the settings and Undo stay in reach. Any call of `RefreshSettingValues` refreshes it. |
 | `src/prefs/zs_cura_stack` | Finds the stack of the active Cura printer in `%APPDATA%\cura`, and reads its files for `zs_app_cura_compare`. |
@@ -98,6 +99,14 @@ These variables change a run, for tests:
 | `ZSLICE_CURA_RESOURCES=dir` | The resources of Cura for "Compare with Cura", in place of the Cura folder in Program Files. |
 
 `windows/test/net_link.cpp` tests the links against stub servers on 127.0.0.1: HTTP, canned mDNS and SSDP packets, and a TLS server with a self-signed certificate. It contacts no real printer.
+
+## Preferences
+
+- `app.ini` keeps `theme`, `view`, and `engine.threads` in `[general]`, through `zs::Printers().Pref` and `SetPref`.
+- The theme is `RequestedTheme` of the root element. `ThemeDialog` gives it to a dialog, with the background token. With a chosen theme, `ui::ThemeBrush` returns the color token of that theme. A change of the theme builds the Printers page again.
+- A profile has no engine settings, and a new plate does not copy them. `ApplyThreadsPref` gives the thread count to each plate. A plate that waits for a slice or slices gets it at its next status event.
+- `zs_app_setting_set` records no pending history edit for `engine.threads`, because a history step has no engine options.
+- The panel has no USB rows and no "Keep filament settings for each roll" row. The Windows shell has neither feature.
 
 ## Build the core
 

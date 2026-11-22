@@ -104,6 +104,7 @@ namespace winrt::ZSlice::implementation
 
         ContentDialog dialog;
         dialog.XamlRoot(Content().XamlRoot());
+        ThemeDialog(dialog);
         dialog.Title(box_value(L"Open this model?"));
         dialog.Content(content);
         dialog.PrimaryButtonText(L"Download and open");

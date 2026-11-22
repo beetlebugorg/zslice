@@ -42,6 +42,10 @@ namespace winrt::ZSlice::implementation
         namespace Media = Microsoft::UI::Xaml::Media;
 
         Media::Brush ThemeBrush(wchar_t const *key);
+        // The brush in the theme of Preferences, or nullptr for the system
+        // theme (MainWindow.Preferences.cpp).
+        Media::Brush PreferenceBrush(wchar_t const *key);
+        void SetPreferenceTheme(Microsoft::UI::Xaml::ElementTheme theme);
         Controls::TextBlock Label(std::wstring const &text, double size = 13, bool bold = false, bool dim = false);
         Controls::Button TextButton(std::wstring const &text, bool accent = false);
         Controls::StackPanel Row(double spacing = 8);
@@ -165,6 +169,13 @@ namespace winrt::ZSlice::implementation
         void ShowCameraLarge(std::shared_ptr<PrinterTile> const &tile);
         void ShowManage();
         void StopTiles();
+
+        // ---- MainWindow.Preferences.cpp ----
+        struct PrefsPage;
+        void ShowPreferences();
+        void PreferencesPanelClosed(std::shared_ptr<OverlayPanel> const &panel);
+        void PreferencesThemeChanged();
+        std::shared_ptr<PrefsPage> prefs;
 
         // ---- MainWindow.Send.cpp ----
         void FillSendMenu();

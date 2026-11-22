@@ -157,6 +157,16 @@ The main menu has **Save the plate as 3MF…**, **Save project…**, **Send all 
 
 The list shows the settings that differ. **Show all mapped settings** shows each setting that maps to Cura. **Reload** reads the settings of Cura again. **Use** sets one Cura value in zslice. **Use all** sets each value that differs, except the names of the printer and the filament and the start and end G-code. Undo reverts these changes.
 
+## Preferences
+
+Press Ctrl+, or choose **Preferences** in the main menu.
+
+**Printers** lists your printers. Select one to change its name, connection, address, and key. **Test the connection** reads the printer and shows its bed, nozzle, motion limits, and filament. For the current printer, two buttons then copy these values to the settings. **Use this printer** makes it the current printer. **+** opens the printer picker, and **Get a key** asks the printer for a key. A saved key does not show in the form. Type a new key to replace it.
+
+**General** has the theme, the view at the start of the app, the number of slicer threads, and the folder of the settings files.
+
+The Windows app has no USB connection yet, and it does not keep filament settings for each roll in the printer.
+
 ## Where your settings are
 
 Your printers and profiles are in `%APPDATA%\zslice`. API keys and access codes are encrypted for your Windows account. They are never in a file in plain text.
