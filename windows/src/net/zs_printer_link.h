@@ -122,6 +122,10 @@ namespace zs::link
     };
     // GET /slicer/printer.json at the root of the deck, with the key.
     bool ReadDeck(Target const &target, CancelPtr const &cancel, DeckList &out, std::string &error);
+    // Pure, for tests: the address that a saved printer of this deck list
+    // should have, by its name on the deck. "" to keep the address: it is
+    // right, the name is not on the list, or two printers have the name.
+    std::string DeckRepairedUrl(std::string const &url, std::string const &deck_name, DeckList const &list);
     // GET /api/plugin/printdeck: the reply for ParseDeckFilaments.
     bool ReadLoadedFilaments(Target const &target, CancelPtr const &cancel, std::string &body, std::string &error);
     // Pure, for tests: why a send to this deck list must stop, or "".

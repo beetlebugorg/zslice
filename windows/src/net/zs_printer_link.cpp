@@ -253,8 +253,10 @@ namespace zs::link
     {
         if (base.empty())
             return {};
+        // An empty path is the first printer: it lives at the root, also
+        // when the base is the address of another printer.
         if (path.empty())
-            return BaseUrl(base);
+            return BaseUrl(DeckRoot(BaseUrl(base)));
         // A path stays on the deck: the key goes there.
         if (path[0] != '/' || StartsWith(path, "//"))
             return {};
@@ -550,6 +552,27 @@ namespace zs::link
                 out.printers.push_back(std::move(d));
         }
         return true;
+    }
+
+    std::string DeckRepairedUrl(std::string const &url, std::string const &deck_name, DeckList const &list)
+    {
+        if (SameText(deck_name).empty())
+            return {};
+        DeckPrinter const *hit = nullptr;
+        for (auto const &d : list.printers)
+        {
+            if (SameText(d.name) != SameText(deck_name))
+                continue;
+            // Two printers of one name: the list cannot tell which.
+            if (hit != nullptr)
+                return {};
+            hit = &d;
+        }
+        if (hit == nullptr)
+            return {};
+        std::string base = BaseUrl(url);
+        std::string want = DeckAddress(base, hit->path);
+        return want == base ? std::string{} : want;
     }
 
     bool ReadLoadedFilaments(Target const &t, CancelPtr const &cancel, std::string &body, std::string &error)

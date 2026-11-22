@@ -132,6 +132,8 @@ These variables change a run, for tests:
 
 `windows/test/net_link.cpp` tests the links against stub servers on 127.0.0.1: HTTP, canned mDNS and SSDP packets, and a TLS server with a self-signed certificate. It contacts no real printer.
 
+At the start, the app reads `/slicer/printer.json` of each deck with saved printers. Each printer with a deck name gets the address of the printer of that name. The first printer of a deck has an empty path and lives at the root of the deck, so `/printers/<id>` of the first printer does not exist. A deck that does not answer keeps its addresses.
+
 ## Preferences
 
 - `app.ini` keeps `theme`, `view`, and `engine.threads` in `[general]`, through `zs::Printers().Pref` and `SetPref`.
