@@ -91,6 +91,50 @@ namespace winrt::ZSlice::implementation
         box.SelectedIndex(current >= nozzles ? nozzles : current);
     }
 
+    // The changes and the waste of a slice, in one line: "3 changes, about
+    // 2 min · waste 10.3 g (12 %)", and its parts for the tooltip. As
+    // wasteText and wasteTip in web/app/filaments.js.
+    void WasteWords(zs_app const *app, uint32_t changes, std::wstring &text, std::wstring &tip)
+    {
+        double chute = 0, tower = 0, total = 0, change_s = 0;
+        if (zs_app_waste(app, &chute, &tower, &total, &change_s) != ZS_OK)
+            chute = tower = total = change_s = 0;
+        text = std::to_wstring(changes) + (changes == 1 ? L" change" : L" changes");
+        wchar_t part[64];
+        if (change_s >= 60)
+        {
+            swprintf_s(part, L", about %.0f min", std::round(change_s / 60));
+            text += part;
+        }
+        else if (change_s > 0)
+        {
+            swprintf_s(part, L", about %.0f s", std::round(change_s));
+            text += part;
+        }
+        double waste = chute + tower;
+        if (waste >= 0.05)
+        {
+            swprintf_s(part, L" · waste %.1f g", waste);
+            text += part;
+            if (total > 0)
+            {
+                swprintf_s(part, L" (%.0f %%)", std::round(100 * waste / total));
+                text += part;
+            }
+        }
+        tip.clear();
+        auto line = [&](wchar_t const *format, double value) {
+            swprintf_s(part, format, value);
+            tip += (tip.empty() ? L"" : L"\n") + std::wstring(part);
+        };
+        if (chute > 0.05)
+            line(L"Flush out of the print: %.1f g", chute);
+        if (tower > 0.05)
+            line(L"Prime tower: %.1f g", tower);
+        if (change_s > 0)
+            line(L"Filament changes: %.0f s", std::round(change_s));
+    }
+
     // The nozzle of the choice, or -1 for none.
     int NozzleChoice(ComboBox const &box)
     {
@@ -409,17 +453,19 @@ namespace winrt::ZSlice::implementation
             filling = false;
 
             std::wstring title = n > 1 ? std::to_wstring(n) + L" filaments" : L"Filament";
+            std::wstring tip;
             if (n_grams > 0 && changes > 0)
             {
-                title += L" · " + std::to_wstring(changes) + (changes == 1 ? L" change" : L" changes");
-                if (flush > 0.05)
-                {
-                    wchar_t text[32];
-                    swprintf_s(text, L" · flush %.1f g", flush);
-                    title += text;
-                }
+                std::wstring words;
+                WasteWords(app, changes, words, tip);
+                title += L" · " + words;
             }
             head.Text(title);
+            head.TextWrapping(TextWrapping::WrapWholeWords);
+            if (tip.empty())
+                ToolTipService::SetToolTip(head, nullptr);
+            else
+                ToolTipService::SetToolTip(head, box_value(tip));
             add.Visibility(n < max_filaments ? Visibility::Visible : Visibility::Collapsed);
             if (w.model->GetSetting("machine.filament_change") == "tool")
             {
@@ -867,6 +913,10 @@ namespace winrt::ZSlice::implementation
                 out += to_string(unbox_value<hstring>(item.as<ComboBoxItem>().Content())) + " ";
             out += "sel " + std::to_string(NozzleChoice(row.nozzle)) + "] ";
         }
+        out += "head '" + to_string(filaments->head.Text()) + "' tip '";
+        if (auto tip = ToolTipService::GetToolTip(filaments->head))
+            out += to_string(unbox_value_or<hstring>(tip, L""));
+        out += "'";
         return out;
     }
 #endif
