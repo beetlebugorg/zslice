@@ -550,6 +550,38 @@ def fmt(v):
     return ("%.4f" % v).rstrip("0").rstrip(".")
 
 
+def orca_idle(text):
+    """An OrcaSlicer G-code with its idle temperature test in the form of
+    PrusaSlicer. OrcaSlicer has idle_temperature 0 for a filament with
+    none; PrusaSlicer and zslice have no value (nil) for it. The Prusa
+    CORE One presets of OrcaSlicer test `idle_temperature[...] == 0`."""
+    if text is None:
+        return None
+    return re.sub(r"idle_temperature\[([a-z_0-9]+)\]\s*==\s*0\b", r"is_nil(idle_temperature[\1])", text)
+
+
+# The values of a model that its sources do not tell, or tell wrong: the
+# brand, a pattern of the model name, the field, and the value. Checked
+# against the firmware of the maker (docs/references/printer-data.md).
+OVERRIDES = [
+    # The XL and the CORE One (and its Signature Oak) are CoreXY; the MK
+    # and MINI printers move the bed in Y (COREXY in the Marlin
+    # configuration of each printer in Prusa-Firmware-Buddy). PrusaSlicer
+    # has no field for it.
+    ("Prusa", r"(CORE One|Signature Oak|XL)\b", "kinematics", "corexy"),
+    ("Prusa", r"(MK\d|i3 MK|MINI)", "kinematics", "i3"),
+    # The CORE One L moves 330 mm in Z (Z_SIZE of the firmware, and
+    # max_print_height of PrusaSlicer); the HF preset of OrcaSlicer has 331.
+    ("Prusa", r"CORE One L HF$", "height", 330.0),
+]
+
+
+def apply_overrides(m):
+    for brand, pattern, field, value in OVERRIDES:
+        if m["brand"] == brand and re.match(pattern, m["name"]):
+            m[field] = value
+
+
 def heats(text):
     """True if a start G-code sets the temperatures itself."""
     return bool(re.search(r"\{(nozzle_temp|first_layer_nozzle_temp)\}", text)) or bool(re.search(r"^\s*M10[49]\b", text, re.M))
@@ -995,10 +1027,10 @@ def read_orca(root):
             if not bed or not h:
                 continue
             consts = printer_consts(v)
-            start = translate_gcode(v.get("machine_start_gcode"), consts)
-            end = translate_gcode(v.get("machine_end_gcode"), consts)
+            start = orca_idle(translate_gcode(v.get("machine_start_gcode"), consts))
+            end = orca_idle(translate_gcode(v.get("machine_end_gcode"), consts))
             fil = None
-            mats = [m.strip() for m in str(model.get("default_materials", "")).split(";") if m.strip()]
+            mats =[m.strip() for m in str(model.get("default_materials", "")).split(";") if m.strip()]
             if mats:
                 fv = resolve(fil_by_name, mats[0])
                 fil = num(fv.get("filament_diameter"))
@@ -1120,6 +1152,7 @@ def merge(records):
         if m["filament"] not in (1.75, 2.85, 3.0):
             m["filament"] = 2.85 if m["filament"] > 2.2 else 1.75
         m["series"] = series_of(m["name"], m.get("family", ""))
+        apply_overrides(m)
         out.append(m)
     # One spelling for each series of a brand: the spelling in a model
     # name, else the most common one.

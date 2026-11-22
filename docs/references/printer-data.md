@@ -70,7 +70,7 @@ OrcaSlicer profiles, https://github.com/SoftFever/OrcaSlicer, `resources/profile
 
 **Text:** `LICENSE`
 
-**Notes:** The `machine_model` and `machine` presets of each vendor, with their `inherits`. The retraction of the travels of a printer comes from `z_hop`, `z_hop_types` ("Auto Lift" is `machine.z_hop_only_crossing`), `wipe`, `wipe_distance`, `retract_when_changing_layer`, and `retraction_minimum_travel`, only where the presets of the vendor set them (not the defaults of `fdm_machine_common`).
+**Notes:** The `machine_model` and `machine` presets of each vendor, with their `inherits`. The retraction of the travels of a printer comes from `z_hop`, `z_hop_types` ("Auto Lift" is `machine.z_hop_only_crossing`), `wipe`, `wipe_distance`, `retract_when_changing_layer`, and `retraction_minimum_travel`, only where the presets of the vendor set them (not the defaults of `fdm_machine_common`). The Prusa presets test `idle_temperature[...] == 0` for a filament with no idle temperature; the tool writes the test as `is_nil(idle_temperature[...])`, the form of PrusaSlicer and zslice.
 
 ### Cura LulzBot Edition printer definitions
 
