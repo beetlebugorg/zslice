@@ -147,6 +147,10 @@ namespace winrt::ZSlice::implementation
         std::shared_ptr<OverlayPanel> OpenPanel(std::wstring const &title, double width, double height,
                                                 Microsoft::UI::Xaml::UIElement const &content);
         void ClosePanel(std::shared_ptr<OverlayPanel> const &panel);
+        // The dialog of an import or a calibration (MainWindow.Import.cpp).
+        std::shared_ptr<OverlayPanel> ShowInfoPanel(std::wstring const &title, double width, Microsoft::UI::Xaml::UIElement const &content,
+                                                    Microsoft::UI::Xaml::Controls::Control const &first);
+        std::shared_ptr<OverlayPanel> info_panel;
 
         // Pairing (MainWindow.Printers.cpp).
         void ShowPair(std::string const &printer_id, bool fresh, std::function<void(bool)> done);

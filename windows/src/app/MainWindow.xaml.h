@@ -295,6 +295,22 @@ namespace winrt::ZSlice::implementation
         bool RunProjectStep(std::wstring const &verb, std::vector<std::wstring> const &words);
 #endif
 
+        // A profile of another slicer (MainWindow.Import.cpp).
+        winrt::fire_and_forget PickProfile();
+        void ImportProfilePath(std::wstring path);
+        void FinishImport(std::wstring const &path, std::string const &bytes, bool read);
+        void ShowImportReport(std::wstring const &file, std::string const &report);
+        // Calibration prints (MainWindow.Calibrate.cpp).
+        void AddCalibrateMenu();
+        void AddCalibrateActions(std::vector<SearchAction> &out);
+        void Calibrate(int kind);
+        void ShowCalibration();
+        void UseCalibrationValue(std::string const &setting, std::string const &value);
+#ifdef ZS_DEV_HOOKS
+        bool RunImportStep(std::wstring const &verb, std::vector<std::wstring> const &words);
+        bool RunCalibrateStep(std::wstring const &verb, std::vector<std::wstring> const &words);
+#endif
+
         // The chrome that all apps share (MainWindow.Chrome.cpp).
         void WireChrome();
         void LayoutHeader();

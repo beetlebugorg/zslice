@@ -140,9 +140,26 @@ At the first start, the app asks for your printer. Type a part of its name, or p
 
 The top bar has the setup of the plate:
 
-- **The printer menu** switches the printer. It also has **Printer settings and G-code…**, **Manage printers…**, **Connect a printdeck…**, and **Add a printer…**.
+- **The printer menu** switches the printer. It also has **Printer settings and G-code…**, **Manage printers…**, **Connect a printdeck…**, **Import a profile…**, and **Add a printer…**.
 - **The filament menu** has a color and a material for each filament. For a printdeck printer, **Use the filaments of** reads the spools that the printer has loaded.
-- **The quality menu** lists each quality with its main points.
+- **The quality menu** lists each quality with its main points. It also has **Save as profile…** and **Import a profile…**.
+
+## Import a profile
+
+**Import a profile…** is in the printer menu, the quality menu, and the search. Pick one of these files:
+
+- a PrusaSlicer or OrcaSlicer `.ini`, also a config bundle
+- an OrcaSlicer or Bambu Studio `.json` preset
+- a 3MF project of these slicers
+- a Cura `.curaprofile`
+
+The values become changes of the settings of the active plate. They are one step of the history, so Undo reverts them. A dialog lists the values that zslice set, the values that went into the limits of their setting, and the keys that have no zslice setting.
+
+## Calibrate
+
+**Calibrate** in the main menu and the search has **Temperature tower**, **Retraction test**, **Flow test**, and **Pressure advance tower**. A test goes on a new plate with the filament and the printer of the active plate, and it slices. A dialog says how to read the print, and has a button for each value.
+
+After the print, open **Calibrate**, then **Use a value of this test…**, and click the best value. The value goes on each plate. A test does not send a file to a printer. The plate of a test stays after a restart, but its list of values does not, so pick the value before you close the app. See [Calibrate the filament](calibrate.md).
 
 ## Connect a printer
 

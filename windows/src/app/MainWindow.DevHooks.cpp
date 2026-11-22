@@ -73,6 +73,14 @@
 //   pjshow, pjhide, pjfolder path, pjgithub text, pjplate n, pjstatus n key,
 //   pjcount n value, pjcheck n on|off, pjclose, pjscroll y, pjfile path,
 //   pjmenu, pjactions, pjsum, pjlog
+// The import of a profile, in MainWindow.Import.cpp (ZSLICE_IMPORT_FILE=path
+// replaces the file dialog):
+//   importmenu, importrun quality|printer|search, importfile path, importlog
+// Calibration, in MainWindow.Calibrate.cpp ('_' is a space):
+//   calmenu, calopen, calsub, calrun NAME, calfind LABEL, calshow, caluse i,
+//   calclose, callog
+//   popupshot i path   writes open popup i to a BMP file
+//   qualityshot path   writes the open quality menu to a BMP file
 // Each step writes the state to the log (ZSLICE_LOG).
 //
 // SPDX-License-Identifier: AGPL-3.0-or-later
@@ -274,6 +282,21 @@ namespace winrt::ZSlice::implementation
             {
                 SaveChrome(root, words[0]);
             }
+        }
+        else if (RunImportStep(verb, words) || RunCalibrateStep(verb, words))
+        {
+        }
+        else if (verb == L"popupshot" && words.size() >= 2)
+        {
+            auto popups = Microsoft::UI::Xaml::Media::VisualTreeHelper::GetOpenPopupsForXamlRoot(Content().XamlRoot());
+            uint32_t i = (uint32_t)number(0);
+            zs::Log("dev: popups %u\n", popups.Size());
+            if (i < popups.Size())
+                SaveChrome(popups.GetAt(i).Child(), words[1]);
+        }
+        else if (verb == L"qualityshot" && !words.empty())
+        {
+            SaveChrome(printers->quality_flyout.Content(), words[0]);
         }
         else if (verb == L"tool" && !words.empty())
         {

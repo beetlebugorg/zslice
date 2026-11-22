@@ -146,6 +146,8 @@
     <ClCompile Include="src\app\MainWindow.Work.cpp" />
     <ClCompile Include="src\app\MainWindow.CuraCompare.cpp" />
     <ClCompile Include="src\app\MainWindow.Project.cpp" />
+    <ClCompile Include="src\app\MainWindow.Import.cpp" />
+    <ClCompile Include="src\app\MainWindow.Calibrate.cpp" />
     <ClCompile Include="src\app\MainWindow.Layer2D.cpp" />
     <ClCompile Include="src\app\Layer2D.cpp" />
     <!-- The test hooks: -p:ZsDevHooks=true. A shipped build has none. -->
