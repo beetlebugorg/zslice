@@ -104,6 +104,26 @@ The filament change commands of the firmwares: Marlin `M600` (Filament Change, h
 
 **How zslice uses it:** A change of the filament between layers or parts: a pause with M600 (PAUSE on Klipper) for a printer with one filament path, or a tool change Tn for a unit that feeds many filaments.
 
+### What the Prusa firmware reads before a print
+
+```ref
+kind: format
+source: Prusa-Firmware-Buddy, Prusa-Firmware
+license: GPL-3.0
+link: https://github.com/prusa3d/Prusa-Firmware-Buddy
+files: src/gcode.zig, src/plate_job.zig, tools/printer_library.py
+area: gcode
+summary: The statistics comments at the end of the G-code of a Prusa printer, and the printer model checks that the test of the Prusa models expects.
+```
+
+Prusa-Firmware-Buddy, commit b1043d68 (10 November 2026): `src/common/gcode/gcode_info.cpp` (the keys and the commands that the print preview reads: `filament used [mm]`, `filament used [g]`, `estimated printing time (normal mode)`, `filament_type`, `extruder_colour`, and M862.1, M862.3, M862.5, M862.6, M115 U, M555 in the first 200 G-code lines), `src/common/gcode/gcode_reader_plaintext.cpp` (the comments from the start until the first G-code line, and the comments of the last 75000 bytes), `src/common/gcode/gcode_reader_any.cpp` (.gcode and .bgcode files), `include/common/printer_model_data.hpp` (the printer names of M862.3), and `include/marlin/Configuration_*.h` (COREXY and the bed sizes). Prusa-Firmware (the MK3 family), branch MK3, commit f3e0dfd4: `Firmware/util.cpp` (the M862 checks).
+
+**License:** GPL-3.0 (the formats and the facts, not code)
+
+**Used in:** `src/gcode.zig`, `src/plate_job.zig`, `tools/printer_library.py`
+
+**How zslice uses it:** For a Prusa printer, zslice writes the statistics comments with the keys and the item lists that the firmware reads. The test of the Prusa models checks the M862.3 name of each model against `printer_model_data.hpp`. The kinematics of the Prusa models in the library come from COREXY in the Marlin configuration of each printer, and the height of the CORE One L HF from its Z_SIZE.
+
 ### Object labels: EXCLUDE_OBJECT and M486
 
 ```ref

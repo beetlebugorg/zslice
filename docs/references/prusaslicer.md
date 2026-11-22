@@ -43,6 +43,26 @@ The Slic3r flow model: the cross section of an extruded bead is a rectangle with
 
 **How zslice uses it:** The plastic volume for each line, and the bead width in the 3D view.
 
+### Print statistics at the end of the G-code
+
+```ref
+kind: format
+source: PrusaSlicer
+license: AGPL-3.0
+link: https://github.com/prusa3d/PrusaSlicer
+files: src/gcode.zig
+area: gcode
+summary: The statistics comments at the end of the G-code of a Prusa printer, with the names and the forms of PrusaSlicer.
+```
+
+PrusaSlicer 2.9.7 (tag version_2.9.7, commit 450d70dd): `src/libslic3r/Print.cpp` (the names `filament used [mm]`, `filament used [cm3]`, `filament used [g]`, `total filament used [g]`), `src/libslic3r/GCode/GCodeProcessor.cpp` (`estimated printing time (normal mode)`, values with two decimals and ", " between the tools), and `src/libslic3r/Utils.hpp` (`get_time_dhms`: "1d 2h 3m 4s").
+
+**License:** AGPL-3.0 (the names and the forms, not code)
+
+**Used in:** `src/gcode.zig`
+
+**How zslice uses it:** zslice writes these comments at the end of the G-code of a Prusa printer (machine.model "prusa-..."), as PrusaSlicer writes them, so the Prusa firmware shows the time and the filament and checks the filament type.
+
 ### Ironing G-code comment
 
 ```ref
