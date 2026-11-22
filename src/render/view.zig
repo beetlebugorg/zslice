@@ -325,7 +325,7 @@ pub const View = struct {
     ring_axis: i8 = -1,
     /// The press of a turn: the center of the ring on the screen, the
     /// angle of the press about it, and the sense of the ring.
-    ring_press: struct { cx: f32 = 0, cy: f32 = 0, a0: f32 = 0, sense: f32 = 1 } = .{},
+    ring_press: struct { cx: f32 = 0, cy: f32 = 0, a0: f32 = 0, sense: f32 = 1, plane: bool = false, c: [3]f32 = .{ 0, 0, 0 } } = .{},
     layer: usize = 0,
     /// The lowest layer that shows (the bottom of the layer range).
     layer_lo: usize = 0,
@@ -2930,7 +2930,8 @@ pub const View = struct {
             const b = rg.r * @sin(t);
             q.* = switch (axis) {
                 0 => .{ rg.c[0], rg.c[1] + a, rg.c[2] + b },
-                1 => .{ rg.c[0] + a, rg.c[1], rg.c[2] + b },
+                // From +X toward -Z: the sense of a turn about +Y.
+                1 => .{ rg.c[0] + a, rg.c[1], rg.c[2] - b },
                 else => .{ rg.c[0] + a, rg.c[1] + b, rg.c[2] },
             };
         }
@@ -2983,20 +2984,48 @@ pub const View = struct {
             prev = a;
         }
         v.ring_axis = axis;
-        v.ring_press = .{ .cx = c[0], .cy = c[1], .a0 = std.math.atan2(py - c[1], px - c[0]), .sense = if (sum >= 0) 1 else -1 };
+        // A ring that faces the camera enough measures on its own plane.
+        // A ring seen almost as a line measures on the screen.
+        const cam = v.camera();
+        const plane = @abs(v.pixelRay(cam, c[0], c[1])[axis]) >= ring_min_facing;
+        const a0 = if (plane) v.ringAngle(axis, rg.c, px, py) else std.math.atan2(py - c[1], px - c[0]);
+        v.ring_press = .{ .cx = c[0], .cy = c[1], .a0 = a0, .sense = if (sum >= 0) 1 else -1, .plane = plane, .c = rg.c };
         return true;
     }
 
+    /// The least part of the view ray along the axis of a ring for a
+    /// measure on the plane of the ring.
+    const ring_min_facing = 0.15;
+
+    /// The angle of the pixel about the center c, on the plane of the
+    /// ring, in radians. It grows in the sense of a right-hand turn about
+    /// the axis. A ray that misses the plane counts as the point at the
+    /// horizon of the plane, so the angle has no jump there.
+    fn ringAngle(v: *const View, axis: usize, c: [3]f32, px: f32, py: f32) f32 {
+        const cam = v.camera();
+        const dir = v.pixelRay(cam, px, py);
+        const t = if (dir[axis] != 0) (c[axis] - cam.eye[axis]) / dir[axis] else -1;
+        var q = dir;
+        if (t > 0) {
+            for (0..3) |k| q[k] = cam.eye[k] + dir[k] * t - c[k];
+        }
+        return std.math.atan2(q[(axis + 2) % 3], q[(axis + 1) % 3]);
+    }
+
     /// The turn since the press, in degrees, in steps of `step` degrees
-    /// (0: no steps), with the sense of the ring: the part turns with the
-    /// pointer. Between -180 and 180.
+    /// (0: no steps): the part turns with the pointer. On the plane of the
+    /// ring, a point of the ring stays under the pointer. Between -180
+    /// and 180.
     pub fn ringDrag(v: *const View, px: f32, py: f32, step: f32) f32 {
         if (v.ring_axis < 0) return 0;
         const rp = v.ring_press;
-        var d = (std.math.atan2(py - rp.cy, px - rp.cx) - rp.a0) * 180 / std.math.pi;
+        // The center of the press: the rings follow the part during the
+        // drag, and the angle stays about one point.
+        const a = if (rp.plane) v.ringAngle(@intCast(v.ring_axis), rp.c, px, py) else std.math.atan2(py - rp.cy, px - rp.cx);
+        var d = (a - rp.a0) * 180 / std.math.pi;
         while (d > 180) d -= 360;
         while (d < -180) d += 360;
-        d *= rp.sense;
+        if (!rp.plane) d *= rp.sense;
         return if (step > 0) @round(d / step) * step else d;
     }
 
@@ -6149,6 +6178,75 @@ fn destroyTest(v: *View) void {
     v.preview_hull.deinit(g);
     v.preview_draws.deinit(g);
     v.rest_draws.deinit(g);
+}
+
+/// The point p of a ring of `axis` around c, after a turn of `deg` degrees
+/// as `Plate.turn` and `Plate.rotate` make it (right hand about the axis).
+fn ringTurned(axis: usize, c: [3]f32, p: [3]f32, deg: f32) [3]f32 {
+    const a = deg * std.math.pi / 180;
+    const cs = @cos(a);
+    const sn = @sin(a);
+    const r = [3]f32{ p[0] - c[0], p[1] - c[1], p[2] - c[2] };
+    const q: [3]f32 = switch (axis) {
+        0 => .{ r[0], cs * r[1] - sn * r[2], sn * r[1] + cs * r[2] },
+        1 => .{ cs * r[0] + sn * r[2], r[1], -sn * r[0] + cs * r[2] },
+        else => .{ cs * r[0] - sn * r[1], sn * r[0] + cs * r[1], r[2] },
+    };
+    return .{ c[0] + q[0], c[1] + q[1], c[2] + q[2] };
+}
+
+test "a ring drag turns the part with the pointer from each side" {
+    var v: View = .{ .renderer = undefined, .width = 800, .height = 600 };
+    const c = [3]f32{ 10, 20, 5 };
+    v.target = c;
+    v.extent = 20;
+    v.dist = 120;
+    v.setRings(c, 15);
+    // The front, the back, above, and below, a little to the side, so
+    // that no ring shows as a line.
+    const sides = [_][2]f32{ .{ -1.1, 0.5 }, .{ 2.0, 0.5 }, .{ -1.1, 1.2 }, .{ 2.0, -0.6 } };
+    for (sides) |side| {
+        v.setAngles(side[0], side[1]);
+        for (0..3) |axis| {
+            const pts = v.ringPoints(axis);
+            for ([_]usize{ 0, 7, 19, 31, 42 }) |k| {
+                const p0 = v.pixelOf(pts[k]).?;
+                const p1 = v.pixelOf(ringTurned(axis, c, pts[k], 20)).?;
+                try std.testing.expect(v.ringPress(@intCast(axis), p0[0], p0[1]));
+                // The rings follow the part as it turns: the angle stays.
+                v.setRings(.{ c[0], c[1], c[2] + 3 }, 17);
+                try std.testing.expectApproxEqAbs(@as(f32, 20), v.ringDrag(p1[0], p1[1], 0), 0.05);
+                v.setRings(c, 15);
+                v.ringRelease();
+            }
+        }
+    }
+    // A ring seen almost as a line still turns with the pointer.
+    v.setAngles(0.02, 0);
+    const line = v.ringPoints(1)[7];
+    const l0 = v.pixelOf(line).?;
+    const l1 = v.pixelOf(ringTurned(1, c, line, 20)).?;
+    try std.testing.expect(v.ringPress(1, l0[0], l0[1]));
+    try std.testing.expect(v.ringDrag(l1[0], l1[1], 0) > 0);
+    v.ringRelease();
+    // Straight on, a drag of 45 degrees is 45 degrees, from either side.
+    const onto = [_]struct { axis: usize, yaw: f32, pitch: f32 }{
+        .{ .axis = 0, .yaw = 0, .pitch = 0 },
+        .{ .axis = 0, .yaw = std.math.pi, .pitch = 0 },
+        .{ .axis = 1, .yaw = std.math.pi / 2.0, .pitch = 0 },
+        .{ .axis = 1, .yaw = -std.math.pi / 2.0, .pitch = 0 },
+        .{ .axis = 2, .yaw = -1.1, .pitch = 1.553 },
+        .{ .axis = 2, .yaw = -1.1, .pitch = -1.553 },
+    };
+    for (onto) |o| {
+        v.setAngles(o.yaw, o.pitch);
+        const from = v.ringPoints(o.axis)[5];
+        const p0 = v.pixelOf(from).?;
+        const p1 = v.pixelOf(ringTurned(o.axis, c, from, 45)).?;
+        try std.testing.expect(v.ringPress(@intCast(o.axis), p0[0], p0[1]));
+        try std.testing.expectEqual(@as(f32, 45), v.ringDrag(p1[0], p1[1], 15));
+        v.ringRelease();
+    }
 }
 
 test "a part preview draws the beads of the part apart, turned" {
