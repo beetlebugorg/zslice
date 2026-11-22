@@ -952,6 +952,10 @@ A prime tower for each family of materials that bond (PLA, PETG, ABS and ASA, an
 
 The width of the square prime tower.
 
+**`project.prime_tower_brim`** (number). Default: `3`
+
+The brim of the prime tower (mm): loops around the first layer of the tower, so it holds to the bed. 0: no brim.
+
 **`project.prime_tower_x`** (number). Default: `-1`
 
 The x of the center of the prime tower on the bed. -1: near the right side.

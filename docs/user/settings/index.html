@@ -574,6 +574,8 @@ M84</code></pre>
 <p>A prime tower for each family of materials that bond (PLA, PETG, ABS and ASA, and the others): a change purges into the tower of the new filament, so PETG never purges on PLA. Each tower grows on each layer up to its last change; on a layer with no filament of its family, its loop and grid print with the filament in the nozzle. With one family, one tower.</p>
 <p><strong><code>project.prime_tower_width</code></strong> (number). Default: <code>20</code></p>
 <p>The width of the square prime tower.</p>
+<p><strong><code>project.prime_tower_brim</code></strong> (number). Default: <code>3</code></p>
+<p>The brim of the prime tower (mm): loops around the first layer of the tower, so it holds to the bed. 0: no brim.</p>
 <p><strong><code>project.prime_tower_x</code></strong> (number). Default: <code>-1</code></p>
 <p>The x of the center of the prime tower on the bed. -1: near the right side.</p>
 <p><strong><code>project.prime_tower_y</code></strong> (number). Default: <code>-1</code></p>

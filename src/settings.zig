@@ -1072,6 +1072,9 @@ pub const Project = struct {
     prime_tower_split: bool = true,
     /// The width of the square prime tower.
     prime_tower_width: f64 = 20,
+    /// The brim of the prime tower (mm): loops around the first layer of
+    /// the tower, so it holds to the bed. 0: no brim.
+    prime_tower_brim: f64 = 3,
     /// The x of the center of the prime tower on the bed. -1: near the
     /// right side.
     prime_tower_x: f64 = -1,
@@ -1766,6 +1769,7 @@ pub const limits = [_]struct { []const u8, f64, f64 }{
     .{ "project.support_interface_filament", 0, 16 },
     .{ "project.flush_multiplier", 0, 3 },
     .{ "project.prime_tower_width", 5, 100 },
+    .{ "project.prime_tower_brim", 0, 20 },
     .{ "project.paint_anchor_depth", 0, 10 },
     .{ "project.prime_tower_x", -1, 2000 },
     .{ "project.prime_tower_y", -1, 2000 },
@@ -1954,7 +1958,7 @@ pub const plate_settings = [_][]const u8{
     "project.brim_location",          "project.placement",          "project.flush_multiplier",
     "project.print_sequence",
     "project.prime_tower",            "project.prime_tower_width",  "project.prime_tower_x",
-    "project.prime_tower_y",          "project.flush_into_hidden",
+    "project.prime_tower_y",          "project.flush_into_hidden",      "project.prime_tower_brim",
 };
 
 /// True for a setting that is the same for all the parts of a plate (see

@@ -156,6 +156,7 @@ const preview_notes = [_]struct { []const u8, [:0]const u8 }{
     .{ "project.angles_follow_part", "The skin and infill angles of a turned part, in its lines." },
     .{ "project.prime_tower_split", "A prime tower for each family of materials, in the G-code. The view draws each tower next to the parts." },
     .{ "project.prime_tower_width", "The size of the prime tower, in the G-code." },
+    .{ "project.prime_tower_brim", "The brim of the prime tower on the first layer, in the G-code." },
     .{ "project.prime_tower_x", "The place of the prime tower, in the G-code." },
     .{ "project.prime_tower_y", "The place of the prime tower, in the G-code." },
     .{ "project.filament", "The filament of the part or of the layers: the color of its lines, and the filament changes in the G-code." },

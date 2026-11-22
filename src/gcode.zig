@@ -529,6 +529,25 @@ pub const Tower = struct {
         return n;
     }
 
+    /// Loop `i` (from 1) of the brim of the tower, for lines `w` mm wide:
+    /// a loop `i` line widths outside the loop of the tower, on its first
+    /// layer, so the tower holds to the bed.
+    pub fn brimLoop(t: Tower, w: f64, i: u32, out: *[5][2]f64) void {
+        const d = w * @as(f64, @floatFromInt(i));
+        const x0 = t.x - t.size / 2 + w / 2 - d;
+        const x1 = t.x + t.size / 2 - w / 2 + d;
+        const y0 = t.y - t.ySize() / 2 + w / 2 - d;
+        const y1 = t.y + t.ySize() / 2 - w / 2 + d;
+        out.* = .{ .{ x0, y0 }, .{ x1, y0 }, .{ x1, y1 }, .{ x0, y1 }, .{ x0, y0 } };
+    }
+
+    /// The count of the loops of the brim of a tower: `brim` mm of lines
+    /// `w` mm wide.
+    pub fn brimLoops(brim: f64, w: f64) u32 {
+        if (brim <= 0 or w <= 0) return 0;
+        return @min(40, @as(u32, @intFromFloat(@ceil(brim / w - 1e-9))));
+    }
+
     /// The row `row` of the purge rows of a layer, for lines `w` mm wide:
     /// its y, and the x of its two ends. The rows fill the area inside the
     /// loop from the front, one line width apart, and their ends touch the
@@ -555,8 +574,9 @@ pub const finish_points_max = 64;
 /// The largest gap (mm) between the lines of the grid of a tower layer:
 /// a row of purge over the grid bridges no more. The grid of Bambu Studio
 /// ("CP EMPTY GRID") has gaps of about 9 mm (see
-/// docs/references/bambu-studio.md).
-pub const grid_gap = 5.0;
+/// docs/references/bambu-studio.md); 2 mm gives a prime row a close base
+/// to stick to (5 mm let the prime lift).
+pub const grid_gap = 2.0;
 
 /// The prime towers of a print: one, or one for each family of materials
 /// (Project.prime_tower_split), and the tower of each filament slot. Each
@@ -2332,6 +2352,17 @@ pub const Emitter = struct {
         self.towerLayer(k);
         if (self.tower_done[k]) return;
         self.tower_done[k] = true;
+        // The brim of the tower on the first layer of the print: loops out
+        // from the loop of the tower (project.prime_tower_brim).
+        if (self.layer_index == 0) {
+            const loops = Tower.brimLoops(self.lr.settings.project.prime_tower_brim, self.layer_w);
+            var i: u32 = 1;
+            while (i <= loops) : (i += 1) {
+                var ring: [5][2]f64 = undefined;
+                self.towers.list[k].brimLoop(self.layer_w, i, &ring);
+                try self.towerLines(k, &ring, ring.len, first);
+            }
+        }
         var pts: [finish_points_max][2]f64 = undefined;
         const n = self.towers.list[k].finishLines(self.layer_w, self.tower_rows[k], &pts);
         try self.towerLines(k, pts[0..n], 5, first);
@@ -4311,4 +4342,27 @@ test "bambu progress: each layer gets its percent and its minutes left" {
     try std.testing.expectEqual(head.len, text.len);
     try std.testing.expect(std.mem.indexOf(u8, text, "\nM73 P0 R60 ") != null);
     try std.testing.expect(std.mem.indexOf(u8, text, "\nM73 P50 R30 ") != null);
+}
+
+test "tower: the brim loops step out by a line width, and the grid lines are close" {
+    const t = Tower{ .x = 100, .y = 100, .size = 20, .last_layer = 5 };
+    const w: f64 = 0.45;
+    try std.testing.expectEqual(@as(u32, 7), Tower.brimLoops(3, w));
+    try std.testing.expectEqual(@as(u32, 0), Tower.brimLoops(0, w));
+    var ring: [5][2]f64 = undefined;
+    t.brimLoop(w, 1, &ring);
+    try std.testing.expectApproxEqAbs(90 + w / 2 - w, ring[0][0], 1e-9);
+    try std.testing.expectApproxEqAbs(110 - w / 2 + w, ring[1][0], 1e-9);
+    try std.testing.expectEqual(ring[0], ring[4]);
+    var pts: [finish_points_max][2]f64 = undefined;
+    const n = t.finishLines(w, 0, &pts);
+    // The grid: the points after the loop and the jump, in pairs along y.
+    var prev: ?f64 = null;
+    var i: usize = 5;
+    while (i < n) : (i += 1) {
+        const x = pts[i][0];
+        if (prev) |p| if (@abs(x - p) > 1e-9) try std.testing.expect(@abs(x - p) <= grid_gap + 1e-9);
+        prev = x;
+    }
+    try std.testing.expect(n > 5 + 2 * 8);
 }

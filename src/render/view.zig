@@ -3271,6 +3271,17 @@ pub const View = struct {
                     try v.towerBead(.{ row.x0, row.y }, .{ row.x0 + run, row.y }, l, @floatCast(lz), @floatCast(lh), @floatCast(lw), colors[k], center, sxy, sz);
                     len -= run;
                 }
+                // The brim of the tower on the first layer, as
+                // gcode.Emitter.towerFinish prints it.
+                if (l == 0) {
+                    const loops = zs_gcode.Tower.brimLoops(job.resolved.settings.project.prime_tower_brim, lw);
+                    var i: u32 = 1;
+                    while (i <= loops) : (i += 1) {
+                        var ring: [5][2]f64 = undefined;
+                        t.brimLoop(lw, i, &ring);
+                        for (ring[0..4], ring[1..5]) |a, b| try v.towerBead(a, b, l, @floatCast(lz), @floatCast(lh), @floatCast(lw), colors[k], center, sxy, sz);
+                    }
+                }
                 var pts: [zs_gcode.finish_points_max][2]f64 = undefined;
                 const n = t.finishLines(lw, rows, &pts);
                 // The loop is pts[0..5]; the nozzle travels to the grid.
