@@ -1,0 +1,4 @@
+// The icon of the exe. Explorer, the taskbar, and the file types use it, and
+// MainWindow gives it to the window. It is the first icon of the exe.
+// SPDX-License-Identifier: AGPL-3.0-or-later
+1 ICON "..\\assets\\icon\\out\\zslice.ico"

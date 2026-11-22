@@ -41,6 +41,14 @@ namespace winrt::ZSlice::implementation
         InitializeComponent();
         Title(L"zslice");
         this->try_as<::IWindowNative>()->get_WindowHandle(&hwnd);
+        // The icon of the exe (ZSlice.rc), at the sizes of this display.
+        UINT icon_dpi = GetDpiForWindow(hwnd);
+        for (auto [kind, metric] : { std::pair{ ICON_BIG, SM_CXICON }, std::pair{ ICON_SMALL, SM_CXSMICON } })
+        {
+            int size = GetSystemMetricsForDpi(metric, icon_dpi);
+            if (HANDLE icon = LoadImageW(GetModuleHandleW(nullptr), MAKEINTRESOURCEW(1), IMAGE_ICON, size, size, LR_DEFAULTCOLOR))
+                SendMessageW(hwnd, WM_SETICON, kind, reinterpret_cast<LPARAM>(icon));
+        }
         queue = DispatcherQueue::GetForCurrentThread();
 
         retry_timer = queue.CreateTimer();

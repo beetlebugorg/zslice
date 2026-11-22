@@ -140,6 +140,10 @@ These variables change a run, for tests:
 - `zs_app_setting_set` records no pending history edit for `engine.threads`, because a history step has no engine options.
 - The panel has no USB rows and no "Keep filament settings for each roll" row. The Windows shell has neither feature.
 
+## The icon
+
+The exe and the window use `assets/icon/out/zslice.ico` through `windows/ZSlice.rc`. The file types and links use the first icon of the exe. `windows/make-logos.ps1` draws the package logos in `windows/Assets` from `assets/icon`, with the SVG renderer of Direct2D. Art below 48 px comes from `zslice-small.svg`. The app is unpackaged, so it does not load the logos yet. An MSIX package uses them. Run the script after a change of the icon, and commit its files.
+
 ## Build the core
 
 The core needs Zig 0.16 and Visual Studio with the C++ tools. The app builds for x64 and ARM64.
