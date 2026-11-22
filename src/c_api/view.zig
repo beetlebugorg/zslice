@@ -1220,6 +1220,109 @@ export fn zs_view_draw(view: ?*View) c_int {
     return ok;
 }
 
+/// A slice of the app, waited for.
+fn sliceWait(app: *App) !void {
+    if (app_api.zs_app_slice(app) != ok) return error.NoSlice;
+    app.stopWorkerForTest();
+}
+
+const app_api = @import("app.zig");
+
+/// The beads of zs_view_connected_beads, copied (gpa).
+fn bodyCopy(v: *View, path: usize, lo: usize, hi: usize) ![]f32 {
+    var out: [*]const f32 = undefined;
+    var n: usize = 0;
+    if (zs_view_connected_beads(v, path, lo, hi, &out, &n) != ok) return error.NoBeads;
+    return std.testing.allocator.dupe(f32, out[0..n]);
+}
+
+/// The first path of `feature` on layer `layer` of the last slice.
+fn firstOf(app: *App, v: *const View, layer: usize, feature: zs.settings.Feature) ?usize {
+    const t = app.allToolpaths() orelse return null;
+    for (v.layer_path_end.items[layer - 1]..v.layer_path_end.items[layer]) |p| {
+        if (t.path_features.items[p] == @intFromEnum(feature)) return p;
+    }
+    return null;
+}
+
+test "C API: a region and the paint of a line, as a shell calls them, across slices" {
+    if (!render_on or frame_backend) return;
+    const gpa = std.testing.allocator;
+    // A plate with a fin on its side, too thin for an inner wall: the
+    // outer wall goes around the fin, and the inner wall does not.
+    var b: zs.mesh.Builder = .init(gpa);
+    try zs.mesh.shapes.addBox(&b, 0, 0, 0, 40, 30, 10);
+    try zs.mesh.shapes.addBox(&b, 40, 14.7, 0, 46, 15.3, 10);
+    var mesh = try b.finish();
+    var stl: std.Io.Writer.Allocating = .init(gpa);
+    defer stl.deinit();
+    try mesh.writeStl(&stl.writer);
+    mesh.deinit(gpa);
+    var app_p: ?*App = null;
+    try std.testing.expectEqual(ok, app_api.zs_app_new(null, null, &app_p));
+    const app = app_p.?;
+    defer app_api.zs_app_free(app);
+    try std.testing.expectEqual(ok, app_api.zs_app_load_stl(app, "fin.stl", stl.written().ptr, stl.written().len));
+    try sliceWait(app);
+    const v = try View.gpa.create(View);
+    v.* = .{ .renderer = undefined, .headless = true, .width = 1, .height = 1 };
+    defer v.destroy();
+    try v.load(app);
+    const layer = v.layer_path_end.items.len / 2;
+    const inner = firstOf(app, v, layer, .inner_wall) orelse return error.NoInnerWall;
+    const outer = firstOf(app, v, layer, .outer_wall) orelse return error.NoOuterWall;
+    // The press point of each line: the shell finds the line again there
+    // after each slice (the slice numbers the lines again).
+    const pi = v.beads.items[v.path_start.items[inner]];
+    const po = v.beads.items[v.path_start.items[outer]];
+
+    // The body of the inner wall on its layer has the outer wall around it.
+    var list: std.ArrayList(usize) = .empty;
+    defer list.deinit(View.gpa);
+    try v.connectedPaths(inner, layer, layer, &list);
+    try std.testing.expect(std.mem.indexOfScalar(usize, list.items, outer) != null);
+
+    // A region of layers layer - 5 to layer: its id, a slice, then the
+    // body of the line found again on the new slice gives the same region.
+    const beads = try bodyCopy(v, inner, layer - 5, layer);
+    defer gpa.free(beads);
+    var id: u32 = 0;
+    try std.testing.expectEqual(ok, app_api.zs_app_region_set(app, beads.ptr, beads.len, 0, "project.infill_density", "0.5", &id));
+    try std.testing.expect(id > 0);
+    try sliceWait(app);
+    try v.load(app);
+    const again = (v.pickLayer(layer, pi.ax, pi.ay) orelse return error.NoPick)[0];
+    const beads2 = try bodyCopy(v, again, layer - 5, layer);
+    defer gpa.free(beads2);
+    var found: u32 = 0;
+    try std.testing.expectEqual(ok, app_api.zs_app_region_find(app, beads2.ptr, beads2.len, &found));
+    try std.testing.expectEqual(id, found);
+    try std.testing.expectEqual(ok, app_api.zs_app_region_set(app, null, 0, id, "project.infill_density", null, &id));
+    try std.testing.expectEqual(@as(u32, 0), id);
+    try sliceWait(app);
+    try v.load(app);
+
+    // The filament of the body of the inner wall on its layer: after the
+    // slice, the lines found again at their points (the inner wall, and
+    // the outer wall around the fin) print in filament 2.
+    var slot: usize = 0;
+    try std.testing.expectEqual(ok, app_api.zs_app_filament_add(app, &slot));
+    try sliceWait(app);
+    try v.load(app);
+    const start = (v.pickLayer(layer, pi.ax, pi.ay) orelse return error.NoPick)[0];
+    const one = try bodyCopy(v, start, layer, layer);
+    defer gpa.free(one);
+    var changed: usize = 0;
+    try std.testing.expectEqual(ok, app_api.zs_app_paint_body(app, one.ptr, one.len, 2, &changed));
+    try std.testing.expect(changed > 0);
+    try sliceWait(app);
+    try v.load(app);
+    const li = (v.pickLayer(layer, pi.ax, pi.ay) orelse return error.NoPick)[0];
+    const lo = (v.pickLayer(layer, po.ax, po.ay) orelse return error.NoPick)[0];
+    try std.testing.expectEqual(@as(u32, 2), app_api.zs_app_path_filament(app, li));
+    try std.testing.expectEqual(@as(u32, 2), app_api.zs_app_path_filament(app, lo));
+}
+
 test "C API: the view module compiles" {
     if (render_on) _ = &view_mod.View.create;
 }

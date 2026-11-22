@@ -29,7 +29,7 @@ Esc, ×, or a click on no line closes the card.
 
 ## Give a line a filament
 
-The line card has the row **Filament**. It is for this part of the layer only: the line and the lines joined to it on its layer.
+The line card has the row **Filament**. It is for this part of the layer only: the line and the lines joined to it on its layer. An inner line also takes the outer wall around it.
 
 1. Click a line.
 2. Pick a filament chip in **Filament**. Pick **+** to add a filament to the plate.

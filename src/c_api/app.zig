@@ -939,7 +939,7 @@ export fn zs_app_setting_set(a: ?*App, name: ?[*:0]const u8, value: ?[*:0]const 
     return ok;
 }
 
-export fn zs_app_slice(a: ?*App) c_int {
+pub export fn zs_app_slice(a: ?*App) c_int {
     const app = a orelse return @intFromEnum(Status.invalid_argument);
     app.startSlice() catch |e| return status(e);
     return ok;
@@ -1570,7 +1570,7 @@ export fn zs_app_path_layer(a: ?*const App, path: usize) isize {
 
 /// The filament (from 1) that prints path `path` of the last slice, or 0
 /// for no such path.
-export fn zs_app_path_filament(a: ?*const App, path: usize) u32 {
+pub export fn zs_app_path_filament(a: ?*const App, path: usize) u32 {
     const app = a orelse return 0;
     const t = app.allToolpaths() orelse return 0;
     if (path >= t.path_tool.items.len) return 0;
@@ -2442,7 +2442,7 @@ export fn zs_app_part_paint_set(a: ?*App, i: usize, text: ?[*]const u8, len: usi
 /// zs_view_connected_beads). The filament of a part is no paint on it.
 /// `changed` (may be NULL): the count of triangles whose paint changed. A
 /// change is a step of the undo list, and the next slice splits the part.
-export fn zs_app_paint_body(a: ?*App, beads: ?[*]align(1) const f32, n: usize, filament: u32, changed: ?*usize) c_int {
+pub export fn zs_app_paint_body(a: ?*App, beads: ?[*]align(1) const f32, n: usize, filament: u32, changed: ?*usize) c_int {
     const app = a orelse return @intFromEnum(Status.invalid_argument);
     // A copy with the alignment of f32 (the web app gives bytes).
     const list = gpa.alloc(f32, if (beads != null) n else 0) catch return @intFromEnum(Status.out_of_memory);
@@ -2472,7 +2472,7 @@ fn floatsOf(beads: ?[*]align(1) const f32, n: usize) ?[]f32 {
 /// (no setting left). ZS_INVALID_VALUE: a setting that a region cannot
 /// have (zs_setting_region_note), or a bad value. A change is a step of
 /// the undo list, and the next slice has the region.
-export fn zs_app_region_set(a: ?*App, beads: ?[*]align(1) const f32, n: usize, id: u32, name: ?[*:0]const u8, value: ?[*:0]const u8, out_id: ?*u32) c_int {
+pub export fn zs_app_region_set(a: ?*App, beads: ?[*]align(1) const f32, n: usize, id: u32, name: ?[*:0]const u8, value: ?[*:0]const u8, out_id: ?*u32) c_int {
     const app = a orelse return @intFromEnum(Status.invalid_argument);
     const nm = std.mem.span(name orelse return @intFromEnum(Status.invalid_argument));
     const list = floatsOf(beads, n) orelse return @intFromEnum(Status.out_of_memory);
@@ -2490,7 +2490,7 @@ export fn zs_app_region_set(a: ?*App, beads: ?[*]align(1) const f32, n: usize, i
 
 /// The id of the region of the beads (their box, see zs_app_region_set),
 /// or 0 in `out_id`.
-export fn zs_app_region_find(a: ?*App, beads: ?[*]align(1) const f32, n: usize, out_id: ?*u32) c_int {
+pub export fn zs_app_region_find(a: ?*App, beads: ?[*]align(1) const f32, n: usize, out_id: ?*u32) c_int {
     const app = a orelse return @intFromEnum(Status.invalid_argument);
     const list = floatsOf(beads, n) orelse return @intFromEnum(Status.out_of_memory);
     defer gpa.free(list);
@@ -2537,7 +2537,7 @@ export fn zs_app_filament_count(a: ?*const App) usize {
 
 /// Adds a filament to the plate: a copy of filament 1 with a new color.
 /// `out_index` gets its index (from 0).
-export fn zs_app_filament_add(a: ?*App, out_index: ?*usize) c_int {
+pub export fn zs_app_filament_add(a: ?*App, out_index: ?*usize) c_int {
     const app = a orelse return @intFromEnum(Status.invalid_argument);
     const i = app_mod.filament_slots.add(app) catch |e| return switch (e) {
         error.TooMany => @intFromEnum(Status.out_of_range),
