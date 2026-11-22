@@ -795,12 +795,16 @@ main > ol > li::before { content: counter(step); position: absolute; left: 0; to
 }
 """
 
-# A favicon: three layers of a print.
-ICON = ("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E"
-        "%3Crect width='32' height='32' rx='6' fill='%23171717'/%3E"
-        "%3Crect x='11' y='8' width='10' height='4' rx='1' fill='%23f4f0e6'/%3E"
-        "%3Crect x='8' y='14' width='16' height='4' rx='1' fill='%23f4f0e6'/%3E"
-        "%3Crect x='5' y='20' width='22' height='4' rx='1' fill='%23ff5a1f'/%3E%3C/svg%3E")
+# The favicon: the small zslice icon (assets/icon/zslice-small.svg).
+def _icon():
+    import urllib.parse
+    svg = (ROOT / "assets" / "icon" / "zslice-small.svg").read_text()
+    svg = re.sub(r"<!--.*?-->", "", svg, flags=re.S)
+    svg = re.sub(r"\s+", " ", svg).strip()
+    return "data:image/svg+xml," + urllib.parse.quote(svg, safe=" =/:'\"")
+
+
+ICON = _icon()
 
 PAGES = {}  # folder -> HTML
 

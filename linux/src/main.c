@@ -277,6 +277,9 @@ static const GActionEntry actions[] = {
 };
 
 static void on_startup(GApplication *app, gpointer data) {
+    /* The icon of each window: org.beetlebug.Zslice in the hicolor theme
+     * (linux/data/icons). */
+    gtk_window_set_default_icon_name(ZG_APP_ID);
     model = zg_model_new();
     g_action_map_add_action_entries(G_ACTION_MAP(app), actions, G_N_ELEMENTS(actions), app);
     const char *open_keys[] = {"<Control>o", NULL};

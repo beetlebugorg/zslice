@@ -121,7 +121,9 @@ executable('zslice-gtk',
 # (x-scheme-handler/zslice). An install runs update-desktop-database, so
 # the desktop finds the link handler.
 install_data('data/org.beetlebug.Zslice.desktop', install_dir: get_option('datadir') / 'applications')
-gnome.post_install(update_desktop_database: true)
+# The icon of the app, in the hicolor theme (tools/icons.sh makes it).
+install_subdir('data/icons/hicolor', install_dir: get_option('datadir') / 'icons')
+gnome.post_install(update_desktop_database: true, gtk_update_icon_cache: true)
 
 # Tests of the network code with local servers only: `meson test -C
 # linux/build`. They need no core and no display.
