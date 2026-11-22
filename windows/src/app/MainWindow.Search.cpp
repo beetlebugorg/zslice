@@ -371,6 +371,7 @@ namespace winrt::ZSlice::implementation
             SearchResize().Visibility(card ? Visibility::Visible : Visibility::Collapsed);
             SearchBox().CornerRadius(CornerRadiusHelper::FromUniformRadius(docked || card ? 14 : 12));
             FillSearchPins();
+            ShowSearchScope();
             SearchBox().Visibility(Visibility::Visible);
             PlaceSearch();
             FillSearch();
@@ -382,6 +383,58 @@ namespace winrt::ZSlice::implementation
             if (!entry.Focus(FocusState::Keyboard))
                 queue.TryEnqueue([entry] { entry.Focus(FocusState::Keyboard); });
             entry.SelectAll();
+        }
+    }
+
+    // Opens the search on some settings only, with an empty entry.
+    void MainWindow::OpenScopedSearch(std::shared_ptr<SearchScope> scope)
+    {
+        CloseSearch();
+        search_scope = std::move(scope);
+        search_text.clear();
+        ActiveSearchEntry().Text(L"");
+        OpenSearch(true);
+    }
+
+    // The label of the scope: in the head of a card or a rail, or over the
+    // results under the field of the header.
+    void MainWindow::ShowSearchScope()
+    {
+        if (search_scope_tag == nullptr)
+        {
+            search_scope_tag = Markup::XamlReader::Load(
+                L"<Border xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation' Padding='8,2' CornerRadius='10' "
+                L"VerticalAlignment='Center' HorizontalAlignment='Left' Background='{ThemeResource ZsAccent}'>"
+                L"<TextBlock FontSize='12' FontWeight='SemiBold' Foreground='#FFFFFF' TextWrapping='Wrap' /></Border>").as<Border>();
+        }
+        bool shown = false;
+        if (auto parent = search_scope_tag.Parent().try_as<Panel>())
+        {
+            uint32_t at = 0;
+            shown = parent.Children().IndexOf(search_scope_tag, at);
+            if (shown)
+                parent.Children().RemoveAt(at);
+        }
+        bool docked = search_place == SearchPlace::Header;
+        wchar_t const *hint = search_scope != nullptr ? L"Search the settings of this part" : L"Search settings and actions";
+        SearchEntry().PlaceholderText(hint);
+        if (search_scope == nullptr)
+        {
+            if (shown)
+                HeaderSearch().PlaceholderText(Root().ActualWidth() < 900 ? L"Search" : L"Search settings and actions");
+            return;
+        }
+        if (docked)
+            HeaderSearch().PlaceholderText(hint);
+        search_scope_tag.Child().as<TextBlock>().Text(search_scope->label);
+        if (docked)
+        {
+            SearchPinRow().Children().Append(search_scope_tag);
+        }
+        else
+        {
+            Grid::SetColumn(search_scope_tag, 1);
+            SearchHead().Children().Append(search_scope_tag);
         }
     }
 
@@ -413,6 +466,14 @@ namespace winrt::ZSlice::implementation
         search_editors.clear();
         SearchList().Children().Clear();
         SearchBox().Visibility(Visibility::Collapsed);
+        if (search_scope != nullptr)
+        {
+            // The words of a scope stay out of the next plain search.
+            search_scope = nullptr;
+            ShowSearchScope();
+            search_text.clear();
+            ActiveSearchEntry().Text(L"");
+        }
         if (model != nullptr && model->HistoryFocus(nullptr))
             RefreshHistoryButtons();
         if (inside)
@@ -420,11 +481,13 @@ namespace winrt::ZSlice::implementation
         UpdateSearchField();
     }
 
-    // The search opens again in its new place, with its text.
+    // The search opens again in its new place, with its text and its scope.
     void MainWindow::SetSearchPlace(SearchPlace place)
     {
         std::wstring text = search_text;
+        auto scope = search_scope;
         CloseSearch();
+        search_scope = scope;
         search_place = place;
         zs::Printers().SetPref("search_place", PlaceName((int)place));
         ShowSearchField();
@@ -557,8 +620,20 @@ namespace winrt::ZSlice::implementation
             note(L"Type a setting (infill, walls, brim, speed) or an action (export, arrange, upload).");
             return;
         }
-        std::vector<uint32_t> hits(200);
+        // A scope keeps the settings that pass it, of all that match.
+        std::vector<uint32_t> hits(search_scope != nullptr ? std::max<size_t>(zs_setting_count(), 1) : 200);
         size_t count = std::min(zs_setting_search(zs::ToUtf8(query).c_str(), 0, hits.data(), nullptr, hits.size()), hits.size());
+        if (search_scope != nullptr)
+        {
+            size_t kept = 0;
+            for (size_t i = 0; i < count; i++)
+            {
+                zs_setting_info info{};
+                if (zs_setting_get_info(hits[i], &info) == ZS_OK && search_scope->only(info))
+                    hits[kept++] = hits[i];
+            }
+            count = kept;
+        }
         if (count > 0)
         {
             heading(L"SETTINGS");
@@ -572,7 +647,7 @@ namespace winrt::ZSlice::implementation
                 note(std::to_wstring(count - max_settings) + L" more settings match. Type more words to narrow the list.");
         }
         size_t actions = 0;
-        for (auto const &action : SearchActions())
+        for (auto const &action : search_scope != nullptr ? std::vector<SearchAction>() : SearchActions())
         {
             std::wstring text = Lower(action.label), hint = Lower(action.hint);
             bool all = std::all_of(words.begin(), words.end(), [&](std::wstring const &w) {
@@ -696,6 +771,18 @@ namespace winrt::ZSlice::implementation
         int index = (int)search_rows.size();
         zs_setting_info copy = info;
         std::string name = info.name;
+        // With a scope, the row reads and writes the values of the scope.
+        auto scope = search_scope;
+        auto target = scope != nullptr ? scope->target : nullptr;
+        auto read = [this, target](std::string const &key) {
+            return target != nullptr ? target->get(key) : model->GetSetting(key.c_str());
+        };
+        auto write = [this, target](std::string const &key, std::string const &value) {
+            if (target != nullptr)
+                target->set(key, value);
+            else
+                CommitSetting(key, value);
+        };
 
         Grid grid;
         grid.ColumnSpacing(12);
@@ -730,10 +817,10 @@ namespace winrt::ZSlice::implementation
         grid.Children().Append(label);
 
         std::wstring place = std::wstring(GroupTitle(info.group)) + L" · " + zs::ToWide(info.section);
-        auto fill_tag = [this, tag, name, place]() mutable {
+        auto fill_tag = [this, tag, name, place, scope]() mutable {
             if (model == nullptr)
                 return;
-            std::wstring source = zs::ToWide(model->SourceTag(name.c_str()));
+            std::wstring source = scope != nullptr ? scope->source(name) : zs::ToWide(model->SourceTag(name.c_str()));
             tag.Text(source.empty() ? place : place + L" · " + source);
         };
         fill_tag();
@@ -783,22 +870,22 @@ namespace winrt::ZSlice::implementation
             slider.VerticalAlignment(VerticalAlignment::Center);
             Automation::AutomationProperties::SetName(slider, zs::ToWide(info.label));
             auto held = std::make_shared<bool>(false);
-            auto fill = [this, slider, name, k, held]() mutable {
+            auto fill = [this, slider, name, k, held, read]() mutable {
                 if (*held || model == nullptr)
                     return;
                 filling_editor = true;
-                slider.Value(strtod(model->GetSetting(name.c_str()).c_str(), nullptr) * k);
+                slider.Value(strtod(read(name).c_str(), nullptr) * k);
                 filling_editor = false;
             };
             fill();
             search_editors.push_back({ name, fill });
             // A drag sends a value at most each 90 ms, and the last one at
             // the end: each value starts a slice.
-            slider.ValueChanged([this, copy](auto &&, Primitives::RangeBaseValueChangedEventArgs const &e) {
+            slider.ValueChanged([this, copy, target](auto &&, Primitives::RangeBaseValueChangedEventArgs const &e) {
                 if (filling_editor)
                     return;
                 std::wstring text = zs::ToWide(Shortest(e.NewValue()));
-                search_pending = [this, copy, text] { CommitSettingText(copy, text); };
+                search_pending = [this, copy, text, target] { CommitSettingText(copy, text, target.get()); };
                 auto wait = drag_interval - std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - search_sent);
                 if (wait.count() <= 0)
                 {
@@ -823,7 +910,7 @@ namespace winrt::ZSlice::implementation
 
         // The editor of the settings pane, with its refresh in this list.
         size_t before = setting_editors.size();
-        FrameworkElement editor = MakeEditor(info);
+        FrameworkElement editor = MakeEditor(info, target);
         for (size_t i = before; i < setting_editors.size(); i++)
             search_editors.push_back(std::move(setting_editors[i]));
         setting_editors.resize(before);
@@ -884,14 +971,14 @@ namespace winrt::ZSlice::implementation
         });
 
         // Left and Right: one step of a number, or the next choice.
-        auto nudge = [this, copy, name, step = info.slider_step, ratio](int dir) {
+        auto nudge = [this, copy, name, read, write, step = info.slider_step, ratio](int dir) {
             if (model == nullptr)
                 return;
-            std::string now = model->GetSetting(name.c_str());
+            std::string now = read(name);
             if (copy.kind == ZS_SETTING_NUMBER || copy.kind == ZS_SETTING_INTEGER)
             {
                 double by = step > 0 ? step : copy.kind == ZS_SETTING_INTEGER ? 1 : ratio ? 0.01 : 0.1;
-                CommitSetting(name, Shortest(strtod(now.c_str(), nullptr) + dir * by));
+                write(name, Shortest(strtod(now.c_str(), nullptr) + dir * by));
             }
             else if (copy.kind == ZS_SETTING_CHOICE)
             {
@@ -901,11 +988,11 @@ namespace winrt::ZSlice::implementation
                 auto at = std::find(list.begin(), list.end(), now);
                 int i = at == list.end() ? 0 : (int)(at - list.begin());
                 int n = (int)list.size();
-                CommitSetting(name, list[(size_t)(((i + dir) % n + n) % n)]);
+                write(name, list[(size_t)(((i + dir) % n + n) % n)]);
             }
             else if (copy.kind == ZS_SETTING_BOOLEAN)
             {
-                CommitSetting(name, now == "true" ? "false" : "true");
+                write(name, now == "true" ? "false" : "true");
             }
         };
         // Enter: into the value, with its text selected, so that a number

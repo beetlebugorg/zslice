@@ -75,6 +75,8 @@ namespace winrt::ZSlice::implementation
         sim_item.IsChecked(false);
         GapCard().Visibility(Visibility::Collapsed);
         HandRelease();
+        // The z range of the card is of the plate before.
+        RangeClose();
         SupportReload();
         selected_path = selected_segment = -1;
         line_anchored = false;

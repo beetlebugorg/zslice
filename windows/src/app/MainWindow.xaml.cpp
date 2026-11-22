@@ -267,6 +267,7 @@ namespace winrt::ZSlice::implementation
             zs::Log("shell: the view did not draw: %s\n", zs_status_string(rc));
         // The handle and the card of a label follow the camera.
         LabelPlace();
+        RangePlace();
     }
 
     void MainWindow::StartAnimation()
@@ -411,6 +412,7 @@ namespace winrt::ZSlice::implementation
         ShowGaps();
         if (count > 0)
             ShowScrub(shown - 1, 1e12);
+        RangeScene();
 #ifdef ZS_DEV_HOOKS
         StartDevHooks();
 #endif
@@ -474,6 +476,8 @@ namespace winrt::ZSlice::implementation
         ProjectFileOpening(zs_project_file_is(reinterpret_cast<uint8_t const *>(bytes.data()), bytes.size()) != 0, new_plate);
         std::string message;
         frame_next = true;
+        // A new model has no layers of the old range.
+        RangeClose();
         int rc = model->Load(name, bytes, message);
         if (rc != ZS_OK)
         {

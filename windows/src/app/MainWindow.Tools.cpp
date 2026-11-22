@@ -123,6 +123,7 @@ namespace winrt::ZSlice::implementation
         WirePaint();
         WireLabel();
         WireSupport();
+        WireRange();
     }
 
     void MainWindow::SetTool(Tool next)
@@ -134,6 +135,7 @@ namespace winrt::ZSlice::implementation
         {
             // The hand lets go when the tool changes.
             HandRelease();
+            RangeClose();
             if (tool == Tool::Measure)
                 ClearMeasure();
             Tool was = tool;
@@ -256,6 +258,8 @@ namespace winrt::ZSlice::implementation
         if (drag == Drag::None && !had_click)
             return;
         bool was_tool = tool_drag;
+        // A drag over layers that came back to its start is no click.
+        bool range_lit = RangeDragLit();
         drag = Drag::None;
         tool_drag = false;
         ViewPanel().ReleasePointerCapture(e.Pointer());
@@ -282,7 +286,7 @@ namespace winrt::ZSlice::implementation
             auto mods = e.KeyModifiers();
             ToolClick(last_x, last_y, Has(mods, VirtualKeyModifiers::Shift), Has(mods, VirtualKeyModifiers::Control));
         }
-        else if (was_tool && std::abs(last_x - press_x) <= 4 && std::abs(last_y - press_y) <= 4 && tool != Tool::Grab)
+        else if (was_tool && !range_lit && std::abs(last_x - press_x) <= 4 && std::abs(last_y - press_y) <= 4 && tool != Tool::Grab)
         {
             auto mods = e.KeyModifiers();
             ToolClick(last_x, last_y, Has(mods, VirtualKeyModifiers::Shift), Has(mods, VirtualKeyModifiers::Control));
@@ -340,6 +344,10 @@ namespace winrt::ZSlice::implementation
             return true;
         // The Select tool: a press on a dot of a picked support tree.
         if (tool == Tool::Select && !ctrl && !pointer_shift && !pointer_alt && SupportPicked() && SupportPress(x, y))
+            return true;
+        // The Select tool: a press on a printed line starts a drag over
+        // layers. A release at the same place is a click.
+        if (tool == Tool::Select && !ctrl && !pointer_shift && !pointer_alt && RangePress(x, y))
             return true;
         // The Turn tool: a press on a ring.
         if (tool == Tool::Turn && !selected_parts.empty())
@@ -466,6 +474,11 @@ namespace winrt::ZSlice::implementation
     {
         double s = Scale();
         zs_app *app = model->Active();
+        if (RangeDragging())
+        {
+            RangeDrag(x, y);
+            return;
+        }
         if (PaintPressed())
         {
             PaintDrag(x, y);
@@ -577,6 +590,7 @@ namespace winrt::ZSlice::implementation
         zs_app *app = model != nullptr ? model->Active() : nullptr;
         if (app == nullptr)
             return;
+        RangeRelease();
         PaintRelease();
         LabelRelease();
         SupportRelease();
@@ -625,6 +639,9 @@ namespace winrt::ZSlice::implementation
             SelectPlate((size_t)sign);
             return;
         }
+        // A click elsewhere ends a range of layers.
+        if (press_left)
+            RangeClose();
         if (tool == Tool::Measure)
         {
             MeasureClick(x, y, shift);
@@ -1075,6 +1092,11 @@ namespace winrt::ZSlice::implementation
         // Select tool: Delete and Esc for a support that it picked.
         if ((tool == Tool::Support || tool == Tool::Select) && SupportKey(key))
             return true;
+        if (key == VirtualKey::Escape && RangeOpen())
+        {
+            RangeClose();
+            return true;
+        }
         // The arrows and Delete act on the selected parts first.
         if (!selected_parts.empty())
         {
@@ -1154,9 +1176,10 @@ namespace winrt::ZSlice::implementation
         case VirtualKey::Left: StepLine(-1, shift); return true;
         case VirtualKey::L:
         case VirtualKey::Right: StepLine(1, shift); return true;
-        case VirtualKey::K:
+        // Shift+K and Shift+J grow a range of layers and open its card.
+        case VirtualKey::K: if (shift) RangeKey(1); else StepLayer(1); return true;
+        case VirtualKey::J: if (shift) RangeKey(-1); else StepLayer(-1); return true;
         case VirtualKey::Up: if (shift) StepLayerLo(1); else StepLayer(1); return true;
-        case VirtualKey::J:
         case VirtualKey::Down: if (shift) StepLayerLo(-1); else StepLayer(-1); return true;
         case VirtualKey::Escape:
             if (HandRelease())

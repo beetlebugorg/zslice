@@ -116,6 +116,8 @@ namespace
 
 namespace winrt::ZSlice::implementation
 {
+    Media::Brush TokenBrush(FrameworkElement const &element, wchar_t const *key);
+
     void MainWindow::WireSettings()
     {
         history_timer = queue.CreateTimer();
@@ -302,11 +304,21 @@ namespace winrt::ZSlice::implementation
         return row;
     }
 
-    FrameworkElement MainWindow::MakeEditor(zs_setting_info const &info)
+    FrameworkElement MainWindow::MakeEditor(zs_setting_info const &info, std::shared_ptr<EditorTarget> const &target)
     {
         std::string name = info.name;
         zs_setting_info copy = info;
-        auto value = [this, name]() { return model != nullptr ? model->GetSetting(name.c_str()) : std::string(); };
+        auto value = [this, name, target]() {
+            if (model == nullptr)
+                return std::string();
+            return target != nullptr ? target->get(name) : model->GetSetting(name.c_str());
+        };
+        auto commit = [this, target](std::string const &key, std::string const &text) {
+            if (target != nullptr)
+                target->set(key, text);
+            else
+                CommitSetting(key, text);
+        };
 
         if (info.kind == ZS_SETTING_BOOLEAN)
         {
@@ -321,9 +333,9 @@ namespace winrt::ZSlice::implementation
                 filling_editor = false;
             };
             fill();
-            toggle.Toggled([this, toggle, name](auto &&, auto &&) {
+            toggle.Toggled([this, toggle, name, commit](auto &&, auto &&) {
                 if (!filling_editor)
-                    CommitSetting(name, toggle.IsOn() ? "true" : "false");
+                    commit(name, toggle.IsOn() ? "true" : "false");
             });
             setting_editors.push_back({ name, fill });
             return toggle;
@@ -344,10 +356,10 @@ namespace winrt::ZSlice::implementation
                 filling_editor = false;
             };
             fill();
-            combo.SelectionChanged([this, combo, choices, name](auto &&, auto &&) {
+            combo.SelectionChanged([this, combo, choices, name, commit](auto &&, auto &&) {
                 int32_t i = combo.SelectedIndex();
                 if (!filling_editor && i >= 0 && (size_t)i < choices->size())
-                    CommitSetting(name, (*choices)[(size_t)i]);
+                    commit(name, (*choices)[(size_t)i]);
             });
             setting_editors.push_back({ name, fill });
             return combo;
@@ -383,17 +395,17 @@ namespace winrt::ZSlice::implementation
             if (model != nullptr && model->HistoryFocus(name.c_str()))
                 RefreshHistoryButtons();
         });
-        box.LostFocus([this, box, copy](auto &&, auto &&) {
-            CommitSettingText(copy, std::wstring(box.Text()));
+        box.LostFocus([this, box, copy, target](auto &&, auto &&) {
+            CommitSettingText(copy, std::wstring(box.Text()), target.get());
             if (model != nullptr && model->HistoryFocus(nullptr))
                 RefreshHistoryButtons();
         });
         if (!multiline)
         {
-            box.KeyDown([this, box, copy](auto &&, Input::KeyRoutedEventArgs const &e) {
+            box.KeyDown([this, box, copy, target](auto &&, Input::KeyRoutedEventArgs const &e) {
                 if (e.Key() == VirtualKey::Enter)
                 {
-                    CommitSettingText(copy, std::wstring(box.Text()));
+                    CommitSettingText(copy, std::wstring(box.Text()), target.get());
                     e.Handled(true);
                 }
             });
@@ -415,14 +427,14 @@ namespace winrt::ZSlice::implementation
         TextBlock unit;
         unit.Text(zs::ToWide(info.unit));
         unit.FontSize(12);
-        unit.Foreground(Brush(0x5B, 0x61, 0x68));
+        unit.Foreground(TokenBrush(Root(), L"ZsDim"));
         unit.VerticalAlignment(VerticalAlignment::Center);
         Grid::SetColumn(unit, 1);
         with_unit.Children().Append(unit);
         // A speed ratio: the speed in mm/s that it gives on this printer.
         TextBlock hint;
         hint.FontSize(12);
-        hint.Foreground(Brush(0x5B, 0x61, 0x68));
+        hint.Foreground(TokenBrush(Root(), L"ZsDim"));
         hint.VerticalAlignment(VerticalAlignment::Center);
         hint.TextAlignment(TextAlignment::Right);
         ToolTipService::SetToolTip(hint, box_value(L"The speed of this ratio on this printer, for a line of the line width at the layer height (the flow limit can make it lower)."));
@@ -525,12 +537,13 @@ namespace winrt::ZSlice::implementation
         SettingsList().Children().Append(page);
     }
 
-    void MainWindow::CommitSettingText(zs_setting_info const &info, std::wstring const &text)
+    void MainWindow::CommitSettingText(zs_setting_info const &info, std::wstring const &text, EditorTarget const *target)
     {
         if (model == nullptr || filling_editor)
             return;
         std::string utf8 = zs::ToUtf8(text);
         std::string value = utf8;
+        std::string now = target != nullptr ? target->get(info.name) : model->GetSetting(info.name);
         if (info.kind != ZS_SETTING_TEXT)
         {
             size_t len = 0;
@@ -547,14 +560,17 @@ namespace winrt::ZSlice::implementation
                 return;
             }
             // The text of the value now: no change, no step in the history.
-            if (DisplayValue(info.name, model->GetSetting(info.name), false) == text)
+            if (DisplayValue(info.name, now, false) == text)
                 return;
         }
-        else if (model->GetSetting(info.name) == value)
+        else if (now == value)
         {
             return;
         }
-        CommitSetting(info.name, value);
+        if (target != nullptr)
+            target->set(info.name, value);
+        else
+            CommitSetting(info.name, value);
     }
 
     void MainWindow::CommitSetting(std::string const &name, std::string const &value)
@@ -580,6 +596,7 @@ namespace winrt::ZSlice::implementation
         for (auto &editor : setting_editors)
             editor.refresh();
         RefreshSearchValues();
+        RangeRefresh();
         RefreshHistoryValues();
         CuraSettingsChanged();
     }

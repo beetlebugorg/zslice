@@ -96,6 +96,13 @@ namespace winrt::ZSlice::implementation
             Search,
             Detail,
         };
+        // Where an editor reads and writes its value, in place of the print:
+        // a range of layers (MainWindow.Range.cpp).
+        struct EditorTarget
+        {
+            std::function<std::string(std::string const &)> get;
+            std::function<void(std::string const &, std::string const &)> set;
+        };
         // The search of settings and actions (MainWindow.Search.cpp).
         enum class SearchPlace
         {
@@ -103,6 +110,14 @@ namespace winrt::ZSlice::implementation
             Card,
             Left,
             Right,
+        };
+        // A search of some settings only, with its own values.
+        struct SearchScope
+        {
+            std::wstring label;
+            std::function<bool(zs_setting_info const &)> only;
+            std::function<std::wstring(std::string const &)> source;
+            std::shared_ptr<EditorTarget> target;
         };
         struct SearchRow
         {
@@ -120,6 +135,8 @@ namespace winrt::ZSlice::implementation
         };
         void WireSearch();
         void OpenSearch(bool focus);
+        void OpenScopedSearch(std::shared_ptr<SearchScope> scope);
+        void ShowSearchScope();
         void CloseSearch();
         void SetSearchPlace(SearchPlace place);
         void FillSearch();
@@ -152,9 +169,9 @@ namespace winrt::ZSlice::implementation
         void SettingsGoBack();
         void ClearSettingsList();
         Microsoft::UI::Xaml::FrameworkElement MakeSettingRow(zs_setting_info const &info);
-        Microsoft::UI::Xaml::FrameworkElement MakeEditor(zs_setting_info const &info);
+        Microsoft::UI::Xaml::FrameworkElement MakeEditor(zs_setting_info const &info, std::shared_ptr<EditorTarget> const &target = nullptr);
         void CommitSetting(std::string const &name, std::string const &value);
-        void CommitSettingText(zs_setting_info const &info, std::wstring const &text);
+        void CommitSettingText(zs_setting_info const &info, std::wstring const &text, EditorTarget const *target = nullptr);
         void RefreshSettingValues();
         void NoteChange();
         void RefreshHistoryButtons();
@@ -224,6 +241,27 @@ namespace winrt::ZSlice::implementation
         void PlateEdited();
         bool OnToolKey(Windows::System::VirtualKey key, bool shift, bool ctrl);
         void WireCards();
+
+        // The card of a range of layers (MainWindow.Range.cpp). Its state is
+        // in that file.
+        struct RangeState;
+        std::shared_ptr<RangeState> range;
+        void WireRange();
+        bool RangeOpen();
+        void RangeClose();
+        void RangeKey(int direction);
+        bool RangePress(double x, double y);
+        bool RangeDragging();
+        bool RangeDragLit();
+        void RangeDrag(double x, double y);
+        void RangeRelease();
+        void RangeScene();
+        void RangeRefresh();
+        void RangePlace();
+#ifdef ZS_DEV_HOOKS
+        bool RunRangeStep(std::wstring const &verb, std::vector<std::wstring> const &words);
+        Microsoft::UI::Xaml::UIElement RangeDevRoot();
+#endif
 
         // The session (MainWindow.Session.cpp).
         void WireSession();
@@ -596,6 +634,9 @@ namespace winrt::ZSlice::implementation
         Microsoft::UI::Dispatching::DispatcherQueueTimer search_timer{ nullptr };
         std::function<void()> search_pending;
         std::chrono::steady_clock::time_point search_sent{};
+        // The scope of the open search, or null, and its label.
+        std::shared_ptr<SearchScope> search_scope;
+        Microsoft::UI::Xaml::Controls::Border search_scope_tag{ nullptr };
 
         Tool tool = Tool::Select;
         std::vector<Microsoft::UI::Xaml::Controls::Primitives::ToggleButton> tool_buttons;
