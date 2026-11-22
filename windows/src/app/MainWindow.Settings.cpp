@@ -163,6 +163,7 @@ namespace winrt::ZSlice::implementation
         WireHistory();
         WireProfiles();
         WireScope();
+        WirePartSettings();
         ShowSections();
     }
 
@@ -868,6 +869,7 @@ namespace winrt::ZSlice::implementation
         CuraSettingsChanged();
         ProfilesRefresh();
         ScopeRefresh();
+        RefreshPartSettings();
     }
 
     // The history commits 400 ms after the last change.

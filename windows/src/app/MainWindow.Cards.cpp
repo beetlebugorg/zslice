@@ -517,6 +517,9 @@ namespace winrt::ZSlice::implementation
         PartSingle().Visibility(many ? Visibility::Collapsed : Visibility::Visible);
         PartsDuplicate().Visibility(many ? Visibility::Visible : Visibility::Collapsed);
         PartsArrange().Visibility(many ? Visibility::Visible : Visibility::Collapsed);
+        PartAddSetting().Content(box_value(many ? L"+ Add a setting for these parts" : L"+ Add a setting for this part"));
+        ToolTipService::SetToolTip(PartAddSetting(), box_value(many ? L"Search the settings that a part can have of its own: the edit goes to each of these parts"
+                                                                    : L"Search the settings that a part can have of its own"));
         if (many)
         {
             PartTitle().Text(std::to_wstring(selected_parts.size()) + L" parts");

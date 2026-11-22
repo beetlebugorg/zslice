@@ -908,6 +908,7 @@ namespace winrt::ZSlice::implementation
         filaments->FillChips(part);
         filaments->FillLabels(part);
         filaments->FillPaint(part);
+        FillPartSettings(part);
     }
 
 #ifdef ZS_DEV_HOOKS
