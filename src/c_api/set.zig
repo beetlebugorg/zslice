@@ -384,6 +384,17 @@ export fn zs_set_fill(set: ?*Set, from: usize, part: usize, n: usize, plates: ?*
     return @intCast(f.copies);
 }
 
+/// Puts the parts of plate i that do not fit its bed on new plates after
+/// the others (Set.spill). Returns the count of new plates, or -status.
+export fn zs_set_spill(set: ?*Set, i: usize) isize {
+    const s = set orelse return -@as(isize, @intFromEnum(Status.invalid_argument));
+    const n = s.spill(i) catch |e| return -@as(isize, switch (e) {
+        error.OutOfRange => @intFromEnum(Status.out_of_range),
+        error.OutOfMemory => @intFromEnum(Status.out_of_memory),
+    });
+    return @intCast(n);
+}
+
 pub const Totals = extern struct {
     plates: usize,
     sliced: usize,

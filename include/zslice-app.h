@@ -2752,6 +2752,15 @@ typedef struct zs_totals {
  * in all, and the count of plates that have them in *plates (can be NULL),
  * or -status. One history step on each plate that changed. */
 ptrdiff_t zs_set_fill(zs_set *set, size_t from, size_t part, size_t n, size_t *plates);
+/* Puts the parts of plate i that do not fit its bed on new plates after
+ * the others, each with the settings of plate i: the parts of an import
+ * of many files (docs/internals/model-import.md). A plate whose parts fit
+ * stays as it is. Else it is arranged, and while its parts do not fit,
+ * its last part goes to a new plate, which gets the same steps. A part
+ * that does not fit an empty bed stays alone on its plate. One history
+ * step on each plate that changed. The active plate stays. Returns the
+ * count of new plates, or -status. */
+ptrdiff_t zs_set_spill(zs_set *set, size_t i);
 int zs_set_totals(zs_set *set, zs_totals *out);
 /* The same sums for plate i alone. */
 int zs_set_plate_totals(zs_set *set, size_t i, zs_totals *out);

@@ -810,6 +810,48 @@ pub const Set = struct {
         return target;
     }
 
+    /// Puts the parts of plate `from` that do not fit its bed on new
+    /// plates after the others, each with the settings of plate `from`:
+    /// the parts of an import of many files. A plate whose parts fit stays
+    /// as it is. Else it is arranged, and while its parts still do not
+    /// fit, its last part goes to a new plate. The new plate then gets the
+    /// same steps. A part that does not fit an empty bed stays alone on
+    /// its plate (zs_app_part_fit says why). At most 200 new plates.
+    /// Returns the count of new plates. The active plate stays.
+    pub fn spill(set: *Set, from: usize) Error!usize {
+        if (from >= set.plates.items.len) return error.OutOfRange;
+        const keep = set.active;
+        var at = from;
+        var made: usize = 0;
+        while (made < 200) {
+            const app = set.plates.items[at].app;
+            if (app.plate.allFit(app.bedSize(), app.partGap())) break;
+            if (try app.arrangePlate() or app.plate.count() <= 1) {
+                app.undo.note(app.gpa, null, true);
+                try set.changed(at, false);
+                break;
+            }
+            // A new plate with the settings of this one.
+            set.active = at;
+            const added = try set.add();
+            try set.select(keep);
+            const dst = set.plates.items[added].app;
+            // The parts of the last file are last on the plate, so they
+            // go first; the parts that were on the plate stay.
+            while (app.plate.count() > 1) {
+                _ = try app.movePartTo(app.plate.count() - 1, dst);
+                if (try app.arrangePlate()) break;
+            }
+            app.undo.note(app.gpa, null, true);
+            try set.changed(at, false);
+            dst.undo.note(dst.gpa, null, true);
+            try set.changed(added, false);
+            made += 1;
+            at = added;
+        }
+        return made;
+    }
+
     pub const Fill = struct { copies: usize, plates: usize };
 
     /// Copies of part `part` of plate `from` until there are `n` in all:
@@ -1555,6 +1597,41 @@ test "plate set: fill copies over plates" {
     }
     try testing.expectEqual(@as(usize, 20), total);
     try testing.expectEqual(@as(usize, 0), set.activeIndex());
+}
+
+test "plate set: spill puts the parts of an import on more plates" {
+    var ev: Events = .{};
+    const set = try Set.create(testing.allocator, Events.f, &ev, false);
+    defer set.destroy();
+    const app0 = set.appOf(0).?;
+    try app0.setSetting("machine.bed_size_x", "100");
+    try app0.setSetting("machine.bed_size_y", "100");
+    var b: zs.mesh.Builder = .init(testing.allocator);
+    try zs.mesh.shapes.addBox(&b, 0, 0, 0, 40, 40, 5);
+    var m = try b.finish();
+    defer m.deinit(testing.allocator);
+    var stl: std.Io.Writer.Allocating = .init(testing.allocator);
+    defer stl.deinit();
+    try m.writeStl(&stl.writer);
+    // One part fits: no new plate.
+    _ = try app0.addStl("a", stl.written());
+    try testing.expectEqual(@as(usize, 0), try set.spill(0));
+    try testing.expectEqual(@as(usize, 1), set.count());
+    // Ten squares of 40 mm: at most four fit a bed of 100 mm.
+    for (0..9) |_| _ = try app0.addStl("a", stl.written());
+    const made = try set.spill(0);
+    try testing.expect(made >= 2);
+    try testing.expectEqual(made + 1, set.count());
+    var total: usize = 0;
+    for (0..set.count()) |i| {
+        const a = set.appOf(i).?;
+        total += a.plate.count();
+        try testing.expect(a.plate.allFit(a.bedSize(), a.partGap()));
+        try testing.expectEqual(@as(f64, 100), a.settings.machine.bed_size_x);
+    }
+    try testing.expectEqual(@as(usize, 10), total);
+    try testing.expectEqual(@as(usize, 0), set.activeIndex());
+    try testing.expectError(error.OutOfRange, set.spill(99));
 }
 
 
