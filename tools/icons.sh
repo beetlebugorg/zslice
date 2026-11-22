@@ -27,7 +27,7 @@ for s in 64 128 256 512; do
   mkdir -p "linux/data/icons/hicolor/${s}x${s}/apps"
   png "$big" "$s" "linux/data/icons/hicolor/${s}x${s}/apps/org.beetlebug.Zslice.png"
 done
-# macOS: the 1024 px master for AppIcon (the Mac app draws its own set).
+# macOS: the 1024 px master. macos/make-icon.sh makes the AppIcon set.
 png "$big" 1024 "$out/macos-1024.png"
 # Windows: a .ico with 16 to 256 px.
 for s in 64 128 256; do png "$big" "$s" "$out/$s.png"; done

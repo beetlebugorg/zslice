@@ -19,7 +19,8 @@ open build/zslice.app
   - The archive of Zig 0.16 does not align its object to 8 bytes, and the Apple tools (`ld`, `lipo`, `libtool`) then skip the object with no error. So the script takes the object out of each archive and makes the archive again with `libtool` before `lipo`.
   - It sets `-Dcompiler-rt`, which puts the compiler-rt of Zig in the library: the Apple linker has no libgcc for the f128 helpers that `std.json` and `std.fmt.parseFloat` call.
   - A link error after a pull of the core means that `lib/libzslice.a` is old: run the script again.
-- **`make-app.sh`** builds the Swift package (`swift build`), and makes the app bundle with `Info.plist` and an ad-hoc signature.
+- **`make-app.sh`** builds the Swift package (`swift build`), and makes the app bundle with `Info.plist`, the icon (`AppIcon.icns`, from the AppIcon set by `iconutil`), and an ad-hoc signature.
+- **The icon** is the AppIcon set in `Sources/ZSlice/Assets.xcassets`. Xcode compiles it (`ASSETCATALOG_COMPILER_APPICON_NAME`), and the Swift package excludes it. `make-icon.sh` makes the set from `assets/icon` with `rsvg-convert`: the art on the grid of macOS icons (824 of 1024 px). The 16 pt icons and 32 pt at 1x come from `zslice-small.svg`. Run it after a change of the icon.
 - **After a new Swift file**, run `xcodegen generate` in `macos/`: the Xcode project lists each file. `make-app.sh` stops with the names of the files that are not in it.
 
 ### The Xcode project and signing
