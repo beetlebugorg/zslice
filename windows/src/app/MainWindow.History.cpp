@@ -1,10 +1,10 @@
-// The history over the bottom bar, as in web/app/history.js.
+// The history behind a button of the bottom bar, as in web/app/history.js.
 //
-// A short hover on a mark of the timeline shows a card with the changes of
-// that step, and an editor for each setting that changed. The History button
-// opens the list of the steps, the newest first. Each change of the step now
-// or an earlier step has an undo button for that change alone. A right click
-// on a step goes to it, or clears the history after it.
+// The button opens the list of the steps over it, the newest first (Ctrl+H
+// opens and closes it). A number on the button counts the changes since the
+// last open or save, from the times of the steps. Each change of the step
+// now or an earlier step has an undo button for that change alone. A right
+// click on a step goes to it, or clears the history after it.
 //
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
@@ -12,7 +12,6 @@
 #include "MainWindow.xaml.h"
 
 #include <ctime>
-#include <sstream>
 
 using namespace winrt;
 using namespace Microsoft::UI::Xaml;
@@ -59,31 +58,16 @@ namespace
         return t;
     }
 
-    Border Pill(std::wstring const &text, Media::Brush const &back)
-    {
-        Border b;
-        b.Background(back);
-        b.CornerRadius(CornerRadiusHelper::FromUniformRadius(9));
-        b.Padding(ThicknessHelper::FromLengths(8, 2, 8, 2));
-        b.VerticalAlignment(VerticalAlignment::Center);
-        TextBlock t;
-        t.Text(text);
-        t.FontSize(11);
-        t.FontWeight(Microsoft::UI::Text::FontWeights::Bold());
-        t.Foreground(Media::SolidColorBrush(Microsoft::UI::Colors::White()));
-        b.Child(t);
-        return b;
-    }
-
     Button FlatButton(hstring const &text)
     {
         Button b;
         b.Content(box_value(text));
         b.Background(Media::SolidColorBrush(Microsoft::UI::Colors::Transparent()));
-        b.MinHeight(26);
+        b.MinHeight(24);
         b.MinWidth(0);
-        b.FontSize(12.5);
-        b.Padding(ThicknessHelper::FromLengths(8, 2, 8, 2));
+        b.FontSize(12);
+        b.Padding(ThicknessHelper::FromLengths(8, 1, 8, 1));
+        b.VerticalAlignment(VerticalAlignment::Center);
         return b;
     }
 
@@ -94,6 +78,16 @@ namespace
             if (zs_setting_get_info(i, &out) == ZS_OK && name == out.name)
                 return true;
         return false;
+    }
+
+    std::wstring ChangeCount(size_t n)
+    {
+        return std::to_wstring(n) + (n == 1 ? L" change" : L" changes");
+    }
+
+    int64_t NowMs()
+    {
+        return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
     }
 }
 
@@ -106,46 +100,31 @@ namespace winrt::ZSlice::implementation
 
     void MainWindow::WireHistory()
     {
-        history_wait = queue.CreateTimer();
-        history_wait.IsRepeating(false);
-        history_wait.Tick([this](auto &&, auto &&) {
-            if (history_wait_mark != nullptr)
-                ShowHistoryCard(history_wait_mark, history_wait_step);
-        });
-        history_hide = queue.CreateTimer();
-        history_hide.IsRepeating(false);
-        history_hide.Interval(std::chrono::milliseconds(400));
-        history_hide.Tick([this](auto &&, auto &&) {
-            // A card with the focus in an editor stays.
-            auto focused = Input::FocusManager::GetFocusedElement(Content().XamlRoot()).try_as<DependencyObject>();
-            for (auto at = focused; at != nullptr; at = Media::VisualTreeHelper::GetParent(at))
-                if (history_card != nullptr && at == history_card)
-                    return;
-            CloseHistoryCard();
-        });
         HistoryFlyout().Opening([this](auto &&, auto &&) {
             history_timer.Stop();
             if (model != nullptr && model->HistoryCommit())
                 RefreshHistoryButtons();
+            // It opens over the button, and never covers it.
+            Windows::Foundation::Rect size{ 0, 0, (float)HistoryButton().ActualWidth(), (float)HistoryButton().ActualHeight() };
+            auto button = HistoryButton().TransformToVisual(Root()).TransformBounds(size);
+            HistoryScroll().MaxHeight(std::max(160.0, std::min(500.0, (double)button.Y - 110)));
             FillHistoryList();
         });
-        // The arrow keys go through the steps.
-        TimelineMarks().KeyDown([this](auto &&, Input::KeyRoutedEventArgs const &e) {
-            if (model == nullptr)
-                return;
-            zs_app *app = model->Active();
-            size_t now = zs_app_history_current(app), count = zs_app_history_count(app);
-            if (e.Key() == VirtualKey::Left && now > 0)
-                GoToStep(now - 1);
-            else if (e.Key() == VirtualKey::Right && now + 1 < count)
-                GoToStep(now + 1);
-            else
-                return;
-            e.Handled(true);
-        });
+        HistoryFlyout().Opened([this](auto &&, auto &&) { HistoryScroll().Focus(FocusState::Programmatic); });
+        HistoryClose().Click([this](auto &&, auto &&) { HistoryFlyout().Hide(); });
         // The list shows the newest first: up is the next step.
-        HistoryList().KeyDown([this](auto &&, Input::KeyRoutedEventArgs const &e) {
+        HistoryScroll().PreviewKeyDown([this](auto &&, Input::KeyRoutedEventArgs const &e) {
             if (model == nullptr)
+                return;
+            bool ctrl = (Microsoft::UI::Input::InputKeyboardSource::GetKeyStateForCurrentThread(VirtualKey::Control) &
+                         Windows::UI::Core::CoreVirtualKeyStates::Down) == Windows::UI::Core::CoreVirtualKeyStates::Down;
+            if (ctrl && e.Key() == VirtualKey::H)
+            {
+                HistoryFlyout().Hide();
+                e.Handled(true);
+                return;
+            }
+            if (ctrl)
                 return;
             zs_app *app = model->Active();
             size_t now = zs_app_history_current(app), count = zs_app_history_count(app);
@@ -153,10 +132,71 @@ namespace winrt::ZSlice::implementation
                 GoToStep(now + 1);
             else if (e.Key() == VirtualKey::Down && now > 0)
                 GoToStep(now - 1);
-            else
+            else if (e.Key() != VirtualKey::Up && e.Key() != VirtualKey::Down)
                 return;
             e.Handled(true);
         });
+    }
+
+    // An open or a save: the count of the button starts again.
+    void MainWindow::MarkHistorySaved()
+    {
+        history_saved_ms = NowMs();
+        history_shown_app = nullptr;
+        RefreshHistoryButton();
+    }
+
+    // The changes since the last open or save: the steps after it, and the
+    // steps before it that an undo took back.
+    size_t MainWindow::UnsavedChanges()
+    {
+        zs_app *app = model->Active();
+        size_t count = zs_app_history_count(app), now = zs_app_history_current(app), n = 0;
+        for (size_t i = 1; i < count; i++)
+        {
+            zs_history_step step{};
+            if (zs_app_history_step(app, i, &step) != ZS_OK)
+                continue;
+            bool after = step.time_ms > history_saved_ms;
+            if (i <= now ? after : !after)
+                n++;
+        }
+        return n;
+    }
+
+    // The button, its count, and the head of the list.
+    void MainWindow::RefreshHistoryButton()
+    {
+        if (model == nullptr)
+            return;
+        zs_app *app = model->Active();
+        size_t count = zs_app_history_count(app), now = zs_app_history_current(app);
+        if (app == history_shown_app && count == history_shown_count && now == history_shown_now)
+            return;
+        history_shown_app = app;
+        history_shown_count = count;
+        history_shown_now = now;
+        size_t changes = count > 0 ? count - 1 : 0;
+        size_t unsaved = UnsavedChanges();
+        HistoryCount().Visibility(unsaved > 0 ? Visibility::Visible : Visibility::Collapsed);
+        HistoryCountText().Text(unsaved > 9 ? std::wstring(L"9+") : std::to_wstring(unsaved));
+        std::wstring tip = L"History (" + ChangeCount(changes) + L").";
+        if (unsaved > 0)
+            tip += L" " + std::to_wstring(unsaved) + L" since you opened or saved.";
+        tip += L" Ctrl+H";
+        ToolTipService::SetToolTip(HistoryButton(), box_value(tip));
+        std::wstring name = L"History, " + ChangeCount(changes);
+        if (unsaved > 0)
+            name += L", " + std::to_wstring(unsaved) + L" not saved";
+        Automation::AutomationProperties::SetName(HistoryButton(), name);
+        std::wstring sum;
+        if (changes > 0)
+        {
+            sum = ChangeCount(changes);
+            if (now + 1 < count)
+                sum += L", at change " + std::to_wstring(now);
+        }
+        HistorySum().Text(sum);
     }
 
     void MainWindow::GoToStep(size_t step)
@@ -204,216 +244,6 @@ namespace winrt::ZSlice::implementation
         menu.ShowAt(target, at);
     }
 
-    void MainWindow::HoverMark(FrameworkElement const &mark, size_t step)
-    {
-        history_hide.Stop();
-        history_wait.Stop();
-        if (history_card != nullptr && history_card_step == step)
-            return;
-        history_wait_mark = mark;
-        history_wait_step = step;
-        history_wait.Interval(std::chrono::milliseconds(history_card != nullptr ? 1 : 350));
-        history_wait.Start();
-    }
-
-    void MainWindow::LeaveHistoryCard()
-    {
-        history_wait.Stop();
-        history_hide.Stop();
-        history_hide.Start();
-    }
-
-    void MainWindow::CloseHistoryCard()
-    {
-        history_editors.clear();
-        if (history_card == nullptr)
-            return;
-        uint32_t index = 0;
-        if (CardLayer().Children().IndexOf(history_card, index))
-            CardLayer().Children().RemoveAt(index);
-        history_card = nullptr;
-        history_card_step = (size_t)-1;
-    }
-
-    void MainWindow::ShowHistoryCard(FrameworkElement const &mark, size_t i)
-    {
-        CloseHistoryCard();
-        if (model == nullptr)
-            return;
-        zs_app *app = model->Active();
-        zs_history_step step{};
-        if (zs_app_history_step(app, i, &step) != ZS_OK)
-            return;
-        // The texts of the step are valid until the next call: copy them.
-        auto word_lines = Lines(step.text, step.text_len);
-        auto change_lines = Lines(step.changes, step.changes_len);
-        char const *kind = i == 0 ? "start" : step.kind;
-        size_t now = zs_app_history_current(app);
-        auto dim = TokenBrush(Root(), L"ZsDim");
-
-        StackPanel body;
-        body.Spacing(8);
-        Grid head;
-        head.ColumnSpacing(8);
-        ColumnDefinition dot_column, title_column;
-        dot_column.Width(GridLengthHelper::Auto());
-        title_column.Width(GridLengthHelper::FromValueAndType(1, GridUnitType::Star));
-        head.ColumnDefinitions().Append(dot_column);
-        head.ColumnDefinitions().Append(title_column);
-        Border dot;
-        dot.Width(24);
-        dot.Height(24);
-        dot.CornerRadius(CornerRadiusHelper::FromUniformRadius(12));
-        dot.VerticalAlignment(VerticalAlignment::Top);
-        dot.Background(Media::SolidColorBrush(StepColor(kind)));
-        Grid glyph;
-        glyph.Width(14);
-        glyph.Height(14);
-        glyph.Children().Append(StepGlyph(kind, 14));
-        dot.Child(glyph);
-        head.Children().Append(dot);
-        StackPanel titles;
-        TextBlock title = Words(i == 0 ? std::wstring(L"Start") : L"Change " + std::to_wstring(i), 14);
-        title.FontWeight(Microsoft::UI::Text::FontWeights::Bold());
-        titles.Children().Append(title);
-        titles.Children().Append(Words(StepLabel(kind) + L" · " + Clock(step.time_ms) + (i == now ? L" · now" : L""), 11.5, dim));
-        Grid::SetColumn(titles, 1);
-        head.Children().Append(titles);
-        body.Children().Append(head);
-
-        if (i == 0)
-        {
-            body.Children().Append(Words(L"The settings and the plate when the history started.", 12));
-        }
-        else
-        {
-            StackPanel lines;
-            lines.Spacing(2);
-            StackPanel editors;
-            editors.Spacing(4);
-            std::vector<std::string> done;
-            for (size_t k = 0; k < word_lines.size(); k++)
-            {
-                auto const &words = word_lines[k];
-                size_t tab = words.find('\t');
-                if (tab == std::string::npos)
-                    continue;
-                lines.Children().Append(Words(zs::ToWide(words.substr(0, tab)) + L": " + zs::ToWide(words.substr(tab + 1)), 12.5));
-                // An editor for a setting of the whole plate. A part, some
-                // layers, and filament 2 and on have values of their own.
-                if (k >= change_lines.size())
-                    continue;
-                auto const &change = change_lines[k];
-                size_t first = change.find('\t');
-                if (first == std::string::npos)
-                    continue;
-                size_t second = change.find('\t', first + 1);
-                std::string scope = change.substr(0, first);
-                std::string key = change.substr(first + 1, second == std::string::npos ? second : second - first - 1);
-                zs_setting_info info{};
-                if (!FindInfo(key, info) || std::find(done.begin(), done.end(), key) != done.end() ||
-                    scope.find(':') != std::string::npos || scope.rfind("filament ", 0) == 0)
-                    continue;
-                done.push_back(key);
-                Grid row;
-                row.ColumnSpacing(8);
-                ColumnDefinition name_column, edit_column;
-                name_column.Width(GridLengthHelper::FromValueAndType(1, GridUnitType::Star));
-                edit_column.Width(GridLengthHelper::Auto());
-                row.ColumnDefinitions().Append(name_column);
-                row.ColumnDefinitions().Append(edit_column);
-                HyperlinkButton label;
-                label.Content(box_value(zs::ToWide(info.label)));
-                label.Padding(ThicknessHelper::FromLengths(2, 2, 2, 2));
-                label.FontSize(12.5);
-                label.Foreground(TokenBrush(Root(), L"ZsFg"));
-                label.VerticalAlignment(VerticalAlignment::Center);
-                ToolTipService::SetToolTip(label, box_value(L"Click to show this setting in the panel."));
-                char const *name = info.name;
-                label.Click([this, name](auto &&, auto &&) {
-                    CloseHistoryCard();
-                    ShowSettingsPane(true);
-                    detail_from = settings_page;
-                    ShowDetail(name);
-                });
-                row.Children().Append(label);
-                size_t before = setting_editors.size();
-                FrameworkElement editor = MakeEditor(info);
-                for (size_t e = before; e < setting_editors.size(); e++)
-                    history_editors.push_back(std::move(setting_editors[e]));
-                setting_editors.resize(before);
-                if (info.kind == ZS_SETTING_NUMBER || info.kind == ZS_SETTING_INTEGER)
-                {
-                    auto with_unit = editor.try_as<Grid>();
-                    (with_unit != nullptr ? with_unit.Children().GetAt(0).as<FrameworkElement>() : editor).Width(72);
-                }
-                else if (info.kind == ZS_SETTING_TEXT)
-                {
-                    editor.Width(130);
-                }
-                editor.VerticalAlignment(VerticalAlignment::Center);
-                Grid::SetColumn(editor, 1);
-                row.Children().Append(editor);
-                editors.Children().Append(row);
-            }
-            body.Children().Append(lines);
-            if (editors.Children().Size() > 0)
-            {
-                Border box;
-                box.BorderThickness(ThicknessHelper::FromLengths(0, 1, 0, 0));
-                box.BorderBrush(TokenBrush(Root(), L"ZsLine"));
-                box.Padding(ThicknessHelper::FromLengths(0, 8, 0, 0));
-                StackPanel inner;
-                inner.Spacing(4);
-                inner.Children().Append(Words(L"The value now:", 12, dim));
-                inner.Children().Append(editors);
-                box.Child(inner);
-                body.Children().Append(box);
-            }
-        }
-        Button go = FlatButton(i == now ? L"This is the step now" : L"Go to this step");
-        go.IsEnabled(i != now);
-        go.Click([this, i](auto &&, auto &&) {
-            CloseHistoryCard();
-            GoToStep(i);
-        });
-        body.Children().Append(go);
-
-        Border card;
-        card.Width(300);
-        card.MaxHeight(CardLayer().ActualHeight() * 0.6);
-        card.Padding(ThicknessHelper::FromLengths(14, 10, 12, 10));
-        card.Background(TokenBrush(Root(), L"ZsPopover"));
-        card.BorderBrush(TokenBrush(Root(), L"ZsPopoverBorder"));
-        card.BorderThickness(ThicknessHelper::FromUniformLength(1));
-        card.CornerRadius(CornerRadiusHelper::FromUniformRadius(12));
-        ScrollViewer scroll;
-        scroll.HorizontalScrollBarVisibility(ScrollBarVisibility::Disabled);
-        scroll.Content(body);
-        card.Child(scroll);
-        card.PointerEntered([this](auto &&, auto &&) { history_hide.Stop(); });
-        card.PointerExited([this](auto &&, auto &&) { LeaveHistoryCard(); });
-        Canvas::SetZIndex(card, 80);
-
-        // Over the mark, and inside the view.
-        card.Measure(Windows::Foundation::Size{ 300, (float)card.MaxHeight() });
-        double height = card.DesiredSize().Height;
-        Windows::Foundation::Rect size{ 0, 0, (float)mark.ActualWidth(), (float)mark.ActualHeight() };
-        auto r = mark.TransformToVisual(CardLayer()).TransformBounds(size);
-        double width = CardLayer().ActualWidth();
-        Canvas::SetLeft(card, std::max(8.0, std::min(width - 300 - 8, (double)r.X + r.Width / 2 - 150)));
-        Canvas::SetTop(card, std::max(8.0, (double)r.Y - height - 10));
-        CardLayer().Children().Append(card);
-        history_card = card;
-        history_card_step = i;
-    }
-
-    void MainWindow::RefreshHistoryValues()
-    {
-        for (auto &editor : history_editors)
-            editor.refresh();
-    }
-
     // The steps, the newest first, and the edits of lines.
     void MainWindow::FillHistoryList()
     {
@@ -431,6 +261,7 @@ namespace winrt::ZSlice::implementation
             none.Padding(ThicknessHelper::FromLengths(6, 16, 6, 16));
             list.Children().Append(none);
         }
+        FrameworkElement now_row{ nullptr };
         for (size_t i = count; count > 1 && i-- > 0;)
         {
             zs_history_step step{};
@@ -442,19 +273,72 @@ namespace winrt::ZSlice::implementation
 
             StackPanel body;
             body.Spacing(4);
-            StackPanel head;
-            head.Orientation(Orientation::Horizontal);
-            head.Spacing(8);
-            head.Children().Append(Pill(StepLabel(kind), Media::SolidColorBrush(StepColor(kind))));
+            // The head: the glyph of the kind on its color, the step and
+            // its kind, the time, and Now or Go to.
+            Grid head;
+            head.ColumnSpacing(8);
+            for (int c = 0; c < 4; c++)
+            {
+                ColumnDefinition column;
+                column.Width(c == 1 ? GridLengthHelper::FromValueAndType(1, GridUnitType::Star) : GridLengthHelper::Auto());
+                head.ColumnDefinitions().Append(column);
+            }
+            Border dot;
+            dot.Width(22);
+            dot.Height(22);
+            dot.CornerRadius(CornerRadiusHelper::FromUniformRadius(11));
+            dot.Background(Media::SolidColorBrush(StepColor(kind)));
+            Grid glyph;
+            glyph.Width(14);
+            glyph.Height(14);
+            glyph.Children().Append(StepGlyph(kind, 14));
+            dot.Child(glyph);
+            head.Children().Append(dot);
+            StackPanel titles;
+            titles.Orientation(Orientation::Horizontal);
+            titles.Spacing(6);
+            titles.VerticalAlignment(VerticalAlignment::Center);
             TextBlock title = Words(i == 0 ? std::wstring(L"Start") : L"Change " + std::to_wstring(i), 13);
             title.FontWeight(Microsoft::UI::Text::FontWeights::Bold());
-            title.VerticalAlignment(VerticalAlignment::Center);
-            head.Children().Append(title);
+            titles.Children().Append(title);
+            if (i != 0)
+            {
+                TextBlock what = Words(StepLabel(kind), 11.5, dim);
+                what.VerticalAlignment(VerticalAlignment::Center);
+                titles.Children().Append(what);
+            }
+            Grid::SetColumn(titles, 1);
+            head.Children().Append(titles);
             TextBlock when = Words(Clock(step.time_ms), 12, dim);
             when.VerticalAlignment(VerticalAlignment::Center);
+            Grid::SetColumn(when, 2);
             head.Children().Append(when);
+            Button go{ nullptr };
             if (i == now)
-                head.Children().Append(Pill(L"Now", accent));
+            {
+                Border badge;
+                badge.Background(accent);
+                badge.CornerRadius(CornerRadiusHelper::FromUniformRadius(9));
+                badge.Padding(ThicknessHelper::FromLengths(8, 2, 8, 2));
+                badge.VerticalAlignment(VerticalAlignment::Center);
+                TextBlock text;
+                text.Text(L"Now");
+                text.FontSize(11);
+                text.FontWeight(Microsoft::UI::Text::FontWeights::Bold());
+                text.Foreground(Media::SolidColorBrush(Microsoft::UI::Colors::White()));
+                badge.Child(text);
+                Grid::SetColumn(badge, 3);
+                head.Children().Append(badge);
+            }
+            else
+            {
+                go = FlatButton(L"Go to");
+                go.Opacity(0);
+                ToolTipService::SetToolTip(go, box_value(L"Go to this step: the print slices as it was then. The later changes stay until you edit something."));
+                go.Click([this, i](auto &&, auto &&) { GoToStep(i); });
+                Grid::SetColumn(go, 3);
+                head.Children().Append(go);
+            }
             body.Children().Append(head);
 
             if (i == 0)
@@ -508,8 +392,7 @@ namespace winrt::ZSlice::implementation
                     {
                         Button undo = FlatButton(L"↶");
                         ToolTipService::SetToolTip(undo, box_value(L"Undo only this change. The later changes stay."));
-                        Microsoft::UI::Xaml::Automation::AutomationProperties::SetName(undo, L"Undo only this change");
-                        undo.VerticalAlignment(VerticalAlignment::Center);
+                        Automation::AutomationProperties::SetName(undo, L"Undo only this change");
                         undo.Click([this, line](auto &&, auto &&) { RevertChange(line); });
                         Grid::SetColumn(undo, 1);
                         change.Children().Append(undo);
@@ -531,6 +414,7 @@ namespace winrt::ZSlice::implementation
                 row.Background(Media::SolidColorBrush(color));
                 row.BorderBrush(accent);
                 row.BorderThickness(ThicknessHelper::FromLengths(3, 0, 0, 0));
+                now_row = row;
             }
             else
             {
@@ -538,6 +422,11 @@ namespace winrt::ZSlice::implementation
                 ToolTipService::SetToolTip(row, box_value(L"Click to go to this step"));
             }
             row.Child(body);
+            if (go != nullptr)
+            {
+                row.PointerEntered([go](auto &&, auto &&) { go.Opacity(1); });
+                row.PointerExited([go](auto &&, auto &&) { go.Opacity(0); });
+            }
             row.Tapped([this, i, now](auto &&, Input::TappedRoutedEventArgs const &e) {
                 if (i != now)
                 {
@@ -550,6 +439,26 @@ namespace winrt::ZSlice::implementation
                 ShowStepMenu(row, e.GetPosition(row), i);
             });
             list.Children().Append(row);
+        }
+        if (now_row != nullptr)
+        {
+            auto weak = get_weak();
+            queue.TryEnqueue([weak, now_row] {
+                if (auto self = weak.get(); self != nullptr && self->HistoryFlyout().IsOpen())
+                    now_row.StartBringIntoView();
+            });
+        }
+
+        // The steps after the step now: one button clears them.
+        if (count > 0 && now + 1 < count)
+        {
+            size_t later = count - 1 - now;
+            Button clear = FlatButton(later == 1 ? hstring(L"Clear the later change") : L"Clear the " + to_hstring(later) + L" later changes");
+            clear.HorizontalAlignment(HorizontalAlignment::Right);
+            clear.Margin(ThicknessHelper::FromLengths(0, 6, 8, 6));
+            ToolTipService::SetToolTip(clear, box_value(L"The changes after the step now go from the history. Redo cannot bring them back."));
+            clear.Click([this, now](auto &&, auto &&) { ClearHistoryAfter(now); });
+            list.Children().Append(clear);
         }
 
         // The edits of lines: each with its layer and what it does.
@@ -601,7 +510,7 @@ namespace winrt::ZSlice::implementation
             }
             Button remove = FlatButton(L"×");
             ToolTipService::SetToolTip(remove, box_value(L"Remove this edit: the line prints as the slice makes it"));
-            Microsoft::UI::Xaml::Automation::AutomationProperties::SetName(remove, L"Remove the edit of layer " + to_hstring(layer + 1));
+            Automation::AutomationProperties::SetName(remove, L"Remove the edit of layer " + to_hstring(layer + 1));
             remove.Click([this, e](auto &&, auto &&) {
                 if (model == nullptr || zs_app_edit_remove(model->Active(), e) != ZS_OK)
                     return;
@@ -637,5 +546,27 @@ namespace winrt::ZSlice::implementation
         PrintersNoteChange();
         if (HistoryFlyout().IsOpen())
             FillHistoryList();
+    }
+
+    // One row on a wide view. On a narrow view the replay and the print
+    // each take a row of their own.
+    void MainWindow::LayoutDock(double width)
+    {
+        bool narrow = width <= 760;
+        if (dock_laid_out && narrow == dock_narrow)
+            return;
+        dock_laid_out = true;
+        dock_narrow = narrow;
+        Grid::SetColumn(ScrubRow(), narrow ? 0 : 2);
+        Grid::SetRow(ScrubRow(), narrow ? 1 : 0);
+        Grid::SetColumnSpan(ScrubRow(), narrow ? 4 : 1);
+        ScrubRow().BorderThickness(narrow ? ThicknessHelper::FromUniformLength(0) : ThicknessHelper::FromLengths(1, 0, 0, 0));
+        ScrubRow().Padding(narrow ? ThicknessHelper::FromUniformLength(0) : ThicknessHelper::FromLengths(8, 0, 0, 0));
+        Grid::SetColumn(DockSummary(), narrow ? 0 : 3);
+        Grid::SetRow(DockSummary(), narrow ? 2 : 0);
+        Grid::SetColumnSpan(DockSummary(), narrow ? 4 : 1);
+        DockSummary().BorderThickness(narrow ? ThicknessHelper::FromLengths(0, 1, 0, 0) : ThicknessHelper::FromLengths(1, 0, 0, 0));
+        DockSummary().Padding(narrow ? ThicknessHelper::FromLengths(0, 2, 0, 0) : ThicknessHelper::FromLengths(12, 0, 0, 0));
+        DockSummary().ColumnDefinitions().GetAt(0).Width(narrow ? GridLengthHelper::FromValueAndType(1, GridUnitType::Star) : GridLengthHelper::Auto());
     }
 }

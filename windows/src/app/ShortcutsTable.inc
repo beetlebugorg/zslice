@@ -96,9 +96,9 @@ static Group const shortcuts[] = {
         {"Enter", "Use the value of an entry"},
         {NULL, NULL}}},
     {"History", {
-        {"Up, Down (History tab)", "The next step, or the step before"},
-        {"Space (History tab)", "Back to the step shown before"},
-        {"Left, Right (timeline)", "The step before, or the next step"},
+        {"Up, Down (History list)", "The next step, or the step before"},
+        {"Ctrl+H", "Open or close the history list over its button in the bottom bar"},
+        {"Esc (History list)", "Close the history list"},
         {NULL, NULL}}},
     {"Mouse and touchpad", {
         {"Left drag", "Orbit; in the Select tool, a drag that starts on a line selects layers"},

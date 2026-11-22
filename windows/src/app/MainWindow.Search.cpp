@@ -1135,7 +1135,7 @@ namespace winrt::ZSlice::implementation
                         project_name.empty() ? L"printdeck.yml from GitHub or a folder" : project_name, [this] { ShowProjectDialog(); } });
         if (!project_name.empty())
             out.push_back({ L"Close the project", L"", project_name + L": its plates stay", [this] { CloseProject(); } });
-        out.push_back({ L"History", L"", L"the changes, undo one change", [this] { HistoryFlyout().ShowAt(HistoryButton()); } });
+        out.push_back({ L"History", L"Ctrl+H", L"the changes, undo one change", [this] { HistoryFlyout().ShowAt(HistoryButton()); } });
         out.push_back({ L"Keyboard shortcuts", L"?", L"", [this] { ShowShortcuts(); } });
         out.push_back({ L"All settings", L"N", L"the panel of the settings", [this] { ShowSettingsPane(true); } });
         out.push_back({ L"Printers", L"", L"your printers, their jobs, and the plates to print", with_printers([](PrintersUi &p) { p.ShowPage(true); }) });

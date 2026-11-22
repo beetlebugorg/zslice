@@ -181,11 +181,10 @@ namespace winrt::ZSlice::implementation
         void GoToStep(size_t step);
         void ClearHistoryAfter(size_t step);
         void ShowStepMenu(Microsoft::UI::Xaml::FrameworkElement const &target, Windows::Foundation::Point at, size_t step);
-        void HoverMark(Microsoft::UI::Xaml::FrameworkElement const &mark, size_t step);
-        void LeaveHistoryCard();
-        void CloseHistoryCard();
-        void ShowHistoryCard(Microsoft::UI::Xaml::FrameworkElement const &mark, size_t step);
-        void RefreshHistoryValues();
+        void MarkHistorySaved();
+        size_t UnsavedChanges();
+        void RefreshHistoryButton();
+        void LayoutDock(double width);
         void FillHistoryList();
         void RevertChange(std::string const &line);
         void AfterRestore(int bits);
@@ -358,16 +357,12 @@ namespace winrt::ZSlice::implementation
         void StepLayerLo(int direction);
         void ApplyLayerRange();
         void UpdateLayerRail();
-        void RefreshTimeline();
-        void FitTimeline();
         void RefreshSummary();
         void ShowBusy(winrt::param::hstring const &text);
         void PlaceEmptyOpen();
         size_t layer_lo = 0;
         // A drag of the rail: 1 the top knob, 2 the bottom knob.
         int rail_drag = 0;
-        size_t timeline_count = (size_t)-1, timeline_now = (size_t)-1;
-        zs_app *timeline_app = nullptr;
 
         // The 2D view of the top layer (MainWindow.Layer2D.cpp).
         void Wire2D();
@@ -595,12 +590,12 @@ namespace winrt::ZSlice::implementation
         // True while the code fills an editor: its change event is no edit.
         bool filling_editor = false;
 
-        Microsoft::UI::Dispatching::DispatcherQueueTimer history_wait{ nullptr }, history_hide{ nullptr };
-        Microsoft::UI::Xaml::FrameworkElement history_wait_mark{ nullptr };
-        size_t history_wait_step = 0;
-        Microsoft::UI::Xaml::Controls::Border history_card{ nullptr };
-        size_t history_card_step = (size_t)-1;
-        std::vector<SettingEditor> history_editors;
+        // The time of the last open or save, and what the button shows.
+        int64_t history_saved_ms = 0;
+        bool history_mark_late = false;
+        zs_app *history_shown_app = nullptr;
+        size_t history_shown_count = (size_t)-1, history_shown_now = (size_t)-1;
+        bool dock_laid_out = false, dock_narrow = false;
 
         size_t check_problems = 0;
         std::vector<RefineTip> refine_tips;

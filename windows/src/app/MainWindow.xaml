@@ -185,14 +185,16 @@
 
             <!-- One bar at the bottom, the full width of the view: the plates,
                  the history, the replay of the print, and the print. -->
-            <Grid x:Name="Dock" Canvas.ZIndex="40" VerticalAlignment="Bottom" Padding="12,5,12,6" ColumnSpacing="12" RowSpacing="2"
+            <Grid x:Name="Dock" Canvas.ZIndex="40" VerticalAlignment="Bottom" Padding="12,4" ColumnSpacing="10" RowSpacing="2"
                   Background="{ThemeResource ZsPopover}" BorderBrush="{ThemeResource ZsDockLine}" BorderThickness="0,1,0,0">
                 <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
                     <ColumnDefinition Width="Auto" />
                     <ColumnDefinition Width="*" />
                     <ColumnDefinition Width="Auto" />
                 </Grid.ColumnDefinitions>
                 <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="Auto" />
                 </Grid.RowDefinitions>
@@ -211,44 +213,66 @@
                             ToolTipService.ToolTip="Remove this plate" />
                 </StackPanel>
 
-                <!-- The history: undo, redo, and a mark for each step. -->
-                <Grid Grid.Column="1" Grid.Row="0" HorizontalAlignment="Left" BorderBrush="{ThemeResource ZsLine}" BorderThickness="1,0,0,0" Padding="8,0,0,0">
-                    <StackPanel Orientation="Horizontal" Spacing="2" VerticalAlignment="Center">
-                        <Button x:Name="UndoButton" Style="{StaticResource ZsFlatPill}" Content="&#x21B6;" FontSize="15" IsEnabled="False"
-                                AutomationProperties.Name="Undo" ToolTipService.ToolTip="Undo (Ctrl+Z)">
+                <!-- Undo, redo, and the history behind a button. A number on
+                     the button counts the changes since the last open or save. -->
+                <StackPanel Grid.Column="1" Grid.Row="0" Orientation="Horizontal" Spacing="2" VerticalAlignment="Center"
+                            BorderBrush="{ThemeResource ZsLine}" BorderThickness="1,0,0,0" Padding="8,0,0,0">
+                    <Button x:Name="UndoButton" Style="{StaticResource ZsFlatPill}" Width="28" Height="28" MinWidth="0" MinHeight="0" Padding="0" CornerRadius="14" IsEnabled="False"
+                            AutomationProperties.Name="Undo" ToolTipService.ToolTip="Undo (Ctrl+Z)">
+                        <Path Width="18" Height="18" Stroke="{ThemeResource ZsFg}" StrokeThickness="1.5" StrokeStartLineCap="Round" StrokeEndLineCap="Round"
+                              StrokeLineJoin="Round" Data="M6.5 3.5 3 7l3.5 3.5M3 7h7.5a4.5 4.5 0 0 1 0 9H8" />
+                        <Button.KeyboardAccelerators>
+                            <KeyboardAccelerator Modifiers="Control" Key="Z" />
+                        </Button.KeyboardAccelerators>
+                    </Button>
+                    <Button x:Name="RedoButton" Style="{StaticResource ZsFlatPill}" Width="28" Height="28" MinWidth="0" MinHeight="0" Padding="0" CornerRadius="14" IsEnabled="False"
+                            AutomationProperties.Name="Redo" ToolTipService.ToolTip="Redo (Ctrl+Shift+Z)">
+                        <Path Width="18" Height="18" Stroke="{ThemeResource ZsFg}" StrokeThickness="1.5" StrokeStartLineCap="Round" StrokeEndLineCap="Round"
+                              StrokeLineJoin="Round" Data="M11.5 3.5 15 7l-3.5 3.5M15 7H7.5a4.5 4.5 0 0 0 0 9H10" />
+                        <Button.KeyboardAccelerators>
+                            <KeyboardAccelerator Modifiers="Control" Key="Y" />
+                            <KeyboardAccelerator Modifiers="Control,Shift" Key="Z" />
+                        </Button.KeyboardAccelerators>
+                    </Button>
+                    <Grid>
+                        <Button x:Name="HistoryButton" Style="{StaticResource ZsFlatPill}" Width="28" Height="28" MinWidth="0" MinHeight="0" Padding="0" CornerRadius="14"
+                                AutomationProperties.Name="History" ToolTipService.ToolTip="History (Ctrl+H)">
+                            <Path Width="18" Height="18" Stroke="{ThemeResource ZsFg}" StrokeThickness="1.5" StrokeStartLineCap="Round" StrokeEndLineCap="Round"
+                                  StrokeLineJoin="Round" Data="M3.2 9a5.8 5.8 0 1 0 1.7-4.1M4.9 1.9v3h3M9 5.8V9l2.3 1.5" />
                             <Button.KeyboardAccelerators>
-                                <KeyboardAccelerator Modifiers="Control" Key="Z" />
+                                <KeyboardAccelerator Modifiers="Control" Key="H" />
                             </Button.KeyboardAccelerators>
-                        </Button>
-                        <Button x:Name="RedoButton" Style="{StaticResource ZsFlatPill}" Content="&#x21B7;" FontSize="15" IsEnabled="False"
-                                AutomationProperties.Name="Redo" ToolTipService.ToolTip="Redo (Ctrl+Shift+Z)">
-                            <Button.KeyboardAccelerators>
-                                <KeyboardAccelerator Modifiers="Control" Key="Y" />
-                                <KeyboardAccelerator Modifiers="Control,Shift" Key="Z" />
-                            </Button.KeyboardAccelerators>
-                        </Button>
-                        <Rectangle Width="1" Margin="4,6" Fill="{ThemeResource ZsLine}" />
-                        <Button x:Name="HistoryButton" Style="{StaticResource ZsFlatPill}" Content="History" FontWeight="Bold"
-                                Foreground="{ThemeResource ZsDim}" AutomationProperties.Name="History"
-                                ToolTipService.ToolTip="Show the list of the changes">
                             <Button.Flyout>
-                                <Flyout x:Name="HistoryFlyout" Placement="Top">
-                                    <ScrollViewer Width="436" MaxHeight="560" HorizontalScrollBarVisibility="Disabled">
-                                        <StackPanel x:Name="HistoryList" Spacing="2" />
-                                    </ScrollViewer>
+                                <Flyout x:Name="HistoryFlyout" Placement="TopEdgeAlignedLeft">
+                                    <StackPanel Width="416" Spacing="4">
+                                        <Grid ColumnSpacing="8" Padding="2,0,0,4" BorderBrush="{ThemeResource ZsLine}" BorderThickness="0,0,0,1">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="Auto" />
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="Auto" />
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Text="History" FontWeight="Bold" VerticalAlignment="Center" />
+                                            <TextBlock x:Name="HistorySum" Grid.Column="1" FontSize="12" Foreground="{ThemeResource ZsDim}" VerticalAlignment="Center" TextWrapping="Wrap" />
+                                            <Button x:Name="HistoryClose" Grid.Column="2" Width="26" Height="26" MinWidth="0" MinHeight="0" Padding="0" Background="Transparent" Content="&#xD7;" FontSize="16"
+                                                    AutomationProperties.Name="Close the history" ToolTipService.ToolTip="Close the history (Esc)" />
+                                        </Grid>
+                                        <ScrollViewer x:Name="HistoryScroll" IsTabStop="True" MaxHeight="500" HorizontalScrollBarVisibility="Disabled">
+                                            <StackPanel x:Name="HistoryList" Spacing="2" Padding="0,0,12,0" />
+                                        </ScrollViewer>
+                                    </StackPanel>
                                 </Flyout>
                             </Button.Flyout>
                         </Button>
-                        <ScrollViewer x:Name="TimelineScroll" MaxWidth="420" HorizontalScrollMode="Enabled" VerticalScrollMode="Disabled"
-                                      HorizontalScrollBarVisibility="Hidden" VerticalScrollBarVisibility="Disabled">
-                            <StackPanel x:Name="TimelineMarks" Orientation="Horizontal" Padding="2,3" VerticalAlignment="Center" />
-                        </ScrollViewer>
-                        <TextBlock x:Name="TimelineCount" VerticalAlignment="Center" Margin="6,0" FontSize="12" Foreground="{ThemeResource ZsDim}" />
-                    </StackPanel>
-                </Grid>
+                        <Border x:Name="HistoryCount" HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,-3,-4,0" MinWidth="15" Height="15" Padding="4,0"
+                                CornerRadius="8" Background="{ThemeResource ZsAccent}" IsHitTestVisible="False" Visibility="Collapsed">
+                            <TextBlock x:Name="HistoryCountText" FontSize="10" FontWeight="Bold" LineHeight="15" Foreground="#FFFFFF" TextAlignment="Center" />
+                        </Border>
+                    </Grid>
+                </StackPanel>
 
                 <!-- The replay of the print. -->
-                <Grid x:Name="ScrubRow" Grid.Column="0" Grid.ColumnSpan="2" Grid.Row="1" ColumnSpacing="10">
+                <Grid x:Name="ScrubRow" Grid.Column="2" Grid.Row="0" ColumnSpacing="10" Padding="8,0,0,0"
+                      BorderBrush="{ThemeResource ZsLine}" BorderThickness="1,0,0,0">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="Auto" />
                         <ColumnDefinition Width="Auto" />
@@ -268,7 +292,7 @@
                 </Grid>
 
                 <!-- The print: its time, its details, and Export. -->
-                <Grid x:Name="DockSummary" Grid.Column="2" Grid.Row="0" Grid.RowSpan="2" ColumnSpacing="10" Padding="12,0,0,0"
+                <Grid x:Name="DockSummary" Grid.Column="3" Grid.Row="0" ColumnSpacing="10" Padding="12,0,0,0"
                       BorderBrush="{ThemeResource ZsLine}" BorderThickness="1,0,0,0" Visibility="Collapsed">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="Auto" />

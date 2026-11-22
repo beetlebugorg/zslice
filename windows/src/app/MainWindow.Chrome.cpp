@@ -123,10 +123,14 @@ namespace winrt::ZSlice::implementation
             double h = Dock().ActualHeight();
             LayerCard().Margin(ThicknessHelper::FromLengths(0, 140, 14, h + 24));
             ToastCard().Margin(ThicknessHelper::FromLengths(0, 0, 0, h + 12));
-            FitTimeline();
+            // The view ends at the top of the bar, so the camera frames the
+            // plates and their signs in the part that shows.
+            auto above = ThicknessHelper::FromLengths(0, 0, 0, h);
+            ViewPanel().Margin(above);
+            Layer2DPanel().Margin(above);
             PlaceEmptyOpen();
         });
-        TimelineCount().SizeChanged([this](auto &&, auto &&) { FitTimeline(); });
+        Root().SizeChanged([this](auto &&, SizeChangedEventArgs const &e) { LayoutDock(e.NewSize().Width); });
         LayerCard().SizeChanged([this](auto &&, auto &&) { UpdateLayerRail(); });
         LayerHiBubble().SizeChanged([this](auto &&, auto &&) { UpdateLayerRail(); });
         LayerCard().PointerPressed([this](auto &&, Input::PointerRoutedEventArgs const &e) {
@@ -275,101 +279,6 @@ namespace winrt::ZSlice::implementation
             LayerLoText().Text(to_hstring(layer_lo + 1));
             place(LayerLoBubble(), std::max(lo_y, hi_y + LayerHiBubble().ActualHeight() + 2));
         }
-    }
-
-    // The marks scroll in the room that the bar has. The count stays in sight.
-    void MainWindow::FitTimeline()
-    {
-        double room = Dock().ColumnDefinitions().GetAt(1).ActualWidth() - 9;
-        double fixed = UndoButton().ActualWidth() + RedoButton().ActualWidth() + HistoryButton().ActualWidth() +
-                       TimelineCount().ActualWidth() + 12 + 9 + 10;
-        TimelineScroll().MaxWidth(std::clamp(room - fixed, 40.0, 420.0));
-    }
-
-    // The steps of the history in the bar, the oldest at the left.
-    void MainWindow::RefreshTimeline()
-    {
-        if (model == nullptr)
-            return;
-        zs_app *app = model->Active();
-        size_t count = zs_app_history_count(app), now = zs_app_history_current(app);
-        if (count == timeline_count && now == timeline_now && app == timeline_app)
-            return;
-        timeline_count = count;
-        timeline_now = now;
-        timeline_app = app;
-        auto marks = TimelineMarks();
-        marks.Children().Clear();
-        if (count <= 1)
-        {
-            TimelineCount().Text(L"Your changes show here");
-            return;
-        }
-        TimelineCount().Text(to_hstring(now) + L" / " + to_hstring(count - 1));
-        // At most 60 marks, around the step now.
-        size_t first = count > 60 ? std::min(now > 30 ? now - 30 : 0, count - 60) : 0, end = std::min(count, first + 60);
-        for (size_t i = first; i < end; i++)
-        {
-            zs_history_step step{};
-            if (zs_app_history_step(app, i, &step) != ZS_OK)
-                continue;
-            if (i > first)
-            {
-                Shapes::Rectangle line;
-                line.Width(10);
-                line.Height(2);
-                line.VerticalAlignment(VerticalAlignment::Center);
-                line.Fill(TokenBrush(Root(), L"ZsLine"));
-                line.Opacity(i > now ? 0.4 : 1);
-                marks.Children().Append(line);
-            }
-            StepLook const &look = LookOf(i == 0 ? "start" : step.kind);
-            bool here = i == now;
-            double size = here ? 26 : 22, glyph = here ? 18 : 15;
-            Button mark;
-            mark.Width(size);
-            mark.Height(size);
-            mark.MinWidth(0);
-            mark.MinHeight(0);
-            mark.Padding(ThicknessHelper::FromUniformLength(0));
-            mark.VerticalAlignment(VerticalAlignment::Center);
-            mark.CornerRadius(CornerRadiusHelper::FromUniformRadius(size / 2));
-            Windows::UI::Color color{ 255, (uint8_t)(look.rgb >> 16), (uint8_t)(look.rgb >> 8), (uint8_t)look.rgb };
-            mark.Background(Media::SolidColorBrush(color));
-            mark.BorderThickness(ThicknessHelper::FromUniformLength(2));
-            mark.BorderBrush(here ? TokenBrush(Root(), L"ZsAccent") : Media::Brush(Media::SolidColorBrush(Windows::UI::Color{ 0xD9, 255, 255, 255 })));
-            mark.Opacity(i > now ? 0.4 : 1);
-            Grid box;
-            box.Width(glyph);
-            box.Height(glyph);
-            box.Children().Append(GlyphPath(look.glyph, glyph, false));
-            if (look.dashed != nullptr)
-                box.Children().Append(GlyphPath(look.dashed, glyph, true));
-            mark.Content(box);
-
-            std::string words(step.text != nullptr ? step.text : "", step.text != nullptr ? step.text_len : 0);
-            std::replace(words.begin(), words.end(), '\t', ':');
-            std::wstring tip = (i == 0 ? std::wstring(L"Start") : L"Change " + std::to_wstring(i)) + L" · " + look.label;
-            if (!words.empty())
-                tip += L". " + zs::ToWide(words);
-            Automation::AutomationProperties::SetName(mark, tip);
-            mark.Click([this, i](auto &&, auto &&) { GoToStep(i); });
-            // A short hover shows the card of the step.
-            mark.PointerEntered([this, mark, i](auto &&, auto &&) { HoverMark(mark, i); });
-            mark.PointerExited([this](auto &&, auto &&) { LeaveHistoryCard(); });
-            mark.RightTapped([this, mark, i](auto &&, Input::RightTappedRoutedEventArgs const &e) {
-                e.Handled(true);
-                ShowStepMenu(mark, e.GetPosition(mark), i);
-            });
-            marks.Children().Append(mark);
-        }
-        // The step now stays in sight.
-        double share = end > first + 1 ? (double)(std::min(now, end - 1) - first) / (double)(end - first - 1) : 0;
-        auto weak = get_weak();
-        queue.TryEnqueue([weak, share] {
-            if (auto self = weak.get())
-                self->TimelineScroll().ChangeView(box_value(share * self->TimelineScroll().ScrollableWidth()).as<Windows::Foundation::IReference<double>>(), nullptr, nullptr, true);
-        });
     }
 
     // The print in the bottom bar: its time, its numbers, and a badge.
