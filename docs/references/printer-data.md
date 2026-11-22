@@ -49,7 +49,7 @@ PrusaSlicer vendor bundles, Prusa Research, https://github.com/prusa3d/PrusaSlic
 
 **Text:** `LICENSE` (the same AGPL-3.0 text as zslice)
 
-**Notes:** The `[printer_model:*]` and `[printer:*]` sections, with their `inherits`. The retraction of the travels of a printer comes from `retract_lift` (a lift at each retraction), `wipe`, `retract_layer_change`, and `retract_before_travel`.
+**Notes:** The `[printer_model:*]` and `[printer:*]` sections, with their `inherits`. The retraction of the travels of a printer comes from `retract_lift` (a lift at each retraction), `wipe`, `retract_layer_change`, and `retract_before_travel`. A Prusa model with `single_extruder_multi_material = 1` and more than one extruder (an MMU) gets the field "t" of the library: a tool change for each filament change.
 
 ### OrcaSlicer printer profiles
 

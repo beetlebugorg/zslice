@@ -2429,14 +2429,14 @@ P	printrbot-simple-metal-extended	Simple Metal Extended	Simple	c	250	150	235	0	0
 B	Prusa
 P	prusa-core-one	CORE One	CORE	o	250	220	270	0	0		0.4	0.25;0.3;0.4;0.5;0.6;0.8	1.75	b	350	7000	12	10	marlin	Marlin 2	corexy	0.7	45	664	665	1	347	0.2	a	0		1	1.5
 P	prusa-core-one-core-one	CORE One & CORE One+	CORE	p	250	220	270	0	0		0.4	0.25;0.3;0.4;0.5;0.6;0.8	1.75	b	350	7000	12	10	marlin	Marlin 2	corexy	0.7	45	666	667	1	348	0.2	a	0		1	1.5
-P	prusa-core-one-core-one-mmu3	CORE One & CORE One+ MMU3	CORE	p	250	220	270	0	0		0.4	0.4;0.6	1.75	b	350	7000	12	10	marlin	Marlin 2	corexy	0.7	45	668	669	5	348	0.2	a	0		1	1.5
+P	prusa-core-one-core-one-mmu3	CORE One & CORE One+ MMU3	CORE	p	250	220	270	0	0		0.4	0.4;0.6	1.75	b	350	7000	12	10	marlin	Marlin 2	corexy	0.7	45	668	669	5	348	0.2	a	0		1	1.5	t
 P	prusa-core-one-hf	CORE One HF	CORE	o	250	220	270	0	0		0.4	0.4;0.5;0.6;0.8	1.75	b	350	7000	12	10	marlin	Marlin 2	corexy	0.7	45	670	665	1	347	0.2	a	0		1	1.5
 P	prusa-core-one-indx-4t	CORE One INDX 4T	CORE	o	248	205	270	0	0		0.4	0.4	1.75	b	350	7000	12	10	marlin	Marlin 2	corexy	0.8	40	671	672	4	349	1.5	a	0		1	1.5
 P	prusa-core-one-indx-8t	CORE One INDX 8T	CORE	o	248	205	270	0	0		0.4	0.4	1.75	b	350	7000	12	10	marlin	Marlin 2	corexy	0.8	40	671	672	8	349	1.5	a	0		1	1.5
 P	prusa-core-one-l	CORE One L	CORE	op	300	300	330	0	0		0.4	0.25;0.3;0.4;0.5;0.6;0.8	1.75	b	500	7000	15	10	marlin	Marlin 2	corexy	0.7	45	673	674	1	350	0.2	a	0		1	1.5
 P	prusa-core-one-l-hf	CORE One L HF	CORE	o	300	300	330	0	0		0.4	0.4;0.5;0.6;0.8	1.75	b	350	7000	12	10	marlin	Marlin 2	corexy	0.7	45	675	674	1	351	0.2	a	0		1	1.5
-P	prusa-core-one-l-mmu3	CORE One L MMU3	CORE	p	300	300	330	0	0		0.4	0.4;0.6	1.75	b	500	7000	15	10	marlin	Marlin 2	corexy	0.7	45	676	677	5	350	0.2	a	0		1	1.5
-P	prusa-core-one-mmu3	CORE One MMU3	CORE	o	250	220	270	0	0		0.4	0.25;0.3;0.4;0.6	1.75	b	350	7000	12	10	marlin	Marlin 2	corexy	0.7	45	678	669	1	347	0.2	a	0		1	1.5
+P	prusa-core-one-l-mmu3	CORE One L MMU3	CORE	p	300	300	330	0	0		0.4	0.4;0.6	1.75	b	500	7000	15	10	marlin	Marlin 2	corexy	0.7	45	676	677	5	350	0.2	a	0		1	1.5	t
+P	prusa-core-one-mmu3	CORE One MMU3	CORE	o	250	220	270	0	0		0.4	0.25;0.3;0.4;0.6	1.75	b	350	7000	12	10	marlin	Marlin 2	corexy	0.7	45	678	669	1	347	0.2	a	0		1	1.5	t
 P	prusa-signature-oak	Signature Oak	CORE	p	250	220	270	0	0		0.4	0.25;0.3;0.4;0.5;0.6;0.8	1.75	b	350	7000	12	10	marlin	Marlin 2	corexy	0.7	45	679	667	1	352	0.2	a	0		1	1.5
 P	prusa-i3	i3	i3	c	200	200	200	0	0		0.4		1.75	b					marlin	Marlin				680	171	1	353						
 P	prusa-i3-mk2	i3 Mk2	i3	c	250	210	200	0	0		0.4		1.75	b		1000	12	10	marlin	Marlin		0.8	35	681	682	1	353						
@@ -2449,29 +2449,29 @@ P	prusa-mini-is	MINI IS	MINI	o	180	180	180	0	0		0.4	0.25;0.4;0.6;0.8	1.75	b	400	
 P	prusa-mk3-5	MK3.5	MK	o	250	210	210	0	0		0.4	0.25;0.4;0.6;0.8	1.75	b	300	4000	12	8	marlin	Marlin 2	i3	0.8	35	690	691	1	358	0.2					1.5
 P	prusa-mk3s	MK3S	MK	o	250	210	210	0	0		0.4	0.25;0.4;0.6;0.8	1.75	b	200	2000	12	9	marlin	Marlin	i3	0.8	30	692	693	1	359						
 P	prusa-mk4	MK4	MK	op	250	210	220	0	0		0.4	0.25;0.3;0.4;0.5;0.6;0.8	1.75	b	200	2000	40	8	marlin	Marlin 2	i3	0.8	35	694	695	1	360	0.2	a	1		1	1.5
-P	prusa-mk4-mmu3-hf	MK4 MMU3 HF	MK	o	250	210	220	0	0		0.4	0.4	1.75	b	300	4000	40	8	marlin	Marlin 2	i3	0.7	35	696	697	1	361	0.2	a	0			1.5
+P	prusa-mk4-mmu3-hf	MK4 MMU3 HF	MK	o	250	210	220	0	0		0.4	0.4	1.75	b	300	4000	40	8	marlin	Marlin 2	i3	0.7	35	696	697	1	361	0.2	a	0			1.5	t
 P	prusa-mk4s-hf	MK4S HF	MK	o	250	210	220	0	0		0.4	0.4;0.5;0.6;0.8	1.75	b	300	4000	40	8	marlin	Marlin 2	i3	0.7	35	698	699	1	362	0.2	a	0		0	1.5
 P	prusa-i3-mk2s	i3 MK2S	MK2	p	250	210	200	0	0		0.4	0.25;0.4;0.6	1.75	b	500	2000	12	10	marlin	Marlin	i3	0.8	35	700	701	1	363	0.4	a	1		1	1
-P	prusa-i3-mk2s-mmu1	i3 MK2S MMU1	MK2	p	250	210	200	0	0		0.4	0.4;0.6	1.75	b	500	2000	12	10	marlin	Marlin	i3	4	80	702	703	4	363	0.6	a	1		0	3
+P	prusa-i3-mk2s-mmu1	i3 MK2S MMU1	MK2	p	250	210	200	0	0		0.4	0.4;0.6	1.75	b	500	2000	12	10	marlin	Marlin	i3	4	80	702	703	4	363	0.6	a	1		0	3	t
 P	prusa-i3-mk2-5	i3 MK2.5	MK2.5	p	250	210	200	0	0		0.4	0.25;0.4;0.6;0.8	1.75	b	500	2000	12	10	marlin	Marlin	i3	0.8	35	704	705	1	364	0.4	a	1		1	1
-P	prusa-i3-mk2-5-mmu2	i3 MK2.5 MMU2	MK2.5	p	250	210	200	0	0		0.4	0.25;0.4;0.6;0.8	1.75	b	500	2000	12	10	marlin	Marlin	i3	0.8	35	706	707	5	364	0.4	a	1		1	1
+P	prusa-i3-mk2-5-mmu2	i3 MK2.5 MMU2	MK2.5	p	250	210	200	0	0		0.4	0.25;0.4;0.6;0.8	1.75	b	500	2000	12	10	marlin	Marlin	i3	0.8	35	706	707	5	364	0.4	a	1		1	1	t
 P	prusa-i3-mk2-5s	i3 MK2.5S	MK2.5	p	250	210	200	0	0		0.4	0.25;0.4;0.6;0.8	1.75	b	500	2000	12	10	marlin	Marlin	i3	0.8	35	708	705	1	364	0.4	a	1		1	1
-P	prusa-i3-mk2-5s-mmu2s	i3 MK2.5S MMU2S	MK2.5	p	250	210	200	0	0		0.4	0.25;0.4;0.6;0.8	1.75	b	500	2000	12	10	marlin	Marlin	i3	0.8	35	709	710	5	364	0.4	a	1		1	1
+P	prusa-i3-mk2-5s-mmu2s	i3 MK2.5S MMU2S	MK2.5	p	250	210	200	0	0		0.4	0.25;0.4;0.6;0.8	1.75	b	500	2000	12	10	marlin	Marlin	i3	0.8	35	709	710	5	364	0.4	a	1		1	1	t
 P	prusa-i3-mk3	i3 MK3	MK3	p	250	210	210	0	0		0.4	0.25;0.4;0.6;0.8	1.75	b	200	1250	12	8	marlin	Marlin	i3	0.8	35	711	712	1	364	0.4	a	1		1	1
-P	prusa-i3-mk3-mmu2	i3 MK3 MMU2	MK3	p	250	210	210	0	0		0.4	0.25;0.4;0.6;0.8	1.75	b	200	1250	12	8	marlin	Marlin	i3	0.8	35	713	714	5	364	0.4	a	1		1	1
+P	prusa-i3-mk3-mmu2	i3 MK3 MMU2	MK3	p	250	210	210	0	0		0.4	0.25;0.4;0.6;0.8	1.75	b	200	1250	12	8	marlin	Marlin	i3	0.8	35	713	714	5	364	0.4	a	1		1	1	t
 P	prusa-i3-mk3s-mk3s	i3 MK3S & MK3S+	MK3	p	250	210	210	0	0		0.4	0.25;0.4;0.6;0.8	1.75	b	200	1250	12	8	marlin	Marlin	i3	0.8	35	715	712	1	364	0.4	a	1		1	1
-P	prusa-i3-mk3s-mk3s-mmu2s	i3 MK3S & MK3S+ MMU2S	MK3	p	250	210	210	0	0		0.4	0.25;0.4;0.6;0.8	1.75	b	200	1250	12	8	marlin	Marlin	i3	0.8	35	716	714	5	364	0.4	a	1		1	1
-P	prusa-i3-mk3s-mk3s-mmu3	i3 MK3S & MK3S+ MMU3	MK3	p	250	210	210	0	0		0.4	0.25;0.4;0.6;0.8	1.75	b	200	1250	12	8	marlin	Marlin	i3	0.8	35	717	714	5	364	0.4	a	1		1	1
+P	prusa-i3-mk3s-mk3s-mmu2s	i3 MK3S & MK3S+ MMU2S	MK3	p	250	210	210	0	0		0.4	0.25;0.4;0.6;0.8	1.75	b	200	1250	12	8	marlin	Marlin	i3	0.8	35	716	714	5	364	0.4	a	1		1	1	t
+P	prusa-i3-mk3s-mk3s-mmu3	i3 MK3S & MK3S+ MMU3	MK3	p	250	210	210	0	0		0.4	0.25;0.4;0.6;0.8	1.75	b	200	1250	12	8	marlin	Marlin	i3	0.8	35	717	714	5	364	0.4	a	1		1	1	t
 P	prusa-mk3-5-mk3-5s	MK3.5 & MK3.5S	MK3.5	p	250	210	210	0	0		0.4	0.25;0.3;0.4;0.5;0.6;0.8	1.75	b	300	4000	12	8	marlin	Marlin 2	i3	0.8	35	718	719	1	365	0.2	a	1		1	1.5
-P	prusa-mk3-5-mk3-5s-mmu3	MK3.5 & MK3.5S MMU3	MK3.5	p	250	210	210	0	0		0.4	0.25;0.4;0.6	1.75	b	300	4000	12	8	marlin	Marlin 2	i3	0.8	35	720	721	5	365	0.2	a	1		1	1.5
+P	prusa-mk3-5-mk3-5s-mmu3	MK3.5 & MK3.5S MMU3	MK3.5	p	250	210	210	0	0		0.4	0.25;0.4;0.6	1.75	b	300	4000	12	8	marlin	Marlin 2	i3	0.8	35	720	721	5	365	0.2	a	1		1	1.5	t
 P	prusa-mk3-9-input-shaper	MK3.9 Input Shaper	MK3.9	p	250	210	220	0	0		0.4	0.25;0.3;0.4;0.5;0.6;0.8	1.75	b	300	4000	40	8	marlin	Marlin 2	i3	0.7	35	722	723	1	366	0.2	a	0		1	1.5
-P	prusa-mk3-9-mmu3	MK3.9 MMU3	MK3.9	p	250	210	220	0	0		0.4	0.4;0.6	1.75	b	300	4000	40	8	marlin	Marlin 2	i3	0.7	35	724	725	5	366	0.2	a	0		1	1.5
+P	prusa-mk3-9-mmu3	MK3.9 MMU3	MK3.9	p	250	210	220	0	0		0.4	0.4;0.6	1.75	b	300	4000	40	8	marlin	Marlin 2	i3	0.7	35	724	725	5	366	0.2	a	0		1	1.5	t
 P	prusa-mk3-9s	MK3.9S	MK3.9	p	250	210	220	0	0		0.4	0.25;0.3;0.4;0.5;0.6;0.8	1.75	b	300	4000	40	8	marlin	Marlin 2	i3	0.7	35	726	723	1	367	0.2	a	0		1	1.5
-P	prusa-mk3-9s-mmu3	MK3.9S MMU3	MK3.9	p	250	210	220	0	0		0.4	0.4;0.6	1.75	b	300	4000	40	8	marlin	Marlin 2	i3	0.7	35	727	725	5	367	0.2	a	0		1	1.5
+P	prusa-mk3-9s-mmu3	MK3.9S MMU3	MK3.9	p	250	210	220	0	0		0.4	0.4;0.6	1.75	b	300	4000	40	8	marlin	Marlin 2	i3	0.7	35	727	725	5	367	0.2	a	0		1	1.5	t
 P	prusa-mk4-input-shaper	MK4 Input Shaper	MK4	p	250	210	220	0	0		0.4	0.25;0.3;0.4;0.5;0.6;0.8	1.75	b	300	4000	40	8	marlin	Marlin 2	i3	0.7	35	728	723	1	360	0.2	a	0		1	1.5
-P	prusa-mk4-mmu3	MK4 MMU3	MK4	op	250	210	220	0	0		0.4	0.4;0.6	1.75	b	300	4000	40	8	marlin	Marlin 2	i3	0.7	35	729	725	5	360	0.2	a	0		1	1.5
+P	prusa-mk4-mmu3	MK4 MMU3	MK4	op	250	210	220	0	0		0.4	0.4;0.6	1.75	b	300	4000	40	8	marlin	Marlin 2	i3	0.7	35	729	725	5	360	0.2	a	0		1	1.5	t
 P	prusa-mk4s	MK4S	MK4	op	250	210	220	0	0		0.4	0.25;0.3;0.4;0.5;0.6;0.8	1.75	b	300	4000	40	8	marlin	Marlin 2	i3	0.7	35	730	723	1	368	0.2	a	0		1	1.5
-P	prusa-mk4s-mmu3	MK4S MMU3	MK4	p	250	210	220	0	0		0.4	0.4;0.6	1.75	b	300	4000	40	8	marlin	Marlin 2	i3	0.7	35	731	725	5	368	0.2	a	0		1	1.5
+P	prusa-mk4s-mmu3	MK4S MMU3	MK4	p	250	210	220	0	0		0.4	0.4;0.6	1.75	b	300	4000	40	8	marlin	Marlin 2	i3	0.7	35	731	725	5	368	0.2	a	0		1	1.5	t
 P	prusa-xl	XL	XL	op	360	360	360	0	0		0.4	0.25;0.3;0.4;0.5;0.6;0.8	1.75	b	400	3000	12	8	marlin	Marlin 2	corexy	0.8	35	732	733	1	369	0.3	a	1		1	1.5
 P	prusa-xl-2t	XL - 2T	XL	p	360	360	360	0	0		0.4	0.25;0.3;0.4;0.5;0.6;0.8	1.75	b	400	3000	12	8	marlin	Marlin 2	corexy	0.8	35	734	735	2	369	0.3	a	1		1	1.5
 P	prusa-xl-5t	XL - 5T	XL	op	360	360	360	0	0		0.4	0.25;0.3;0.4;0.5;0.6;0.8	1.75	b	400	3000	12	8	marlin	Marlin 2	corexy	0.8	35	734	735	5	369	0.3	a	1		1	1.5
