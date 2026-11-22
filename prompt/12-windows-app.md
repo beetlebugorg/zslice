@@ -30,6 +30,7 @@ Build the native Windows app in `windows/`: a WinUI 3 shell in C++/WinRT around 
    - Windows keeps Move, Turn, and Grab as three tools. It does not have the transform tool or the import from a model page yet.
    - Projects: GitHub reads use a separate WinHTTP session with no key or token. Each URL and each redirect must be https to a GitHub host. Each file has a limit of 256 MB. PrinterSetup writes no machine profile while plates of a project are on the view.
    - The part card: the settings that the part has of its own (`zs_app_part_setting_set`), each with its editor and ×, and "+ Add a setting" for the selected part or parts. The filament stays in its row of chips.
+   - The line card: "Support you added" for a line at a support mark, with its kind, its radius, and Remove (`zs_app_mark_at`, `zs_app_mark_set`, `zs_app_mark_remove`).
 
 ## Rules that matter
 
@@ -57,6 +58,7 @@ Build the native Windows app in `windows/`: a WinUI 3 shell in C++/WinRT around 
 - **Fold the bottom bar by its own width.** The bar measured the whole window. With the settings pane open it kept one row, and the pane cut off the Export button.
 - **Write no empty file.** An export wrote an empty file when the plate had no G-code.
 - **An empty deck path means the root of the deck** (part 13). The pairing had this right, and `DeckAddress` follows it now too.
+- **Find a support mark from the whole line.** A slice can renumber the lines and drop the selected segment. The middle of a long wall is then far from the mark, and the card lost its editor right after the mark was added.
 
 ## Acceptance checks
 
@@ -69,3 +71,4 @@ Build the native Windows app in `windows/`: a WinUI 3 shell in C++/WinRT around 
 7. A test of the link code shows that a local stub gets no byte.
 8. The ring drag hook of the test build drags a ring along a right-hand turn, and logs the angle from the front, the back, or above.
 9. A part with its own wall count keeps it through undo and redo, and × gives it the value of the plate again.
+10. A line at a support mark shows the kind and the radius of the mark. A change of either reaches the core, and Remove takes the mark away.
