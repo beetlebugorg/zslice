@@ -62,7 +62,7 @@ One Zig core has all logic: the slicer (`src/`), the app core (`src/app.zig`, `s
 4. **Docs.** Keep the three doc parts current: `docs/user/`, `docs/embedding/`, `docs/internals/`. After a change to `src/settings.zig`, run `python3 -I tools/settings_doc.py > docs/user/settings.md`. Each setting needs a `///` doc comment. A setting with the meaning of a Cura or OrcaSlicer setting gets a line in `tools/setting_coverage_cura.txt` or `tools/setting_coverage_orca.txt`.
 5. **Measure.** Measure each speed change in wasm and native, on one thread and on all threads.
 6. **No secrets in the repository.** Access codes, API keys, and signing keys stay in the files of the user. They never go into the source, the docs, or a log.
-7. **Fresh confirmation to start a print.** A print starts only after a fresh click of the user, after the question "Is the bed clear?". Never start a print from a timer or a retry.
+7. **Fresh confirmation to start a print.** A print starts only after a fresh click of the user, after the question "Is the bed clear?". Never start a print from a timer or a retry. A `zslice://` link opens a model and never starts a print.
 
 ## Writing
 

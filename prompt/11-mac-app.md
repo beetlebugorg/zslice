@@ -7,20 +7,29 @@ Build the native Mac app in `macos/`: a SwiftUI and AppKit shell around the app 
 ## Read first
 
 - [The macOS app internals](../docs/internals/macos.md): the build, the Xcode project and signing, each file, threads, plates, the document, the session, the 3D view, the window, cards, input, tools, printers, cameras, Quick Look, and the development hooks. It is the spec of this part.
-- [The macOS app user guide](../docs/user/macos.md): the keys and menus of the Mac.
+- [The macOS app user guide](../docs/user/macos.md): the keys and menus of the Mac. It names Grab G and Label E. The tool headings of the internals page ("Grab (H)", "Label (L)") are older.
 - Part 09 of this folder: the window layout, the cards, and the keys follow the web app.
 
 ## Build
 
-1. `macos/build-core.sh`: `zig build lib` for `aarch64-macos` and `x86_64-macos`, merged with `lipo`. Take the object out of each archive and make the archive again with `libtool`: the archive of Zig 0.16 does not align its object to 8 bytes, and the Apple tools skip it with no error. Set `-Dcompiler-rt` for the f128 helpers.
+1. `macos/build-core.sh`: `zig build lib` for `aarch64-macos` and `x86_64-macos`, merged with `lipo`. Take the object out of each archive and make the archive again with `libtool`: the archive of Zig 0.16 does not align its object to 8 bytes, and the Apple tools skip it with no error. Set `-Dcompiler-rt` for the f128 helpers. Build the two cores at the same time: the LLVM code generation of one object uses about one core, so a clean build went from about 320 s to about 165 s on an 8-core Mac. A failed build prints its log.
 2. `make-app.sh` builds the Swift package. `macos/project.yml` makes `ZSlice.xcodeproj` with XcodeGen. After a new Swift file, run `xcodegen generate`. The app has the hardened runtime and is not sandboxed (the network search uses multicast UDP).
 3. `FrameRenderer` reads the frame data of the core and makes the draw calls of the Vulkan backend in Metal. Upload a buffer only when its generation changes. Compile the shader source at start, so the build needs no Metal tools. Turn y over in each vertex shader. Draw only after a change; the display link pauses after that.
 4. The beads draw with `box_fragment` (no `discard_fragment`) and back-face culling. Focus and see-through passes use a second fragment function. A new selection uploads only the changed bead range.
 5. `ProjectDocument` is a `ReferenceFileDocument`. The core history drives the UndoManager. The model keeps the bytes of the project file, made on the main thread when the window is idle (0.8 s after the last change and after the slice). `snapshot` returns the last copy and never waits for the main thread.
 6. `Core/Session.swift`: the session of each window (part 14).
-7. The window: a toolbar with the file button, the search field, the printer menu, the Filament button, the Quality menu, Printers, Settings, and More. One bottom bar as on the web. The settings drawer is a SwiftUI inspector, always pinned.
+7. The window: a toolbar with the file button, the search field in the center (as on the web), then the printer menu, the Filament button, the Quality menu, Printers, Settings, and More at the right. The search field gives up its width before an item at the right cuts its label. At a narrow width, AppKit moves whole items to the » menu. One bottom bar as on the web. The settings drawer is a SwiftUI inspector, always pinned.
+   - The search can also be a rail at the left of the view (beside the tool strip) or at the right (beside the layer slider), the height of the view, with the name of each setting over its control. The head of the results, the card, and the rails have a button for each other place. A card and a rail stay open until × or Esc.
+   - A click in the view closes the results under the toolbar field. A drag to turn or pan keeps them.
 8. Cards and panels with `cardPlace(avoiding:)`, `.panel()` frames, and spatial cards (`SpatialStore`, the rules of `web/app/spatial.js`).
-9. The tools: Select (V), Move (M), Turn (R), Grab (H), Measure (T), Support (S), Label (L), Paint (P).
+9. The tools: Select (V), Move (M), Turn (R), Grab (G), Measure (T), Support (S), Label (E), Paint (P). h and l step like the arrows: the segment before or after a selected line, else the nozzle back or on. Shift-H and Shift-L step a whole line. Gaps keeps Shift-Command-G only.
+   - The open panel, a drop, and the Finder take `.step`, `.stp`, and `.obj`. The part card has Mirror X and Mirror Y. B and View > Hide the Bed hide the bed.
+   - The range card has the row "This body" (part 05).
+   - Labels: the handles on the surface, the smart guides drawn as thin lines (Option moves free), Place an SVG, an SVG dropped on a part, and the mode and relief on the card. A corner keeps the aspect (Shift: each axis on its own).
+   - A printer with two nozzles shows the Second nozzle section. The line card says which nozzle prints a line. Infill filament has the filament chips.
+   - File > Calibrate, Import a Profile in the printer and quality menus, and Print Earlier and Print Later on the part card with one part at a time.
+   - The draft slice first, with a work bar of 2 points. The exact slice waits while a draft slices. Another plate, or a plate that goes, gets the exact slice first.
+   - `zslice://` links: the app gets a Get URL event. After the session is back, the key window checks the link with the core and asks in a sheet, with Cancel on Return. The download has no cookie, no credentials, and no proxy, and refuses a host with a local address before each request and each redirect.
 10. Printers: `Core/PrinterLink.swift`, `Core/Bambu.swift`, `Core/Camera.swift`, `Core/FarmMonitor.swift` (part 13).
 11. Quick Look: `ZSliceThumbnail` draws icons on the CPU (`zs_gcode_thumbnail_png`, `zs_app_thumbnail_png`). `ZSlicePreview` has the 3D view for the space bar preview of G-code, STL, and 3MF.
 
@@ -44,6 +53,9 @@ Build the native Mac app in `macos/`: a SwiftUI and AppKit shell around the app 
 - Keep only the settings in the right pane.
 - Keep the API key on its origin through redirects (`KeyRedirect`).
 - Stop tracking the Finder state of macOS in git.
+- **Split large literals for the Swift compiler.** The Debug build on the CI runner stopped: the compiler could not type-check the map of the feature colors in time. The colors now go through a function with typed steps.
+- **Read the URL of a link with `zs_link_url`.** Swift does not import the long C array of the URL, so the Mac read it at offset 0 of the struct.
+- Free H and L for the vim keys: Grab is G and Label is E (part 09).
 
 ## Acceptance checks
 
@@ -53,3 +65,4 @@ Build the native Mac app in `macos/`: a SwiftUI and AppKit shell around the app 
 4. `ZSLICE_RESTORE_DELAY=s` shows that no session file is written during the wait.
 5. `qlmanage -x -p file.gcode` shows the 3D preview.
 6. `ZSLICE_RIGHT_DRAG=1` (a mouse right drag) must orbit. `ZSLICE_RIGHT_DRAG=touch` (a trackpad) must pan. `ZSLICE_INPUT_LOG=1` logs the subtype of each right press on a real trackpad.
+7. `ZSLICE_BAMBU_OUT` writes the `.gcode.3mf` of each slice of a Bambu Lab plate, as a send builds it.

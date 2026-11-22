@@ -19,7 +19,7 @@ Make the plate obey physics. A part that cannot stand falls over onto a face, as
 4. Settle parts in the core. A part dropped or turned on the plate settles before the slice. A thrown part stops at the edge of the bed.
 5. `src/print_sim.zig`: the model in eleven steps (masses, a height field of 0.1 mm cells in 32 x 32 tiles, strands, heat by Newton's law with forced convection, viscosity laws per material, catenaries for runs held at both ends, position based dynamics for free runs, contact, failure at 1.5 mm of drop, sleep, and time jumps).
 6. `src/app/sim_print.zig`: the simulation on the toolpaths of a slice. A path whose plastic moved gets a z and a bead area for each point, so the view draws a strand as one continuous bead.
-7. Run the simulation after each slice on the slice thread, in pieces with a cancel check (`zs_app_set_auto_simulate`, `ZS_EVENT_SIMULATED`). A shell with no threads runs it in pieces between its messages (`zs_app_sim_begin`, `zs_app_sim_advance`).
+7. Run the simulation after each slice on the slice thread, in pieces with a cancel check (`zs_app_set_auto_simulate`, `ZS_EVENT_SIMULATED`). A shell with no threads runs it in pieces between its messages (`zs_app_sim_begin`, `zs_app_sim_advance`). `zs_app_sim_work` gives the progress of the simulation on the slice thread, for the work bar of the view (part 08). A draft slice starts no simulation.
 8. The Check lists the failed plastic.
 
 ## Numbers and rules that matter

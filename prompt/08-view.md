@@ -24,9 +24,9 @@ Build the 3D view of a slice in the core (`src/render/`), so that each platform 
 8. Plates (`src/render/plates.zig`): all plates in a row with a gap. The active plate is the full view. Each other plate is a fixed bead buffer at an offset. A plate out of the frustum has no draw cost.
 9. Light levels for far beads: (1) the beads that show from outside, short runs joined to 0.1 mm; (2) every second layer at twice the height, joined to 0.3 mm; (3) every fourth layer, joined to 0.8 mm. The level comes from the size of a layer on the screen.
 10. Signs: the shell draws the name, the printer, and the status of each plate into one RGBA image (`zs_view_set_signs`). The view draws each sign as a flat quad in front of the front edge of its plate. It keeps about the same height on the screen, fades when the camera looks along the bed, and turns round when the camera is behind the plate.
-11. Decals: the labels draw as decals (`src/render/decal.zig`, the nonzero rule, holes stay open).
-12. The bed model of the printer (`src/bed.zig`): a static mesh and a texture, drawn after the beads in soft gray. B hides the bed and its grids, so the bottom of a part shows from below.
-13. The mesh of the Paint, Label, and Support tools.
+11. Decals: the labels draw as decals (`src/render/decal.zig`, the nonzero rule, holes stay open). The selected label gets a frame, four corner handles, and a turn handle as decals in its plane, with sizes in screen pixels, and the smart guide lines (part 05). A corner resizes about the opposite corner (Shift: each axis on its own). The turn handle turns the label about the center of its box (Shift: 15° steps). Alt (Option on the Mac) moves free of the guides.
+12. The bed model of the printer (`src/bed.zig`): a static mesh and a texture, drawn after the beads in soft gray. B hides the bed and its grids, so the bottom of a part shows from below (`zs_view_set_bed_hidden`). The other plates keep their beds.
+13. The mesh of the Paint, Label, and Support tools. A lit body shows in the color of a filament at once (`zs_view_light_color`).
 14. Replay: `zs_view_set_time` shows the print at a time, with a nozzle marker, at 1x to 100x.
 15. A print view of a G-code file of any slicer (`loadGcode`): the beads go straight into the GPU buffer. The host reports the byte offset it has read.
 
@@ -61,3 +61,4 @@ This is the rule after several corrections. Match it in each shell.
 4. Six plates show in a row, and `[`, `]`, `F`, and `Home` frame them with animation.
 5. A mouse right drag orbits. A touchpad two-finger click and slide pans.
 6. The replay of a print ends at the time estimate of the G-code.
+7. In each app, a change of a plate with a slice shows a draft first, the bar at the top edge, and then the exact slice 300 ms after the last change.

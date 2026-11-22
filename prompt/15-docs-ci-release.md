@@ -14,7 +14,7 @@ Keep a docs site from Markdown with no dependencies beyond Python 3, a reference
 
 ## Build
 
-1. `docs/build.py`: a small Markdown converter (headings, paragraphs, lists with task boxes, fenced code, tables, inline code, bold, links, comments). Each page is in `SOURCES` with its folder and sidebar group. The guide pages get numbers. The script writes one folder for each page, checks each link and anchor, and stops on a broken link or on a Markdown file with no page. Run it with `python3 -I docs/build.py`, and commit the pages with the change.
+1. `docs/build.py`: a small Markdown converter (headings, paragraphs, lists with task boxes, fenced code, tables, inline code, bold, links, comments). Each page is in `SOURCES` with its folder and sidebar group. The guide pages get numbers. The script writes one folder for each page, checks each link and anchor, and stops on a broken link or on a Markdown file with no page. Run it with `python3 -I docs/build.py`, and commit the pages with the change. A fence "```html live" puts its HTML in the page and also shows it as code, so a demo runs the code that the page shows. The G-code viewer page runs a live demo on `docs/embedding/viewer/bridges.gcode`. The web step installs `zslice-view.js` in `zig-out/web/app`, and the site has that folder at its root.
 2. The references: one page for each source or area. Each entry is a level 3 heading, a `ref` block (kind, source, license, link, version, files, area, summary), and its text. The build checks the fields and the paths, and makes the explorer page from them.
 3. `tools/settings_doc.py` writes `docs/user/settings.md` and `src/settings_meta.zig`. `tools/setting_coverage.py` writes `docs/user/setting-coverage.md` from the Cura and OrcaSlicer coverage lists.
 4. `ci.yml`: on a push to main, each pull request, and by hand. A change of docs or Markdown only starts no job. The first job picks the jobs the change needs. A core change starts all jobs: core tests (`zig build test` and a 20 mm cube), the web app (`zig build web` and the Node tests), the Linux app (meson with `-Dwerror=true`, then `meson test`), the Mac app (the Xcode project lists each Swift file; build; open a box, slice, and take a picture), and the Windows app (x64 and ARM64).
@@ -39,6 +39,9 @@ Keep a docs site from Markdown with no dependencies beyond Python 3, a reference
 - A cached script with a fresh page broke the app after a deploy: send the app files with `no-cache`.
 - Add a privacy page, and load no fonts from Google.
 - Say in the privacy page that AWS hosts the site, with no logs.
+- **Check the doc pages against the code after a batch of features.** An audit found, for example: the C link needs `-lm`, the status codes 10 to 17 were not in the table, and the user pages had old names of tools, qualities, and keys. Some pages are still older than the code in places; parts 09, 11, and 12 name them.
+- **Link to a reference page, not to a heading that has no anchor.** A link to an anchor in the PrusaSlicer references went nowhere, and `docs/build.py` stopped with an error. The link now goes to the page and names the entry.
+- The Mac CI job builds Debug: keep each Swift expression small enough to type-check in time (part 11).
 
 ## Acceptance checks
 
@@ -47,3 +50,4 @@ Keep a docs site from Markdown with no dependencies beyond Python 3, a reference
 3. A push of a docs-only change starts no CI job.
 4. A `v0.0.0-test` tag makes a prerelease with each file and `SHA256SUMS`, and leaves the tap alone.
 5. `sha256sum -c SHA256SUMS --ignore-missing` passes on the downloaded files.
+6. The G-code viewer page runs its live demo from the files of the site.

@@ -17,7 +17,7 @@ Find printers on the network, pair with them, read their state and their spools,
 
 1. Discovery (`src/discovery.zig`): one mDNS query for the PTR records of `_octoprint._tcp`, `_moonraker._tcp`, and `_prusalink._tcp` to 224.0.0.251:5353. If an answer has the PTR record alone, ask for SRV, TXT, and A. Then `GET /api/version` tells printdeck and PrusaLink from OctoPrint, and the Klipper toolhead tells the bed size. Bambu Lab printers in LAN mode answer SSDP. A browser cannot send mDNS: the web app asks for an address.
 2. Status (`src/app/printer_status.zig`): the app GETs each path of `paths(kind)` and feeds each reply to the core. OctoPrint: `/api/printer`, `/api/printerprofiles`, `/api/job`. Printdeck: `/api/printer` and `/api/plugin/printdeck` (the material, the rolls, the limits, the job). Moonraker: `/printer/objects/query`. Bambu Lab: each MQTT report.
-3. Spools (`src/app/printer_filaments.zig`): a printdeck lists `filaments` with slot, tray, nozzle (main or aux), material, color, and idx. A Bambu report lists its AMS trays. The plate gets the count, the material, the profile, the color, and the nozzle of each. The web app reads them again each 20 s, the GTK app each 5 s.
+3. Spools (`src/app/printer_filaments.zig`): a printdeck lists `filaments` with slot, tray, nozzle (main or aux), material, color, and idx. A Bambu report lists its AMS trays. The plate gets the count, the material, the profile, the color, and the nozzle of each. The web app reads them again each 20 s, the GTK app each 5 s. The Mac follows the spools of the printer of the plate each 10 s, and when the plate gets another printer (`zs_app_filaments_from_printer` with flag 2), with a note that says what changed. A filament set by hand shows a hand, and it stays. A print on a Bambu Lab printer sends the tray of each filament (`zs_app_ams_mapping`).
 4. Keys: OctoPrint App Keys (`requestKey`): the printer asks "Allow zslice?", within 2 minutes. A printdeck asks on its screen. Show the key id on both sides.
 5. A send: sign the G-code (part 03), post it, and count it as sent only when the printer answers that it stored the file. Any other answer is an error with the address and the start of the answer.
 6. Bambu Lab LAN (`src/bambu.zig`, `src/mqtt.zig`):
@@ -45,6 +45,7 @@ Find printers on the network, pair with them, read their state and their spools,
 - **Pair at the root of the deck.** The list of the printers of a deck came back 404 after a pairing. The saved address was of one printer (`.../printers/<id>/`), so the app asked for `.../printers/<id>/slicer/printer.json`, which does not exist. A pairing at that address also gave a key for that printer only, and the list refuses such a key. Pair and list at the root of the deck.
 - **Refuse a send that may reach another printer.** A queued print for the X2D went to the TAZ. An address of the deck itself, on a deck of two or more printers, with no saved deck name and a name that does not name the first printer, now stops the send with a message.
 - **Load the first filament of the print** in the start G-code (part 03). The X2D failed in PREPARE with "Failed to get AMS mapping table" when the start G-code loaded a filament with no tray.
+- **Name only a used filament for each nozzle** in the X2D start G-code (part 03). A print of filaments 3 and 4 on the main nozzle stopped 37 s in with HMS errors, because the start G-code named filament 4 for the second nozzle.
 - Repair an address saved with a printer path twice (`.../printers/x2d/printers/x2d`).
 - A model hint of one word matches no library model: "TAZ" alone matched a TAZ 6 for a TAZ Workhorse.
 - Keep the project paths inside the repository, and limit the size of MQTT packets.
@@ -52,7 +53,7 @@ Find printers on the network, pair with them, read their state and their spools,
 
 ## A note on the X2D
 
-The X2D work is recent. The git log has a series of fixes that match the file of Bambu Studio 02.09 (hotend keys, templates, `slice_info.config`, the layer change, the end of the start G-code). This folder does not confirm that a two-nozzle print from zslice completes on a real X2D. Test it on the printer before you call the part done.
+The X2D work is recent. The git log has a series of fixes that match the file of Bambu Studio 02.09 (hotend keys, templates, `slice_info.config`, the layer change, the end of the start G-code). Later fixes name only a used filament for each nozzle, prime and wipe on the tower before the part, keep the idle nozzle 10 °C under its temperature, and use the travel retraction of Bambu Studio. This folder does not confirm that a two-nozzle print from zslice completes on a real X2D. Test it on the printer before you call the part done.
 
 ## Acceptance checks
 

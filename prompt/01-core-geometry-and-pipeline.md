@@ -21,7 +21,7 @@ Build the Zig core from a mesh to G-code for one part: integer geometry, polygon
 6. `src/parallel.zig`: `forEach(threads, n, ctx, func)` with one atomic counter. The first error stops the loop.
 7. `src/scratch.zig`: a pool of arenas for the temporary memory of booleans and offsets. An arena keeps up to 16 MB for the next call.
 8. `src/engine.zig`: resolve the settings, place the part (bottom at z = 0), make the layer table and the face index, pass 1 (outlines, all threads), pass 2 (plans and G-code in batches, in layer order). The engine never holds the whole G-code file.
-9. `src/main.zig`: the command line tool: `slice`, `layer` (an SVG of one layer, `svg.zig`), and later `bench`, `gaps`, `check`, `sweep`, `orient`, `printers`, `profile`, `import cura`, `gcode`.
+9. `src/main.zig`: the command line tool: `slice`, `layer` (an SVG of one layer, `svg.zig`), and later `bench`, `gaps`, `check`, `sweep`, `orient`, `printers`, `profile`, `import cura`, `import <file>` (the profile of another slicer, part 02), `gcode`.
 10. `src/c_api.zig` and `include/zslice.h`: the small C API of the slicer (part 07 adds the app API). Each function returns a status (`ZS_OK` is 0). Each `_new` or `_load` has a `_free`.
 
 ## Numbers and rules that matter

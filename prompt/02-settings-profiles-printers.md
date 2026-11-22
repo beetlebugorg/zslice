@@ -2,7 +2,7 @@
 
 ## Goal
 
-Build the settings model, the TOML profiles with inheritance, the formulas, the settings for some layers, the Cura importer, and the printer library of more than 1000 printers. At the end, the command line slices with `-m`, `-f`, `-p`, and `-s`, and a printer of the library gives a machine profile.
+Build the settings model, the TOML profiles with inheritance, the formulas, the settings for some layers, the Cura importer, the import of the profiles of other slicers, and the printer library of more than 1000 printers. At the end, the command line slices with `-m`, `-f`, `-p`, and `-s`, and a printer of the library gives a machine profile.
 
 ## Read first
 
@@ -23,6 +23,13 @@ Build the settings model, the TOML profiles with inheritance, the formulas, the 
 7. `tools/printer_library.py` writes `src/printers/library.txt` from the definitions of Cura, Cura LulzBot Edition, PrusaSlicer, and OrcaSlicer. The format is in the header of `src/printers.zig`. Native builds embed the file. The wasm module does not: the web app loads it when the picker opens.
 8. `tools/printer_beds.py` converts the bed models (`src/printers/beds/`, read by `src/bed.zig`).
 9. `src/app/setting_info.zig`, `setting_text.zig`, `setting_search.zig`: the description, the text, and the search of each setting, made at compile time. A shell builds its panel from these and lists no setting itself.
+10. `src/import_profile.zig`: the profile of another slicer. It reads a PrusaSlicer or OrcaSlicer `.ini` (also a config bundle, and the config block at the end of a G-code file), an OrcaSlicer or Bambu Studio `.json` preset, the settings of a 3MF project of these slicers, and a Cura `.curaprofile`. The report lists each value that zslice set, each clamp, and each key with no zslice setting. `zs_app_profile_import` applies the values as one undo step, and `zs_app_profile_import_report` gives the report. `zslice import <file> [-o dir]` writes the report and the profiles. The conversions are in its header:
+    - A list value (one for each extruder) gives its first value.
+    - A percentage resolves against its own base in the file first.
+    - A speed in mm/s becomes a ratio of `machine.max_speed`, after the printer limits of the file.
+    - Each value goes into the limits of its setting.
+11. The qualities. The core lists the built-in qualities from the finest to the coarsest: Fine, Standard, Strong, Draft, Coarse. Each name starts with a capital. `zs_quality_summary` gives one line of the main points of a quality: the layer height first, then what differs from Standard ("0.1 mm layers · 3 walls · slower walls · ironed tops"). The menus show that line in small text under the name.
+12. The second nozzle (`machine.nozzle2_*`, section "Second nozzle"): `nozzle2_speed` (a ratio of the speed of each line of the first nozzle), `nozzle2_max_speed`, `nozzle2_max_accel`, `nozzle2_diameter`, `nozzle2_line_width`, `nozzle2_retract_length`, and `nozzle2_retract_speed`. A value of 0 is the value of the first nozzle, so a print with the defaults gives the same G-code. Travel keeps the speeds of the printer. A shell shows the section only for a printer with two nozzles.
 
 ## Numbers and rules that matter
 
@@ -36,10 +43,17 @@ Build the settings model, the TOML profiles with inheritance, the formulas, the 
 - The printer owns its accelerations: `outer_wall_accel`, `inner_wall_accel`, `skin_accel`, `infill_accel`, `travel_accel`, `first_layer_accel`. 0 means the `max_accel` of the printer. Print settings stay when the printer changes. Each printer keeps the filament that was last used with it.
 - `machine.max_speed` in a library profile is a print speed. It is different from the firmware limit (see `printers.zig`).
 - The app keeps only the changes from the defaults, in `~/.config/zslice/{machine,filament,project}.toml`.
+- The printer owns its travel retraction too: `machine.retract_min_travel`, `z_hop`, `z_hop_only_crossing`, `retract_wipe`, `retract_wipe_distance`, and `retract_layer_change`. The library has these values for 896 of 1181 models, from their OrcaSlicer, PrusaSlicer, and Cura profiles. The Bambu Lab models have the values of the Bambu Studio presets: a 0.4 mm lift (Auto Lift), a 2 mm wipe, a retraction at each layer change, and a shortest retracted travel of 1 mm. A saved Bambu Lab printer with no travel keys gets these values at the load.
+- The X2D profile has the values of its second nozzle (a bowden extruder): at most 200 mm/s, 1000 mm/s², and a 2 mm retraction at 20 mm/s.
+- `project.combing_mode` (part 03) replaces the switch `project.combing`. An old `combing = true` or `false` loads as `all` or `off`.
+- `filament.pressure_advance` is a layer setting. The calibration tower (part 07) needs it.
 
 ## Lessons
 
 - The accelerations were print settings first. They moved to the printer, with a migration of saved values, old projects, and sessions to the printer of the plate.
+- **The travel retraction moved to the printer.** The X2D sliced with no z hop, no wipe, and no retraction at a layer change. The nozzle dragged over the tops of the support and strung between the support islands. The old project names still load and move to the printer, as the accelerations did. The profile import maps the travel keys of other slicers to the machine settings, and the avoid-crossing keys to `project.combing_mode`.
+- **Save the settings again after a load that moved keys.** An older saved text can hold settings that now belong to another group. The core loads each value into its new group. Each shell then saves the groups once (the Windows app did not at first).
+- **The quality menus need an order and a hint.** They listed the qualities in the order of the built-in files, in small letters, with no hint of what each sets. The core now gives the order and the summary line, so each app shows the same.
 - Keep the filament diameter when the material changes.
 - Keep the quality profile and the global settings of a Cura stack as levels of one cascade.
 - Keep the vendor G-code of each printer in the library, and the popular printers in the core.
@@ -53,3 +67,6 @@ Build the settings model, the TOML profiles with inheritance, the formulas, the 
 4. `zslice import cura <folder>` converts the printdeck TAZ stack, and the slice matches the Cura settings in `cura_compare`.
 5. `docs/user/settings.md` is the output of `tools/settings_doc.py` with no diff.
 6. A new field in `settings.zig` shows in the panel of each app with no shell code.
+7. `zslice import` of a PrusaSlicer `.ini` writes a report with each value set, each clamp, and each unknown key.
+8. A two-nozzle print with each `nozzle2_*` value at 0 gives the same G-code as before the section existed.
+9. Each app lists the qualities in the order Fine, Standard, Strong, Draft, Coarse, with the same summary lines.

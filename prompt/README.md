@@ -1,6 +1,6 @@
 # A prompt that could build zslice
 
-Describes: main at commit `a22bd40f` ("Make the doc pages again after the Windows merge"), 2026-11-21.
+Describes: main at commit `b6af6dca` ("Link the open-links page to the PrusaSlicer page itself"), 2026-11-22.
 
 ## Read this first
 

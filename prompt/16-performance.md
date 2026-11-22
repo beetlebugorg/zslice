@@ -8,7 +8,7 @@ Make a change of a setting show in the view at once, at 60 frames a second, and 
 
 - [README.md](../README.md), section "Speed": the user-facing numbers.
 - [Architecture](../docs/internals/architecture.md), sections "Memory model", "Threads", and "Speed in WebAssembly".
-- [Speed: the lower bound of a slice](../docs/internals/performance.md): the bound of each stage, and the stages that are furthest from it.
+- [Speed: the lower bound of a slice](../docs/internals/performance.md): the bound of each stage, and the stages that are furthest from it. For a 3DBenchy on the test machine (a 4-core i7-6700K), the bound is 95 ms on one thread and 24 ms on 4 cores, against 1477 ms of CPU for zslice. The gap fill is 43 times its bound, the offsets 28 times, and the booleans 10 times. Tune the stage that is furthest from its bound first.
 - [The command line](../docs/user/command-line.md), section "Measure the speed".
 - [web/app/README.md](../web/app/README.md), section "Performance".
 - [The macOS app internals](../docs/internals/macos.md), sections "The 3D view" and "The beads".
@@ -33,10 +33,11 @@ On a 3DBenchy with 8 cores (from the README):
 5. **The paint split with a distance field** (part 05): from 4 to 22 s and 3 to 9 GB to 90 ms on 8 threads for a brushed 3DBenchy hull.
 6. **Line cuts** (`src/dexel.zig`): cut the outline of a layer with lines one line width apart, and merge the intervals of two layers line by line. The skin of all layers of the 3DBenchy from line cuts needs 13 ms, against 906 ms with polygon booleans, on one thread, and the areas agree to 0.015 %. This was the owner's idea: slice in two directions and use the intersection as the fill lines. The planner does not use the cuts yet (`zslice bench --only dexel`).
 7. **The fast offset experiment** (`project.fast_offsets`, off by default): 2440 of the 3699 unions of a Benchy had more than 16 crossings from the small loops of closing corners. Put the crossing point in place of the loop: about 11 % less CPU. The outer walls stay within 1.4 µm. Off, the G-code is the same.
-8. **A coarse slice during a drag.** A turned part slices with thick layers, one wall, no skin, and no infill during a ring drag: 85 ms against 864 ms in the browser for a Benchy. A draft slice (`zs_app_set_draft`) keeps all the paths for the view: an outline tolerance of 0.05 mm, no gap fill, classic walls. A draft of a 3DBenchy needs 480 ms of CPU, and the exact slice 1471 ms. A draft has no G-code for a file or a printer.
+8. **A coarse slice during a drag.** A turned part slices with thick layers, one wall, no skin, and no infill during a ring drag: 85 ms against 864 ms in the browser for a Benchy. A draft slice (`zs_app_set_draft`) keeps all the paths for the view: an outline tolerance of 0.05 mm, no gap fill, classic walls. A draft of a 3DBenchy needs 480 ms of CPU, and the exact slice 1471 ms. A plate of 9 copies needs 730 ms for a draft and 1961 ms for the exact slice. A draft has no G-code for a file or a printer. Each app shows the draft first and slices exact 300 ms after the last change. In the GTK app, the view has the draft 106 to 194 ms after a wall count change of a 3DBenchy, where the exact slice needs 415 to 494 ms. In the web app (Chromium with no GPU), the draft needs 175 to 252 ms, and the exact slice up to 1.8 s.
 9. **Light levels and culling in the view** (part 08), and a detail governor while the view moves on the web.
-10. **Short integers in the exact Voronoi path** (`voronoi_ctypes.ExtendedIntN`): a product, a sum, or a difference of values with one or two chunks is one 128-bit operation in the caller. The gap fill lines of a 3DBenchy need 11 % less CPU. Wasm keeps the chunk loops.
-11. **Keep the UI thread free.** History steps as snapshots (297 ms to 11 ms per move). The session written on a thread (Linux, 490 to 660 ms off the UI thread). The web session in IndexedDB from the worker (0.5 s off the main thread). Scene bytes made by the worker (88 to 109 ms off the UI thread).
+10. **Short integers in the exact Voronoi path** (`voronoi_ctypes.ExtendedIntN`): a product, a sum, or a difference of values with one or two chunks is one 128-bit operation in the caller. The gap fill lines of a 3DBenchy need 11 % less CPU, and a full slice 2 % less (1507 to 1477 ms). 89 % of the 2.25 M products had one or two chunks of 32 bits on each side. A test compares each short path with the loops on 200 000 random values. Wasm keeps the chunk loops.
+11. **Build time.** The Mac builds its arm64 and x86_64 cores at the same time: a clean build in about 165 s in place of about 320 s on an 8-core Mac.
+12. **Keep the UI thread free.** History steps as snapshots (297 ms to 11 ms per move). The session written on a thread (Linux, 490 to 660 ms off the UI thread). The web session in IndexedDB from the worker (0.5 s off the main thread). Scene bytes made by the worker (88 to 109 ms off the UI thread).
 
 ## WebAssembly rules
 
@@ -54,13 +55,14 @@ Keep these in each hot loop (from the architecture page):
 - Measure each change in wasm and native, on one thread and on all threads.
 - Check that the G-code is the same, byte for byte, before and after a speed change.
 - Use the logs of stalls: `ZSLICE_STALLS=ms` (Linux and Mac) logs each wait of the UI thread over that time, with stacks.
-- Use the benches: `zslice bench part.stl` (full, late, wall count), `--only sim`, `--only paint`, `--only dexel`, `--only patch`, and `--runs n`.
+- Use the benches: `zslice bench part.stl` (full, late, wall count), `--only sim`, `--only paint`, `--only dexel`, `--only patch`, `--only draft`, and `--runs n`.
 
 ## Open work (from the roadmap)
 
 - The support column pass runs on one thread. The slowest corpus file with support needs 11 s on 2 threads.
 - Faster skin regions: a sliding window for the stacked intersection, then SIMD in the boolean.
 - Tree support: faster (1.4 s on the camera arm, grid 0.4 s).
+- A larger outline tolerance (from the lower bound page): 0.010 mm needs 19 % less CPU than 0.005 mm, and the outer walls move 10.4 µm or less for 99 % of their points. The default stays at 0.005 mm.
 
 ## Acceptance checks
 
@@ -68,3 +70,4 @@ Keep these in each hot loop (from the architecture page):
 2. `zslice bench --only patch` gives the same G-code as a new slice for each patch setting.
 3. An orbit, a pan, a zoom, and a slider move hold 60 frames a second on eight Benchies in the web app on a desktop GPU.
 4. No stall over 50 ms on the UI thread during a slice, a move, and a session write.
+5. `zslice bench --only draft` gives the draft and the exact times, and the exact slice after a draft gives the G-code of before.

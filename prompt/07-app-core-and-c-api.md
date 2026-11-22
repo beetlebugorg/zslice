@@ -24,11 +24,14 @@ Build the app core: all logic of the zslice app, behind one C API, so that each 
 7. `src/app/edits.zig`: edits of single lines (do not print it, change its plastic, add a drop). Each line has a key: the z of its layer, its feature, and its points rounded to 10 µm. The edits apply to each new slice.
 8. `src/app/checks.zig`, `gap_advice.zig`, `measure.zig` (a least-squares circle fit for radii), `refine.zig` (repeated refinements offered on the next print), `sweep.zig` (which settings change time and cost the most).
 9. `src/app/support_areas.zig`, `support_trees.zig`, `src/support_pick.zig`: support areas that add or block support, one-click support under the overhang at the pointer, and trees edited by hand.
-10. `src/c_api/*.zig`: thin layers. Each export checks its pointers, calls the Zig API, and turns the Zig error into a status. Each function that changes the state notes the change for the undo list. Text results use one rule: call once with a NULL buffer for the length, then again with a buffer.
+10. Calibration prints (`src/calib.zig`, `zs_app_calibration_add`, `zs_app_calibration_get`). Each test is a new plate with a test part that the core makes, and its value varies by layer range or by part, so each value shows in the settings of the plate. The tests are in the header of `calib.zig`: a temperature tower (blocks of 5 °C, the hottest at the bottom), a retraction test (two pillars, bands of 5 mm), a flow test (cubes from 80 % to 120 %), and a pressure advance tower (a square with one wall, bands of 4 mm, after the tuning tower of Klipper). A printer with a tool changer also gets a label with each value. The card of the test says how to read the print, and its buttons set the chosen value on each plate.
+11. Links that open a model (`src/open_link.zig`, the `zs_link_*` calls of `include/zslice.h`). [Links that open a model](../docs/internals/open-links.md) is the contract. The core checks the link, each redirect, the head of the answer, and the file name. The shell resolves the host, refuses a local address, and downloads. `zs_link_url` and `zs_link_set_url` give the URL to a language that cannot import a C array field.
+12. Draft slices (`zs_app_set_draft`, parts 08 and 16): while the last slice is a draft, `zs_app_gcode` and `zs_app_bambu_file` give `ZS_NO_RESULT`.
+13. `src/c_api/*.zig`: thin layers. Each export checks its pointers, calls the Zig API, and turns the Zig error into a status. Each function that changes the state notes the change for the undo list. Text results use one rule: call once with a NULL buffer for the length, then again with a buffer.
 
 ## The C API shape
 
-The prefixes of `zslice-app.h`, with their rough counts: `zs_app_` (about 160), `zs_view_` (about 100), `zs_set_` (about 26), `zs_bambu_`, `zs_printer_`, `zs_printers_`, `zs_rtsp_`, `zs_mqtt_`, `zs_paint_`, `zs_discovery_`, `zs_farm_`, `zs_gcode_`, `zs_session_`, `zs_setting_`, `zs_history_`, `zs_project_`, `zs_label_`, `zs_clipboard_`, `zs_cura_`, `zs_license_`. The sections of the header: the model, settings, the status of a printer, slicing, the result, inspect a path, settings for some layers, the plate, paint, labels, the filaments of the plate, saved state, the 3D view, a print view, the plates in one view, the 2D view and the steps along the print, comparison with Cura, printdeck.yml projects, the plate set, licenses, the printer library, printer discovery, and the farm.
+The prefixes of `zslice-app.h` (about 2900 lines), with their rough counts: `zs_app_` (about 200), `zs_view_` (about 110), `zs_set_` (about 30), `zs_quality_`, `zs_bambu_`, `zs_printer_`, `zs_printers_`, `zs_rtsp_`, `zs_mqtt_`, `zs_paint_`, `zs_discovery_`, `zs_farm_`, `zs_gcode_`, `zs_session_`, `zs_setting_`, `zs_history_`, `zs_project_`, `zs_label_`, `zs_clipboard_`, `zs_cura_`, `zs_license_`. The sections of the header: the model, settings, the status of a printer, slicing, the result, inspect a path, settings for some layers, the plate, paint, labels, the filaments of the plate, saved state, the 3D view, a print view, the plates in one view, the 2D view and the steps along the print, comparison with Cura, printdeck.yml projects, the plate set, licenses, the printer library, printer discovery, and the farm.
 
 ## Rules that matter
 
@@ -37,6 +40,8 @@ The prefixes of `zslice-app.h`, with their rough counts: `zs_app_` (about 160), 
 - A new change stops a slice that runs. A slice keeps the work of the last slice (the memos, part 16) and makes again only what the change touches.
 - Licenses: `zs_license_count` and `zs_license_get` give zslice and each component with full texts. A shell adds the libraries that only it links.
 - The selection stays on the same kind of line when a new slice moves it.
+- **One count of problems.** After each slice, read the check once. The Check button of the tool strip shows the count of the issues with a severity of a warning or more. The badge of the print card says "N to check" with the same count. A slice in progress clears the count.
+- A link refuses a zslice project, opens the model on a new plate if the active plate has parts, and never starts a print. In the GTK, Mac, and Windows apps, a file or a link from outside waits until the session is back.
 
 ## Lessons
 
@@ -48,6 +53,8 @@ The prefixes of `zslice-app.h`, with their rough counts: `zs_app_` (about 160), 
 - After a cut that leaves no free place, arrange the plate. `zs_app_plate_fits` says when parts still do not fit.
 - Never show an empty view for a focus on a setting with no lines on the plate. `zs_view_focus` returns 0, and the shell says so.
 - Warn of a part off the bed only for a real fault.
+- **Count the same problems on the Check button and the print card.** The button listed every issue of the check. The badge ran a test of its own (an area over air, only with support off). With support on, the button had issues and the badge had none.
+- **Give a C string field an accessor call.** Swift imports no long C array as a field, so the Mac read the URL of a `zs_link` at offset 0 of the struct. `zs_link_url` and `zs_link_set_url` keep the layout of the struct free to change.
 
 ## Acceptance checks
 
@@ -57,3 +64,6 @@ The prefixes of `zslice-app.h`, with their rough counts: `zs_app_` (about 160), 
 4. A click on a line gives its values, its reasons, and its settings. The same settings show for that feature in the settings panel.
 5. A line edit (do not print) stays after a change of the fan speed.
 6. The web worker, the GTK app, the Mac app, and the Windows app call the same functions for the same behavior.
+7. `zig build test` passes the tests of `open_link.zig`: the refused URLs (each form of an IP address, `.local`, another port), the names, and the redirects.
+8. A calibration plate shows each step value in the settings of the plate, and a Use button sets that value on each plate.
+9. The exact slice after a draft gives the G-code of a slice with no draft.

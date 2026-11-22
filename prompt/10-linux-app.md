@@ -19,7 +19,10 @@ Build the native Linux app in `linux/`: a GTK 4 shell in C around the app core, 
 4. `ui/view3d`, `ui/preview`, `ui/layer-draw` (cairo 2D view), `ui/float` (the cards over the view), `ui/line-card`, `ui/part-card`, `ui/search`, `ui/shortcuts`, `ui/settings-panel` (a drawer: hidden, over the view, or pinned), `ui/history`, `ui/printer-picker`, `ui/farm-page`, `ui/project-page`, and the Paint, Label, and Support tools.
 5. `net/printer-link`: HTTP and USB serial links. `net/discovery`: mDNS with the packets of the core. `net/project-source`: a folder or a public GitHub repository.
 6. `prefs/printers`: the printers of the user and the app settings in `~/.config/zslice/`. The API keys are in `app.ini` there. A Bambu access code goes in `~/.config/zslice/bambu/<serial>.code`, readable only by the user.
-7. Test hooks: each `ZSLICE_*` variable in the table of the app page. Use them to drive the app in tests and screenshots: `ZSLICE_PICK`, `ZSLICE_MENU`, `ZSLICE_RING_DRAG`, `ZSLICE_GRAB`, `ZSLICE_SUPPORT_DO`, `ZSLICE_BENCH`, `ZSLICE_PLATES`, and the others. `ZSLICE_STALLS=ms` logs each stall of the UI thread with stacks. `ZSLICE_STRESS=n` makes n fast changes.
+7. Open links: the `.desktop` file has `MimeType=x-scheme-handler/zslice` and the model types. `ui/open-link.c` asks first. `net/model-download.c` downloads with libsoup. It resolves the host, and checks each address and each connection peer. A second start hands the link to the first window, and the session comes back before the file opens.
+8. The Label tool draws its handles as decals of the core view, in place of a handle widget over the view. The card has the modes and "Place an SVG…" with a file dialog. An SVG dropped on a part makes a label. Other files go to the window.
+9. The Calibrate menu, "Import a profile...", the part order on the part card, the draft slice first, and the work bar, as on the web.
+10. Test hooks: each `ZSLICE_*` variable in the table of the app page. Use them to drive the app in tests and screenshots: `ZSLICE_PICK`, `ZSLICE_MENU`, `ZSLICE_RING_DRAG`, `ZSLICE_GRAB`, `ZSLICE_SUPPORT_DO`, `ZSLICE_BENCH`, `ZSLICE_PLATES`, and the others. `ZSLICE_STALLS=ms` logs each stall of the UI thread with stacks. `ZSLICE_STRESS=n` makes n fast changes.
 
 ## Rules that match the other apps
 
@@ -28,6 +31,7 @@ Build the native Linux app in `linux/`: a GTK 4 shell in C around the app core, 
 - Cards keep clear of the clicked line or part, with the rules of `web/app/place.js`.
 - A right drag of a mouse orbits; a touchpad two-finger click and slide pans. The app reads the device from the last scroll (`GDK_SCROLL_UNIT_SURFACE`).
 - Alt+Left and the back button of the mouse go back to the place before.
+- The tool keys of the web app: Grab G, Label E, and h and l step along the line.
 - The Linux app shows the active plate only. It has layer profiles, Compare with Cura, USB printers, Send all plates, and Export all plates.
 
 ## Lessons
@@ -47,3 +51,4 @@ Build the native Linux app in `linux/`: a GTK 4 shell in C around the app core, 
 4. `ZSLICE_STALLS=50` logs no stall during an orbit and a slice.
 5. On Hyprland, the 3D view shows the scene with no menu open.
 6. A quit and a start bring back the plates, the camera, and the last frame before the first slice.
+7. `meson test -C linux/build` runs `model-download-test`: a name that resolves to a private, loopback, or unique local address gets no connection.

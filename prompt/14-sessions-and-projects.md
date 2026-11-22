@@ -15,12 +15,12 @@ Make the app come back exactly as it was after a reload, a quit, or a crash: the
 
 1. The session (`zs_session_*`): one file, the same in each app. It has `project.zslice` (the project file of the set), `scene-<i>.bin` (the last beads of each plate, so the view shows the last frame at once), `session.json` (the camera: 8 floats of `zs_view_get_camera`), and `app.txt` (the state of the shell, kept as the shell wrote it).
 2. Two steps for a write: `zs_session_snapshot_take` copies the plates and scenes on the UI thread; `zs_session_snapshot_write` makes the bytes on any thread. The core keeps the compressed meshes that did not change.
-3. Where each shell keeps it: IndexedDB from the web worker; `session.zslice` in the config folder (`~/.config/zslice/`) on Linux; `Application Support/zslice/session` on the Mac (one `.zss` and one view `.json` for each window, and `index.json` for their order); `%APPDATA%\zslice\session.zslice` on Windows.
+3. Where each shell keeps it: IndexedDB from the web worker; `session.zslice` in the config folder (`~/.config/zslice/`) on Linux; `Application Support/zslice/session` on the Mac (one `.zss` and one view `.json` for each window, and `index.json` for their order); `%APPDATA%\zslice\session.zslice` on Windows (or in `ZSLICE_STATE_DIR`).
 4. At start, read the session, show the last scene of the active plate and the camera at once, then slice. The first slice gets the layer range and the selected part of the session.
 5. The project file (`.3mf`): the model of the file is the first plate with parts, so another slicer opens that plate. `Metadata/zslice_project.json` has the format (1), the name, the active plate, and for each plate its name, its file, and its three settings texts. `Metadata/zslice_plate_<n>.3mf` has each plate. Ctrl+S saves it.
 6. 3MF load and save (`src/threemf.zig`, `src/zipfile.zig`): parts at their places, components, units, zip64. Parts keep their settings, overrides, paint, labels, and support. Many copies of a part over plates, and the sum of the time and cost of all plates.
 7. printdeck.yml projects (`src/project.zig`, `src/yaml.zig`): parse the parts (files, count, printer, profile `<folder>/<profile>` of `profiles/`, material, Cura settings, `alone`, variants). Plan the plates: parts with the same printer, profile, material, and plate settings share a plate. Load each plate with its Cura stack. A plate with no Cura stack is a resin plate, with the status "cannot".
-8. A GitHub source in the web app: the commit and the file list from `api.github.com`, the files from `raw.githubusercontent.com` (and `media.githubusercontent.com` for Git LFS). No login, no data of the user. Read only the files that a plate needs.
+8. A GitHub source in the web app: the commit and the file list from `api.github.com`, the files from `raw.githubusercontent.com` (and `media.githubusercontent.com` for Git LFS). No login, no data of the user. Read only the files that a plate needs. The Windows app reads GitHub in a separate WinHTTP session with no key or token, only over https to a GitHub host, with a limit of 256 MB for each file.
 9. The status of each plate: To print, Printing, Printed, Failed. A send sets Printing. The status stays across a reload.
 
 ## Rules that matter
@@ -32,6 +32,8 @@ Make the app come back exactly as it was after a reload, a quit, or a crash: the
 - A write goes to a temporary file first, then a rename.
 - A change of the list of plates writes the session at once, once the read is done.
 - A setting that zslice cannot use in a printdeck.yml stops the load of the plate, with the reason.
+- A file or a link from outside the app (a second start, the Finder, a `zslice://` link) opens after the session is back, on a new plate if the active plate has parts.
+- A link refuses a zslice project: a project replaces the plates and brings its own printer settings.
 
 ## Lessons
 
@@ -40,6 +42,7 @@ Make the app come back exactly as it was after a reload, a quit, or a crash: the
 - **Linux: write the session on a thread.** The write held the UI thread for 490 to 660 ms with a 3DBenchy.
 - Keep the plates in the session after a plate goes away. Keep a removed project plate away after a fast reload. Keep the changes to the plates of a project after a reload.
 - Keep project paths inside the repository.
+- **Windows: keep the session in the state folder.** A missing backslash put the session in `%APPDATA%zslice`, beside the state folder. The app now moves the old files at the first start.
 
 ## Acceptance checks
 
