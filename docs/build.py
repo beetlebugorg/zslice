@@ -87,6 +87,7 @@ SOURCES = [
     ("docs/internals/macos.md", "internals/macos/", "Internals", "The macOS app"),
     ("docs/internals/windows.md", "internals/windows/", "Internals", "The Windows app"),
     ("docs/internals/open-links.md", "internals/open-links/", "Internals", "Links that open a model"),
+    ("docs/internals/model-import.md", "internals/model-import/", "Internals", "Import from a model page"),
     ("docs/internals/release.md", "internals/release/", "Internals", "CI and releases"),
     ("docs/app/README.md", "app/", "Project", "App"),
     ("ROADMAP.md", "roadmap/", "Project", "Roadmap"),
@@ -105,6 +106,8 @@ SOURCES = [
     ("docs/references/papers-and-algorithms.md", "references/papers-and-algorithms/", "References", "Papers and algorithms"),
     ("docs/references/physics-and-materials.md", "references/physics-and-materials/", "References", "Physics and materials"),
     ("docs/references/formats-and-protocols.md", "references/formats-and-protocols/", "References", "Formats and protocols"),
+    ("docs/references/printables.md", "references/printables/", "References", "Printables"),
+    ("docs/references/thingiverse.md", "references/thingiverse/", "References", "Thingiverse"),
 ]
 PAGE_OF = {src: path for src, path, _, _ in SOURCES}
 

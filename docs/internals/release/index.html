@@ -72,6 +72,7 @@
 <a href="../../internals/macos/">The macOS app</a>
 <a href="../../internals/windows/">The Windows app</a>
 <a href="../../internals/open-links/">Links that open a model</a>
+<a href="../../internals/model-import/">Import from a model page</a>
 <a href="../../internals/release/" aria-current="page">CI and releases</a>
 <div class="group">Project</div>
 <a href="../../app/">App</a>
@@ -91,7 +92,9 @@
 <a href="../../references/fonts/">Fonts</a>
 <a href="../../references/papers-and-algorithms/">Papers and algorithms</a>
 <a href="../../references/physics-and-materials/">Physics and materials</a>
-<a href="../../references/formats-and-protocols/">Formats and protocols</a></nav></aside>
+<a href="../../references/formats-and-protocols/">Formats and protocols</a>
+<a href="../../references/printables/">Printables</a>
+<a href="../../references/thingiverse/">Thingiverse</a></nav></aside>
 <main>
 <p class="eyebrow">Internals</p>
 <h1>CI and releases</h1>
@@ -147,7 +150,7 @@ gh secret set NOTARY_ISSUER_ID -R beetlebugorg/zslice</code></pre></li></ol>
 <pre><code>export APPLE_TEAM_ID=ABCDE12345 NOTARY_KEY_FILE=~/keys/AuthKey_ABC123DEFG.p8
 export NOTARY_KEY_ID=ABC123DEFG NOTARY_ISSUER_ID=...
 macos/release.sh 0.6.0-beta 1    # macos/build/zslice-0.6.0-beta-macos-universal.dmg</code></pre>
-<p>With no <code>APPLE_TEAM_ID</code>, it makes an unsigned dmg. The bundle gets the version with no suffix (0.6.0), and the build number.</p><nav class="pager"><a class="prev" href="../../internals/open-links/"><span>Previous</span><b>Links that open a model</b></a><a class="next" href="../../app/"><span>Next</span><b>App</b></a></nav>
+<p>With no <code>APPLE_TEAM_ID</code>, it makes an unsigned dmg. The bundle gets the version with no suffix (0.6.0), and the build number.</p><nav class="pager"><a class="prev" href="../../internals/model-import/"><span>Previous</span><b>Import from a model page</b></a><a class="next" href="../../app/"><span>Next</span><b>App</b></a></nav>
 </main>
 </div>
 <footer>zslice is free software (AGPL-3.0-or-later). <a href="../../privacy/">Privacy</a>: no analytics, no cookies, nothing from other sites. <a href="https://github.com/beetlebugorg/zslice/blob/main/docs/build.py">docs/build.py</a> writes this site from <a href="https://github.com/beetlebugorg/zslice/blob/main/docs/internals/release.md">docs/internals/release.md</a>.</footer>

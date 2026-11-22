@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Printables · zslice</title>
+<meta name="description" content="zslice reads the list of files of a public Printables model, and the download link of each file that the user checks. See Import a model from a model page. zslice copies no code from these sources. It uses the facts of the API: the address, the names of the query and the fields, and the forms of the answers.">
+<link rel="canonical" href="https://zslice.beetlebug.org/references/printables/">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"%3E %3Crect width="32" height="32" rx="7" fill="%23171717"/%3E %3Crect x=".5" y=".5" width="31" height="31" rx="6.5" fill="none" stroke="%23ffffff" stroke-opacity=".2"/%3E %3Cg fill="none" stroke-linecap="round" stroke-linejoin="round" stroke-width="4.2"%3E %3Cpath d="M7.5 7.5 H24.5 L7.5 24.5" stroke="%23f4f0e6"/%3E %3Cpath d="M7.5 24.5 H24.5" stroke="%23ff5a1f"/%3E %3C/g%3E %3C/svg%3E">
+<link rel="stylesheet" href="../../site.css">
+</head>
+<body>
+<input type="checkbox" id="menu">
+<header class="top">
+  <a class="brand" href="../../docs.html"><span class="mark">ZSLICE</span><span class="docs">DOCS</span></a>
+  <label class="menu-btn" for="menu">Contents</label>
+  <nav class="top-links"><a href="../../index.html">Open the app</a><a href="../../user/getting-started/">Get started</a><a href="../../roadmap/">Roadmap</a><a href="../../privacy/">Privacy</a><a href="https://github.com/beetlebugorg/zslice">GitHub</a></nav>
+</header>
+<div class="layout">
+<aside class="side"><nav><a href="../../docs.html">Home</a>
+<a href="../../contents/">All documents</a>
+<div class="group">Start</div>
+<a href="../../user/getting-started/"><span class="n">1</span>Your first print</a>
+<div class="group">Everyday tasks</div>
+<a href="../../user/look/"><span class="n">2</span>Look at the print</a>
+<a href="../../user/lines/"><span class="n">3</span>Click a line</a>
+<a href="../../user/change-settings/"><span class="n">4</span>Change a setting</a>
+<a href="../../user/parts/"><span class="n">5</span>Place the parts</a>
+<a href="../../user/support/"><span class="n">6</span>Add support</a>
+<a href="../../user/filaments/"><span class="n">7</span>Print in colors</a>
+<a href="../../user/labels/"><span class="n">8</span>Labels on a part</a>
+<a href="../../user/check/"><span class="n">9</span>Check the print</a>
+<a href="../../user/calibrate/"><span class="n">10</span>Calibrate the filament</a>
+<a href="../../user/plates/"><span class="n">11</span>Plates and files</a>
+<a href="../../user/printers/"><span class="n">12</span>Send to a printer</a>
+<a href="../../user/history/"><span class="n">13</span>Undo and history</a>
+<div class="group">Features</div>
+<a href="../../user/features/"><span class="n">14</span>The best features</a>
+<a href="../../user/print-as-it-forms/"><span class="n">15</span>The print as it forms</a>
+<a href="../../user/projects/"><span class="n">16</span>printdeck projects</a>
+<a href="../../user/farm/"><span class="n">17</span>A print farm</a>
+<div class="group">Reference</div>
+<a href="../../user/keys/">Keys and mouse</a>
+<a href="../../user/settings/">Settings</a>
+<a href="../../user/expert/">Formulas and rules</a>
+<a href="../../user/profiles/">Profiles</a>
+<a href="../../user/setting-coverage/">Cura and OrcaSlicer settings</a>
+<a href="../../user/command-line/">The command line</a>
+<a href="../../user/apps/">Web, Linux, and Mac</a>
+<a href="../../user/macos/">The macOS app</a>
+<a href="../../user/windows/">The Windows app</a>
+<a href="../../user/troubleshooting/">Problems and errors</a>
+<div class="group">Embedding</div>
+<a href="../../embedding/">Overview</a>
+<a href="../../embedding/c/">C</a>
+<a href="../../embedding/zig/">Zig</a>
+<a href="../../embedding/javascript/">JavaScript</a>
+<a href="../../embedding/print-view/">The print view</a>
+<a href="../../embedding/viewer/">The G-code viewer</a>
+<a href="../../embedding/labels/">Labels</a>
+<div class="group">Internals</div>
+<a href="../../internals/architecture/">Architecture</a>
+<a href="../../internals/one-view/">Plan: one view</a>
+<a href="../../internals/how-slicing-works/">How slicing works</a>
+<a href="../../internals/layer-settings/">Settings for some layers</a>
+<a href="../../internals/arachne/">Arachne walls</a>
+<a href="../../internals/print-sim/">The print simulation</a>
+<a href="../../internals/performance/">Speed: the lower bound</a>
+<a href="../../internals/cura-compare/">Compared with other slicers</a>
+<a href="../../internals/contributing/">Contributing</a>
+<a href="../../internals/code-quality/">Code quality</a>
+<a href="../../internals/macos/">The macOS app</a>
+<a href="../../internals/windows/">The Windows app</a>
+<a href="../../internals/open-links/">Links that open a model</a>
+<a href="../../internals/model-import/">Import from a model page</a>
+<a href="../../internals/release/">CI and releases</a>
+<div class="group">Project</div>
+<a href="../../app/">App</a>
+<a href="../../roadmap/">Roadmap</a>
+<a href="../../privacy/">Privacy</a>
+<div class="group">References</div>
+<a href="../../references/">References</a>
+<a href="../../references/explore/">Explorer</a>
+<a href="../../references/libraries/">Libraries and tools</a>
+<a href="../../references/cura/">Cura</a>
+<a href="../../references/orcaslicer/">OrcaSlicer</a>
+<a href="../../references/prusaslicer/">PrusaSlicer</a>
+<a href="../../references/bambu-studio/">Bambu Studio</a>
+<a href="../../references/slicer-techniques/">Slicer techniques</a>
+<a href="../../references/printer-data/">Printer data</a>
+<a href="../../references/klipper-marlin-firmware/">Firmware and G-code</a>
+<a href="../../references/fonts/">Fonts</a>
+<a href="../../references/papers-and-algorithms/">Papers and algorithms</a>
+<a href="../../references/physics-and-materials/">Physics and materials</a>
+<a href="../../references/formats-and-protocols/">Formats and protocols</a>
+<a href="../../references/printables/" aria-current="page">Printables</a>
+<a href="../../references/thingiverse/">Thingiverse</a></nav></aside>
+<main>
+<p class="eyebrow">References</p>
+<h1>Printables</h1>
+<p class="lede">zslice reads the list of files of a public Printables model, and the download link of each file that the user checks. See <a href="../../internals/model-import/">Import a model from a model page</a>. zslice copies no code from these sources. It uses the facts of the API: the address, the names of the query and the fields, and the forms of the answers.</p>
+<nav class="onpage"><b>On this page</b><ol><li><a href="#the-api-and-the-terms">The API and the terms</a></li><li><a href="#projects-that-use-the-api">Projects that use the API</a></li></ol></nav><h2 id="the-api-and-the-terms">The API and the terms</h2>
+<h3 id="the-printables-graphql-api">The Printables GraphQL API</h3>
+<div class="ref"><span class="kind k-format">format</span><span class="area">network</span><dl><dt>Source</dt><dd>Printables (Prusa Research)</dd><dt>What zslice uses</dt><dd>The query of the files of a model and the mutation of a download link, as the model page of the site sends them.</dd><dt>License</dt><dd>The API (facts, no code); the terms of the Prusa sites</dd><dt>Link</dt><dd><a href="https://www.printables.com">https://www.printables.com</a></dd><dt>Version</dt><dd>The API as the model page of printables.com sends it, read on 2026-11-22</dd><dt>Used in</dt><dd><a href="https://github.com/beetlebugorg/zslice/blob/main/src/model_import.zig"><code>src/model_import.zig</code></a>, <a href="https://github.com/beetlebugorg/zslice/blob/main/linux/src/ui/model-import.c"><code>linux/src/ui/model-import.c</code></a>, <a href="https://github.com/beetlebugorg/zslice/blob/main/linux/src/net/model-download.c"><code>linux/src/net/model-download.c</code></a></dd></dl></div>
+<p>The endpoint is <code>https://api.printables.com/graphql/</code> (the slash at the end is necessary). It needs no key and no login for a public model. Its introspection is off, and it has no public documentation.</p>
+<ul><li>The query <code>print(id: $id)</code> gives the model: <code>name</code>, <code>user { publicUsername }</code>, <code>license { name }</code>, <code>stls</code> (each model file: STL, 3MF, STEP, and OBJ, despite the name), and <code>otherFiles</code>. Each file has <code>id</code>, <code>name</code>, <code>folder</code>, <code>fileSize</code>, and <code>filePreviewPath</code> (a path on <code>https://media.printables.com/</code>).</li><li>The mutation <code>getDownloadLink(id, printId, fileType: stl, source: model_detail)</code> gives <code>output { link }</code>: a URL on <code>files.printables.com</code>. The site counts it as a download.</li><li>CORS: the API answers only the origin <code>https://www.printables.com</code>. The files and the previews send <code>Access-Control-Allow-Origin: *</code>. So the web app of zslice cannot read the list.</li></ul>
+<p>The terms: the <a href="https://www.prusa3d.com/page/terms-of-service-of-printables-com_231249/">Terms of Service of Printables</a> (from 15 October 2026) and the <a href="https://www.prusa3d.com/page/general-terms-and-conditions-of-use-of-the-prusa-websites_231226/">General Terms of the Prusa websites</a> (from 20 April 2026, article 9). Article 9.1 asks for use "in the usual manner", and forbids automated extraction, scraping, and a load that burdens the service. zslice does what the model page does for one user: it asks for one model when the user pastes its address, and downloads only the files that the user checks, one at a time. It keeps no copy of the list, and it sends <code>zslice/&lt;version&gt; (+https://github.com/beetlebugorg/zslice)</code> as its User-Agent.</p>
+<h2 id="projects-that-use-the-api">Projects that use the API</h2>
+<h3 id="mosaicslicer">MosaicSlicer</h3>
+<div class="ref"><span class="kind k-idea">idea</span><span class="area">network</span><dl><dt>Source</dt><dd>MosaicSlicer (ading2210)</dd><dt>What zslice uses</dt><dd>The query of the model files and the download link mutation of Printables, in a browser extension of a web slicer.</dd><dt>License</dt><dd>AGPL-3.0</dd><dt>Link</dt><dd><a href="https://github.com/ading2210/MosaicSlicer">https://github.com/ading2210/MosaicSlicer</a></dd><dt>Version</dt><dd>6bdad26d6e977571cb0345c97739fd9b5a0f7b8f</dd><dt>Used in</dt><dd><a href="https://github.com/beetlebugorg/zslice/blob/main/src/model_import.zig"><code>src/model_import.zig</code></a></dd></dl></div>
+<p><code>public/extension/printables.js</code> sends the queries <code>ModelFiles</code> and <code>GetDownloadLink</code> from an extension on the Printables page, where CORS lets it. zslice took the names of the fields from it, and checked them against the API.</p>
+<h3 id="stlvault">STLVault</h3>
+<div class="ref"><span class="kind k-idea">idea</span><span class="area">network</span><dl><dt>Source</dt><dd>STLVault (moddroid94)</dd><dt>What zslice uses</dt><dd>The variables of the download link mutation (fileType stl, source model_detail) and the media host of the previews.</dd><dt>License</dt><dd>MIT</dd><dt>Link</dt><dd><a href="https://github.com/moddroid94/STLVault">https://github.com/moddroid94/STLVault</a></dd><dt>Version</dt><dd>7bbdacf1b7d8c21bb7c0984f30fe3c04fe6907ef</dd><dt>Used in</dt><dd><a href="https://github.com/beetlebugorg/zslice/blob/main/src/model_import.zig"><code>src/model_import.zig</code></a></dd></dl></div>
+<p><code>backend/importers/printables.py</code> imports the files of a Printables model into a library. zslice took the idea of the preview URL (<code>filePreviewPath</code> on the media host). zslice does not copy its browser User-Agent: zslice names itself.</p>
+<h3 id="thingport">Thingport</h3>
+<div class="ref"><span class="kind k-idea">idea</span><span class="area">network</span><dl><dt>Source</dt><dd>Thingport (TautvydasDerzinskas)</dd><dt>What zslice uses</dt><dd>The fact that the stls list of a model has each model format, and the license and author fields.</dd><dt>License</dt><dd>AGPL-3.0</dd><dt>Link</dt><dd><a href="https://github.com/TautvydasDerzinskas/Thingport">https://github.com/TautvydasDerzinskas/Thingport</a></dd><dt>Version</dt><dd>260489f3bf3377a8e0673768a8939dfe51ffed81</dd><dt>Used in</dt><dd><a href="https://github.com/beetlebugorg/zslice/blob/main/src/model_import.zig"><code>src/model_import.zig</code></a></dd></dl></div>
+<p><code>backend/src/providers/printables/api.ts</code> notes that <code>stls</code> holds every model file type, and reads <code>license</code> and <code>user { publicUsername }</code>.</p><nav class="pager"><a class="prev" href="../../references/formats-and-protocols/"><span>Previous</span><b>Formats and protocols</b></a><a class="next" href="../../references/thingiverse/"><span>Next</span><b>Thingiverse</b></a></nav>
+</main>
+</div>
+<footer>zslice is free software (AGPL-3.0-or-later). <a href="../../privacy/">Privacy</a>: no analytics, no cookies, nothing from other sites. <a href="https://github.com/beetlebugorg/zslice/blob/main/docs/build.py">docs/build.py</a> writes this site from <a href="https://github.com/beetlebugorg/zslice/blob/main/docs/references/printables.md">docs/references/printables.md</a>.</footer>
+</body>
+</html>

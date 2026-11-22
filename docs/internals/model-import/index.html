@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Import a model from a model page · zslice</title>
+<meta name="description" content="The user pastes the address of a model page. zslice lists the files of the model, and the user checks the files to load. zslice then downloads the checked files, adds them as parts, and puts the parts that do not fit one plate on more plates. It never starts a print.">
+<link rel="canonical" href="https://zslice.beetlebug.org/internals/model-import/">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"%3E %3Crect width="32" height="32" rx="7" fill="%23171717"/%3E %3Crect x=".5" y=".5" width="31" height="31" rx="6.5" fill="none" stroke="%23ffffff" stroke-opacity=".2"/%3E %3Cg fill="none" stroke-linecap="round" stroke-linejoin="round" stroke-width="4.2"%3E %3Cpath d="M7.5 7.5 H24.5 L7.5 24.5" stroke="%23f4f0e6"/%3E %3Cpath d="M7.5 24.5 H24.5" stroke="%23ff5a1f"/%3E %3C/g%3E %3C/svg%3E">
+<link rel="stylesheet" href="../../site.css">
+</head>
+<body>
+<input type="checkbox" id="menu">
+<header class="top">
+  <a class="brand" href="../../docs.html"><span class="mark">ZSLICE</span><span class="docs">DOCS</span></a>
+  <label class="menu-btn" for="menu">Contents</label>
+  <nav class="top-links"><a href="../../index.html">Open the app</a><a href="../../user/getting-started/">Get started</a><a href="../../roadmap/">Roadmap</a><a href="../../privacy/">Privacy</a><a href="https://github.com/beetlebugorg/zslice">GitHub</a></nav>
+</header>
+<div class="layout">
+<aside class="side"><nav><a href="../../docs.html">Home</a>
+<a href="../../contents/">All documents</a>
+<div class="group">Start</div>
+<a href="../../user/getting-started/"><span class="n">1</span>Your first print</a>
+<div class="group">Everyday tasks</div>
+<a href="../../user/look/"><span class="n">2</span>Look at the print</a>
+<a href="../../user/lines/"><span class="n">3</span>Click a line</a>
+<a href="../../user/change-settings/"><span class="n">4</span>Change a setting</a>
+<a href="../../user/parts/"><span class="n">5</span>Place the parts</a>
+<a href="../../user/support/"><span class="n">6</span>Add support</a>
+<a href="../../user/filaments/"><span class="n">7</span>Print in colors</a>
+<a href="../../user/labels/"><span class="n">8</span>Labels on a part</a>
+<a href="../../user/check/"><span class="n">9</span>Check the print</a>
+<a href="../../user/calibrate/"><span class="n">10</span>Calibrate the filament</a>
+<a href="../../user/plates/"><span class="n">11</span>Plates and files</a>
+<a href="../../user/printers/"><span class="n">12</span>Send to a printer</a>
+<a href="../../user/history/"><span class="n">13</span>Undo and history</a>
+<div class="group">Features</div>
+<a href="../../user/features/"><span class="n">14</span>The best features</a>
+<a href="../../user/print-as-it-forms/"><span class="n">15</span>The print as it forms</a>
+<a href="../../user/projects/"><span class="n">16</span>printdeck projects</a>
+<a href="../../user/farm/"><span class="n">17</span>A print farm</a>
+<div class="group">Reference</div>
+<a href="../../user/keys/">Keys and mouse</a>
+<a href="../../user/settings/">Settings</a>
+<a href="../../user/expert/">Formulas and rules</a>
+<a href="../../user/profiles/">Profiles</a>
+<a href="../../user/setting-coverage/">Cura and OrcaSlicer settings</a>
+<a href="../../user/command-line/">The command line</a>
+<a href="../../user/apps/">Web, Linux, and Mac</a>
+<a href="../../user/macos/">The macOS app</a>
+<a href="../../user/windows/">The Windows app</a>
+<a href="../../user/troubleshooting/">Problems and errors</a>
+<div class="group">Embedding</div>
+<a href="../../embedding/">Overview</a>
+<a href="../../embedding/c/">C</a>
+<a href="../../embedding/zig/">Zig</a>
+<a href="../../embedding/javascript/">JavaScript</a>
+<a href="../../embedding/print-view/">The print view</a>
+<a href="../../embedding/viewer/">The G-code viewer</a>
+<a href="../../embedding/labels/">Labels</a>
+<div class="group">Internals</div>
+<a href="../../internals/architecture/">Architecture</a>
+<a href="../../internals/one-view/">Plan: one view</a>
+<a href="../../internals/how-slicing-works/">How slicing works</a>
+<a href="../../internals/layer-settings/">Settings for some layers</a>
+<a href="../../internals/arachne/">Arachne walls</a>
+<a href="../../internals/print-sim/">The print simulation</a>
+<a href="../../internals/performance/">Speed: the lower bound</a>
+<a href="../../internals/cura-compare/">Compared with other slicers</a>
+<a href="../../internals/contributing/">Contributing</a>
+<a href="../../internals/code-quality/">Code quality</a>
+<a href="../../internals/macos/">The macOS app</a>
+<a href="../../internals/windows/">The Windows app</a>
+<a href="../../internals/open-links/">Links that open a model</a>
+<a href="../../internals/model-import/" aria-current="page">Import from a model page</a>
+<a href="../../internals/release/">CI and releases</a>
+<div class="group">Project</div>
+<a href="../../app/">App</a>
+<a href="../../roadmap/">Roadmap</a>
+<a href="../../privacy/">Privacy</a>
+<div class="group">References</div>
+<a href="../../references/">References</a>
+<a href="../../references/explore/">Explorer</a>
+<a href="../../references/libraries/">Libraries and tools</a>
+<a href="../../references/cura/">Cura</a>
+<a href="../../references/orcaslicer/">OrcaSlicer</a>
+<a href="../../references/prusaslicer/">PrusaSlicer</a>
+<a href="../../references/bambu-studio/">Bambu Studio</a>
+<a href="../../references/slicer-techniques/">Slicer techniques</a>
+<a href="../../references/printer-data/">Printer data</a>
+<a href="../../references/klipper-marlin-firmware/">Firmware and G-code</a>
+<a href="../../references/fonts/">Fonts</a>
+<a href="../../references/papers-and-algorithms/">Papers and algorithms</a>
+<a href="../../references/physics-and-materials/">Physics and materials</a>
+<a href="../../references/formats-and-protocols/">Formats and protocols</a>
+<a href="../../references/printables/">Printables</a>
+<a href="../../references/thingiverse/">Thingiverse</a></nav></aside>
+<main>
+<p class="eyebrow">Internals</p>
+<h1>Import a model from a model page</h1>
+<p class="lede">The user pastes the address of a model page. zslice lists the files of the model, and the user checks the files to load. zslice then downloads the checked files, adds them as parts, and puts the parts that do not fit one plate on more plates. It never starts a print.</p>
+<nav class="onpage"><b>On this page</b><ol><li><a href="#what-the-sites-allow">What the sites allow</a></li><li><a href="#the-call-order">The call order</a></li><li><a href="#the-apps">The apps</a></li><li><a href="#tests">Tests</a></li></ol></nav><p>The rules are in the core: <code>src/model_import.zig</code>, the <code>zs_import_*</code> calls of <code>include/zslice.h</code>, and <code>zs_set_spill</code> of <code>include/zslice-app.h</code>. The core does no I/O. Each app does the network part, the dialog, and the load. This page is the contract for each app. The download of each file follows <a href="../../internals/open-links/">Links that open a model</a>.</p>
+<h2 id="what-the-sites-allow">What the sites allow</h2>
+<div class="table-wrap"><table><thead><tr><th>Site</th><th>The list of files</th><th>Token</th><th>CORS (a page of zslice.beetlebug.org)</th></tr></thead><tbody><tr><td>Printables</td><td>The GraphQL API at <code>https://api.printables.com/graphql/</code>: the query of its own model page.</td><td>None. The model must be public.</td><td>No. The API answers only <code>https://www.printables.com</code>. The files (<code>files.printables.com</code>) and the previews (<code>media.printables.com</code>) send <code>Access-Control-Allow-Origin: *</code>.</td></tr><tr><td>Thingiverse</td><td>The REST API at <code>https://api.thingiverse.com</code></td><td>An app token for each call. A token in an open app is not secret, so zslice has none.</td><td>Yes, but no token.</td></tr></tbody></table></div>
+<p>The sources and the terms are in <a href="../../references/printables/">Printables</a> and <a href="../../references/thingiverse/">Thingiverse</a>. The Printables API has no documentation and no terms of its own. The general terms of the Prusa sites forbid scraping and a load that burdens the service. zslice asks only when the user pastes an address, asks for one model, downloads only the files that the user checks, one at a time, and keeps nothing.</p>
+<p>So:</p>
+<ul><li>The <strong>native apps</strong> read the list of a Printables model themselves.</li><li>For a <strong>Thingiverse</strong> thing, each app shows <code>zs_import_message(ZS_IMPORT_NO_API)</code> and opens the page in the browser. The user downloads the ZIP file of the thing ("Download all files") and opens it in zslice.</li><li>The <strong>web app</strong> cannot call the Printables API. It does the same as for Thingiverse: it opens the page, and the user downloads the ZIP file ("Download all"). The web app has no proxy server.</li><li>Each app opens a <strong>ZIP file</strong> of a model with the same list (<code>zs_import_list_zip</code>).</li></ul>
+<h2 id="the-call-order">The call order</h2>
+<ol><li><code>zs_import_page_check(text, &amp;page)</code> reads the address. It takes <code>printables.com/model/&lt;id&gt;</code>, <code>printables.com/&lt;language&gt;/model/&lt;id&gt;</code>, and <code>thingiverse.com/thing:&lt;id&gt;</code>, with or without <code>www.</code> and <code>https://</code>. <code>page.url</code> is the clean https URL of the page. A <code>zslice://open?file=</code> link to a model page also comes here: check <code>link.url</code> with <code>zs_import_page_check</code> after <code>zs_link_check</code>.</li><li>For <code>ZS_IMPORT_SITE_THINGIVERSE</code>, <code>zs_import_files_request</code> gives <code>ZS_IMPORT_NO_API</code>. Show <code>zs_import_message(ZS_IMPORT_NO_API)</code>, and offer <strong>Open the page</strong> (<code>page.url</code>).</li><li>For <code>ZS_IMPORT_SITE_PRINTABLES</code>:
+<ol><li><code>zs_link_check_url(zs_import_api_url(page.site), &amp;api)</code> gives the API URL as a <code>zs_link</code>.</li><li>Send a POST to it with the body of <code>zs_import_files_request</code>, <code>Content-Type: application/json</code>, <code>Accept: application/json</code>, and <code>User-Agent:</code> <code>zs_import_user_agent()</code>. Use the checks of a download: resolve the host and check each address (<code>zs_link_address_public</code>), check the peer before the TLS handshake, use no proxy, and send no cookie and no credentials. Follow no redirect. Accept only 2xx, and at most <code>ZS_IMPORT_MAX_ANSWER</code> bytes.</li><li><code>zs_import_list_read(&amp;page, json, len, &amp;list)</code> reads the answer. <code>ZS_IMPORT_NOT_FOUND</code> is a model that is not public or does not exist. <code>ZS_IMPORT_NO_FILES</code> is a model with no file that zslice loads.</li></ol></li><li>For a ZIP file, <code>zs_import_list_zip(bytes, len, &amp;list)</code>. Keep the bytes until the load ends.</li><li>Show the list. This is the question before the download:
+<ul><li>The title, the author, the license, and the page from <code>zs_import_list_info</code>. Show <code>info.note</code> if it is not "".</li><li>A heading for each group (<code>file.kind_label</code>: 3MF, STL, STEP, OBJ, Other files). The list is in that order.</li><li>For each file: a check box (off and disabled when <code>can_load</code> is 0), the name, the size, the folder, <code>plates</code> when it is 2 or more, and <code>note</code>.</li><li>A preview image for a file with a <code>preview</code> URL: check it with <code>zs_link_check_url</code>, and GET it with the checks of step 3.2 and the redirects of the core, at most <code>ZS_IMPORT_MAX_PREVIEW</code> bytes, one at a time, after the list shows. A preview that fails leaves its place empty.</li><li>A line with the sum (<code>zs_import_ready</code>): the count and the size of the checked files, and "It does not start a print." With a result other than <code>ZS_IMPORT_OK</code>, show <code>zs_import_message</code> and disable the load button.</li><li><strong>Cancel</strong> and <strong>Download and load</strong>. Cancel has the focus, so Enter does not start a download.</li></ul></li><li><code>zs_import_check(list, i, on)</code> follows each check box. The core checks the files to load first: each file that loads, but not a STEP file with an STL, 3MF, or OBJ file of the same name, and not a 3MF file when the model has STL or OBJ files (a model site often has the same parts in both).</li><li>On <strong>Download and load</strong>, for each checked file in the order of the list, one at a time:
+<ul><li>Printables: POST the body of <code>zs_import_link_request(list, i)</code> as in step 3.2. <code>zs_import_link_read(list, i, json, len, &amp;link)</code> checks the answer: an https URL on <code>printables.com</code> or one of its subdomains, with the name of the file. Download the <code>zs_link</code> with steps 1 to 9 of <a href="../../internals/open-links/">Links that open a model</a>.</li><li>A ZIP file: <code>zs_import_zip_file(list, bytes, len, i, &amp;out, &amp;out_len)</code>, then free the bytes with <code>zs_buffer_free</code>. Refuse a zslice project (<code>zs_project_file_is</code>).</li><li>A file that fails does not stop the others. Collect a line for each, and show them at the end.</li></ul></li><li>Add the files as parts: on a new plate if the active plate has parts, the first file loads the plate, and each other file is a <code>zs_app_add_stl</code>. Then <code>zs_set_spill(set, zs_set_active(set))</code> puts the parts that do not fit the bed on new plates. Its result is the count of new plates. Never start a print.</li><li><code>zs_import_list_free(list)</code>.</li></ol>
+<p><code>zs_import_3mf_plates(bytes, len)</code> gives the plates of a downloaded 3MF file (Bambu Studio and OrcaSlicer projects). A file at a site has <code>plates</code> 0 in the list, because the site does not say. The parts of all plates of a 3MF file load on one plate, and <code>zs_set_spill</code> spreads them.</p>
+<h2 id="the-apps">The apps</h2>
+<div class="table-wrap"><table><thead><tr><th>App</th><th>Code</th><th>State</th></tr></thead><tbody><tr><td>Linux (GTK)</td><td><code>linux/src/ui/model-import.c</code> (the dialog and the steps), <code>linux/src/net/model-download.c</code> (<code>zg_net_request</code>: the POST and the GET), <code>zg_window_add_import</code> in <code>ui/window.c</code>. The action <code>app.import-page</code> (the search, and the menu of the plate). A ZIP file from Open or a drop goes to the list.</td><td>The full list for Printables, with previews. Thingiverse opens the page.</td></tr><tr><td>Web</td><td><code>web/app/modelimport.js</code>, and <code>importZip</code> and <code>loadImported</code> in <code>web/app/app.js</code>. The worker call <code>spill</code>.</td><td>The page dialog opens the page. A ZIP file from Open or a drop goes to the list.</td></tr><tr><td>macOS</td><td>Not yet. Use the calls in this order.</td><td></td></tr><tr><td>Windows</td><td>Not yet. Use the calls in this order.</td><td></td></tr></tbody></table></div>
+<p>For tests of the GTK app: <code>ZSLICE_ACTION=&quot;app.import-page(&#x27;&lt;address&gt;&#x27;)&quot;</code> opens the dialog with the address after the first slice, <code>ZSLICE_IMPORT_LIST=1</code> lists the files at once, and <code>ZSLICE_IMPORT_YES=1</code> also presses <strong>Download and load</strong> and logs the result.</p>
+<h2 id="tests">Tests</h2>
+<ul><li><code>zig build test</code>: <code>src/model_import.zig</code> (the addresses, the answers of Printables, the checks, the links, the ZIP lists, and the plates of a 3MF file), <code>src/c_api/import.zig</code>, and the spill of <code>src/app/plate_set.zig</code>.</li><li><code>node web/app/test-node.mjs</code>: the page check, a ZIP list, a file of it, and the spill through the wasm module.</li></ul><nav class="pager"><a class="prev" href="../../internals/open-links/"><span>Previous</span><b>Links that open a model</b></a><a class="next" href="../../internals/release/"><span>Next</span><b>CI and releases</b></a></nav>
+</main>
+</div>
+<footer>zslice is free software (AGPL-3.0-or-later). <a href="../../privacy/">Privacy</a>: no analytics, no cookies, nothing from other sites. <a href="https://github.com/beetlebugorg/zslice/blob/main/docs/build.py">docs/build.py</a> writes this site from <a href="https://github.com/beetlebugorg/zslice/blob/main/docs/internals/model-import.md">docs/internals/model-import.md</a>.</footer>
+</body>
+</html>
