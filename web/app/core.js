@@ -1145,9 +1145,15 @@ export class Core {
 
   // Part i (zs_app_part_get): its center on the bed, its turn, and its
   // size, or null.
+  // Why part i floats (zs_app_part_float_note), or "".
+  partNote(i) {
+    const w = this.w;
+    return w.readText((b, c, l) => w.x.zs_app_part_float_note(this.app, i, b, c, l)) || "";
+  }
+
   part(i) {
     const w = this.w;
-    const size = 80; // zs_part on wasm32
+    const size = 112; // zs_part on wasm32
     const p = w.alloc(size);
     try {
       if (w.x.zs_app_part_get(this.app, i, p) !== 0) return null;
@@ -1162,6 +1168,12 @@ export class Core {
         sizeZ: w.f64(p + 48),
         // Along the axes of the file, 1 = 100 %.
         scale: [w.f64(p + 56), w.f64(p + 64), w.f64(p + 72)],
+        // The lift over the bed (under 0: into the bed), mm.
+        z: w.f64(p + 80),
+        // The turns about X, then Y, then Z of the bed, degrees.
+        angles: [w.f64(p + 88), w.f64(p + 96), w.f64(p + 104)],
+        // Why the part floats, or "".
+        note: this.partNote(i),
       };
     } finally {
       w.free(p, size);

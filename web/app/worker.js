@@ -150,6 +150,12 @@ function warmUp() {
 
 // The result of a slice of plate i for the page. Only the active plate
 // sends its slice: the beads of the other plates go in the "plates" event.
+// The place and the lift of part `index` of core c, for a live move.
+function livePose(c, index) {
+  const p = c.part(index);
+  return p ? { index, x: p.x, y: p.y, z: p.z } : undefined;
+}
+
 function sendResult(i, ms, turn) {
   if (i !== activeIndex()) return;
   const c = coreAt(i);
@@ -188,10 +194,14 @@ function sendResult(i, ms, turn) {
     fits: c.w.x.zs_app_plate_fits(c.app) === 1,
     tiny: tinyParts(c),
     turn,
+    // A live move: the pose of the part in this slice.
+    live: liveIndex && liveIndex.app === c.app ? livePose(c, liveIndex.index) : undefined,
     // The simulated print of this slice, if it ran (a plate that became
     // active again).
     sim: ms > 0 ? null : c.simStats(),
   };
+  // The live move ends with the first slice after its end (sliceHeld).
+  if (msg.live && liveIndex?.ending) liveIndex = null;
   post(msg, scene ? [scene, layers.z.buffer, layers.height.buffer, layers.endTime.buffer, layers.slowed.buffer] : []);
 }
 
@@ -221,6 +231,10 @@ function clearIfEmpty() {
 
 // A live turn (partTurn with total): its app and the turn so far.
 let coarse = null;
+// A live move (partPlace with live): its app and the part. Each "sliced"
+// event of that app names the pose of the part in it, so the page moves
+// the preview on from there.
+let liveIndex = null;
 // The most parts on a plate for a live turn.
 const LIVE_PARTS = 2;
 
@@ -544,7 +558,7 @@ function tinyParts(c) {
   return out;
 }
 
-const PLATE_OPS = new Set(["fallStep", "load", "add", "plate", "projectLoad", "partAction", "partsAction", "partsMove", "partsSettingSet", "partsToPlate", "partsPaste", "partsCut", "platePaste", "plateDuplicate", "partCut", "partMove", "partFill", "partToPlate", "editAdd", "editDot", "editRemove", "partSettingSet", "paintSet", "paintBody", "regionSet", "labelAdd", "labelUpdate", "labelRemove", "filamentAdd", "filamentRemove", "filamentSet", "filamentsFromPrinter", "partPutDown", "partTurn", "putDown", "place", "partMove", "partRotate", "partScale", "partSettle", "markAdd", "supportRemoveAt", "supportKindAt", "markRemoveNear", "markSet", "markRemove", "marksClear", "supportAreaAdd", "supportAreaSet", "supportAreaKind", "supportAreaRemove", "treeMoveNode", "treeRadius", "treeMoveBranch", "treeDelete", "treeAdd", "treeReset"]);
+const PLATE_OPS = new Set(["fallStep", "load", "add", "plate", "projectLoad", "partAction", "partsAction", "partsMove", "partsSettingSet", "partsToPlate", "partsPaste", "partsCut", "platePaste", "plateDuplicate", "partCut", "partMove", "partFill", "partToPlate", "editAdd", "editDot", "editRemove", "partSettingSet", "paintSet", "paintBody", "regionSet", "labelAdd", "labelUpdate", "labelRemove", "filamentAdd", "filamentRemove", "filamentSet", "filamentsFromPrinter", "partPutDown", "partTurn", "partPlace", "partLift", "partAngles", "putDown", "place", "partMove", "partRotate", "partScale", "partSettle", "markAdd", "supportRemoveAt", "supportKindAt", "markRemoveNear", "markSet", "markRemove", "marksClear", "supportAreaAdd", "supportAreaSet", "supportAreaKind", "supportAreaRemove", "treeMoveNode", "treeRadius", "treeMoveBranch", "treeDelete", "treeAdd", "treeReset"]);
 
 // The values of settings at z (core.valueAt): { name: entry }.
 function valuesAt({ z, names }) {
@@ -943,6 +957,61 @@ const ops = {
     return { part: i >= 0 ? core.part(i) : null };
   },
 
+  // Part `index` (zs_part), or null.
+  partGet({ index }) {
+    return { part: core.part(index) };
+  },
+
+  // The footprints of the parts (x0, y0, x1, y1) but part `except`, and
+  // the size of the bed: the targets of the snap of a drag (gizmo.js).
+  partBoxes({ except }) {
+    const n = core.w.x.zs_app_part_count(core.app);
+    const boxes = [];
+    for (let i = 0; i < n; i++) {
+      if (i === except) continue;
+      const p = core.part(i);
+      if (p) boxes.push([p.x - p.sizeX / 2, p.y - p.sizeY / 2, p.x + p.sizeX / 2, p.y + p.sizeY / 2]);
+    }
+    const bed = [Number(core.get("machine.bed_size_x")) || 220, Number(core.get("machine.bed_size_y")) || 220];
+    return { boxes, bed };
+  },
+
+  // The place (x, y) and the lift (z) of part `index` at once: a drag of
+  // the gizmo. live: the slice runs now as a draft (the step of the
+  // history still waits for sliceHeld), and its "sliced" event names the
+  // pose of the part in it (live).
+  partPlace({ index, x, y, z, hold, live }) {
+    const w = core.w.x;
+    if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(z)) return { part: core.part(index) };
+    const p = core.part(index);
+    if (!p) return { part: null };
+    let changed = false;
+    if (x !== p.x || y !== p.y) changed = w.zs_app_part_move(core.app, index, x, y) === 0 || changed;
+    if (z !== p.z) changed = w.zs_app_part_lift(core.app, index, z) === 0 || changed;
+    if (changed) {
+      if (live) {
+        liveIndex = { app: core.app, index };
+        wantSlice();
+      } else sliceOrHold(hold);
+    }
+    return { part: core.part(index) };
+  },
+
+  // The lift of part `index` (zs_app_part_lift): the keys and the card.
+  partLift({ index, z, hold }) {
+    if (!Number.isFinite(z)) return { part: core.part(index) };
+    if (core.w.x.zs_app_part_lift(core.app, index, z) === 0) sliceOrHold(hold);
+    return { part: core.part(index) };
+  },
+
+  // The orientation of part `index` from three angles about the axes of
+  // the bed, degrees (zs_app_part_set_angles): the card.
+  partAngles({ index, angles }) {
+    if (!angles.every(Number.isFinite)) return { part: core.part(index) };
+    if (core.w.x.zs_app_part_set_angles(core.app, index, angles[0], angles[1], angles[2]) === 0) sliceOrHold(false);
+    return { part: core.part(index) };
+  },
+
   // hold: a drag or a key goes on, so the slice waits (sliceHeld starts
   // it at the end): a turn or a move of a part slices once, when it ends.
   partMove({ index, x, y, hold }) {
@@ -1091,6 +1160,9 @@ const ops = {
     wasm.x.zs_set_release(set);
     // The end of a live turn: the full slice of the part.
     const live = coarse;
+    // The slice of the end of a live move still names the pose of the
+    // part (the page ends its preview there).
+    if (liveIndex) liveIndex.ending = true;
     if (coarse) {
       wasm.x.zs_app_set_coarse_part(coarse.app, -1);
       coarse = null;

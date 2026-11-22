@@ -66,6 +66,16 @@ gboolean zg_model_parts_setting_set(ZgModel *self, const char *name, const char 
  * starts a new slice. */
 void zg_model_part_move(ZgModel *self, size_t i, double x, double y);
 void zg_model_part_rotate(ZgModel *self, size_t i, double degrees);
+/* The lift of part i (zs_app_part_lift): over 0 it floats, under 0 it
+ * sinks into the bed. */
+void zg_model_part_lift(ZgModel *self, size_t i, double z);
+/* The orientation of part i from the turns about X, Y, and Z of the bed
+ * (zs_app_part_set_angles). */
+void zg_model_part_set_angles(ZgModel *self, size_t i, double ax, double ay, double az);
+/* The physics after a change of a part out of a drag (a field of the
+ * card): "fall" for a part that cannot stand, or that floats with support
+ * off. */
+void zg_model_fall_check(ZgModel *self);
 /* A setting of one part (see zs_app_part_setting_set): value NULL gives
  * the part the value of the plate again. FALSE for a bad value. */
 gboolean zg_model_part_setting_set(ZgModel *self, size_t i, const char *name, const char *value);
@@ -360,10 +370,10 @@ void zg_model_use_roll(ZgModel *self, const ZgRoll *roll);
 gboolean zg_model_undo(ZgModel *self);
 gboolean zg_model_redo(ZgModel *self);
 gboolean zg_model_can_undo(ZgModel *self);
-/* The tools of the preview: select a line (the default), move and turn a
- * part (as with Ctrl), or measure (the measure tape). "tool-changed"
- * follows a change. */
-/* Turn: rings around the selected part turn it about X, Y, or Z.
+/* The tools of the preview: select a line (the default), move, lift, and
+ * turn a part (the transform tool: its gizmo, ui/view3d.c), or measure
+ * (the measure tape). "tool-changed" follows a change. TURN and GRAB are
+ * old tools: zg_model_set_tool gives MOVE for them (the keys R and G).
  * Support: draw support areas on the part (ui/support-tool.h). */
 /* Label: text and marks on the surface of a part (ui/label-tool.h).
  * Paint: filaments on the surface of a part (ui/paint-tool.h). */
@@ -502,10 +512,6 @@ gboolean zg_model_falling(ZgModel *self);
  * part (zs_view_part_preview). */
 gint64 zg_model_edit_gen(ZgModel *self);
 gint64 zg_model_shown_gen(ZgModel *self);
-gboolean zg_model_grab_start(ZgModel *self, size_t i, double x, double y, double z);
-void zg_model_grab_move(ZgModel *self, double x, double y, double z);
-void zg_model_grab_turn(ZgModel *self, double ax, double ay, double az, double degrees);
-void zg_model_grab_end(ZgModel *self);
 
 /* The id of the active plate in the store of the refinements (made on
  * first use), and all ids as one line (by plate, with commas) for the

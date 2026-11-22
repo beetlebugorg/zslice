@@ -1,14 +1,18 @@
 // tools.js: the tools of the preview (linux/src/ui/preview.c, tool_group;
-// view3d.c): Select (V), Move (M), Turn (R), Measure (T), and Support (S),
-// as a group at the left of the toolbar. support.js has the Support tool.
+// view3d.c): Select (V), Move (M; R and G are other keys of it), Measure
+// (T), and Support (S), as a group at the left of the toolbar. support.js
+// has the Support tool, and gizmo.js the gizmo of the Move tool.
 //
 // - Select: a click selects a line (app.js does it), or a support
 //   (support.js, selectAt). A drag from a line selects layers (app.js,
 //   rangeDrag; rangecard.js). Shift and a click add a part to the
 //   selection of parts, or take it out (addPart), in each tool.
-// - Move: a drag on a part moves it on the bed, and the wheel over the view
-//   turns the selected part by 15° a step. Ctrl does the same in the other
-//   tools.
+// - Move (the transform tool): a click selects a part, and the gizmo on
+//   it moves, lifts, and turns it (gizmo.js). A drag on a part carries it
+//   on the bed, with smart guides (Shift: no snap); the beads follow the
+//   pointer on each frame, and the slice follows. The wheel over the view
+//   turns the selected part by 15° a step. Ctrl and a drag move a part in
+//   the other tools too.
 // - Measure: a tape between two points. A click snaps to the end of the
 //   nearest line (Shift: no snap). A click on a circle or an arc gives its
 //   size, and the point is its center. A third click starts again; Esc
@@ -23,7 +27,7 @@
 
 const HINT = "Click a point of the print, or a circle or an arc for its size and center. Shift: no snap.";
 
-export const TOOLS = ["select", "move", "turn", "grab", "measure", "support"];
+export const TOOLS = ["select", "move", "measure", "support"];
 
 export class Tools {
   // ctx: { client, view (View3D), canvas, buttons {select, move, measure},
@@ -65,9 +69,9 @@ export class Tools {
     for (const t of TOOLS) this.ctx.buttons[t].classList.toggle("checked", t === tool);
     // The tape goes with its tool.
     if (tool !== "measure") this.clear(true);
-    // The part stays selected for the Move and the Turn tool.
-    if (tool !== "move" && tool !== "turn") this.selectPart(null);
-    this.ctx.canvas.style.cursor = tool === "measure" || tool === "support" ? "crosshair" : tool === "grab" ? "grab" : "";
+    // The part stays selected for the Move tool.
+    if (tool !== "move") this.selectPart(null);
+    this.ctx.canvas.style.cursor = tool === "measure" || tool === "support" ? "crosshair" : "";
     this.ctx.toolChanged?.(tool);
     this.showReadout();
     // The rings of the Turn tool and the tape show after the next frame.
@@ -330,26 +334,55 @@ export class Tools {
   // A press of a drag that can move a part: true if a part is there (the
   // drag then moves it). A press on a part of a selection of several
   // parts moves them all.
+  // One part: the gizmo carries it (gizmo.js: the snap, the preview, and
+  // the live slice).
   async moveStart(px, py) {
     const part = await this.partAt(px, py);
-    const bed = this.bedPoint(px, py);
-    if (!part || !bed) return false;
+    if (!part) return false;
+    // The level plane of the point that the pointer took: that point
+    // stays under the pointer (also for a part that floats).
+    const { view } = this.ctx;
+    const c = view.w.cell;
+    const hz = view.x.zs_view_surface_point(view.v, px, py, 0, c) ? Math.max(0, view.w.f64(c + 16)) : 0;
+    const bed = this.planePoint(px, py, hz);
+    if (!bed) return false;
     const group = this.parts.length > 1 && this.parts.some((p) => p.index === part.index);
     if (!group) this.selectPart(part);
     const list = group ? this.parts : [part];
-    this.moving = { list: list.map((p) => ({ index: p.index, x0: p.x, y0: p.y, x: p.x, y: p.y })), bx0: bed[0], by0: bed[1] };
+    this.moving = { list: list.map((p) => ({ index: p.index, x0: p.x, y0: p.y, x: p.x, y: p.y })), bx0: bed[0], by0: bed[1], hz, one: !group && this.ctx.gizmo?.() };
+    if (this.moving.one) this.moving.one.beginLive(part);
     this.ctx.canvas.style.cursor = "move";
     return true;
   }
 
-  // The parts follow the bed point under the pointer. The boxes show at
-  // once; the worker gets at most one move each 60 ms.
-  moveTo(px, py) {
+  // The point on the level plane at height z under a device pixel, or
+  // null.
+  planePoint(px, py, z) {
+    const { view } = this.ctx;
+    const c = view.w.cell;
+    if (!view.x.zs_view_plane_point(view.v, px, py, z, c, c + 8)) return null;
+    return [view.w.f64(c), view.w.f64(c + 8)];
+  }
+
+  // The parts follow the point under the pointer. One part: the gizmo
+  // moves its beads at once, and the slice follows. Several parts: the
+  // boxes show at once, and the worker gets at most one move each 60 ms.
+  moveTo(px, py, shift = false, ev = null) {
     const m = this.moving;
-    const bed = m && this.bedPoint(px, py);
+    const bed = m && this.planePoint(px, py, m.hz);
     if (!bed) return;
     const dx = bed[0] - m.bx0;
     const dy = bed[1] - m.by0;
+    if (m.one) {
+      const t = m.one.bodyMove(dx, dy, shift, ev);
+      if (t) {
+        m.list[0].x = t.x;
+        m.list[0].y = t.y;
+        // The card and the frame follow.
+        if (this.part?.index === m.list[0].index) this.setParts([{ ...this.part, x: t.x, y: t.y }]);
+      }
+      return;
+    }
     for (const q of m.list) {
       q.x = q.x0 + dx;
       q.y = q.y0 + dy;
@@ -377,6 +410,10 @@ export class Tools {
     this.moving = null;
     this.ctx.canvas.style.cursor = this.tool === "measure" ? "crosshair" : "";
     if (!m) return;
+    if (m.one) {
+      await m.one.endLive();
+      return;
+    }
     const r = await this.sendMove(m, false);
     if (r.parts) this.updateParts(r.parts);
   }

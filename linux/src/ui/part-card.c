@@ -10,6 +10,11 @@
  * To a new plate, and Remove (as web/app/partcard.js). A drag of one of
  * them with the Move tool (or Ctrl), or the arrow keys, moves them all.
  *
+ * The card of one part shows its pose: the place X and Y, the lift Z (up:
+ * it floats; down: it sinks into the bed), and the turns about X, Y, and
+ * Z of the bed, each a number field (Enter applies), and why the part
+ * floats when it does (zs_app_part_float_note).
+ *
  * SPDX-License-Identifier: AGPL-3.0-or-later
  */
 #include "part-card.h"
@@ -34,6 +39,9 @@ typedef struct {
     /* The scale in % of the file, and the filament of the part (its chips
      * are for one part: fil_part). */
     GtkWidget *scale, *fil_row;
+    /* The pose: X, Y, Z (the lift), and the turns about X, Y, and Z; and
+     * the note of a part that floats. */
+    GtkWidget *pose[6], *note;
     /* One part at a time: the place of the part in the print order. */
     GtkWidget *order_row, *order_text, *order_earlier, *order_later;
     gint64 fil_part;
@@ -60,21 +68,67 @@ static void update_order(PartCard *c) {
     gtk_widget_set_sensitive(c->order_later, (size_t)c->part + 1 < n);
 }
 
+/* The pose fields follow the part, but not the field that the user types
+ * in. */
+static void update_pose(PartCard *c, const zs_part *p) {
+    double vals[6] = {p->x, p->y, p->z, p->angle_x, p->angle_y, p->angle_z};
+    GtkRoot *root = gtk_widget_get_root(c->card);
+    GtkWidget *focus = root ? gtk_root_get_focus(root) : NULL;
+    for (int k = 0; k < 6; k++) {
+        if (focus && (focus == c->pose[k] || gtk_widget_is_ancestor(focus, c->pose[k]))) continue;
+        char text[32];
+        g_snprintf(text, sizeof text, "%.2f", round(vals[k] * 100) / 100 + 0.0);
+        gtk_editable_set_text(GTK_EDITABLE(c->pose[k]), text);
+    }
+    char buf[256];
+    size_t len = 0;
+    gboolean floats = zs_app_part_float_note(zg_model_core(c->model), (size_t)c->part, buf, sizeof buf, &len) == ZS_OK;
+    gtk_label_set_text(GTK_LABEL(c->note), floats ? buf : "");
+    gtk_widget_set_visible(c->note, floats);
+}
+
+/* A pose field applies (Enter): one change of the part, and the physics
+ * after it (a part in the air with support off falls; a part on an edge
+ * tips over). */
+static void on_pose(GtkEntry *entry, gpointer data) {
+    PartCard *c = data;
+    zs_part p;
+    if (c->part < 0 || zs_app_part_get(zg_model_core(c->model), (size_t)c->part, &p) != ZS_OK) return;
+    int k = GPOINTER_TO_INT(g_object_get_data(G_OBJECT(entry), "zg-pose"));
+    const char *text = gtk_editable_get_text(GTK_EDITABLE(entry));
+    char *end = NULL;
+    double v = g_ascii_strtod(text, &end);
+    if (end == text || !isfinite(v)) return;
+    size_t i = (size_t)c->part;
+    if (k == 0 || k == 1) {
+        if (fabs(v - (k == 0 ? p.x : p.y)) < 1e-6) return;
+        zg_model_part_move(c->model, i, k == 0 ? v : p.x, k == 1 ? v : p.y);
+    } else if (k == 2) {
+        if (fabs(v - p.z) < 1e-6) return;
+        zg_model_part_lift(c->model, i, v);
+    } else {
+        double a[3] = {p.angle_x, p.angle_y, p.angle_z};
+        if (fabs(v - a[k - 3]) < 1e-6) return;
+        a[k - 3] = v;
+        zg_model_part_set_angles(c->model, i, a[0], a[1], a[2]);
+    }
+    zg_model_fall_check(c->model);
+}
+
 static void update_facts(PartCard *c, const zs_part *p) {
     gtk_label_set_text(GTK_LABEL(c->title), p->name && p->name[0] ? p->name : "Part");
-    int turn = ((int)lround(p->rotation) % 360 + 360) % 360;
-    char *text = turn ? g_strdup_printf("%.1f × %.1f × %.1f mm · turned %d°", p->size_x, p->size_y, p->size_z, turn)
-                      : g_strdup_printf("%.1f × %.1f × %.1f mm", p->size_x, p->size_y, p->size_z);
+    char *text = g_strdup_printf("%.1f × %.1f × %.1f mm", p->size_x, p->size_y, p->size_z);
     gtk_label_set_text(GTK_LABEL(c->facts), text);
     g_free(text);
 }
 
-/* Grows box by the box of part p on the screen, with the rings of the
- * Turn tool (radius 0.62 of the largest size, and 4 mm): the card covers
- * no part of them. */
+/* Grows box by the box of part p on the screen, with the gizmo of the
+ * transform tool (the rings, radius 0.62 of the largest size and 4 mm,
+ * and the arrows out to 1.5 radii): the card covers no part of it. */
 static void add_box(PartCard *c, const zs_part *p, double box[4]) {
-    double ring = 0.62 * MAX(p->size_x, MAX(p->size_y, p->size_z)) + 4;
-    double hx = MAX(p->size_x / 2, ring), hy = MAX(p->size_y / 2, ring), top = MAX(p->size_z, p->size_z / 2 + ring);
+    double ring = 1.5 * (0.62 * MAX(p->size_x, MAX(p->size_y, p->size_z)) + 4);
+    double lift = MAX(p->z, 0);
+    double hx = MAX(p->size_x / 2, ring), hy = MAX(p->size_y / 2, ring), top = lift + MAX(p->size_z, p->size_z / 2 + ring);
     for (int k = 0; k < 8; k++) {
         double qx, qy;
         if (!zg_view3d_pixel_of(zg_preview_view3d(c->preview), p->x + (k & 1 ? hx : -hx), p->y + (k & 2 ? hy : -hy), k & 4 ? top : 0, &qx, &qy))
@@ -348,6 +402,7 @@ static void refresh(PartCard *c) {
     if (n > 1) update_many(c, list, n);
     else {
         update_facts(c, &p);
+        update_pose(c, &p);
         update_order(c);
         fill_filament(c);
         update_scale(c, &p);
@@ -358,11 +413,11 @@ static void refresh(PartCard *c) {
     place(c);
 }
 
-/* The Turn, the Grab, and the Paint tool have no card: the rings, the
- * hand, and the card of the Paint tool are the controls there. */
+/* The Paint tool has no card: the card of the Paint tool is the control
+ * there. */
 static gboolean card_wanted(PartCard *c) {
     ZgTool t = zg_model_tool(c->model);
-    return c->part >= 0 && t != ZG_TOOL_TURN && t != ZG_TOOL_GRAB && t != ZG_TOOL_PAINT;
+    return c->part >= 0 && t != ZG_TOOL_PAINT;
 }
 
 static void on_part_selected(ZgModel *model, gint64 part, gpointer data) {
@@ -642,6 +697,46 @@ GtkWidget *zg_part_card_new(ZgModel *model, GtkWidget *preview) {
     /* The card of one part. */
     c->single = gtk_box_new(GTK_ORIENTATION_VERTICAL, 6);
     gtk_box_append(GTK_BOX(c->card), c->single);
+    /* The pose: a grid of three columns, the place and the lift, then the
+     * turns. */
+    static const struct { const char *label, *unit, *tip; } pose[6] = {
+        {"X", "mm", "The place of the center of the part along X of the bed, mm (Enter applies)"},
+        {"Y", "mm", "The place of the center of the part along Y of the bed, mm (Enter applies)"},
+        {"Z", "mm", "The lift: the bottom of the part over the bed, mm. Over 0 it floats (it prints on support); under 0 it sinks into the bed, and the part under the bed does not print (Enter applies)"},
+        {"↻X", "°", "The turn about the X axis of the bed, degrees (Enter applies)"},
+        {"↻Y", "°", "The turn about the Y axis of the bed, degrees (Enter applies)"},
+        {"↻Z", "°", "The turn about the Z axis of the bed, degrees (Enter applies)"},
+    };
+    GtkWidget *grid = gtk_grid_new();
+    gtk_grid_set_row_spacing(GTK_GRID(grid), 4);
+    gtk_grid_set_column_spacing(GTK_GRID(grid), 4);
+    for (int k = 0; k < 6; k++) {
+        GtkWidget *l = gtk_label_new(pose[k].label);
+        gtk_widget_add_css_class(l, "dim-label");
+        c->pose[k] = gtk_entry_new();
+        gtk_entry_set_input_purpose(GTK_ENTRY(c->pose[k]), GTK_INPUT_PURPOSE_NUMBER);
+        gtk_widget_set_hexpand(c->pose[k], TRUE);
+        gtk_editable_set_width_chars(GTK_EDITABLE(c->pose[k]), 6);
+        gtk_editable_set_max_width_chars(GTK_EDITABLE(c->pose[k]), 7);
+        gtk_widget_add_css_class(c->pose[k], "numeric");
+        gtk_widget_set_tooltip_text(c->pose[k], pose[k].tip);
+        gtk_accessible_update_property(GTK_ACCESSIBLE(c->pose[k]), GTK_ACCESSIBLE_PROPERTY_LABEL, pose[k].tip, -1);
+        g_object_set_data(G_OBJECT(c->pose[k]), "zg-pose", GINT_TO_POINTER(k));
+        g_signal_connect(c->pose[k], "activate", G_CALLBACK(on_pose), c);
+        GtkWidget *u = gtk_label_new(pose[k].unit);
+        gtk_widget_add_css_class(u, "dim-label");
+        int col = (k % 3) * 3, row = k / 3;
+        gtk_grid_attach(GTK_GRID(grid), l, col, row, 1, 1);
+        gtk_grid_attach(GTK_GRID(grid), c->pose[k], col + 1, row, 1, 1);
+        gtk_grid_attach(GTK_GRID(grid), u, col + 2, row, 1, 1);
+    }
+    gtk_box_append(GTK_BOX(c->single), grid);
+    c->note = gtk_label_new("");
+    gtk_label_set_xalign(GTK_LABEL(c->note), 0);
+    gtk_label_set_wrap(GTK_LABEL(c->note), TRUE);
+    gtk_widget_add_css_class(c->note, "zg-note");
+    gtk_widget_set_visible(c->note, FALSE);
+    gtk_box_append(GTK_BOX(c->single), c->note);
     c->fil_part = -1;
     c->fil_row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
     GtkWidget *fil_label = gtk_label_new("Filament");

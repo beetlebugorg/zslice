@@ -74,7 +74,7 @@ import { FilamentList, setFilaments, filamentStats, filaments, followFilaments }
 import { PaintTool } from "./paint.js";
 import { LabelTool } from "./label.js";
 import { LabelCard } from "./labelcard.js";
-import { TurnRings } from "./turn.js";
+import { Gizmo } from "./gizmo.js";
 import { attachViewInput } from "./input.js";
 import { FarmPage } from "./farm.js";
 import { Tools } from "./tools.js";
@@ -250,7 +250,7 @@ function drawFrame(now) {
   // The gaps follow the top layer.
   if (gaps.on && gaps.wanted !== layers.hi && app.state === "done") gaps.refresh(layers.hi);
   // The rings of the Turn tool go in this frame (the core draws them).
-  turnRings?.place();
+  gizmo?.place();
   const f = view.frame();
   if (app.page === "2d") {
     view2d.state.gaps = gaps.on && gaps.layer === layers.hi;
@@ -737,128 +737,65 @@ function clearFocus() {
 
 // ---- the turn of a part, and the cards of a part and a line ----
 
-// The rings of the Turn tool around the selected part (turn.js).
-var turnRings = new TurnRings({
+// The gizmo of the transform tool on the selected part (gizmo.js): the
+// rings turn it, the arrows move and lift it, and a drag of the part
+// carries it (tools.js).
+var gizmo = new Gizmo({
   host: $("preview"),
   view,
+  client,
   frame: () => requestFrame(),
   part: () => (app.page === "3d" ? tools.part : null),
-  active: () => tools.tool === "turn",
-  turn: async (axis, degrees, total) => {
-    const part = tools.part;
-    if (!part) return;
-    const r = await client.call("partTurn", { index: part.index, axis, degrees, hold: true, total });
-    if (r.part) tools.selectPart(r.part);
-    requestFrame();
-  },
-  done: async () => {
-    await settleSelected();
-    client.call("sliceHeld");
-  },
+  active: () => tools.tool === "move",
+  select: (part) => tools.selectPart(part),
+  settle: (index, why) => settleSelected(index, why),
+  toast: (t) => toast(t),
 });
 
-// Physics after a turn: a part that cannot stand falls onto a face, unless
-// support holds it. The toast says so.
-// index: the part that turned (the selected part if none).
+// Physics after a turn or a move: a part that cannot stand falls onto a
+// face, unless support holds it; a part in the air with no support falls
+// to the bed. The toast says so.
+// index: the part (the selected part if none).
 // The fall shows in the view: each frame runs the rigid body in the core
 // (zs_app_fall_step) and turns the beads of the part to its place
 // (zs_view_part_preview). At rest, the core puts the part flush on its new
 // face, and the plate slices; the new beads end the preview.
-// ---- the hand: grab a part, and move it as a real object ----
-//
-// A press on a part takes it at the point under the pointer
-// (zs_app_grab_start). The hand moves on a level plane 15 mm over that
-// point (zs_view_plane_point), and the part follows it each frame as a
-// rigid body on a soft spring (the steps of the fall). On release it keeps
-// its speed, falls, and rests flush on the plate; then the plate slices.
-const hand = { on: false, h: 0, index: -1 };
-
-async function grabStart(px, py) {
-  if (falling) return false;
-  const part = await tools.partAt(px, py);
-  if (!part) return false;
-  const c = view.w.cell;
-  if (!view.x.zs_view_surface_point(view.v, px, py, 0, c)) return false;
-  const p = [view.w.f64(c), view.w.f64(c + 8), view.w.f64(c + 16)];
-  const r = await client.call("grabStart", { index: part.index, x: p[0], y: p[1], z: p[2] });
-  if (!r.ok) return false;
-  hand.on = true;
-  hand.index = part.index;
-  hand.h = p[2] + 15;
-  grabMove(px, py);
-  canvas.style.cursor = "grabbing";
-  falling = true;
-  // The frames of the hand and of the fall after it.
-  runFall(part.index).finally(() => {
-    falling = false;
-    hand.on = false;
-    canvas.style.cursor = tools.tool === "grab" ? "grab" : "";
-  });
-  return true;
-}
-
-// The wheel while the hand holds a part: up or down (mm for each pixel of
-// the wheel), from the bed to 200 mm.
-function grabLift(deltaY) {
-  if (!hand.on) return;
-  hand.h = Math.max(1, Math.min(200, hand.h - deltaY * 0.1));
-  if (hand.px !== undefined) grabMove(hand.px, hand.py);
-}
-
-// A turn of the part in the hand (Alt and a drag): `yaw` degrees about the
-// vertical, and `tilt` degrees about the horizontal axis of the screen.
-function grabTurn(yaw, tilt) {
-  if (!hand.on) return;
-  if (yaw) client.call("grabTurn", { axis: [0, 0, 1], degrees: yaw });
-  if (tilt && hand.px !== undefined) {
-    // The horizontal axis of the screen, on the bed.
-    const c = view.w.cell;
-    if (!view.x.zs_view_plane_point(view.v, hand.px, hand.py, hand.h, c, c + 8)) return;
-    const a = [view.w.f64(c), view.w.f64(c + 8)];
-    if (!view.x.zs_view_plane_point(view.v, hand.px + 50, hand.py, hand.h, c, c + 8)) return;
-    const b = [view.w.f64(c), view.w.f64(c + 8)];
-    client.call("grabTurn", { axis: [b[0] - a[0], b[1] - a[1], 0], degrees: tilt });
-  }
-}
-
-function grabMove(px, py) {
-  if (!hand.on) return;
-  hand.px = px;
-  hand.py = py;
-  const c = view.w.cell;
-  if (!view.x.zs_view_plane_point(view.v, px, py, hand.h, c, c + 8)) return;
-  client.call("grabMove", { x: view.w.f64(c), y: view.w.f64(c + 8), z: hand.h });
-}
-
-function grabEnd() {
-  if (!hand.on) return;
-  hand.on = false;
-  client.call("grabEnd");
-}
-
 let falling = false;
-async function settleSelected(index = tools.part?.index) {
+// why: the words of the toast for the fall (else the words of a part
+// that tips over).
+async function settleSelected(index = tools.part?.index, why = "") {
   if (index === undefined || index < 0 || falling) return;
   falling = true;
   try {
-    await fall(index);
+    await fall(index, why);
   } finally {
     falling = false;
   }
 }
 
-async function fall(index) {
+async function fall(index, why = "") {
+  // A part in the air with no support: the toast says why it falls.
+  if (!why) {
+    const q = await client.call("partGet", { index });
+    if (q.part?.note?.startsWith("Support is off")) why = q.part.note;
+  }
   const r = await client.call("fallStart", { index });
   if (!r.started) {
     if (r.held) toast("This part could not stand like that on its own. Support is on, so the support holds it in place.");
     return;
   }
-  if (await runFall(index)) toast("The part could not stand like that, and fell over. Turn on support to hold it in place.");
+  if (await runFall(index, gizmo.takeLive(index))) {
+    toast(why || "The part could not stand like that, and fell over. Turn on support to hold it in place.");
+    // The card shows the part where it rests.
+    if (tools.part?.index === index) client.call("partGet", { index }).then((q) => q.part && tools.part?.index === index && tools.selectPart(q.part));
+  }
 }
 
-// The frames of a fall (or of the hand): the body steps in the core, and
-// the beads of the part follow it. True when the part rests.
-async function runFall(index) {
+// The frames of a fall: the body steps in the core, and the beads of the
+// part follow it. True when the part rests. off: the offset of the part
+// from its beads in the view (the end of a drag of the gizmo, before its
+// slice), or null; the fall turns it with the part.
+async function runFall(index, off = null) {
   let last = performance.now();
   for (;;) {
     const now = await new Promise((res) => requestAnimationFrame(res));
@@ -868,7 +805,17 @@ async function runFall(index) {
     // The frame at rest sets no preview: the slice of the new place can
     // load first, and a preview after it would move the new beads by the
     // fall (into the bed).
-    if (!f.done) view.x.zs_view_part_preview(view.v, index, f.q[0], f.q[1], f.q[2], f.q[3], f.pivot[0], f.pivot[1], f.pivot[2], f.move[0], f.move[1], f.move[2], 0);
+    if (!f.done) {
+      const m = [...f.move];
+      if (off) {
+        // The move of the turn of the offset: m + R off.
+        const [x, y, z, w] = f.q;
+        m[0] += (1 - 2 * (y * y + z * z)) * off[0] + 2 * (x * y - z * w) * off[1] + 2 * (x * z + y * w) * off[2];
+        m[1] += 2 * (x * y + z * w) * off[0] + (1 - 2 * (x * x + z * z)) * off[1] + 2 * (y * z - x * w) * off[2];
+        m[2] += 2 * (x * z - y * w) * off[0] + 2 * (y * z + x * w) * off[1] + (1 - 2 * (x * x + y * y)) * off[2];
+      }
+      view.x.zs_view_part_preview(view.v, index, f.q[0], f.q[1], f.q[2], f.q[3], f.pivot[0], f.pivot[1], f.pivot[2], m[0], m[1], m[2], 0);
+    }
     requestFrame();
     if (f.done) return true;
   }
@@ -971,6 +918,8 @@ var partCard = new PartCard({
   movePart: async (index, to) => client.call("partToPlate", { index, to }),
   // Copies until there are n in all (zs_set_fill).
   fillPart: async (index, n) => client.call("partFill", { index, n }),
+  // The physics after an edit of the pose (a fall, or a part in the air).
+  settle: (index) => settleSelected(index),
   // The plane of a cut (zs_view_set_cut): a box and a height, or null.
   cutPlane: (b) => {
     if (b) view.x.zs_view_set_cut(view.v, b[0], b[1], b[2], b[3], b[4]);
@@ -2380,11 +2329,20 @@ function isCut() {
 
 // The keys of a selected part, and Tab through the parts: before the keys
 // of the layers. Returns true if the key was for a part.
+// - the arrows move it 1 mm on the bed (Shift: 10 mm);
+// - Page Up and Page Down lift it 1 mm (Shift: 10 mm): up it floats,
+//   down it sinks into the bed;
+// - [ and ] turn it 15° about Z (Shift: 1°);
+// - Ctrl and the arrows turn it 15° about X (Up and Down) and Y (Left and
+//   Right); Shift: 1°.
+// The view and the card follow at once; the slice waits for a pause of
+// the keys (sliceAfterKeys), and then the physics (a part in the air or on
+// an edge falls).
 function partKey(e) {
-  if (e.ctrlKey || e.metaKey || e.altKey) return false;
+  if (e.metaKey || e.altKey) return false;
   const t = e.target;
   if (t?.closest?.("input, textarea, select, [contenteditable], .panel, .search-layer, .keys-layer")) return false;
-  if (e.key === "Tab" && (t === document.body || t === canvas || t?.closest?.(".part-card"))) {
+  if (!e.ctrlKey && e.key === "Tab" && (t === document.body || t === canvas || t?.closest?.(".part-card"))) {
     if (!view.loaded && app.state === "empty") return false;
     e.preventDefault();
     const index = tools.part ? tools.part.index : -1;
@@ -2395,53 +2353,63 @@ function partKey(e) {
     });
     return true;
   }
-  if ((e.key === "r" || e.key === "R") && !e.shiftKey) {
-    tools.set("turn");
+  if (!e.ctrlKey && (e.key === "r" || e.key === "R" || e.key === "g" || e.key === "G") && !e.shiftKey) {
+    tools.set("move");
     e.preventDefault();
     return true;
   }
   const part = tools.part;
   if (!part) return false;
-  // The Turn tool: Page Up and Page Down tilt the part about Y.
-  if (tools.tool === "turn" && (e.key === "PageUp" || e.key === "PageDown")) {
-    e.preventDefault();
-    e.stopPropagation();
-    const deg = (e.shiftKey ? 5 : 15) * (e.key === "PageUp" ? 1 : -1);
-    client.call("partTurn", { index: part.index, axis: 1, degrees: deg, hold: true }).then((r) => r.part && tools.selectPart(r.part));
-    sliceAfterKeys(part.index);
-    return true;
-  }
   const dirs = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, 1], ArrowDown: [0, -1] };
   const d = dirs[e.key];
-  if (!d) return false;
-  e.preventDefault();
-  e.stopPropagation();
-  // The Turn tool: Left and Right turn the part on the bed (about Z), Up
-  // and Down tilt it about X (Page Up and Page Down: about Y); Shift: 5°
-  // in place of 15°.
-  if (tools.tool === "turn") {
-    const deg = e.shiftKey ? 5 : 15;
-    const axis = d[0] !== 0 ? 2 : 0;
-    const sign = d[0] !== 0 ? -d[0] : d[1];
-    client.call("partTurn", { index: part.index, axis, degrees: sign * deg, hold: true }).then((r) => r.part && tools.selectPart(r.part));
-    sliceAfterKeys(part.index);
+  const turnStep = e.shiftKey ? 1 : 15;
+  const done = () => {
+    e.preventDefault();
+    e.stopPropagation();
     return true;
+  };
+  // Ctrl and the arrows: a turn about X (Up and Down) or Y (Left and
+  // Right) of the bed.
+  if (e.ctrlKey) {
+    if (!d) return false;
+    const axis = d[0] !== 0 ? 1 : 0;
+    const sign = d[0] !== 0 ? d[0] : -d[1];
+    client.call("partTurn", { index: part.index, axis, degrees: sign * turnStep, hold: true }).then((r) => r.part && tools.selectPart(r.part));
+    sliceAfterKeys(part.index);
+    return done();
+  }
+  // [ and ]: a turn about Z.
+  if (e.code === "BracketLeft" || e.code === "BracketRight" || e.key === "[" || e.key === "]" || e.key === "{" || e.key === "}") {
+    // As the GTK app: [ turns clockwise (seen from above), ] the other way.
+    const sign = e.code === "BracketLeft" || e.key === "[" || e.key === "{" ? -1 : 1;
+    client.call("partTurn", { index: part.index, axis: 2, degrees: sign * turnStep, hold: true }).then((r) => r.part && tools.selectPart(r.part));
+    sliceAfterKeys(part.index);
+    return done();
   }
   const step = e.shiftKey ? 10 : 1;
+  // Page Up and Page Down: the lift.
+  if (e.key === "PageUp" || e.key === "PageDown") {
+    const z = Math.round(((part.z ?? 0) + (e.key === "PageUp" ? step : -step)) * 100) / 100;
+    tools.selectPart({ ...part, z });
+    client.call("partLift", { index: part.index, z, hold: true }).then((r) => r.part && tools.selectPart(r.part));
+    sliceAfterKeys(part.index);
+    return done();
+  }
+  if (!d) return false;
   // A selection of several parts: all of them move, in one call.
   if (tools.parts.length > 1) {
     const moved = tools.parts.map((p) => ({ ...p, x: p.x + d[0] * step, y: p.y + d[1] * step }));
     tools.updateParts(moved);
     client.call("partsMove", { moves: moved.map((p) => ({ index: p.index, x: p.x, y: p.y })), hold: true }).then((r) => r.parts && tools.updateParts(r.parts));
     sliceAfterKeys();
-    return true;
+    return done();
   }
   const x = part.x + d[0] * step;
   const y = part.y + d[1] * step;
   tools.selectPart({ ...part, x, y });
   client.call("partMove", { index: part.index, x, y, hold: true }).then((r) => r.part && tools.selectPart(r.part));
   sliceAfterKeys();
-  return true;
+  return done();
 }
 
 // The layer range of Shift+J and Shift+K: { a: the first layer, b: the
@@ -2538,7 +2506,8 @@ function onPreviewKey(e) {
     case "h": case "H": dir = -1; break;
     case "l": case "L": dir = 1; break;
     case "e": case "E": labelTool.toggle(); e.preventDefault(); return;
-    case "g": case "G": tools.set("grab"); e.preventDefault(); return;
+    // R and G: other keys of the transform tool (M).
+    case "g": case "G": case "r": case "R": tools.set("move"); e.preventDefault(); return;
     case "t": case "T": tools.set("measure"); e.preventDefault(); return;
     case "c": case "C":
       if (e.key === "C" || e.shiftKey) showAllLayers();
@@ -2665,6 +2634,8 @@ document.addEventListener("keydown", (e) => {
   const t = e.target;
   if (t && (t.closest?.("input, textarea, select, [contenteditable]") || t.closest?.(".panel"))) return;
   if (e.key === "[" || e.key === "]") {
+    // A selected part in the 3D view: [ and ] turn it (partKey).
+    if (tools.part && app.page === "3d") return;
     activatePlate(app.activePlate + (e.key === "]" ? 1 : -1), true);
   } else if ((e.key === "f" || e.key === "F") && !e.shiftKey) {
     view.framePlate(app.activePlate);
@@ -2874,18 +2845,16 @@ const inspector = new Inspector($("page-selected"), {
 // ---- the tools: select, move, measure ----
 
 var tools = new Tools({ // var: drawFrame can run before this line
-  // The Turn and Grab tools have no card: the rings and the hand are the
-  // tool, and the card would cover them.
-  partSelected: (part, parts) => (tools?.tool === "turn" || tools?.tool === "grab" ? partCard?.show(null) : partCard?.show(part, parts)),
+  // The card of the part goes beside the part and its gizmo.
+  partSelected: (part, parts) => partCard?.show(part, parts),
   client, view, canvas, view2d,
-  buttons: { select: $("tool-select"), move: $("tool-move"), turn: $("tool-turn"), grab: $("tool-grab"), measure: $("tool-measure"), support: $("tool-support") },
+  buttons: { select: $("tool-select"), move: $("tool-move"), measure: $("tool-measure"), support: $("tool-support") },
+  gizmo: () => gizmo,
   again: (t) => { if (t === "support") supportTool?.togglePane(); },
   toolChanged: (tool) => {
     supportTool?.setActive(tool === "support");
     supportTool?.clearLite();
     rangeCard?.close();
-    // The Turn and Grab tools have no part card (see partSelected).
-    if (tool === "turn" || tool === "grab") partCard?.show(null);
   },
   readout: $("measure-readout"),
   page: () => app.page,
@@ -3070,7 +3039,7 @@ const rangeDrag = {
 
 // ---- the mouse, the touch screen, and the wheel over the view ----
 
-attachViewInput(canvas, { app, view, view2d, tools, supportTool, requestFrame, pickAt, pickRun, hitAt, select, showContextMenu, activatePlate, signMenu: (i, x, y) => openMenuAt(x, y, [{ label: `Go to plate ${i + 1}`, action: () => activatePlate(i, true) }, { label: `Remove plate ${i + 1}`, action: () => removePlate(i) }]), range: rangeDrag, grab: { start: grabStart, move: grabMove, end: grabEnd, lift: grabLift, turn: grabTurn, holding: () => hand.on } });
+attachViewInput(canvas, { app, view, view2d, tools, supportTool, requestFrame, pickAt, pickRun, hitAt, select, showContextMenu, activatePlate, signMenu: (i, x, y) => openMenuAt(x, y, [{ label: `Go to plate ${i + 1}`, action: () => activatePlate(i, true) }, { label: `Remove plate ${i + 1}`, action: () => removePlate(i) }]), range: rangeDrag });
 
 // ---- gaps ----
 
@@ -3865,8 +3834,9 @@ function onWorkerEvent(m) {
           gl.stageEnd(view.instancesGen(), view.lightGen());
         } else view.readScene(m.scene);
         gl.setOutlines(view.outlines());
-        // A live turn: the preview goes on from the turn of this slice.
-        turnRings.sliced(m.turn);
+        // A live turn or move: the preview goes on from the pose of this
+        // slice.
+        gizmo.sliced(m);
       }
       if (first) view2d.fitted = false;
       layers.setLayers(m.layers.z.length, m.layers.slowed, m.layers.z);
@@ -5007,10 +4977,10 @@ window.zslice = {
   shortcuts,
   partCard,
   paintTool,
-  turnRings,
+  gizmo,
   supportTool,
   app, work, view, view2d, layers, browser, client, gl, inspector, gaps, history, undoRedo, tools, store, managePrinters, openPrinterSettings, loadProfile, setSetting, pickAt, topLayerPoint, openCheck, frameTimes,
-  select, showPage, showTab, hitAt, showContextMenu, step, bench, benchPick, settleSelected, grabStart, grabMove, grabEnd, grabTurn, grabLift,
+  select, showPage, showTab, hitAt, showContextMenu, step, bench, benchPick, settleSelected,
   get frameCount() { return frameCount; },
   get pickMs() { return pickMs; },
   requestFrame,

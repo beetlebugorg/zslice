@@ -2,7 +2,10 @@
 // (docs/internals/one-view.md). The Move tool (or Ctrl+click) selects a
 // part, and the card shows:
 //
-// - its name, its size, and its turn;
+// - its name and its size;
+// - its pose: the place X and Y, the lift Z (up: it floats; down: it sinks
+//   into the bed), and the turns about X, Y, and Z, each a number field
+//   (Enter applies), and why it floats when it does;
 // - its actions: Duplicate (D), Split to parts, Cut… (a level plane at a
 //   height, shown in the view while the slider moves), Best orientation,
 //   Less support, Reset, and Remove (Delete);
@@ -221,6 +224,31 @@ export class PartCard {
       this.place();
     });
     this.facts = el("div", "lc-size");
+    // The pose: a number field for each value (Enter or a change applies).
+    this.pose = el("div", "pc-pose");
+    this.poseIn = {};
+    const field = (key, label, unit, title) => {
+      const l = el("label", "pc-pose-f");
+      const i = Object.assign(document.createElement("input"), { type: "number", step: "any", className: "pc-pose-n" });
+      i.title = title;
+      i.setAttribute("aria-label", title);
+      i.onkeydown = (e) => {
+        if (e.key === "Enter") this.applyPose(key);
+        e.stopPropagation();
+      };
+      i.onchange = () => this.applyPose(key);
+      this.poseIn[key] = i;
+      l.append(el("span", "pc-pose-l", label), i);
+      this.pose.append(l);
+    };
+    field("x", "X", "mm", "The place of the center of the part along X of the bed, mm");
+    field("y", "Y", "mm", "The place of the center of the part along Y of the bed, mm");
+    field("z", "Z", "mm", "The lift: the bottom of the part over the bed, mm. Over 0 it floats (it prints on support); under 0 it sinks into the bed, and the part under the bed does not print");
+    field("ax", "↻X", "°", "The turn about the X axis of the bed, degrees");
+    field("ay", "↻Y", "°", "The turn about the Y axis of the bed, degrees");
+    field("az", "↻Z", "°", "The turn about the Z axis of the bed, degrees");
+    this.note = el("div", "pc-note");
+    this.note.hidden = true;
     const actions = el("div", "pc-actions");
     const action = (label, key, title, name) => {
       const b = el("button", "pc-action", label);
@@ -297,7 +325,7 @@ export class PartCard {
     // tool.
     this.labelBox = el("div", "pc-labels");
     this.labelBox.hidden = true;
-    card.append(head, this.facts, filRow, actions, make, this.cutBox, this.labelBox, this.settingsBox, add);
+    card.append(head, this.facts, this.pose, this.note, filRow, actions, make, this.cutBox, this.labelBox, this.settingsBox, add);
     card.addEventListener("keydown", (e) => {
       if (e.key === "Escape" && !e.target.closest("input, select, textarea")) {
         e.preventDefault();
@@ -422,10 +450,40 @@ export class PartCard {
   updateFacts() {
     const p = this.part;
     this.title.textContent = p.name || `Part ${p.index + 1}`;
-    const turn = Math.round(((p.rotation % 360) + 360) % 360);
     if (this.scaleIn && document.activeElement !== this.scaleIn && p.scale) this.scaleIn.value = String(Math.round(p.scale[0] * 10000) / 100);
-    this.facts.textContent = `${p.sizeX.toFixed(1)} × ${p.sizeY.toFixed(1)} × ${p.sizeZ.toFixed(1)} mm${turn ? ` · turned ${turn}°` : ""}`;
+    this.facts.textContent = `${p.sizeX.toFixed(1)} × ${p.sizeY.toFixed(1)} × ${p.sizeZ.toFixed(1)} mm`;
+    // The pose: a field that has the focus keeps what the user types.
+    const a = p.angles ?? [0, 0, p.rotation ?? 0];
+    const vals = { x: p.x, y: p.y, z: p.z ?? 0, ax: a[0], ay: a[1], az: a[2] };
+    for (const [k, i] of Object.entries(this.poseIn ?? {})) {
+      if (document.activeElement === i) continue;
+      const v = vals[k];
+      i.value = String(Math.round(v * 100) / 100 || 0);
+    }
+    this.note.textContent = p.note ?? "";
+    this.note.hidden = !p.note;
     this.updateOrder();
+  }
+
+  // The pose field `key` applies: one call, one step of the history.
+  async applyPose(key) {
+    const p = this.part;
+    const i = this.poseIn[key];
+    if (!p || !i) return;
+    const v = Number(i.value);
+    if (!Number.isFinite(v)) return;
+    let r;
+    if (key === "x" || key === "y") r = await this.ctx.client.call("partMove", { index: p.index, x: key === "x" ? v : p.x, y: key === "y" ? v : p.y });
+    else if (key === "z") r = await this.ctx.client.call("partLift", { index: p.index, z: v });
+    else {
+      const a = [...(p.angles ?? [0, 0, p.rotation ?? 0])];
+      a[{ ax: 0, ay: 1, az: 2 }[key]] = v;
+      r = await this.ctx.client.call("partAngles", { index: p.index, angles: a });
+    }
+    if (r?.part) this.ctx.select(r.part);
+    // A part in the air with no support falls (the toast says why), and a
+    // part on an edge tips over.
+    if (key !== "x" && key !== "y") this.ctx.settle?.(p.index);
   }
 
   // The place of the part in the print order, with one part at a time.
@@ -564,13 +622,15 @@ export class PartCard {
 
   // Grows box (CSS pixels) by the box of part p on the screen.
   addBox(p, box, dpr) {
-    // The box of the part on the screen, with the rings of the Turn tool
-    // (turn.js: radius 0.62 of the largest size, and 4 mm): the card
-    // covers no part of them.
+    // The box of the part on the screen, with the gizmo of the Move tool
+    // (gizmo.js: the rings, radius 0.62 of the largest size and 4 mm, and
+    // the arrows out to 1.5 radii): the card covers no part of them.
     const ring = 0.62 * Math.max(p.sizeX, p.sizeY, p.sizeZ) + 4;
-    const hx = Math.max(p.sizeX / 2, ring);
-    const hy = Math.max(p.sizeY / 2, ring);
-    const zTop = Math.max(p.sizeZ, p.sizeZ / 2 + ring);
+    const reach = 1.5 * ring;
+    const hx = Math.max(p.sizeX / 2, reach);
+    const hy = Math.max(p.sizeY / 2, reach);
+    const lift = Math.max(0, p.z ?? 0);
+    const zTop = lift + Math.max(p.sizeZ, p.sizeZ / 2 + reach);
     for (const sx of [-1, 1]) for (const sy of [-1, 1]) for (const z of [0, zTop]) {
       const q = this.ctx.pixelOf({ x: p.x + sx * hx, y: p.y + sy * hy, z });
       if (!q) continue;

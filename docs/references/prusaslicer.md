@@ -144,6 +144,27 @@ The text and SVG emboss tools of PrusaSlicer 2.6 and later (https://help.prusa3d
 
 **How zslice uses it:** A label of zslice stays a 2D shape (text, ticks, bars, an SVG picture) in the project. Each layer gets the prism of the shape along its normal, cut to the band of the depth of the label from the outline of the layer, with a clean-up of strokes and gaps narrower than the narrowest line. The tools of PrusaSlicer make a text or an SVG a part (raised) or a negative volume (cut) as well as a modifier. zslice has the same three choices as a mode of the label: ink, raised, and cut. A raised or cut label changes the outlines of the layers in the band of its relief, with no new mesh (a raised label on a top face adds walls to the mesh).
 
+### Sinking objects, and the move gizmo
+
+```ref
+kind: idea
+source: PrusaSlicer, OrcaSlicer, Bambu Studio
+license: AGPL-3.0
+link: https://help.prusa3d.com/article/move_1696
+version: PrusaSlicer 2.4
+files: src/plate.zig, src/engine.zig, src/plate_job.zig, src/render/view.zig, web/app/gizmo.js, linux/src/ui/view3d.c
+area: plate
+summary: A part can sink into the bed (the slice starts at the bed, so the part under it does not print), and a gizmo of arrows and rings moves, lifts, and turns a part.
+```
+
+The "sinking objects" of PrusaSlicer 2.4 and later (https://help.prusa3d.com/article/move_1696), also in OrcaSlicer and Bambu Studio: a part moved down with the Z arrow of the move gizmo, or a negative Z in the object list, goes into the bed, and the slicer cuts it at the bed. The move and rotate gizmos of these slicers (and of Blender and Fusion): an arrow for each axis, and a ring for each axis.
+
+**License:** AGPL-3.0 (the method, no code)
+
+**Used in:** `src/plate.zig`, `src/engine.zig`, `src/plate_job.zig`, `src/render/view.zig`, `web/app/gizmo.js`, `linux/src/ui/view3d.c`
+
+**How zslice uses it:** A part has a lift (`Part.z`): over 0 it floats and prints on support, under 0 it sinks into the bed. The engine slices from the bed (`Options.bed_z`), so the first layer of a part that sinks is its section at the bed, and nothing under the bed prints. The transform tool has the arrows and the rings in the colors of the axes (red X, green Y, blue Z), as these tools do. A part that floats with support off falls to the bed with the physics of zslice (rigid.zig). The code is new.
+
 ### Wipe tower
 
 ### Solid fill: one fill for neighbor surfaces, half a spacing from the edge

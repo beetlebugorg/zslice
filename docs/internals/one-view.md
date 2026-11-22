@@ -18,8 +18,8 @@ Each action of the app has a key, or a path from the keyboard. No action needs t
 
 - `?` opens the sheet of all keyboard shortcuts, grouped (view, tools, parts, layers, plates, settings, history, print). The sheet comes from the same table that the menus and the tooltips use, so it is always complete. Type in the sheet to filter it.
 - `/` opens the settings search. The arrow keys move in the results. Enter edits a value, and Left and Right change a slider or a list.
-- Each tool has one key. The apps have Select `V`, Move `M`, Turn `R`, Support `S`, Grab `H`, Measure `T`, Paint `P`, Label `L`, Gaps `G`, and Duplicate `D` ([Keys and mouse](../user/keys.md)). Scale, Lay flat, Cut, Check, and Edit lines have no key yet.
-- `Tab` and `Shift+Tab` go through the parts of the active plate. The arrow keys move the selected part (with `Shift`: 10 times the step), and `R` with the arrow keys turns it.
+- Each tool has one key. The apps have Select `V`, Move `M` (the transform tool; `R` and `G` pick it too), Support `S`, Measure `T`, Paint `P`, Label `L`, Gaps `G`, and Duplicate `D` ([Keys and mouse](../user/keys.md)). Scale, Lay flat, Cut, Check, and Edit lines have no key yet.
+- `Tab` and `Shift+Tab` go through the parts of the active plate. The arrow keys move the selected part (with `Shift`: 10 times the step), `Page Up` and `Page Down` lift it, `[` and `]` turn it about Z, and `Ctrl` with the arrow keys turns it about X and Y.
 - `[` and `]` go to the plate before and the next plate, and `Home` frames all plates.
 - `Page Up` and `Page Down` (or `Up` and `Down` when the layer slider has the focus) go through the layers.
 - `Ctrl+P` prints the active plate, `Ctrl+E` exports its G-code, and `Ctrl+Z` and `Ctrl+Shift+Z` undo and redo.
@@ -79,7 +79,7 @@ Each plate is one `App` (`zs_app`), with its own settings, profiles, parts, slic
 - A selection of several parts (Shift and a click): a frame for each (`zs_view_part_boxes`), and the part card with the actions for all of them, each one call to the worker and one step of the history.
 - The cards move with a drag of their head (drag.js).
 - The measure on the tape, and the tape in the 2D view.
-- The Turn tool (turn.js): rings for X, Y, and Z around the selected part, and keys for each axis.
+- The gizmo of the Move tool (gizmo.js): rings for X, Y, and Z, and arrows for X, Y, and Z (the arrow of Z lifts the part) on the selected part, the drag of the part with smart guides (`zs_part_snap`), a preview on each frame, and a live draft slice that follows the drag.
 - A double click on a side of a part lays the part down on that side.
 - The view follows the dark mode of the system (core: `zs_view_set_dark`).
 
@@ -92,10 +92,10 @@ The GTK app has the layout of the web app for one plate. The files are in `linux
 - The print card floats at the bottom right of the view, with the facts of the print. A fact opens the search on its setting.
 - `search.c`: the settings search (`/`), with the same score and the same groups of words as `search.js`. The setting editors (`setting-editor.c`) can now edit the value of one part, and a slider can send a value at most each 90 ms (`zg_setting_editor_slider_throttle`).
 - `shortcuts.c`: the sheet of the keys (`?`), one table.
-- The tool strip at the left of the view (`preview.c`): Select, Move, Turn, Measure, Gaps, and Check, each with its key.
+- The tool strip at the left of the view (`preview.c`): Select, Move, Measure, Gaps, and Check, each with its key.
 - `line-card.c` and `part-card.c`: the cards of a line and of a part. The part card follows the part after each frame of the view (`zg_view3d_on_frame`, `zg_view3d_pixel_of`).
 - `range-card.c`: the card of a range of layers (a drag of the Select tool from a line, in `view3d.c`). Its editors are scoped: the scope of the model is the z range of the layers while it is open.
-- The Turn tool (`view3d.c`): the view widget draws the rings with cairo over the Vulkan subsurface.
+- The gizmo of the Move tool (`view3d.c`): the core view draws the rings, the arrows, and the guides; the view widget draws the label of a drag with cairo over the Vulkan subsurface.
 - A double click on a side of a part turns the view to that side (`zs_view_look_at`).
 - The measure readout floats on the tape, and the 2D view draws the tape and takes the clicks of the Measure tool.
 - The views follow the theme of the app (`zg_theme_dark`, `zs_view_set_dark`), also for the 2D view.

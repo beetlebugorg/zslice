@@ -26,6 +26,11 @@ function view0Bounds(c) {
   return [100 - s[0] / 2, 100 - s[1] / 2, 100 + s[0] / 2, 100 + s[1] / 2];
 }
 
+// The center and the radius of the gizmo of a part (gizmo.js).
+function gizmoAt(p) {
+  return [p.x, p.y, Math.max(0, p.z) + p.sizeZ / 2, 0.62 * Math.max(p.sizeX, p.sizeY, p.sizeZ) + 4];
+}
+
 function check(ok, what) {
   if (!ok) throw new Error(`failed: ${what}`);
 }
@@ -310,6 +315,42 @@ view.setTime(view.duration() / 2);
 f = view.frame();
 check(f.headCount > 0, "the toolhead of a replay");
 console.log(`frame: ${f.boxCount} beads, ${f.markCount} marks, ${f.headCount} toolhead beads`);
+
+// The transform tool: the pose of a part (core.part: the lift and the
+// angles), the lift into the bed (the slice starts at the bed), the snap
+// of a part on the bed (zs_part_snap on the page), and the gizmo.
+{
+  const p0 = core.part(0);
+  check(p0.z === 0 && p0.angles.every((a) => Math.abs(a) < 1e-6) && p0.note === "", "a part on the bed, as its file");
+  check(core.w.x.zs_app_part_lift(core.app, 0, -2) === 0, "a lift into the bed");
+  const sunk = core.part(0);
+  check(Math.abs(sunk.z + 2) < 1e-9, "the lift of the part");
+  check(core.slice().state === STATE.done, "a slice of a part in the bed");
+  const g2 = new TextDecoder().decode(core.gcode());
+  const zs = [...g2.matchAll(/^G1 Z([\d.]+)/gm)].map((m) => Number(m[1]));
+  check(Math.max(...zs) < sunk.sizeZ - 1.5, "the part in the bed prints lower");
+  check(core.w.x.zs_app_part_lift(core.app, 0, 0) === 0 && core.slice().state === STATE.done, "back on the bed");
+  check(new TextDecoder().decode(core.gcode()) === gcode, "the same G-code on the bed again");
+  check(core.w.x.zs_app_part_set_angles(core.app, 0, 0, 0, 30) === 0 && Math.abs(core.part(0).angles[2] - 30) < 1e-6, "the angles of the card");
+  check(core.w.x.zs_app_part_set_angles(core.app, 0, 0, 0, 0) === 0, "the angles back");
+  core.slice();
+  // The snap on the page: a box 0.6 mm from the edge of another box.
+  const w2 = wasm2;
+  const ptr = w2.alloc(8 * 14);
+  const fv = new Float64Array(w2.x.memory.buffer, ptr, 14);
+  fv.set([20.6, 40, 30.6, 50, 0, 0, 20, 10], 0);
+  const k = w2.x.zs_part_snap(ptr, ptr + 32, 1, 220, 220, 1, ptr + 64, ptr + 80, 1);
+  const gv = new Float64Array(w2.x.memory.buffer, ptr, 14);
+  check(k === 1 && Math.abs(gv[8] + 0.6) < 1e-9 && gv[9] === 0, "the snap of a part to the edge of another");
+  w2.free(ptr, 8 * 14);
+  // The gizmo: the arrow of Z under the pixel of its middle.
+  const c = gizmoAt(p0);
+  w2.x.zs_view_set_gizmo(view.v, c[0], c[1], c[2], c[3], 1);
+  const q = view.pixelOf(c[0], c[1], c[2] + c[3] * 1.28);
+  check(q && w2.x.zs_view_gizmo_at(view.v, q[0], q[1], 8) === 5, "the arrow of Z of the gizmo");
+  w2.x.zs_view_set_gizmo(view.v, 0, 0, 0, 0, 0);
+  console.log("the transform tool: the lift, the sink, the snap, and the gizmo");
+}
 
 // The print as it forms: the simulation of the plastic, in a new scene.
 check(!core.showSimulated(true), "no simulation before one runs");

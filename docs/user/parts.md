@@ -1,12 +1,12 @@
 # Place the parts
 
-Move, turn, scale, and cut the parts on the bed. A part obeys physics: if it cannot stand, it falls over.
+Move, lift, turn, scale, and cut the parts on the bed. A part obeys physics: if it cannot stand, it falls over.
 
 ![The Move tool on the Benchy: a blue box around the part, and the card of the part with its size and its actions](../img/part-card.webp "Click a part with the Move tool: its card opens next to it.")
 
 ## Select a part
 
-Click a part with the Move tool (M). With another tool, hold Ctrl and click. The card of the part opens:
+Click a part with the Move tool (M; R and G also pick it). With another tool, hold Ctrl and click. The gizmo shows on the part, and the card of the part opens next to it. The card shows the size of the part and its pose: **X** and **Y** (the place of its center), **Z** (the lift), and **↻X**, **↻Y**, **↻Z** (the turns about the axes of the bed). Type a value and press Enter. The card also has these actions:
 
 | Button | What it does |
 |---|---|
@@ -37,29 +37,37 @@ Hold Shift and click a part to add it to the selection. Shift and a click on a s
 
 To move them all, drag one of them with the Move tool (or Ctrl and a drag), or press the arrow keys. Each action is one step of the history: Ctrl+Z undoes it.
 
-## Move and turn
+## Move, lift, and turn
 
-- **Move.** Drag the part with the Move tool. The arrow keys move it 1 mm (Shift: 10 mm).
-- **Turn on the bed.** Turn the wheel over the part with the Move tool: 15° for each step.
-- **Turn about any axis.** Press R. Drag a ring: red turns about X, green about Y, blue about Z.
+![The gizmo on the Benchy: three rings and three arrows, red for X, green for Y, and blue for Z](../img/gizmo.webp "The gizmo of the Move tool: drag the part, an arrow, or a ring.")
 
-![The Turn tool on the Benchy: a red, a green, and a blue ring around the part](../img/turn-rings.webp "The Turn tool: drag a ring to turn the part, in steps of 15°.")
+The Move tool puts a gizmo on the selected part. The view moves the part on each frame of a drag, and the slice follows it.
+
+- **Move on the bed.** Drag the part itself. Its edges and its center snap to the edges and the centers of the other parts, and to the center of the bed. Thin magenta lines show the snap. Hold Shift for no snap. The arrow keys move the part 1 mm (Shift: 10 mm).
+- **Move along an axis.** Drag the red arrow (X) or the green arrow (Y).
+- **Lift.** Drag the blue arrow (Z), or press Page Up and Page Down (1 mm, Shift: 10 mm). The label shows the lift. A lift near 0 snaps to the bed.
+- **Turn.** Drag a ring: red turns the part about X, green about Y, blue about Z. A turn goes in steps of 15° (Shift: 1°), and the label shows the angle. The keys: [ and ] turn about Z, Ctrl+↑ and Ctrl+↓ about X, Ctrl+← and Ctrl+→ about Y. The wheel over the view turns the part 15° on the bed.
+
+The part never goes through the bed. A turn keeps the lowest point of the part on the bed, or at its lift. Each drag is one step of the history: Ctrl+Z undoes it.
+
+### A part over the bed
+
+Lift a part up, and it floats over the bed:
+
+- With support on, it prints on support. The support grows from the bed up to the part.
+- With support off, nothing holds the part. When the drag ends, the part falls to the bed, and a note says why.
+
+### A part in the bed
+
+Lift a part down, and it sinks into the bed. The slice starts at the bed, so the part under the bed does not print. The first layer is the section of the part at the bed: a flat face. Use it to cut off the bottom of a part, or to give a round part a flat base. At least 0.5 mm of the part stays over the bed. PrusaSlicer and OrcaSlicer let a part sink in the same way.
 
 ## A part falls over
 
 ![A board stands on its thin edge. A turn tips it, and it falls over onto its wide face](../img/fall.webp "A part that cannot stand falls over onto a face.")
 
-After a turn, zslice checks if the part can stand while it prints. The first layer and the brim stick to the bed, and the nozzle pushes on the top of the part from the side. If the bond of the first layer cannot hold the part against this push and its weight, the part falls onto a face, as on a real bed. A note says so. A brim makes the bond larger: a tall thin part that falls with no brim can stand with one, and the Check list says that the brim holds it. With support on, the support holds the part, and it stays as you turned it.
+After a turn, zslice checks if the part can stand while it prints. The first layer and the brim stick to the bed, and the nozzle pushes on the top of the part from the side. If the bond of the first layer cannot hold the part against this push and its weight, the part falls onto a face, as on a real bed. A note says so. A brim makes the bond larger: a tall thin part that falls with no brim can stand with one, and the Check list says that the brim holds it. With support on, the support holds the part, and it stays as you turned it. A drag of the part ends in the same way: it rests flat, unless support holds it.
 
-A project, a 3MF file, and the plate after a reload keep each part as you saved it. An open does not make a part fall.
-
-## Grab a part
-
-Press H for the Grab tool. Then:
-
-1. Click a part to pick it up.
-2. Move the pointer to carry it. The wheel lifts it. Alt and a move turn it (Shift: steps of 15°).
-3. Click again, or press Esc, to let go. With support off, the part falls and rests flat. With support on, it keeps its turn.
+A project, a 3MF file, and the plate after a reload keep each part as you saved it, with its lift. An open does not make a part fall.
 
 ## Placement
 

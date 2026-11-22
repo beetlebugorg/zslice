@@ -1287,8 +1287,8 @@ static void on_view_action(GSimpleAction *a, GVariant *v, gpointer data) {
 static void on_tool_action(GSimpleAction *a, GVariant *v, gpointer data) {
     Preview *p = data;
     static const struct { const char *name; ZgTool tool; } names[] = {
-        {"select", ZG_TOOL_SELECT}, {"move", ZG_TOOL_MOVE}, {"turn", ZG_TOOL_TURN}, {"measure", ZG_TOOL_MEASURE}, {"support", ZG_TOOL_SUPPORT},
-        {"grab", ZG_TOOL_GRAB}, {"label", ZG_TOOL_LABEL}, {"paint", ZG_TOOL_PAINT},
+        {"select", ZG_TOOL_SELECT}, {"move", ZG_TOOL_MOVE}, {"turn", ZG_TOOL_MOVE}, {"measure", ZG_TOOL_MEASURE}, {"support", ZG_TOOL_SUPPORT},
+        {"grab", ZG_TOOL_MOVE}, {"label", ZG_TOOL_LABEL}, {"paint", ZG_TOOL_PAINT},
     };
     const char *name = g_variant_get_string(v, NULL);
     for (size_t i = 0; i < G_N_ELEMENTS(names); i++)
@@ -1489,13 +1489,13 @@ static gboolean part_key(Preview *p, guint key, GdkModifierType mods) {
         gint64 i = zg_model_selected_part(p->model);
         int dir = key == GDK_KEY_ISO_Left_Tab || shift ? -1 : 1;
         gint64 j = i < 0 ? (dir > 0 ? 0 : (gint64)n - 1) : ((i + dir) % (gint64)n + (gint64)n) % (gint64)n;
-        ZgTool t = zg_model_tool(p->model);
-        if (t != ZG_TOOL_MOVE && t != ZG_TOOL_TURN) zg_model_set_tool(p->model, ZG_TOOL_MOVE);
+        if (zg_model_tool(p->model) != ZG_TOOL_MOVE) zg_model_set_tool(p->model, ZG_TOOL_MOVE);
         zg_model_select_part(p->model, j);
         return TRUE;
     }
-    if ((key == GDK_KEY_r || key == GDK_KEY_R) && !shift) {
-        zg_model_set_tool(p->model, ZG_TOOL_TURN);
+    /* R and G: other keys of the transform tool (M). */
+    if ((key == GDK_KEY_r || key == GDK_KEY_R || key == GDK_KEY_g || key == GDK_KEY_G) && !shift && !(mods & GDK_CONTROL_MASK)) {
+        zg_model_set_tool(p->model, ZG_TOOL_MOVE);
         return TRUE;
     }
     gint64 i = zg_model_selected_part(p->model);
@@ -1507,8 +1507,8 @@ static gboolean part_key(Preview *p, guint key, GdkModifierType mods) {
     }
     zs_part part;
     if (i < 0 || zs_app_part_get(core, (size_t)i, &part) != ZS_OK) return FALSE;
-    /* Several selected parts: D, Delete, and the arrows (out of the Turn
-     * tool) are for all of them. */
+    /* Several selected parts: D, Delete, and the arrows are for all of
+     * them. */
     guint many = 0;
     const gint64 *list = zg_model_parts(p->model, &many);
     if (many > 1) {
@@ -1522,7 +1522,7 @@ static gboolean part_key(Preview *p, guint key, GdkModifierType mods) {
         }
         int mx = key == GDK_KEY_Left ? -1 : key == GDK_KEY_Right ? 1 : 0;
         int my = key == GDK_KEY_Down ? -1 : key == GDK_KEY_Up ? 1 : 0;
-        if ((mx || my) && zg_model_tool(p->model) != ZG_TOOL_TURN) {
+        if ((mx || my) && !(mods & GDK_CONTROL_MASK)) {
             hold_for_keys(p);
             double step = shift ? 10 : 1;
             /* A copy: each move changes the plate and the list. */
@@ -1545,7 +1545,14 @@ static gboolean part_key(Preview *p, guint key, GdkModifierType mods) {
         zg_model_part_remove(p->model, (size_t)i);
         return TRUE;
     }
+    /* The keys of a part (as web/app/app.js, partKey): the arrows move it
+     * 1 mm (Shift: 10 mm); Page Up and Page Down lift it 1 mm (Shift: 10
+     * mm); Ctrl and the arrows turn it 15 degrees about X (Up and Down) or
+     * Y (Left and Right), Shift: 1 degree. [ and ] turn it about Z (see
+     * on_preview_key). The slice waits for a pause of the keys, and then
+     * the physics. */
     int dx = 0, dy = 0;
+    double step = shift ? 10 : 1;
     switch (key) {
     case GDK_KEY_Left: dx = -1; break;
     case GDK_KEY_Right: dx = 1; break;
@@ -1553,27 +1560,30 @@ static gboolean part_key(Preview *p, guint key, GdkModifierType mods) {
     case GDK_KEY_Down: dy = -1; break;
     case GDK_KEY_Page_Up:
     case GDK_KEY_Page_Down:
-        if (zg_model_tool(p->model) != ZG_TOOL_TURN) return FALSE;
+        if (mods & GDK_CONTROL_MASK) return FALSE;
         hold_for_keys(p);
-        zg_model_part_turn(p->model, (size_t)i, 1, (shift ? 5 : 15) * (key == GDK_KEY_Page_Up ? 1 : -1));
+        zg_model_part_lift(p->model, (size_t)i, round((part.z + (key == GDK_KEY_Page_Up ? step : -step)) * 100) / 100);
         return TRUE;
     default: return FALSE;
     }
     hold_for_keys(p);
-    if (zg_model_tool(p->model) == ZG_TOOL_TURN) {
-        double deg = shift ? 5 : 15;
-        if (dx != 0) zg_model_part_rotate(p->model, (size_t)i, part.rotation - dx * deg);
-        else zg_model_part_turn(p->model, (size_t)i, 0, dy * deg);
+    if (mods & GDK_CONTROL_MASK) {
+        double deg = shift ? 1 : 15;
+        if (dx != 0) zg_model_part_turn(p->model, (size_t)i, 1, dx * deg);
+        else zg_model_part_turn(p->model, (size_t)i, 0, -dy * deg);
         return TRUE;
     }
-    double step = shift ? 10 : 1;
     zg_model_part_move(p->model, (size_t)i, part.x + dx * step, part.y + dy * step);
     return TRUE;
 }
 
 static gboolean on_preview_key(GtkEventControllerKey *c, guint key, guint code, GdkModifierType mods, gpointer data) {
     Preview *p = data;
-    if (mods & (GDK_CONTROL_MASK | GDK_ALT_MASK | GDK_SUPER_MASK)) return FALSE;
+    /* Ctrl and an arrow turn a selected part (part_key). */
+    gboolean ctrl_arrow = (mods & GDK_CONTROL_MASK) && !(mods & (GDK_ALT_MASK | GDK_SUPER_MASK)) &&
+                          (key == GDK_KEY_Left || key == GDK_KEY_Right || key == GDK_KEY_Up || key == GDK_KEY_Down) &&
+                          zg_model_selected_part(p->model) >= 0;
+    if ((mods & (GDK_CONTROL_MASK | GDK_ALT_MASK | GDK_SUPER_MASK)) && !ctrl_arrow) return FALSE;
     /* Typing in a text field, and a popup menu (the context menu, the
      * color menu), keep their keys: Esc closes the menu, the arrows move
      * in it. */
@@ -1598,14 +1608,14 @@ static gboolean on_preview_key(GtkEventControllerKey *c, guint key, guint code, 
         zg_range_card_close(zg_range_card_of(p->view3d));
         return TRUE;
     }
-    /* The tools: V select, M move, G grab, T measure (a tape), S support
+    /* The tools: V select, M move (R and G too), T measure (a tape), S support
      * (U is its old key), P paint and E label (the key again closes the
      * tool). h and l step along the line (below). Esc clears a measure. */
     if (part_key(p, key, mods)) return TRUE;
     switch (key) {
     case GDK_KEY_v: case GDK_KEY_V: zg_model_set_tool(p->model, ZG_TOOL_SELECT); return TRUE;
     case GDK_KEY_m: case GDK_KEY_M: zg_model_set_tool(p->model, ZG_TOOL_MOVE); return TRUE;
-    case GDK_KEY_g: case GDK_KEY_G: zg_model_set_tool(p->model, ZG_TOOL_GRAB); return TRUE;
+    case GDK_KEY_g: case GDK_KEY_G: case GDK_KEY_r: case GDK_KEY_R: zg_model_set_tool(p->model, ZG_TOOL_MOVE); return TRUE;
     case GDK_KEY_t: case GDK_KEY_T: zg_model_set_tool(p->model, ZG_TOOL_MEASURE); return TRUE;
     case GDK_KEY_s: case GDK_KEY_S: case GDK_KEY_u: case GDK_KEY_U: zg_model_set_tool(p->model, ZG_TOOL_SUPPORT); return TRUE;
     case GDK_KEY_e: case GDK_KEY_E:
@@ -1615,7 +1625,6 @@ static gboolean on_preview_key(GtkEventControllerKey *c, guint key, guint code, 
         zg_model_set_tool(p->model, zg_model_tool(p->model) == ZG_TOOL_PAINT ? ZG_TOOL_SELECT : ZG_TOOL_PAINT);
         return TRUE;
     case GDK_KEY_Escape:
-        if (zg_view3d_hand_release(p->view3d)) return TRUE;
         if (zg_model_selected_part(p->model) >= 0) {
             zg_model_select_part(p->model, -1);
             return TRUE;
@@ -1961,9 +1970,9 @@ static void on_tool_changed_preview(ZgModel *model, gpointer data) {
     Preview *p = data;
     ZgTool t = zg_model_tool(model);
     if (!gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(p->tools[t]))) gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(p->tools[t]), TRUE);
-    /* The part stays selected for the Move, the Turn, and the Paint tool
-     * (it paints the selected part). */
-    if (t != ZG_TOOL_MOVE && t != ZG_TOOL_TURN && t != ZG_TOOL_PAINT) zg_model_select_part(model, -1);
+    /* The part stays selected for the Move and the Paint tool (it paints
+     * the selected part). */
+    if (t != ZG_TOOL_MOVE && t != ZG_TOOL_PAINT) zg_model_select_part(model, -1);
     /* The measure tape: a hint until the first point. */
     if (t == ZG_TOOL_MEASURE && zg_model_measure(model, NULL) == 0) {
         gtk_label_set_text(GTK_LABEL(p->measure_label), "Click a point of the print, or a circle or an arc for its size and center. Shift: no snap.");
@@ -2091,15 +2100,13 @@ static GtkWidget *colors_button(Preview *p) {
 }
 
 /* The tool strip at the left of the view: the tools of the mouse (Select,
- * Move, Turn, Support, Grab, Measure, Paint, Label), then the line tools
- * (Gaps, Check). Each button shows its key. */
+ * Move, Support, Measure, Paint, Label), then the line tools (Gaps,
+ * Check). Each button shows its key. */
 static GtkWidget *tool_strip(Preview *p) {
     static const struct { ZgTool tool; int glyph; const char *key, *tip; } tools[] = {
         {ZG_TOOL_SELECT, 0, "V", "Select (V): click a line to see what it is, its measurements, and the settings that change it."},
-        {ZG_TOOL_MOVE, 1, "M", "Move (M): drag a part to move it, and scroll over it to turn it. The same as Ctrl in the other tools. Tab: the next part."},
-        {ZG_TOOL_TURN, 3, "R", "Turn (R): click a part, then drag a ring to turn it about X, Y, or Z, in 15° steps (Shift: 5°). Keys: Left and Right (Z), Up and Down (X), Page Up and Page Down (Y)."},
+        {ZG_TOOL_MOVE, 1, "M", "Move (M, also R and G): click a part for its gizmo. Drag the part to carry it on the bed (it snaps to the other parts and the center; Shift: no snap). Drag an arrow to move along X or Y, or the blue arrow to lift the part (down: it sinks into the bed). Drag a ring to turn the part in steps of 15° (Shift: 1°). Keys: the arrows move 1 mm (Shift: 10), Page Up and Page Down lift, [ and ] turn about Z, Ctrl and the arrows turn about X and Y. Tab: the next part."},
         {ZG_TOOL_SUPPORT, 6, "S", "Support (S): point at an overhang, and click to put support under it. Alt and a click draw an area point by point; click the first point (or press Enter) to close it. Support grows under the area, or Block keeps support out. Click an outline to select it, and drag its points. Shift: no snap."},
-        {ZG_TOOL_GRAB, 7, "G", "Grab (G): click a part to pick it up; move the pointer to carry it. The wheel lifts it; Alt and a move turn it (Shift: steps of 15°). Click again, or press Esc, to let go: with support off it falls and rests flat; with support on it keeps its turn, and support holds it."},
         {ZG_TOOL_MEASURE, 2, "T", "Measure (T): click two points of the print. The ends of the lines snap; Shift turns the snap off. Esc clears."},
         {ZG_TOOL_PAINT, 10, "P", "Paint (P): paint filaments on the surface of a part. Smart select: click a raised letter, a logo, or a face; Shift adds more. Brush: drag over the surface."},
         {ZG_TOOL_LABEL, 9, "E", "Label (E): click a face of a part to put text or marks on it, in another filament. Drag a label to move it (Shift: keep its plane), turn the wheel over it to turn it (Shift: 15°), and drag its corner to scale it."},
