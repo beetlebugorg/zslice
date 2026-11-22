@@ -21,6 +21,22 @@ extension UTType {
     /// bytes, as STL (zs_app_load_stl sniffs the format).
     static let step = UTType(importedAs: "org.iso.step", conformingTo: .threeDContent)
     static let obj = UTType(importedAs: "public.geometry-definition-format", conformingTo: .threeDContent)
+
+    /// The model files that zslice opens: its own types, and the type that
+    /// macOS gives each extension now. Another slicer can claim .3mf or
+    /// .step with a type of its own (Bambu Studio: com.bambulab.3mf and
+    /// com.bambulab.step), and macOS then types the files with it, so a
+    /// list of zslice's types alone refuses them.
+    static let models: [UTType] = {
+        var out: [UTType] = [.threeMF, .stl, .step, .obj]
+        for e in ["3mf", "stl", "step", "stp", "obj"] {
+            if let t = UTType(filenameExtension: e), !out.contains(t) { out.append(t) }
+        }
+        return out
+    }()
+
+    /// A 3MF file, of zslice's type or of another slicer's.
+    var isThreeMF: Bool { self == .threeMF || preferredFilenameExtension == "3mf" || tags[.filenameExtension]?.contains("3mf") == true }
 }
 
 /// The document of a window: a project file (all plates, ProjectFile.swift),
@@ -31,7 +47,7 @@ extension UTType {
 /// A model file (STL, STEP, OBJ, or a 3MF that is not a project) becomes an untitled
 /// document after the load, so a save never writes over the model.
 final class ProjectDocument: ReferenceFileDocument, @unchecked Sendable {
-    static let readableContentTypes: [UTType] = [.threeMF, .stl, .step, .obj]
+    static let readableContentTypes: [UTType] = UTType.models
     static let writableContentTypes: [UTType] = [.threeMF]
 
     let data: Data
@@ -128,7 +144,9 @@ struct ZSliceApp: App {
         // Open does, and logs the windows 3 s later (for tests).
         if let path = ProcessInfo.processInfo.environment["ZSLICE_OPEN_AFTER"] {
             DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
-                NSDocumentController.shared.openDocument(withContentsOf: URL(fileURLWithPath: path), display: true) { _, _, _ in }
+                NSDocumentController.shared.openDocument(withContentsOf: URL(fileURLWithPath: path), display: true) { _, _, error in
+                    if let error { NSLog("zslice open: %@", error.localizedDescription) }
+                }
                 DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
                     NSLog("zslice windows: %@", NSApp.windows.filter(\.isVisible).map(\.title).joined(separator: ", "))
                 }
