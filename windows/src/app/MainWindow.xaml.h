@@ -529,6 +529,10 @@ namespace winrt::ZSlice::implementation
         void FillLineCard();
         // The filament of a body of a line (MainWindow.Range.cpp).
         void FillLineFilament();
+        // The support mark of the user at the selected line.
+        void WireLineMark();
+        void FillLineMark();
+        int64_t MarkOfSelection();
         void DrawLineChips();
         void PickLineFilament(int filament);
         void ExtendLineFilament(int direction);
@@ -735,6 +739,8 @@ namespace winrt::ZSlice::implementation
         int anchor_feature = 0;
         double click_x = 0, click_y = 0;
         bool line_card_moved = false;
+        int64_t line_mark = -1;
+        bool line_mark_filling = false;
         // The body of the last filament pick: the beads above and below,
         // taken before the slice numbers the lines again.
         struct LineBody

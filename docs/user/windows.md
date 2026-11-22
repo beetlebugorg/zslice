@@ -119,6 +119,8 @@ A card opens beside the layers. It has the filament of the layers and the settin
 
 The card of a selected line has a **Filament** row. A chip gives the body of that line its own filament on its layer. **Also the layers above** and **Also the layers below** then give the same filament to the layers where the body goes on.
 
+A line at a support mark that you added shows **Support you added** on its card: the kind, the radius, and **Remove**.
+
 ### Layer profiles
 
 A layer profile is a name for some layers and their changes. Right-click a line and choose **New profile from here up** or **New profile from here down**. The settings pane then shows a bar with the name and the layers, and each change in the pane is for these layers only. A setting for the whole print stays dim, and a change to it still changes the whole print. The pencil renames the profile, the bin deletes it and its changes, and **Done** ends the edit.
