@@ -471,6 +471,20 @@
                         <TextBlock x:Name="LineNote" TextWrapping="WrapWholeWords" FontSize="12" Foreground="#B45309" />
                         <TextBlock x:Name="LineNozzle" TextWrapping="WrapWholeWords" FontSize="12" Opacity="0.85" Visibility="Collapsed" />
                         <TextBlock x:Name="LineSize" TextWrapping="WrapWholeWords" FontSize="12" Foreground="{ThemeResource ZsDim}" />
+                        <Grid ColumnSpacing="6" Margin="0,4,0,0">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel VerticalAlignment="Center" Background="Transparent"
+                                        ToolTipService.ToolTip="A filament for the body of this line on its layer only: the lines joined to it. The paint of the part keeps it.">
+                                <TextBlock Text="Filament" FontSize="13" />
+                                <TextBlock Text="This part of the layer" FontSize="11" Opacity="0.7" TextWrapping="WrapWholeWords" />
+                            </StackPanel>
+                            <VariableSizedWrapGrid x:Name="LineFilamentChips" Grid.Column="1" Orientation="Horizontal" ItemWidth="30" ItemHeight="30"
+                                                   MaximumRowsOrColumns="6" HorizontalAlignment="Right" VerticalAlignment="Center" />
+                        </Grid>
+                        <StackPanel x:Name="LineExtend" Visibility="Collapsed" />
                         <StackPanel x:Name="LineSettings" Spacing="4" />
                         <StackPanel Orientation="Horizontal" Spacing="6">
                             <ToggleButton x:Name="LineFade" Content="Fade the others"

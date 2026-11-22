@@ -481,6 +481,15 @@ namespace winrt::ZSlice::implementation
         Microsoft::UI::Dispatching::DispatcherQueueTimer dev_timer{ nullptr };
 #endif
         void FillLineCard();
+        // The filament of a body of a line (MainWindow.Range.cpp).
+        void FillLineFilament();
+        void DrawLineChips();
+        void PickLineFilament(int filament);
+        void ExtendLineFilament(int direction);
+        void ClearLineExtend();
+        void LightLine(int64_t path, size_t lo, size_t hi, int filament);
+        void LineLightAfterSlice();
+        bool PaintBeads(std::vector<float> const &beads, int filament);
         void FillPartCard();
         void FillPartOrder();
         void MovePartInOrder(int direction);
@@ -502,6 +511,10 @@ namespace winrt::ZSlice::implementation
         int PartFilament(int64_t part);
         Microsoft::UI::Xaml::Controls::Button MakeFilamentChip(std::string const &color, std::wstring const &text, bool selected);
         int64_t AddFilament();
+        // One chip for each filament of the plate, and "+". The panel stays
+        // as it is while its filaments and its value stay.
+        void FillFilamentChips(Microsoft::UI::Xaml::Controls::VariableSizedWrapGrid const &panel, std::string &key_store, int value, std::wstring const &what,
+                               std::function<void(int)> const &pick);
         void FilamentsChanged();
         void RefreshFilamentTools();
         void FillPartExtras();
@@ -650,6 +663,20 @@ namespace winrt::ZSlice::implementation
         int anchor_feature = 0;
         double click_x = 0, click_y = 0;
         bool line_card_moved = false;
+        // The body of the last filament pick: the beads above and below,
+        // taken before the slice numbers the lines again.
+        struct LineBody
+        {
+            std::vector<float> above, below;
+            // The filament of the pick. The line that the next slice selects
+            // can have another filament.
+            int filament = 0;
+            Microsoft::UI::Xaml::Controls::Button above_button{ nullptr }, below_button{ nullptr };
+        };
+        LineBody line_body;
+        int line_filament = 0;
+        std::string line_chips_key;
+        bool line_lit = false;
         bool part_card_moved = false;
         std::vector<SettingEditor> line_editors;
         // A drag of a tool.
