@@ -177,6 +177,22 @@ struct SearchToolbarItem: View {
                         workspace.closeSearch()
                         return .handled
                     }
+                // The key of the search while it is closed; × closes the
+                // results that show.
+                if search.open {
+                    Button { workspace.closeSearch() } label: {
+                        Image(systemName: "xmark").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                    }
+                    .buttonStyle(.borderless)
+                    .help("Close the search (Esc)")
+                } else {
+                    Text("/")
+                        .font(.caption.monospaced())
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 5)
+                        .overlay(RoundedRectangle(cornerRadius: 3).strokeBorder(.separator))
+                        .help("Press / to search")
+                }
                 Button {
                     search.docked = false
                     search.show()
@@ -256,7 +272,14 @@ struct SearchOverlay: View {
                 }
                 .padding(10)
             }
-            if !search.query.isEmpty {
+            if search.query.isEmpty {
+                Divider()
+                Text("Type a setting (infill, walls, brim, speed) or an action (export, arrange, print).")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(10)
+            } else {
                 Divider()
                 ScrollView {
                     VStack(alignment: .leading, spacing: 0) {
@@ -310,7 +333,12 @@ struct SearchOverlay: View {
 
     /// The kept width of the card; the results under the toolbar have the
     /// plain width.
+    /// The width of the results under the field of the toolbar, as on
+    /// the web, within the window.
+    static let dockedWidth: CGFloat = 640
+
     private var cardWidth: CGFloat {
+        if search.docked { return min(Self.dockedWidth, max(300, area.width - 16)) }
         if !search.docked, !search.rail.isEmpty { return Self.railWidth }
         guard !search.docked, let s = SpatialStore.shared.size("search") else { return Self.width }
         return max(s.width, 300)
@@ -439,6 +467,7 @@ private struct SearchRow: View {
                     .padding(.leading, 26)
             }
         }
+        .environment(\.searchColumns, !stacked)
         .padding(.horizontal, 10)
         .padding(.vertical, 6)
         .background(selected ? Color.accentColor.opacity(0.15) : .clear)

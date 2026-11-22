@@ -302,8 +302,9 @@ struct ViewCommands: Commands {
                 .help("The bed and its grid do not draw, so the bottom of a part shows from below (B)")
                 .disabled(workspace == nil)
             Divider()
+            // Gaps has no key (the user's choice): the menu item and the
+            // button of the tool strip.
             Button("Show Gaps") { workspace?.toggleGaps() }
-                .keyboardShortcut("g", modifiers: [.command, .shift])
                 .disabled(workspace == nil)
             Button("Check the Print") { workspace?.checkOpen.toggle() }
                 .keyboardShortcut("k", modifiers: [.command, .shift])

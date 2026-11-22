@@ -454,9 +454,12 @@ struct SettingEditor: View {
             .labelsHidden()
             .fixedSize()
         case .text where info.multiline && compact:
-            Text(ValueText.display(info, entry.value))
+            // A text of many lines (G-code): its count of lines, never a
+            // cut line. The editor of the setting has the whole text.
+            let lines = entry.value.split(separator: "\n", omittingEmptySubsequences: false)
+            Text(lines.count > 1 ? "\(lines.count) lines" : ValueText.display(info, entry.value))
                 .foregroundStyle(.secondary)
-                .lineLimit(1)
+                .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: 170, alignment: .trailing)
         case .text where info.multiline:
             MultilineEditor(model: model, info: info, entry: entry)
@@ -467,7 +470,14 @@ struct SettingEditor: View {
 }
 
 /// A field for a number or a line of text, with the unit after it.
+extension EnvironmentValues {
+    /// The rows of the search: the unit and the speed hint have columns of
+    /// their own, so the fields of all rows line up, with a hint or not.
+    @Entry var searchColumns = false
+}
+
 struct ValueField: View {
+    @Environment(\.searchColumns) private var columns
     let model: SliceModel
     let info: SettingInfo
     let entry: SettingEntry
@@ -525,14 +535,19 @@ struct ValueField: View {
                     // while its editor has the focus.
                     model.history.setFocus(focused ? info.name : nil)
                 }
-            if !info.unit.isEmpty {
+            if !info.unit.isEmpty || columns {
                 Text(info.unit).foregroundStyle(.secondary).font(.callout)
+                    .frame(minWidth: columns ? 40 : nil, alignment: .leading)
             }
             // A speed ratio: the speed in mm/s that it gives on this printer.
+            // In the search, a column of its own, also empty.
             if let mmS = ratioSpeed {
                 Text("≈ \(Int(mmS.rounded())) mm/s")
                     .foregroundStyle(.secondary).font(.callout).monospacedDigit()
+                    .frame(minWidth: columns ? 86 : nil, alignment: .trailing)
                     .help("The speed of this ratio on this printer, for a line of the line width at the layer height (the flow limit can make it lower).")
+            } else if columns, info.isNumber {
+                Color.clear.frame(width: 86, height: 1)
             }
         }
         .onAppear { text = ValueText.display(info, entry.value) }

@@ -51,7 +51,6 @@ struct ShortcutSheet: View {
             ("T", "Measure: click two points (Shift: no snap)"),
             ("P", "Paint: click a region of a part to paint it with a filament (Shift: add more), or drag the brush; Esc closes"),
             ("E", "Label: click a face of a part to put a label there. Drag it to move it (Shift: in its plane), the wheel over it turns it (Shift: 15°), its handle scales it, Delete removes it; Esc closes the card, then the tool"),
-            ("⇧⌘G", "Gaps: show the gaps of the top layer"),
             ("⌘-drag", "Move a part in any tool"),
             ("⌘-scroll", "Turn the selected part by 15°"),
             ("Tab, ⇧Tab", "Select the next part, or the part before"),

@@ -54,7 +54,7 @@ The tools are at the left of the view. Each has a key:
 | Paint | P | Paint filaments on a part. |
 | Label | E | Put text or a mark on a part, in another filament. |
 
-Under the tools, after a line, are the colors of the lines and the legend (a legend icon), Gaps (Shift-Command-G), and Check. Paint has the palette icon. H and L are free for the vim keys: h and l step the nozzle, or the selected line, back and on, and Shift-H and Shift-L step a whole line.
+Under the tools, after a line, are the colors of the lines and the legend (a legend icon), Gaps (no key; also View > Show Gaps), and Check. Paint has the palette icon. H and L are free for the vim keys: h and l step the nozzle, or the selected line, back and on, and Shift-H and Shift-L step a whole line.
 
 The × at the top right of a card closes it. Notes of the app show at the bottom of the view, over the bar.
 
@@ -70,7 +70,7 @@ At the right end are the time of the print, with the plastic, the cost, and the 
 
 After a change, the view gets a quick draft of the slice first, and the exact slice follows when you stop changing for 0.3 s (or let go of a drag). While the view has a draft, Export and Print wait, and the details keep the numbers of the last exact slice. A thin bar at the top of the view shows the work that runs (the draft, the exact slice, the simulated print), with small dim text such as "Draft 161 ms · Exact 461 ms".
 
-Click the time to open the details: the notes, the totals, your usual refinements, the main settings, and the filaments. An orange badge such as "3 to check" counts the problems of the Check (a warning or worse), the same count as on the Check button of the tool strip. A red or orange badge that says Check means another note on the print. The details stay shut until you click, so they never cover the part. A blue badge counts your usual refinements.
+Click the time to open the details: the notes, the totals, your usual refinements, the main settings, and the filaments. A red badge such as "3 to check" counts the problems of the Check (a warning or worse), the same count as on the Check button of the tool strip. A red badge that says Check means another note on the print, and a blue one counts your usual refinements ("2 refinements"). The details stay shut until you click, so they never cover the part. A blue badge counts your usual refinements.
 
 ### The cards
 
@@ -132,7 +132,7 @@ The keys of the other apps work in the 3D view. A key with Ctrl in the other app
 | The 3D view | 3 |
 | Fit the part | Command-0 |
 | Hide the bed, or show it again | B (or View > Hide the Bed) |
-| Gaps, Check | Shift-Command-G, Shift-Command-K |
+| Check | Shift-Command-K |
 | The Printers page | Option-Command-P |
 | The history | Command-Y |
 | New plate | Option-Command-N |
@@ -144,7 +144,7 @@ The keys of the other apps work in the 3D view. A key with Ctrl in the other app
 
 ### The search
 
-The search field is always in the toolbar. Type `/`, or click in it, and type the words of a setting or an action; the results show under it. Up and Down go through the results. Return runs an action or turns a switch on or off. Esc, or `/` again, hides the results.
+The search field is always in the toolbar; a small `/` in it shows its key. Type `/`, or click in it: the results show under it at once (× closes them), and the words of a setting or an action fill them. The fields of the results line up in one column. Up and Down go through the results. Return runs an action or turns a switch on or off. Esc, or `/` again, hides the results.
 
 The button at the right end of the field undocks the search: it becomes a card over the view, with its own field. Drag its head to move it, and its corner to resize it. It opens at the same place and size next time, and zslice keeps the choice to undock. While it is undocked, the toolbar has a Search button that opens the card. The dock button of the card puts the search back in the toolbar. The buttons in the head of the results also pin the search to the left of the view (beside the tool strip) or to the right (beside the layer slider): a rail the height of the view, with the name of each setting over its control. A click in the view closes the results under the toolbar (a drag to turn or pan keeps them). The card and the rails stay open until × or Esc.
 
