@@ -162,6 +162,7 @@ namespace winrt::ZSlice::implementation
         });
         WireHistory();
         WireProfiles();
+        WireScope();
         ShowSections();
     }
 
@@ -439,6 +440,18 @@ namespace winrt::ZSlice::implementation
         ShowSections();
     }
 
+    // A setting that the scope cannot have shows, and is off.
+    void MainWindow::TurnOffForScope(FrameworkElement const &editor, zs_setting_info const &info)
+    {
+        if (ScopeEditable(info))
+            return;
+        auto grid = editor.try_as<Grid>();
+        auto control = (grid != nullptr ? grid.Children().GetAt(0) : editor).try_as<Control>();
+        if (control != nullptr)
+            control.IsEnabled(false);
+        ToolTipService::SetToolTip(editor, box_value(ScopeOffTip()));
+    }
+
     FrameworkElement MainWindow::MakeSettingRow(zs_setting_info const &info)
     {
         Grid row;
@@ -464,7 +477,8 @@ namespace winrt::ZSlice::implementation
         });
         row.Children().Append(label);
 
-        FrameworkElement editor = MakeEditor(info, in_profile ? profile_target : nullptr);
+        FrameworkElement editor = MakeEditor(info, PaneTarget());
+        TurnOffForScope(editor, info);
         // A row with a note under its name is taller than its editor.
         editor.VerticalAlignment(VerticalAlignment::Center);
         Grid::SetColumn(editor, 1);
@@ -642,6 +656,7 @@ namespace winrt::ZSlice::implementation
             return;
         ClearSettingsList();
         settings_page = SettingsPage::Detail;
+        settings_detail = name;
         SettingsBack().Visibility(Visibility::Visible);
         SettingsCrumb().Text(std::wstring(TitleOf(info.group)) + L" › " + zs::ToWide(info.section));
 
@@ -651,7 +666,9 @@ namespace winrt::ZSlice::implementation
         TextBlock title = Wrapped(zs::ToWide(info.label), 18);
         title.FontWeight(Microsoft::UI::Text::FontWeights::SemiBold());
         page.Children().Append(title);
-        page.Children().Append(MakeEditor(info, in_profile ? profile_target : nullptr));
+        FrameworkElement detail_editor = MakeEditor(info, PaneTarget());
+        TurnOffForScope(detail_editor, info);
+        page.Children().Append(detail_editor);
 
         TextBlock source = Wrapped(L"", 12);
         source.Foreground(Brush(0x5B, 0x61, 0x68));
@@ -670,7 +687,7 @@ namespace winrt::ZSlice::implementation
         page.Children().Append(source_row);
 
         std::string key = info.name;
-        auto fill_source = [this, source, reset, key, per_layer = info.per_layer != 0, default_value = std::string(info.default_value != nullptr ? info.default_value : "")]() mutable {
+        auto fill_source = [this, source, reset, key, per_layer = info.per_layer != 0, per_part = info.per_part != 0, default_value = std::string(info.default_value != nullptr ? info.default_value : "")]() mutable {
             if (model == nullptr)
                 return;
             if (in_profile)
@@ -687,6 +704,32 @@ namespace winrt::ZSlice::implementation
             }
             reset.Content(box_value(L"Reset"));
             reset.Opacity(1);
+            if (ScopeIsGlobal())
+            {
+                bool print = key.rfind("project.", 0) == 0;
+                source.Text(print ? L"Global: for all prints, under the quality profile. Default: " + DisplayValue(key.c_str(), default_value, true)
+                                  : std::wstring(L"Printer and filament settings are in their profiles (the menus at the top)."));
+                reset.IsEnabled(print);
+                reset.Opacity(print ? 1 : 0);
+                return;
+            }
+            if (settings_scope >= 0)
+            {
+                if (!per_part)
+                {
+                    source.Text(L"The same for all the parts of a print. Change it with \"Settings for: This print\".");
+                    reset.IsEnabled(false);
+                    reset.Opacity(0);
+                    return;
+                }
+                std::string own;
+                if (PartOwnValue(key, own))
+                {
+                    source.Text(L"Changed for this part. Reset gives the value of the print (" + DisplayValue(key.c_str(), model->GetSetting(key.c_str()), true) + L").");
+                    reset.IsEnabled(true);
+                    return;
+                }
+            }
             std::wstring text = L"From: " + zs::ToWide(model->SourceTag(key.c_str()));
             text += L"\nDefault: " + DisplayValue(key.c_str(), default_value, true);
             source.Text(text);
@@ -697,13 +740,15 @@ namespace winrt::ZSlice::implementation
         reset.Click([this, key](auto &&, auto &&) {
             if (in_profile)
                 ProfileClear(key);
+            else if (ScopeReset(key))
+                return;
             else if (model != nullptr)
                 CommitSetting(key, model->BaseValue(key.c_str()));
         });
 
         // A formula makes the value follow other settings. It is for the
-        // whole print, so a layer profile has none.
-        if (info.kind != ZS_SETTING_TEXT && !in_profile)
+        // whole print, so a layer profile, a part, and Global have none.
+        if (info.kind != ZS_SETTING_TEXT && PaneTarget() == nullptr)
         {
             TextBox formula;
             formula.Header(box_value(L"Formula"));
@@ -822,6 +867,7 @@ namespace winrt::ZSlice::implementation
         RangeRefresh();
         CuraSettingsChanged();
         ProfilesRefresh();
+        ScopeRefresh();
     }
 
     // The history commits 400 ms after the last change.

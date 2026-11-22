@@ -36,6 +36,7 @@ A build with `-p:ZsDevHooks=true` reads `ZSLICE_DO`: steps with `;` between them
 | `src/app/MainWindow.Tools.cpp` | The tool strip, the pointer, the keys, the selection, Move, Turn, Grab, and Measure. |
 | `src/app/MainWindow.Cards.cpp` | The line card and the part card, placed beside what they describe. |
 | `src/app/MainWindow.Profiles.cpp` | The layer profiles of the settings pane, and their marks on the layer rail. |
+| `src/app/MainWindow.Scope.cpp` | "Settings for" of the settings pane: this print, the global settings, or one part. |
 | `src/app/MainWindow.Range.cpp` | The card of a range of layers: the drag of the Select tool, Shift+K and Shift+J, the light, the overrides, and the search of these layers. |
 | `src/app/MainWindow.View.cpp` | The line colors, the print as it forms, the replay, the gaps, the check, and the bed. |
 | `src/app/MainWindow.Filaments.cpp` | The filament button and its list, the round chips, and the filament, label, and paint rows of the part card. |
@@ -89,6 +90,7 @@ A build with `-p:ZsDevHooks=true` reads `ZSLICE_DO`: steps with `;` between them
 - The list of the parts of a plate is its print order with `project.print_sequence = by_object`. **Print earlier** and **Print later** call `zs_app_part_reorder`, and the selection follows the part.
 - A layer profile in edit gives each editor of the pane `profile_target`. It reads the value at the range and sets an override of the range. A setting with no `per_layer` still goes to the whole print. `ProfilesRefresh` follows each edit, undo, and scene, and rebuilds the rows after the event of the editor, because the editor can go away with its row.
 - `PlateRefusal` wraps `zs_app_plate_printable`. A plate with a part that does not fit has a slice, but `zs_app_gcode` returns `ZS_PART_TOO_LARGE`. Each path that makes a file checks it first, so no empty file goes to a disk or a printer.
+- `PrinterSetup` keeps `global.toml` and `formulas.txt` in the state folder. `ApplyEnginePrefs` gives the global text to each plate. The session of the core has no formulas, so the app text of the session keeps them for each plate, as hex.
 - `ShowSpeedSection` builds the Speed section from `zs_speed_get`. The switch has no value of its own: `zs_app_speed_state` reads it from the options. `engine.threads`, `engine.draft_slices`, and `engine.auto_simulate` are app preferences. `ApplyEnginePrefs` gives them to each plate, and `KeepEnginePref` saves a change made in the pane.
 - The section list shows "Second nozzle" only with `machine.nozzles` at 2. `RefreshSettingValues` builds the list again when that changes. The line card reads the nozzle of the line from `zs_inspect.nozzle` and `nozzle_text`.
 - A change of a plate with a slice gives a draft (`zs_app_set_draft`). `Model::LiveChange` starts a timer of 300 ms, and `Model::Settle` starts the exact slice at its end or at the end of a drag. A draft has no G-code, so the file, the session, the refinements, and a batch wait for the exact slice.

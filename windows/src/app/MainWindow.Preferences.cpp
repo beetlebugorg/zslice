@@ -1229,6 +1229,22 @@ namespace winrt::ZSlice::implementation
                     continue;
                 zs_app_setting_set(app, key, want.c_str());
             }
+            // The global settings are for all prints.
+            if (printers != nullptr)
+            {
+                std::string const &global = printers->setup.GlobalText();
+                size_t global_len = 0;
+                std::string have;
+                if (zs_app_global_write(app, nullptr, 0, &global_len) == ZS_OK)
+                {
+                    have.assign(global_len + 1, '\0');
+                    zs_app_global_write(app, have.data(), have.size(), &global_len);
+                    have.resize(global_len);
+                }
+                char message[256] = "";
+                if (have != global && zs_app_global_set(app, global.data(), global.size(), message, sizeof message) == ZS_OK && !idle && i != active)
+                    zs_set_changed(set, i);
+            }
         }
     }
 

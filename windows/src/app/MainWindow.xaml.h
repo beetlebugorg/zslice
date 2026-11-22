@@ -170,6 +170,20 @@ namespace winrt::ZSlice::implementation
         void ShowSpeedSection();
         // The layer profiles (MainWindow.Profiles.cpp).
         void WireProfiles();
+        // "Settings for" (MainWindow.Scope.cpp).
+        void WireScope();
+        std::shared_ptr<EditorTarget> PaneTarget();
+        bool ScopeEditable(zs_setting_info const &info);
+        wchar_t const *ScopeOffTip();
+        bool ScopeIsGlobal() const;
+        bool PartOwnValue(std::string const &name, std::string &out);
+        std::string ScopeValue(std::string const &name);
+        void ScopeSet(std::string const &name, std::string const &value);
+        bool ScopeReset(std::string const &name);
+        void GlobalChanged();
+        void SetSettingsScope(int64_t scope);
+        void FillScopeList();
+        void ScopeRefresh();
         void AppendProfileRows();
         void OpenProfile(double z_min, double z_max);
         void EnterProfile(double z_min, double z_max);
@@ -191,6 +205,7 @@ namespace winrt::ZSlice::implementation
         void SettingsGoBack();
         void ClearSettingsList();
         Microsoft::UI::Xaml::FrameworkElement MakeSettingRow(zs_setting_info const &info);
+        void TurnOffForScope(Microsoft::UI::Xaml::FrameworkElement const &editor, zs_setting_info const &info);
         Microsoft::UI::Xaml::FrameworkElement MakeEditor(zs_setting_info const &info, std::shared_ptr<EditorTarget> const &target = nullptr);
         void CommitSetting(std::string const &name, std::string const &value);
         void CommitSettingText(zs_setting_info const &info, std::wstring const &text, EditorTarget const *target = nullptr);
@@ -283,6 +298,7 @@ namespace winrt::ZSlice::implementation
 #ifdef ZS_DEV_HOOKS
         bool RunRangeStep(std::wstring const &verb, std::vector<std::wstring> const &words);
         bool RunProfileStep(std::wstring const &verb, std::vector<std::wstring> const &words);
+        bool RunScopeStep(std::wstring const &verb, std::vector<std::wstring> const &words);
         Microsoft::UI::Xaml::UIElement RangeDevRoot();
 #endif
 
@@ -624,6 +640,13 @@ namespace winrt::ZSlice::implementation
         char const *settings_section = nullptr;
         // The Faster slicing switch while the Speed section shows.
         Microsoft::UI::Xaml::Controls::ToggleSwitch speed_toggle{ nullptr };
+        // "Settings for": -1 this print, -2 global, else a part.
+        int64_t settings_scope = -1;
+        zs_app *scope_app = nullptr;
+        bool filling_scope = false;
+        std::vector<std::wstring> scope_items;
+        std::shared_ptr<EditorTarget> scope_target;
+        std::string settings_detail;
         // The layer profile in edit, and the marks of the layer rail.
         bool in_profile = false;
         double profile_min = 0, profile_max = 0;

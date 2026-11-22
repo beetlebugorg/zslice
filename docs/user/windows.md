@@ -218,6 +218,8 @@ Press Ctrl+, or choose **Preferences** in the main menu.
 
 **General** has the theme, the view at the start of the app, the number of slicer threads, **Draft slices during edits**, **Show the print as it forms after each slice**, and the folder of the settings files.
 
+**Settings for** at the top of the settings pane says what a change is for: **This print**, **Global** (all your prints, under the quality profile), or one part. A setting that the choice cannot have shows and is off. Formulas and global settings stay after a restart.
+
 The **Speed** section at the top of the settings pane lists the options that change the time of a slice, with the gain and the cost of each. **Faster slicing** sets all of them to their faster values. It reads **Custom** when one option has another value.
 
 The Windows app has no USB connection yet, and it does not keep filament settings for each roll in the printer.
