@@ -1,4 +1,4 @@
-# Web, Linux, and Mac
+# Web, Linux, Mac, and Windows
 
 The apps have the same window and the same tools. The pictures of this guide show the web app.
 

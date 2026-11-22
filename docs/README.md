@@ -33,7 +33,7 @@ zslice runs in your browser at [zslice.beetlebug.org](https://zslice.beetlebug.o
 - [Formulas and rules](user/expert.md): settings for some layers, formulas, and path rules.
 - [Profiles](user/profiles.md): machine, filament, and project files, with inheritance.
 - [The command line](user/command-line.md): slice with no window, check a slice, and measure the speed.
-- [Web, Linux, and Mac](user/apps.md): where the apps differ.
+- [Web, Linux, Mac, and Windows](user/apps.md): where the apps differ.
 - [The macOS app](user/macos.md): the keys, the drawer, printers, and the Keychain.
 - [Problems and errors](user/troubleshooting.md): what each error means and what to do.
 

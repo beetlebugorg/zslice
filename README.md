@@ -78,7 +78,7 @@ zig build web                           # the web app: zig-out/web/app
 zslice slice part.stl -o part.gcode     # slice a part
 ```
 
-The Linux app (GTK 4) and the macOS app (SwiftUI and Metal) are in `linux/` and `macos/`. See [Web, Linux, and Mac](https://zslice.beetlebug.org/user/apps/).
+The Linux app (GTK 4) and the macOS app (SwiftUI and Metal) are in `linux/` and `macos/`. See [Web, Linux, Mac, and Windows](https://zslice.beetlebug.org/user/apps/).
 
 ## Install
 
