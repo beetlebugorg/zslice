@@ -327,6 +327,13 @@ pub fn main(init: std.process.Init) !void {
     // The mesh has its own copy of the data, so the file buffer can go now.
     gpa.free(bytes);
     defer m.deinit(gpa);
+    // Each part stands on the bed: a plate slices from z 0 (PartInput
+    // takes a mesh in the frame of the plate), and a file can have its
+    // lowest point at any z (a CAD export at z -80, for example).
+    if (loaded) |*l| {
+        for (l.parts) |*p| if (p.mesh.faces.items.len > 0) p.mesh.translate(0, 0, -p.mesh.bounds().min[2]);
+    }
+    if (m.faces.items.len > 0) m.translate(0, 0, -m.bounds().min[2]);
     var parts_plan: ?zslice.part_settings.Plan = null;
     defer if (parts_plan) |*pp| pp.deinit();
     var part_inputs: std.ArrayList(zslice.plate_job.PartInput) = .empty;
