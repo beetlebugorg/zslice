@@ -50,7 +50,8 @@ enum zs_event {
     ZS_EVENT_CANCELED = 4,
     ZS_EVENT_PLATES = 5,   /* a plate set: the list or a status changed */
     ZS_EVENT_SIMULATED = 6, /* the simulated print of the slice is ready
-                              (zs_app_set_auto_simulate) */
+                              (zs_app_set_auto_simulate; none with
+                              engine.auto_simulate off) */
     ZS_EVENT_CHECKED = 7 /* the check of the slice is ready (zs_app_set_auto_checks):
                             zs_app_checks returns it at once */
 };
@@ -1358,9 +1359,13 @@ int zs_app_is_draft(const zs_app *app);
  * slices stay exact. A shell then slices each change at once. */
 
 /* ---- the Speed group ----
- * The options that change the time of a slice, in one list for the
+ * The print settings that change the time of a slice, in one list for the
  * settings panel: a "Speed" section that lists them with the note of each
- * (its measured gain and cost). The "Faster slicing" switch at the top of
+ * (its measured gain and cost). Each changes the G-code, and the project
+ * keeps it. The app options that change only the time of the work
+ * (engine.threads, engine.draft_slices, engine.auto_simulate) go in the
+ * Preferences of the app: zs_speed_prefs_note is the line at the end of
+ * the section that says so. The "Faster slicing" switch at the top of
  * the section sets the options with a faster value (faster is not empty);
  * off puts back their defaults, the exact slice. The switch has no value
  * of its own: zs_app_speed_state reads it from the options, so a change of
@@ -1377,6 +1382,9 @@ size_t zs_speed_count(void);
 int zs_speed_get(size_t index, zs_speed_option *out);
 /* The help of the Faster slicing switch, for its row. */
 const char *zs_speed_switch_note(void);
+/* The line at the end of the Speed section: the app options are in the
+ * Preferences. */
+const char *zs_speed_prefs_note(void);
 /* 0 off (the exact defaults), 1 on, 2 custom. */
 int zs_app_speed_state(const zs_app *app);
 /* Faster slicing on (1) or off (0): sets the options of the switch, each

@@ -12,7 +12,7 @@ import { statusText } from "./wasm.js";
 
 // The settings that are app preferences: the same for each plate and each
 // project. They change no G-code.
-export const APP_PREFS = ["engine.threads", "engine.draft_slices"];
+export const APP_PREFS = ["engine.threads", "engine.draft_slices", "engine.auto_simulate"];
 
 export const GROUPS = ["machine", "filament", "project"];
 export const STATE = { empty: 0, ready: 1, slicing: 2, done: 3, failed: 4 };

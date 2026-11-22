@@ -175,7 +175,8 @@ const app = {
   focusFirst: false,
   focus2d: 0,
   // The page of the preview: "3d" or "2d".
-  page: store.view === "2d" ? "2d" : "3d",
+  // Preferences: the first view ("2d", "3d"), or the last view ("last").
+  page: (store.firstView === "2d" || store.firstView === "3d") ? store.firstView : store.view === "2d" ? "2d" : "3d",
   // The selected line: its path and segment (-1: none), and its info
   // from the worker (the Selected page).
   sel: -1,
@@ -703,7 +704,9 @@ var browser = new SettingsBrowser({ // var: setPanelMode runs before this line
   speed: {
     options: wasm.speedOptions(),
     note: wasm.cstr(wasm.x.zs_speed_switch_note()),
+    prefsNote: wasm.cstr(wasm.x.zs_speed_prefs_note()),
     set: (on) => setFasterSlicing(on),
+    preferences: () => showPreferences(),
   },
   // A new filament of the plate, for the chips of project.filament
   // (filaments.js): its index, or -1.
@@ -1069,6 +1072,7 @@ function applySettings(r) {
   if (!r?.values) return;
   app.snapshot = r;
   browser.setValues(r);
+  for (const f of prefsFollowers ?? []) f();
   if (r.saved) {
     store.saved = r.saved;
     // An edit of the machine settings stays with the printer: its profile
@@ -1853,6 +1857,7 @@ $("main-menu").onclick = () => openMenu($("main-menu"), [
   { label: "Hide the bed", checked: app.bedHidden, accel: "B", tip: "The bed and its grid do not draw, so the bottom of a part shows from below.", action: toggleBed },
   { label: "2D view", checked: app.page === "2d", accel: "2", tip: "One layer from the top. A drag pans, the wheel zooms, a double click fits the part.", action: toggle2d },
   { label: "Theme", submenu: themeItems() },
+  { label: "Preferences…", accel: PREFS_ACCEL, action: () => showPreferences() },
   { sep: true },
   { label: "Keyboard shortcuts", accel: "?", action: () => shortcuts.show() },
   { label: "Licenses", action: showLicenses },
@@ -1976,6 +1981,102 @@ function showLicenses() {
   document.body.append(d);
   d.showModal();
 }
+
+// ---- Preferences ----
+//
+// The options of the app, for this browser: the slicer options that change
+// no G-code (the app preferences of the core: APP_PREFS in core.js, kept in
+// the saved state), the theme, the first view, and the printers. The
+// settings of a print are in the settings panel. Ctrl+, (Cmd+, on a Mac)
+// opens it, as Preferences in the GTK app.
+
+const PREFS_ACCEL = /Mac|iPhone|iPad/.test(navigator.platform) ? "Cmd+," : "Ctrl+,";
+
+// The labels of the app preferences in the dialog.
+const PREF_LABELS = {
+  "engine.threads": "Slicer threads",
+  "engine.draft_slices": "Draft slices during edits",
+  "engine.auto_simulate": "Show the print as it forms after each slice",
+};
+
+function showPreferences() {
+  const open = document.querySelector("dialog.prefs-dialog");
+  if (open) return;
+  const d = document.createElement("dialog");
+  d.className = "printers-dialog prefs-dialog";
+  d.append(Object.assign(document.createElement("h3"), { textContent: "Preferences" }));
+  const section = (title) => {
+    const h = document.createElement("div");
+    h.className = "group-title";
+    h.textContent = title;
+    d.append(h);
+  };
+  const line = (label, control, help) => {
+    const row = document.createElement("div");
+    row.className = "prefs-row";
+    const text = document.createElement("div");
+    text.className = "prefs-text";
+    text.append(Object.assign(document.createElement("div"), { className: "name", textContent: label }));
+    if (help) text.append(Object.assign(document.createElement("div"), { className: "speed-note", textContent: help }));
+    row.append(text, control);
+    d.append(row);
+  };
+  const choice = (items, now, set) => {
+    const sel = document.createElement("select");
+    sel.className = "choice";
+    for (const [value, label] of items) sel.append(new Option(label, value));
+    sel.value = now;
+    sel.onchange = () => set(sel.value);
+    return sel;
+  };
+
+  section("Slicing");
+  const editors = [];
+  for (const name of Object.keys(PREF_LABELS)) {
+    const info = infos.find((i) => i.name === name);
+    if (!info) continue;
+    const ed = browser.makeEditor(info, "prefs");
+    ed.update(app.snapshot?.values?.[name]);
+    editors.push([name, ed]);
+    line(PREF_LABELS[name], ed.node, info.doc);
+  }
+  // The values follow the answers of the worker while the dialog is open.
+  const follow = () => { for (const [name, ed] of editors) ed.update(app.snapshot?.values?.[name]); };
+  prefsFollowers.add(follow);
+
+  section("Look");
+  line("Theme", choice([["system", "Follow the system"], ["light", "Light"], ["dark", "Dark"]], themeChoice(), (v) => setTheme(v)));
+  line("First view", choice([["last", "The last view"], ["3d", "3D"], ["2d", "2D (one layer)"]], store.firstView ?? "last", (v) => {
+    store.firstView = v;
+    saveStore();
+  }), "The view at the start of the app.");
+
+  section("Printers");
+  const printers = document.createElement("div");
+  printers.className = "prefs-buttons";
+  const manage = Object.assign(document.createElement("button"), { textContent: "Manage printers…" });
+  manage.onclick = () => { d.close(); managePrinters(); };
+  const page = Object.assign(document.createElement("button"), { textContent: "Printers page" });
+  page.onclick = () => { d.close(); showFarm(true); };
+  printers.append(manage, page);
+  line("Your printers", printers, "Their addresses and keys, and the page of their jobs.");
+
+  const note = document.createElement("p");
+  note.className = "speed-note";
+  note.textContent = "This browser keeps these choices. The settings of a print are in the settings panel (N).";
+  const close = Object.assign(document.createElement("button"), { textContent: "Close" });
+  close.onclick = () => d.close();
+  d.append(note, close);
+  d.onclose = () => {
+    prefsFollowers.delete(follow);
+    d.remove();
+  };
+  document.body.append(d);
+  d.showModal();
+}
+
+// The open Preferences dialog follows the values (applySettings).
+var prefsFollowers = new Set(); // var: applySettings can run before this line
 
 // The height of the dock, for the print card over it in a narrow view
 // (the dock wraps onto more rows).
@@ -2578,7 +2679,10 @@ document.addEventListener("keydown", (e) => {
 // Ctrl+Shift+Z, and Ctrl+Y undo and redo.
 document.addEventListener("keydown", (e) => {
   if (!(e.ctrlKey || e.metaKey)) return;
-  if (e.key === "o") {
+  if (e.key === ",") {
+    e.preventDefault();
+    showPreferences();
+  } else if (e.key === "o") {
     e.preventDefault();
     $("file").click();
   } else if (e.key === "e") {
@@ -4486,7 +4590,8 @@ const search = new SearchOverlay({
     { label: "History", hint: "the changes, undo one change", run: () => showTab("history") },
     { label: "Keyboard shortcuts", keys: "?", run: () => shortcuts.show() },
     { label: "All settings", keys: "N", hint: "the panel of the settings", run: () => showTab("settings") },
-    { label: "Speed settings", hint: "faster slicing, draft slices, threads: the options that change the time of a slice", run: () => showSpeed() },
+    { label: "Speed settings", hint: "faster slicing, fast offsets, resolution, gap fill: the print settings that change the time of a slice", run: () => showSpeed() },
+    { label: "Preferences…", keys: PREFS_ACCEL, hint: "threads, draft slices, the print as it forms after each slice, theme, first view, printers", run: () => showPreferences() },
     { label: app.snapshot?.speed === "on" ? "Faster slicing off" : "Faster slicing on", hint: "speed, performance: faster offsets and outline tolerance 0.01 mm", run: () => setFasterSlicing(app.snapshot?.speed !== "on") },
     { label: "Printers", hint: "your printers, their jobs, and the plates to print", run: () => showFarm(true) },
   ],

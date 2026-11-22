@@ -931,10 +931,11 @@ export fn zs_app_setting_set(a: ?*App, name: ?[*:0]const u8, value: ?[*:0]const 
     const n = std.mem.span(name orelse return @intFromEnum(Status.invalid_argument));
     const v = std.mem.span(value orelse return @intFromEnum(Status.invalid_argument));
     app.setSetting(n, v) catch |e| return status(e);
-    // A history step has no engine options. The thread count and the
-    // draft slices are app preferences, so a change of them is no pending
-    // edit.
-    if (!std.mem.eql(u8, n, "engine.threads") and !std.mem.eql(u8, n, "engine.draft_slices")) noted(app, n, false);
+    // A history step has no engine options. The thread count, the draft
+    // slices, and the simulation after each slice are app preferences, so
+    // a change of them is no pending edit.
+    const pref = std.mem.eql(u8, n, "engine.threads") or std.mem.eql(u8, n, "engine.draft_slices") or std.mem.eql(u8, n, "engine.auto_simulate");
+    if (!pref) noted(app, n, false);
     return ok;
 }
 
@@ -2928,6 +2929,12 @@ export fn zs_speed_get(i: usize, out: ?*SpeedOption) c_int {
     const s = app_mod.speed.options[i];
     o.* = .{ .name = s.name.ptr, .faster = s.faster.ptr, .note = s.note.ptr, .gcode = @intFromBool(s.gcode) };
     return ok;
+}
+
+/// The line at the end of the Speed section: the app options are in the
+/// Preferences.
+export fn zs_speed_prefs_note() [*:0]const u8 {
+    return app_mod.speed.prefs_note.ptr;
 }
 
 /// The help of the Faster slicing switch, for its row.

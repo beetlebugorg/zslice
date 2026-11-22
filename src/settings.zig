@@ -1243,6 +1243,12 @@ pub const EngineOptions = struct {
     /// of the exact slice, and the exact slice follows it. A draft never
     /// goes to the G-code. Off: each edit gives the exact slice only.
     draft_slices: bool = true,
+    /// The print as it forms: a simulation of the plastic after each exact
+    /// slice. Off saves the CPU of the run (about 0.4 s for a 3DBenchy),
+    /// and the Check shows no simulated failures until you run the
+    /// simulation by hand ("Show the print as it forms"). The G-code is
+    /// the same.
+    auto_simulate: bool = true,
     /// The name of the print, for {job_name} in the start and end G-code.
     /// The command line tool sets it to the model file name.
     job_name: []const u8 = "",

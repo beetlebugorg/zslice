@@ -891,6 +891,18 @@ static void fill_speed(Browser *b) {
         gtk_list_box_append(GTK_LIST_BOX(b->settings), r);
         if (b->key && strcmp(b->key, info.name) == 0) gtk_list_box_select_row(GTK_LIST_BOX(b->settings), GTK_LIST_BOX_ROW(r));
     }
+    /* The app options (threads, draft slices, the simulation after each
+     * slice) are in Preferences. */
+    GtkWidget *note = caption(zs_speed_prefs_note());
+    gtk_widget_set_margin_start(note, 10);
+    gtk_widget_set_margin_end(note, 10);
+    gtk_widget_set_margin_top(note, 8);
+    gtk_widget_set_margin_bottom(note, 8);
+    GtkWidget *nrow = gtk_list_box_row_new();
+    gtk_list_box_row_set_child(GTK_LIST_BOX_ROW(nrow), note);
+    gtk_list_box_row_set_selectable(GTK_LIST_BOX_ROW(nrow), FALSE);
+    gtk_list_box_row_set_activatable(GTK_LIST_BOX_ROW(nrow), FALSE);
+    gtk_list_box_append(GTK_LIST_BOX(b->settings), nrow);
 }
 
 /* Fills column 2: the settings of a section, or the matches of a search. */

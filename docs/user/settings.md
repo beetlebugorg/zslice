@@ -1038,6 +1038,10 @@ The number of threads. 0 uses one thread for each CPU but one, so that the app a
 
 A draft slice for the view during an edit: the outlines lose the points within 0.05 mm of a straight line, the gaps get no fill, and the walls are classic walls. A draft needs about a third of the time of the exact slice, and the exact slice follows it. A draft never goes to the G-code. Off: each edit gives the exact slice only.
 
+**`engine.auto_simulate`** (true or false). Default: `true`
+
+The print as it forms: a simulation of the plastic after each exact slice. Off saves the CPU of the run (about 0.4 s for a 3DBenchy), and the Check shows no simulated failures until you run the simulation by hand ("Show the print as it forms"). The G-code is the same.
+
 **`engine.job_name`** (text). Default: `""`
 
 The name of the print, for {job_name} in the start and end G-code. The command line tool sets it to the model file name.

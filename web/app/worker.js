@@ -69,8 +69,8 @@ function coreAt(i) {
 }
 // The Core of the active plate.
 let core = null;
-// The app preferences (engine.threads, engine.draft_slices: APP_PREFS in
-// core.js) are the same for all plates. A plate that becomes active gets
+// The app preferences (engine.threads, engine.draft_slices,
+// engine.auto_simulate: APP_PREFS in core.js) are the same for all plates. A plate that becomes active gets
 // the values of the plate before it.
 let engineValues = null;
 
@@ -308,8 +308,11 @@ const SIM_HOLD_MS = 400;
 // The progress of the simulation for the page, at most each 2 %.
 let simProgress = 0;
 
+// The simulation after a slice. engine.auto_simulate off (the Speed
+// settings): no run; "Show the print as it forms" runs it by hand.
 function startSim(i) {
   clearTimeout(simTimer);
+  if (coreAt(i).get("engine.auto_simulate") !== "true") return;
   if (wasm.x.zs_app_sim_begin(coreAt(i).app) !== 0) return;
   simProgress = 0;
   post({ event: "sim", progress: 0 });

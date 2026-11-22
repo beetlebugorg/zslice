@@ -425,6 +425,14 @@ select.choice {
 .speed-note .gcode-mark { display: inline-block; margin-left: 6px; padding: 0 5px; border-radius: 4px; border: 1px solid var(--dim); font-size: 0.9em; }
 .speed-master { border-bottom: 1px solid var(--border); padding-top: 6px; padding-bottom: 8px; }
 .setting-row:has(.speed-note) { padding-top: 6px; padding-bottom: 6px; }
+.speed-note.speed-prefs { font-size: 0.85em; color: var(--dim); padding: 10px 16px; }
+/* Preferences (app.js, showPreferences). */
+.prefs-dialog { width: min(560px, calc(100vw - 32px)); }
+.prefs-dialog .group-title { padding-left: 0; }
+.prefs-row { display: flex; align-items: center; gap: 12px; padding: 6px 0; }
+.prefs-row .prefs-text { flex: 1; min-width: 0; }
+.prefs-row .speed-note { font-size: 0.8em; color: var(--dim); margin-top: 2px; }
+.prefs-buttons { display: flex; gap: 8px; flex-wrap: wrap; }
 
 .detail { padding: 10px 14px 16px; }
 .detail h3 { margin: 4px 0 2px; font-size: 1.05em; }
