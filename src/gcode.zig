@@ -1603,21 +1603,32 @@ pub const Emitter = struct {
     /// is on), and an MMU with a filament in its sensor starts with it.
     /// Each value has one item for each tool, in
     /// the order of the tools ("," between the numbers, ";" between the
-    /// texts). A print with a pause at each change has one tool.
+    /// texts). A print with a pause at each change has one tool. On a
+    /// tool changer (the XL), the tools are the nozzles: the item of a
+    /// nozzle has the filaments on it.
     fn prusaMeta(self: *Emitter) Writer.Error!void {
         const s = self.r.settings;
         if (!std.mem.startsWith(u8, s.machine.model, "prusa-")) return;
         const st = &self.stats;
         const tools = s.machine.filament_change == .tool and self.slots.len > 1;
-        const n: usize = if (tools) @min(self.slots.len, filaments.max_slots) else 1;
+        const by_nozzle = tools and s.machine.tool_numbers == .nozzle and s.machine.nozzles >= 2;
+        const n: usize = if (by_nozzle) @min(s.machine.nozzles, settings_mod.max_nozzles) else if (tools) @min(self.slots.len, filaments.max_slots) else 1;
         const w = self.w;
         const Kind = enum { mm, cm3, g };
         inline for (.{ .{ "mm", Kind.mm }, .{ "cm3", Kind.cm3 }, .{ "g", Kind.g } }) |key| {
             try w.print("; filament used [{s}] = ", .{key[0]});
             for (0..n) |k| {
-                const f = if (tools) self.slots[k] else s.filament;
-                const mm = if (tools) st.slot_mm[k] else st.filament_mm;
-                const g = if (tools) st.slot_g[k] else st.filament_g;
+                const f = if (by_nozzle) self.filamentOfNozzle(@intCast(k)) else if (tools) self.slots[k] else s.filament;
+                var mm = if (tools and !by_nozzle) st.slot_mm[k] else st.filament_mm;
+                var g = if (tools and !by_nozzle) st.slot_g[k] else st.filament_g;
+                if (by_nozzle) {
+                    mm = 0;
+                    g = 0;
+                    for (0..@min(self.slots.len, filaments.max_slots)) |j| if (self.nozzleOf(@intCast(j)) == @as(u32, @intCast(k))) {
+                        mm += st.slot_mm[j];
+                        g += st.slot_g[j];
+                    };
+                }
                 const r = f.diameter / 2;
                 const v = switch (key[1]) {
                     .mm => mm,
@@ -1634,7 +1645,7 @@ pub const Emitter = struct {
         inline for (.{ "filament_type", "extruder_colour" }, 0..) |key, which| {
             try w.print("; {s} = ", .{key});
             for (0..n) |k| {
-                const f = if (tools) self.slots[k] else s.filament;
+                const f = if (by_nozzle) self.filamentOfNozzle(@intCast(k)) else if (tools) self.slots[k] else s.filament;
                 if (k > 0) try w.writeByte(';');
                 if (which == 0) {
                     try w.writeAll(f.material);
@@ -1642,6 +1653,15 @@ pub const Emitter = struct {
             }
             try w.writeByte('\n');
         }
+    }
+
+    /// The filament of nozzle `k`: the first filament of the print on it,
+    /// else the first of the plate on it, else the filament of the
+    /// settings.
+    fn filamentOfNozzle(self: *const Emitter, k: u32) settings_mod.Filament {
+        if (self.first_of_nozzles) |f| if (k < f.len) if (f[k]) |slot| if (slot < self.slots.len) return self.slots[slot];
+        for (self.slots, 0..) |f, j| if (self.nozzleOf(@intCast(j)) == k) return f;
+        return self.r.settings.filament;
     }
 
     /// "1d 2h 3m 4s", "2h 3m 4s", "3m 4s", or "4s", as PrusaSlicer writes
