@@ -44,6 +44,8 @@ namespace
     size_t const max_settings = 14;
     size_t const max_actions = 4;
     auto const drag_interval = std::chrono::milliseconds(90);
+    double const search_unit_width = 40;
+    double const search_hint_width = 84;
 
     wchar_t const *const left_pin = L"M2.5 2.5v11M5.5 4.5h8v7h-8z";
     wchar_t const *const right_pin = L"M13.5 2.5v11M2.5 4.5h8v7h-8z";
@@ -476,7 +478,7 @@ namespace winrt::ZSlice::implementation
         {
             Windows::Foundation::Rect size{ 0, 0, (float)SearchField().ActualWidth(), (float)SearchField().ActualHeight() };
             auto r = SearchField().TransformToVisual(CardLayer()).TransformBounds(size);
-            w = std::min(std::max((double)r.Width, 560.0), W - 16);
+            w = std::min(std::max((double)r.Width, 640.0), W - 16);
             x = std::max(8.0, std::min(W - w - 8, r.X + r.Width / 2 - w / 2));
             y = r.Y + r.Height + 6;
             max_height = std::min({ H * 0.62, 560.0, H - y - 8 });
@@ -827,9 +829,23 @@ namespace winrt::ZSlice::implementation
         setting_editors.resize(before);
         if (number)
         {
-            // The entry is narrow, with the unit after it.
+            // The entry is narrow, with the unit after it. The unit and the
+            // speed hint have fixed columns, so the sliders and the entries
+            // of all rows line up, with a hint or without one.
             auto with_unit = editor.try_as<Grid>();
             (with_unit != nullptr ? with_unit.Children().GetAt(0).as<FrameworkElement>() : editor).Width(72);
+            if (!rail)
+            {
+                if (with_unit != nullptr)
+                {
+                    with_unit.ColumnDefinitions().GetAt(1).Width(GridLengthHelper::FromPixels(search_unit_width));
+                    with_unit.ColumnDefinitions().GetAt(2).Width(GridLengthHelper::FromPixels(search_hint_width));
+                }
+                else
+                {
+                    editor.Margin(ThicknessHelper::FromLengths(0, 0, search_unit_width + search_hint_width + 12, 0));
+                }
+            }
         }
         else if (info.kind == ZS_SETTING_CHOICE)
         {

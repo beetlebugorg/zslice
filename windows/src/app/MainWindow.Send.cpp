@@ -99,8 +99,8 @@ namespace winrt::ZSlice::implementation
         add(L"Export G-code…", sliced || state == ZS_STATE_SLICING, [this] { ExportGcode(); });
         add(L"Export all plates…", !batch.on, [this] { ExportAll(); });
         send_menu.Items().Append(MenuFlyoutSeparator());
-        add(L"Save the plate as 3MF…", has_parts, [this] { SavePlate3mf(); });
-        add(L"Save project…", true, [this] { SaveProject(); });
+        add(L"Save this plate as 3MF…", has_parts, [this] { SavePlate3mf(); });
+        add(L"Save project (all plates)…", true, [this] { SaveProject(); });
     }
 
     // Uploads the G-code of a plate (-1: the active plate). The file has the

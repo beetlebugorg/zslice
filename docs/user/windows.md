@@ -117,7 +117,7 @@ To read a project, the app contacts only GitHub, over https, with no login and n
 
 The app keeps your session. After a quit it opens with the same plates, the same view, and the same window size. A file that you open from the command line opens in place of the session.
 
-The theme follows Windows. The menu at the top right has the plate actions, **Hide the bed**, **Keyboard shortcuts** (also the key ?), **Licenses**, and **About**.
+The theme follows Windows unless you choose another one in **Preferences**. The menu at the top right has the plate actions, **Hide the bed**, **Keyboard shortcuts** (also the key ?), **Licenses**, and **About**.
 
 ## The menu of the view
 
@@ -159,7 +159,7 @@ The app reads a Bambu Lab printer and sends it nothing. It shows the JPEG camera
 
 The button at the right of the bottom bar is **Export G-code…**. With a printer that takes files, it is **Upload to** that printer, and its arrow has the other ways to send.
 
-The main menu has **Save the plate as 3MF…**, **Save project…**, **Send all plates**, and **Export all plates…**.
+The main menu has **Save this plate as 3MF…**, **Save project (all plates)…**, **Send all plates**, and **Export all plates…**.
 
 **The Windows app never starts a print.** It uploads the file, and you start the print on the printer.
 
