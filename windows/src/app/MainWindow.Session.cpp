@@ -203,7 +203,7 @@ namespace winrt::ZSlice::implementation
             ProjectSessionRead(text);
         }
         // The plates of the session slice with the threads of Preferences.
-        ApplyThreadsPref(true);
+        ApplyEnginePrefs(true);
         model->AfterSessionRead();
         // The last scene of the active plate shows at once, and the plate
         // slices again behind it.

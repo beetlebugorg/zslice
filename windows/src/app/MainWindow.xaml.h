@@ -165,6 +165,7 @@ namespace winrt::ZSlice::implementation
         void ShowSections();
         int NozzleCount();
         void ShowSection(char const *group, char const *section);
+        void ShowSpeedSection();
         void ShowSearch(std::wstring const &query);
         void ShowDetail(char const *name);
         void SettingsGoBack();
@@ -285,7 +286,9 @@ namespace winrt::ZSlice::implementation
         void ApplyThemePref();
         void ApplyFirstViewPref();
         // idle: no plate slices yet, so each plate can change now.
-        void ApplyThreadsPref(bool idle = false);
+        void ApplyEnginePrefs(bool idle = false);
+        void KeepEnginePref(std::string const &name);
+        void ShowGeneralPreferences();
         void PreferencesThemeChanged();
         void ThemeDialog(Microsoft::UI::Xaml::Controls::ContentDialog const &dialog);
 #ifdef ZS_DEV_HOOKS
@@ -585,6 +588,8 @@ namespace winrt::ZSlice::implementation
         SettingsPage detail_from = SettingsPage::Sections;
         char const *settings_group = nullptr;
         char const *settings_section = nullptr;
+        // The Faster slicing switch while the Speed section shows.
+        Microsoft::UI::Xaml::Controls::ToggleSwitch speed_toggle{ nullptr };
         std::wstring settings_query;
         // The number of nozzles that the section list shows.
         int settings_nozzles = 1;

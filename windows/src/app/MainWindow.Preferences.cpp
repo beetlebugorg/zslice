@@ -7,7 +7,8 @@
 // printer picker, and "Get a key" the pairing panel. Both are the panels of
 // the Printers page. A saved key never shows. A new key replaces it.
 //
-// General: the theme, the first view, the slicer threads, and the folder of
+// General: the theme, the first view, the slicer threads, draft slices, the
+// print as it forms after each slice, and the folder of
 // the settings files. app.ini keeps them as theme, view, and engine.threads.
 // The core keeps no thread count across a restart and copies none to a new
 // plate, so the shell gives the preference to each plate.
@@ -157,7 +158,7 @@ namespace winrt::ZSlice::implementation
     <Grid Margin="18,18,22,18" ColumnSpacing="12" RowSpacing="10">
       <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
       <Grid.RowDefinitions>
-        <RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" />
+        <RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" />
       </Grid.RowDefinitions>
       <TextBlock Text="Theme" Style="{StaticResource FormLabel}" />
       <ComboBox x:Name="GeneralTheme" Grid.Column="1" HorizontalAlignment="Stretch" FontSize="13" AutomationProperties.Name="Theme" />
@@ -166,13 +167,19 @@ namespace winrt::ZSlice::implementation
       <TextBlock Grid.Row="2" Text="Slicer threads" Style="{StaticResource FormLabel}" />
       <NumberBox x:Name="GeneralThreads" Grid.Row="2" Grid.Column="1" Minimum="0" Maximum="256" SmallChange="1" LargeChange="10" SpinButtonPlacementMode="Inline"
                  FontSize="13" AutomationProperties.Name="Slicer threads" ToolTipService.ToolTip="The threads of the slicer. 0: one for each processor core." />
-      <TextBlock Grid.Row="3" Text="Settings files" Style="{StaticResource FormLabel}" />
-      <Grid Grid.Row="3" Grid.Column="1" ColumnSpacing="8">
+      <TextBlock Grid.Row="3" Text="Draft slices during edits" Style="{StaticResource FormLabel}" />
+      <ToggleSwitch x:Name="GeneralDraft" Grid.Row="3" Grid.Column="1" OnContent="" OffContent="" MinWidth="0" AutomationProperties.Name="Draft slices during edits"
+                    ToolTipService.ToolTip="After a change, the view first shows a draft in about a third of the time, then the exact slice. A draft never goes to the G-code. Off: only exact slices." />
+      <TextBlock Grid.Row="4" Text="Show the print as it forms after each slice" MaxWidth="200" TextWrapping="WrapWholeWords" Style="{StaticResource FormLabel}" />
+      <ToggleSwitch x:Name="GeneralSimulate" Grid.Row="4" Grid.Column="1" OnContent="" OffContent="" MinWidth="0" AutomationProperties.Name="Show the print as it forms after each slice"
+                    ToolTipService.ToolTip="Runs after each slice. Off saves CPU, and the Check has no simulated failures until you run it by hand (Show the print as it forms)." />
+      <TextBlock Grid.Row="5" Text="Settings files" Style="{StaticResource FormLabel}" />
+      <Grid Grid.Row="5" Grid.Column="1" ColumnSpacing="8">
         <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
         <TextBlock x:Name="GeneralFolder" VerticalAlignment="Center" TextWrapping="Wrap" IsTextSelectionEnabled="True" />
         <Button x:Name="GeneralOpen" Grid.Column="1" FontSize="13" Content="Open" />
       </Grid>
-      <TextBlock Grid.Row="4" Grid.Column="1" TextWrapping="Wrap" Foreground="{ThemeResource ZsDim}"
+      <TextBlock Grid.Row="6" Grid.Column="1" TextWrapping="Wrap" Foreground="{ThemeResource ZsDim}"
                  Text="The defaults of all prints are in the Settings page of the main window. The app saves them here: filament.toml, project.toml, and printers/ for the machine settings of each printer." />
     </Grid>
   </ScrollViewer>
@@ -280,6 +287,7 @@ namespace winrt::ZSlice::implementation
         PasswordBox key{ nullptr };
         ComboBox kind{ nullptr }, theme{ nullptr }, first_view{ nullptr };
         NumberBox threads{ nullptr };
+        ToggleSwitch draft{ nullptr }, simulate{ nullptr };
         TextBlock trust{ nullptr }, url_label{ nullptr }, serial_label{ nullptr }, key_label{ nullptr }, result{ nullptr }, folder{ nullptr };
         FrameworkElement serial_box{ nullptr };
         Grid key_box{ nullptr };
@@ -341,6 +349,8 @@ namespace winrt::ZSlice::implementation
         theme = Get<ComboBox>(root, L"GeneralTheme");
         first_view = Get<ComboBox>(root, L"GeneralView");
         threads = Get<NumberBox>(root, L"GeneralThreads");
+        draft = Get<ToggleSwitch>(root, L"GeneralDraft");
+        simulate = Get<ToggleSwitch>(root, L"GeneralSimulate");
         folder = Get<TextBlock>(root, L"GeneralFolder");
         open = Get<Button>(root, L"GeneralOpen");
 
@@ -360,6 +370,8 @@ namespace winrt::ZSlice::implementation
         theme.SelectedIndex(now == "light" ? 1 : now == "dark" ? 2 : 0);
         first_view.SelectedIndex(store.Pref("view", "3d") == "2d" ? 0 : 1);
         threads.Value(atof(ui.w.model->GetSetting("engine.threads").c_str()));
+        draft.IsOn(ui.w.model->GetSetting("engine.draft_slices") != "false");
+        simulate.IsOn(ui.w.model->GetSetting("engine.auto_simulate") != "false");
         folder.Text(zs::StateDir());
     }
 
@@ -466,9 +478,26 @@ namespace winrt::ZSlice::implementation
             std::string error;
             if (!s->ui.w.model->SetSetting("engine.threads", value, error))
                 s->ui.w.ShowToast(zs::ToWide(error));
-            s->ui.w.ApplyThreadsPref();
+            s->ui.w.ApplyEnginePrefs();
             s->ui.w.RefreshSettingValues();
         });
+        // A switch of an app preference. Preferences keeps it for each plate.
+        auto engine_switch = [weak](ToggleSwitch PrefsPage::*member, char const *key) {
+            return [weak, member, key](auto &&, auto &&) {
+                auto s = weak.lock();
+                if (s == nullptr || s->filling)
+                    return;
+                std::string value = ((*s).*member).IsOn() ? "true" : "false";
+                zs::Printers().SetPref(key, value);
+                std::string error;
+                if (!s->ui.w.model->SetSetting(key, value, error))
+                    s->ui.w.ShowToast(zs::ToWide(error));
+                s->ui.w.ApplyEnginePrefs();
+                s->ui.w.RefreshSettingValues();
+            };
+        };
+        draft.Toggled(engine_switch(&PrefsPage::draft, "engine.draft_slices"));
+        simulate.Toggled(engine_switch(&PrefsPage::simulate, "engine.auto_simulate"));
         open.Click([](auto &&, auto &&) {
             std::wstring dir = zs::StateDir();
             ::ShellExecuteW(nullptr, L"open", dir.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
@@ -1089,6 +1118,14 @@ namespace winrt::ZSlice::implementation
             printers->ShowPreferences();
     }
 
+    // The app options of the Speed section are on the General page.
+    void MainWindow::ShowGeneralPreferences()
+    {
+        ShowPreferences();
+        if (printers != nullptr && printers->prefs != nullptr)
+            printers->prefs->ShowTab(true);
+    }
+
     bool MainWindow::PreferencesOpen()
     {
         return printers != nullptr && printers->prefs != nullptr;
@@ -1145,15 +1182,30 @@ namespace winrt::ZSlice::implementation
             Set2D(true);
     }
 
-    // Gives the thread count of Preferences to each plate. A plate that
-    // waits for a slice or slices gets it at its next status. The active
-    // plate is on this thread, so it gets it at once.
-    void MainWindow::ApplyThreadsPref(bool idle)
+    // The settings that are app preferences: the same for each plate and
+    // each project. They change no G-code.
+    static char const *const engine_prefs[] = { "engine.threads", "engine.draft_slices", "engine.auto_simulate" };
+
+    // A change of an app preference in the settings pane stays in Preferences.
+    void MainWindow::KeepEnginePref(std::string const &name)
+    {
+        for (char const *key : engine_prefs)
+        {
+            if (name == key)
+            {
+                zs::Printers().SetPref(name, model->GetSetting(key));
+                ApplyEnginePrefs();
+                return;
+            }
+        }
+    }
+
+    // Gives the app preferences to each plate. A plate that waits for a
+    // slice or slices gets them at its next status. The active plate is on
+    // this thread, so it gets them at once.
+    void MainWindow::ApplyEnginePrefs(bool idle)
     {
         if (model == nullptr)
-            return;
-        std::string want = zs::Printers().Pref("engine.threads");
-        if (want.empty())
             return;
         zs_set *set = model->Set();
         size_t active = zs_set_active(set);
@@ -1166,11 +1218,17 @@ namespace winrt::ZSlice::implementation
             if (!idle && i != active &&
                 (zs_set_plate_info(set, i, &info) != ZS_OK || info.status == ZS_PLATE_STATUS_STALE || info.status == ZS_PLATE_STATUS_SLICING))
                 continue;
-            char now[32] = "";
-            size_t len = 0;
-            if (zs_app_setting_get(app, "engine.threads", now, sizeof now, &len) == ZS_OK && want == now)
-                continue;
-            zs_app_setting_set(app, "engine.threads", want.c_str());
+            for (char const *key : engine_prefs)
+            {
+                std::string want = zs::Printers().Pref(key);
+                if (want.empty())
+                    continue;
+                char now[32] = "";
+                size_t len = 0;
+                if (zs_app_setting_get(app, key, now, sizeof now, &len) == ZS_OK && want == now)
+                    continue;
+                zs_app_setting_set(app, key, want.c_str());
+            }
         }
     }
 
@@ -1251,6 +1309,10 @@ namespace winrt::ZSlice::implementation
             page->first_view.SelectedIndex((int)number);
         else if (verb == L"prefthreads")
             page->threads.Value(number);
+        else if (verb == L"prefdraft")
+            page->draft.IsOn(number != 0);
+        else if (verb == L"prefsimulate")
+            page->simulate.IsOn(number != 0);
         else if (verb == L"prefset" && words.size() >= 2)
         {
             std::wstring value = words[1];

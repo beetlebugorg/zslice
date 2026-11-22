@@ -175,6 +175,7 @@ namespace winrt::ZSlice::implementation
     void MainWindow::ClearSettingsList()
     {
         setting_editors.clear();
+        speed_toggle = nullptr;
         SettingsList().Children().Clear();
         SettingsScroll().ChangeView(nullptr, box_value(0.0).as<Windows::Foundation::IReference<double>>(), nullptr, true);
     }
@@ -189,6 +190,14 @@ namespace winrt::ZSlice::implementation
         SettingsCrumb().Text(L"Settings");
         size_t n = zs_setting_count();
         settings_nozzles = NozzleCount();
+        // The Speed section first: the options of all groups that change
+        // the time of a slice.
+        if (zs_speed_count() > 0)
+        {
+            Button speed = RowButton(L"Speed");
+            speed.Click([this](auto &&, auto &&) { ShowSection("speed", "Speed"); });
+            SettingsList().Children().Append(speed);
+        }
         for (auto const &g : group_titles)
         {
             TextBlock heading;
@@ -223,8 +232,126 @@ namespace winrt::ZSlice::implementation
         return model != nullptr ? std::max(1, atoi(model->GetSetting("machine.nozzles").c_str())) : 1;
     }
 
+    // The options that change the time of a slice (src/app/speed.zig), with
+    // the Faster slicing switch at the top. The switch has no value of its
+    // own: its state comes from its options (zs_app_speed_state).
+    void MainWindow::ShowSpeedSection()
+    {
+        ClearSettingsList();
+        settings_page = SettingsPage::Section;
+        settings_group = "speed";
+        settings_section = "Speed";
+        SettingsBack().Visibility(Visibility::Visible);
+        SettingsCrumb().Text(L"Speed");
+
+        Grid head;
+        head.ColumnSpacing(8);
+        head.Padding(ThicknessHelper::FromLengths(4, 6, 0, 8));
+        ColumnDefinition names_column, switch_column;
+        names_column.Width(GridLengthHelper::FromValueAndType(1, GridUnitType::Star));
+        switch_column.Width(GridLengthHelper::Auto());
+        head.ColumnDefinitions().Append(names_column);
+        head.ColumnDefinitions().Append(switch_column);
+        StackPanel names;
+        names.Spacing(2);
+        TextBlock title = Wrapped(L"Faster slicing", 14);
+        title.FontWeight(Microsoft::UI::Text::FontWeights::SemiBold());
+        TextBlock tag = Wrapped(L"", 12);
+        std::wstring help = zs::ToWide(zs_speed_switch_note());
+        TextBlock about = Wrapped(help, 12);
+        about.Foreground(TokenBrush(Root(), L"ZsDim"));
+        names.Children().Append(title);
+        names.Children().Append(tag);
+        names.Children().Append(about);
+        head.Children().Append(names);
+        ToggleSwitch toggle;
+        toggle.OnContent(box_value(L""));
+        toggle.OffContent(box_value(L""));
+        toggle.MinWidth(0);
+        toggle.VerticalAlignment(VerticalAlignment::Center);
+        ToolTipService::SetToolTip(toggle, box_value(help));
+        Microsoft::UI::Xaml::Automation::AutomationProperties::SetName(toggle, L"Faster slicing");
+        Grid::SetColumn(toggle, 1);
+        head.Children().Append(toggle);
+        SettingsList().Children().Append(head);
+        speed_toggle = toggle;
+        auto fill = [this, toggle, tag]() mutable {
+            if (model == nullptr)
+                return;
+            int state = zs_app_speed_state(model->Active());
+            filling_editor = true;
+            toggle.IsOn(state == 1);
+            filling_editor = false;
+            tag.Text(state == 1 ? L"On" : state == 2 ? L"Custom: some options differ" : L"Off: the exact slice");
+            tag.Foreground(TokenBrush(Root(), state != 0 ? L"ZsAccentText" : L"ZsDim"));
+        };
+        fill();
+        toggle.Toggled([this](auto &&, auto &&) {
+            if (filling_editor || model == nullptr)
+                return;
+            zs_app *app = model->Active();
+            // Custom goes to on: the faster values of all options.
+            if (zs_app_speed_set(app, zs_app_speed_state(app) != 1 ? 1 : 0) == ZS_OK)
+            {
+                model->RequestSlice();
+                NoteChange();
+            }
+            RefreshSettingValues();
+        });
+        setting_editors.push_back({ "speed.switch", fill });
+
+        for (size_t i = 0, n = zs_speed_count(); i < n; i++)
+        {
+            zs_speed_option option{};
+            zs_setting_info info{};
+            if (zs_speed_get(i, &option) != ZS_OK || !FindSetting(option.name, info))
+                continue;
+            Grid row = MakeSettingRow(info).as<Grid>();
+            // The gain and the cost, under the name.
+            auto label = row.Children().GetAt(0);
+            row.Children().RemoveAt(0);
+            StackPanel row_names;
+            row_names.VerticalAlignment(VerticalAlignment::Center);
+            row_names.Children().Append(label);
+            std::wstring text = zs::ToWide(option.note);
+            if (option.gcode != 0)
+                text += L" Changes the G-code.";
+            if (option.faster[0] != 0)
+            {
+                std::wstring value = info.kind == ZS_SETTING_BOOLEAN ? std::wstring(strcmp(option.faster, "true") == 0 ? L"on" : L"off")
+                                                                     : DisplayValue(option.name, option.faster, true);
+                text += L" Faster slicing: " + value + L".";
+            }
+            TextBlock note = Wrapped(text, 11.5);
+            note.Foreground(TokenBrush(Root(), L"ZsDim"));
+            note.Margin(ThicknessHelper::FromLengths(2, 0, 0, 2));
+            row_names.Children().Append(note);
+            row.Children().InsertAt(0, row_names);
+            SettingsList().Children().Append(row);
+        }
+
+        // The app options (threads, draft slices, the simulation after each
+        // slice) are in Preferences.
+        StackPanel foot;
+        foot.Spacing(6);
+        foot.Margin(ThicknessHelper::FromLengths(4, 10, 0, 6));
+        TextBlock prefs_note = Wrapped(zs::ToWide(zs_speed_prefs_note()), 12);
+        prefs_note.Foreground(TokenBrush(Root(), L"ZsDim"));
+        foot.Children().Append(prefs_note);
+        Button open;
+        open.Content(box_value(L"Preferences…"));
+        open.Click([this](auto &&, auto &&) { ShowGeneralPreferences(); });
+        foot.Children().Append(open);
+        SettingsList().Children().Append(foot);
+    }
+
     void MainWindow::ShowSection(char const *group, char const *section)
     {
+        if (strcmp(group, "speed") == 0)
+        {
+            ShowSpeedSection();
+            return;
+        }
         ClearSettingsList();
         settings_page = SettingsPage::Section;
         settings_group = group;
@@ -325,6 +452,8 @@ namespace winrt::ZSlice::implementation
         row.Children().Append(label);
 
         FrameworkElement editor = MakeEditor(info);
+        // A row with a note under its name is taller than its editor.
+        editor.VerticalAlignment(VerticalAlignment::Center);
         Grid::SetColumn(editor, 1);
         row.Children().Append(editor);
         return row;
@@ -610,6 +739,7 @@ namespace winrt::ZSlice::implementation
             RefreshSettingValues();
             return;
         }
+        KeepEnginePref(name);
         NoteChange();
         // A formula can change other settings.
         RefreshSettingValues();

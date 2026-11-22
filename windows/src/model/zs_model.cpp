@@ -463,7 +463,9 @@ namespace zs
         if (draft_app_ != nullptr && draft_app_ != app)
             Settle();
         int state = zs_app_state(app);
-        if (draft_app_ == nullptr && (state == ZS_STATE_DONE || state == ZS_STATE_SLICING))
+        // Draft slices off (Preferences): each change slices exact.
+        bool drafts = GetSetting("engine.draft_slices") != "false";
+        if (draft_app_ == nullptr && drafts && (state == ZS_STATE_DONE || state == ZS_STATE_SLICING))
         {
             draft_app_ = app;
             zs_app_set_draft(app, 1);
