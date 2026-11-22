@@ -19,6 +19,9 @@ using Windows::System::VirtualKey;
 
 namespace winrt::ZSlice::implementation
 {
+    void FillNozzleChoices(Microsoft::UI::Xaml::Controls::ComboBox const &box, int nozzles, int current);
+    int NozzleChoice(Microsoft::UI::Xaml::Controls::ComboBox const &box);
+
     namespace ui
     {
         Media::Brush ThemeBrush(wchar_t const *key)
@@ -492,7 +495,7 @@ namespace winrt::ZSlice::implementation
                 value[0] = 0;
             return std::string(value);
         };
-        bool two = setup.TwoNozzles();
+        int nozzles = setup.NozzleCount();
         for (size_t i = 0; i < n; i++)
         {
             StackPanel row = Row(6);
@@ -547,15 +550,14 @@ namespace winrt::ZSlice::implementation
             });
             row.Children().Append(material);
 
-            if (two)
+            if (nozzles >= 2)
             {
                 ComboBox nozzle;
                 Name(nozzle, L"The nozzle of filament " + std::to_wstring(i + 1));
-                nozzle.Items().Append(box_value(L"Main"));
-                nozzle.Items().Append(box_value(L"2nd"));
-                nozzle.SelectedIndex(atof(read(i, "filament.nozzle").c_str()) >= 1 ? 1 : 0);
+                FillNozzleChoices(nozzle, nozzles, std::max(0, atoi(read(i, "filament.nozzle").c_str())));
                 nozzle.SelectionChanged([app, i, changed](IInspectable const &sender, auto &&) {
-                    if (zs_app_filament_set(app, i, "filament.nozzle", sender.as<ComboBox>().SelectedIndex() == 1 ? "1" : "0") == ZS_OK)
+                    int want = NozzleChoice(sender.as<ComboBox>());
+                    if (want >= 0 && zs_app_filament_set(app, i, "filament.nozzle", std::to_string(want).c_str()) == ZS_OK)
                         changed();
                 });
                 row.Children().Append(nozzle);

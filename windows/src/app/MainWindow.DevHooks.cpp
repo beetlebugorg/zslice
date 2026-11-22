@@ -593,12 +593,16 @@ namespace winrt::ZSlice::implementation
         else if (verb == L"nozzlelog")
         {
             // The sections of the pane, and the title and limits of the line card.
-            bool second = false;
+            std::string sections;
             for (auto const &child : SettingsList().Children())
                 if (auto row = child.try_as<Microsoft::UI::Xaml::Controls::Button>())
-                    second = second || unbox_value_or<hstring>(row.Content(), L"") == L"Second nozzle";
-            zs::Log("dev: nozzle count %s, sections page %d, second nozzle row %d, line title '%s', limits '%s'\n", model->GetSetting("machine.nozzles").c_str(),
-                    settings_page == SettingsPage::Sections ? 1 : 0, second ? 1 : 0, to_string(LineTitle().Text()).c_str(), to_string(LineNozzle().Text()).c_str());
+                {
+                    std::wstring text{ unbox_value_or<hstring>(row.Content(), L"") };
+                    if (text.find(L" nozzle (T") != std::wstring::npos)
+                        sections += zs::ToUtf8(text) + "; ";
+                }
+            zs::Log("dev: nozzle count %s, sections page %d, nozzle sections '%s', filaments %s, line title '%s', limits '%s'\n", model->GetSetting("machine.nozzles").c_str(),
+                    settings_page == SettingsPage::Sections ? 1 : 0, sections.c_str(), FilamentNozzleLog().c_str(), to_string(LineTitle().Text()).c_str(), to_string(LineNozzle().Text()).c_str());
         }
         else if (verb == L"settingspane")
         {
@@ -751,6 +755,16 @@ namespace winrt::ZSlice::implementation
         }
         else if (verb == L"searchlog")
         {
+            // The settings of the later nozzles in the list, and the last one.
+            size_t nozzle_rows = 0;
+            int last_nozzle = 0;
+            for (auto const &row : search_rows)
+                if (row.name.rfind("machine.nozzle.", 0) == 0)
+                {
+                    nozzle_rows++;
+                    last_nozzle = std::max(last_nozzle, atoi(row.name.c_str() + 15));
+                }
+            zs::Log("dev: search nozzle rows %zu, last nozzle %d\n", nozzle_rows, last_nozzle);
             auto box = SearchBox();
             zs::Log("dev: search open %d place %d rows %zu index %d eye '%s' text '%s' box %.0f,%.0f %.0fx%.0f header field %d button %d\n",
                     search_open ? 1 : 0, (int)search_place, search_rows.size(), search_index, search_eye.c_str(), zs::ToUtf8(search_text).c_str(),

@@ -620,16 +620,18 @@ namespace winrt::ZSlice::implementation
             note(L"Type a setting (infill, walls, brim, speed) or an action (export, arrange, upload).");
             return;
         }
-        // A scope keeps the settings that pass it, of all that match.
-        std::vector<uint32_t> hits(search_scope != nullptr ? std::max<size_t>(zs_setting_count(), 1) : 200);
+        // A scope keeps the settings that pass it, of all that match. The
+        // settings of a nozzle that the printer does not have stay out.
+        std::vector<uint32_t> hits(std::max<size_t>(zs_setting_count(), 1));
         size_t count = std::min(zs_setting_search(zs::ToUtf8(query).c_str(), 0, hits.data(), nullptr, hits.size()), hits.size());
-        if (search_scope != nullptr)
         {
             size_t kept = 0;
+            int nozzles = NozzleCount();
             for (size_t i = 0; i < count; i++)
             {
                 zs_setting_info info{};
-                if (zs_setting_get_info(hits[i], &info) == ZS_OK && search_scope->only(info))
+                if (zs_setting_get_info(hits[i], &info) == ZS_OK && info.nozzle < nozzles &&
+                    (search_scope == nullptr || search_scope->only(info)))
                     hits[kept++] = hits[i];
             }
             count = kept;

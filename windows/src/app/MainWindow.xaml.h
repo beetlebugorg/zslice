@@ -163,7 +163,7 @@ namespace winrt::ZSlice::implementation
         void WireSettings();
         void ShowSettingsPane(bool show);
         void ShowSections();
-        bool TwoNozzles();
+        int NozzleCount();
         void ShowSection(char const *group, char const *section);
         void ShowSearch(std::wstring const &query);
         void ShowDetail(char const *name);
@@ -196,6 +196,7 @@ namespace winrt::ZSlice::implementation
         void CuraSettingsChanged();
         void CloseCuraCompare();
 #ifdef ZS_DEV_HOOKS
+        std::string FilamentNozzleLog();
         bool CuraDevStep(std::wstring const &verb, std::vector<std::wstring> const &words);
         Microsoft::UI::Xaml::UIElement CuraDevRoot();
 #endif
@@ -585,8 +586,8 @@ namespace winrt::ZSlice::implementation
         char const *settings_group = nullptr;
         char const *settings_section = nullptr;
         std::wstring settings_query;
-        // The section list has the "Second nozzle" section.
-        bool settings_two_nozzles = false;
+        // The number of nozzles that the section list shows.
+        int settings_nozzles = 1;
         // True while the code fills an editor: its change event is no edit.
         bool filling_editor = false;
 

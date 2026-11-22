@@ -108,7 +108,7 @@ When the plate prints one part at a time (`project.print_sequence` is `by_object
 
 The card of a line shows its planned speed, its real speed, and its flow, and the settings that matter most for it. **Fade the others** shows the line alone. **Don't print this line** and **±10 % plastic** change this line only, and the change stays through new slices.
 
-On a printer with two nozzles, the title of the card says **main nozzle** or **2nd nozzle**, and a line of the second nozzle shows its speed limits. The printer settings have a **Second nozzle** section only on such a printer.
+On a printer with more than one nozzle, the title of the card says **main nozzle**, **2nd nozzle**, or the tool, such as **nozzle T2**. A line of a later nozzle shows its speed limits. The printer settings have a section for each nozzle after the first, such as **Second nozzle (T1)**. The filament list picks the nozzle of each filament.
 
 ## Layers
 

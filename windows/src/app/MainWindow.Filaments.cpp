@@ -71,6 +71,36 @@ namespace
 
 namespace winrt::ZSlice::implementation
 {
+    // The choices of the nozzle of a filament: "Main" and "2nd" for two
+    // nozzles, else the tools T0 and on. A nozzle that the printer does not
+    // have stays in the list, marked, so the value shows (the Check tells
+    // it). As nozzleChoices in web/app/filaments.js.
+    void FillNozzleChoices(ComboBox const &box, int nozzles, int current)
+    {
+        box.Items().Clear();
+        auto add = [&](std::wstring const &label, int k) {
+            ComboBoxItem item;
+            item.Content(box_value(label));
+            item.Tag(box_value(k));
+            box.Items().Append(item);
+        };
+        for (int k = 0; k < nozzles; k++)
+            add(nozzles == 2 ? std::wstring(k == 0 ? L"Main" : L"2nd") : L"T" + std::to_wstring(k), k);
+        if (current >= nozzles)
+            add(L"T" + std::to_wstring(current) + L" (none)", current);
+        box.SelectedIndex(current >= nozzles ? nozzles : current);
+    }
+
+    // The nozzle of the choice, or -1 for none.
+    int NozzleChoice(ComboBox const &box)
+    {
+        auto selected = box.SelectedItem();
+        if (selected == nullptr)
+            return -1;
+        auto item = selected.try_as<ComboBoxItem>();
+        return item != nullptr ? unbox_value_or<int>(item.Tag(), -1) : -1;
+    }
+
     struct MainWindow::FilamentState
     {
         struct Row
@@ -83,6 +113,8 @@ namespace winrt::ZSlice::implementation
             ComboBox nozzle{ nullptr };
             TextBlock grams{ nullptr };
             std::string color;
+            // What the nozzle list holds.
+            int shown_nozzles = 0, shown_extra = -1;
         };
 
         explicit FilamentState(MainWindow &window) : w(window) {}
@@ -95,7 +127,7 @@ namespace winrt::ZSlice::implementation
         Button add{ nullptr };
         TextBlock note{ nullptr };
         std::vector<Row> rows;
-        bool two = false;
+        int nozzles = 1;
         bool filling = false;
         // The rows of the part card.
         VariableSizedWrapGrid part_chips{ nullptr };
@@ -111,11 +143,6 @@ namespace winrt::ZSlice::implementation
                 if (auto self = weak.get())
                     action();
             });
-        }
-
-        bool TwoNozzles()
-        {
-            return atof(w.model->GetSetting("machine.nozzles").c_str()) >= 2;
         }
 
         void Set(size_t i, char const *field, std::string const &value)
@@ -248,23 +275,24 @@ namespace winrt::ZSlice::implementation
             line.Children().Append(material);
             row.material = material;
 
-            if (two)
+            if (nozzles >= 2)
             {
                 ComboBox nozzle;
-                nozzle.Width(84);
+                nozzle.MinWidth(84);
                 nozzle.VerticalAlignment(VerticalAlignment::Center);
-                nozzle.Items().Append(box_value(L"Main"));
-                nozzle.Items().Append(box_value(L"2nd"));
                 Automation::AutomationProperties::SetName(nozzle, L"The nozzle of filament " + number);
-                ToolTipService::SetToolTip(nozzle, box_value(L"The nozzle of filament " + number +
-                                                             L": the main nozzle (fed by the AMS on the X2D), or the second nozzle (fed by the external spool)"));
+                std::wstring tip = L"The nozzle of filament " + number;
+                if (nozzles == 2)
+                    tip += L": the main nozzle (fed by the AMS on the X2D), or the second nozzle (fed by the external spool)";
+                else
+                    tip += L": the tool that prints it (T0 to T" + std::to_wstring(nozzles - 1) + L")";
+                ToolTipService::SetToolTip(nozzle, box_value(tip));
                 nozzle.SelectionChanged([this, i](auto &&, auto &&) {
                     if (filling || i >= rows.size())
                         return;
-                    int want = rows[i].nozzle.SelectedIndex() == 1 ? 1 : 0;
-                    int have = atof(w.FilamentValue(i, "filament.nozzle").c_str()) >= 1 ? 1 : 0;
-                    if (want != have)
-                        Set(i, "filament.nozzle", want == 1 ? "1" : "0");
+                    int want = NozzleChoice(rows[i].nozzle);
+                    if (want >= 0 && want != atoi(w.FilamentValue(i, "filament.nozzle").c_str()))
+                        Set(i, "filament.nozzle", std::to_string(want));
                 });
                 line.Children().Append(nozzle);
                 row.nozzle = nozzle;
@@ -326,9 +354,18 @@ namespace winrt::ZSlice::implementation
                 row.material.SelectedIndex(at);
             if (row.nozzle != nullptr)
             {
-                int sel = atof(w.FilamentValue(row.index, "filament.nozzle").c_str()) >= 1 ? 1 : 0;
-                if (row.nozzle.SelectedIndex() != sel)
-                    row.nozzle.SelectedIndex(sel);
+                int current = std::max(0, atoi(w.FilamentValue(row.index, "filament.nozzle").c_str()));
+                int extra = current >= nozzles ? current : -1;
+                if (row.shown_nozzles != nozzles || row.shown_extra != extra)
+                {
+                    FillNozzleChoices(row.nozzle, nozzles, current);
+                    row.shown_nozzles = nozzles;
+                    row.shown_extra = extra;
+                }
+                else if (extra < 0 && row.nozzle.SelectedIndex() != current)
+                {
+                    row.nozzle.SelectedIndex(current);
+                }
             }
             bool printer = w.FilamentValue(row.index, "source.printer") == "1";
             std::string slot = w.FilamentValue(row.index, "source.slot");
@@ -353,13 +390,13 @@ namespace winrt::ZSlice::implementation
         {
             zs_app *app = w.model->Active();
             size_t n = zs_app_filament_count(app);
-            bool two_now = TwoNozzles();
+            int nozzles_now = w.NozzleCount();
             filling = true;
-            if (n != rows.size() || two_now != two)
+            if (n != rows.size() || nozzles_now != nozzles)
             {
                 list.Children().Clear();
                 rows.clear();
-                two = two_now;
+                nozzles = nozzles_now;
                 for (size_t i = 0; i < n; i++)
                     AddRow(i);
             }
@@ -807,6 +844,30 @@ namespace winrt::ZSlice::implementation
             zs::Log(" part filament %d", PartFilament(selected_parts[0]));
         zs::Log("\n");
         return true;
+    }
+#endif
+
+#ifdef ZS_DEV_HOOKS
+    // The choices of each filament's nozzle list, for the test hooks.
+    std::string MainWindow::FilamentNozzleLog()
+    {
+        if (filaments == nullptr)
+            return {};
+        filaments->UpdateList();
+        std::string out;
+        for (auto const &row : filaments->rows)
+        {
+            if (row.nozzle == nullptr)
+            {
+                out += "[none] ";
+                continue;
+            }
+            out += "[";
+            for (auto const &item : row.nozzle.Items())
+                out += to_string(unbox_value<hstring>(item.as<ComboBoxItem>().Content())) + " ";
+            out += "sel " + std::to_string(NozzleChoice(row.nozzle)) + "] ";
+        }
+        return out;
     }
 #endif
 }
