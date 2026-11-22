@@ -160,6 +160,73 @@ namespace winrt::ZSlice::implementation
         if (zs::Printers().FirstStart())
             ShowPicker(true);
         StartPlatesHook();
+        RepairDeckAddresses();
+    }
+
+    // An older pairing could give the first printer of a deck the address
+    // of another printer of that deck. At the start, each saved printer with
+    // a deck name gets the address of the printer of that name. The first
+    // printer of a deck lives at its root. A deck that does not answer
+    // changes nothing.
+    void MainWindow::PrintersUi::RepairDeckAddresses()
+    {
+        std::vector<zs::link::Target> saved;
+        for (size_t i = 0; i < zs::Printers().Count(); i++)
+        {
+            auto const &printer = zs::Printers().At(i);
+            if (printer.kind == zs::LinkKind::Printdeck && !printer.deck_name.empty() && !printer.url.empty())
+                saved.push_back(zs::link::TargetOf(printer));
+        }
+        if (saved.empty())
+            return;
+        struct Fix
+        {
+            std::string id, from, to;
+        };
+        Async(
+            [saved = std::move(saved)] {
+                std::vector<Fix> fixes;
+                std::vector<char> read(saved.size(), 0);
+                for (size_t i = 0; i < saved.size(); i++)
+                {
+                    if (read[i])
+                        continue;
+                    std::string root = zs::link::DeckRoot(zs::link::BaseUrl(saved[i].url));
+                    zs::link::DeckList list;
+                    std::string error;
+                    bool ok = zs::link::ReadDeck(saved[i], nullptr, list, error);
+                    for (size_t k = i; k < saved.size(); k++)
+                    {
+                        if (read[k] || saved[k].api_key != saved[i].api_key ||
+                            zs::link::DeckRoot(zs::link::BaseUrl(saved[k].url)) != root)
+                            continue;
+                        read[k] = 1;
+                        std::string to = ok ? zs::link::DeckRepairedUrl(saved[k].url, saved[k].deck_name, list) : std::string{};
+                        if (!to.empty())
+                            fixes.push_back({ saved[k].id, saved[k].url, to });
+                    }
+                }
+                return fixes;
+            },
+            [](PrintersUi &ui, std::vector<Fix> &fixes) {
+                size_t changed = 0;
+                for (auto const &fix : fixes)
+                {
+                    // The user may have edited the printer in the meantime.
+                    zs::SavedPrinter *printer = zs::Printers().Find(fix.id);
+                    if (printer != nullptr && printer->url == fix.from)
+                    {
+                        printer->url = fix.to;
+                        changed++;
+                    }
+                }
+                zs::Log("printers: the deck check fixed %zu addresses\n", changed);
+                if (changed == 0)
+                    return;
+                zs::Printers().Save();
+                ui.RefreshBar();
+                ui.RebuildTiles();
+            });
     }
 
     void MainWindow::PrintersUi::Close()

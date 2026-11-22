@@ -475,6 +475,24 @@ namespace
         one.printers.push_back(got.printers[0]);
         CHECK(link::DeckRefusal(root, one).empty());
 
+        // The first printer has no path: its address is the root, also from
+        // the address of another printer of the deck.
+        CHECK(link::DeckAddress(deck.Url() + "/printers/x2d", "") == deck.Url());
+        CHECK(link::DeckRepairedUrl(deck.Url() + "/printers/x2d", "TAZ 6", got) == deck.Url());
+        CHECK(link::DeckRepairedUrl(deck.Url(), "Bambu Lab X2D", got) == deck.Url() + "/printers/x2d");
+        CHECK(link::DeckRepairedUrl(deck.Url() + "/printers/x2d", "bambu lab x2d", got).empty());
+        CHECK(link::DeckRepairedUrl(deck.Url(), "TAZ 6", got).empty());
+        CHECK(link::DeckRepairedUrl(deck.Url() + "/printers/x2d", "", got).empty());
+        CHECK(link::DeckRepairedUrl(deck.Url() + "/printers/x2d", "Not on the deck", got).empty());
+        link::DeckList twice = got;
+        twice.printers.push_back(got.printers[0]);
+        twice.printers.back().path = "/printers/copy";
+        CHECK(link::DeckRepairedUrl(deck.Url() + "/printers/x2d", "TAZ 6", twice).empty());
+        // A path that leaves the deck never becomes the address.
+        link::DeckList away = got;
+        away.printers[0].path = "//evil.example/";
+        CHECK(link::DeckRepairedUrl(deck.Url() + "/printers/x2d", "TAZ 6", away).empty());
+
         link::Target wrong = t;
         wrong.api_key = "OTHER-KEY";
         CHECK(!link::ReadDeck(wrong, nullptr, got, error));

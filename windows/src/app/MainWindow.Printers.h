@@ -133,6 +133,7 @@ namespace winrt::ZSlice::implementation
         // ---- MainWindow.Printers.cpp: the top bar and the menus ----
         void BuildTopBar();
         void Start();
+        void RepairDeckAddresses();
         void Close();
         void AfterSettings();
         void RefreshBar();
