@@ -2545,7 +2545,9 @@ pub const Emitter = struct {
         // goes at the height of the new layer.
         // The wipe of a path stays in its layer (see `tail`).
         self.tail_n = 0;
-        if (s.machine.retract_layer_change) try self.retractHop(false, false);
+        // A rising wall (spiral vase mode) goes on with no stop: a retract
+        // at each layer stops the nozzle on the wall and leaves a mark.
+        if (s.machine.retract_layer_change and !spiralStart(lp)) try self.retractHop(false, false);
         // The travel to the first path has no z hop either.
         self.layer_start = true;
         self.setOutline(lp);
@@ -2597,7 +2599,13 @@ pub const Emitter = struct {
             if (obj != null and self.open_object == null) try self.objectStart(obj.?);
             try self.setAccel(lr.accel(null, first));
             self.path_index = i;
-            try self.travel(geom.toMm(pts[0].x), geom.toMm(pts[0].y), path.feature);
+            // A rising wall (spiral vase mode) that starts within a line
+            // width of the nozzle goes on from where the nozzle is: a
+            // travel there stops the nozzle on the wall for a moment.
+            const tx = geom.toMm(pts[0].x);
+            const ty = geom.toMm(pts[0].y);
+            const goes_on = path.z_start != layer_mod.Path.planar and self.extruded and geom.hypot(tx - self.x, ty - self.y) < self.layer_w;
+            if (!goes_on) try self.travel(tx, ty, path.feature);
             self.layer_start = false;
             // A path in a modifier volume has the settings of the volume.
             const path_r = lp.pathResolved(path) orelse lr;
@@ -2922,10 +2930,16 @@ pub const Emitter = struct {
         }
         self.extruded = true;
         // A rising wall (spiral vase mode) ends at the z of its last point.
-        if (path.feature == .outer_wall) self.nozzle_z = if (@abs(cz - self.z) < 1e-9) null else cz;
+        if (path.feature == .outer_wall) self.nozzle_z = if (@abs(cz - self.z) < z_same) null else cz;
         try self.zTo(self.z);
         return if (len_sum > 0) area_sum / len_sum * flow_ratio else data[0].area * flow_ratio;
     }
+
+    /// Two z values closer than this are the same z in the G-code, which
+    /// writes z with 3 decimals: a move between them moves nothing, and it
+    /// only stops the nozzle (a rising wall ends a float step off the z of
+    /// its layer).
+    const z_same = 0.0005;
 
     /// A Z move to z, from rest to rest, with no extrusion. The emitter
     /// keeps `self.z` as the z of the layer.
@@ -2933,7 +2947,7 @@ pub const Emitter = struct {
         // The nozzle is at the z of the layer, or at the z of the last
         // point of a path that is not planar.
         const from = self.nozzle_z orelse self.z;
-        if (@abs(z - from) < 1e-6) return;
+        if (@abs(z - from) < z_same) return;
         try self.zMove(z - from);
         const f = geom.round(self.r.settings.machine.max_z_speed * 60);
         if (!self.dry) {

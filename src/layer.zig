@@ -3455,6 +3455,11 @@ fn splitBridgeWalls(s: Allocator, a: Allocator, lp: *LayerPlan, memo: *Memo, bel
 /// the first spiral layer (`first`), the bead grows from zero at the
 /// start to a full bead at the end, on the flat top of the bottom layers.
 /// The idea comes from the spiralize mode of Cura; no code is copied.
+/// The direction on the bed of the start of each spiral layer (see
+/// `spiralize`): toward the back and a little to the right, not along an
+/// axis, so two corners on one line in X or Y do not tie.
+const spiral_dir = [2]f64{ 0.28, 0.96 };
+
 fn spiralize(s: Allocator, a: Allocator, lp: *LayerPlan, first: bool) Allocator.Error!void {
     // The outer wall loop with the largest area.
     var best: ?usize = null;
@@ -3480,9 +3485,24 @@ fn spiralize(s: Allocator, a: Allocator, lp: *LayerPlan, first: bool) Allocator.
     };
     if (best) |k| {
         const loop = lp.points.get(k);
+        // Each layer starts at the same place: the point of the loop that
+        // is furthest in one fixed direction on the bed. The seam of a
+        // layer can jump between equal corners (the ribs of a wall), and
+        // then the nozzle travels along the wall to the new start and
+        // leaves a line on it. The wall of the next layer is almost the
+        // same, so its start is next to the end of this one.
+        var first_i: usize = 0;
+        var best_score: f64 = -std.math.inf(f64);
+        for (loop, 0..) |q, j| {
+            const sc = spiral_dir[0] * @as(f64, @floatFromInt(q.x)) + spiral_dir[1] * @as(f64, @floatFromInt(q.y));
+            if (sc > best_score + 1e-6) {
+                best_score = sc;
+                first_i = j;
+            }
+        }
         var open = try s.alloc(Point, loop.len + 1);
-        @memcpy(open[0..loop.len], loop);
-        open[loop.len] = loop[0];
+        for (0..loop.len) |j| open[j] = loop[(first_i + j) % loop.len];
+        open[loop.len] = open[0];
         var total: f64 = 0;
         for (1..open.len) |j| total += open[j - 1].dist(open[j]);
         if (total <= 0) total = 1;

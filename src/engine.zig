@@ -3839,6 +3839,9 @@ test "gcode: spiral vase mode rises with no layer change" {
     var s: Settings = .{};
     s.engine.threads = 1;
     s.project.spiral_vase = true;
+    // A retract at each layer change must not stop the spiral.
+    s.machine.retract_layer_change = true;
+    s.machine.retract_length = 0.8;
     var job = try Job.init(gpa, &mesh, s);
     defer job.deinit();
     var out: std.Io.Writer.Allocating = .init(gpa);
@@ -3854,6 +3857,11 @@ test "gcode: spiral vase mode rises with no layer change" {
     var rising: usize = 0;
     while (it.next()) |line| {
         try testing.expect(!std.mem.startsWith(u8, line, "G0 Z"));
+        // No retract and no move of the filament alone on the wall, and
+        // no travel or lone Z move: each one stops the nozzle on the wall.
+        try testing.expect(!std.mem.startsWith(u8, line, "G1 E"));
+        try testing.expect(!std.mem.startsWith(u8, line, "G0 "));
+        try testing.expect(!std.mem.startsWith(u8, line, "G1 Z"));
         const zi = std.mem.indexOf(u8, line, " Z") orelse continue;
         if (!std.mem.startsWith(u8, line, "G1 X")) continue;
         var words = std.mem.tokenizeScalar(u8, line[zi + 2 ..], ' ');
