@@ -550,13 +550,13 @@ pub const Tower = struct {
 
     /// The row `row` of the purge rows of a layer, for lines `w` mm wide:
     /// its y, and the x of its two ends. The rows fill the area inside the
-    /// loop from the front, one line width apart, and their ends touch the
-    /// loop.
+    /// loop from the front, one line width apart. Their ends go half a
+    /// line into the loop, so each row holds to the walls of the tower.
     pub fn towerRow(t: Tower, w: f64, row: u32) struct { y: f64, x0: f64, x1: f64 } {
         return .{
             .y = t.y - t.ySize() / 2 + w + (@as(f64, @floatFromInt(row)) + 0.5) * w,
-            .x0 = t.x - t.size / 2 + 1.5 * w,
-            .x1 = t.x + t.size / 2 - 1.5 * w,
+            .x0 = t.x - t.size / 2 + w,
+            .x1 = t.x + t.size / 2 - w,
         };
     }
 
@@ -2320,10 +2320,11 @@ pub const Emitter = struct {
         while (len > 1e-9 and self.tower_rows[k] < rows_max) {
             const row = t.towerRow(w, self.tower_rows[k]);
             const ltr = self.tower_rows[k] % 2 == 0;
-            // The last row is as long as the purge that is left.
-            const run = @min(len, row.x1 - row.x0);
+            // Each row goes from wall to wall, also the last one: a row
+            // that stops inside the tower has no hold at its end.
+            const run = row.x1 - row.x0;
             pts[n] = .{ if (ltr) row.x0 else row.x1, row.y };
-            pts[n + 1] = .{ if (ltr) row.x0 + run else row.x1 - run, row.y };
+            pts[n + 1] = .{ if (ltr) row.x1 else row.x0, row.y };
             n += 2;
             len -= run;
             self.tower_rows[k] += 1;

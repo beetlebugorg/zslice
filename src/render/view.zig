@@ -3267,8 +3267,8 @@ pub const View = struct {
                 const rows_max = t.rowsMax(lw);
                 while (len > 1e-9 and rows < rows_max) : (rows += 1) {
                     const row = t.towerRow(lw, rows);
-                    const run = @min(len, row.x1 - row.x0);
-                    try v.towerBead(.{ row.x0, row.y }, .{ row.x0 + run, row.y }, l, @floatCast(lz), @floatCast(lh), @floatCast(lw), colors[k], center, sxy, sz);
+                    const run = row.x1 - row.x0;
+                    try v.towerBead(.{ row.x0, row.y }, .{ row.x1, row.y }, l, @floatCast(lz), @floatCast(lh), @floatCast(lw), colors[k], center, sxy, sz);
                     len -= run;
                 }
                 // The brim of the tower on the first layer, as
