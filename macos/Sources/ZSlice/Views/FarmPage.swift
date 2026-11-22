@@ -208,8 +208,8 @@ struct FarmPage: View {
             VStack(alignment: .leading, spacing: 6) {
                 HStack(alignment: .top, spacing: 8) {
                     VStack(alignment: .leading, spacing: 1) {
-                        Text(p.name).font(.headline).lineLimit(1)
-                        Text(p.kind == .bambu ? "Bambu Lab" : p.kind.title).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                        Text(p.name).font(.headline).fixedSize(horizontal: false, vertical: true)
+                        Text(p.kind == .bambu ? "Bambu Lab" : p.kind.title).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                     }
                     Spacer(minLength: 4)
                     Text(needsKey ? "Needs a key" : badge(l))
@@ -225,7 +225,7 @@ struct FarmPage: View {
                 if let st, !st.job.isEmpty, [.printing, .paused, .ready, .failed].contains(l) {
                     let f = l == .ready ? 1 : min(max(st.progress, 0), 1)
                     VStack(alignment: .leading, spacing: 3) {
-                        Text(st.job).font(.callout.weight(.medium)).lineLimit(1)
+                        Text(st.job).font(.callout.weight(.medium)).fixedSize(horizontal: false, vertical: true)
                         ProgressView(value: f).progressViewStyle(.linear).tint(l.color)
                         Text(jobFacts(st, l, f)).font(.caption.monospacedDigit()).foregroundStyle(.secondary)
                     }
@@ -243,7 +243,7 @@ struct FarmPage: View {
                     Text(st.heat).font(.caption.monospacedDigit()).foregroundStyle(.secondary).lineLimit(2)
                 }
                 if let st, !st.roll.isEmpty || !st.material.isEmpty {
-                    Text(rollText(st)).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                    Text(rollText(st)).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                 }
                 // What it prints (a plate sent from here), and its plates to come.
                 let now = workspace.printing[p.id].flatMap { id in model.plates.firstIndex { $0.id == id } }
@@ -401,7 +401,7 @@ struct FarmPage: View {
         return HStack(spacing: 12) {
             PlatePreview(workspace: workspace, plate: i, size: 48)
             VStack(alignment: .leading, spacing: 2) {
-                Text(plate.name.isEmpty ? "Plate \(i + 1)" : (plate.name as NSString).deletingPathExtension).lineLimit(1)
+                Text(plate.name.isEmpty ? "Plate \(i + 1)" : (plate.name as NSString).deletingPathExtension).fixedSize(horizontal: false, vertical: true)
                 Text(plateLine(i, plate)).font(.caption).foregroundStyle(.secondary)
                 if let j = monitor.job(of: workspace, plate: plate.id) {
                     jobLabel(j)
@@ -457,7 +457,7 @@ struct FarmPage: View {
                         HStack(spacing: 12) {
                             PlatePreview(workspace: item.2, plate: item.3, size: 44)
                             VStack(alignment: .leading, spacing: 2) {
-                                Text(monitor.jobName(item.0)).lineLimit(1)
+                                Text(monitor.jobName(item.0)).fixedSize(horizontal: false, vertical: true)
                                 Label(item.1.name, systemImage: "arrow.right").font(.caption).foregroundStyle(.secondary)
                             }
                             Spacer()

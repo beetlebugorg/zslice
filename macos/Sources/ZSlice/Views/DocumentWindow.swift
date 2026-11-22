@@ -310,11 +310,13 @@ struct DocumentWindow: View {
             // the field of the toolbar, or the card of the search.
             .overlay(alignment: .topLeading) {
                 let search = workspace.search
-                if search.open, !search.docked || !search.query.isEmpty {
+                // The results show when the field has the focus, also
+                // before the first letter.
+                if search.open {
                     GeometryReader { geo in
                         if search.docked {
                             SearchOverlay(workspace: workspace, area: geo.size)
-                                .padding(.leading, max(8, min(geo.size.width - SearchOverlay.width - 8, search.fieldMinX - 8)))
+                                .padding(.leading, max(8, min(geo.size.width - min(SearchOverlay.dockedWidth, geo.size.width - 16) - 8, search.fieldMinX - 8)))
                                 .padding(.top, 6)
                         } else {
                             SearchOverlay(workspace: workspace, area: geo.size)
@@ -615,13 +617,13 @@ struct PrintCard: View {
                             + (plate.map { $0.cost > 0 ? String(format: " · cost %.2f", $0.cost) : "" } ?? ""))
                             .font(.callout.monospacedDigit())
                             .foregroundStyle(.secondary)
-                            .lineLimit(1)
+                            .fixedSize(horizontal: false, vertical: true)
                             .minimumScaleFactor(0.75)
                             .help(plate.map(costHelp) ?? "")
                         if let all = totals(nil), all.plates >= 2 {
                             Text(allText(all))
                                 .font(.callout.monospacedDigit())
-                                .lineLimit(1)
+                                .fixedSize(horizontal: false, vertical: true)
                                 .minimumScaleFactor(0.75)
                                 .help("\(all.parts) parts on \(all.plates) plates. " + costHelp(all))
                         }
@@ -638,7 +640,7 @@ struct PrintCard: View {
                 if slicing {
                     ProgressView(value: model.progress).progressViewStyle(.linear)
                 } else if let s = workspace.sendState {
-                    Text(s).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                    Text(s).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                 } else if let t = model.sliceSeconds {
                     Text(t < 1 ? String(format: "Sliced in %.0f ms", t * 1000) : String(format: "Sliced in %.1f s", t))
                         .font(.caption)
@@ -653,7 +655,7 @@ struct PrintCard: View {
                             .font(.callout)
                     }
                     if let s = workspace.printerStatus {
-                        Label(s.line, systemImage: "printer").font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                        Label(s.line, systemImage: "printer").font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                     }
                 }
             }
@@ -845,12 +847,15 @@ struct BottomBar: View {
                     let n = workspace.noteCount
                     let tips = workspace.refinements.count
                     if p > 0 || n > 0 || tips > 0 {
-                        Text(p > 0 ? "\(p) to check" : n > 0 ? "Check" : "\(tips)")
+                        // Red (#b42318) for the problems and the warnings, as
+                        // on the web and in the GTK app; the refinements in the
+                        // accent color.
+                        Text(p > 0 ? "\(p) to check" : n > 0 ? "Check" : tips == 1 ? "1 refinement" : "\(tips) refinements")
                             .font(.caption.weight(.bold).monospacedDigit())
                             .foregroundStyle(.white)
-                            .padding(.horizontal, p > 0 || n > 0 ? 6 : 0)
-                            .frame(minWidth: 18, minHeight: 18)
-                            .background(p == 0 && n == 0 ? Color.accentColor : workspace.noteIsError ? Color.red : Color.orange, in: Capsule())
+                            .padding(.horizontal, 6)
+                            .frame(minHeight: 18)
+                            .background(p == 0 && n == 0 ? Color.accentColor : Color(red: 0xb4 / 255, green: 0x23 / 255, blue: 0x18 / 255), in: Capsule())
                             .help(p > 0 ? "\(p) \(p == 1 ? "problem" : "problems") of the Check to look at"
                                 : n > 0 ? "\(n) note\(n == 1 ? "" : "s") on this print" : "\(tips) of your usual refinement\(tips == 1 ? "" : "s")")
                     }

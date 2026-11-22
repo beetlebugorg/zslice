@@ -24,7 +24,7 @@ struct ProjectPage: View {
                             HStack {
                                 Text("\(i + 1)").monospacedDigit().foregroundStyle(.secondary).frame(width: 18)
                                 VStack(alignment: .leading, spacing: 1) {
-                                    Text(p.name.isEmpty ? "Plate \(i + 1)" : p.name).lineLimit(1)
+                                    Text(p.name.isEmpty ? "Plate \(i + 1)" : p.name).fixedSize(horizontal: false, vertical: true)
                                     Text(state(p)).font(.caption).foregroundStyle(p.status == ZS_PLATE_STATUS_FAILED.rawValue ? .red : .secondary)
                                 }
                                 Spacer()

@@ -196,12 +196,6 @@ extension Workspace {
     /// Check button and on the badge of the print, the same list for both.
     var checkProblems: Int { issues.filter { $0.severity >= 1 }.count }
 
-    /// A note that stops the print (red, not orange).
-    var noteIsError: Bool {
-        if case .failed = model.state { return true }
-        return model.state == .done && !plateFits
-    }
-
     var unsupportedArea: Double? {
         guard model.setting("project.support") == "off" else { return nil }
         let sum = issues.filter { ($0.kind == UInt8(ZS_ISSUE_OVERHANG.rawValue) || $0.kind == UInt8(ZS_ISSUE_ISLAND.rawValue)) && $0.severity >= 1 }
