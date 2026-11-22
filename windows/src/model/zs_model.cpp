@@ -12,6 +12,7 @@
 #include <algorithm>
 #include <cstdarg>
 #include <cstdio>
+#include <mutex>
 
 namespace zs
 {
@@ -60,10 +61,29 @@ namespace zs
         else
         {
             n = ::GetEnvironmentVariableW(L"APPDATA", dir, MAX_PATH);
-            path = std::wstring(dir, n < MAX_PATH ? n : 0) + L"\zslice";
+            std::wstring appdata(dir, n < MAX_PATH ? n : 0);
+            path = appdata + L"\\zslice";
+            static std::once_flag moved;
+            std::call_once(moved, [&] { MoveOldStateFiles(appdata); });
         }
         ::CreateDirectoryW(path.c_str(), nullptr);
         return path;
+    }
+
+    void MoveOldStateFiles(std::wstring const &appdata)
+    {
+        if (appdata.empty())
+            return;
+        std::wstring old_dir = appdata + L"zslice", new_dir = appdata + L"\\zslice";
+        ::CreateDirectoryW(new_dir.c_str(), nullptr);
+        for (wchar_t const *name : { L"session.zslice", L"session.zslice.bad", L"last-slice.gcode" })
+        {
+            // With no replace flag, a file in the new folder stays.
+            std::wstring from = old_dir + L"\\" + name, to = new_dir + L"\\" + name;
+            ::MoveFileExW(from.c_str(), to.c_str(), MOVEFILE_COPY_ALLOWED);
+        }
+        // This removes the old folder only if it is empty.
+        ::RemoveDirectoryW(old_dir.c_str());
     }
 
     Model::Model(std::function<void(Event const &)> post) : post_(std::move(post)) {}

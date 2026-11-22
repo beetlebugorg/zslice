@@ -1530,6 +1530,27 @@ namespace
         ::closesocket(server);
     }
 
+    // The session of the old folder moves once, and replaces no file.
+    void TestStateMove()
+    {
+        std::wstring base = state::PathOf(L"move-test");
+        std::wstring appdata = base + L"\\Roaming";
+        std::wstring old_dir = appdata + L"zslice", new_dir = appdata + L"\\zslice";
+        ::CreateDirectoryW(base.c_str(), nullptr);
+        ::CreateDirectoryW(appdata.c_str(), nullptr);
+        ::CreateDirectoryW(old_dir.c_str(), nullptr);
+        CHECK(state::WriteBytes(old_dir + L"\\session.zslice", "first"));
+        zs::MoveOldStateFiles(appdata);
+        std::string text;
+        CHECK(state::ReadBytes(new_dir + L"\\session.zslice", text) && text == "first");
+        CHECK(::GetFileAttributesW(old_dir.c_str()) == INVALID_FILE_ATTRIBUTES);
+        ::CreateDirectoryW(old_dir.c_str(), nullptr);
+        CHECK(state::WriteBytes(old_dir + L"\\session.zslice", "second"));
+        zs::MoveOldStateFiles(appdata);
+        CHECK(state::ReadBytes(new_dir + L"\\session.zslice", text) && text == "first");
+        CHECK(state::ReadBytes(old_dir + L"\\session.zslice", text) && text == "second");
+    }
+
     // The keys go to a scratch root. The real file types do not change.
     void TestRegisterApp()
     {
@@ -1660,7 +1681,7 @@ int main()
         { "status", TestStatus }, { "key flow", TestKeyFlow }, { "deck", TestDeck }, { "upload", TestUpload },
         { "detect", TestDetect }, { "filaments", TestFilaments }, { "mjpeg", TestMjpeg }, { "camera", TestCamera },
         { "discovery", TestDiscovery }, { "bambu", TestBambu }, { "setup", TestSetup },
-        { "open link", TestOpenLink }, { "file types", TestRegisterApp }, { "hand off", TestHandOff },
+        { "open link", TestOpenLink }, { "file types", TestRegisterApp }, { "hand off", TestHandOff }, { "state move", TestStateMove },
     };
     for (auto const &step : steps)
     {

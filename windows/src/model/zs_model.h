@@ -112,6 +112,9 @@ namespace zs
     // The folder of the saved state: ZSLICE_STATE_DIR, else %APPDATA%\zslice.
     // It exists after the call.
     std::wstring StateDir();
+    // Moves the files of the old state folder (<appdata>zslice, with no
+    // backslash) into <appdata>\zslice. A file that is there stays.
+    void MoveOldStateFiles(std::wstring const &appdata);
 
     std::string ToUtf8(std::wstring const &text);
     std::wstring ToWide(std::string const &text);
