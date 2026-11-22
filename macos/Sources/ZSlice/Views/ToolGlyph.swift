@@ -83,3 +83,20 @@ struct ToolGlyph: View {
                     lineJoin: g.round ? .round : .miter, dash: dash.map { $0 * k })
     }
 }
+
+/// The glyph of the search as a card (the undock button, as the web and
+/// GTK apps): a card with a title bar, "M2.5 3.5h11v9h-11zM2.5 6.5h11" on
+/// a 16-unit grid, a stroke of 1.5 with round caps and joins.
+struct CardGlyph: View {
+    var size: CGFloat = 15
+
+    var body: some View {
+        Canvas { ctx, sz in
+            let k = sz.width / 16
+            let p = HistoryGlyph.parse("M2.5 3.5h11v9h-11zM2.5 6.5h11").applying(CGAffineTransform(scaleX: k, y: k))
+            ctx.stroke(p, with: .foreground, style: StrokeStyle(lineWidth: 1.5 * k, lineCap: .round, lineJoin: .round))
+        }
+        .frame(width: size, height: size)
+        .accessibilityHidden(true)
+    }
+}
