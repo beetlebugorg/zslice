@@ -153,6 +153,8 @@ static const char *ZG_CSS =
     ".zg-sr { padding: 4px 8px; border-radius: 8px; }"
     ".zg-sr.zg-sr-on { background-color: alpha(@theme_selected_bg_color, 0.30); }"
     ".zg-sr:focus-visible { outline: 2px solid alpha(@theme_selected_bg_color, 0.8); outline-offset: -2px; }"
+    /* A quality in its menu (profile-menus.c): a name and a dim line. */
+    "button.zg-quality-item { padding: 1px 10px 1px 4px; min-height: 0; border-radius: 6px; font-weight: normal; }"
     ".zg-sr-tag { font-size: 0.8em; opacity: 0.6; }"
     ".zg-sr-group { font-size: 0.8em; font-weight: 700; opacity: 0.6; padding: 8px 8px 2px; }"
     ".zg-sr-note { font-size: 0.9em; opacity: 0.7; padding: 8px; }"
