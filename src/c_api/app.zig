@@ -4622,3 +4622,44 @@ export fn zs_app_failure_name(a: ?*const App) [*:0]const u8 {
     if (app.state.load(.acquire) != .failed) return "";
     return @errorName(app.failure);
 }
+
+test "C API: a support mark is a step of the history, and stays in the 3MF of the plate" {
+    const t = std.testing;
+    const alloc = t.allocator;
+    var a: ?*App = null;
+    try t.expectEqual(ok, zs_app_new(null, null, &a));
+    defer zs_app_free(a);
+    var b: zs.mesh.Builder = .init(alloc);
+    errdefer b.deinit();
+    try zs.mesh.shapes.addBox(&b, 0, 0, 0, 20, 20, 10);
+    var mesh = try b.finish();
+    defer mesh.deinit(alloc);
+    var stl: Writer.Allocating = .init(alloc);
+    defer stl.deinit();
+    try mesh.writeStl(&stl.writer);
+    try t.expectEqual(ok, zs_app_load_stl(a, "box.stl", stl.written().ptr, stl.written().len));
+    _ = zs_app_history_commit(a, 0);
+    const before = zs_app_history_count(a);
+    try t.expectEqual(ok, zs_app_mark_add(a, 100, 100, 5, 3, 1));
+    try t.expectEqual(@as(c_int, 1), zs_app_history_commit(a, 1000));
+    try t.expectEqual(before + 1, zs_app_history_count(a));
+    // Undo takes the mark away and keeps the part.
+    try t.expect(zs_app_history_undo(a, 2000) != 0);
+    try t.expectEqual(@as(usize, 0), zs_app_mark_count(a));
+    try t.expectEqual(@as(usize, 1), a.?.plate.count());
+    try t.expect(zs_app_history_redo(a, 3000) != 0);
+    try t.expectEqual(@as(usize, 1), zs_app_mark_count(a));
+    try t.expectEqual(@as(f64, 3), a.?.marks.items[0].r);
+    // The 3MF of the plate keeps the mark.
+    var bytes: ?[*]const u8 = null;
+    var len: usize = 0;
+    try t.expectEqual(ok, zs_app_write_3mf(a, &bytes, &len));
+    const copy = try alloc.dupe(u8, bytes.?[0..len]);
+    defer alloc.free(copy);
+    var other: ?*App = null;
+    try t.expectEqual(ok, zs_app_new(null, null, &other));
+    defer zs_app_free(other);
+    try t.expectEqual(ok, zs_app_load_stl(other, "plate.3mf", copy.ptr, copy.len));
+    try t.expectEqual(@as(usize, 1), zs_app_mark_count(other));
+    try t.expectEqual(zs.support.Mark.Kind.tree, other.?.marks.items[0].kind);
+}

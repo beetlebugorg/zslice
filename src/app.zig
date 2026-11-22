@@ -639,6 +639,19 @@ pub const App = struct {
                 try app.edits.put(app.gpa, .{ .key = key, .kind = @enumFromInt(kind), .value = value, .layer = layer, .x = x, .y = y, .z = z });
                 continue;
             }
+            // "mark <tab> x <tab> y <tab> z <tab> r <tab> kind": a support
+            // mark of the user (support.Mark).
+            if (std.mem.startsWith(u8, line, "mark\t")) {
+                var f = std.mem.splitScalar(u8, line["mark\t".len..], '\t');
+                const x = std.fmt.parseFloat(f64, f.next() orelse continue) catch continue;
+                const y = std.fmt.parseFloat(f64, f.next() orelse continue) catch continue;
+                const z = std.fmt.parseFloat(f64, f.next() orelse continue) catch continue;
+                const r = std.fmt.parseFloat(f64, f.next() orelse continue) catch continue;
+                const kind = std.fmt.parseInt(u8, f.next() orelse continue, 10) catch continue;
+                if (kind > @intFromEnum(zs.support.Mark.Kind.block) or !(r > 0)) continue;
+                try app.marks.append(app.gpa, .{ .x = x, .y = y, .z = z, .r = r, .kind = @enumFromInt(kind) });
+                continue;
+            }
             // "lift <tab> part <tab> z": the lift of a part (plate.Part.z).
             if (std.mem.startsWith(u8, line, "lift\t")) {
                 var f = std.mem.splitScalar(u8, line["lift\t".len..], '\t');
@@ -727,6 +740,13 @@ pub const App = struct {
         try filament_slots.write3mfLines(app, w);
         try support_trees.write3mfLines(app, w);
         for (app.edits.list.items) |e| try w.print("edit\t{x}\t{d}\t{d}\t{d}\t{d}\t{d}\t{d}\n", .{ e.key, @intFromEnum(e.kind), e.value, e.layer, e.x, e.y, e.z });
+        // The support marks of the user at a point (support.Mark): "mark",
+        // x, y, z, the radius, and the kind. They are in the history and
+        // the session with the plate.
+        for (app.marks.items) |m| {
+            if (m.poly.len > 0 or @intFromEnum(m.kind) > @intFromEnum(zs.support.Mark.Kind.block)) continue;
+            try w.print("mark\t{d}\t{d}\t{d}\t{d}\t{d}\n", .{ m.x, m.y, m.z, m.r, @intFromEnum(m.kind) });
+        }
         // The lift of each part that floats or sinks (plate.Part.z), by its
         // index on the plate.
         for (app.plate.parts.items, 0..) |p, k| if (p.z != 0) try w.print("lift\t{d}\t{d}\n", .{ k, p.z });
@@ -1967,6 +1987,11 @@ pub const App = struct {
                 .flow => try w.print("{d:.0} % plastic\n", .{e.value * 100}),
                 .dot => try w.print("a drop of {d:.1} mm at {d:.1}, {d:.1}\n", .{ e.value, e.x, e.y }),
             }
+        }
+        // The support marks of the user at a point.
+        for (app.marks.items) |m| {
+            if (m.poly.len > 0 or @intFromEnum(m.kind) > @intFromEnum(zs.support.Mark.Kind.block)) continue;
+            try w.print("marks\tsupport mark at {d:.1}, {d:.1}, z {d:.2}\t{s}, {d:.1} mm\n", .{ m.x, m.y, m.z, @tagName(m.kind), m.r });
         }
         try app.areas.writeFacts(w);
         try filament_slots.writeFacts(app, w);
