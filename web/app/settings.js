@@ -96,11 +96,12 @@ export class SettingsBrowser {
   // ---- data from the worker ----
 
   setValues(snapshot) {
-    const two = this.twoNozzles();
+    const before = this.nozzleCount();
     this.values = snapshot.values;
     this.quality = snapshot.quality;
-    // The "Second nozzle" section comes and goes with the second nozzle.
-    if (two !== this.twoNozzles()) {
+    // The section of each nozzle after the first comes and goes with the
+    // number of nozzles.
+    if (before !== this.nozzleCount()) {
       this.fillSections();
       for (const r of this.sectionRows) r.classList.toggle("selected", r.dataset.group === this.group && r.dataset.section === this.section);
     }
@@ -172,15 +173,16 @@ export class SettingsBrowser {
 
   // ---- column 1: the sections ----
 
-  // A printer with two nozzles (machine.nozzles).
-  twoNozzles() {
-    return Number(this.values["machine.nozzles"]?.value ?? 1) >= 2;
+  // The number of nozzles of the printer (machine.nozzles).
+  nozzleCount() {
+    return Number(this.values["machine.nozzles"]?.value ?? 1) || 1;
   }
 
-  // A section that the printer has: "Second nozzle" only on a printer
-  // with two nozzles.
+  // A setting that the printer has: the settings of nozzle k (its
+  // section, "Second nozzle (T1)" and on) only on a printer with more
+  // than k nozzles.
   hasSection(info) {
-    return info.group !== "machine" || info.section !== "Second nozzle" || this.twoNozzles();
+    return !info.nozzle || info.nozzle < this.nozzleCount();
   }
 
   fillSections() {
@@ -231,7 +233,7 @@ export class SettingsBrowser {
     this.feature = -1;
     if (this.search) {
       const needle = this.search.toLowerCase();
-      this.fillSettings((i) => i.label.toLowerCase().includes(needle) || i.doc.toLowerCase().includes(needle) || i.name.includes(needle), true);
+      this.fillSettings((i) => this.hasSection(i) && (i.label.toLowerCase().includes(needle) || i.doc.toLowerCase().includes(needle) || i.name.includes(needle)), true);
       this.showColumn(1);
     } else if (this.group) {
       this.selectSection(this.group, this.section, false);

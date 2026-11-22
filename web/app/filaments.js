@@ -148,6 +148,17 @@ export function filamentEditor(info, commit, add = null, zero = null) {
   };
 }
 
+// The choices of the nozzle of a filament on a printer with `n` nozzles:
+// "Main" and "2nd" for two (the X2D), else the tools T0 and on. A nozzle
+// that the printer does not have stays in the list, marked, so the value
+// shows (the Check tells it).
+export function nozzleChoices(n, current) {
+  const out = [];
+  for (let k = 0; k < n; k++) out.push([n === 2 ? (k === 0 ? "Main" : "2nd") : `T${k}`, k]);
+  if (current >= n) out.push([`T${current} (none)`, current]);
+  return out;
+}
+
 export class FilamentList {
   // ctx: { client, applySettings(r) }. The list draws into `node`.
   constructor(ctx) {
@@ -214,13 +225,16 @@ export class FilamentList {
       if (f.fromPrinter) grams.title = `From the printer: ${f.slot ? `the spool in ${f.slot}` : "its spool"}`;
       else if (f.hand) grams.title = "You set this filament. It stays when the printer has other spools.";
       row.append(sw, num, mat);
-      // A printer with two nozzles: the nozzle of the filament.
-      if ((this.ctx.nozzles?.() ?? 1) >= 2) {
+      // A printer with more than one nozzle: the nozzle of the filament.
+      const nozzles = this.ctx.nozzles?.() ?? 1;
+      if (nozzles >= 2) {
         const nz = document.createElement("select");
         nz.className = "choice fil-nozzle";
-        nz.title = `The nozzle of filament ${f.index + 1}: the main nozzle (fed by the AMS on the X2D), or the second nozzle (fed by the external spool)`;
+        nz.title = nozzles === 2
+          ? `The nozzle of filament ${f.index + 1}: the main nozzle (fed by the AMS on the X2D), or the second nozzle (fed by the external spool)`
+          : `The nozzle of filament ${f.index + 1}: the tool that prints it (T0 to T${nozzles - 1})`;
         nz.setAttribute("aria-label", `The nozzle of filament ${f.index + 1}`);
-        nz.append(new Option("Main", "0"), new Option("2nd", "1"));
+        for (const [label, k] of nozzleChoices(nozzles, f.nozzle ?? 0)) nz.append(new Option(label, String(k)));
         nz.value = String(f.nozzle ?? 0);
         nz.onchange = () => this.call("filamentSet", { index: f.index, name: "filament.nozzle", value: nz.value });
         row.append(nz);

@@ -34,9 +34,10 @@ typedef struct {
     GtkWidget *scope;
     gboolean filling_scope;
     GtkWidget *sections; /* column 1 */
-    /* The row of the "Second nozzle" section: only a printer with two
-     * nozzles shows it. */
-    GtkWidget *nozzle2_row;
+    /* The row of the section of each nozzle after the first ("Second
+     * nozzle (T1)" and on, by nozzle): only a printer with more than k
+     * nozzles shows the row of nozzle k. */
+    GtkWidget *nozzle_rows[16];
     GtkWidget *settings; /* column 2 */
     GtkWidget *detail;   /* column 3: a box; its child is rebuilt */
     GtkWidget *effect;   /* in column 3: the lines of the project */
@@ -781,6 +782,8 @@ static gboolean matches(const zs_setting_info *info, const char *needle) {
     return hit || strstr(info->name, needle) != NULL;
 }
 
+static gboolean has_setting(Browser *b, const zs_setting_info *info);
+
 /* Fills column 2: the settings of a section, or the matches of a search. */
 static void fill_settings(Browser *b, const char *group, const char *section, const char *search) {
     gtk_list_box_remove_all(GTK_LIST_BOX(b->settings));
@@ -806,6 +809,7 @@ static void fill_settings(Browser *b, const char *group, const char *section, co
         zs_setting_info info;
         if (zs_setting_get_info(i, &info) != ZS_OK) continue;
         if (needle ? !matches(&info, needle) : (g_strcmp0(info.group, group) != 0 || g_strcmp0(info.section, section) != 0)) continue;
+        if (needle && !has_setting(b, &info)) continue;
         GtkWidget *row = setting_row(b, &info, needle != NULL);
         gtk_list_box_append(GTK_LIST_BOX(b->settings), row);
         if (b->key && strcmp(b->key, info.name) == 0) gtk_list_box_select_row(GTK_LIST_BOX(b->settings), GTK_LIST_BOX_ROW(row));
@@ -1296,25 +1300,39 @@ static void add_sections(Browser *b) {
             g_object_set_data(G_OBJECT(row), "zg-group", (gpointer)info.group);
             g_object_set_data(G_OBJECT(row), "zg-section", (gpointer)info.section);
             gtk_list_box_append(GTK_LIST_BOX(b->sections), row);
-            if (strcmp(info.group, "machine") == 0 && strcmp(info.section, "Second nozzle") == 0) b->nozzle2_row = row;
+            if (info.nozzle > 0 && info.nozzle < (int)G_N_ELEMENTS(b->nozzle_rows)) b->nozzle_rows[info.nozzle] = row;
         }
     }
 }
 
-/* The "Second nozzle" section shows for a printer with two nozzles. */
-static void update_nozzle2_row(Browser *b) {
-    if (!b->nozzle2_row) return;
+/* The number of nozzles of the printer (machine.nozzles). */
+static int nozzle_count(Browser *b) {
     char *n = zg_model_get(b->model, "machine.nozzles");
-    gtk_widget_set_visible(b->nozzle2_row, g_ascii_strtod(n, NULL) >= 2);
+    int count = n ? (int)g_ascii_strtod(n, NULL) : 1;
     g_free(n);
+    return count < 1 ? 1 : count;
+}
+
+/* A setting that the printer has: the settings of nozzle k only on a
+ * printer with more than k nozzles. */
+static gboolean has_setting(Browser *b, const zs_setting_info *info) {
+    return info->nozzle == 0 || info->nozzle < nozzle_count(b);
+}
+
+/* The section of nozzle k shows for a printer with more than k nozzles. */
+static void update_nozzle_rows(Browser *b) {
+    int count = nozzle_count(b);
+    for (int k = 1; k < (int)G_N_ELEMENTS(b->nozzle_rows); k++) {
+        if (b->nozzle_rows[k]) gtk_widget_set_visible(b->nozzle_rows[k], k < count);
+    }
 }
 
 static void on_nozzles_changed(ZgModel *model, const char *key, gpointer data) {
-    update_nozzle2_row(data);
+    update_nozzle_rows(data);
 }
 
 static void on_printer_nozzles(ZgModel *model, gpointer data) {
-    update_nozzle2_row(data);
+    update_nozzle_rows(data);
 }
 
 /* Right opens the selected row (as Enter does), Left goes back. */
@@ -1531,7 +1549,7 @@ GtkWidget *zg_settings_browser_new(ZgModel *model, GtkWidget *panel_stack) {
     g_signal_connect(model, "profiles-changed", G_CALLBACK(on_profiles_changed), b);
     g_signal_connect(model, "setting-changed::machine.nozzles", G_CALLBACK(on_nozzles_changed), b);
     g_signal_connect(model, "printer-changed", G_CALLBACK(on_printer_nozzles), b);
-    update_nozzle2_row(b);
+    update_nozzle_rows(b);
     g_signal_connect(model, "open-profile", G_CALLBACK(on_open_profile), b);
     fill_profiles(b);
     /* For development and screenshots: ZSLICE_SETTING=project.layer_height

@@ -307,16 +307,17 @@ export class LineCard {
     const flow = `${info.flow.toFixed(1)} mm³/s` + (info.maxFlow > 0 ? ` (${flowUse} %)` : "");
     const line1 = el("div", "lc-line");
     line1.append(part(speed, slow), dot(), part(flow, flowUse >= 95));
-    // A printer with two nozzles: the nozzle of the line.
-    if (info.nozzle > 0) line1.append(dot(), part(info.nozzle === 2 ? "2nd nozzle" : "main nozzle", false));
+    // A printer with more than one nozzle: the nozzle of the line (from
+    // 1: the main nozzle, then T1 and on).
+    if (info.nozzle > 0) line1.append(dot(), part(info.nozzle === 1 ? "main nozzle" : info.nozzle === 2 ? "2nd nozzle" : `nozzle T${info.nozzle - 1}`, false));
     line1.title = "The speed of the line (and the planned speed when it is slower), and its flow (and its share of the most that the hot end melts)";
     const line2 = el("div", "lc-line");
     line2.append(part(`${info.lineWidth.toFixed(2)} × ${info.height.toFixed(2)} mm`, false), dot(), part(`layer ${layerTimeText(info.layerTime)}`, info.slowReason === 1), dot(), part(`fan ${Math.round((info.fan ?? 0) * 100)} %`, false));
     line2.title = "The width and the height of the line, the time of its layer, and the fan";
     this.stats.replaceChildren(line1, line2);
     const notes = lineNotes(info).map((t) => el("div", "lc-note", t));
-    // The second nozzle: its speed limits.
-    if (info.nozzle === 2 && info.nozzleText) notes.push(el("div", "lc-info", info.nozzleText));
+    // A nozzle after the first: its speed limits.
+    if (info.nozzle >= 2 && info.nozzleText) notes.push(el("div", "lc-info", info.nozzleText));
     // What a support line holds up.
     if (info.holds) {
       const f = FEATURE_TITLES[info.holds.feature] ?? "Part";
