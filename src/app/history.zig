@@ -211,6 +211,15 @@ fn writeValue(w: *std.Io.Writer, info: ?setting_info.SettingInfo, v: []const u8)
     }
 }
 
+/// The id and the setting of a key of a region of some layers ("region 2
+/// project.infill_density", see App.writeFacts), or null.
+pub fn regionKey(key: []const u8) ?struct { id: []const u8, name: []const u8 } {
+    if (!std.mem.startsWith(u8, key, "region ")) return null;
+    const rest = key["region ".len..];
+    const sp = std.mem.indexOfScalar(u8, rest, ' ') orelse return null;
+    return .{ .id = rest[0..sp], .name = rest[sp + 1 ..] };
+}
+
 /// Writes one change in words, for a list: "Infill density 20 % → 55 %",
 /// "Added", "Moved to 120, 95 mm". An empty old value of a setting is its
 /// default (the facts have only the values that differ from it).
@@ -229,6 +238,20 @@ pub fn writeChange(w: *std.Io.Writer, c: Change) std.Io.Writer.Error!void {
     if (std.mem.eql(u8, c.key, "(slot)")) return w.writeAll(if (c.new.len > 0) "Added to the plate" else "Removed from the plate");
     if (is_part and std.mem.eql(u8, c.key, "(paint)")) return w.writeAll(if (c.new.len > 0) "Painted" else "Paint removed");
     if (is_part and std.mem.startsWith(u8, c.key, "label ")) return writeLabelChange(w, c);
+    // A setting of a region of some layers: "region 2 project.infill_density".
+    if (is_part) if (regionKey(c.key)) |r| {
+        try w.print("Region {s}: ", .{r.id});
+        const info = infoOf(r.name);
+        if (info) |i| try w.writeAll(i.label) else try w.writeAll(r.name);
+        if (c.new.len == 0) return w.writeAll(" removed");
+        try w.writeByte(' ');
+        if (c.old.len > 0) {
+            try writeValue(w, info, c.old);
+            try w.writeByte(' ');
+        }
+        try w.writeAll("→ ");
+        return writeValue(w, info, c.new);
+    };
     if (is_layers and std.mem.eql(u8, c.key, "(name)")) {
         if (c.new.len == 0) return w.print("Layer profile \"{s}\" removed", .{c.old});
         if (c.old.len == 0) return w.print("Layer profile \"{s}\"", .{c.new});
@@ -380,6 +403,11 @@ pub fn kindOf(c: Change) Kind {
         // The paint of a part (the Paint tool, or the filament of a body of
         // some layers): its filaments.
         if (eq(u8, c.key, "(paint)")) return .filament;
+        // A setting of a region: the kind of the setting.
+        if (regionKey(c.key)) |r| {
+            const info = infoOf(r.name) orelse return .other;
+            return kindOfSection(info.group, info.section);
+        }
         if (std.mem.startsWith(u8, c.key, "label ")) {
             if (c.old.len == 0) return .add;
             if (c.new.len == 0) return .remove;
@@ -435,7 +463,7 @@ pub fn revertible(line: []const u8) bool {
     if (!std.mem.startsWith(u8, line, "part:")) return true;
     const tab = std.mem.indexOfScalar(u8, line, '\t') orelse return false;
     const key = line[tab + 1 ..];
-    for ([_][]const u8{ "(part)", "position", "rotation", "orientation", "scale", "(support trees)" }) |k| {
+    for ([_][]const u8{ "(part)", "position", "rotation", "orientation", "scale", "(support trees)", "region " }) |k| {
         if (std.mem.startsWith(u8, key, k)) return false;
     }
     return true;
@@ -447,6 +475,8 @@ test "history: the changes that can be undone alone" {
     try std.testing.expect(!revertible("part:0\tposition\t1,2\t3,4"));
     try std.testing.expect(revertible("part:0\tproject.wall_count\t2\t3"));
     try std.testing.expect(!revertible("part:0\t(support trees)\t\tedited, 3 branches"));
+    // A region comes back with the whole step: it is a volume of the plate.
+    try std.testing.expect(!revertible("part:0\tregion 1 project.infill_density\t\t0.5"));
 }
 
 pub fn describe(gpa: Allocator, changes: []const u8, part_z: f64, layer_z: []const f32, w: *std.Io.Writer) (Allocator.Error || std.Io.Writer.Error)!void {
@@ -919,6 +949,7 @@ test "a change of a filament slot or of the filament of a part is a filament ste
     try testing.expectEqual(Kind.filament, kindOf(.{ .scope = "filament 2", .key = "filament.color", .old = "#d0d0cc", .new = "#d93a3a" }));
     try testing.expectEqual(Kind.filament, kindOf(.{ .scope = "", .key = "project.support_filament", .old = "0", .new = "2" }));
     try testing.expectEqual(Kind.filament, kindOf(.{ .scope = "part:Benchy", .key = "(paint)", .old = "", .new = "9f3a" }));
+    try testing.expectEqual(Kind.infill, kindOf(.{ .scope = "part:Benchy", .key = "region 1 project.infill_density", .old = "", .new = "0.5" }));
     try testing.expectEqual(Kind.heat, kindOf(.{ .scope = "", .key = "filament.nozzle_temp", .old = "", .new = "215" }));
 }
 

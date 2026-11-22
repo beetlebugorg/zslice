@@ -698,6 +698,57 @@ pub const Plate = struct {
         try p.volumes.append(gpa, v);
     }
 
+    /// Adds a modifier volume to part i from a mesh on the bed (the frame
+    /// of `partMesh`): the inverse of the place, the turn, the pose, and
+    /// the scale of the part. So the volume moves and turns with the part
+    /// after. The plate owns the mesh and the metadata after the call
+    /// (also on an error).
+    pub fn addVolumeOnBed(self: *Plate, gpa: Allocator, i: usize, name: []const u8, bed: Mesh, meta: []Meta) Allocator.Error!void {
+        var m = bed;
+        if (i >= self.parts.items.len) {
+            m.deinit(gpa);
+            threemf.freeMeta(gpa, meta);
+            return error.OutOfMemory;
+        }
+        const p = &self.parts.items[i];
+        const c = p.turnCenter();
+        const b = p.mesh.bounds();
+        const a = std.math.degreesToRadians(p.rot);
+        const ca = @cos(a);
+        const sa = @sin(a);
+        const flip = p.source != null and p.scale[0] * p.scale[1] * p.scale[2] < 0;
+        for (m.vertices.items) |*v| {
+            const rx = v.x - p.x + p.shift[0];
+            const ry = v.y - p.y + p.shift[1];
+            var q: [3]f64 = .{ rx * ca + ry * sa + c[0], -rx * sa + ry * ca + c[1], v.z + b.min[2] };
+            if (p.source != null) {
+                // The pose is a turn: its inverse is its transpose.
+                const t = p.pose;
+                const u: [3]f64 = .{
+                    t[0][0] * q[0] + t[1][0] * q[1] + t[2][0] * q[2],
+                    t[0][1] * q[0] + t[1][1] * q[1] + t[2][1] * q[2],
+                    t[0][2] * q[0] + t[1][2] * q[1] + t[2][2] * q[2],
+                };
+                for (0..3) |k| q[k] = if (p.scale[k] != 0) u[k] / p.scale[k] else u[k];
+            }
+            v.* = .{ .x = @floatCast(q[0]), .y = @floatCast(q[1]), .z = @floatCast(q[2]) };
+        }
+        // addVolume turns the faces again for a mirror.
+        if (flip) for (m.faces.items) |*f| {
+            f.* = .{ f[0], f[2], f[1] };
+        };
+        return self.addVolume(gpa, i, name, m, meta);
+    }
+
+    /// Removes modifier volume k of part i.
+    pub fn removeVolume(self: *Plate, gpa: Allocator, i: usize, k: usize) void {
+        if (i >= self.parts.items.len) return;
+        const p = &self.parts.items[i];
+        if (k >= p.volumes.items.len) return;
+        var v = p.volumes.orderedRemove(k);
+        v.deinit(gpa);
+    }
+
     /// The mesh of part i on the bed (the transform of `combined`). The
     /// caller owns the result.
     pub fn partMesh(self: *const Plate, gpa: Allocator, i: usize) Allocator.Error!Mesh {

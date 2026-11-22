@@ -33,6 +33,16 @@ int zg_part_filament(ZgModel *model, gint64 index);
  * ring. A NULL color gives a chip with no fill ("+", "Part"). */
 GtkWidget *zg_filament_chip_new(const char *color, const char *text, gboolean selected);
 
+/* Fills `box` (a horizontal GtkBox) with a chip for each filament of the
+ * plate and "+". The chip of filament `selected` (from 1) has a ring.
+ * `what` starts the tooltip of each chip ("This part of the layers"). A
+ * click calls `clicked` (a GtkButton "clicked" handler) with `data`;
+ * zg_filament_chip_pick gives the filament of the chip. */
+void zg_filament_chips_fill(GtkWidget *box, ZgModel *model, int selected, const char *what, GCallback clicked, gpointer data);
+/* The filament (from 1) of a chip of zg_filament_chips_fill: a new
+ * filament of the plate for "+". 0 if no filament could be added. */
+int zg_filament_chip_pick(GtkButton *chip, ZgModel *model);
+
 /* Calls redraw(owner) once, at idle, after each change of the
  * filaments: a change of the list, a change of a filament setting, or
  * another plate. With `slices`, also after each slice (for the grams).

@@ -15,6 +15,7 @@ Use the Select tool (V), and click a line in the 2D or the 3D view. The line tur
 - why the line is slow, in plain words: a short layer, short segments, or the flow limit;
 - a warning of the check at the line, for example a bridge or an overhang, after the check has run;
 - for a support line: the part line that it holds up, and how many layers up;
+- the **Filament** row: a chip gives this part of the layer its own filament (see [Give a line a filament](#give-a-line-a-filament));
 - the settings that matter for this line, each with its field. Change one, and the part slices at once. Click the name of a setting to show it in the panel.
 
 | Button | What it does |
@@ -25,6 +26,17 @@ Use the Select tool (V), and click a line in the 2D or the 3D view. The line tur
 | **−10 % plastic**, **+10 % plastic** | Gives the line less or more plastic. |
 
 Esc, ×, or a click on no line closes the card.
+
+## Give a line a filament
+
+The line card has the row **Filament**. It is for this part of the layer only: the line and the lines joined to it on its layer.
+
+1. Click a line.
+2. Pick a filament chip in **Filament**. Pick **+** to add a filament to the plate.
+3. That part of the layer turns the color of the filament at once. The slice follows.
+4. The card then shows **Also the layers above** and **Also the layers below** when the body goes on there. Click one to give those layers the same filament.
+
+The other parts of the layer keep their filament. zslice paints the part, as in [Give a body a filament](#give-a-body-a-filament). Each change is one step of the history, and Ctrl+Z undoes it.
 
 ## Move and size the cards
 
@@ -61,16 +73,43 @@ A drag that starts on the bed or in the air turns the view.
 
 ## Give a body a filament
 
-A drag from a line lights one body. The card then has the row **This body** first:
+A drag from a line lights one body. Shift+J and Shift+K from a selected line do the same. The card then has two filament rows:
 
-1. Pick a filament chip in **This body**.
+- **This part of the layers**: only the lit body.
+- **Whole layers**: all the lines of these layers.
+
+1. Pick a filament chip in **This part of the layers**.
 2. The body turns the color of that filament at once. The slice follows.
-
-Only the lit body changes. To give all the lines of these layers a filament, use the row **All of these layers**.
 
 zslice paints the faces of the part under the lines of the body, as the Paint tool does. So the color stays when you change the walls, the layer height, or the place of the part. The color goes into the body by about 2 mm from its surface. The core of a wide body keeps the filament of the part, because nobody sees it.
 
-To take the color away, pick the filament of the part in **This body**. Each change is one step of the history, and Ctrl+Z undoes it. The project file keeps the paint.
+To take the color away, pick the filament of the part in **This part of the layers**. Each change is one step of the history, and Ctrl+Z undoes it. The project file keeps the paint.
+
+## Change a setting for one body
+
+With a lit body, each row of the card has a switch:
+
+- **This part**: the change is for the lit body only. This is the default.
+- **Whole layers**: the change is for all the lines of these layers.
+
+A change for this part makes a region of the part. The region is a modifier volume: it follows the body on each of its layers. The view shows its outline as thin purple rings. The history, Ctrl+Z, and the project file keep it. The region goes when it has no change left.
+
+A region keeps the walls and the skin of the part. It changes the infill inside the walls. These settings can be different in a region:
+
+- the filament (paint, see above);
+- the infill density, pattern, angle, angles, and stacking;
+- the infill flow and the infill speed;
+- the infill acceleration.
+
+The other settings are for the whole layers only. Their rows say why. For example:
+
+- The plate has one layer height at each layer.
+- The fan runs at one speed for the whole layer.
+- The nozzle has one temperature for the whole layer.
+- The walls of the part go around the whole layer.
+- The travel moves and the retractions are for the whole layer.
+
+"+ Add a setting for these layers" uses the same rule. A setting that a region can have goes to this part. The others go to the whole layers. A search for the filament ("color", "material", "tool") shows both chips: this part of the layers, and the whole layers.
 
 ## Select a support
 

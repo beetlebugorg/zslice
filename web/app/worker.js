@@ -529,7 +529,7 @@ function tinyParts(c) {
   return out;
 }
 
-const PLATE_OPS = new Set(["fallStep", "load", "add", "plate", "projectLoad", "partAction", "partsAction", "partsMove", "partsSettingSet", "partsToPlate", "partsPaste", "partsCut", "platePaste", "plateDuplicate", "partCut", "partMove", "partFill", "partToPlate", "editAdd", "editDot", "editRemove", "partSettingSet", "paintSet", "paintBody", "labelAdd", "labelUpdate", "labelRemove", "filamentAdd", "filamentRemove", "filamentSet", "filamentsFromPrinter", "partPutDown", "partTurn", "putDown", "place", "partMove", "partRotate", "partScale", "partSettle", "markAdd", "supportRemoveAt", "supportKindAt", "markRemoveNear", "markSet", "markRemove", "marksClear", "supportAreaAdd", "supportAreaSet", "supportAreaKind", "supportAreaRemove", "treeMoveNode", "treeRadius", "treeMoveBranch", "treeDelete", "treeAdd", "treeReset"]);
+const PLATE_OPS = new Set(["fallStep", "load", "add", "plate", "projectLoad", "partAction", "partsAction", "partsMove", "partsSettingSet", "partsToPlate", "partsPaste", "partsCut", "platePaste", "plateDuplicate", "partCut", "partMove", "partFill", "partToPlate", "editAdd", "editDot", "editRemove", "partSettingSet", "paintSet", "paintBody", "regionSet", "labelAdd", "labelUpdate", "labelRemove", "filamentAdd", "filamentRemove", "filamentSet", "filamentsFromPrinter", "partPutDown", "partTurn", "putDown", "place", "partMove", "partRotate", "partScale", "partSettle", "markAdd", "supportRemoveAt", "supportKindAt", "markRemoveNear", "markSet", "markRemove", "marksClear", "supportAreaAdd", "supportAreaSet", "supportAreaKind", "supportAreaRemove", "treeMoveNode", "treeRadius", "treeMoveBranch", "treeDelete", "treeAdd", "treeReset"]);
 
 // The values of settings at z (core.valueAt): { name: entry }.
 function valuesAt({ z, names }) {
@@ -766,6 +766,8 @@ const ops = {
     const info = p >= 0 ? core.inspect(p, seg ?? -1) : null;
     // The warnings of the check at this line, for the line card.
     if (info) info.issues = core.issuesOfPath(p, info.layer);
+    // The filament of the line (from 1), for the Filament row of the card.
+    if (info) info.filament = core.w.x.zs_app_path_filament(core.app, p);
     return { info };
   },
 
@@ -1399,6 +1401,23 @@ const ops = {
     const n = core.paintBody(beads, filament);
     if (n > 0) wantSlice();
     return { changed: n };
+  },
+
+  // A setting of the region of a lit body of some layers (rangecard.js):
+  // the beads of the body, the id of its region (`region`, 0: find or
+  // make it; "id" is the id of the call), and the setting. Slices again.
+  // Returns { id, values } or { error }.
+  regionSet({ beads, region, name, value }) {
+    const r = core.regionSet(beads, region ?? 0, name, value ?? null);
+    if (r.error) return r;
+    wantSlice();
+    return { id: r.id, values: r.id ? core.regionSettings(r.id) : {} };
+  },
+
+  // The region of a lit body: { id, values } (id 0: none yet).
+  regionOf({ beads }) {
+    const id = beads ? core.regionFind(beads) : 0;
+    return { id, values: id ? core.regionSettings(id) : {} };
   },
 
   // ---- the labels of a part (label.js) ----

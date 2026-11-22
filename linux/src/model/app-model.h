@@ -223,6 +223,13 @@ gboolean zg_model_part_paint_set(ZgModel *self, size_t part, const char *text, s
 /* The filament of a body of some layers (zs_app_paint_body, the beads of
  * zs_view_connected_beads): a slice, and one step of the history. */
 gboolean zg_model_paint_body(ZgModel *self, const float *beads, size_t n, guint filament);
+/* A setting of the region of a lit body of some layers (zs_app_region_set:
+ * a modifier volume of its part): `id` in and out (0: the region of the
+ * beads), value NULL for none of its own. A slice, and one step of the
+ * history. */
+gboolean zg_model_region_set(ZgModel *self, const float *beads, size_t n, guint32 *id, const char *name, const char *value);
+/* The value of setting `name` of region `id` (g_free), or NULL. */
+char *zg_model_region_value(ZgModel *self, guint32 id, const char *name);
 gboolean zg_model_label_remove(ZgModel *self, size_t part, guint32 id);
 /* After an edit of the support trees (zs_app_support_tree_*): a slice
  * (held during a drag), a step of the history, and the fall check. */

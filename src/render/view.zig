@@ -4056,6 +4056,27 @@ pub const View = struct {
         }
     }
 
+    /// The first and the last layer of the body of path `start` (the rule
+    /// of `connectedPaths` over all the layers): where the body goes on
+    /// above and below the layer of `start`. Null for no such path.
+    pub fn connectedLayers(v: *const View, start: usize) Error!?[2]usize {
+        const ends = v.layer_path_end.items;
+        if (ends.len == 0 or start >= v.path_start.items.len -| 1) return null;
+        var list: std.ArrayList(usize) = .empty;
+        defer list.deinit(gpa);
+        try v.connectedPaths(start, 0, ends.len - 1, &list);
+        var lo: usize = std.math.maxInt(usize);
+        var hi: usize = 0;
+        for (list.items) |p| {
+            var l: usize = 0;
+            while (l < ends.len and ends[l] <= p) l += 1;
+            lo = @min(lo, l);
+            hi = @max(hi, l);
+        }
+        if (list.items.len == 0) return null;
+        return .{ lo, hi };
+    }
+
     /// The yellow of a multiple selection.
     pub const more_yellow: [3]u8 = .{ 0xff, 0xc7, 0x0d };
 
@@ -6267,6 +6288,14 @@ test "the joined paths: a start or a range of layers from outside stays in the s
     try std.testing.expectEqualSlices(usize, &.{ 5, 1 }, out.items);
     try v.connectedPaths(1, 2, 2, &out);
     try std.testing.expectEqualSlices(usize, &.{ 1, 5, 9 }, out.items);
+}
+
+test "the layers of a body: from the first to the last layer it reaches" {
+    var v = try testScene(3, 4, 5);
+    defer destroyTest(&v);
+    const r = (try v.connectedLayers(5)).?;
+    try std.testing.expectEqual([2]usize{ 0, 2 }, r);
+    try std.testing.expect((try v.connectedLayers(999)) == null);
 }
 
 test "the beads of a body: part, layer, z, height, ends, and width" {

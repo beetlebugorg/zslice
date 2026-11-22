@@ -1002,6 +1002,41 @@ var lineCard = new LineCard({
     select(-1, -1, false);
     toast(kind === 0 ? `The line does not print now. ${r.count} ${r.count === 1 ? "edit" : "edits"} on this plate; undo with Ctrl+Z.` : `The line has ${Math.round((value - 1) * 100)} % plastic now.`);
   },
+  // The Filament row: a filament for the body of the selected line on
+  // its layer (the lines joined to it), as paint of its part
+  // (zs_app_paint_body). The body shows in the color at once; the slice
+  // follows. The beads of the body on the layers above and below where it
+  // goes on come back for the buttons of the card (taken now: the slice
+  // numbers the lines again).
+  paintLine: async (info, f) => {
+    const path = app.sel;
+    if (path < 0) return { error: "No line." };
+    const layer = view.pathLayer(path);
+    const beads = view.connectedBeads(path, layer, layer);
+    if (!beads) return { error: "The line has no body." };
+    const ext = view.connectedLayers(path) ?? [layer, layer];
+    const above = ext[1] > layer ? view.connectedBeads(path, layer + 1, ext[1]) : null;
+    const below = ext[0] < layer ? view.connectedBeads(path, ext[0], layer - 1) : null;
+    lightLine(path, layer, layer, f);
+    const r = await client.call("paintBody", { beads, filament: f });
+    return { error: r.error ?? null, lo: ext[0], hi: ext[1], above, below };
+  },
+  // The same filament on more layers of the body (the beads of paintLine).
+  extendLine: async (beads, f) => {
+    if (app.sel >= 0) {
+      let lo = Infinity;
+      let hi = -1;
+      for (let k = 1; k < beads.length; k += 9) {
+        lo = Math.min(lo, beads[k]);
+        hi = Math.max(hi, beads[k]);
+      }
+      const layer = view.pathLayer(app.sel);
+      lightLine(app.sel, Math.min(lo, layer), Math.max(hi, layer), f);
+    }
+    const r = await client.call("paintBody", { beads, filament: f });
+    return r.error ?? null;
+  },
+  addFilament: () => browser.ctx.addFilament(),
 });
 
 // ---- the settings: the answer of the worker, and the bed ----
@@ -2787,6 +2822,23 @@ var rangeCard = new RangeCard({ // var: drawFrame can run before this line
     const res = await client.call("paintBody", { beads, filament: f });
     return res.error ?? null;
   },
+  // The region of the lit body (zs_app_region_find): { id, values }.
+  regionOf: async () => {
+    const r = app.rangeLight;
+    const beads = r && r.path >= 0 ? view.connectedBeads(r.path, r.lo, r.hi) : null;
+    if (!beads) return { id: 0, values: {} };
+    return client.call("regionOf", { beads });
+  },
+  // A setting of the region of the lit body (zs_app_region_set): a
+  // modifier volume of the part, then a slice.
+  regionSet: async (id, name, value) => {
+    const r = app.rangeLight;
+    const beads = r && r.path >= 0 ? view.connectedBeads(r.path, r.lo, r.hi) : null;
+    if (!beads && !id) return { error: "No part of the layers is lit." };
+    const res = await client.call("regionSet", { beads, region: id, name, value });
+    if (res.error) toast(res.error);
+    return res;
+  },
   close: () => {
     app.rangeLight = null;
     view.lightLayers(-1);
@@ -2829,7 +2881,23 @@ function layerUnder(d, px, py) {
 // A slice can number the lines again (a new filament of a body splits its
 // layers), so the start line is the line of its layer at the point of the
 // press, if the range has one.
+// The body of a line that the Filament row of the line card colors: lit
+// in the color of the filament until the slice comes back.
+function lightLine(path, lo, hi, f) {
+  if (app.rangeLight) return;
+  app.lineLight = true;
+  view.lightConnected(path, lo, hi);
+  view.lightColor(filaments()[f - 1]?.color ?? null);
+  requestFrame();
+}
+
 view.onLoad = () => {
+  // The slice of a filament of the line card: its lines have the color now.
+  if (app.lineLight) {
+    app.lineLight = false;
+    view.lightConnected(-1);
+    view.lightColor(null);
+  }
   const r = app.rangeLight;
   if (!r || !rangeCard.open) return;
   if (r.path >= 0 && r.pt && view.pickLayer(r.layer, r.pt[0], r.pt[1])) r.path = view.hit[0];

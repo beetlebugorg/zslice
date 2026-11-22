@@ -274,6 +274,15 @@ export class View3D {
     return new Float32Array(this.x.memory.buffer, this.w.u32(c), n).slice();
   }
 
+  // The first and the last layer of the body of path `start`
+  // (zs_view_connected_layers): [lo, hi], or null.
+  connectedLayers(start) {
+    if (start < 0) return null;
+    const c = this.w.cell;
+    if (this.x.zs_view_connected_layers(this.v, start, c, c + 4) !== 0) return null;
+    return [this.w.u32(c), this.w.u32(c + 4)];
+  }
+
   // The color of the lit paths: "#rrggbb", or null for the yellow of a
   // selection.
   lightColor(hex) {

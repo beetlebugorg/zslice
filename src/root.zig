@@ -65,6 +65,9 @@ pub const field = @import("field.zig");
 pub const dexel = @import("dexel.zig");
 /// The paint of a selected body of a range of layers (see paint_body.zig).
 pub const paint_body = @import("paint_body.zig");
+/// The region of a selected body of a range of layers, as a modifier
+/// volume (see body_region.zig).
+pub const body_region = @import("body_region.zig");
 /// The labels on the surface of a part (see label.zig), and the font of
 /// their text.
 pub const label = @import("label.zig");

@@ -1301,3 +1301,12 @@ button.icon.lc-close { min-height: 24px; min-width: 24px; padding: 0; margin: -3
 #check { position: relative; }
 #check .check-count { position: absolute; top: 2px; right: 2px; min-width: 14px; height: 14px; padding: 0 3px; border-radius: 7px; font-size: 10px; line-height: 14px; text-align: center; background: var(--warn, #d97706); color: #fff; }
 #check .check-count[hidden] { display: none; }
+
+/* The Filament row of the line card, and the layers where the body goes on. */
+.lc-extend { display: flex; flex-wrap: wrap; gap: 2px; }
+.lc-extend button { min-height: 26px; padding: 2px 6px; font-size: 0.8em; color: var(--accent); white-space: normal; text-align: left; }
+/* The range card: the scope of a row (this part of the layers, or the whole layers). */
+.rc-scope { font-size: 0.75em; padding: 1px 6px; min-height: 22px; border-radius: 10px; white-space: nowrap; }
+.rc-scope.part { color: var(--accent-fg); background: var(--accent); }
+.rc-note { font-size: 0.75em; opacity: 0.7; grid-column: 1 / -1; overflow-wrap: anywhere; }
+.rc-search-body { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-top: 2px; }

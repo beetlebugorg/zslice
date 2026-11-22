@@ -2368,6 +2368,56 @@ pub fn isLayerSetting(old_name: []const u8) bool {
     return false;
 }
 
+/// The layer settings that one region of some layers can have of its own:
+/// a body that the user lights on the layers (a modifier volume, see
+/// part_settings.zig and layer.Modifier). A region keeps the walls and
+/// the skin of the part, and gets its own sparse infill inside the walls,
+/// with its own speed and flow. `project.filament` of a region is paint
+/// on the part (see paint_body.zig). It is no modifier.
+/// docs/user/lines.md lists them.
+pub const region_settings = [_][]const u8{
+    "project.filament",
+    "project.infill_density",
+    "project.infill_pattern",
+    "project.infill_angle",
+    "project.infill_angles",
+    "project.infill_stack",
+    "project.infill_flow",
+    "project.infill_speed",
+    "machine.infill_accel",
+};
+
+/// Null if a region of some layers can have setting `name` of its own
+/// (`region_settings`). Else why the setting is for the whole layer only,
+/// in one short sentence for a row of a card.
+pub fn regionNote(old_name: []const u8) ?[:0]const u8 {
+    const name = currentName(old_name);
+    for (region_settings) |n| if (std.mem.eql(u8, n, name)) return null;
+    const has = struct {
+        fn f(n: []const u8, words: []const []const u8) bool {
+            for (words) |w| if (std.mem.indexOf(u8, n, w) != null) return true;
+            return false;
+        }
+    }.f;
+    if (!isLayerSetting(name)) return "This setting is for the whole print only.";
+    if (has(name, &.{ "layer_height", "xy_offset" })) return "The plate has one layer height and one outline at each layer.";
+    if (has(name, &.{ "fan", "cooling", "min_layer_time", "min_speed" })) return "The fan runs at one speed for the whole layer.";
+    if (has(name, &.{ "temp", "pressure_advance", "flow_ratio", "max_flow" })) return "The nozzle has one value of this for the whole layer.";
+    if (has(name, &.{ "retract", "z_hop", "combing", "travel", "coasting", "wipe" })) return "The travel moves and the retractions are for the whole layer.";
+    if (has(name, &.{ "support" })) return "The support is for the whole layer.";
+    if (has(name, &.{ "wall", "seam", "gap_fill", "line_width", "fuzzy", "min_feature", "min_bead", "solid_infill_width" })) return "The walls of the part go around the whole layer. A region changes the infill inside them.";
+    return "The skin and the walls of the part stay in a region. A region changes the infill inside the walls.";
+}
+
+test "a region of some layers: its infill only, with no walls, fan, or layer height" {
+    try std.testing.expect(regionNote("project.infill_density") == null);
+    try std.testing.expect(regionNote("project.filament") == null);
+    try std.testing.expect(regionNote("project.infill_accel") == null);
+    for ([_][]const u8{ "project.layer_height", "filament.fan_speed", "project.wall_count", "filament.nozzle_temp", "project.top_thickness", "machine.z_hop", "project.first_layer_height" }) |n| try std.testing.expect(regionNote(n) != null);
+    // Each region setting can change for some layers.
+    for (region_settings) |n| try std.testing.expect(isLayerSetting(n));
+}
+
 /// The settings with the overrides that cover z, in their order.
 pub fn withOverrides(base: Settings, overrides: []const Override, z: f64) Settings.SetError!Settings {
     var s = base;

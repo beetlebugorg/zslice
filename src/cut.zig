@@ -497,7 +497,7 @@ fn crossesAny(poly: []const P2, a: P2, b: P2, skip: usize) bool {
 
 /// Ear clipping of a simple counterclockwise polygon (holes joined by
 /// bridges). O(n²) for each ear: the caps of a cut are small.
-fn earClip(gpa: Allocator, poly: []const P2, out: *std.ArrayList([3]P2)) Allocator.Error!void {
+pub fn earClip(gpa: Allocator, poly: []const P2, out: *std.ArrayList([3]P2)) Allocator.Error!void {
     var idx: std.ArrayList(usize) = .empty;
     defer idx.deinit(gpa);
     for (0..poly.len) |i| try idx.append(gpa, i);

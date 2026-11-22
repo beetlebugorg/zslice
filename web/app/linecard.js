@@ -12,6 +12,13 @@
 // setting in the panel. A change slices at once. "All settings" opens the
 // Selected page of the panel, with all the settings and the reasons.
 //
+// The Filament row gives the line its own filament: a chip colors the
+// body of the line on its layer (the lines joined to it, as a drag over
+// layers lights them: View.connectedPaths), with the paint of the part
+// (zs_app_paint_body). The body shows in the color at once, and the slice
+// follows. Then the card offers the layers above and below where the
+// body goes on (zs_view_connected_layers).
+//
 // All the data comes from one call to the worker for each click (inspect:
 // zs_app_inspect, its picks, and the cached check). The card does no work
 // for each frame.
@@ -28,6 +35,7 @@ import { movable } from "./drag.js";
 import { spatial, savedPlace, remember } from "./spatial.js";
 import { placeCorner, freeArea, GAP as PLACE_GAP } from "./place.js";
 import { FEATURE_TITLES } from "./format.js";
+import { filamentEditor } from "./filaments.js";
 
 const SLOW = [
   "",
@@ -118,7 +126,11 @@ export class LineCard {
   // ctx: { browser (SettingsBrowser), host (the element of the view),
   //        more() (open the Selected page), close() (clear the selection),
   //        openSetting(name) (show the setting in the panel),
-  //        lineBox() (the box of the line on the screen), ... }
+  //        lineBox() (the box of the line on the screen),
+  //        paintLine(info, filament) -> Promise<{ error, lo, hi, above,
+  //        below }> (the body of the line on its layer, and the layers
+  //        where it goes on), extendLine(beads, filament) -> Promise<error
+  //        or null>, addFilament() -> Promise<index>, ... }
   constructor(ctx) {
     this.ctx = ctx;
     this.node = null;
@@ -212,6 +224,25 @@ export class LineCard {
     this.stats = el("div", "lc-stats");
     this.notes = el("div", "lc-notes");
     card.append(head, this.stats, this.notes);
+    // The filament of this part of the layer (see the header).
+    this.filEditor = null;
+    if (this.ctx.paintLine && info.path != null) {
+      const box = el("div", "lc-settings lc-filament");
+      const row = el("div", "lc-row");
+      const label = el("div", "lc-label");
+      label.append(el("span", "lc-name", "Filament"), el("span", "lc-why", "This part of the layer"));
+      label.title = "A filament for the body of this line on its layer only: the lines joined to it. The paint of the part keeps it.";
+      this.filEditor = filamentEditor(
+        { name: "line.filament", doc: "A filament for this part of the layer" },
+        (v) => this.pickFilament(Number(v)),
+        this.ctx.addFilament ?? null,
+      );
+      row.append(label, this.filEditor.node);
+      this.extend = el("div", "lc-extend");
+      this.extend.hidden = true;
+      box.append(row, this.extend);
+      card.append(box);
+    }
 
     // The settings that matter for this line, with the reason of each.
     // The picks of the core (zs_app_inspect_picks), else the rules here.
@@ -278,6 +309,35 @@ export class LineCard {
     this.place();
   }
 
+  // A filament for the body of the line on its layer. Then the buttons
+  // for the layers above and below where the body goes on.
+  async pickFilament(f) {
+    const info = this.info;
+    if (!info || !this.ctx.paintLine) return "No line.";
+    this.extend.hidden = true;
+    const r = await this.ctx.paintLine(info, f);
+    if (r.error) return r.error;
+    const buttons = [];
+    const add = (text, title, beads) => {
+      if (!beads) return;
+      const b = el("button", "flat", text);
+      b.title = title;
+      b.onclick = async () => {
+        b.disabled = true;
+        const error = await this.ctx.extendLine(beads, f);
+        if (error) b.disabled = false;
+        else b.remove();
+        if (!this.extend.querySelector("button")) this.extend.hidden = true;
+      };
+      buttons.push(b);
+    };
+    add(`Also the layers above, to ${r.hi + 1}`, `The same filament for this body on layers ${info.layer + 2} to ${r.hi + 1}, where it goes on`, r.above);
+    add(`Also the layers below, from ${r.lo + 1}`, `The same filament for this body on layers ${r.lo + 1} to ${info.layer}, where it goes on`, r.below);
+    this.extend.replaceChildren(...buttons);
+    this.extend.hidden = buttons.length === 0;
+    return null;
+  }
+
   // The settings rows of a line: the picks of the core, else the rules
   // here.
   picks(info) {
@@ -290,6 +350,7 @@ export class LineCard {
 
   update(info) {
     this.title.textContent = info.title;
+    if (this.filEditor && info.filament > 0) this.filEditor.update({ value: info.filament });
     for (const { name, why } of this.picks(info)) {
       const n = this.whys?.get(name);
       if (!n) continue;

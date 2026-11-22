@@ -804,6 +804,18 @@ export fn zs_view_connected_beads(view: ?*View, start: usize, lo: usize, hi: usi
     return ok;
 }
 
+/// The first and the last layer of the body of path `start` (the rule of
+/// zs_view_light_connected over all layers): where the body goes on above
+/// and below its layer. ZS_OUT_OF_RANGE: no such path.
+export fn zs_view_connected_layers(view: ?*View, start: usize, lo: ?*usize, hi: ?*usize) c_int {
+    if (!render_on) return @intFromEnum(Status.not_supported);
+    const v = view orelse return @intFromEnum(Status.invalid_argument);
+    const r = (v.connectedLayers(start) catch |e| return status(e)) orelse return @intFromEnum(Status.out_of_range);
+    if (lo) |o| o.* = r[0];
+    if (hi) |o| o.* = r[1];
+    return ok;
+}
+
 /// The memory of zs_view_connected_beads.
 var body_beads: std.ArrayList(f32) = .empty;
 

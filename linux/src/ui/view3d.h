@@ -54,6 +54,26 @@ gboolean zg_view3d_body_lit(GtkWidget *view);
  * under its lines (zs_app_paint_body), one step of the history, and a
  * slice. The body shows in the color of the filament at once. */
 gboolean zg_view3d_paint_body(GtkWidget *view, int filament);
+/* The body of a line that the line card colored: its layer, the layers
+ * where it goes on (lo to hi), and copies of its beads above and below
+ * its layer (NULL for none), for "Also the layers above" and "below". */
+typedef struct {
+    size_t layer, lo, hi;
+    float *above, *below;
+    size_t n_above, n_below;
+} ZgLineBody;
+/* Gives the body of line `path` on its layer filament `filament` (from 1):
+ * the paint of its part (zs_app_paint_body), one step of the history, and
+ * a slice. The body shows in the color at once. `out` gets where the body
+ * goes on (free it with zg_line_body_free). */
+gboolean zg_view3d_paint_line(GtkWidget *view, gint64 path, int filament, ZgLineBody *out);
+/* The same paint for beads of zg_view3d_paint_line (`n` floats). */
+gboolean zg_view3d_paint_beads(GtkWidget *view, const float *beads, size_t n, int filament);
+void zg_line_body_free(ZgLineBody *b);
+/* The region of the lit body (zs_app_region_find), or 0. */
+guint32 zg_view3d_region_find(GtkWidget *view);
+/* A setting of the region of the lit body (zg_model_region_set). */
+gboolean zg_view3d_region_set(GtkWidget *view, guint32 *id, const char *name, const char *value);
 /* Shift+K (dir 1) and Shift+J (dir -1): the range of layers grows up or
  * down from the layer of the selected line, and its card opens. With a
  * selected line, the body of its part lights up; else all the lines of

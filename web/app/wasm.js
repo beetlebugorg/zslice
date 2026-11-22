@@ -202,6 +202,9 @@ export class Wasm {
           // printer with more than k nozzles.
           nozzle: this.i32(p + 88),
         });
+        // Why a region of some layers (a lit body) cannot have it, or "".
+        const last = out[out.length - 1];
+        last.regionNote = x.zs_setting_region_note ? this.cstr(x.zs_setting_region_note(this.u32(p))) : "";
       }
     } finally {
       this.free(p, size);

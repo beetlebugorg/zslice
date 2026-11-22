@@ -59,7 +59,7 @@ export function revertible(line) {
   if (line.includes("\tquality\t")) return false;
   if (!line.startsWith("part:")) return true;
   const key = line.split("\t")[1] ?? "";
-  return !/^(\(part\)|position|rotation|orientation|scale)/.test(key);
+  return !/^(\(part\)|position|rotation|orientation|scale|region )/.test(key);
 }
 
 // The settings that match a search query, best first (zs_setting_search):

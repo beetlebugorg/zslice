@@ -10,13 +10,22 @@
 // plate (filaments.js). A filament of its own makes a filament change at
 // the first layer and back after the last.
 //
-// A drag that starts on a line lights one body of the part (a tube that
-// rises from a lid). Then the card has a row "This body" first: a chip
-// paints the body with that filament (zs_app_paint_body: the mesh of the
-// part under the lines of the body, see src/paint_body.zig). The body
-// shows in the color of the filament at once, and the slice follows. The
-// row of the layer setting then reads "All of these layers". The
-// filament of the part removes the paint of the body.
+// A range that lights one body of the part (a drag that starts on a
+// line, or Shift+K and Shift+J from a selected line) gets two filament
+// rows. "This part of the layers" comes first: a chip paints the body
+// with that filament (zs_app_paint_body: the mesh of the part under the
+// lines of the body, see src/paint_body.zig). The body shows in the color
+// of the filament at once, and the slice follows. "Whole layers" is the
+// filament of the layers (project.filament). The filament of the part
+// removes the paint of the body.
+//
+// With a lit body, each other row has a switch: "This part" (the
+// default) or "Whole layers". A change for this part goes to the region
+// of the body (zs_app_region_set: a modifier volume of the part, see
+// src/body_region.zig). A setting that a region cannot have (the walls,
+// the fan, the layer height: zs_setting_region_note) stays for the whole
+// layers, and its row says why. The search of "+ Add a setting" uses the
+// same rule.
 //
 // One call to the worker opens the card (setScoped with no change
 // returns the values too), and one call makes each edit. The card does no
@@ -57,7 +66,9 @@ export class RangeCard {
   //        names) -> Promise<{ at }>, values(zmin, names) -> Promise<at>,
   //        search(text, scope), close(), body() -> true if the range
   //        lights one body, paintBody(filament) -> Promise<error or null>,
-  //        addFilament() -> Promise<index> }
+  //        addFilament() -> Promise<index>, regionOf() -> Promise<{ id,
+  //        values }>, regionSet(id, name, value) -> Promise<{ id, values,
+  //        error }> }
   constructor(ctx) {
     this.ctx = ctx;
     this.node = null;
@@ -92,9 +103,11 @@ export class RangeCard {
     const [z0, z1] = this.zRange();
     this.facts.textContent = `z ${(this.ctx.layerBottom(a)).toFixed(2)} to ${z1.toFixed(2)} mm · ${b - a + 1} ${b === a ? "layer" : "layers"}`;
     const body = !!this.ctx.body?.();
+    this.body = body;
     this.bodyRow.hidden = !body;
-    const fil = this.rows.find((r) => r.info.name === "project.filament");
-    if (fil) fil.name.textContent = body ? "All of these layers" : fil.info.label;
+    this.region = { id: 0, values: {} };
+    for (const r of this.rows) this.drawScope(r);
+    if (body && this.ctx.regionOf) this.region = (await this.ctx.regionOf()) ?? this.region;
     this.fill(await this.ctx.values(z0, this.names()));
     this.place();
   }
@@ -106,6 +119,8 @@ export class RangeCard {
     this.range = null;
     this.userAt = null;
     this.bodyPicked = false;
+    this.body = false;
+    this.region = { id: 0, values: {} };
     this.ctx.close?.();
   }
 
@@ -146,8 +161,8 @@ export class RangeCard {
     // The filament of the lit body (see the header).
     this.bodyRow = el("div", "lc-row range-body");
     const bodyLabel = el("div", "lc-label");
-    bodyLabel.append(el("div", "lc-name", "This body"));
-    bodyLabel.title = "The filament of the lit body only, on these layers. The paint of the part keeps it.";
+    bodyLabel.append(el("div", "lc-name", "This part of the layers"), el("div", "lc-why", "Filament"));
+    bodyLabel.title = "The filament of the lit part of these layers only. The paint of the part keeps it.";
     this.bodyEditor = filamentEditor(
       { name: "body.filament", doc: "A filament for the lit body only" },
       (v) => this.paintBody(Number(v)),
@@ -165,21 +180,88 @@ export class RangeCard {
     this.node = card;
   }
 
-  addRow(info) {
-    if (this.rows.some((r) => r.info.name === info.name)) return;
+  // scope: "part" (the region of the lit body) or "layers"; the default
+  // is "part" with a lit body, for a setting that a region can have.
+  addRow(info, scope = null) {
+    const had = this.rows.find((r) => r.info.name === info.name);
+    if (had) {
+      if (scope && this.regional(info)) {
+        had.scope = scope;
+        this.drawScope(had);
+      }
+      return;
+    }
     const row = el("div", "lc-row");
     const label = el("div", "lc-label");
     const name = el("div", "lc-name", info.label);
-    label.append(name);
+    const sub = el("div", "lc-why");
+    sub.hidden = true;
+    label.append(name, sub);
     label.title = info.doc;
     const editor = this.ctx.browser.makeEditor(info, "range", (n, v) => this.set(n, v));
     const reset = el("button", "flat icon pc-clear", "↺");
     reset.title = "Remove the change for these layers";
     reset.setAttribute("aria-label", `${info.label}: remove the change for these layers`);
     reset.onclick = () => this.reset(info.name);
-    row.append(label, editor.node, reset);
-    this.box.append(row);
-    this.rows.push({ info, editor, reset, name });
+    const scopeBtn = el("button", "flat rc-scope");
+    const r = { info, editor, reset, name, sub, scopeBtn, scope: scope ?? "part" };
+    scopeBtn.onclick = () => {
+      r.scope = r.scope === "part" ? "layers" : "part";
+      this.drawScope(r);
+      this.fillRow(r);
+    };
+    row.append(label, scopeBtn, editor.node, reset);
+    const note = el("div", "rc-note");
+    note.hidden = true;
+    r.note = note;
+    this.box.append(row, note);
+    this.rows.push(r);
+    this.drawScope(r);
+  }
+
+  // True if a region of some layers can have the setting (no note, and
+  // not the filament: the row of the body above it is for that).
+  regional(info) {
+    return !info.regionNote && info.name !== "project.filament";
+  }
+
+  // The scope switch and the note of a row.
+  drawScope(r) {
+    const fil = r.info.name === "project.filament";
+    const can = this.regional(r.info);
+    const part = !!this.body && can && r.scope === "part";
+    r.scopeBtn.hidden = !this.body || !can;
+    r.scopeBtn.textContent = part ? "This part" : "Whole layers";
+    r.scopeBtn.classList.toggle("part", part);
+    r.scopeBtn.title = part ? "The change is for the lit part of these layers only. Click for the whole layers." : "The change is for the whole layers. Click for the lit part only.";
+    r.scopeBtn.setAttribute("aria-label", `${r.info.label}: ${part ? "this part of the layers" : "the whole layers"}`);
+    // The filament with a lit body: the row of the whole layers.
+    r.name.textContent = fil && this.body ? "Whole layers" : r.info.label;
+    r.sub.textContent = fil && this.body ? "Filament" : "";
+    r.sub.hidden = !(fil && this.body);
+    r.note.textContent = this.body && !can && !fil ? `Whole layers only. ${r.info.regionNote}` : "";
+    r.note.hidden = !r.note.textContent;
+    r.reset.title = part ? "Remove the change for this part of the layers" : "Remove the change for these layers";
+  }
+
+  // True if row r changes the region of the lit body.
+  partScope(r) {
+    return !!this.body && this.regional(r.info) && r.scope === "part";
+  }
+
+  // The value of row r: of the region when it has its own, else of the
+  // layers.
+  fillRow(r) {
+    const entry = this.at?.[r.info.name];
+    const own = this.partScope(r) ? this.region?.values?.[r.info.name] : undefined;
+    if (own !== undefined) {
+      r.editor.update({ ...(entry ?? {}), value: own, over: true });
+      r.reset.style.visibility = "visible";
+      return;
+    }
+    if (!entry) return;
+    r.editor.update(entry);
+    r.reset.style.visibility = entry.over && !this.partScope(r) ? "visible" : "hidden";
   }
 
   // The values at the first layer: { name: entry } (core.valueAt). The
@@ -187,16 +269,24 @@ export class RangeCard {
   fill(at) {
     if (!this.node || !at) return;
     if (!this.bodyPicked && at["project.filament"]) this.bodyEditor.update(at["project.filament"]);
-    for (const r of this.rows) {
-      const entry = at[r.info.name];
-      if (!entry) continue;
-      r.editor.update(entry);
-      r.reset.style.visibility = entry.over ? "visible" : "hidden";
-    }
+    this.at = at;
+    for (const r of this.rows) this.fillRow(r);
+  }
+
+  // A change of the region of the lit body (value null: none of its own).
+  async setRegion(name, value) {
+    const r = await this.ctx.regionSet(this.region?.id ?? 0, name, value);
+    if (r.error) return r.error;
+    this.region = { id: r.id, values: r.values ?? {} };
+    const row = this.rows.find((x) => x.info.name === name);
+    if (row) this.fillRow(row);
+    return null;
   }
 
   async set(name, value) {
     if (!this.range) return "No layers.";
+    const row = this.rows.find((x) => x.info.name === name);
+    if (row && this.partScope(row)) return this.setRegion(name, value);
     const [z0, z1] = this.zRange();
     const r = await this.ctx.edit(name, value, z0, z1, this.names());
     this.fill(r.at);
@@ -212,6 +302,8 @@ export class RangeCard {
 
   async reset(name) {
     if (!this.range) return;
+    const row = this.rows.find((x) => x.info.name === name);
+    if (row && this.partScope(row)) return this.setRegion(name, null);
     const [z0, z1] = this.zRange();
     const r = await this.ctx.reset(name, z0, z1, this.names());
     this.fill(r.at);
@@ -221,18 +313,49 @@ export class RangeCard {
   // for some layers. A setting that the user sets there gets a row.
   scope() {
     const [a, b] = this.range;
+    const layers = a === b ? `Layer ${a + 1}` : `Layers ${a + 1}–${b + 1}`;
+    // With a lit body, a setting that a region can have goes to this part
+    // of the layers; the others go to the whole layers.
+    const part = (info) => !!this.body && !!info && this.regional(info);
     return {
-      label: a === b ? `Layer ${a + 1}` : `Layers ${a + 1}–${b + 1}`,
+      label: this.body ? `${layers}, this part` : layers,
       only: (info) => info.perLayer,
       set: async (name, value) => {
         const info = this.ctx.browser.byName.get(name);
-        if (info && this.node) this.addRow(info);
+        if (info && this.node) this.addRow(info, part(info) ? "part" : "layers");
         return this.set(name, value);
       },
       value: async (name) => {
         if (!this.range) return null;
+        const info = this.ctx.browser.byName.get(name);
+        if (part(info)) {
+          const own = this.region?.values?.[name];
+          if (own !== undefined) return own;
+        }
         const at = await this.ctx.values(this.zRange()[0], [name]);
         return at?.[name]?.value ?? null;
+      },
+      // The part of the layers that the row changes; for the filament,
+      // a row for this part of the layers too.
+      decorate: (info, row, label) => {
+        if (!this.body) return;
+        if (info.name === "project.filament") {
+          // The editor of the row is for the whole layers; the chips
+          // under its label are for this part of the layers.
+          label.append(el("div", "lc-why", "Whole layers: the chips at the right"));
+          const sub = el("div", "rc-search-body");
+          sub.append(el("span", "lc-why", "This part of the layers:"));
+          const ed = filamentEditor(
+            { name: "body.filament", doc: "A filament for the lit part of these layers only" },
+            (v) => this.paintBody(Number(v)),
+            this.ctx.addFilament ?? this.ctx.browser.ctx?.addFilament ?? null,
+          );
+          ed.node.addEventListener("click", (e) => e.stopPropagation());
+          sub.append(ed.node);
+          label.append(sub);
+          return;
+        }
+        label.append(el("div", "lc-why", part(info) ? "This part of the layers" : `Whole layers only. ${info.regionNote}`));
       },
     };
   }
