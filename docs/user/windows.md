@@ -102,6 +102,8 @@ The bar under the view replays the print at a speed of 1× to 100×. Its slider 
 
 Ctrl and a click selects a part, and Shift and a click adds a part to the selection. The card of a part has its size, its filament, its scale, Duplicate, Split, Cut, Best orientation, Less support, Reset, Make N in all, To a new plate, and Remove. It also lists the labels and the paint of the part. Delete removes the selected parts.
 
+When the plate prints one part at a time (`project.print_sequence` is `by_object`) and has two parts or more, the card shows the place of the part, for example "Prints 2 of 3". **Print earlier** and **Print later** move the part in the print order.
+
 ## Lines
 
 The card of a line shows its planned speed, its real speed, and its flow, and the settings that matter most for it. **Fade the others** shows the line alone. **Don't print this line** and **±10 % plastic** change this line only, and the change stays through new slices.
