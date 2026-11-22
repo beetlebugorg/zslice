@@ -832,6 +832,14 @@ final class Workspace {
         // ZSLICE_FLEET=path adds the printers of a fleet file (the farm
         // simulator writes one).
         if let f = env["ZSLICE_FLEET"] { FarmMonitor.shared.addFleet(URL(fileURLWithPath: f)) }
+        // ZSLICE_DECK_REPAIR=1 (after ZSLICE_FLEET): the repair of the
+        // addresses of the printers of a deck, and the addresses after it.
+        if env["ZSLICE_DECK_REPAIR"] != nil {
+            Task { @MainActor in
+                await PrinterLink.repairDeckURLs()
+                NSLog("zslice deck repair: now %@", PrinterStore.shared.printers.map { "\($0.name) \($0.url) \($0.https)" }.joined(separator: "; "))
+            }
+        }
         // ZSLICE_QUEUE=1 puts all plates in the queue of the farm, 4 s later
         // (after the slices).
         if env["ZSLICE_QUEUE"] != nil {

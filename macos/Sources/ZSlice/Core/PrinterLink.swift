@@ -446,6 +446,31 @@ enum PrinterLink {
         return https + deckSplit(p.url.isEmpty ? p.https : p.url).path
     }
 
+    /// At launch: each saved printer of a deck with its name on the deck
+    /// gets the address of the printer of that name again (root + its path
+    /// in /slicer/printer.json). A deck added at the address of one of its
+    /// printers gave its first printer (path "") that same address, so two
+    /// printers showed one camera and one status (bug #24). The first
+    /// printer lives only at the root: /printers/<first> is a 404.
+    @MainActor static func repairDeckURLs() async {
+        let store = PrinterStore.shared
+        let named = store.printers.filter { $0.kind == .printdeck && !$0.deckName.isEmpty && !$0.url.isEmpty }
+        let roots = Dictionary(grouping: named) { deckSplit($0.url).root }
+        func norm(_ s: String) -> String { s.trimmingCharacters(in: .whitespaces).lowercased() }
+        for (root, group) in roots {
+            guard let first = group.first, let list = await deckPrinters(first), !list.isEmpty else { continue }
+            for p in group {
+                guard let at = list.first(where: { norm($0.name) == norm(p.deckName) }) ?? list.first(where: { norm($0.label) == norm(p.deckName) }) else { continue }
+                var q = p
+                q.url = root + at.path
+                if !p.https.isEmpty { q.https = deckSplit(p.https).root + at.path }
+                guard q.url != p.url || q.https != p.https else { continue }
+                NSLog("zslice deck repair: %@: %@ -> %@", p.name, p.url, q.url)
+                store.update(q)
+            }
+        }
+    }
+
     /// The ids of the deck roots of the printers, for deckRoot.
     @MainActor private static var rootIDs: [UUID: UUID] = [:]
 
