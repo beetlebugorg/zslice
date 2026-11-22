@@ -79,6 +79,45 @@ pub fn readAll(gpa: Allocator, bytes: []const u8) Error![]Entry {
 
 /// All entries of a zip file, with at most `limit` bytes together.
 pub fn readAllLimited(gpa: Allocator, bytes: []const u8, limit: u64) Error![]Entry {
+    const infos = try directory(gpa, bytes, limit);
+    defer gpa.free(infos);
+    var entries: std.ArrayList(Entry) = .empty;
+    errdefer {
+        for (entries.items) |e| {
+            gpa.free(e.name);
+            gpa.free(e.data);
+        }
+        entries.deinit(gpa);
+    }
+    try entries.ensureTotalCapacity(gpa, infos.len);
+    for (infos) |info| {
+        const data = try extract(gpa, bytes, info);
+        errdefer gpa.free(data);
+        const n = try gpa.dupe(u8, info.name);
+        entries.appendAssumeCapacity(.{ .name = n, .data = data });
+    }
+    return entries.toOwnedSlice(gpa);
+}
+
+/// An entry of the central directory: its name (a slice of the zip
+/// bytes), its sizes, and where its data starts.
+pub const Info = struct {
+    name: []const u8,
+    /// The size of the data after the inflate.
+    size: u64,
+    /// The size of the data in the zip.
+    packed_size: u64,
+    /// The offset of the data in the zip.
+    start: usize,
+    method: zip.CompressionMethod,
+};
+
+/// The file entries of a zip file (no folders), from its central
+/// directory, with no inflate. The sizes of all entries together are at
+/// most `limit` (the stored size for a stored entry), and the packed data
+/// of each entry lies in the file. Free the slice with `gpa`; the names
+/// are slices of `bytes`.
+pub fn directory(gpa: Allocator, bytes: []const u8, limit: u64) Error![]Info {
     const end_size = @sizeOf(zip.EndRecord);
     if (bytes.len < end_size) return error.NotZip;
     // The end record is in the last 64 kB (a comment can follow it).
@@ -91,14 +130,8 @@ pub fn readAllLimited(gpa: Allocator, bytes: []const u8, limit: u64) Error![]Ent
         if (pos == stop) return error.NotZip;
         pos -= 1;
     };
-    var entries: std.ArrayList(Entry) = .empty;
-    errdefer {
-        for (entries.items) |e| {
-            gpa.free(e.name);
-            gpa.free(e.data);
-        }
-        entries.deinit(gpa);
-    }
+    var infos: std.ArrayList(Info) = .empty;
+    errdefer infos.deinit(gpa);
     var cd: usize = end.central_directory_offset;
     var count: u64 = end.record_count_total;
     if (end.central_directory_offset == 0xffffffff or end.record_count_total == 0xffff) {
@@ -166,18 +199,20 @@ pub fn readAllLimited(gpa: Allocator, bytes: []const u8, limit: u64) Error![]Ent
         const l = std.mem.bytesToValue(zip.LocalFileHeader, bytes[lo..][0..ls]);
         const start = lo + ls + l.filename_len + l.extra_len;
         if (start + csize > bytes.len) return error.Corrupt;
-        const raw = bytes[start..][0..@intCast(csize)];
-        const data = switch (h.compression_method) {
-            .store => try gpa.dupe(u8, raw),
-            .deflate => try inflate(gpa, raw, @intCast(size)),
-            else => return error.Unsupported,
-        };
-        errdefer gpa.free(data);
-        const n = try gpa.dupe(u8, name);
-        errdefer gpa.free(n);
-        try entries.append(gpa, .{ .name = n, .data = data });
+        try infos.append(gpa, .{ .name = name, .size = if (h.compression_method == .store) csize else size, .packed_size = csize, .start = start, .method = h.compression_method });
     }
-    return entries.toOwnedSlice(gpa);
+    return infos.toOwnedSlice(gpa);
+}
+
+/// The data of one entry of `directory`. The caller owns it.
+pub fn extract(gpa: Allocator, bytes: []const u8, info: Info) Error![]u8 {
+    if (info.start > bytes.len or info.packed_size > bytes.len - info.start) return error.Corrupt;
+    const raw = bytes[info.start..][0..@intCast(info.packed_size)];
+    return switch (info.method) {
+        .store => try gpa.dupe(u8, raw),
+        .deflate => try inflate(gpa, raw, @intCast(info.size)),
+        else => error.Unsupported,
+    };
 }
 
 pub fn freeAll(gpa: Allocator, entries: []Entry) void {
