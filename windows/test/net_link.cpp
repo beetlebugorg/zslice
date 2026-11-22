@@ -1533,7 +1533,7 @@ namespace
     // The keys go to a scratch root. The real file types do not change.
     void TestRegisterApp()
     {
-        std::wstring root = L"Software\\zslice-net-link-test";
+        std::wstring root = L"Software\\zslice-net-link-test-" + std::to_wstring(::GetCurrentProcessId());
         ::RegDeleteTreeW(HKEY_CURRENT_USER, root.c_str());
         std::wstring exe = L"C:\\Test Folder\\ZSlice.exe";
         CHECK(zs::appshell::RegisterApp(exe, root));
