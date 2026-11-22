@@ -359,6 +359,9 @@ namespace winrt::ZSlice::implementation
         });
         add(L"Manage printers…", [this] { ShowManage(); });
         add(L"Connect a printdeck…", [this] { ShowConnectDeck(); });
+        add(L"Import a profile…", [this] { w.PickProfile(); });
+        ToolTipService::SetToolTip(printer_menu.Items().GetAt(printer_menu.Items().Size() - 1).as<DependencyObject>(),
+                                   box_value(L"Read the settings of a PrusaSlicer, OrcaSlicer, Bambu Studio, or Cura profile."));
         add(L"Add a printer…", [this] { ShowPicker(false); });
     }
 
@@ -410,6 +413,14 @@ namespace winrt::ZSlice::implementation
             AskProfileName(ZS_GROUP_PROJECT);
         });
         quality_panel.Children().Append(save);
+        Button import_button = TextButton(L"Import a profile…");
+        import_button.HorizontalAlignment(HorizontalAlignment::Stretch);
+        ToolTipService::SetToolTip(import_button, box_value(L"Read the settings of a PrusaSlicer, OrcaSlicer, Bambu Studio, or Cura profile."));
+        import_button.Click([this](auto &&, auto &&) {
+            quality_flyout.Hide();
+            w.PickProfile();
+        });
+        quality_panel.Children().Append(import_button);
     }
 
     void MainWindow::PrintersUi::AskProfileName(int group)
@@ -753,6 +764,8 @@ namespace winrt::ZSlice::implementation
         head.Padding(ThicknessHelper::FromLengths(16, 12, 8, 4));
         TextBlock heading = Label(title, 16, true);
         heading.VerticalAlignment(VerticalAlignment::Center);
+        // A long title wraps before the close button.
+        heading.Margin(ThicknessHelper::FromLengths(0, 0, 36, 0));
         head.Children().Append(heading);
         Button close;
         close.HorizontalAlignment(HorizontalAlignment::Right);

@@ -1039,6 +1039,8 @@ namespace winrt::ZSlice::implementation
                        } });
         out.push_back({ L"2D layer view", L"2", L"", [this] { Set2D(true); } });
         out.push_back({ L"3D view", L"3", L"", [this] { Set2D(false); } });
+        out.push_back({ L"Import a profile…", L"", L"PrusaSlicer, OrcaSlicer, Bambu Studio, or Cura settings", [this] { PickProfile(); } });
+        AddCalibrateActions(out);
         out.push_back({ L"Manage printers…", L"Ctrl+,", L"preferences, connections, API keys", [this] { ShowPreferences(); } });
         out.push_back({ L"Compare with Cura…", L"", L"", [this] { ShowCuraCompare(); } });
         std::wstring project_name = ProjectName();

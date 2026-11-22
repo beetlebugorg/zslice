@@ -53,6 +53,8 @@ A build with `-p:ZsDevHooks=true` reads `ZSLICE_DO`: steps with `;` between them
 | `src/app/MainWindow.Open.cpp` | A file or a `zslice://` link from outside the app. A link asks before it downloads. |
 | `src/net/zs_open_link` | The download of a link, with the rules of the core (`zs_link_check`, see [Links that open a model](open-links.md)). It resolves the host first, and it closes a connection to a local address before the TLS handshake. |
 | `src/app/MainWindow.Project.cpp` | The printdeck.yml project: its dialog, its plan, the status of its plates, and `project.json` in the state folder. |
+| `src/app/MainWindow.Import.cpp` | "Import a profile…" (`zs_app_profile_import`), its report, and the dialog that the report and the calibration share. |
+| `src/app/MainWindow.Calibrate.cpp` | The Calibrate menu and its search actions, the test on a new plate (`zs_app_calibration_add`), and the buttons that use a value. A test never sends a file. |
 | `src/net/zs_project_source` | The files of a project: a public GitHub repository at one commit, or a folder. |
 | `src/prefs/zs_app_shell` | The file types and the link scheme in HKCU, and the hand-off to the first window through a named pipe. |
 | `src/app/App.xaml` | The color tokens of `web/app/style.css` for light and dark, and the flat button styles. |
@@ -94,6 +96,15 @@ A build with `-p:ZsDevHooks=true` reads `ZSLICE_DO`: steps with `;` between them
 - **Session.** The session has a tag of the project and the map of its plates. A session with another tag leaves the plates to the user, and the dialog offers **Open** again.
 
 Test hooks of the project are `pjshow`, `pjhide`, `pjfolder`, `pjgithub`, `pjplate`, `pjstatus`, `pjcount`, `pjcheck`, `pjclose`, `pjscroll`, `pjfile`, `pjmenu`, `pjactions`, `pjsum`, and `pjlog`.
+
+## Import and calibration
+
+- **Import.** The file reads on a worker thread. The core changes the settings of the active plate. The shell commits an edit that is still open, then commits the import as its own step of the history.
+- **Calibration.** A test adds a plate, which copies the settings of the active plate, and puts the test on it. If the core returns an error, `Model::Settle` runs before the new plate goes, as in the GTK shell. The plate before the test gets its exact slice from `Model::RequestSlice`.
+- **Use a value.** The value goes on each plate through `zs_app_setting_set`. The other plates slice again. The history commits on the active plate, as in the GTK shell.
+- **The dialog.** `PrintersUi::ShowInfoPanel` opens one dialog at a time, with the token `ZsDialog` (`--dialog` of the web app). The keys stay in the dialog, so a key of a tool does not change the plate behind it.
+
+Test hooks are `importmenu`, `importrun`, `importfile`, `importlog`, `calmenu`, `calopen`, `calsub`, `calrun`, `calfind`, `calshow`, `caluse`, `calclose`, `callog`, `popupshot`, and `qualityshot`. In a hooks build, `ZSLICE_IMPORT_FILE=path` replaces the file dialog.
 
 ## Printers
 

@@ -31,6 +31,7 @@
                     <SolidColorBrush x:Key="ZsFloat" Color="#EBFAFAFA" />
                     <SolidColorBrush x:Key="ZsPopover" Color="#F7FFFFFF" />
                     <SolidColorBrush x:Key="ZsPopoverBorder" Color="#1F000000" />
+                    <SolidColorBrush x:Key="ZsDialog" Color="#FFFFFF" />
                     <SolidColorBrush x:Key="ZsLine" Color="#26000000" />
                     <SolidColorBrush x:Key="ZsDockLine" Color="#1F000000" />
                     <SolidColorBrush x:Key="ZsTrough" Color="#2E000000" />
@@ -133,6 +134,7 @@
                     <SolidColorBrush x:Key="ZsFloat" Color="#E02D2D2D" />
                     <SolidColorBrush x:Key="ZsPopover" Color="#F528282C" />
                     <SolidColorBrush x:Key="ZsPopoverBorder" Color="#24FFFFFF" />
+                    <SolidColorBrush x:Key="ZsDialog" Color="#303030" />
                     <SolidColorBrush x:Key="ZsLine" Color="#26FFFFFF" />
                     <SolidColorBrush x:Key="ZsDockLine" Color="#1FFFFFFF" />
                     <SolidColorBrush x:Key="ZsTrough" Color="#2EFFFFFF" />
