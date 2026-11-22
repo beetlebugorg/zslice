@@ -485,6 +485,8 @@ namespace winrt::ZSlice::implementation
 #endif
         void FillLineCard();
         void FillPartCard();
+        void FillPartOrder();
+        void MovePartInOrder(int direction);
         void PlaceCard(Microsoft::UI::Xaml::FrameworkElement const &card, double const box[4]);
         void PlaceLineCard();
         void PlacePartCard();

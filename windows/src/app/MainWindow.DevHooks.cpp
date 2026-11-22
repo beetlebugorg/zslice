@@ -84,6 +84,7 @@
 // The range of layers, in MainWindow.Range.cpp (key K shift grows it):
 //   rangelog, rangeclose, rangeadd, rangeset name value, rangereset name,
 //   rangechip k, rangebody k, rangeshot path
+// The print order of the part card: orderlog.
 // Each step writes the state to the log (ZSLICE_LOG).
 //
 // SPDX-License-Identifier: AGPL-3.0-or-later
@@ -497,6 +498,12 @@ namespace winrt::ZSlice::implementation
             // chrome path.bmp: the XAML chrome alone, with no 3D view.
             if (!words.empty())
                 SaveChrome(Root(), words[0]);
+        }
+        else if (verb == L"orderlog")
+        {
+            zs::Log("dev: part order shown %d '%s' earlier %d later %d, sequence %s\n", PartOrderRow().Visibility() == Microsoft::UI::Xaml::Visibility::Visible ? 1 : 0,
+                    to_string(PartOrderText().Text()).c_str(), PartEarlier().IsEnabled() ? 1 : 0, PartLater().IsEnabled() ? 1 : 0,
+                    model->GetSetting("project.print_sequence").c_str());
         }
         else if (verb == L"rangeshot")
         {

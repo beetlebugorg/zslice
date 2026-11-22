@@ -122,6 +122,8 @@ namespace winrt::ZSlice::implementation
                     PlateEdited();
             });
         });
+        PartEarlier().Click([this](auto &&, auto &&) { MovePartInOrder(-1); });
+        PartLater().Click([this](auto &&, auto &&) { MovePartInOrder(1); });
         auto commit_scale = [this, one]() {
             one([this](zs_app *app, size_t i) {
                 std::wstring text{ PartScale().Text() };
@@ -533,10 +535,43 @@ namespace winrt::ZSlice::implementation
                 swprintf_s(scale, L"%.4g", p.scale_x * 100);
                 PartScale().Text(scale);
             }
+            FillPartOrder();
             FillPartExtras();
         }
         LineCard().Visibility(Visibility::Collapsed);
         PartCard().Visibility(Visibility::Visible);
         PlacePartCard();
+    }
+
+    // The place of the part in the print order, shown only with
+    // project.print_sequence = by_object and two parts or more.
+    void MainWindow::FillPartOrder()
+    {
+        if (model == nullptr || selected_parts.size() != 1)
+            return;
+        size_t count = zs_app_part_count(model->Active()), part = (size_t)selected_parts[0];
+        bool on = count > 1 && model->GetSetting("project.print_sequence") == "by_object";
+        PartOrderRow().Visibility(on ? Visibility::Visible : Visibility::Collapsed);
+        if (!on)
+            return;
+        PartOrderText().Text(L"Prints " + std::to_wstring(part + 1) + L" of " + std::to_wstring(count));
+        PartEarlier().IsEnabled(part > 0);
+        PartLater().IsEnabled(part + 1 < count);
+    }
+
+    // The plate list is the print order. The part stays selected at its
+    // new place.
+    void MainWindow::MovePartInOrder(int direction)
+    {
+        if (model == nullptr || selected_parts.size() != 1 || falling)
+            return;
+        size_t part = (size_t)selected_parts[0];
+        if (direction < 0 && part == 0)
+            return;
+        size_t to = direction < 0 ? part - 1 : part + 1;
+        if (zs_app_part_reorder(model->Active(), part, to) != ZS_OK)
+            return;
+        SelectPart((int64_t)to);
+        PlateEdited();
     }
 }

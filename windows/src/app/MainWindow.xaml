@@ -524,6 +524,19 @@
                                 <Button x:Name="PartLess" Grid.Row="2" Content="Less support" HorizontalAlignment="Stretch" />
                                 <Button x:Name="PartReset" Grid.Row="2" Grid.Column="1" Content="Reset" HorizontalAlignment="Stretch" />
                             </Grid>
+                            <!-- One part at a time: the place of the part in the print order. -->
+                            <Grid x:Name="PartOrderRow" ColumnSpacing="6" Visibility="Collapsed">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <TextBlock x:Name="PartOrderText" FontSize="12.5" VerticalAlignment="Center" TextWrapping="WrapWholeWords" />
+                                <Button x:Name="PartEarlier" Grid.Column="1" Content="Print earlier" FontSize="12" MinHeight="28" Padding="9,3"
+                                        ToolTipService.ToolTip="Print this part before the part before it in the plate list" />
+                                <Button x:Name="PartLater" Grid.Column="2" Content="Print later" FontSize="12" MinHeight="28" Padding="9,3"
+                                        ToolTipService.ToolTip="Print this part after the part after it in the plate list" />
+                            </Grid>
                             <Grid ColumnSpacing="6">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="Auto" />
