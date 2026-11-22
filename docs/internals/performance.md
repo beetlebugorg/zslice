@@ -61,23 +61,24 @@ A GPU can run the mesh cut, the line cuts, and a distance field. Each of these i
 
 ## zslice against the bound
 
-The time of a full slice is 1477 ms of CPU (`zslice bench --only full --runs 5`, the median of three rounds). The share of each stage comes from a callgrind profile of `zslice slice`.
+The time of a full slice was 1477 ms of CPU on 2026-11-21 (`zslice bench --only full --runs 5`, the median of three rounds). The share of each stage comes from a callgrind profile of `zslice slice`. On 2026-11-22 the booleans without split points got a shorter path (see below). That change saved 67 ms of CPU on the full slice (1532 to 1465 ms, the medians of two rounds of five on the same machine), and the table has the 67 ms off the booleans.
 
 | Stage | Now (CPU) | Bound | Ratio |
 |---|---|---|---|
 | Mesh cut, with the face index | 77 ms | 11.8 ms | 6.5 |
 | Offsets | 563 ms | 20 ms | 28 |
-| Booleans outside the offsets | 471 ms | 49 ms | 9.6 |
+| Booleans outside the offsets | 404 ms | 49 ms | 8.2 |
 | Gap fill (Arachne, without its offsets and booleans) | 215 ms | 5 ms | 43 |
 | Fill lines, seams, order, and the search for gaps | 116 ms | 6.5 ms | 18 |
 | G-code text and motion plan | 36 ms | 2.9 ms | 12 |
-| Total | 1477 ms | 95 ms | 15.5 |
+| Total | 1410 ms | 95 ms | 14.8 |
 
 The gap fill and the offsets are furthest from their bounds. Together with the booleans they are 85 % of the time.
 
 - **Gap fill.** The exact path of the Voronoi circle events makes 2.25 M products of long integers for one 3DBenchy. Most of them have one or two chunks of 32 bits, and are one CPU product (`voronoi_ctypes.ExtendedIntN`).
 - **Offsets.** Each closing corner adds a loop through the vertex of the outline, and the loops of corners next to each other cross. The unions of the 2885 offsets find 585 000 split points on 434 000 edges. A split point is rounded, so a second search follows. The later searches are a third of the time of the offsets, and they find 5120 more split points.
-- **Booleans.** A layer has 13 intersections on average (3112 for 239 layers). For the skin, the plan cuts the inner area of a layer with the surface of each layer near it (`layer.Memo.part`).
+- **Booleans.** A layer has 13 intersections on average (3112 for 239 layers). For the skin, the plan cuts the inner area of a layer with the surface of each layer near it (`layer.Memo.part`). In 2565 of the 4874 booleans of a 3DBenchy (481 000 of 1 111 000 edges), the first pass finds no split point. Then `clip.Simple` makes the result from the loops: a winding number for each loop from a crossing test, and no merge, no faces, and no chain of the edges. The result is the same, point for point.
+- **The offsets and their loops.** Most closing corners of an offset are in groups where the loops of corners next to each other cross. A proof for each corner that its loop meets no other edge, with the crossing point in place of the loop, gives the same offsets (tested on all 8936 offsets of a 3DBenchy slice and a bunny slice). It was not kept: it proved 24 000 of the 91 000 closing corners of a 3DBenchy, and the search for the proof made the offsets 11 % slower in instructions (the bunny: 56 000 of 75 000 corners, 5 % faster). The corners that it cannot prove are the ones that make the union slow.
 
 ## The outline tolerance
 
