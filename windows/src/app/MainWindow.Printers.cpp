@@ -21,6 +21,7 @@ namespace winrt::ZSlice::implementation
 {
     void FillNozzleChoices(Microsoft::UI::Xaml::Controls::ComboBox const &box, int nozzles, int current);
     int NozzleChoice(Microsoft::UI::Xaml::Controls::ComboBox const &box);
+    void WasteWords(zs_app const *app, uint32_t changes, std::wstring &text, std::wstring &tip);
 
     namespace ui
     {
@@ -470,17 +471,17 @@ namespace winrt::ZSlice::implementation
         double flush = 0;
         bool has_grams = zs_app_filament_stats(app, grams, 16, &changes, &flush) == ZS_OK;
         std::wstring head = n > 1 ? std::to_wstring(n) + L" filaments" : L"Filament";
+        std::wstring waste_tip;
         if (has_grams && changes > 0)
         {
-            head += L" · " + std::to_wstring(changes) + (changes == 1 ? L" change" : L" changes");
-            if (flush > 0.05)
-            {
-                wchar_t text[32];
-                swprintf_s(text, L" · flush %.1f g", flush);
-                head += text;
-            }
+            std::wstring words;
+            WasteWords(app, changes, words, waste_tip);
+            head += L" · " + words;
         }
-        filament_panel.Children().Append(Label(head, 13, true));
+        auto head_label = Label(head, 13, true);
+        if (!waste_tip.empty())
+            ToolTipService::SetToolTip(head_label, box_value(waste_tip));
+        filament_panel.Children().Append(head_label);
 
         auto changed = [this] {
             w.model->RequestSlice();

@@ -55,8 +55,9 @@ The button in the top bar has a dot for each filament of the plate. Click it to 
 
 - **+ Add a filament** adds one. × removes one, and its parts and layers go to filament 1.
 - Click a color to change it. The change applies when the color picker closes.
-- Pick the material of each filament. A printer with two nozzles also has a nozzle for each filament.
+- Pick the material of each filament. A printer with more than one nozzle also has a nozzle for each filament.
 - The grams of each filament show after the slice.
+- With filament changes, the head of the list shows the changes, their time, and the waste, such as "3 changes, about 2 min · waste 10.3 g (12 %)". Hold the pointer on it to see the flush and the prime tower.
 
 ## Paint
 
