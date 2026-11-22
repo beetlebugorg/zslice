@@ -790,6 +790,7 @@ final class Workspace {
                     closeRangeCard()
                     NSLog("zslice filament test: %ld filaments, grams %@, changes %ld, flush %.2f g", model.filaments.count,
                           st.grams.map { String(format: "%.2f", $0) }.joined(separator: ","), st.changes, st.flushG)
+                    NSLog("zslice filament waste: %@ | %@", st.wasteText, st.wasteTip.replacingOccurrences(of: "\n", with: "; "))
                 }
             }
         }
