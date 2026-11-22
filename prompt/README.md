@@ -1,6 +1,6 @@
 # A prompt that could build zslice
 
-Describes: the branch `import-fix` at commit `aab615cd` ("Fold the Windows bottom bar by its own width"), 2026-11-22. This branch goes to main next.
+Describes: main at commit `aab615cd` ("Fold the Windows bottom bar by its own width"), 2026-11-22.
 
 ## Read this first
 
