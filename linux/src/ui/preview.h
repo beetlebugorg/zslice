@@ -13,9 +13,9 @@
 
 /* Returns the preview widget (the area and the slider in one box). */
 GtkWidget *zg_preview_new(ZgModel *model);
-/* Puts the timeline of the history (zg_timeline_new) in the dock at the
- * bottom of the preview, after the plates and the replay. */
-void zg_preview_set_timeline(GtkWidget *preview, GtkWidget *timeline);
+/* Puts undo, redo, and the history button (zg_history_tools_new) in the
+ * dock under the preview, between the plates and the replay. */
+void zg_preview_set_history(GtkWidget *preview, GtkWidget *tools);
 /* Puts the print card at the bottom right of the preview. The dock ends
  * where the card starts. A hidden card leaves the whole width to the dock. */
 void zg_preview_set_card(GtkWidget *preview, GtkWidget *card);

@@ -117,8 +117,9 @@ export const SHORTCUTS = [
   {
     group: "History",
     keys: [
+      ["Ctrl+H", "Open or close the history list over its button in the dock"],
       ["Up, Down (History list)", "The next step, or the step before"],
-      ["Left, Right (timeline)", "The step before, or the next step"],
+      ["Esc (History list)", "Close the history list"],
     ],
   },
   {

@@ -102,8 +102,9 @@ Each paste is one step: Ctrl+Z undoes it. A label, a support area, layer changes
 
 | Keys | What they do |
 |---|---|
+| Ctrl+H | Open the History list over its button in the dock |
 | ↑, ↓ (History list) | The next step, or the step before |
-| ←, → (timeline) | The step before, or the next step |
+| Esc (History list) | Close the History list |
 
 ## Plates
 

@@ -1933,7 +1933,7 @@ new ResizeObserver(() => $("preview").style.setProperty("--card-h", `${$("summar
 
 // The panel has the settings, and the long form of the selected line
 // (with one back arrow to the settings). The history is a popover over
-// the history bar, the project a dialog, and the printers a page over the
+// its button in the dock, the project a dialog, and the printers a page over the
 // view.
 function showTab(name) {
   if (name === "history") {
@@ -1966,16 +1966,44 @@ function showTab(name) {
 $("selected-back").onclick = () => showTab("settings");
 
 // The history popover: open (true), closed (false), or the other state.
+// It opens over its button in the dock, and never covers the button.
 function toggleHistory(open) {
   const pop = $("history-pop");
   const show = open ?? pop.hidden;
   pop.hidden = !show;
-  if (show) history.refresh();
+  $("history-button").setAttribute("aria-expanded", String(show));
+  if (show) {
+    placeHistory();
+    history.refresh().then(() => {
+      placeHistory();
+      // The arrow keys go through the steps at once.
+      (pop.querySelector(".hist-now") ?? $("page-history")).focus({ preventScroll: true });
+      pop.querySelector(".hist-now")?.scrollIntoView({ block: "nearest" });
+    });
+  }
 }
+// Over the history button: its bottom 8 px above the top of the button,
+// its left at the left of the button, and inside the view.
+function placeHistory() {
+  const pop = $("history-pop");
+  if (pop.hidden) return;
+  const view = $("preview").getBoundingClientRect();
+  const b = $("history-button").getBoundingClientRect();
+  pop.style.maxHeight = `${Math.max(160, Math.min(560, b.top - view.top - 20))}px`;
+  const w = pop.offsetWidth;
+  const left = Math.max(8, Math.min(view.width - w - 8, b.left - view.left - 8));
+  pop.style.left = `${left}px`;
+  pop.style.bottom = `${view.bottom - b.top + 8}px`;
+}
+window.addEventListener("resize", placeHistory);
+$("history-button").onclick = () => toggleHistory();
+$("history-close").onclick = () => toggleHistory(false);
 document.addEventListener("pointerdown", (e) => {
   const pop = $("history-pop");
-  if (pop.hidden || pop.contains(e.target) || $("timeline").contains(e.target)) return;
-  pop.hidden = true;
+  if (pop.hidden || pop.contains(e.target) || $("history-button").contains(e.target)) return;
+  // The right-click menu of a step.
+  if ($("menu-layer")?.contains(e.target)) return;
+  toggleHistory(false);
 });
 // Esc closes the popover first, before the keys of the view see it.
 document.addEventListener("keydown", (e) => {
@@ -1984,6 +2012,7 @@ document.addEventListener("keydown", (e) => {
   e.preventDefault();
   e.stopPropagation();
   toggleHistory(false);
+  $("history-button").focus();
 }, true);
 
 // The Printers page over the view: the tiles read the printers only while
@@ -2504,6 +2533,9 @@ document.addEventListener("keydown", (e) => {
   } else if (e.key === "s") {
     e.preventDefault();
     saveProject();
+  } else if (e.key === "h" && !e.shiftKey && !e.altKey) {
+    e.preventDefault();
+    toggleHistory();
   } else if ((e.key === "z" || e.key === "Z" || e.key === "y") && !e.target.closest("input, textarea, select")) {
     e.preventDefault();
     undoRedo(e.key === "z" && !e.shiftKey ? "undo" : "redo");
@@ -2882,9 +2914,8 @@ const history = new HistoryPage($("page-history"), {
   },
   toast,
   visible: () => !$("history-pop").hidden,
-  timeline: $("timeline"),
+  tools: { undo: $("undo"), redo: $("redo"), button: $("history-button"), count: $("history-count"), sum: $("history-sum") },
   undoRedo: (op) => undoRedo(op),
-  toggle: () => toggleHistory(),
   get browser() {
     return browser;
   },
@@ -2917,6 +2948,7 @@ var project = new ProjectPage( // var: the plate signs can ask before this line
     document.title = `${name} · zslice`;
     $("empty").hidden = true;
     app.state = "ready";
+    history.markSaved();
     history.refresh();
   },
   printers: () => Object.keys(store.printers ?? {}),
@@ -4188,6 +4220,7 @@ async function saveProject() {
     const name = (app.plates[0]?.name || app.modelName || "project").replace(/.(stl|3mf|obj|step|stp)$/i, "");
     const r = await client.call("projectSave", { name });
     download(new Uint8Array(r.bytes), `${name}.3mf`, "model/3mf");
+    history.markSaved();
     toast(app.plates.length > 1 ? `Saved ${app.plates.length} plates in ${name}.3mf.` : `Saved ${name}.3mf.`);
   } catch (e) {
     toast(e.message);
@@ -4239,6 +4272,7 @@ async function openFile(file) {
         $("title").textContent = file.name;
         document.title = `${file.name} · zslice`;
         if (r.note) toast(r.note);
+        history.markSaved();
         history.refresh();
       } catch (e) {
         toast(e.message);
@@ -4262,6 +4296,7 @@ async function openFile(file) {
     document.title = `${file.name} · zslice`;
     $("empty").hidden = true;
     app.state = "ready";
+    history.markSaved();
   } catch (e) {
     toast(e.message);
   }

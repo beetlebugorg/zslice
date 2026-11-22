@@ -11,7 +11,7 @@ The other slicers change with each release. If a line here is out of date, open 
 - **In your browser, with your files on your computer.** The web app at [zslice.beetlebug.org](https://zslice.beetlebug.org/) is the same core, compiled to WebAssembly. It slices in the browser: no install, no account, and no upload. See [Privacy](../../PRIVACY.md).
 - **Find the gaps.** zslice shows the areas that should be solid and that no line covers, and for each gap the settings that can close it, with the value to try.
 - **A check before you print.** Overhangs with no support, bridges and their span, islands that start in the air, lines over the flow of the hot end, layers too short to cool, and layers with many retractions, each in plain words with the setting to change.
-- **A history of changes.** A timeline of each change in words. Click a change to see the print as it was, double-click to edit it there, or undo one change and keep the later ones.
+- **A history of changes.** A list of each change in words. Click a change to see the print as it was, double-click to edit it there, or undo one change and keep the later ones.
 - **Measure the print.** A measure tape on the sliced lines that snaps to the ends of the lines and to the centers of holes, and the length and the radius of a selected line.
 - **Retractless top and bottom skin.** The pieces of the skin join along the walls into few paths, so the nozzle travels and retracts less over the top surfaces.
 - **A library first.** The core is a library with a C API and a WebAssembly build. The GTK app and the web app are thin shells over it, so other apps can embed the slicer.
@@ -38,7 +38,7 @@ See the [roadmap](../../ROADMAP.md) for the plan.
 | Slices again while a slider moves | Yes | No | No | No | No |
 | Runs in a web browser, files stay local | Yes | No | No | No | No |
 | Gaps view with settings that close each gap | Yes | No | No | No | No |
-| History of changes with a timeline | Yes | No | No | No | No |
+| History of changes in words | Yes | No | No | No | No |
 | Embeddable library with a C API | Yes | Some (CuraEngine program) | No | No | No |
 | Variable line width walls (Arachne) | Yes | Yes | Yes | Yes | Yes |
 | Tree support | Yes | Yes | Yes | Yes | Yes |

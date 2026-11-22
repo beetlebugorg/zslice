@@ -63,7 +63,7 @@ Each plate is one `App` (`zs_app`), with its own settings, profiles, parts, slic
 | Right edge of the view | The layer slider of the active plate. |
 | Over each plate | Its label: name, printer and material, status (To print, Printing, Printed, Failed, or "Resin: not yet"). |
 | Bottom left | "6 plates, 1 printed", the Parts popover (the parts of printdeck.yml with their counts), and "+ Plate". |
-| Bottom center | The history timeline. |
+| Bottom left | Undo, redo, and the history button in the dock. |
 | Bottom right | The print card of the active plate: time, layers, grams, meters, and Print (with a menu: upload only, export). |
 | Right, on demand | The settings drawer: all settings by section, with search. Pin docks it beside the view. |
 

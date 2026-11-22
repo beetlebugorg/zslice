@@ -191,13 +191,10 @@ static const char *ZG_CSS =
     ".zg-issue-warning { color: #e5a50a; }"
     ".zg-knob-label { font-size: 0.75em; font-feature-settings: 'tnum'; color: #fff; background: alpha(#202326, 0.82);"
     "  border-radius: 6px; padding: 1px 6px; min-width: 2.2em; }"
-    /* The dock: one bar at the bottom of the preview. Its groups (the
-     * plates, the replay, the history) have no background of their own,
-     * and a thin line separates them. */
-    /* The dock: one bar, the full width of the view, at its bottom (as on
-     * the web): the plates and the history, the replay under them, and
-     * the print at the right, with a thin line before each group. */
-    ".zg-dock { padding: 5px 12px 6px; background: alpha(@theme_bg_color, 0.96);"
+    /* The dock: one bar, the full width of the view, under it (as on the
+     * web), in one row: the plates, undo, redo, and history, the replay,
+     * and the print, with a thin line before each group. */
+    ".zg-dock { padding: 4px 12px; background: @theme_bg_color;"
     "  border-top: 1px solid alpha(currentColor, 0.12); box-shadow: 0 -2px 10px rgba(0, 0, 0, 0.25); }"
     ".zg-dock button { min-height: 28px; }"
     ".zg-dock-group { border-left: 1px solid alpha(currentColor, 0.15); padding-left: 8px; }"
@@ -296,6 +293,9 @@ static void on_startup(GApplication *app, gpointer data) {
     gtk_application_set_accels_for_action(GTK_APPLICATION(app), "win.redo", redo_keys);
     const char *save_keys[] = {"<Control>s", NULL};
     gtk_application_set_accels_for_action(GTK_APPLICATION(app), "win.save-plate", save_keys);
+    /* Ctrl+H: the history list over its button in the dock. */
+    const char *history_keys[] = {"<Control>h", NULL};
+    gtk_application_set_accels_for_action(GTK_APPLICATION(app), "win.show-page::history", history_keys);
     /* The model loaded the printers and the app settings. */
     zg_preferences_apply_theme();
 

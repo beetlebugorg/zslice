@@ -51,10 +51,11 @@ typedef struct {
      * view, or pinned beside it. The body overlay holds it over the view;
      * the paned holds it beside the view. */
     GtkWidget *body, *paned, *panel, *panel_toggle, *pin;
-    /* The other places of the old tabs: the dock (the popover of History has
-     * the list of the changes), the Project dialog, and the Printers page
-     * over the view with its button in the header bar. */
-    GtkWidget *timeline, *project_dialog, *farm_view, *printers_button;
+    /* The other places of the old tabs: the dock (undo, redo, and the
+     * history button, with the list of the changes in its popover), the
+     * Project dialog, and the Printers page over the view with its button
+     * in the header bar. */
+    GtkWidget *history_tools, *project_dialog, *farm_view, *printers_button;
     /* The search of settings and actions (/), over the view. */
     GtkWidget *search;
     GtkWidget *quality_menu; /* the menu of the quality profiles */
@@ -1059,6 +1060,9 @@ static void on_loaded(GObject *source, GAsyncResult *res, gpointer data) {
         if (!zg_model_add(w->model, job->name, contents, len, &error)) {
             show_error(w, "The model did not open", error->message);
             g_error_free(error);
+        } else {
+            /* The count on the history button starts again. */
+            zg_history_tools_mark_saved(w->history_tools);
         }
         g_free(contents);
         gtk_progress_bar_set_fraction(GTK_PROGRESS_BAR(w->progress), 0);
@@ -1232,6 +1236,9 @@ static void on_plate_saved(GObject *source, GAsyncResult *res, gpointer data) {
     if (!g_file_replace_contents_finish(G_FILE(source), res, NULL, &error)) {
         show_error(get(window), "The 3MF file was not saved", error->message);
         g_error_free(error);
+    } else {
+        /* The count on the history button starts again. */
+        zg_history_tools_mark_saved(get(window)->history_tools);
     }
     g_object_unref(window);
 }
@@ -2184,13 +2191,13 @@ static GtkWidget *project_dialog_new(Window *w) {
 }
 
 /* Shows a place: "settings" or "selected" in the panel, "history" (the
- * popover over the dock), "project" (the dialog), or "farm" (the
+ * popover over the history button of the dock), "project" (the dialog), or "farm" (the
  * Printers page). */
 static void on_show_page_action(GSimpleAction *a, GVariant *v, gpointer data) {
     Window *w = get(data);
     const char *name = g_variant_get_string(v, NULL);
     if (strcmp(name, "history") == 0) {
-        zg_timeline_show_history(w->timeline);
+        zg_history_tools_toggle(w->history_tools, TRUE);
     } else if (strcmp(name, "project") == 0) {
         gtk_window_present(GTK_WINDOW(w->project_dialog));
     } else if (strcmp(name, "farm") == 0) {
@@ -2930,12 +2937,12 @@ GtkWindow *zg_window_new(GtkApplication *app, ZgModel *model) {
     gtk_widget_add_controller(panel, panel_keys);
     /* The model on the left, the settings on the right, as in other
      * slicers. */
-    /* The preview, with the timeline of the history in its dock. */
+    /* The preview, with undo, redo, and the history button in its dock. */
     GtkWidget *left = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
     gtk_widget_set_vexpand(w->preview, TRUE);
     gtk_box_append(GTK_BOX(left), w->preview);
-    w->timeline = zg_timeline_new(model);
-    zg_preview_set_timeline(w->preview, w->timeline);
+    w->history_tools = zg_history_tools_new(model);
+    zg_preview_set_history(w->preview, w->history_tools);
     /* The print card over the view, at its bottom right. */
     zg_preview_set_card(w->preview, w->sum_box);
     /* The work bar, at the top edge of the view. */

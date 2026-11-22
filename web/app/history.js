@@ -1,12 +1,15 @@
-// history.js: the History tab of the panel (linux/src/ui/history.c).
+// history.js: undo, redo, and the history (linux/src/ui/history.c).
 //
 // The history is the list of the steps of undo and redo, in the worker.
-// This page lists them, the newest first: the kind of each step (a badge
-// with a color), its number and time, and its changes in words. A click on
-// a step goes to it, and the preview slices at that step. Each change of
-// the step now or an earlier step has an undo button that undoes only that
-// change and keeps the later ones. A double click on a change opens its
-// setting. The up and down arrow keys go to the next and the step before.
+// The dock has undo, redo, and a history button with a count of the
+// changes since the last open or save. The button opens this list over
+// it. The list shows the steps, the newest first: the kind of each step
+// (a glyph on a color), its number and time, and its changes in words. A
+// click on a step goes to it, and the preview slices at that step. Each
+// change of the step now or an earlier step has an undo button that undoes
+// only that change and keeps the later ones. A double click on a change
+// opens its setting. The up and down arrow keys go to the next and the
+// step before. A button under the list clears the later steps.
 //
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
@@ -81,13 +84,22 @@ function clock(ms) {
 
 export class HistoryPage {
   // ctx: { client, applySettings(r), openSetting(name), toast(text),
-  //        visible(), timeline (the bar under the scrub bar),
+  //        visible(), tools: { undo, redo, button, count, sum } (the
+  //        buttons of the dock and the head of the popover),
   //        undoRedo(op) }
   constructor(root, ctx) {
     this.root = root;
     this.ctx = ctx;
     this.list = null;
     this.asked = 0;
+    // The time of the last open or save (ms). Before one, each change
+    // counts.
+    this.savedAt = 0;
+    const t = ctx.tools;
+    if (t) {
+      t.undo.onclick = () => ctx.undoRedo("undo");
+      t.redo.onclick = () => ctx.undoRedo("redo");
+    }
     root.tabIndex = 0;
     root.addEventListener("keydown", (e) => this.key(e));
     this.render();
@@ -102,169 +114,48 @@ export class HistoryPage {
     this.list = r;
     this.edits = edits ?? [];
     if (this.ctx.visible()) this.render();
-    this.renderTimeline();
+    this.renderButton();
   }
 
-  // The timeline (history.c, zg_timeline_new): undo and redo, a mark for
-  // each step (the oldest at the left), and the count. The left and right
-  // arrow keys go through the steps.
-  renderTimeline() {
-    const bar = this.ctx.timeline;
-    if (!bar) return;
+  // The changes since the last open or save: the steps after the save,
+  // and the steps of the save that an undo took back. The core keeps the
+  // time of each step, so this needs no mark in the history.
+  unsaved() {
+    const l = this.list;
+    if (!l) return 0;
+    let n = 0;
+    for (let i = 1; i < l.steps.length; i++) {
+      const after = l.steps[i].time > this.savedAt;
+      if (i <= l.current ? after : !after) n++;
+    }
+    return n;
+  }
+
+  // An open or a save: the count of the button starts again.
+  markSaved() {
+    this.savedAt = Date.now();
+    this.renderButton();
+  }
+
+  // Undo, redo, and the history button of the dock (history.c,
+  // zg_history_tools_new). The count on the button: the changes since
+  // the last open or save.
+  renderButton() {
+    const t = this.ctx.tools;
+    if (!t) return;
     const l = this.list;
     const n = l ? l.steps.length : 0;
     const now = l ? l.current : 0;
-    const tool = (label, title, enabled, fn) => {
-      const b = el("button", "flat icon tl-tool", label);
-      b.title = title;
-      b.disabled = !enabled;
-      b.onclick = fn;
-      return b;
-    };
-    const parts = [
-      tool("↶", "Undo (Ctrl+Z)", now > 0, () => this.ctx.undoRedo("undo")),
-      tool("↷", "Redo (Ctrl+Shift+Z)", now + 1 < n, () => this.ctx.undoRedo("redo")),
-      el("span", "tl-sep"),
-      Object.assign(el("button", "tl-title", "History"), { title: "Show the list of the changes", onclick: () => this.ctx.toggle?.() }),
-    ];
-    if (n <= 1) {
-      parts.push(el("span", "tl-empty", "Your changes show here"));
-    } else {
-      const marks = el("div", "tl-marks");
-      for (let i = 0; i < n; i++) {
-        const s = l.steps[i];
-        if (i > 0) marks.append(el("span", "tl-line" + (i > now ? " later" : "")));
-        const [color, label] = LOOKS[s.kind] ?? LOOKS.other;
-        const m = el("button", "tl-mark" + (i === now ? " now" : i > now ? " later" : ""));
-        m.style.setProperty("--kind", color);
-        m.append(glyph(i === 0 ? "start" : (LOOKS[s.kind] ? s.kind : "other"), 12));
-        const words = s.text.split("\n").filter(Boolean).map((w) => w.replace("\t", ": ")).join("\n");
-        // A card (the style of the line card) with the changes, and an
-        // editor for each setting that changed: hover, then change it there.
-        m.setAttribute("aria-label", `${i === 0 ? "Start" : `Change ${i}`} · ${label}${words ? ". " + words : ""}`);
-        m.onmouseenter = () => this.hoverMark(m, i);
-        m.onmouseleave = () => this.leaveCard();
-        m.onclick = () => this.go(i);
-        m.oncontextmenu = (e) => this.menu(e, i);
-        marks.append(m);
-      }
-      parts.push(marks, el("span", "tl-count", `${now} / ${n - 1}`));
-      requestAnimationFrame(() => {
-        const cur = marks.querySelector(".now");
-        if (cur) marks.scrollLeft = cur.offsetLeft - marks.clientWidth / 2;
-      });
-    }
-    bar.replaceChildren(...parts);
-    bar.hidden = false;
-    bar.onkeydown = (e) => {
-      if (!this.list) return;
-      if (e.key === "ArrowLeft" && now > 0) this.go(now - 1);
-      else if (e.key === "ArrowRight" && now + 1 < n) this.go(now + 1);
-      else return;
-      e.preventDefault();
-    };
-  }
-
-  // The card of step i over its bubble `m`, after a short hover.
-  hoverMark(m, i) {
-    clearTimeout(this.cardHide);
-    clearTimeout(this.cardWait);
-    if (this.card && this.cardStep === i) return;
-    this.cardWait = setTimeout(() => this.showCard(m, i), this.card ? 0 : 350);
-  }
-
-  leaveCard() {
-    clearTimeout(this.cardWait);
-    clearTimeout(this.cardHide);
-    // Time to move the pointer from the bubble into the card. A card with
-    // the focus in an editor stays.
-    this.cardHide = setTimeout(() => {
-      if (this.card?.contains(document.activeElement)) return;
-      this.closeCard();
-    }, 400);
-  }
-
-  closeCard() {
-    const b = this.ctx.browser;
-    if (b) for (const [name, list] of b.editors) b.editors.set(name, list.filter((e) => e.where !== "history"));
-    this.card?.remove();
-    this.card = null;
-    this.cardStep = -1;
-  }
-
-  showCard(m, i) {
-    this.closeCard();
-    const s = this.list?.steps[i];
-    if (!s) return;
-    const kind = i === 0 ? "start" : (LOOKS[s.kind] ? s.kind : "other");
-    const [color, label] = LOOKS[kind];
-    const card = el("div", "line-card hist-card");
-    card.onmouseenter = () => clearTimeout(this.cardHide);
-    card.onmouseleave = () => this.leaveCard();
-    card.addEventListener("focusout", () => setTimeout(() => {
-      if (this.card === card && !card.contains(document.activeElement) && !card.matches(":hover")) this.closeCard();
-    }, 0));
-    const head = el("div", "lc-head");
-    const dot = el("span", "hist-card-dot");
-    dot.style.background = color;
-    dot.append(glyph(kind, 14));
-    const titles = el("div", "lc-titles");
-    titles.append(el("div", "lc-title", i === 0 ? "Start" : `Change ${i}`), el("div", "lc-where", `${label} · ${clock(s.time)}${i === (this.list?.current ?? -1) ? " · now" : ""}`));
-    head.append(dot, titles);
-    card.append(head);
-    if (i === 0) {
-      card.append(el("div", "lc-info", "The settings and the plate when the history started."));
-    } else {
-      const cl = (s.changes ?? "").split("\n");
-      const wl = (s.text ?? "").split("\n");
-      const lines = el("div", "lc-stats hist-card-lines");
-      const box = el("div", "lc-settings");
-      const done = new Set();
-      for (let k = 0; k < wl.length; k++) {
-        const tab = wl[k].indexOf("\t");
-        if (tab < 0) continue;
-        lines.append(el("div", "lc-line", `${wl[k].slice(0, tab)}: ${wl[k].slice(tab + 1)}`));
-        // An editor for a setting of the whole plate: its value now. A
-        // part ("part:"), some layers ("layers:"), and filament 2 and on
-        // ("filament 2") have values of their own.
-        const [scope, key] = (cl[k] ?? "").split("\t");
-        const info = this.ctx.browser?.byName.get(key);
-        if (!info || done.has(key) || (scope && (scope.includes(":") || scope.startsWith("filament ")))) continue;
-        done.add(key);
-        const row = el("div", "lc-row");
-        const lb = el("button", "flat lc-label");
-        lb.append(el("span", "lc-name", info.label));
-        lb.title = `${info.doc}\n\nClick to show this setting in the panel.`;
-        lb.onclick = () => this.ctx.openSetting(key);
-        const ed = this.ctx.browser.makeEditor(info, "history");
-        row.append(lb, ed.node);
-        this.ctx.browser.track(key, { where: "history", update: (entry) => ed.update(entry) });
-        box.append(row);
-      }
-      card.append(lines);
-      if (box.childElementCount) {
-        box.prepend(el("div", "lc-c", "The value now:"));
-        card.append(box);
-      }
-    }
-    const foot = el("div", "lc-foot");
-    const go = el("button", "flat", i === this.list?.current ? "This is the step now" : "Go to this step");
-    go.disabled = i === this.list?.current;
-    go.onclick = () => {
-      this.closeCard();
-      this.go(i);
-    };
-    foot.append(go);
-    card.append(foot);
-    document.body.append(card);
-    // Over the bubble, and inside the window.
-    const r = m.getBoundingClientRect();
-    const w = card.offsetWidth;
-    card.style.position = "fixed";
-    card.style.left = `${Math.max(8, Math.min(window.innerWidth - w - 8, r.left + r.width / 2 - w / 2))}px`;
-    card.style.bottom = `${window.innerHeight - r.top + 10}px`;
-    this.card = card;
-    this.cardStep = i;
+    t.undo.disabled = !(now > 0);
+    t.redo.disabled = !(now + 1 < n);
+    const changes = Math.max(0, n - 1);
+    const unsaved = this.unsaved();
+    t.count.hidden = unsaved === 0;
+    t.count.textContent = unsaved > 9 ? "9+" : String(unsaved);
+    const words = (k) => `${k} change${k === 1 ? "" : "s"}`;
+    t.button.title = `History (${words(changes)}).${unsaved ? ` ${unsaved} since you opened or saved.` : ""} Ctrl+H`;
+    t.button.setAttribute("aria-label", `History, ${words(changes)}${unsaved ? `, ${unsaved} not saved` : ""}`);
+    if (t.sum) t.sum.textContent = changes ? `${words(changes)}${now + 1 < n ? `, at change ${now}` : ""}` : "";
   }
 
   // The right-click menu of step i: go to it, or clear the history after
@@ -320,6 +211,16 @@ export class HistoryPage {
       for (let i = l.steps.length; i-- > 0;) box.append(this.step(i));
     }
     root.replaceChildren(box);
+    // The steps after the step now: one button clears them.
+    if (l && l.current + 1 < l.steps.length) {
+      const foot = el("div", "hist-foot");
+      const later = l.steps.length - 1 - l.current;
+      const clear = el("button", "flat", `Clear the ${later === 1 ? "later change" : `${later} later changes`}`);
+      clear.title = "The changes after the step now go from the history. Redo cannot bring them back.";
+      clear.onclick = () => this.truncate(l.current);
+      foot.append(clear);
+      root.append(foot);
+    }
     this.renderEdits();
   }
 
@@ -360,12 +261,25 @@ export class HistoryPage {
       if (i !== now) this.go(i);
     };
     row.oncontextmenu = (e) => this.menu(e, i);
-    const [color, label] = LOOKS[s.kind] ?? LOOKS.other;
+    // The head: the glyph of the kind on its color, the step and its
+    // kind, the time, and Now or Go to.
+    const kind = i === 0 ? "start" : (LOOKS[s.kind] ? s.kind : "other");
+    const [color, label] = LOOKS[kind];
     const head = el("div", "hist-head");
-    const badge = el("span", "hist-badge", label);
-    badge.style.background = color;
-    head.append(badge, el("span", "hist-title", i === 0 ? "Start" : `Change ${i}`), el("span", "dim hist-time", clock(s.time)));
-    if (i === now) head.append(el("span", "hist-now-badge", "Now"));
+    const dot = el("span", "hist-dot");
+    dot.style.background = color;
+    dot.append(glyph(kind, 14));
+    const titles = el("div", "hist-titles");
+    titles.append(el("span", "hist-title", i === 0 ? "Start" : `Change ${i}`), el("span", "dim hist-kind", i === 0 ? "" : label));
+    head.append(dot, titles, el("span", "dim hist-time", clock(s.time)));
+    if (i === now) {
+      head.append(el("span", "hist-now-badge", "Now"));
+    } else {
+      const go = el("button", "flat hist-go", "Go to");
+      go.title = "Go to this step: the print slices as it was then. The later changes stay until you edit something.";
+      go.onclick = () => this.go(i);
+      head.append(go);
+    }
     row.append(head);
     if (i === 0) {
       row.append(el("div", "dim", "The settings and the plate when the history started."));
