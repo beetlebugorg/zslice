@@ -15,6 +15,9 @@ let package = Package(
             name: "ZSlice",
             dependencies: ["CZslice"],
             path: "Sources/ZSlice",
+            // The icon: Xcode compiles the catalog, and make-app.sh makes
+            // the .icns of the set.
+            exclude: ["Assets.xcassets"],
             linkerSettings: [
                 .unsafeFlags(["-L", "lib"]),
                 .linkedFramework("Metal"),

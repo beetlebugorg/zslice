@@ -105,6 +105,7 @@
 		C691136A254A7FD5213D9E18 /* ZSliceApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1158D8D369A8510F36724AB5 /* ZSliceApp.swift */; };
 		CE03DE6CDB6E1FEBA69EE7C4 /* SavedSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = DCB26F920F80C3DD47D375E9 /* SavedSettings.swift */; };
 		D3998BA3DC16B14FA4C28B56 /* LabelTool.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E4AB363FA474780AE856ABD /* LabelTool.swift */; };
+		D9F7493C93C410BCF99DC76C /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 3BA09A78571A87086C595FCB /* Assets.xcassets */; };
 		E00FD51B030CA2D41C61B6FD /* FarmMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3D6CFF6D8ACB26A0EBD66C8 /* FarmMonitor.swift */; };
 		E65449D7495562F0928DFFCB /* Workspace.swift in Sources */ = {isa = PBXBuildFile; fileRef = 527BBE990EFDB75191555B48 /* Workspace.swift */; };
 		E82702961DDA68AFFBE5B385 /* CoreText.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1EED13BDF9B1407DBC65CD27 /* CoreText.swift */; };
@@ -191,6 +192,7 @@
 		35DE666DED3ED3151029FD34 /* QuickLookThumbnailing.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = QuickLookThumbnailing.framework; path = System/Library/Frameworks/QuickLookThumbnailing.framework; sourceTree = SDKROOT; };
 		38E36170394119623DEAE467 /* Project.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Project.swift; sourceTree = "<group>"; };
 		3B126B4359612B6281E74044 /* Thumbnail.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Thumbnail.entitlements; sourceTree = "<group>"; };
+		3BA09A78571A87086C595FCB /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		3C1CD092508B18D3F709B0F2 /* LayerRenderer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LayerRenderer.swift; sourceTree = "<group>"; };
 		3EE89FCA7B50D3523A0EBF53 /* FarmPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FarmPage.swift; sourceTree = "<group>"; };
 		3F32D9E3EE1F6D78B72D3FAF /* PaintTool.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaintTool.swift; sourceTree = "<group>"; };
@@ -262,7 +264,7 @@
 		FA1563DC7A7E6004C5F6CF3E /* SupportTrees.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SupportTrees.swift; sourceTree = "<group>"; };
 		FD004E025E974616E983FB82 /* OpenLink.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenLink.swift; sourceTree = "<group>"; };
 		FEB19535AAD2F45E9ADECD3E /* Shaders.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Shaders.swift; sourceTree = "<group>"; };
-		"TEMP_10EB9E36-3DEC-42DC-A405-7CFD7759A198" /* Signing.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Signing.xcconfig; sourceTree = "<group>"; };
+		"TEMP_3558478F-6480-46DF-B823-C5374F31496A" /* Signing.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Signing.xcconfig; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -309,6 +311,7 @@
 		0FFCCDDCCA5C3960B69BFAA7 /* ZSlice */ = {
 			isa = PBXGroup;
 			children = (
+				3BA09A78571A87086C595FCB /* Assets.xcassets */,
 				1158D8D369A8510F36724AB5 /* ZSliceApp.swift */,
 				E58904BFC09A98E6839E96C7 /* Core */,
 				B1714D3AE2760D5E03670E7E /* Render */,
@@ -472,10 +475,10 @@
 			path = Core;
 			sourceTree = "<group>";
 		};
-		"TEMP_5277F437-42BB-4B72-AC4E-0B485FEA5E3B" /* macos */ = {
+		"TEMP_812B2483-F111-4549-9290-4D2C295389A8" /* macos */ = {
 			isa = PBXGroup;
 			children = (
-				"TEMP_10EB9E36-3DEC-42DC-A405-7CFD7759A198" /* Signing.xcconfig */,
+				"TEMP_3558478F-6480-46DF-B823-C5374F31496A" /* Signing.xcconfig */,
 			);
 			path = macos;
 			sourceTree = "<group>";
@@ -488,6 +491,7 @@
 			buildConfigurationList = 65FB3D3D8A7293F765D6AD3E /* Build configuration list for PBXNativeTarget "ZSlice" */;
 			buildPhases = (
 				9F3B937C8D8E178D74A628EF /* Sources */,
+				4B0AF0BF4987704EB66281CD /* Resources */,
 				5D0296D10FBB4F34239933ED /* Embed Foundation Extensions */,
 				0158E89A1EE9FAF5BE8E0ED8 /* Copy the bed models */,
 			);
@@ -591,6 +595,17 @@
 			);
 		};
 /* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		4B0AF0BF4987704EB66281CD /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				D9F7493C93C410BCF99DC76C /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
 
 /* Begin PBXShellScriptBuildPhase section */
 		0158E89A1EE9FAF5BE8E0ED8 /* Copy the bed models */ = {
@@ -801,7 +816,7 @@
 		};
 		1BF4A7F21A34A94F2F8BE4A1 /* Release */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = "TEMP_10EB9E36-3DEC-42DC-A405-7CFD7759A198" /* Signing.xcconfig */;
+			baseConfigurationReference = "TEMP_3558478F-6480-46DF-B823-C5374F31496A" /* Signing.xcconfig */;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
 				CLANG_ANALYZER_NONNULL = YES;
@@ -938,7 +953,7 @@
 		};
 		BB3F32C66D957B876F949001 /* Debug */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = "TEMP_10EB9E36-3DEC-42DC-A405-7CFD7759A198" /* Signing.xcconfig */;
+			baseConfigurationReference = "TEMP_3558478F-6480-46DF-B823-C5374F31496A" /* Signing.xcconfig */;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
 				CLANG_ANALYZER_NONNULL = YES;

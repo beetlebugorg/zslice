@@ -99,6 +99,8 @@ targets:
     settings:
       base:
         PRODUCT_NAME: zslice
+        # The icon (Sources/ZSlice/Assets.xcassets; make-icon.sh).
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         PRODUCT_MODULE_NAME: ZSlice
         PRODUCT_BUNDLE_IDENTIFIER: org.beetlebug.zslice
         INFOPLIST_FILE: Info.plist
