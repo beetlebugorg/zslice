@@ -192,7 +192,10 @@ final class Discovery {
             let label = e["label"] as? String ?? ""
             let name = e["name"] as? String ?? label
             p.name = label.isEmpty || label == name ? "\(f.name): \(name)" : "\(f.name): \(label)"
-            p.url = f.url + (e["url"] as? String ?? "")
+            // The path of each printer goes on the root of the deck: a deck
+            // found at the address of one of its printers gave the first
+            // printer (path "") that address (bug #24).
+            p.url = PrinterLink.deckSplit(f.url).root + (e["url"] as? String ?? "")
             p.color = e["color"] as? String ?? ""
             return p
         }

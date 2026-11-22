@@ -69,6 +69,8 @@ final class FarmMonitor {
     func start() {
         guard loop == nil else { return }
         loop = Task { @MainActor [weak self] in
+            // Once at launch: the addresses of the printers of a deck.
+            await PrinterLink.repairDeckURLs()
             while !Task.isCancelled {
                 guard let self else { return }
                 await refresh()
