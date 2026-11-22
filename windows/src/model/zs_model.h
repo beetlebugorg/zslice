@@ -127,6 +127,7 @@ namespace zs
         zs_view *bed_view_ = nullptr;
         ptrdiff_t bed_shown_ = -2;
         void MarkSliceStart();
+        void DropGoneDraft();
 
         bool slice_pending_ = false;
         // The plate whose next slices are drafts, or null.

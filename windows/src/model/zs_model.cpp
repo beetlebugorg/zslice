@@ -108,8 +108,20 @@ namespace zs
 
     // On the thread of each slice: the simulated print and the check of the
     // active plate, and the scene of the view of each plate.
+    // A plate that went takes its draft with it.
+    void Model::DropGoneDraft()
+    {
+        if (draft_app_ == nullptr)
+            return;
+        for (size_t i = 0; i < zs_set_count(set_); i++)
+            if (zs_set_app(set_, i) == draft_app_)
+                return;
+        draft_app_ = nullptr;
+    }
+
     void Model::SyncActive()
     {
+        DropGoneDraft();
         zs_app *app = Active();
         zs_app_set_auto_simulate(app, 1);
         zs_app_set_auto_checks(app, 1);
@@ -446,6 +458,7 @@ namespace zs
     // A plate with no slice yet slices exact at once.
     void Model::LiveChange()
     {
+        DropGoneDraft();
         zs_app *app = Active();
         if (draft_app_ != nullptr && draft_app_ != app)
             Settle();
@@ -467,6 +480,7 @@ namespace zs
 
     bool Model::SettleDue()
     {
+        DropGoneDraft();
         if (draft_app_ != nullptr && zs_app_state(draft_app_) == ZS_STATE_SLICING)
             return false;
         Settle();
