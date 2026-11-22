@@ -2344,6 +2344,43 @@ export fn zs_app_part_get(a: ?*App, i: usize, out: ?*Part) c_int {
     return ok;
 }
 
+/// How part i fits the printer of its plate (see engine.fitOf): the cause
+/// (0 fits, 1 too high, 2 too wide in X, 3 too deep in Y), its size, and
+/// the limits of the printer (mm).
+pub const PartFit = extern struct { cause: c_int, size: [3]f64, limit: [3]f64 };
+
+export fn zs_app_part_fit(a: ?*const App, i: usize, out: ?*PartFit) c_int {
+    const app = a orelse return @intFromEnum(Status.invalid_argument);
+    const o = out orelse return @intFromEnum(Status.invalid_argument);
+    if (i >= app.plate.count()) return @intFromEnum(Status.out_of_range);
+    const p = &app.plate.parts.items[i];
+    const f = zs.engine.fitOf(.{ 0, 0, 0 }, .{ 2 * p.half[0], 2 * p.half[1], p.height }, app.settings);
+    o.* = .{ .cause = @intFromEnum(f.cause), .size = f.size, .limit = f.limit };
+    return ok;
+}
+
+/// The words of zs_app_part_fit for a person, or "" if the part fits.
+/// The same buffer rules as zs_app_setting_get.
+export fn zs_app_part_fit_text(a: ?*const App, i: usize, buf: ?[*]u8, cap: usize, out_len: ?*usize) c_int {
+    const app = a orelse return @intFromEnum(Status.invalid_argument);
+    if (i >= app.plate.count()) return @intFromEnum(Status.out_of_range);
+    const p = &app.plate.parts.items[i];
+    const f = zs.engine.fitOf(.{ 0, 0, 0 }, .{ 2 * p.half[0], 2 * p.half[1], p.height }, app.settings);
+    var aw: Writer.Allocating = .init(gpa);
+    defer aw.deinit();
+    zs.engine.fitText(f, &aw.writer) catch return @intFromEnum(Status.out_of_memory);
+    const text = aw.written();
+    if (out_len) |l| l.* = text.len;
+    if (buf) |b| {
+        if (cap > 0) {
+            const k = @min(text.len, cap - 1);
+            @memcpy(b[0..k], text[0..k]);
+            b[k] = 0;
+        }
+    }
+    return ok;
+}
+
 /// The mesh of part i at its place on the bed (mm): `nv` vertices (x, y,
 /// z) and `nf` triangles, in the order of the paint of the part. Valid
 /// until the next call or until the app goes.

@@ -116,6 +116,53 @@ pub fn fitsBed(min: [3]f64, max: [3]f64, s: Settings) bool {
     return (max[0] - min[0]) * k <= s.machine.bed_size_x + eps and (max[1] - min[1]) * k <= s.machine.bed_size_y + eps;
 }
 
+/// Why a part does not fit the printer, the first cause first: too high,
+/// then too wide in X, then too deep in Y.
+pub const FitCause = enum(c_int) { fits = 0, too_high = 1, too_wide_x = 2, too_deep_y = 3 };
+
+/// How a part with these bounds fits the printer: the cause, the size of
+/// the part (mm, with the shrinkage of the filament), and the limits of
+/// the printer (the bed in X and Y, the highest z).
+pub const Fit = struct { cause: FitCause, size: [3]f64, limit: [3]f64 };
+
+pub fn fitOf(min: [3]f64, max: [3]f64, s: Settings) Fit {
+    const f = s.filament;
+    const m = s.machine;
+    const size = [3]f64{ (max[0] - min[0]) * f.shrinkage_xy, (max[1] - min[1]) * f.shrinkage_xy, (max[2] - min[2]) * f.shrinkage_z };
+    const limit = [3]f64{ m.bed_size_x, m.bed_size_y, m.max_height };
+    const eps = 1e-6;
+    const cause: FitCause = if (size[2] > limit[2] + eps) .too_high else if (size[0] > limit[0] + eps) .too_wide_x else if (size[1] > limit[1] + eps) .too_deep_y else .fits;
+    return .{ .cause = cause, .size = size, .limit = limit };
+}
+
+/// The words of a fit for a person: "130 mm high; the printer reaches
+/// 80 mm.", and what to do. Empty if the part fits.
+pub fn fitText(fit: Fit, w: *std.Io.Writer) std.Io.Writer.Error!void {
+    switch (fit.cause) {
+        .fits => {},
+        .too_high => try w.print("The part is {d:.0} mm high, and the printer reaches {d:.0} mm. Lay it on a side, scale it down, or cut it (Cut on the part card).", .{ fit.size[2], fit.limit[2] }),
+        .too_wide_x => try w.print("The part is {d:.0} mm wide in X, and the bed is {d:.0} mm. Turn it on the bed, scale it down, or cut it (Cut on the part card).", .{ fit.size[0], fit.limit[0] }),
+        .too_deep_y => try w.print("The part is {d:.0} mm deep in Y, and the bed is {d:.0} mm. Turn it on the bed, scale it down, or cut it (Cut on the part card).", .{ fit.size[1], fit.limit[1] }),
+    }
+}
+
+test "fit: the cause and the sizes of a part that does not fit" {
+    var s: Settings = .{};
+    s.machine.bed_size_x = 200;
+    s.machine.bed_size_y = 180;
+    s.machine.max_height = 80;
+    try std.testing.expectEqual(FitCause.fits, fitOf(.{ 0, 0, 0 }, .{ 200, 180, 80 }, s).cause);
+    try std.testing.expectEqual(FitCause.too_high, fitOf(.{ 0, 0, 0 }, .{ 470, 416, 96 }, s).cause);
+    try std.testing.expectEqual(FitCause.too_wide_x, fitOf(.{ 0, 0, 0 }, .{ 201, 10, 10 }, s).cause);
+    const f = fitOf(.{ 0, 0, 0 }, .{ 10, 181, 10 }, s);
+    try std.testing.expectEqual(FitCause.too_deep_y, f.cause);
+    try std.testing.expectEqual(@as(f64, 181), f.size[1]);
+    var aw: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer aw.deinit();
+    try fitText(fitOf(.{ 0, 0, 0 }, .{ 10, 10, 130 }, s), &aw.writer);
+    try std.testing.expect(std.mem.startsWith(u8, aw.written(), "The part is 130 mm high, and the printer reaches 80 mm."));
+}
+
 pub const Error = error{
     Canceled,
     InvalidSettings,

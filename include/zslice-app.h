@@ -969,6 +969,21 @@ typedef struct zs_part {
     double scale_x, scale_y, scale_z; /* along the axes of the file, 1 = 100 % */
 } zs_part;
 
+/* How part i fits the printer of its plate: cause 0 fits, 1 too high,
+ * 2 too wide in X, 3 too deep in Y (the first cause in this order); its
+ * size (x, y, z, mm, with the shrinkage of the filament); and the limits
+ * of the printer (the bed in x and y, the highest z). */
+typedef struct zs_part_fit {
+    int cause;
+    double size[3];
+    double limit[3];
+} zs_part_fit;
+int zs_app_part_fit(const zs_app *app, size_t i, zs_part_fit *out);
+/* The words of zs_app_part_fit for a person ("The part is 130 mm high,
+ * and the printer reaches 80 mm. ..."), or "" if the part fits. The same
+ * buffer rules as zs_app_setting_get. */
+int zs_app_part_fit_text(const zs_app *app, size_t i, char *buf, size_t cap, size_t *out_len);
+
 /* A copy of part i (its mesh, pose, scale, settings, and modifier
  * volumes) at a free place on the bed. Returns its index, or a negative
  * status. */
