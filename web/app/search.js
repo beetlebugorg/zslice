@@ -339,12 +339,12 @@ export class SearchOverlay {
     }
   }
 
-  // The results of the docked search: under the field, at least 560
+  // The results of the docked search: under the field, at least 640
   // pixels wide, inside the window.
   placeDocked() {
     if (!this.root || this.undocked) return;
     const r = this.field.getBoundingClientRect();
-    const w = Math.min(Math.max(r.width, 560), window.innerWidth - 16);
+    const w = Math.min(Math.max(r.width, 640), window.innerWidth - 16);
     const x = Math.max(8, Math.min(window.innerWidth - w - 8, r.left + r.width / 2 - w / 2));
     this.box.style.width = `${w}px`;
     this.box.style.left = `${x}px`;
