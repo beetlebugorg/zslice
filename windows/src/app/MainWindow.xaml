@@ -293,6 +293,8 @@
                                             </StackPanel>
                                         </Border>
                                         <StackPanel x:Name="SummaryRefine" Spacing="4" Visibility="Collapsed" />
+                                        <TextBlock x:Name="SummaryProject" FontSize="12" Margin="0,2,0,0" TextWrapping="WrapWholeWords"
+                                                   Foreground="{ThemeResource ZsDim}" Visibility="Collapsed" />
                                     </StackPanel>
                                 </ScrollViewer>
                             </Flyout>

@@ -51,6 +51,8 @@ A build with `-p:ZsDevHooks=true` reads `ZSLICE_DO`: steps with `;` between them
 | `src/app/MainWindow.History.cpp` | The hover card of a history step, the list of the steps, the undo of one change, and the line edits. |
 | `src/app/MainWindow.Open.cpp` | A file or a `zslice://` link from outside the app. A link asks before it downloads. |
 | `src/net/zs_open_link` | The download of a link, with the rules of the core (`zs_link_check`, see [Links that open a model](open-links.md)). It resolves the host first, and it closes a connection to a local address before the TLS handshake. |
+| `src/app/MainWindow.Project.cpp` | The printdeck.yml project: its dialog, its plan, the status of its plates, and `project.json` in the state folder. |
+| `src/net/zs_project_source` | The files of a project: a public GitHub repository at one commit, or a folder. |
 | `src/prefs/zs_app_shell` | The file types and the link scheme in HKCU, and the hand-off to the first window through a named pipe. |
 | `src/app/App.xaml` | The color tokens of `web/app/style.css` for light and dark, and the flat button styles. |
 | `src/app/MainWindow.DevHooks.cpp` | The test hooks, in a build with `ZsDevHooks`. |
@@ -77,6 +79,17 @@ A build with `-p:ZsDevHooks=true` reads `ZSLICE_DO`: steps with `;` between them
 - The Support tool keeps a copy of the areas and the trees. It reads them again after a load of the view, an undo, and a switch of the plate. During a drag the copy leads, and the slices wait for the release. A drag of a tree sends its edit at most each 60 ms, and slices at most each 150 ms.
 - One window has each state folder, so that two windows do not overwrite one session. A later start gives its argument to the first window and exits. The first window restores its session before it opens a file.
 - A shipped build writes the file type keys when they differ from its path. A build with test hooks, or a run with `ZSLICE_STATE_DIR`, writes none.
+
+## Projects
+
+- **Network.** `zs_project_source` has its own WinHTTP session, with no key, token, cookie, login, or proxy. Each URL and redirect must be https on port 443 of `github.com`, `api.github.com`, `raw.githubusercontent.com`, or `media.githubusercontent.com` (Git LFS), and the peer must be a public address.
+- **Limits.** A file has at most 256 MB, one load 1 GB, an API answer 64 MB, `printdeck.yml` 4 MB, and a list 200000 files.
+- **Paths.** A read accepts only a path of the list of the source: the blobs of the tree, or the files of a walk of the folder. The walk skips `.git`, links, and junctions.
+- **Plates.** An open loads all plates with `zs_set_project_load`. The dialog matches a plate of the set to a plate of the plan by `zs_plate_info.id`, so a removed or added plate needs no call.
+- **The printer of the user.** While plates of a project are on the view, `PrinterSetup::SaveState` writes no machine profile and no filament of the printer. A model file that replaces the plates ends this mode. A pick of a printer ends it on a set of one plate. With more plates, the active plate gets the machine of the printer and the mode stays, because another plate can still have the machine of the project. The session keeps the mode, so a restart does not write the machine of a project to the printer.
+- **Session.** The session has a tag of the project and the map of its plates. A session with another tag leaves the plates to the user, and the dialog offers **Open** again.
+
+Test hooks of the project are `pjshow`, `pjhide`, `pjfolder`, `pjgithub`, `pjplate`, `pjstatus`, `pjcount`, `pjcheck`, `pjclose`, `pjscroll`, `pjfile`, `pjmenu`, `pjactions`, `pjsum`, and `pjlog`.
 
 ## Printers
 
@@ -126,7 +139,7 @@ pwsh windows/build-tests.ps1 -Platform ARM64
 - **`build-tests.ps1`** compiles the programs in `windows/test` with MSVC, links the core, and runs them.
   - `core_link.c` opens a G-code file by a UTF-8 path with characters outside the ANSI code page.
   - `view_offscreen.c` draws a model with Direct3D 12, reads the frame, and checks its pixels, also after a resize. Set `ZSLICE_WARP=1` to run it on the software rasterizer.
-  - `net_link.cpp` tests the printer connections, the saved printers, and the setup of a plate.
+  - `net_link.cpp` tests the printer connections, the saved printers, the setup of a plate, and the rules of a project source.
 
 To link an ARM64 program, Visual Studio needs the component "MSVC ARM64 build tools" (`Microsoft.VisualStudio.Component.VC.Tools.ARM64`). The core itself compiles without it. An x64 machine builds the ARM64 test programs and does not run them.
 

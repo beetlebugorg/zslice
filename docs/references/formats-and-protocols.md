@@ -71,7 +71,7 @@ kind: format
 source: GitHub
 license: The APIs and the format
 link: https://docs.github.com/rest
-files: web/app/project.js, linux/src/net/project-source.c
+files: web/app/project.js, linux/src/net/project-source.c, windows/src/net/zs_project_source.cpp
 area: network
 summary: Open a printdeck.yml project from a public repository with no login.
 ```
@@ -80,7 +80,7 @@ GitHub REST API, https://docs.github.com/rest (`GET /repos/{owner}/{repo}` for `
 
 **License:** The APIs and the format (facts, no code)
 
-**Used in:** `web/app/project.js`, `linux/src/net/project-source.c`
+**Used in:** `web/app/project.js`, `linux/src/net/project-source.c`, `windows/src/net/zs_project_source.cpp`
 
 **How zslice uses it:** Open a printdeck.yml project from a public repository with no login.
 

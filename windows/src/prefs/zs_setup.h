@@ -43,6 +43,18 @@ namespace zs
         // Writes each group that changed since the last write.
         void SaveState();
 
+        // The plates of a printdeck.yml project have the machine of their
+        // Cura stack. While this is on, SaveState writes no machine profile
+        // and no filament of the printer, so the printer of the user stays.
+        void SetProjectPlates(bool on) { project_ = on; }
+        bool ProjectPlates() const { return project_; }
+        // Ends project mode: the active plate gets the machine settings of
+        // the current printer again.
+        void EndProject();
+        // The active plate gets the machine settings of the current printer,
+        // and the other plates of the project stay.
+        void UsePrinterMachine();
+
         // Makes a saved printer the current printer: saves the settings of
         // the one before, and loads its machine profile and its filament.
         bool UsePrinter(std::string const &id, std::string &message);
@@ -82,6 +94,9 @@ namespace zs
         static std::string ProfileFileName(std::string const &name);
 
     private:
+        // True while other plates can still have the machine of a project.
+        // A pick of a printer then keeps the guard of SaveState.
+        bool KeepProject() const;
         std::string GroupText(int group) const;
         bool ApplyText(int group, std::string const &text, std::string &message);
         // True if the text loaded and has settings that moved to another
@@ -95,5 +110,6 @@ namespace zs
         // The profile in use, and the text right after it loaded.
         std::string profile_[3];
         std::string loaded_[3];
+        bool project_ = false;
     };
 }

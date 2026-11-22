@@ -1025,6 +1025,11 @@ namespace winrt::ZSlice::implementation
         out.push_back({ L"3D view", L"3", L"", [this] { Set2D(false); } });
         out.push_back({ L"Manage printers…", L"Ctrl+,", L"preferences, connections, API keys", [this] { ShowPreferences(); } });
         out.push_back({ L"Compare with Cura…", L"", L"", [this] { ShowCuraCompare(); } });
+        std::wstring project_name = ProjectName();
+        out.push_back({ project_name.empty() ? L"Open a project" : L"The project", L"",
+                        project_name.empty() ? L"printdeck.yml from GitHub or a folder" : project_name, [this] { ShowProjectDialog(); } });
+        if (!project_name.empty())
+            out.push_back({ L"Close the project", L"", project_name + L": its plates stay", [this] { CloseProject(); } });
         out.push_back({ L"History", L"", L"the changes, undo one change", [this] { HistoryFlyout().ShowAt(HistoryButton()); } });
         out.push_back({ L"Keyboard shortcuts", L"?", L"", [this] { ShowShortcuts(); } });
         out.push_back({ L"All settings", L"N", L"the panel of the settings", [this] { ShowSettingsPane(true); } });

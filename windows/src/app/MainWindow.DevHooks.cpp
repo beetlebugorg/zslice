@@ -64,6 +64,10 @@
 //   prefdialog      opens the Keyboard shortcuts dialog
 //   preflist NAME i selects row i of the list with this automation name
 //   prefpopups      writes the theme of each open popup
+// The project, in MainWindow.Project.cpp (plates and parts count from 1):
+//   pjshow, pjhide, pjfolder path, pjgithub text, pjplate n, pjstatus n key,
+//   pjcount n value, pjcheck n on|off, pjclose, pjscroll y, pjfile path,
+//   pjmenu, pjactions, pjsum, pjlog
 // Each step writes the state to the log (ZSLICE_LOG).
 //
 // SPDX-License-Identifier: AGPL-3.0-or-later
@@ -695,7 +699,7 @@ namespace winrt::ZSlice::implementation
             SelectPlate((size_t)number(0));
         }
         else if (!RunPaintStep(verb, words) && !RunLabelStep(verb, words) && !RunFilamentStep(verb, words) &&
-                 !RunPreferencesStep(verb, words) && verb != L"log")
+                 !RunPreferencesStep(verb, words) && !RunProjectStep(verb, words) && verb != L"log")
         {
             zs::Log("dev: a bad step: %s\n", zs::ToUtf8(step).c_str());
         }

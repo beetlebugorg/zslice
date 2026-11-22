@@ -12,6 +12,10 @@
 namespace zs
 {
     class Layer2D;
+    namespace project
+    {
+        class Source;
+    }
 }
 
 namespace winrt::ZSlice::implementation
@@ -253,6 +257,43 @@ namespace winrt::ZSlice::implementation
         Microsoft::UI::Dispatching::DispatcherQueueTimer toast_timer{ nullptr };
         bool InViewFocus(Windows::Foundation::IInspectable const &focused);
         void StepPart(int direction);
+
+        // A printdeck.yml project (MainWindow.Project.cpp). Its state is in
+        // that file.
+        struct ProjectUi;
+        std::shared_ptr<ProjectUi> project_ui;
+        void WireProject();
+        void ProjectStart();
+        void CloseProjectUi();
+        void AddProjectMenuItems();
+        void RefreshProjectMenu();
+        void ShowProjectDialog();
+        void HideProjectDialog();
+        void CloseProject();
+        std::wstring ProjectName();
+        void ProjectPlatesChanged();
+        std::wstring ProjectPrintStatus(size_t plate);
+        void ProjectFileOpening(bool project_file, bool new_plate);
+        std::string ProjectSessionText();
+        void ProjectSessionRead(std::string const &text);
+        void ProjectRender();
+        void ProjectRenderSoon();
+        void ProjectKeepFocus();
+        void ProjectReplan();
+        void ProjectSave();
+        void ProjectFail(std::wstring const &text);
+        winrt::fire_and_forget ProjectPickFolder();
+        void ProjectOpenFolder(std::wstring const &folder);
+        void ProjectOpenGithub(std::wstring const &text);
+        void ProjectOpened(uint64_t epoch, std::shared_ptr<zs::project::Source> const &source, std::string const &yml, std::string const &error);
+        void ProjectOpenPlate(size_t index);
+        void ProjectPlateFiles(uint64_t epoch, size_t index, std::shared_ptr<zs_files> const &files, std::string const &error);
+        void ProjectSetCount(size_t part, int value);
+        void ProjectSetStatus(std::string const &key, std::string const &status);
+        void RefreshProjectTotals();
+#ifdef ZS_DEV_HOOKS
+        bool RunProjectStep(std::wstring const &verb, std::vector<std::wstring> const &words);
+#endif
 
         // The chrome that all apps share (MainWindow.Chrome.cpp).
         void WireChrome();

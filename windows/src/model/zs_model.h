@@ -81,6 +81,11 @@ namespace zs
         void Hold(bool on);
         // After zs_session_read: the plates are new, and each slices again.
         void AfterSessionRead();
+        // All plates of a printdeck.yml in place of the plates, and their
+        // slices. On a failure the plates stay, and `message` says why.
+        int LoadProject(zs_files const *files, std::string const &yml, std::string const &counts, size_t active, std::string &message);
+        // Keeps only the active plate, before a file goes on it.
+        bool KeepActivePlate();
 
         // The undo list of the active plate (see zs_app_history_commit).
         // The undo calls return the bits of enum zs_history_restored.
