@@ -20,7 +20,13 @@
 //! zslice writes one object for each part (its mesh as it was loaded) and
 //! one build item with the turn and the place of the part, and its changes
 //! for the part and for some layers in Metadata/zslice_overrides.txt (one
-//! line each: z_min, z_max, name, value, with tabs between them).
+//! line each: z_min, z_max, name, value, with tabs between them). The
+//! app reads a part with a build item that is a turn about z and a move
+//! in the frame of its object (ReadOptions.keep_places). The part then
+//! has the same vertices as before the save, to the bit. In the frame of
+//! the bed, the f32 vertices round, and the slice can change: for a part
+//! with a boss of 0.15 mm under its bottom side, the first layer had the
+//! whole side before a reload and only the boss after it.
 //!
 //! The paint of a triangle (see paint.zig) is its attribute
 //! slic3rpe:mmu_segmentation (PrusaSlicer) or paint_color (Bambu Studio).
@@ -79,10 +85,53 @@ pub fn cloneMeta(gpa: Allocator, meta: []const Meta) Allocator.Error![]Meta {
     return out;
 }
 
+/// The place of an object in the build when its transform is a turn
+/// about z and a move: the turn (degrees) and the move (mm).
+pub const Place = struct {
+    rot: f64,
+    move: [3]f64,
+
+    /// The transform of the place.
+    fn transform(pl: Place) Transform {
+        const a = std.math.degreesToRadians(pl.rot);
+        const c = @cos(a);
+        const s = @sin(a);
+        return .{ c, s, 0, -s, c, 0, 0, 0, 1, pl.move[0], pl.move[1], pl.move[2] };
+    }
+};
+
+/// The place of transform t, or null if t is not a turn about z and a
+/// move. The turn comes from the matrix as it is in the file, so the
+/// turn of a part that zslice wrote comes back to the last bit or so.
+fn placeOf(t: Transform) ?Place {
+    if (t[2] != 0 or t[5] != 0 or t[6] != 0 or t[7] != 0 or t[8] != 1) return null;
+    if (t[0] != t[4] or t[1] != -t[3]) return null;
+    if (@abs(t[0] * t[0] + t[1] * t[1] - 1) > 1e-9) return null;
+    for (t[9..12]) |x| if (!(@abs(x) <= mesh_mod.max_coordinate)) return null;
+    return .{ .rot = std.math.radiansToDegrees(std.math.atan2(t[1], t[0])), .move = .{ t[9], t[10], t[11] } };
+}
+
+/// Moves label l by transform t.
+fn moveLabel(l: *label_mod.Label, t: Transform) void {
+    const m: plate_mod.M3 = .{ .{ t[0], t[3], t[6] }, .{ t[1], t[4], t[7] }, .{ t[2], t[5], t[8] } };
+    const placed = plate_mod.mapLabel(l.*, m, .{ t[9], t[10], t[11] });
+    l.origin = placed.origin;
+    l.normal = placed.normal;
+    l.right = placed.right;
+    l.stretch = placed.stretch;
+}
+
 pub const LoadedPart = struct {
     name: []u8,
-    /// The mesh at its place in the build (the item transform applied).
+    /// The mesh at its place in the build (the item transform applied),
+    /// or, with `place`, the mesh of the object as it is in the file.
     mesh: Mesh,
+    /// With ReadOptions.keep_places: the place of the object in the
+    /// build, when its transform is a turn about z and a move. The mesh
+    /// and the labels are then in the frame of the object, so a part
+    /// comes back with the same vertices, to the bit, as zslice wrote
+    /// them (see Plate.addPlaced). Null: the mesh is in the build.
+    place: ?Place = null,
     /// The metadata of the object, in file order. Empty if it has none.
     meta: []Meta = &.{},
     /// The paint of the triangles of `mesh` (see paint.zig), or empty.
@@ -101,6 +150,33 @@ pub const LoadedPart = struct {
         freeMeta(gpa, p.meta);
         p.meta = &.{};
         p.paint.deinit(gpa);
+    }
+
+    /// Puts the mesh and the labels in the build (applies `place`).
+    pub fn toBuild(p: *LoadedPart) void {
+        const pl = p.place orelse return;
+        const t = pl.transform();
+        for (p.mesh.vertices.items) |*v| {
+            const q = apply(t, .{ v.x, v.y, v.z });
+            v.* = .{ .x = @floatCast(q[0]), .y = @floatCast(q[1]), .z = @floatCast(q[2]) };
+        }
+        for (p.labels) |*l| moveLabel(l, t);
+        p.place = null;
+    }
+
+    /// The box of the mesh in the build.
+    pub fn buildBounds(p: *const LoadedPart) mesh_mod.Bounds3 {
+        const pl = p.place orelse return p.mesh.bounds();
+        const t = pl.transform();
+        var b: mesh_mod.Bounds3 = .{ .min = @splat(std.math.inf(f64)), .max = @splat(-std.math.inf(f64)) };
+        for (p.mesh.vertices.items) |v| {
+            const q = apply(t, .{ v.x, v.y, v.z });
+            for (0..3) |k| {
+                b.min[k] = @min(b.min[k], q[k]);
+                b.max[k] = @max(b.max[k], q[k]);
+            }
+        }
+        return b;
     }
 
     /// A paint of one filament for all triangles becomes the filament of
@@ -530,7 +606,17 @@ fn splitObject(files: *Files, gpa: Allocator, parts: *std.ArrayList(LoadedPart),
 
 /// Reads the parts of a 3MF file: one for each build item (or for each
 /// component of an item, see the file comment), in bed coordinates (mm).
+pub const ReadOptions = struct {
+    /// Keep the mesh of each object in its own frame when its build item
+    /// is a turn about z and a move (see LoadedPart.place).
+    keep_places: bool = false,
+};
+
 pub fn read(gpa: Allocator, bytes: []const u8) Error!Loaded {
+    return readWith(gpa, bytes, .{});
+}
+
+pub fn readWith(gpa: Allocator, bytes: []const u8, opts: ReadOptions) Error!Loaded {
     const entries = zipfile.readAll(gpa, bytes) catch |e| return switch (e) {
         error.OutOfMemory => error.OutOfMemory,
         error.Unsupported => error.Unsupported,
@@ -577,6 +663,9 @@ pub fn read(gpa: Allocator, bytes: []const u8) Error!Loaded {
         var paint: paint_mod.Paint = .{};
         errdefer paint.deinit(gpa);
         const fil = fils.objects.get(item.id) orelse 0;
+        // The mesh in the frame of the object, and its place.
+        const place = if (opts.keep_places) placeOf(t) else null;
+        if (place != null) t = identity;
         try addPainted(&files, gpa, &m, &paint, fil, item.path, item.id, t, 0);
         if (m.faces.items.len == 0) {
             m.deinit(gpa);
@@ -600,7 +689,7 @@ pub fn read(gpa: Allocator, bytes: []const u8) Error!Loaded {
             try std.fmt.allocPrint(gpa, "part {d}", .{k + 1});
         errdefer gpa.free(name);
         const meta = try ownMeta(gpa, &.{}, if (obj) |o| o.meta.items else &.{});
-        try parts.append(gpa, .{ .name = name, .mesh = m, .meta = meta, .paint = paint });
+        try parts.append(gpa, .{ .name = name, .mesh = m, .meta = meta, .paint = paint, .place = place });
         const lp = &parts.items[parts.items.len - 1];
         lp.settle(gpa);
         if (std.fmt.parseInt(u32, item.id, 10)) |oid| {
@@ -689,12 +778,7 @@ const Labels = struct {
                     for (out.items) |o| m = @max(m, o.id);
                     l.id = m + 1;
                 }
-                const m: plate_mod.M3 = .{ .{ t[0], t[3], t[6] }, .{ t[1], t[4], t[7] }, .{ t[2], t[5], t[8] } };
-                const placed = plate_mod.mapLabel(l, m, .{ t[9], t[10], t[11] });
-                l.origin = placed.origin;
-                l.normal = placed.normal;
-                l.right = placed.right;
-                l.stretch = placed.stretch;
+                moveLabel(&l, t);
                 if (!std.math.isFinite(l.origin[0] + l.origin[1] + l.origin[2])) {
                     l.deinit(gpa);
                     self.dropped += 1;
@@ -860,7 +944,7 @@ pub fn joinOverlapping(gpa: Allocator, loaded: *Loaded) Allocator.Error!void {
     for (group, 0..) |*g, i| g.* = i;
     const boxes = try gpa.alloc(mesh_mod.Bounds3, n);
     defer gpa.free(boxes);
-    for (loaded.parts, 0..) |p, i| boxes[i] = p.mesh.bounds();
+    for (loaded.parts, 0..) |*p, i| boxes[i] = p.buildBounds();
     const find = struct {
         fn f(g: []usize, i: usize) usize {
             var r = i;
@@ -883,6 +967,14 @@ pub fn joinOverlapping(gpa: Allocator, loaded: *Loaded) Allocator.Error!void {
     };
     var out: std.ArrayList(LoadedPart) = .empty;
     errdefer out.deinit(gpa);
+    // The parts of a group go into the build, in one frame.
+    for (0..n) |i| {
+        const r = find(group, i);
+        if (r != i) {
+            loaded.parts[i].toBuild();
+            loaded.parts[r].toBuild();
+        }
+    }
     for (0..n) |i| {
         if (find(group, i) != i) continue;
         var part = loaded.parts[i];
@@ -1168,7 +1260,7 @@ const Reader = struct {
 };
 
 /// Reads a snapshot to the parts of a 3MF file, each mesh at its place.
-pub fn readSnapshot(gpa: Allocator, bytes: []const u8) Error!Loaded {
+pub fn readSnapshot(gpa: Allocator, bytes: []const u8, opts: ReadOptions) Error!Loaded {
     const entries = zipfile.readAll(gpa, bytes) catch |e| return switch (e) {
         error.OutOfMemory => error.OutOfMemory,
         else => error.Corrupt,
@@ -1202,6 +1294,9 @@ pub fn readSnapshot(gpa: Allocator, bytes: []const u8) Error!Loaded {
         var t: Transform = undefined;
         @memcpy(std.mem.sliceAsBytes(&t), r.b[r.o..][0..96]);
         r.o += 96;
+        // The mesh in the frame of the object, and its place.
+        part.place = if (opts.keep_places) placeOf(t) else null;
+        if (part.place != null) t = identity;
         const k = try r.u32_();
         var name_buf: [32]u8 = undefined;
         const mname = std.fmt.bufPrint(&name_buf, "mesh-{d}.bin", .{k}) catch return error.Corrupt;
@@ -1409,13 +1504,13 @@ test "3mf: a snapshot with lengths past its end is corrupt" {
     var out: std.Io.Writer.Allocating = .init(gpa);
     defer out.deinit();
     try zipfile.write(gpa, &out.writer, &entries);
-    try testing.expectError(error.Corrupt, readSnapshot(gpa, out.written()));
+    try testing.expectError(error.Corrupt, readSnapshot(gpa, out.written(), .{}));
     // A name length of 2^32 - 1.
     std.mem.writeInt(u32, obj[0..4], 0xffff_ffff, .little);
     var out2: std.Io.Writer.Allocating = .init(gpa);
     defer out2.deinit();
     try zipfile.write(gpa, &out2.writer, &entries);
-    try testing.expectError(error.Corrupt, readSnapshot(gpa, out2.written()));
+    try testing.expectError(error.Corrupt, readSnapshot(gpa, out2.written(), .{}));
 }
 
 test "3mf: a Bambu Studio project with paint and parts of two filaments" {
@@ -1539,7 +1634,7 @@ test "3mf: a snapshot of the plate comes back with the same meshes at the same p
     defer out.deinit();
     try writeSnapshot(gpa, &out.writer, &plate, "edit\t1");
     try testing.expect(isSnapshot(out.written()));
-    var snap = try readSnapshot(gpa, out.written());
+    var snap = try readSnapshot(gpa, out.written(), .{});
     defer snap.deinit(gpa);
     // The same as a 3MF file of the plate gives.
     var full: std.Io.Writer.Allocating = .init(gpa);

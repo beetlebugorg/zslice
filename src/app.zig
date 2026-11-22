@@ -447,11 +447,14 @@ pub const App = struct {
     pub const LoadError = zs.mesh.Error || zs.threemf.Error;
 
     /// Loads a model file (STL or 3MF). It replaces all parts of the plate
-    /// and stops a slice that runs.
+    /// and stops a slice that runs. A part of an STL file that cannot
+    /// stand falls over (settleFrom). The parts of a 3MF file keep the
+    /// orientation of the file: a project, a session, or a plate of
+    /// another slicer comes back as it was saved.
     pub fn loadStl(app: *App, name: []const u8, bytes: []const u8) LoadError!void {
         // Read the file first: a bad file keeps the old plate.
         if (isZip(bytes)) {
-            var loaded = try zs.threemf.read(app.gpa, bytes);
+            var loaded = try zs.threemf.readWith(app.gpa, bytes, .{ .keep_places = true });
             defer loaded.deinit(app.gpa);
             app.dropPlate();
             try app.addLoaded(&loaded);
@@ -459,8 +462,8 @@ pub const App = struct {
             const m = try zs.Mesh.fromStl(app.gpa, bytes);
             app.dropPlate();
             _ = try app.addMesh(name, m);
+            try app.settleFrom(0);
         }
-        try app.settleFrom(0);
         // The old result is gone: there is a model, and no slice of it.
         app.state.store(.ready, .release);
     }
@@ -486,11 +489,11 @@ pub const App = struct {
     pub fn addStl(app: *App, name: []const u8, bytes: []const u8) LoadError!usize {
         app.stopWorker();
         if (isZip(bytes)) {
-            var loaded = try zs.threemf.read(app.gpa, bytes);
+            var loaded = try zs.threemf.readWith(app.gpa, bytes, .{ .keep_places = true });
             defer loaded.deinit(app.gpa);
             const first = app.plate.count();
+            // The parts keep the orientation of the file (see loadStl).
             try app.addLoaded(&loaded);
-            try app.settleFrom(first);
             return first;
         }
         const m = try zs.Mesh.fromStl(app.gpa, bytes);
@@ -532,7 +535,12 @@ pub const App = struct {
             p.mesh = .empty; // The plate owns the mesh now.
             // A gap of -inf: each place fits (see Plate.fits).
             const gap = if (app.keep_places) -std.math.inf(f64) else app.partGap();
-            const i = try app.plate.add(app.gpa, p.name, m, app.bedSize(), gap, true);
+            // A part of zslice comes back with the mesh of the file and its
+            // turn: the same vertices, to the bit, as before the save.
+            const i = if (p.place) |pl|
+                try app.plate.addPlaced(app.gpa, p.name, m, pl, app.bedSize(), gap)
+            else
+                try app.plate.add(app.gpa, p.name, m, app.bedSize(), gap, true);
             idx.* = i;
             // The paint of the file, and the filament of the part.
             app.plate.parts.items[i].paint = p.paint;
@@ -558,21 +566,32 @@ pub const App = struct {
         }
         for (loaded.parts) |*p| {
             if (p.mesh.faces.items.len == 0) continue;
-            const vb = p.mesh.bounds();
+            const vb = p.buildBounds();
             var best: ?usize = null;
             var best_v: f64 = -1;
+            var best_place: ?zs.threemf.Place = null;
             for (loaded.parts, index) |*q, idx| {
                 const i = idx orelse continue;
-                const qb = app.plate.parts.items[i].mesh.bounds();
-                _ = q;
+                // The box of the part on the bed.
+                const part = &app.plate.parts.items[i];
+                const fp = part.footprint();
+                const qb: zs.mesh.Bounds3 = .{ .min = .{ fp[0], fp[1], 0 }, .max = .{ fp[2], fp[3], part.height } };
                 var vol: f64 = 1;
                 for (0..3) |k| vol *= @max(0, @min(vb.max[k], qb.max[k]) - @max(vb.min[k], qb.min[k]));
                 if (vol > best_v) {
                     best_v = vol;
                     best = i;
+                    best_place = q.place;
                 }
             }
             const host = best orelse continue;
+            // The volume goes into the frame of the mesh of its part: as it
+            // is when it has the place of its part, else from the bed.
+            const same = if (p.place) |a| if (best_place) |b| a.rot == b.rot and std.mem.eql(f64, &a.move, &b.move) else false else best_place == null;
+            if (!same) {
+                p.toBuild();
+                if (best_place != null) app.plate.parts.items[host].fromBed(&p.mesh);
+            }
             const m = p.mesh;
             p.mesh = .empty;
             const meta = p.meta;
@@ -657,7 +676,7 @@ pub const App = struct {
     /// Puts the plate of a snapshot of the history back, as it was: the
     /// parts stay as they are (no settle), with their overrides.
     pub fn loadSnapshot(app: *App, bytes: []const u8) LoadError!void {
-        var loaded = try zs.threemf.readSnapshot(app.gpa, bytes);
+        var loaded = try zs.threemf.readSnapshot(app.gpa, bytes, .{ .keep_places = true });
         defer loaded.deinit(app.gpa);
         app.dropPlate();
         // The filaments of the step come back with its lines.

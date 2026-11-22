@@ -219,6 +219,21 @@ pub const Part = struct {
         return mapLabel(p.meshLabel(l), m, .{ t[9], t[10], t[11] });
     }
 
+    /// Moves a mesh on the bed into the frame of the part (`mesh`): the
+    /// inverse of `placed`.
+    pub fn fromBed(p: *const Part, m: *Mesh) void {
+        const t = p.transform();
+        for (m.vertices.items) |*v| {
+            const dx = v.x - t[9];
+            const dy = v.y - t[10];
+            v.* = .{
+                .x = @floatCast(dx * t[0] + dy * t[1]),
+                .y = @floatCast(dx * t[3] + dy * t[4]),
+                .z = @floatCast(v.z - t[11]),
+            };
+        }
+    }
+
     /// A mesh of the frame of the part (`mesh`) on the bed, at the place
     /// of the part: the transform of `combined`.
     fn placed(p: *const Part, gpa: Allocator, m: *const Mesh, out: *Mesh) Allocator.Error!void {
@@ -371,6 +386,39 @@ pub const Plate = struct {
         part.x = (b.min[0] + b.max[0]) / 2;
         part.y = (b.min[1] + b.max[1]) / 2;
         if (!(keep_file and self.fits(&part, bed, gap, null))) {
+            const spot = self.freeSpot(&part, bed, gap);
+            part.x = spot[0];
+            part.y = spot[1];
+        }
+        self.parts.append(gpa, part) catch |e| {
+            part.mesh.deinit(gpa);
+            gpa.free(part.name);
+            return e;
+        };
+        return self.parts.items.len - 1;
+    }
+
+    /// Adds a part whose mesh is in the frame of its file object, with
+    /// the place of its build item (a 3MF file, threemf.Place): the part
+    /// gets the turn and the place that give the same transform. It keeps
+    /// the place if it fits, else it goes to a free place. Returns its
+    /// index.
+    pub fn addPlaced(self: *Plate, gpa: Allocator, name: []const u8, mesh: Mesh, at: threemf.Place, bed: [2]f64, gap: f64) Allocator.Error!usize {
+        var m = mesh;
+        const n = gpa.dupeZ(u8, name) catch |e| {
+            m.deinit(gpa);
+            return e;
+        };
+        var part: Part = .{ .name = n, .mesh = m, .x = 0, .y = 0, .rot = @mod(at.rot, 360) };
+        part.measure();
+        // The inverse of `transform` for x and y.
+        const c = part.turnCenter();
+        const a = std.math.degreesToRadians(part.rot);
+        const ca = @cos(a);
+        const sa = @sin(a);
+        part.x = at.move[0] + part.shift[0] + ca * c[0] - sa * c[1];
+        part.y = at.move[1] + part.shift[1] + sa * c[0] + ca * c[1];
+        if (!self.fits(&part, bed, gap, null)) {
             const spot = self.freeSpot(&part, bed, gap);
             part.x = spot[0];
             part.y = spot[1];

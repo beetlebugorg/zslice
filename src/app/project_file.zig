@@ -236,6 +236,11 @@ pub fn loadPlate(app: *App, p: PlateOut, diag: *Diagnostic) Allocator.Error!void
             },
         };
     }
+    // The parts stay at their saved places, also near the edge of the
+    // bed or near another part.
+    const keep = app.keep_places;
+    app.keep_places = true;
+    defer app.keep_places = keep;
     if (p.model.len > 0) app.loadStl(p.name, p.model) catch |e| switch (e) {
         error.OutOfMemory => return error.OutOfMemory,
         else => diag.message = "The parts of a plate did not load.",

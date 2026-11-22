@@ -1609,3 +1609,199 @@ test "plate set: a session snapshot gives the bytes of the set when it was taken
     defer gpa.free(got);
     try testing.expectEqualSlices(u8, want, got);
 }
+
+/// The turn of the test part in its file: 37 degrees about X, then 23
+/// degrees about Y. No side of the part is on an axis.
+fn fileTurn(p: [3]f64) [3]f64 {
+    const ax = std.math.degreesToRadians(37.0);
+    const ay = std.math.degreesToRadians(23.0);
+    const y1 = @cos(ax) * p[1] - @sin(ax) * p[2];
+    const z1 = @sin(ax) * p[1] + @cos(ax) * p[2];
+    return .{ @cos(ay) * p[0] + @sin(ay) * z1, y1, -@sin(ay) * p[0] + @cos(ay) * z1 };
+}
+
+/// A block of 40 x 20 x 20 mm with a bump of 0.6 x 0.6 x 0.15 mm under one
+/// corner, turned by fileTurn, as an STL file. On its bottom, the part
+/// stands on the bump only, as the shoulder parts of the user do: the
+/// physics tips it by a fraction of a degree, until an edge of the block
+/// touches the bed.
+fn bumpPlateStl(gpa: Allocator) ![]u8 {
+    var b: zs.mesh.Builder = .init(gpa);
+    try zs.mesh.shapes.addBox(&b, 0, 0, 0.15, 40, 20, 20.15);
+    try zs.mesh.shapes.addBox(&b, 2, 2, 0, 2.6, 2.6, 0.15);
+    var mesh = try b.finish();
+    defer mesh.deinit(gpa);
+    for (mesh.vertices.items) |*v| {
+        const q = fileTurn(.{ v.x, v.y, v.z });
+        v.* = .{ .x = @floatCast(q[0]), .y = @floatCast(q[1]), .z = @floatCast(q[2]) };
+    }
+    var stl: std.Io.Writer.Allocating = .init(gpa);
+    errdefer stl.deinit();
+    try mesh.writeStl(&stl.writer);
+    return stl.toOwnedSlice();
+}
+
+/// "Put this side on the bed" at the middle of a triangle of part i with
+/// this area (mm²). If `dir` is not zero, the outward normal of the
+/// triangle must be dir.
+fn putDownOn(app: *App, i: usize, area: f64, dir: [3]f64) !void {
+    const p = &app.plate.parts.items[i];
+    const vs = p.mesh.vertices.items;
+    for (p.mesh.faces.items) |f| {
+        const a = vs[f[0]];
+        const b = vs[f[1]];
+        const c = vs[f[2]];
+        const u = [3]f64{ b.x - a.x, b.y - a.y, b.z - a.z };
+        const w = [3]f64{ c.x - a.x, c.y - a.y, c.z - a.z };
+        const n = [3]f64{ u[1] * w[2] - u[2] * w[1], u[2] * w[0] - u[0] * w[2], u[0] * w[1] - u[1] * w[0] };
+        const l = @sqrt(n[0] * n[0] + n[1] * n[1] + n[2] * n[2]);
+        if (@abs(l / 2 - area) > 0.05 * area) continue;
+        if (dir[0] != 0 or dir[1] != 0 or dir[2] != 0) {
+            if ((n[0] * dir[0] + n[1] * dir[1] + n[2] * dir[2]) / l < 0.99999) continue;
+        }
+        const m = [3]f64{ (a.x + b.x + c.x) / 3, (a.y + b.y + c.y) / 3, (a.z + b.z + c.z) / 3 };
+        const t = p.transform();
+        try app.putPartDownAt(i, m[0] * t[0] + m[1] * t[3] + m[2] * t[6] + t[9], m[0] * t[1] + m[1] * t[4] + m[2] * t[7] + t[10], m[2] + t[11]);
+        return;
+    }
+    return error.TestUnexpectedResult;
+}
+
+/// Checks that the parts of app `b` are the parts of app `a`: the same
+/// vertices to the bit, in the same frame, with the same turn and place.
+fn expectSameParts(a: *App, b: *App) !void {
+    try testing.expectEqual(a.plate.count(), b.plate.count());
+    for (a.plate.parts.items, b.plate.parts.items) |*p, *q| {
+        try testing.expectEqualSlices(zs.mesh.Vec3, p.mesh.vertices.items, q.mesh.vertices.items);
+        try testing.expectEqualSlices([3]u32, p.mesh.faces.items, q.mesh.faces.items);
+        try testing.expectApproxEqAbs(p.rot, q.rot, 1e-9);
+        try testing.expectApproxEqAbs(p.x, q.x, 1e-9);
+        try testing.expectApproxEqAbs(p.y, q.y, 1e-9);
+    }
+}
+
+/// The area (mm²) of the sides of part i that face down and are in the
+/// first layer (below z = 0.2 mm on the bed).
+fn firstLayerArea(gpa: Allocator, app: *App, i: usize) !f64 {
+    var m = try app.plate.partMesh(gpa, i);
+    defer m.deinit(gpa);
+    const vs = m.vertices.items;
+    var area: f64 = 0;
+    for (m.faces.items) |f| {
+        const a = vs[f[0]];
+        const b = vs[f[1]];
+        const c = vs[f[2]];
+        if (@max(a.z, @max(b.z, c.z)) >= 0.2) continue;
+        const u = [3]f64{ b.x - a.x, b.y - a.y, b.z - a.z };
+        const w = [3]f64{ c.x - a.x, c.y - a.y, c.z - a.z };
+        const n = [3]f64{ u[1] * w[2] - u[2] * w[1], u[2] * w[0] - u[0] * w[2], u[0] * w[1] - u[1] * w[0] };
+        const l = @sqrt(n[0] * n[0] + n[1] * n[1] + n[2] * n[2]);
+        if (l > 0 and n[2] / l < -0.999) area += l / 2;
+    }
+    return area;
+}
+
+test "plate set: a part put down on a side comes back the same from a session, a project, and a 3MF file" {
+    const gpa = testing.allocator;
+    const session = @import("session.zig");
+    const plate = try bumpPlateStl(gpa);
+    defer gpa.free(plate);
+    const cube = try boxStl(gpa, 20, 20, 10);
+    defer gpa.free(cube);
+    const set = try Set.create(gpa, null, null, false);
+    defer set.destroy();
+    const app = set.appOf(0).?;
+    try app.loadStl("plate.stl", plate);
+    _ = try app.addStl("cube.stl", cube);
+    // The bottom of the bump on the bed: its outward normal is the turn
+    // of -z in the file, then the pose of the load.
+    const pose = app.plate.parts.items[0].pose;
+    const d = fileTurn(.{ 0, 0, -1 });
+    var dir: [3]f64 = undefined;
+    for (0..3) |r| dir[r] = pose[r][0] * d[0] + pose[r][1] * d[1] + pose[r][2] * d[2];
+    try putDownOn(app, 0, 0.18, dir);
+    try testing.expectApproxEqAbs(@as(f64, 20.15), app.plate.parts.items[0].height, 1e-4);
+    // A turn about z: the file has it in its build item.
+    app.plate.rotate(1, 30);
+    try app.startSlice();
+    app.stopWorkerForTest();
+    const want_gcode = try gpa.dupe(u8, app.gcode().?);
+    defer gpa.free(want_gcode);
+
+    for (0..3) |mode| {
+        const back = try Set.create(gpa, null, null, false);
+        defer back.destroy();
+        var diag: project_file.Diagnostic = .{};
+        var fresh: ?*App = null;
+        defer if (fresh) |f| f.destroy();
+        switch (mode) {
+            // The session of a reload.
+            0 => {
+                const bytes = try session.write(gpa, set, null, "");
+                defer gpa.free(bytes);
+                const r = try session.read(gpa, bytes, back, &diag);
+                gpa.free(r.app_text);
+            },
+            // The project file.
+            1 => {
+                const bytes = try project_file.save(gpa, "test", &.{.{ .app = app, .name = "Plate" }}, 0);
+                defer gpa.free(bytes);
+                try back.openProject(bytes, &diag);
+            },
+            // A plain 3MF file of the plate.
+            else => {
+                const bytes = try app.write3mfAlloc(gpa);
+                defer gpa.free(bytes);
+                fresh = try App.create(gpa, null, null);
+                try fresh.?.loadStl("plate.3mf", bytes);
+            },
+        }
+        const b = fresh orelse back.appOf(0).?;
+        try testing.expectEqualStrings("", diag.message);
+        try expectSameParts(app, b);
+        try b.startSlice();
+        b.stopWorkerForTest();
+        try testing.expectEqualStrings(want_gcode, b.gcode().?);
+    }
+}
+
+test "plate set: the shoulder parts of the user, put down with the text up, come back the same" {
+    // The file of the user (the Petoi Bittle X shoulder extensions a and
+    // b). The test skips when the file is not on this computer.
+    const gpa = testing.allocator;
+    const session = @import("session.zig");
+    const stl = std.Io.Dir.cwd().readFileAlloc(testing.io, "/home/jcollins/shoulderExtensions.stl", gpa, .limited(1 << 26)) catch return error.SkipZigTest;
+    defer gpa.free(stl);
+    const set = try Set.create(gpa, null, null, false);
+    defer set.destroy();
+    const app = set.appOf(0).?;
+    try app.loadStl("shoulderExtensions.stl", stl);
+    try testing.expectEqual(@as(usize, 2), try app.splitPart(0));
+    // The sides opposite the text: +x for part a, -x for part b. The
+    // largest triangles of these sides are 22.5 mm². A small boss on
+    // each side is 0.15 mm lower than the side.
+    try putDownOn(app, 0, 22.5, .{ 1, 0, 0 });
+    try putDownOn(app, 1, 22.5, .{ -1, 0, 0 });
+    const bytes = try session.write(gpa, set, null, "");
+    defer gpa.free(bytes);
+    const back = try Set.create(gpa, null, null, false);
+    defer back.destroy();
+    var diag: project_file.Diagnostic = .{};
+    const r = try session.read(gpa, bytes, back, &diag);
+    gpa.free(r.app_text);
+    const b = back.appOf(0).?;
+    try expectSameParts(app, b);
+    for (0..2) |i| {
+        const before = try firstLayerArea(gpa, app, i);
+        try testing.expect(before > 690);
+        try testing.expectEqual(before, try firstLayerArea(gpa, b, i));
+    }
+    // Before the fix, part b came back in the frame of the bed: the slice
+    // printed only the boss on the first layer of one part, and the load
+    // tipped part b by 0.52 degrees.
+    try app.startSlice();
+    app.stopWorkerForTest();
+    try b.startSlice();
+    b.stopWorkerForTest();
+    try testing.expectEqualStrings(app.gcode().?, b.gcode().?);
+}

@@ -51,6 +51,8 @@ To move them all, drag one of them with the Move tool (or Ctrl and a drag), or p
 
 After a turn, zslice checks if the part can stand while it prints. The first layer and the brim stick to the bed, and the nozzle pushes on the top of the part from the side. If the bond of the first layer cannot hold the part against this push and its weight, the part falls onto a face, as on a real bed. A note says so. A brim makes the bond larger: a tall thin part that falls with no brim can stand with one, and the Check list says that the brim holds it. With support on, the support holds the part, and it stays as you turned it.
 
+A project, a 3MF file, and the plate after a reload keep each part as you saved it. An open does not make a part fall.
+
 ## Grab a part
 
 Press H for the Grab tool. Then:

@@ -390,7 +390,8 @@ int zs_app_gcode(const zs_app *app, const uint8_t **out, size_t *out_len);
 /* A 3MF file of the plate: each part at its place, and the changes for
  * the part and for some layers. The bytes stay valid until the next call
  * or zs_app_destroy. zs_app_load_stl and zs_app_add_stl read 3MF files
- * too (the parts stay at their places). */
+ * too. The parts stay at their places and keep their orientation: a part
+ * of a 3MF file does not fall over, as a part of an STL file can. */
 /* The speed in mm/s that a speed ratio setting (for example
  * "project.outer_wall_speed") gives with `value`, and the other settings
  * as they are. ZS_UNKNOWN_SETTING if the setting is not a speed ratio. */
