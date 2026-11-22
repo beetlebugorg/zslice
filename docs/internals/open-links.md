@@ -6,7 +6,7 @@ A model site opens a model in a slicer with an "Open in slicer" link. zslice tak
 zslice://open?file=<percent-encoded https URL>
 ```
 
-This is the shape of the `prusaslicer://open?file=` links that Printables and other sites use (see [PrusaSlicer](../references/prusaslicer.md#the-shape-of-an-open-in-slicer-link)). This page is the contract for each app. The rules are in the core (`src/open_link.zig`, the `zs_link_*` calls of `include/zslice.h`), so that all apps accept and refuse the same links. The Windows app has its own copy of the rules in `windows/src/net/zs_open_link.cpp`. It can move to the core calls later.
+This is the shape of the `prusaslicer://open?file=` links that Printables and other sites use (see [PrusaSlicer](../references/prusaslicer.md), the entry "The shape of an open in slicer link"). This page is the contract for each app. The rules are in the core (`src/open_link.zig`, the `zs_link_*` calls of `include/zslice.h`), so that all apps accept and refuse the same links. The Windows app has its own copy of the rules in `windows/src/net/zs_open_link.cpp`. It can move to the core calls later.
 
 ## The link
 
