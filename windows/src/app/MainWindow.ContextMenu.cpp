@@ -120,8 +120,11 @@ namespace winrt::ZSlice::implementation
         double z_min = direction > 0 ? info.z : -1e6, z_max = direction > 0 ? 1e6 : info.z;
         char name[64];
         snprintf(name, sizeof name, direction > 0 ? "Layers %zu and up" : "Layers 1 to %zu", (size_t)info.layer + 1);
-        if (zs_app_profile_set(model->Active(), z_min, z_max, name) == ZS_OK)
-            ShowToast(zs::ToWide(std::string("New profile: ") + name));
+        if (zs_app_profile_set(model->Active(), z_min, z_max, name) != ZS_OK)
+            return;
+        NoteChange();
+        OpenProfile(z_min, z_max);
+        RefreshSettingValues();
     }
 
     // ---- copy and paste ----

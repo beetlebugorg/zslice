@@ -166,6 +166,24 @@ namespace winrt::ZSlice::implementation
         int NozzleCount();
         void ShowSection(char const *group, char const *section);
         void ShowSpeedSection();
+        // The layer profiles (MainWindow.Profiles.cpp).
+        void WireProfiles();
+        void AppendProfileRows();
+        void OpenProfile(double z_min, double z_max);
+        void EnterProfile(double z_min, double z_max);
+        void LeaveProfile();
+        void ShowProfileChanges();
+        void UpdateProfileBar();
+        void ProfilesRefresh();
+        void UpdateLayerMarks();
+        void PlaceLayerMarks();
+        bool ProfileHas(std::string const &name);
+        std::string ProfileValue(std::string const &name);
+        void ProfileSet(std::string const &name, std::string const &value);
+        void ProfileClear(std::string const &name);
+        size_t RangeChanges(double z_min, double z_max);
+        std::wstring RangeLayers(double z_min, double z_max);
+        std::wstring RangeName(double z_min, double z_max);
         void ShowSearch(std::wstring const &query);
         void ShowDetail(char const *name);
         void SettingsGoBack();
@@ -262,6 +280,7 @@ namespace winrt::ZSlice::implementation
         void RangePlace();
 #ifdef ZS_DEV_HOOKS
         bool RunRangeStep(std::wstring const &verb, std::vector<std::wstring> const &words);
+        bool RunProfileStep(std::wstring const &verb, std::vector<std::wstring> const &words);
         Microsoft::UI::Xaml::UIElement RangeDevRoot();
 #endif
 
@@ -603,6 +622,21 @@ namespace winrt::ZSlice::implementation
         char const *settings_section = nullptr;
         // The Faster slicing switch while the Speed section shows.
         Microsoft::UI::Xaml::Controls::ToggleSwitch speed_toggle{ nullptr };
+        // The layer profile in edit, and the marks of the layer rail.
+        bool in_profile = false;
+        double profile_min = 0, profile_max = 0;
+        zs_app *profile_app = nullptr;
+        std::shared_ptr<EditorTarget> profile_target;
+        std::string profile_key;
+        struct LayerMark
+        {
+            size_t lo = 0, hi = 0;
+            double z_min = 0, z_max = 0;
+            std::wstring label;
+            Microsoft::UI::Xaml::Controls::Border hit{ nullptr };
+        };
+        std::vector<LayerMark> layer_marks;
+        std::string layer_marks_key;
         std::wstring settings_query;
         // The number of nozzles that the section list shows.
         int settings_nozzles = 1;

@@ -122,6 +122,7 @@
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto" />
                         <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
                         <RowDefinition Height="*" />
                     </Grid.RowDefinitions>
                     <TextBox x:Name="SettingsSearch" AutomationProperties.Name="Search the settings" Grid.Row="0" PlaceholderText="Search the settings" />
@@ -132,7 +133,38 @@
                         </Button>
                         <TextBlock x:Name="SettingsCrumb" VerticalAlignment="Center" FontWeight="SemiBold" />
                     </StackPanel>
-                    <ScrollViewer x:Name="SettingsScroll" Grid.Row="2" HorizontalScrollBarVisibility="Disabled">
+                    <!-- The bar of the layer profile in edit. -->
+                    <Border x:Name="ProfileBar" Grid.Row="2" Visibility="Collapsed" Padding="10,8" CornerRadius="8" BorderThickness="1"
+                            Background="{ThemeResource ZsFloat}" BorderBrush="{ThemeResource ZsLine}">
+                        <Grid ColumnSpacing="4">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel VerticalAlignment="Center">
+                                <TextBlock x:Name="ProfileTitle" FontWeight="SemiBold" TextWrapping="WrapWholeWords" />
+                                <TextBlock x:Name="ProfileNote" FontSize="11.5" TextWrapping="WrapWholeWords" Foreground="{ThemeResource ZsDim}" />
+                            </StackPanel>
+                            <Button x:Name="ProfileRename" Grid.Column="1" Background="Transparent" BorderThickness="0" VerticalAlignment="Center"
+                                    AutomationProperties.Name="Rename the profile" ToolTipService.ToolTip="Rename the profile">
+                                <FontIcon Glyph="&#xE70F;" FontSize="13" />
+                                <Button.Flyout>
+                                    <Flyout x:Name="ProfileRenameFlyout">
+                                        <TextBox x:Name="ProfileRenameBox" Width="220" AutomationProperties.Name="The name of the profile" />
+                                    </Flyout>
+                                </Button.Flyout>
+                            </Button>
+                            <Button x:Name="ProfileDelete" Grid.Column="2" Background="Transparent" BorderThickness="0" VerticalAlignment="Center"
+                                    AutomationProperties.Name="Delete the profile" ToolTipService.ToolTip="Delete the profile and all its changes">
+                                <FontIcon Glyph="&#xE74D;" FontSize="13" />
+                            </Button>
+                            <Button x:Name="ProfileDone" Grid.Column="3" Content="Done" VerticalAlignment="Center" Style="{ThemeResource AccentButtonStyle}"
+                                    ToolTipService.ToolTip="Stop the edit of this profile. Changes then go to all prints again." />
+                        </Grid>
+                    </Border>
+                    <ScrollViewer x:Name="SettingsScroll" Grid.Row="3" HorizontalScrollBarVisibility="Disabled">
                         <StackPanel x:Name="SettingsList" Spacing="2" Padding="0,0,14,0" />
                     </ScrollViewer>
                 </Grid>
@@ -367,6 +399,8 @@
                         SmallChange="1" LargeChange="10" IsThumbToolTipEnabled="False" />
                 <Border x:Name="LayerTrough" Width="4" Margin="0,9" CornerRadius="2" HorizontalAlignment="Center"
                         Background="{ThemeResource ZsTrough}" IsHitTestVisible="False" />
+                <!-- The marks of the layer ranges with changes. -->
+                <Canvas x:Name="LayerMarks" Canvas.ZIndex="1" />
                 <Canvas x:Name="LayerCanvas" IsHitTestVisible="False">
                     <Border x:Name="LayerHighlight" Canvas.Left="13" Width="4" CornerRadius="2" Background="{ThemeResource ZsAccent}" />
                     <Ellipse x:Name="LayerLoShade" Canvas.Left="5" Width="20" Height="20" Fill="#40000000" />

@@ -127,6 +127,7 @@
     <ClCompile Include="src\app\MainWindow.Tools.cpp" />
     <ClCompile Include="src\app\MainWindow.Cards.cpp" />
     <ClCompile Include="src\app\MainWindow.Range.cpp" />
+    <ClCompile Include="src\app\MainWindow.Profiles.cpp" />
     <ClCompile Include="src\app\MainWindow.View.cpp" />
     <ClCompile Include="src\app\MainWindow.Filaments.cpp" />
     <ClCompile Include="src\app\MainWindow.Paint.cpp" />
