@@ -29,6 +29,7 @@ Build the native Windows app in `windows/`: a WinUI 3 shell in C++/WinRT around 
    - The icon: the exe holds the `.ico` file of 16 to 256 px, and the file types and links use it. `make-logos.ps1` draws the package logos, but the unpackaged app does not load them yet.
    - Windows keeps Move, Turn, and Grab as three tools. It does not have the transform tool or the import from a model page yet.
    - Projects: GitHub reads use a separate WinHTTP session with no key or token. Each URL and each redirect must be https to a GitHub host. Each file has a limit of 256 MB. PrinterSetup writes no machine profile while plates of a project are on the view.
+   - The part card: the settings that the part has of its own (`zs_app_part_setting_set`), each with its editor and ×, and "+ Add a setting" for the selected part or parts. The filament stays in its row of chips.
 
 ## Rules that matter
 
@@ -39,6 +40,7 @@ Build the native Windows app in `windows/`: a WinUI 3 shell in C++/WinRT around 
 - **No print starts from the Windows app yet.** `zs::link::Upload` always sends `print=false`. The Bambu Lab link sends no PUBLISH.
 - A request follows no redirect and uses no proxy, so a key cannot go to another host.
 - A link resolves the host before each request, and refuses a local address. A status callback closes a connection to a local address before the TLS handshake.
+- A failed slice shows `zs_status_message` and turns off Export. The log gets `zs_app_failure_name`, for a bug report.
 - A loaded file is its own history step. Else the first edit after a load joins that step, and the refinements have no guide.
 - The view builds its matrices for a clip space with y down; the vertex shaders negate y. `SV_InstanceID` starts at 0 for each draw, so a root constant gives the first instance for the highlight.
 - The backend writes its log lines to stderr itself: `std.log` does not compile for ARM64 Windows in Zig 0.16.
@@ -66,3 +68,4 @@ Build the native Windows app in `windows/`: a WinUI 3 shell in C++/WinRT around 
 6. A second start with a file opens it in the first window, with no second window.
 7. A test of the link code shows that a local stub gets no byte.
 8. The ring drag hook of the test build drags a ring along a right-hand turn, and logs the angle from the front, the back, or above.
+9. A part with its own wall count keeps it through undo and redo, and × gives it the value of the plate again.
