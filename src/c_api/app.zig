@@ -615,7 +615,12 @@ fn bambuFileOf(app: *const App, g: []const u8, title: ?[*:0]const u8, out: ?*?[*
         const iface_slot = zs.filaments.pathSlot(.support_interface, p, count);
         const part_slot = zs.filaments.slotOf(p.filament, count);
         list[n] = .{
-            .id = @intCast(k + 1), .kind = f.material, .color = f.color, .meters = st.slot_mm[k] / 1000, .grams = st.slot_g[k], .nozzle = f.nozzle,
+            .id = @intCast(k + 1),
+            .kind = f.material,
+            .color = f.color,
+            .meters = st.slot_mm[k] / 1000,
+            .grams = st.slot_g[k],
+            .nozzle = f.nozzle,
             // A filament for the support only does not print the parts
             // (a part of another filament still does).
             .for_support = support and (sup_slot == k or iface_slot == k),
@@ -4184,4 +4189,126 @@ test "C API: a commit with no change keeps the time of the step, also after an u
     try t.expectEqual(@as(i64, 10), step.time_ms);
     try t.expectEqual(ok, zs_app_history_step(app, 2, &step));
     try t.expectEqual(@as(i64, 21), step.time_ms);
+}
+
+/// The G-code of the filaments of an X2D plate: each "M620 S<n>A" (the
+/// AMS loads filament n + 1) and each "T<n>" of a filament (not T65279
+/// and T65535 of the end) loads slot `want`. Returns the count of loads.
+fn expectLoads(g: []const u8, want: u32) !usize {
+    var it = std.mem.splitScalar(u8, g, '\n');
+    var n: usize = 0;
+    while (it.next()) |line| {
+        const tl = std.mem.trim(u8, line, " \t");
+        const num: []const u8 = if (std.mem.startsWith(u8, tl, "M620 S")) tl[6..] else if (tl.len > 1 and tl[0] == 'T') tl[1..] else continue;
+        const end = std.mem.indexOfNone(u8, num, "0123456789") orelse num.len;
+        if (end == 0) continue;
+        if (tl[0] == 'M' and (end >= num.len or num[end] != 'A')) continue;
+        const k = try std.fmt.parseInt(u32, num[0..end], 10);
+        if (k >= 1000) continue;
+        if (k != want) {
+            std.debug.print("loads filament {d}, not {d}: {s}\n", .{ k + 1, want + 1, tl });
+            return error.TestUnexpectedResult;
+        }
+        n += 1;
+    }
+    return n;
+}
+
+test "C API: the spools of an X2D: the filament of a part is the same in the view, the G-code, the trays, and the file" {
+    const t = std.testing;
+    const al = t.allocator;
+    const printers = zs.printers;
+    if (printers.builtin_data.len == 0) return error.SkipZigTest;
+    var arena_state: std.heap.ArenaAllocator = .init(al);
+    defer arena_state.deinit();
+    const ar = arena_state.allocator();
+    const lib = try printers.Library.parse(al, printers.builtin_data);
+    defer lib.deinit();
+    var text: Writer.Allocating = .init(ar);
+    try lib.profileText(lib.find("bambu-lab-x2d").?, 0, &text.writer);
+    var a: ?*App = null;
+    try t.expectEqual(ok, zs_app_new(null, null, &a));
+    defer zs_app_free(a);
+    try t.expectEqual(ok, zs_app_profile_apply(a, 0, text.written().ptr, text.written().len, null, 0));
+    // A post with a slab over air on it: tree support under the slab.
+    var b: zs.mesh.Builder = .init(al);
+    try zs.mesh.shapes.addBox(&b, 25, 0, 0, 31, 6, 8);
+    try zs.mesh.shapes.addBox(&b, 10, 0, 8, 46, 6, 10);
+    var mesh = try b.finish();
+    var stl: Writer.Allocating = .init(al);
+    defer stl.deinit();
+    try mesh.writeStl(&stl.writer);
+    mesh.deinit(al);
+    try t.expectEqual(ok, zs_app_load_stl(a, "t.stl", stl.written().ptr, stl.written().len));
+    try t.expectEqual(ok, zs_app_setting_set(a, "project.support", "everywhere"));
+    try t.expectEqual(ok, zs_app_setting_set(a, "project.support_style", "tree"));
+    // The spools of a printdeck (GET /api/plugin/printdeck): four AMS
+    // trays on the main nozzle, and the external spool on the second.
+    const json =
+        \\{"filaments":[{"slot":"A1","tray":0,"material":"PLA","color":"#898989","idx":"GFL99"},
+        \\{"slot":"A2","tray":1,"material":"PLA","color":"#dcdcdc","idx":"GFL99"},
+        \\{"slot":"A3","tray":2,"material":"PLA","color":"#161616","idx":"GFL99","nozzle":"main"},
+        \\{"slot":"A4","tray":3,"material":"PLA","color":"#f98c36","idx":"GFL99"},
+        \\{"slot":"Ext","tray":255,"material":"PLA","color":"#f72323","idx":"GFL99","nozzle":"aux"}]}
+    ;
+    var changed: c_int = 0;
+    try t.expectEqual(ok, zs_app_filaments_from_printer(a, "X2D", json.ptr, json.len, 1, &changed, null, 0));
+    try t.expectEqual(@as(usize, 5), app_mod.filament_slots.count(a.?));
+    try t.expectEqual(@as(u32, 1), app_mod.filament_slots.get(a.?, 4).?.nozzle);
+    // The tray of each filament: filament 2 is A2 (tray 1), filament 5
+    // the external spool (255).
+    var map: [8]i32 = undefined;
+    try t.expectEqual(@as(usize, 5), zs_app_ams_mapping(a, &map, map.len));
+    try t.expectEqualSlices(i32, &.{ 0, 1, 2, 3, 255 }, map[0..5]);
+    // The print start: the external spool is -1 in ams_mapping and its
+    // virtual tray in ams_mapping2.
+    const start = try zs.bambu.startMessage(al, .{ .file = "p.gcode.3mf", .title = "p", .trays = map[0..5] });
+    defer al.free(start);
+    try t.expect(std.mem.indexOf(u8, start, "\"ams_mapping\":[0,1,2,3,-1],\"ams_mapping2\":[{\"ams_id\":0,\"slot_id\":0},{\"ams_id\":0,\"slot_id\":1},{\"ams_id\":0,\"slot_id\":2},{\"ams_id\":0,\"slot_id\":3},{\"ams_id\":255,\"slot_id\":0}]") != null);
+
+    const Case = struct { filament: [:0]const u8, slot: u32, color: []const u8, info: []const u8 };
+    const cases = [_]Case{
+        .{ .filament = "2", .slot = 1, .color = "#dcdcdc", .info = "<filament id=\"2\" tray_info_idx=\"GFL99\" type=\"PLA\" color=\"#DCDCDC\"" },
+        .{ .filament = "5", .slot = 4, .color = "#f72323", .info = "<filament id=\"5\" tray_info_idx=\"GFL99\" type=\"PLA\" color=\"#F72323\"" },
+    };
+    for (cases) |cs| {
+        try t.expectEqual(ok, zs_app_part_setting_set(a, 0, "project.filament", cs.filament.ptr));
+        try t.expectEqual(ok, zs_app_slice(a));
+        a.?.stopWorkerForTest();
+        // Each path, the support too (its filament is the part's), prints
+        // with the filament of the part.
+        const tp = a.?.allToolpaths().?;
+        for (tp.path_tool.items) |tool| try t.expectEqual(cs.slot, tool);
+        // The start loads it, and no other filament loads.
+        const g = a.?.exactGcode().?;
+        try t.expect(try expectLoads(g, cs.slot) >= 2);
+        // The file for the printer: one filament, the one of the part, on
+        // its nozzle.
+        var out: ?[*]u8 = null;
+        var len: usize = 0;
+        try t.expectEqual(ok, zs_app_bambu_file(a, "p", &out, &len));
+        defer gpa.free(out.?[0..len]);
+        const entries = try zs.zipfile.readAll(al, out.?[0..len]);
+        defer zs.zipfile.freeAll(al, entries);
+        var info: []const u8 = "";
+        for (entries) |e| if (std.mem.eql(u8, e.name, "Metadata/slice_info.config")) {
+            info = e.data;
+        };
+        try t.expect(std.mem.indexOf(u8, info, cs.info) != null);
+        try t.expectEqual(@as(usize, 1), std.mem.count(u8, info, "<filament id="));
+        if (cs.slot == 4) {
+            try t.expect(std.mem.indexOf(u8, info, "group_id=\"1\"") != null);
+            try t.expect(std.mem.indexOf(u8, info, "\"filament_maps\" value=\"1 1 1 1 2\"") != null);
+        }
+        // The view draws each bead of the print in that color.
+        const vw = @import("view.zig");
+        if (vw.render_on) {
+            const scene = vw.view_mod.View.buildScene(a.?.sceneSource().?, 0).?;
+            defer vw.view_mod.View.freeScene(scene);
+            const v: *vw.view_mod.View = @ptrCast(@alignCast(scene));
+            const want = zs.filaments.parseColor(cs.color).?;
+            try t.expect(v.beads.items.len > 0);
+            for (v.beads.items) |bd| if (bd.rgba[3] < 11) try t.expectEqualSlices(u8, &want, bd.rgba[0..3]);
+        }
+    }
 }

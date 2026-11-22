@@ -268,6 +268,9 @@ pub const View = struct {
     /// the mask is for (their pointer and count).
     present: u32 = 0,
     present_key: [2]usize = .{ 0, 0 },
+    /// The number of filaments of the plate of the beads (see
+    /// `focusColors`).
+    filament_count: u32 = 1,
     /// A copy of the beads, for `pick` and the replay.
     beads: std.ArrayList(vk.Instance) = .empty,
     /// The marks: a seam blob at the start of each outer wall loop, and
@@ -1029,8 +1032,9 @@ pub const View = struct {
         *u64,
         *u64,
         *u32,
+        *u32,
     } {
-        return .{ &v.layer_key, &v.beads, &v.bead_fan, &v.bead_run, &v.bead_len, &v.path_start, &v.layer_end, &v.layer_path_end, &v.marks, &v.mark_layer_end, &v.pick_runs, &v.layer_boxes, &v.run_width, &v.draw_chunks, &v.chunk_width, &v.bead_end, &v.bead_start, &v.sim_beads, &v.bead_settle, &v.tower_beads, &v.tower_layer, &v.path_part, &v.outline_points, &v.outline_ends, &v.outline_layer_end, &v.legend, &v.xf_center, &v.xf_sxy, &v.xf_sz, &v.home, &v.extent, &v.scene_key, &v.scene_slice, &v.scene_app };
+        return .{ &v.layer_key, &v.beads, &v.bead_fan, &v.bead_run, &v.bead_len, &v.path_start, &v.layer_end, &v.layer_path_end, &v.marks, &v.mark_layer_end, &v.pick_runs, &v.layer_boxes, &v.run_width, &v.draw_chunks, &v.chunk_width, &v.bead_end, &v.bead_start, &v.sim_beads, &v.bead_settle, &v.tower_beads, &v.tower_layer, &v.path_part, &v.outline_points, &v.outline_ends, &v.outline_layer_end, &v.legend, &v.xf_center, &v.xf_sxy, &v.xf_sz, &v.home, &v.extent, &v.scene_key, &v.scene_slice, &v.scene_app, &v.filament_count };
     }
 
     /// Swaps the beads of the view with those of scene t: the view gets
@@ -1053,6 +1057,7 @@ pub const View = struct {
         const s = src.settings;
         const tp = src.tp;
         v.scene_key = 0;
+        v.filament_count = @intCast(@min(1 + src.filaments.len, zs_filaments.max_slots));
         const filament = parseColor(s.filament.color) orelse .{ 0xd0, 0xd0, 0xcc };
         // The color of each filament of the plate: each path has the color
         // of its filament (Toolpaths.path_tool).
@@ -1574,8 +1579,10 @@ pub const View = struct {
         /// light beads and the layer ends of each light level, then
         /// path_part, then the beads of the prime tower and their layers.
         counts: [20]u32,
+        /// The number of filaments of the plate (View.filament_count).
+        filaments: u32,
     };
-    const scene_magic: u32 = 0x35637a73; // "szc5"
+    const scene_magic: u32 = 0x36637a73; // "szc6"
     /// The index of the beads and of the light beads in `sceneLists`.
     const scene_beads = 2;
     const scene_marks = 3;
@@ -1759,6 +1766,7 @@ pub const View = struct {
             .bed = v.bed,
             .lite_start = v.lite.level_start,
             .counts = undefined,
+            .filaments = v.filament_count,
         };
         var size: usize = std.mem.alignForward(usize, @sizeOf(SceneHead), 8);
         inline for (v.sceneLists(), 0..) |list, k| {
@@ -1927,6 +1935,7 @@ pub const View = struct {
         v.bead_run.clearRetainingCapacity();
         v.bead_len.clearRetainingCapacity();
         v.mode = std.enums.fromInt(Mode, head.mode) orelse .print;
+        v.filament_count = head.filaments;
         v.legend = head.legend;
         v.xf_center = head.xf_center;
         v.xf_sxy = head.xf_sxy;
@@ -2231,6 +2240,17 @@ pub const View = struct {
         v.focus_mask = m;
         v.focus_zmax = zmax;
         return shows;
+    }
+
+    /// The value of params.w of a frame with a focus (see
+    /// shaders/box.vert): 0, the beads in focus show the colors of their
+    /// features; 1, they keep their colors. The print mode of a plate of
+    /// one filament has one color, so the feature colors show what the
+    /// focus is on. A plate of some filaments keeps the color of the
+    /// filament of each bead: the feature colors (an orange wall, a grey
+    /// support) look like the colors of other filaments of the plate.
+    fn focusColors(v: *const View) f32 {
+        return if (v.mode == .print and v.filament_count < 2) 0 else 1;
     }
 
     /// The features that have beads, a bit for each. Kept until the beads
@@ -5456,7 +5476,7 @@ pub const View = struct {
                         // the print stays in sight around the layers.
                         [4]f32{ lb[0], lb[1], 0, if (v.mode == .print) 0 else 1 }
                     else
-                        [4]f32{ v.highlight[0], v.highlight[1], if (v.isolate and v.highlight[1] > v.highlight[0]) -1 else @as(f32, @floatFromInt(v.focus_mask)), if (v.mode == .print) 0 else 1 }),
+                        [4]f32{ v.highlight[0], v.highlight[1], if (v.isolate and v.highlight[1] > v.highlight[0]) -1 else @as(f32, @floatFromInt(v.focus_mask)), v.focusColors() }),
             },
             .box_count = count,
             .box_first = first,
@@ -6066,6 +6086,29 @@ fn testScene(layers: usize, per_layer: usize, segs: usize) Error!View {
     try v.buildPickIndex(null);
     v.layer = layers - 1;
     return v;
+}
+
+test "a focus keeps the colors of a print of some filaments" {
+    var v = try testScene(2, 3, 4);
+    defer destroyTest(&v);
+    v.mode = .print;
+    // One filament: the beads in focus show the colors of their features.
+    try std.testing.expectEqual(@as(f32, 0), v.focusColors());
+    // Five filaments on the plate: each bead keeps the color of its
+    // filament, so a grey wall does not show as an orange wall.
+    v.filament_count = 5;
+    try std.testing.expectEqual(@as(f32, 1), v.focusColors());
+    // A scene in bytes keeps the count (the web app draws those).
+    const bytes = try v.writeScene(std.testing.allocator);
+    defer std.testing.allocator.free(bytes);
+    var w: View = .{ .renderer = undefined, .headless = true, .width = 1, .height = 1 };
+    defer w.deinitData();
+    try w.readScene(bytes);
+    try std.testing.expectEqual(@as(u32, 5), w.filament_count);
+    try std.testing.expectEqual(@as(f32, 1), w.focusColors());
+    // The other modes keep their colors.
+    v.mode = .speed;
+    try std.testing.expectEqual(@as(f32, 1), v.focusColors());
 }
 
 fn destroyTest(v: *View) void {
