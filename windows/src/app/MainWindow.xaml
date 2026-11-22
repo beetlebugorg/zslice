@@ -631,7 +631,12 @@
                                            SpinButtonPlacementMode="Compact" AutomationProperties.Name="How many in all" />
                                 <Button x:Name="PartMake" Grid.Column="2" Content="in all" />
                             </Grid>
+                            <!-- The settings that the part has of its own. -->
+                            <StackPanel x:Name="PartOwnSettings" Spacing="4" Visibility="Collapsed" />
                         </StackPanel>
+                        <Button x:Name="PartAddSetting" Content="+ Add a setting for this part" Background="Transparent" BorderThickness="0"
+                                Foreground="{ThemeResource ZsAccentText}" FontSize="12" Padding="0,2" MinHeight="24"
+                                ToolTipService.ToolTip="Search the settings that a part can have of its own" />
                         <Grid ColumnSpacing="4" RowSpacing="4">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*" />

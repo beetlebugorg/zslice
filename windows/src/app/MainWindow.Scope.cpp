@@ -8,6 +8,10 @@
 // (ApplyEnginePrefs). A part has the values of the print, with its own
 // changes on top. A setting that the scope cannot have shows, and is off.
 //
+// The part card lists the settings that the part has of its own, each with
+// its editor and × (the value of the plate again). "+ Add a setting" opens
+// the search for the selected part or parts, as web/app/partcard.js does.
+//
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 #include "pch.h"
@@ -247,9 +251,194 @@ namespace winrt::ZSlice::implementation
         FillScopeList();
     }
 
+    // ---- the settings of a part on its card ----
+
+    void MainWindow::WirePartSettings()
+    {
+        PartAddSetting().Click([this](auto &&, auto &&) { OpenPartSearch(); });
+    }
+
+    // Reads the first part, and sets each of them.
+    std::shared_ptr<MainWindow::EditorTarget> MainWindow::PartTarget(std::vector<int64_t> const &parts)
+    {
+        auto target = std::make_shared<EditorTarget>();
+        target->get = [this, parts](std::string const &name) -> std::string {
+            if (model == nullptr || parts.empty())
+                return {};
+            zs_app *app = model->Active();
+            size_t len = 0;
+            if (zs_app_part_setting_get(app, (size_t)parts[0], name.c_str(), nullptr, 0, &len) != ZS_OK)
+                return model->GetSetting(name.c_str());
+            std::string text(len + 1, '\0');
+            if (zs_app_part_setting_get(app, (size_t)parts[0], name.c_str(), text.data(), text.size(), &len) != ZS_OK)
+                return model->GetSetting(name.c_str());
+            text.resize(len);
+            return text;
+        };
+        target->set = [this, parts](std::string const &name, std::string const &value) {
+            if (model == nullptr)
+                return;
+            zs_app *app = model->Active();
+            int rc = ZS_OK;
+            for (int64_t part : parts)
+                if (rc == ZS_OK)
+                    rc = zs_app_part_setting_set(app, (size_t)part, name.c_str(), value.c_str());
+            if (rc != ZS_OK)
+                ShowToast(zs::ToWide(name) + L": " + zs::ToWide(zs_status_message(rc)));
+            PlateEdited();
+            RefreshSettingValues();
+        };
+        return target;
+    }
+
+    void MainWindow::FillPartSettings(int64_t part)
+    {
+        if (model == nullptr)
+            return;
+        zs_app *app = model->Active();
+        std::vector<zs_setting_info> own;
+        std::string key = std::to_string(part) + ":";
+        for (size_t i = 0, n = zs_setting_count(); i < n; i++)
+        {
+            zs_setting_info info{};
+            size_t len = 0;
+            // The filament has its own row of chips at the top of the card.
+            if (zs_setting_get_info(i, &info) != ZS_OK || info.per_part == 0 || strcmp(info.name, "project.filament") == 0 ||
+                zs_app_part_setting_get(app, (size_t)part, info.name, nullptr, 0, &len) != ZS_OK)
+                continue;
+            key += std::string(info.name) + ",";
+            own.push_back(info);
+        }
+        if (key == part_settings_key)
+        {
+            RefreshPartSettings();
+            return;
+        }
+        part_settings_key = key;
+        part_editors.clear();
+        auto box = PartOwnSettings();
+        box.Children().Clear();
+        box.Visibility(own.empty() ? Visibility::Collapsed : Visibility::Visible);
+        if (own.empty())
+            return;
+        TextBlock head;
+        head.Text(L"Settings of this part");
+        head.FontWeight(Microsoft::UI::Text::FontWeights::SemiBold());
+        head.FontSize(12);
+        box.Children().Append(head);
+        auto target = PartTarget({ part });
+        for (auto const &info : own)
+        {
+            Grid row;
+            row.ColumnSpacing(6);
+            ColumnDefinition label_column, editor_column, clear_column;
+            label_column.Width(GridLengthHelper::FromValueAndType(1, GridUnitType::Star));
+            editor_column.Width(GridLengthHelper::Auto());
+            clear_column.Width(GridLengthHelper::FromPixels(22));
+            row.ColumnDefinitions().Append(label_column);
+            row.ColumnDefinitions().Append(editor_column);
+            row.ColumnDefinitions().Append(clear_column);
+            std::wstring text = zs::ToWide(info.label);
+            TextBlock label;
+            label.Text(text);
+            label.FontSize(13);
+            label.TextWrapping(TextWrapping::WrapWholeWords);
+            label.VerticalAlignment(VerticalAlignment::Center);
+            std::wstring doc = zs::ToWide(info.doc != nullptr ? info.doc : "");
+            doc.erase(std::remove(doc.begin(), doc.end(), L'`'), doc.end());
+            ToolTipService::SetToolTip(label, box_value(doc));
+            row.Children().Append(label);
+            // The editors of the card refresh on their own: the list of the
+            // pane goes away with its page.
+            size_t before = setting_editors.size();
+            FrameworkElement editor = MakeEditor(info, target);
+            for (size_t i = before; i < setting_editors.size(); i++)
+                part_editors.push_back(std::move(setting_editors[i]));
+            setting_editors.resize(before);
+            if (info.kind == ZS_SETTING_NUMBER || info.kind == ZS_SETTING_INTEGER)
+            {
+                auto with_unit = editor.try_as<Grid>();
+                (with_unit != nullptr ? with_unit.Children().GetAt(0).as<FrameworkElement>() : editor).Width(64);
+                if (with_unit != nullptr)
+                    with_unit.ColumnDefinitions().GetAt(1).MinWidth(40);
+            }
+            else if (info.kind == ZS_SETTING_TEXT)
+            {
+                editor.Width(120);
+            }
+            editor.VerticalAlignment(VerticalAlignment::Center);
+            Grid::SetColumn(editor, 1);
+            row.Children().Append(editor);
+            Button clear;
+            clear.Width(22);
+            clear.Height(22);
+            clear.MinWidth(0);
+            clear.MinHeight(0);
+            clear.Padding(ThicknessHelper::FromUniformLength(0));
+            clear.Background(Microsoft::UI::Xaml::Media::SolidColorBrush(Microsoft::UI::Colors::Transparent()));
+            clear.BorderThickness(ThicknessHelper::FromUniformLength(0));
+            clear.Content(box_value(L"×"));
+            clear.VerticalAlignment(VerticalAlignment::Center);
+            ToolTipService::SetToolTip(clear, box_value(L"The value of the plate again"));
+            Microsoft::UI::Xaml::Automation::AutomationProperties::SetName(clear, text + L": the value of the plate again");
+            std::string name = info.name;
+            clear.Click([this, part, name](auto &&, auto &&) {
+                // After the click: the button goes away with its row.
+                queue.TryEnqueue([this, part, name] {
+                    if (model != nullptr && (size_t)part < zs_app_part_count(model->Active()) &&
+                        zs_app_part_setting_set(model->Active(), (size_t)part, name.c_str(), nullptr) == ZS_OK)
+                    {
+                        PlateEdited();
+                        RefreshSettingValues();
+                    }
+                });
+            });
+            Grid::SetColumn(clear, 2);
+            row.Children().Append(clear);
+            box.Children().Append(row);
+        }
+    }
+
+    void MainWindow::RefreshPartSettings()
+    {
+        if (PartCard().Visibility() != Visibility::Visible)
+            return;
+        for (auto &editor : part_editors)
+            editor.refresh();
+    }
+
+    // The search of the settings that a part can have, for the selection.
+    void MainWindow::OpenPartSearch()
+    {
+        if (model == nullptr || selected_parts.empty())
+            return;
+        std::vector<int64_t> parts = selected_parts;
+        auto scope = std::make_shared<SearchScope>();
+        if (parts.size() > 1)
+        {
+            scope->label = std::to_wstring(parts.size()) + L" parts";
+        }
+        else
+        {
+            zs_part p{};
+            std::wstring name = zs_app_part_get(model->Active(), (size_t)parts[0], &p) == ZS_OK && p.name != nullptr ? zs::ToWide(p.name) : L"";
+            scope->label = L"Part: " + (name.empty() ? std::to_wstring(parts[0] + 1) : name);
+        }
+        scope->only = [](zs_setting_info const &info) { return info.per_part != 0; };
+        scope->source = [this, first = parts[0]](std::string const &name) -> std::wstring {
+            size_t len = 0;
+            if (model != nullptr && zs_app_part_setting_get(model->Active(), (size_t)first, name.c_str(), nullptr, 0, &len) == ZS_OK)
+                return L"This part";
+            return model != nullptr ? zs::ToWide(model->SourceTag(name.c_str())) : L"";
+        };
+        scope->target = PartTarget(parts);
+        OpenScopedSearch(scope);
+    }
+
 #ifdef ZS_DEV_HOOKS
     // scopeset n (0 print, 1 global, 2 and up a part), scopeedit name value,
-    // scopereset name, scopelog name.
+    // scopereset name, scopelog name, scopepart name value, scopepartclear
+    // name, scopepartadd, scopepartpick i, scopeparttoggle i, scopepartlog.
     bool MainWindow::RunScopeStep(std::wstring const &verb, std::vector<std::wstring> const &words)
     {
         if (verb.rfind(L"scope", 0) != 0 || model == nullptr)
@@ -260,6 +449,40 @@ namespace winrt::ZSlice::implementation
             ScopeSet(zs::ToUtf8(words[0]), zs::ToUtf8(words[1]));
         else if (verb == L"scopereset" && !words.empty())
             ScopeReset(zs::ToUtf8(words[0]));
+        else if (verb == L"scopepart" && words.size() >= 2)
+            PartTarget(selected_parts)->set(zs::ToUtf8(words[0]), zs::ToUtf8(words[1]));
+        else if (verb == L"scopepartclear" && !words.empty() && !selected_parts.empty())
+        {
+            for (int64_t part : selected_parts)
+                zs_app_part_setting_set(model->Active(), (size_t)part, zs::ToUtf8(words[0]).c_str(), nullptr);
+            PlateEdited();
+            RefreshSettingValues();
+        }
+        else if (verb == L"scopepartadd")
+            OpenPartSearch();
+        else if (verb == L"scopepartpick" && !words.empty())
+            SelectPart(_wtoi(words[0].c_str()));
+        else if (verb == L"scopeparttoggle" && !words.empty())
+            TogglePart(_wtoi(words[0].c_str()));
+        else if (verb == L"scopepartlog")
+        {
+            std::string own;
+            for (int64_t part : selected_parts)
+            {
+                own += "[" + std::to_string(part) + ":";
+                for (size_t i = 0, n = zs_setting_count(); i < n; i++)
+                {
+                    zs_setting_info info{};
+                    size_t len = 0;
+                    if (zs_setting_get_info(i, &info) == ZS_OK && info.per_part != 0 &&
+                        zs_app_part_setting_get(model->Active(), (size_t)part, info.name, nullptr, 0, &len) == ZS_OK)
+                        own += std::string(" ") + info.name + "=" + PartTarget({ part })->get(info.name);
+                }
+                own += "]";
+            }
+            zs::Log("dev: part settings selected %zu rows %u editors %zu add '%s' search %d | %s\n", selected_parts.size(), PartOwnSettings().Children().Size(), part_editors.size(),
+                    to_string(unbox_value<hstring>(PartAddSetting().Content())).c_str(), search_scope != nullptr ? 1 : 0, own.c_str());
+        }
         else if (verb == L"scopelog" && !words.empty())
         {
             std::string name = zs::ToUtf8(words[0]), own;

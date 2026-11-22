@@ -184,6 +184,12 @@ namespace winrt::ZSlice::implementation
         void SetSettingsScope(int64_t scope);
         void FillScopeList();
         void ScopeRefresh();
+        // The settings of a part on its card.
+        void WirePartSettings();
+        void FillPartSettings(int64_t part);
+        void RefreshPartSettings();
+        void OpenPartSearch();
+        std::shared_ptr<EditorTarget> PartTarget(std::vector<int64_t> const &parts);
         void AppendProfileRows();
         void OpenProfile(double z_min, double z_max);
         void EnterProfile(double z_min, double z_max);
@@ -647,6 +653,8 @@ namespace winrt::ZSlice::implementation
         std::vector<std::wstring> scope_items;
         std::shared_ptr<EditorTarget> scope_target;
         std::string settings_detail;
+        std::string part_settings_key;
+        std::vector<SettingEditor> part_editors;
         // The layer profile in edit, and the marks of the layer rail.
         bool in_profile = false;
         double profile_min = 0, profile_max = 0;
