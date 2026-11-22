@@ -178,6 +178,8 @@ namespace winrt::ZSlice::implementation
     {
         if (layer2d == nullptr || !layer2d->HasPaths())
             return;
+        // A click elsewhere ends a range of layers.
+        RangeClose();
         double bed_x, bed_y;
         layer2d->ToBed(x, y, bed_x, bed_y);
         size_t segment = 0;

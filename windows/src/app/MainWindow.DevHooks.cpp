@@ -81,6 +81,9 @@
 //   calclose, callog
 //   popupshot i path   writes open popup i to a BMP file
 //   qualityshot path   writes the open quality menu to a BMP file
+// The range of layers, in MainWindow.Range.cpp (key K shift grows it):
+//   rangelog, rangeclose, rangeadd, rangeset name value, rangereset name,
+//   rangechip k, rangebody k, rangeshot path
 // Each step writes the state to the log (ZSLICE_LOG).
 //
 // SPDX-License-Identifier: AGPL-3.0-or-later
@@ -495,6 +498,12 @@ namespace winrt::ZSlice::implementation
             if (!words.empty())
                 SaveChrome(Root(), words[0]);
         }
+        else if (verb == L"rangeshot")
+        {
+            // rangeshot path.bmp: the card of the range alone.
+            if (!words.empty())
+                SaveChrome(RangeDevRoot(), words[0]);
+        }
         else if (verb == L"search")
         {
             // search <words>: types them in the search. No words opens it.
@@ -758,7 +767,7 @@ namespace winrt::ZSlice::implementation
             SelectPlate((size_t)number(0));
         }
         else if (!RunPaintStep(verb, words) && !RunLabelStep(verb, words) && !RunFilamentStep(verb, words) &&
-                 !RunPreferencesStep(verb, words) && !RunProjectStep(verb, words) && verb != L"log")
+                 !RunPreferencesStep(verb, words) && !RunProjectStep(verb, words) && !RunRangeStep(verb, words) && verb != L"log")
         {
             zs::Log("dev: a bad step: %s\n", zs::ToUtf8(step).c_str());
         }

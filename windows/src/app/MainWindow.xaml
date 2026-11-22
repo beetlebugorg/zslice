@@ -379,13 +379,14 @@
                               BorderThickness="0,0,0,1" BorderBrush="{ThemeResource ZsLine}">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="Auto" />
                                 <ColumnDefinition Width="*" />
                                 <ColumnDefinition Width="Auto" />
                             </Grid.ColumnDefinitions>
                             <Path x:Name="SearchGrip" Width="10" Height="18" Opacity="0.45" VerticalAlignment="Center" Fill="{ThemeResource ZsFg}"
                                   Data="M1 3a1.2 1.2 0 1 1 2.4 0a1.2 1.2 0 1 1-2.4 0z M6 3a1.2 1.2 0 1 1 2.4 0a1.2 1.2 0 1 1-2.4 0z M1 9a1.2 1.2 0 1 1 2.4 0a1.2 1.2 0 1 1-2.4 0z M6 9a1.2 1.2 0 1 1 2.4 0a1.2 1.2 0 1 1-2.4 0z M1 15a1.2 1.2 0 1 1 2.4 0a1.2 1.2 0 1 1-2.4 0z M6 15a1.2 1.2 0 1 1 2.4 0a1.2 1.2 0 1 1-2.4 0z"
                                   ToolTipService.ToolTip="Drag to move the search. Double-click: back to its first place." />
-                            <TextBox x:Name="SearchEntry" Grid.Column="1" PlaceholderText="Search settings and actions"
+                            <TextBox x:Name="SearchEntry" Grid.Column="2" PlaceholderText="Search settings and actions"
                                      AutomationProperties.Name="Search settings and actions" BorderThickness="0" Padding="0,5,0,0"
                                      MinHeight="28" Background="Transparent" VerticalAlignment="Center" FontSize="16">
                                 <TextBox.Resources>
@@ -395,7 +396,7 @@
                                     <Thickness x:Key="TextControlBorderThemeThicknessFocused">0</Thickness>
                                 </TextBox.Resources>
                             </TextBox>
-                            <StackPanel x:Name="SearchHeadPins" Grid.Column="2" Orientation="Horizontal" Spacing="2" VerticalAlignment="Center" />
+                            <StackPanel x:Name="SearchHeadPins" Grid.Column="3" Orientation="Horizontal" Spacing="2" VerticalAlignment="Center" />
                         </Grid>
                         <Grid x:Name="SearchPinRow" Grid.Row="1" Padding="12,10,12,2">
                             <StackPanel x:Name="SearchPins" Orientation="Horizontal" Spacing="2" HorizontalAlignment="Right" />
