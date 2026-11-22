@@ -32,7 +32,7 @@ Build the web app at `web/app/`: the zslice window as one static page, with the 
 15. A draft slice first after each change of a plate with a slice, and the exact slice 300 ms after the last change or at the end of a drag. While the view has a draft, the export and the print wait for the exact slice.
 16. Preferences (main menu, Ctrl+, or Cmd+,): the slicer threads, the draft slices, the simulation after each slice, the theme, the first view, and the printers. The browser keeps the choices. The settings panel starts with the Speed section (part 02), and a line at its end points to Preferences.
 17. The settings of each nozzle (part 02), the Infill filament with the filament chips ("Part" for 0), the Filament row of the line card and the rows of the range card for a part of some layers (part 05), and the waste line of the filaments (part 05).
-18. The import of a model ZIP file (`web/app/modelimport.js`). The browser cannot read the file list of Printables: its API answers only the pages of printables.com. So the page dialog says how to get the ZIP file of the model, and opens the page. A ZIP file from Open or a drop shows the list of the core with check boxes. The checked files go on a new plate, and the worker call `spill` puts the parts that do not fit on more plates.
+18. The import of a model ZIP file (`web/app/modelimport.js`). No app calls the API of a site. The page dialog shows the text of the core (`zs_import_page_text`): it names the site, and says how to get the ZIP file of the model. Then it opens the page. A ZIP file from Open or a drop shows the list of the core with check boxes. The checked files go on a new plate, and the worker call `spill` puts the parts that do not fit on more plates.
 19. The icon: a favicon, a touch icon, and a manifest with 192 and 512 px icons (part 15).
 
 ## Numbers and rules that matter
@@ -81,4 +81,4 @@ Build the web app at `web/app/`: the zslice window as one static page, with the 
 6. With `?threads=0` the slice uses one thread and gives the same G-code.
 7. `node web/app/test-node.mjs` passes the link checks: a redirect to a local address, a web page, no name, a large file, no CORS, and a zslice project each stop.
 8. `?open=<https URL of an STL>` asks first, then opens the model on a new plate if the plate has parts.
-9. `node web/app/test-node.mjs` passes the import checks: the page check, a ZIP list, a file of it, and the spill through the wasm module.
+9. `node web/app/test-node.mjs` passes the import checks: the page check, the text for a page of each site, a ZIP list, a file of it, and the spill through the wasm module.

@@ -44,7 +44,7 @@ Keep a docs site from Markdown with no dependencies beyond Python 3, a reference
 - **Check the doc pages against the code after a batch of features.** An audit found, for example: the C link needs `-lm`, the status codes 10 to 17 were not in the table, and the user pages had old names of tools, qualities, and keys. Some pages are still older than the code in places; parts 09, 11, and 12 name them.
 - **Link to a reference page, not to a heading that has no anchor.** A link to an anchor in the PrusaSlicer references went nowhere, and `docs/build.py` stopped with an error. The link now goes to the page and names the entry.
 - **Give the icon a light rim.** On a dark Dock or desktop the near black square lost its edge.
-- **Give each new area a contract page.** The import from a model page has `docs/internals/model-import.md`: the call order for the apps that do not have it yet, what each site allows (CORS, tokens, and terms), and the state of each app.
+- **Give each new area a contract page.** The import from a model page has `docs/internals/model-import.md`: the call order for the apps that do not have it yet, why zslice calls no API of a site (the terms of Printables, the token of Thingiverse), and the state of each app.
 - The Mac CI job builds Debug: keep each Swift expression small enough to type-check in time (part 11).
 
 ## Acceptance checks
