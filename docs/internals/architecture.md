@@ -200,7 +200,7 @@ The undo list is in the core (`src/app/history.zig`), one list for each app. The
 
 1. The timer. It calls `zs_app_history_commit` 400 ms after the last change, with the time. The core has no clock, also in wasm.
 2. The focus. It calls `zs_app_history_set_focus` with the setting of the editor that has the focus. The edits of one setting are one step while its editor keeps the focus.
-3. The UI: the history list, the timeline, and the undo and redo keys. After an undo, it updates its editors from the bits of `enum zs_history_restored`, saves the groups that changed, and slices again.
+3. The UI: the history list, the undo, redo, and history buttons of the dock, and the undo and redo keys. After an undo, it updates its editors from the bits of `enum zs_history_restored`, saves the groups that changed, and slices again.
 
 A step keeps the texts of the three groups (`zs_app_state_write`), the quality profile, the plate as a 3MF file (steps with the same plate share one file), and the facts of the state. The text of a step comes from the diff of its facts and the facts of the step before. A plate set has one app for each plate, so each plate has its own undo list. The plates themselves are not in an undo list: a removal of a plate cannot be undone.
 

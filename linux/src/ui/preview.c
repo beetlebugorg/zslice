@@ -2149,10 +2149,10 @@ static GtkWidget *tool_strip(Preview *p) {
 
 /* ---- the bottom of the view: the dock and the layer slider ----
  *
- * The dock is one bar, the full width of the view, at its bottom, as on
- * the web: the plates and the history in the first row, the replay in the
- * second, and the print at the right of both. The layer slider stays in
- * the middle of the right edge, and moves up when the dock is in its way. */
+ * The dock is one bar, the full width of the view, under it, as on the
+ * web, in one row: the plates, undo, redo, and history, the replay, and
+ * the print. The layer slider stays in the middle of the right edge, and
+ * moves up when the dock is in its way. */
 
 enum { EDGE = 10, GAP = 8 };
 
@@ -2316,7 +2316,14 @@ GtkWidget *zg_preview_new(ZgModel *model) {
     gtk_event_controller_set_propagation_phase(GTK_EVENT_CONTROLLER(press), GTK_PHASE_CAPTURE);
     g_signal_connect(press, "pressed", G_CALLBACK(on_preview_press), p);
     gtk_widget_add_controller(box, GTK_EVENT_CONTROLLER(press));
-    gtk_overlay_set_child(GTK_OVERLAY(box), stack);
+    /* The view, and the dock under it: the view ends at the top of the
+     * dock, so the camera frames the plates and their signs in the part
+     * that shows. The top left of the view is the top left of the
+     * overlay, so the floats keep their places. */
+    GtkWidget *main_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
+    gtk_widget_set_vexpand(stack, TRUE);
+    gtk_box_append(GTK_BOX(main_box), stack);
+    gtk_overlay_set_child(GTK_OVERLAY(box), main_box);
     /* The cards over the view (float.h) have places of their own. */
     zg_float_install(box);
     /* The layer slider keeps over the dock (on_bottom_position). */
@@ -2347,19 +2354,21 @@ GtkWidget *zg_preview_new(ZgModel *model) {
     gtk_box_append(GTK_BOX(p->scrub_box), p->speed);
     gtk_box_append(GTK_BOX(p->scrub_box), p->scrub);
     gtk_box_append(GTK_BOX(p->scrub_box), p->scrub_label);
-    /* The dock: the plates, then the history (zg_preview_set_timeline);
-     * the replay under them; and the print at the right of both
+    /* The dock, in one row: the plates, then undo, redo, and the history
+     * (zg_preview_set_history), the replay, and the print at the right
      * (zg_preview_set_card). */
     p->dock = gtk_grid_new();
     gtk_widget_add_css_class(p->dock, "zg-dock");
     gtk_grid_set_column_spacing(GTK_GRID(p->dock), 12);
-    gtk_grid_set_row_spacing(GTK_GRID(p->dock), 2);
     gtk_widget_set_halign(p->dock, GTK_ALIGN_FILL);
     gtk_widget_set_valign(p->dock, GTK_ALIGN_END);
+    gtk_widget_set_vexpand(p->dock, FALSE);
     gtk_widget_set_valign(p->plates, GTK_ALIGN_CENTER);
+    gtk_widget_set_valign(p->scrub_box, GTK_ALIGN_CENTER);
+    gtk_widget_add_css_class(p->scrub_box, "zg-dock-group");
     gtk_grid_attach(GTK_GRID(p->dock), p->plates, 0, 0, 1, 1);
-    gtk_grid_attach(GTK_GRID(p->dock), p->scrub_box, 0, 1, 2, 1);
-    gtk_overlay_add_overlay(GTK_OVERLAY(box), p->dock);
+    gtk_grid_attach(GTK_GRID(p->dock), p->scrub_box, 2, 0, 1, 1);
+    gtk_box_append(GTK_BOX(main_box), p->dock);
     /* The readout of the measure tape, at the top of the view. */
     p->measure_label = gtk_label_new("");
     gtk_widget_add_css_class(p->measure_label, "osd");
@@ -2665,27 +2674,24 @@ void zg_preview_show_layer(GtkWidget *preview, size_t layer) {
     show_layer(p, layer);
 }
 
-void zg_preview_set_timeline(GtkWidget *preview, GtkWidget *timeline) {
+void zg_preview_set_history(GtkWidget *preview, GtkWidget *tools) {
     Preview *p = g_object_get_data(G_OBJECT(preview), "zg-preview");
     if (!p || !p->dock) return;
-    /* The dock paints the background. */
-    gtk_widget_remove_css_class(timeline, "osd");
-    gtk_widget_add_css_class(timeline, "zg-dock-group");
-    gtk_widget_set_halign(timeline, GTK_ALIGN_START);
-    gtk_widget_set_valign(timeline, GTK_ALIGN_CENTER);
-    gtk_widget_set_hexpand(timeline, TRUE);
-    gtk_grid_attach(GTK_GRID(p->dock), timeline, 1, 0, 1, 1);
+    gtk_widget_add_css_class(tools, "zg-dock-group");
+    gtk_widget_set_halign(tools, GTK_ALIGN_START);
+    gtk_widget_set_valign(tools, GTK_ALIGN_CENTER);
+    gtk_grid_attach(GTK_GRID(p->dock), tools, 1, 0, 1, 1);
 }
 
 void zg_preview_set_card(GtkWidget *preview, GtkWidget *card) {
     Preview *p = g_object_get_data(G_OBJECT(preview), "zg-preview");
     if (!p) return;
     p->card = card;
-    /* In the dock, at the right of its two rows: no card of its own. */
+    /* In the dock, at its right: no card of its own. */
     gtk_widget_remove_css_class(card, "zg-card");
     gtk_widget_add_css_class(card, "zg-dock-summary");
     gtk_widget_set_valign(card, GTK_ALIGN_CENTER);
-    gtk_grid_attach(GTK_GRID(p->dock), card, 2, 0, 1, 2);
+    gtk_grid_attach(GTK_GRID(p->dock), card, 3, 0, 1, 1);
 }
 
 GtkWidget *zg_preview_view_bar(GtkWidget *preview) {

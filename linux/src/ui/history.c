@@ -13,25 +13,16 @@ static const char *css =
     ".zg-history-later { opacity: 0.55; }\n"
     ".zg-history-badge { font-size: 0.8em; font-weight: bold; padding: 0 6px; border-radius: 8px;"
     " background: @accent_bg_color; color: @accent_fg_color; }\n"
-    /* The timeline: the history group of the dock of the preview. */
-    ".zg-timeline { padding: 2px 6px; border-radius: 14px; }\n"
-    ".zg-timeline button.zg-tl-tool { min-width: 26px; min-height: 26px; padding: 0; border-radius: 13px; }\n"
-    ".zg-timeline .zg-tl-sep { min-width: 1px; margin: 6px 4px; background: alpha(currentColor, 0.2); }\n"
-    ".zg-timeline button.zg-tl-title { font-size: 0.8em; font-weight: bold; min-height: 22px; padding: 1px 6px; margin: 0 2px;"
-    " border-radius: 11px; }\n"
-    /* The list of the changes: a popover over the dock. */
-    /* It is a child of the bar (.osd), so it sets its own background. */
+    /* Undo, redo, and the history button: a group of the dock of the
+     * preview. */
+    ".zg-hist-tools button.zg-tl-tool, .zg-hist-tools menubutton.zg-tl-tool > button {"
+    " min-width: 28px; min-height: 28px; padding: 0; border-radius: 14px; }\n"
+    ".zg-history-kind { font-size: 0.85em; }\n"
+    ".zg-history-foot { padding: 6px 8px; border-top: 1px solid alpha(currentColor, 0.15); }\n"
+    /* The list of the changes: a popover over the history button. It is a
+     * child of the dock, so it sets its own background. */
     "popover.zg-history-pop > contents { padding: 4px 0; background-color: @theme_bg_color; }\n"
-    "popover.zg-history-pop > arrow { background-color: @theme_bg_color; }\n"
-    ".zg-timeline .zg-tl-count { font-size: 0.8em; font-feature-settings: 'tnum'; opacity: 0.7; margin: 0 6px 0 4px; }\n"
-    ".zg-timeline .zg-tl-empty { font-size: 0.8em; opacity: 0.7; margin: 0 6px; }\n"
-    ".zg-tl-step { min-width: 0; min-height: 0; padding: 2px; margin: 0; border-radius: 99px;"
-    " background: none; box-shadow: none; }\n"
-    ".zg-tl-step:hover { background: alpha(currentColor, 0.18); }\n"
-    ".zg-tl-step.zg-tl-now { box-shadow: 0 0 0 2px @accent_bg_color; }\n"
-    ".zg-tl-step.zg-tl-later { opacity: 0.4; }\n"
-    ".zg-tl-line { min-width: 8px; min-height: 2px; border-radius: 1px; background: alpha(currentColor, 0.3); }\n"
-    ".zg-tl-line.zg-tl-later { background: alpha(currentColor, 0.12); }\n";
+    "popover.zg-history-pop > arrow { background-color: @theme_bg_color; }\n";
 
 static void ensure_css(void) {
     static gboolean done = FALSE;
@@ -257,39 +248,6 @@ static gboolean revertible(const char *line) {
     return zs_history_revertible(line, strlen(line)) != 0;
 }
 
-/* The changes of step i in words, as markup for a tooltip. */
-static char *step_tooltip(ZgModel *model, guint i) {
-    GString *s = g_string_new(NULL);
-    char *t = step_time(zg_model_history_time(model, i));
-    if (i == 0) g_string_append(s, "<b>Start</b>");
-    else g_string_append_printf(s, "<b>Change %u · %s</b>", i, look_of(step_kind(model, i))->label);
-    if (*t) g_string_append_printf(s, " · %s", t);
-    g_free(t);
-    if (i == zg_model_history_current(model)) g_string_append(s, " · now");
-    char *changes = zg_model_history_changes(model, i);
-    char *words = zg_model_history_describe(model, changes);
-    char **lines = g_strsplit(words, "\n", -1);
-    int n = 0;
-    for (int k = 0; lines[k]; k++) {
-        if (!*lines[k]) continue;
-        char *tab = strchr(lines[k], '\t');
-        if (!tab) continue;
-        *tab = 0;
-        char *scope = g_markup_escape_text(lines[k], -1), *change = g_markup_escape_text(tab + 1, -1);
-        if (n < 8) g_string_append_printf(s, "\n%s · %s", change, scope);
-        g_free(scope);
-        g_free(change);
-        n++;
-    }
-    if (n > 8) g_string_append_printf(s, "\n… and %d more", n - 8);
-    if (n == 0 && i > 0) g_string_append(s, "\nOther changes");
-    if (i != zg_model_history_current(model)) g_string_append(s, "\n<i>Click to go back to this change.</i>");
-    g_strfreev(lines);
-    g_free(words);
-    g_free(changes);
-    return g_string_free(s, FALSE);
-}
-
 /* ---- keys: the arrows go to the step before or after, and Space goes
  * back to the step shown before (to compare two steps) ---- */
 
@@ -402,6 +360,8 @@ typedef struct {
     ZgModel *model;
     GtkWidget *list;
     GtkWidget *scroller;
+    /* Under the list: clears the steps after the step now. */
+    GtkWidget *clear;
 } Page;
 
 /* A double click on a change: go to it, and open its setting where it
@@ -537,8 +497,15 @@ static GtkWidget *step_row(Page *p, guint i) {
     gtk_widget_add_css_class(tt, "numeric");
     gtk_widget_set_hexpand(tt, TRUE);
     gtk_label_set_xalign(GTK_LABEL(tt), 0);
-    gtk_box_append(GTK_BOX(head), kind_badge(step_kind(p->model, i), 22));
+    const char *kind = step_kind(p->model, i);
+    gtk_box_append(GTK_BOX(head), kind_badge(kind, 22));
     gtk_box_append(GTK_BOX(head), tl);
+    if (i > 0) {
+        GtkWidget *kl = gtk_label_new(look_of(kind)->label);
+        gtk_widget_add_css_class(kl, "dim-label");
+        gtk_widget_add_css_class(kl, "zg-history-kind");
+        gtk_box_append(GTK_BOX(head), kl);
+    }
     gtk_box_append(GTK_BOX(head), tt);
     if (i == now) {
         GtkWidget *badge = gtk_label_new("Now");
@@ -592,6 +559,11 @@ static void page_fill_focus(Page *p, gboolean take_focus) {
     GtkWidget *child;
     while ((child = gtk_widget_get_first_child(p->list))) gtk_list_box_remove(GTK_LIST_BOX(p->list), child);
     guint n = zg_model_history_count(p->model);
+    guint later = n > 0 ? n - 1 - zg_model_history_current(p->model) : 0;
+    gtk_widget_set_visible(p->clear, later > 0);
+    char *clear = later == 1 ? g_strdup("Clear the later change") : g_strdup_printf("Clear the %u later changes", later);
+    gtk_button_set_label(GTK_BUTTON(p->clear), clear);
+    g_free(clear);
     if (n == 0) return;
     /* The newest first. */
     for (guint k = n; k-- > 0;) {
@@ -667,6 +639,11 @@ static void on_history(ZgModel *model, gpointer data) {
     page_fill(data);
 }
 
+static void on_clear_later(GtkButton *b, gpointer data) {
+    Page *p = data;
+    zg_model_history_truncate(p->model, zg_model_history_current(p->model));
+}
+
 /* After a slice: the changes of some layers get their layer numbers. Only
  * while the page shows. */
 static void on_page_core(ZgModel *model, int event, double progress, int status, gpointer data) {
@@ -722,8 +699,19 @@ GtkWidget *zg_history_page_new(ZgModel *model) {
     gtk_scrolled_window_set_propagate_natural_width(GTK_SCROLLED_WINDOW(p->scroller), TRUE);
     gtk_scrolled_window_set_max_content_width(GTK_SCROLLED_WINDOW(p->scroller), 460);
     gtk_widget_set_vexpand(p->scroller, TRUE);
+    p->clear = gtk_button_new_with_label("");
+    gtk_widget_add_css_class(p->clear, "flat");
+    gtk_widget_set_halign(p->clear, GTK_ALIGN_END);
+    gtk_widget_set_tooltip_text(p->clear, "The changes after the step now go from the history. Redo cannot bring them back.");
+    g_signal_connect(p->clear, "clicked", G_CALLBACK(on_clear_later), p);
+    GtkWidget *foot = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
+    gtk_widget_add_css_class(foot, "zg-history-foot");
+    gtk_widget_set_hexpand(p->clear, TRUE);
+    gtk_box_append(GTK_BOX(foot), p->clear);
     gtk_box_append(GTK_BOX(box), help);
     gtk_box_append(GTK_BOX(box), p->scroller);
+    gtk_box_append(GTK_BOX(box), foot);
+    g_object_bind_property(p->clear, "visible", foot, "visible", G_BINDING_SYNC_CREATE);
     g_object_set_data_full(G_OBJECT(box), "zg-history", p, page_free);
     g_signal_connect(model, "undo-changed", G_CALLBACK(on_history), p);
     g_signal_connect(model, "core-event", G_CALLBACK(on_page_core), p);
@@ -732,186 +720,236 @@ GtkWidget *zg_history_page_new(ZgModel *model) {
     return box;
 }
 
-/* ---- the timeline ---- */
+/* ---- undo, redo, and the history button ---- */
 
 typedef struct {
     ZgModel *model;
-    GtkWidget *steps, *scroller, *undo, *redo, *empty, *count;
-    /* The list of the changes: a popover on the "History" button. */
-    GtkWidget *popover;
-} Timeline;
+    GtkWidget *undo, *redo, *button, *glyph, *popover, *sum;
+    /* The changes since the last open or save, on the button. */
+    guint unsaved;
+    /* The time of the last open or save (µs, as the steps), or 0. */
+    gint64 saved_at;
+} Tools;
 
-static void on_step(GtkButton *b, gpointer data) {
-    Timeline *t = data;
-    go_step(t->model, GPOINTER_TO_UINT(g_object_get_data(G_OBJECT(b), "zg-step")));
-}
-
-/* Left: the older step, Right: the newer step, Space: the step shown
- * before. */
-static gboolean on_timeline_key(GtkEventControllerKey *c, guint key, guint code, GdkModifierType mods, gpointer data) {
-    Timeline *t = data;
-    gint64 cur = zg_model_history_current(t->model);
-    switch (key) {
-    case GDK_KEY_Left: case GDK_KEY_KP_Left: go_step(t->model, cur - 1); return TRUE;
-    case GDK_KEY_Right: case GDK_KEY_KP_Right: go_step(t->model, cur + 1); return TRUE;
-    case GDK_KEY_space: flip_step(t->model); return TRUE;
-    default: return FALSE;
-    }
-}
-
-static gboolean on_step_tooltip(GtkWidget *b, int x, int y, gboolean keyboard, GtkTooltip *tip, gpointer data) {
-    Timeline *t = data;
-    guint i = GPOINTER_TO_UINT(g_object_get_data(G_OBJECT(b), "zg-step"));
-    if (i >= zg_model_history_count(t->model)) return FALSE;
-    char *markup = step_tooltip(t->model, i);
-    gtk_tooltip_set_markup(tip, markup);
-    g_free(markup);
-    return TRUE;
-}
-
-static gboolean scroll_to_now(gpointer data) {
-    Timeline *t = data;
-    GtkAdjustment *adj = gtk_scrolled_window_get_hadjustment(GTK_SCROLLED_WINDOW(t->scroller));
-    guint n = zg_model_history_count(t->model), now = zg_model_history_current(t->model);
-    double f = n > 1 ? (double)now / (double)(n - 1) : 1;
-    double page = gtk_adjustment_get_page_size(adj);
-    double range = gtk_adjustment_get_upper(adj) - page;
-    gtk_adjustment_set_value(adj, MAX(0, f * range));
-    return G_SOURCE_REMOVE;
-}
-
-static void timeline_fill(Timeline *t) {
-    GtkRoot *root = gtk_widget_get_root(t->steps);
-    GtkWidget *focus = root ? gtk_root_get_focus(root) : NULL;
-    gboolean had_focus = focus && gtk_widget_is_ancestor(focus, t->steps);
-    GtkWidget *child;
-    while ((child = gtk_widget_get_first_child(t->steps))) gtk_box_remove(GTK_BOX(t->steps), child);
-    guint n = zg_model_history_count(t->model), now = zg_model_history_current(t->model);
-    gtk_widget_set_visible(t->empty, n <= 1);
-    for (guint i = 0; i < n; i++) {
-        if (i > 0) {
-            GtkWidget *line = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
-            gtk_widget_add_css_class(line, "zg-tl-line");
-            if (i > now) gtk_widget_add_css_class(line, "zg-tl-later");
-            gtk_widget_set_valign(line, GTK_ALIGN_CENTER);
-            gtk_box_append(GTK_BOX(t->steps), line);
+/* The glyphs of the buttons on the 18 x 18 grid of the tool glyphs
+ * (preview.c, draw_tool), as on the web (index.html): 0 undo, 1 redo,
+ * 2 the history (a clock with a counter arrow). */
+static void draw_tools_glyph(GtkDrawingArea *a, cairo_t *cr, int w, int h, gpointer data) {
+    int kind = GPOINTER_TO_INT(data);
+    GdkRGBA c;
+    gtk_widget_get_color(GTK_WIDGET(a), &c);
+    gdk_cairo_set_source_rgba(cr, &c);
+    double u = MIN(MIN(w, h), 18) / 18.0;
+    cairo_save(cr);
+    cairo_translate(cr, (w - 18 * u) / 2, (h - 18 * u) / 2);
+    cairo_scale(cr, u, u);
+    cairo_set_line_width(cr, 1.5);
+    cairo_set_line_join(cr, CAIRO_LINE_JOIN_ROUND);
+    cairo_set_line_cap(cr, CAIRO_LINE_CAP_ROUND);
+    if (kind == 2) {
+        cairo_new_sub_path(cr);
+        cairo_arc_negative(cr, 9, 9, 5.8, G_PI, -0.75 * G_PI);
+        cairo_move_to(cr, 4.9, 1.9);
+        cairo_line_to(cr, 4.9, 4.9);
+        cairo_line_to(cr, 7.9, 4.9);
+        cairo_move_to(cr, 9, 5.8);
+        cairo_line_to(cr, 9, 9);
+        cairo_line_to(cr, 11.3, 10.5);
+    } else {
+        /* Undo; redo is undo in a mirror. */
+        if (kind == 1) {
+            cairo_translate(cr, 18, 0);
+            cairo_scale(cr, -1, 1);
         }
-        GtkWidget *b = gtk_button_new();
-        gtk_button_set_child(GTK_BUTTON(b), kind_badge(step_kind(t->model, i), i == now ? 22 : 18));
-        gtk_widget_add_css_class(b, "zg-tl-step");
-        if (i == now) gtk_widget_add_css_class(b, "zg-tl-now");
-        else if (i > now) gtk_widget_add_css_class(b, "zg-tl-later");
-        gtk_widget_set_valign(b, GTK_ALIGN_CENTER);
-        /* The tooltip is made when it shows, so it has the layer numbers
-         * of the last slice. */
-        gtk_widget_set_has_tooltip(b, TRUE);
-        g_signal_connect(b, "query-tooltip", G_CALLBACK(on_step_tooltip), t);
-        g_object_set_data(G_OBJECT(b), "zg-step", GUINT_TO_POINTER(i));
-        if (i == 0) g_object_set_data(G_OBJECT(b), "zg-step-zero", GINT_TO_POINTER(1));
-        g_signal_connect(b, "clicked", G_CALLBACK(on_step), t);
-        gtk_box_append(GTK_BOX(t->steps), b);
-        if (i == now && had_focus) gtk_widget_grab_focus(b);
+        cairo_move_to(cr, 6.5, 3.5);
+        cairo_line_to(cr, 3, 7);
+        cairo_line_to(cr, 6.5, 10.5);
+        cairo_move_to(cr, 3, 7);
+        cairo_line_to(cr, 10.5, 7);
+        cairo_arc(cr, 10.5, 11.5, 4.5, -G_PI / 2, G_PI / 2);
+        cairo_line_to(cr, 8, 16);
     }
+    cairo_stroke(cr);
+    cairo_restore(cr);
+    /* The count of the history button: a disc in the accent color of
+     * Adwaita at the top right, with the number. */
+    Tools *t = g_object_get_data(G_OBJECT(a), "zg-tools");
+    if (!t || t->unsaved == 0) return;
+    char text[8];
+    g_snprintf(text, sizeof text, t->unsaved > 9 ? "9+" : "%u", t->unsaved);
+    cairo_select_font_face(cr, "sans-serif", CAIRO_FONT_SLANT_NORMAL, CAIRO_FONT_WEIGHT_BOLD);
+    cairo_set_font_size(cr, 8.5);
+    cairo_text_extents_t ext;
+    cairo_text_extents(cr, text, &ext);
+    double r = 6, bw = MAX(2 * r, ext.x_advance + 6), bx = w - bw, by = 0;
+    cairo_new_path(cr);
+    cairo_arc(cr, bx + r, by + r, r, G_PI / 2, 3 * G_PI / 2);
+    cairo_arc(cr, bx + bw - r, by + r, r, -G_PI / 2, G_PI / 2);
+    cairo_close_path(cr);
+    cairo_set_source_rgb(cr, 0.208, 0.518, 0.894);
+    cairo_fill(cr);
+    cairo_set_source_rgb(cr, 1, 1, 1);
+    cairo_move_to(cr, bx + (bw - ext.x_advance) / 2, by + r + ext.height / 2);
+    cairo_show_text(cr, text);
+}
+
+static GtkWidget *tools_glyph(int kind) {
+    GtkWidget *g = gtk_drawing_area_new();
+    gtk_drawing_area_set_content_width(GTK_DRAWING_AREA(g), 20);
+    gtk_drawing_area_set_content_height(GTK_DRAWING_AREA(g), 20);
+    gtk_drawing_area_set_draw_func(GTK_DRAWING_AREA(g), draw_tools_glyph, GINT_TO_POINTER(kind), NULL);
+    gtk_widget_set_can_target(g, FALSE);
+    return g;
+}
+
+/* The changes since the last open or save: the steps after the save,
+ * and the steps of the save that an undo took back. The times of the
+ * steps give them, so the history needs no mark. */
+static guint tools_unsaved(Tools *t) {
+    guint n = zg_model_history_count(t->model), now = zg_model_history_current(t->model), k = 0;
+    for (guint i = 1; i < n; i++) {
+        gboolean after = zg_model_history_time(t->model, i) > t->saved_at;
+        if (i <= now ? after : !after) k++;
+    }
+    return k;
+}
+
+static void tools_fill(Tools *t) {
+    guint n = zg_model_history_count(t->model), now = zg_model_history_current(t->model);
+    guint changes = n > 0 ? n - 1 : 0, unsaved = tools_unsaved(t);
+    const char *s = changes == 1 ? "" : "s";
     gtk_widget_set_sensitive(t->undo, now > 0);
     gtk_widget_set_sensitive(t->redo, now + 1 < n);
-    gtk_widget_set_visible(t->scroller, n > 1);
-    gtk_widget_set_visible(t->count, n > 1);
-    char *count = g_strdup_printf("%u / %u", now, n > 0 ? n - 1 : 0);
-    gtk_label_set_text(GTK_LABEL(t->count), count);
-    gtk_widget_set_tooltip_text(t->count, "The change shown now, and the number of changes. ← and → go through them when the timeline has the focus.");
-    g_free(count);
-    g_idle_add(scroll_to_now, t);
+    if (t->unsaved != unsaved) {
+        t->unsaved = unsaved;
+        gtk_widget_queue_draw(t->glyph);
+    }
+    char *tip = unsaved > 0 ? g_strdup_printf("History (%u change%s). %u since you opened or saved. Ctrl+H", changes, s, unsaved)
+                            : g_strdup_printf("History (%u change%s). Ctrl+H", changes, s);
+    gtk_widget_set_tooltip_text(t->button, tip);
+    g_free(tip);
+    char *sum = changes == 0 ? g_strdup("")
+                : now + 1 < n ? g_strdup_printf("%u change%s, at change %u", changes, s, now)
+                              : g_strdup_printf("%u change%s", changes, s);
+    gtk_label_set_text(GTK_LABEL(t->sum), sum);
+    g_free(sum);
 }
 
-static void on_timeline(ZgModel *model, gpointer data) {
-    timeline_fill(data);
+static void on_tools_history(ZgModel *model, gpointer data) {
+    tools_fill(data);
 }
 
 static void on_undo(GtkButton *b, gpointer data) {
-    zg_model_undo(((Timeline *)data)->model);
+    zg_model_undo(((Tools *)data)->model);
 }
 
 static void on_redo(GtkButton *b, gpointer data) {
-    zg_model_redo(((Timeline *)data)->model);
+    zg_model_redo(((Tools *)data)->model);
 }
 
-static void timeline_free(gpointer data) {
-    Timeline *t = data;
+static void on_pop_close(GtkButton *b, gpointer data) {
+    gtk_popover_popdown(GTK_POPOVER(((Tools *)data)->popover));
+}
+
+static void tools_free(gpointer data) {
+    Tools *t = data;
     g_signal_handlers_disconnect_by_data(t->model, t);
     g_object_unref(t->model);
     g_free(t);
 }
 
-GtkWidget *zg_timeline_new(ZgModel *model) {
-    ensure_css();
-    Timeline *t = g_new0(Timeline, 1);
-    t->model = g_object_ref(model);
-    /* A group of the dock: undo and redo, the title, the marks of the
-     * steps (the oldest at the left), and the count. The dock paints its
-     * background (zg_preview_set_timeline removes "osd"). */
-    GtkWidget *bar = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 2);
-    gtk_widget_add_css_class(bar, "osd");
-    gtk_widget_add_css_class(bar, "zg-timeline");
-    t->undo = gtk_button_new_from_icon_name("edit-undo-symbolic");
-    t->redo = gtk_button_new_from_icon_name("edit-redo-symbolic");
-    gtk_widget_set_tooltip_text(t->undo, "Undo (Ctrl+Z)");
-    gtk_widget_set_tooltip_text(t->redo, "Redo (Ctrl+Shift+Z)");
-    for (int k = 0; k < 2; k++) {
-        GtkWidget *b = k ? t->redo : t->undo;
+/* A round flat button of the group, with glyph `glyph` (a plain button)
+ * or with no child yet (a menu button). */
+static GtkWidget *tool_button(GtkWidget *b, int glyph, const char *tip) {
+    if (GTK_IS_MENU_BUTTON(b)) {
+        gtk_menu_button_set_has_frame(GTK_MENU_BUTTON(b), FALSE);
+    } else {
+        gtk_button_set_child(GTK_BUTTON(b), tools_glyph(glyph));
         gtk_widget_add_css_class(b, "flat");
-        gtk_widget_add_css_class(b, "zg-tl-tool");
-        gtk_widget_set_valign(b, GTK_ALIGN_CENTER);
     }
+    gtk_widget_add_css_class(b, "zg-tl-tool");
+    gtk_widget_set_valign(b, GTK_ALIGN_CENTER);
+    gtk_widget_set_tooltip_text(b, tip);
+    return b;
+}
+
+GtkWidget *zg_history_tools_new(ZgModel *model) {
+    ensure_css();
+    Tools *t = g_new0(Tools, 1);
+    t->model = g_object_ref(model);
+    /* A group of the dock: undo, redo, and the history button. The dock
+     * paints its background. */
+    GtkWidget *bar = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 2);
+    gtk_widget_add_css_class(bar, "zg-hist-tools");
+    t->undo = tool_button(gtk_button_new(), 0, "Undo (Ctrl+Z)");
+    t->redo = tool_button(gtk_button_new(), 1, "Redo (Ctrl+Shift+Z)");
     g_signal_connect(t->undo, "clicked", G_CALLBACK(on_undo), t);
     g_signal_connect(t->redo, "clicked", G_CALLBACK(on_redo), t);
-    GtkWidget *sep = gtk_separator_new(GTK_ORIENTATION_VERTICAL);
-    gtk_widget_add_css_class(sep, "zg-tl-sep");
-    /* "History" opens the list of the changes over the bar. */
-    GtkWidget *label = gtk_menu_button_new();
-    gtk_menu_button_set_child(GTK_MENU_BUTTON(label), gtk_label_new("History"));
-    gtk_widget_add_css_class(label, "flat");
-    gtk_widget_add_css_class(label, "zg-tl-title");
-    gtk_widget_set_valign(label, GTK_ALIGN_CENTER);
-    gtk_widget_set_tooltip_text(label, "Show the list of the changes");
+    /* The history button: the glyph, and the count at its top right. */
+    t->button = tool_button(gtk_menu_button_new(), 2, "History");
+    t->glyph = tools_glyph(2);
+    gtk_drawing_area_set_content_width(GTK_DRAWING_AREA(t->glyph), 24);
+    g_object_set_data(G_OBJECT(t->glyph), "zg-tools", t);
+    gtk_menu_button_set_child(GTK_MENU_BUTTON(t->button), t->glyph);
+    /* The list of the changes: a popover over the button, with a head. */
     t->popover = gtk_popover_new();
     gtk_widget_add_css_class(t->popover, "zg-history-pop");
     gtk_popover_set_position(GTK_POPOVER(t->popover), GTK_POS_TOP);
-    GtkWidget *page = zg_history_page_new(model);
-    gtk_popover_set_child(GTK_POPOVER(t->popover), page);
-    gtk_menu_button_set_popover(GTK_MENU_BUTTON(label), t->popover);
-    t->steps = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
-    gtk_widget_set_valign(t->steps, GTK_ALIGN_CENTER);
-    gtk_widget_set_margin_top(t->steps, 2);
-    gtk_widget_set_margin_bottom(t->steps, 2);
-    t->empty = gtk_label_new("Your changes show here");
-    gtk_widget_add_css_class(t->empty, "zg-tl-empty");
-    gtk_widget_set_tooltip_text(t->empty, "Each change of the settings or the plate adds a mark. Click a mark to see the print at that change.");
-    t->scroller = gtk_scrolled_window_new();
-    gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(t->scroller), GTK_POLICY_EXTERNAL, GTK_POLICY_NEVER);
-    gtk_scrolled_window_set_propagate_natural_width(GTK_SCROLLED_WINDOW(t->scroller), TRUE);
-    gtk_scrolled_window_set_max_content_width(GTK_SCROLLED_WINDOW(t->scroller), 420);
-    gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(t->scroller), t->steps);
-    t->count = gtk_label_new("");
-    gtk_widget_add_css_class(t->count, "zg-tl-count");
+    GtkWidget *pop_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
+    GtkWidget *head = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
+    gtk_widget_set_margin_start(head, 10);
+    gtk_widget_set_margin_end(head, 4);
+    gtk_widget_set_margin_bottom(head, 4);
+    GtkWidget *title = gtk_label_new("History");
+    gtk_widget_add_css_class(title, "heading");
+    t->sum = gtk_label_new("");
+    gtk_widget_add_css_class(t->sum, "dim-label");
+    gtk_widget_add_css_class(t->sum, "numeric");
+    gtk_widget_set_hexpand(t->sum, TRUE);
+    gtk_label_set_xalign(GTK_LABEL(t->sum), 0);
+    GtkWidget *close = gtk_button_new_from_icon_name("window-close-symbolic");
+    gtk_widget_add_css_class(close, "flat");
+    gtk_widget_add_css_class(close, "circular");
+    gtk_widget_set_tooltip_text(close, "Close (Esc)");
+    g_signal_connect(close, "clicked", G_CALLBACK(on_pop_close), t);
+    gtk_box_append(GTK_BOX(head), title);
+    gtk_box_append(GTK_BOX(head), t->sum);
+    gtk_box_append(GTK_BOX(head), close);
+    gtk_box_append(GTK_BOX(pop_box), head);
+    gtk_box_append(GTK_BOX(pop_box), zg_history_page_new(model));
+    gtk_popover_set_child(GTK_POPOVER(t->popover), pop_box);
+    gtk_menu_button_set_popover(GTK_MENU_BUTTON(t->button), t->popover);
     gtk_box_append(GTK_BOX(bar), t->undo);
     gtk_box_append(GTK_BOX(bar), t->redo);
-    gtk_box_append(GTK_BOX(bar), sep);
-    gtk_box_append(GTK_BOX(bar), label);
-    gtk_box_append(GTK_BOX(bar), t->empty);
-    gtk_box_append(GTK_BOX(bar), t->scroller);
-    gtk_box_append(GTK_BOX(bar), t->count);
-    GtkEventController *tk = gtk_event_controller_key_new();
-    gtk_event_controller_set_propagation_phase(tk, GTK_PHASE_CAPTURE);
-    g_signal_connect(tk, "key-pressed", G_CALLBACK(on_timeline_key), t);
-    gtk_widget_add_controller(bar, tk);
-    add_step_menu(bar, model);
-    g_object_set_data_full(G_OBJECT(bar), "zg-timeline", t, timeline_free);
-    g_signal_connect(model, "undo-changed", G_CALLBACK(on_timeline), t);
-    timeline_fill(t);
+    gtk_box_append(GTK_BOX(bar), t->button);
+    g_object_set_data_full(G_OBJECT(bar), "zg-history-tools", t, tools_free);
+    g_signal_connect(model, "undo-changed", G_CALLBACK(on_tools_history), t);
+    tools_fill(t);
     return bar;
 }
 
-void zg_timeline_show_history(GtkWidget *timeline) {
-    Timeline *t = g_object_get_data(G_OBJECT(timeline), "zg-timeline");
-    if (t) gtk_popover_popup(GTK_POPOVER(t->popover));
+void zg_history_tools_toggle(GtkWidget *tools, gboolean open) {
+    Tools *t = g_object_get_data(G_OBJECT(tools), "zg-history-tools");
+    if (!t) return;
+    if (open || !gtk_widget_get_visible(t->popover)) gtk_popover_popup(GTK_POPOVER(t->popover));
+    else gtk_popover_popdown(GTK_POPOVER(t->popover));
+}
+
+static gboolean mark_again(gpointer data) {
+    Tools *t = g_object_get_data(G_OBJECT(data), "zg-history-tools");
+    if (t) {
+        t->saved_at = g_get_real_time();
+        tools_fill(t);
+    }
+    return G_SOURCE_REMOVE;
+}
+
+void zg_history_tools_mark_saved(GtkWidget *tools) {
+    Tools *t = g_object_get_data(G_OBJECT(tools), "zg-history-tools");
+    if (!t) return;
+    t->saved_at = g_get_real_time();
+    tools_fill(t);
+    /* The step of an open is in the history 400 ms later (the commit of
+     * the model): the mark moves past it. */
+    g_timeout_add_full(G_PRIORITY_DEFAULT, 600, mark_again, g_object_ref(tools), g_object_unref);
 }

@@ -17,7 +17,7 @@ zslice shows the print as the plastic forms it, and the parts obey physics. Pick
 
 - ![The 2D view of the Benchy at layer 50 with a gap in red](../img/gaps.webp) **Gaps and checks.** See each area that no line covers, and the settings that close it. **Check** lists what can make the print fail. [Go to the page.](check.md)
 - ![The web app on a phone](../img/phone.webp) **In your browser.** The same core runs in WebAssembly at [zslice.beetlebug.org](https://zslice.beetlebug.org/). Your files stay on your computer. [Go to the page.](apps.md)
-- ![The History list of the changes](../img/history.webp) **A history in words.** Each change has a mark on the dock. Go back to any change, or undo one setting and keep the later changes. [Go to the page.](history.md)
+- ![The History list of the changes](../img/history.webp) **A history in words.** Each change is a step in the History list. Go back to any change, or undo one setting and keep the later changes. [Go to the page.](history.md)
 
 ## Where to go next
 

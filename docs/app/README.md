@@ -88,7 +88,7 @@ The GTK shell is in `linux/src`. Each `.c` file has a header that explains its i
 | | `model-download` | The download of a `zslice://` link: the address checks, the redirects, and the size limit |
 | | `project-source` | The files of a printdeck.yml project: a folder, or a public GitHub repository |
 | `ui/` | `window` | The main window: the header bar, the file dialogs, the send to a printer, and the status bar |
-| | `preview` | The 2D and 3D preview with the tool strip, the layer slider, the dock at the bottom (the plates, the replay, and the history), the place of the print card, the sign of the 2D view, the measure readout, and the keyboard navigation |
+| | `preview` | The 2D and 3D preview with the tool strip, the layer slider, the dock under the view (the plates, undo, redo, the history button, and the replay), the place of the print card, the sign of the 2D view, the measure readout, and the keyboard navigation |
 | | `layer-draw` | The cairo drawing of one layer in the 2D view |
 | | `toolpath-nav` | The next segment and the nearest line, for the keyboard navigation |
 | | `layer-range` | The slider with two knobs for the layers that show |
@@ -105,7 +105,7 @@ The GTK shell is in `linux/src`. Each `.c` file has a header that explains its i
 | | `inspector` | The "Selected" page: the values of a line and the settings that change it |
 | | `project-page` | The page of the Project dialog: a printdeck.yml project, its plates and parts, and the status of each plate |
 | | `farm-page` | The Printers page over the view: a tile for each printer, and the plates to print |
-| | `history` | The history group of the dock under the preview, and the list of the changes in a popover over it |
+| | `history` | Undo, redo, and the history button of the dock (with the count of the changes since the last open or save), and the list of the changes in a popover over the button |
 | | `part-page` | The page of a part: its place, turn, and scale, and the placement |
 | | `settings-browser` | The "Settings" page: all settings in three columns |
 | | `setting-row` | One setting as a row of a grid |
@@ -153,7 +153,7 @@ These environment variables change the start of the GTK shell, for development, 
 | `ZSLICE_SETTING=name` | Opens the Settings page at the setting `name`. | `ui/settings-browser.c` |
 | `ZSLICE_PROJECT=dir` or `owner/repo` | Opens the printdeck.yml project of a folder or of a GitHub repository at the start, and shows the Project dialog. `ZSLICE_PROJECT_PLATE=n` then opens plate n (from 1), also for the project of the last session. | `ui/project-page.c` |
 | `ZSLICE_PROJECT_DO=steps` | Changes the widgets of the Project page 3 s after the start, one step each second, as a click would. Steps, with `;` between them: `status 1 printed`, `count 2 0`, `check 2 off`, `scroll 600`, `sent`, `set machine.max_height 300`, `end`, `close`. | `ui/project-page.c` |
-| `ZSLICE_ACTION=name` | Runs an action 1.5 s after the first slice, as a click would. The name is a detailed action name, for example `win.search-part(int64 0)` (the search of part 0), `win.show-page('history')`, or `win.shortcuts`. `win.show-page` accepts `settings`, `selected`, `history` (the popover over the dock), `project` (the dialog), or `farm` (the Printers page). `win.show-setting('project.infill_density')` opens the panel at a setting. | `ui/window.c` |
+| `ZSLICE_ACTION=name` | Runs an action 1.5 s after the first slice, as a click would. The name is a detailed action name, for example `win.search-part(int64 0)` (the search of part 0), `win.show-page('history')`, or `win.shortcuts`. `win.show-page` accepts `settings`, `selected`, `history` (the popover over the history button of the dock), `project` (the dialog), or `farm` (the Printers page). `win.show-setting('project.infill_density')` opens the panel at a setting. | `ui/window.c` |
 | `ZSLICE_FARM_PAIR=1` | On the Printers page, presses "Get a key" on the first card that needs a key, once (the pair dialog). | `ui/farm-page.c` |
 | `ZSLICE_CAMERA_LOG=1` | Logs the source of the first frame of each camera (HTTP, RTSPS on port 322, or JPEG on port 6000), and why a camera gives no picture. | `ui/camera-view.c` |
 | `ZSLICE_BAMBU_MQTT_PORT`, `ZSLICE_BAMBU_JPEG_PORT`, `ZSLICE_BAMBU_RTSPS_PORT` | Move the ports of a Bambu Lab printer, for a test server (`macos/tools/fake_bambu.py`: `MQTT_PORT`, `CAM_PORT`). | `net/bambu-link.c` |

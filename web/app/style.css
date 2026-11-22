@@ -226,6 +226,10 @@ button.pill { border-radius: 999px; padding: 6px 22px; background: var(--accent-
 #panel-toggle[aria-pressed="true"] { background: var(--accent-bg); color: var(--accent-fg); }
 .preview { flex: 1; position: relative; background: var(--view-bg); min-width: 0; overflow: hidden; }
 .preview canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; outline: none; }
+/* The view ends at the top of the dock: the camera frames the plates and
+   their signs in the part that shows. Its top left stays at the top left
+   of the preview, so the floats keep their places. */
+.preview #gl { height: auto; bottom: var(--dock-h, 0px); }
 .preview.drop { outline: 3px dashed var(--accent-bg); outline-offset: -8px; }
 .panel {
   width: 560px; max-width: 75vw; min-width: 300px; flex: none;
@@ -458,12 +462,12 @@ select.choice {
   .preview .dock { right: 254px; }
 }
 /* A very narrow view: the print card takes the width of the view, and
-   the scrub bar and the timeline go over it. */
+   the scrub bar goes over it. */
 @container (max-width: 700px) {
   /* The plate bar stays at the bottom; the print card goes over it. */
   .preview .summary.float-card { left: 10px; right: 10px; width: auto; bottom: calc(var(--dock-h, 40px) + 16px); }
   .preview .dock { right: 10px; flex-wrap: wrap; row-gap: 2px; }
-  .preview .dock > .scrub, .preview .dock > .timeline { border-left: none; padding-left: 0; }
+  .preview .dock > .scrub { border-left: none; padding-left: 0; }
   .preview .dock .scrub-label { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .preview .layers { bottom: calc(var(--dock-h, 40px) + 150px); }
   /* The facts of the card are in the Settings: a short card. */
@@ -608,7 +612,6 @@ button.destructive { background: var(--destructive); color: #fff; }
 .hist-step.hist-now { background: rgba(var(--accent-rgb), 0.18); box-shadow: inset 3px 0 0 var(--accent); }
 .hist-step.hist-later { opacity: 0.55; }
 .hist-head { display: flex; align-items: center; gap: 8px; }
-.hist-badge { font-size: 0.75em; font-weight: 700; color: #fff; border-radius: 999px; padding: 2px 8px; white-space: nowrap; }
 .hist-title { font-weight: 700; }
 .hist-time { flex: 1; font-variant-numeric: tabular-nums; font-size: 0.9em; }
 .hist-now-badge { font-size: 0.75em; font-weight: 700; border-radius: 999px; padding: 2px 8px; background: var(--accent-bg); color: var(--accent-fg); }
@@ -732,30 +735,19 @@ button.destructive { background: var(--destructive); color: #fff; }
 .proj-facts { font-size: 0.8em; }
 .proj-n { width: 52px; }
 
-/* The timeline of the history: a floating bar under the scrub bar. */
-.timeline {
-  left: 50%; bottom: 10px; transform: translateX(-50%);
-  display: flex; align-items: center; gap: 2px; padding: 3px 8px; border-radius: 14px;
-  max-width: calc(100% - 20px); outline: none;
+/* Undo, redo, and the history button of the dock. The count on the
+   button: the changes since the last open or save. */
+.hist-tools { display: flex; align-items: center; gap: 2px; }
+.hist-tools .tool.icon { min-height: 28px; min-width: 28px; padding: 0; border-radius: 14px; display: grid; place-items: center; }
+.hist-button { position: relative; }
+.hist-button[aria-expanded="true"] { background: var(--button-active); }
+.hist-count {
+  position: absolute; top: -3px; right: -4px; min-width: 15px; height: 15px; box-sizing: border-box;
+  padding: 0 4px; border-radius: 8px; background: var(--accent-bg); color: var(--accent-fg);
+  font-size: 10px; font-weight: 700; line-height: 15px; text-align: center; font-variant-numeric: tabular-nums;
+  pointer-events: none;
 }
-.timeline:not([hidden]) ~ .scrub { bottom: 54px; }
-.tl-tool { min-height: 26px; min-width: 26px; padding: 0 6px; border-radius: 13px; font-size: 1.05em; }
-.tl-sep { width: 1px; align-self: stretch; margin: 6px 4px; background: rgba(var(--fg-rgb), 0.2); }
-.tl-title { font-size: 0.8em; font-weight: 700; color: var(--dim); margin: 0 4px; }
-.tl-empty, .tl-count { font-size: 0.8em; color: var(--dim); margin: 0 6px; font-variant-numeric: tabular-nums; white-space: nowrap; }
-.tl-marks { display: flex; align-items: center; overflow-x: auto; scrollbar-width: none; max-width: 420px; padding: 3px 2px; }
-.tl-mark {
-  flex: none; width: 22px; height: 22px; min-height: 0; padding: 0; border-radius: 50%;
-  background: var(--kind); border: 2px solid rgba(255, 255, 255, 0.85);
-  display: grid; place-items: center;
-}
-.tl-mark svg { width: 15px; height: 15px; pointer-events: none; }
-.tl-mark.now svg { width: 18px; height: 18px; }
-.tl-mark:hover:not(:disabled) { background: var(--kind); filter: brightness(1.25); }
-.tl-mark.now { width: 26px; height: 26px; box-shadow: 0 0 0 2px var(--accent-bg); }
-.tl-mark.later { opacity: 0.4; }
-.tl-line { flex: none; width: 10px; height: 2px; border-radius: 1px; background: rgba(var(--fg-rgb), 0.3); }
-.tl-line.later { background: rgba(var(--fg-rgb), 0.12); }
+.hist-count[hidden] { display: none; }
 
 /* The readout of the measure tape, under the toolbar. */
 /* The sign of the 2D view: at the top of the view, in the middle. */
@@ -1029,15 +1021,25 @@ button.icon.lc-close { min-height: 24px; min-width: 24px; padding: 0; margin: -3
 
 /* The panel: a title, Pin, and close. */
 .panel-title { flex: 1; min-width: 0; font-weight: 700; padding-left: 6px; overflow-wrap: anywhere; }
-/* The history: a popover over the history bar. */
-.tl-title { background: transparent; border: none; color: inherit; font: inherit; font-weight: 600; padding: 2px 6px; border-radius: 8px; cursor: pointer; min-height: 0; }
-.tl-title:hover { background: rgba(var(--fg-rgb), 0.1); }
+/* The history: a popover over its button in the dock (app.js,
+   placeHistory). A head, then the list, which scrolls. */
 .history-pop {
-  left: 50%; bottom: 60px; transform: translateX(-50%); z-index: 12;
-  width: min(460px, calc(100% - 24px)); max-height: min(60vh, 560px); overflow-y: auto;
-  border-radius: 12px; padding: 4px 0;
+  left: 10px; bottom: 60px; z-index: 12;
+  width: min(440px, calc(100% - 16px)); max-height: min(60vh, 560px);
+  display: flex; flex-direction: column; border-radius: 12px; padding: 0;
+  background: var(--popover); border: 1px solid var(--popover-border); box-shadow: 0 6px 24px var(--shadow-soft);
 }
 .history-pop[hidden] { display: none; }
+.hist-pop-head { display: flex; align-items: center; gap: 8px; padding: 6px 6px 6px 8px; border-bottom: 1px solid var(--border); }
+.hist-pop-head .panel-title { flex: none; }
+.hist-sum { flex: 1; font-size: 0.85em; font-variant-numeric: tabular-nums; }
+.history-pop > .page { overflow-y: auto; padding: 4px; outline: none; }
+.hist-dot { flex: none; width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; }
+.hist-titles { display: flex; align-items: baseline; gap: 6px; min-width: 0; }
+.hist-kind { font-size: 0.85em; white-space: nowrap; }
+.hist-go { min-height: 24px; padding: 0 8px; font-size: 0.85em; visibility: hidden; }
+.hist-step:hover .hist-go, .hist-step:focus-within .hist-go { visibility: visible; }
+.hist-foot { display: flex; justify-content: flex-end; padding: 6px 8px; border-top: 1px solid var(--border); }
 /* The printers: a page over the view. */
 .farm-view { position: absolute; inset: 0; z-index: 20; background: var(--bg); color: var(--fg); overflow-y: auto; display: flex; flex-direction: column; }
 .farm-view[hidden] { display: none; }
@@ -1072,7 +1074,6 @@ button.icon.lc-close { min-height: 24px; min-width: 24px; padding: 0; margin: -3
 .preview .dock > .float { position: static; transform: none; box-shadow: none; background: transparent; border: none; padding: 0; width: auto; max-width: none; left: auto; right: auto; bottom: auto; top: auto; border-radius: 0; }
 .preview .dock > [hidden] { display: none; }
 .preview .dock > .scrub { flex: 1 1 200px; min-width: 160px; border-left: 1px solid rgba(var(--fg-rgb), 0.15); padding-left: 8px; }
-.preview .dock > .timeline { flex: none; border-left: 1px solid rgba(var(--fg-rgb), 0.15); padding-left: 6px; }
 .dock .scrub .tool { min-height: 28px; }
 .dock .tool { white-space: nowrap; }
 /* A phone: the view toolbar is a second row of the header. */
@@ -1091,10 +1092,7 @@ button.icon.lc-close { min-height: 24px; min-width: 24px; padding: 0; margin: -3
 .lc-foot.lc-edits button { white-space: normal; text-align: left; font-size: 0.8em; padding: 2px 6px; }
 /* The layer slider ends over the print card, at its height (--card-h). */
 .preview .layers { bottom: calc(var(--card-h, 190px) + 30px); }
-/* A crowded dock: the history marks shrink and scroll, and the scrub label
-   keeps its room. */
-.preview .dock > .timeline { min-width: 0; flex: 0 1 auto; overflow: hidden; }
-.preview .dock .tl-marks { min-width: 0; overflow-x: auto; scrollbar-width: none; }
+/* A crowded dock: the scrub label keeps its room. */
 .preview .dock > .scrub { flex: 1 1 220px; min-width: 200px; }
 .preview .dock .scrub-label { white-space: nowrap; flex: none; }
 /* A dock with no room for one row (a pinned panel): its parts wrap to a
@@ -1105,28 +1103,33 @@ button.icon.lc-close { min-height: 24px; min-width: 24px; padding: 0; margin: -3
   .preview .layers { bottom: calc(var(--dock-h, 40px) + var(--card-h, 120px) + 30px); }
   /* The rows of a narrow dock: no line at the left, and the label of the
      replay shrinks in place of running past the dock. */
-  .preview .dock > .scrub, .preview .dock > .timeline { border-left: none; padding-left: 0; }
-  .preview .dock > .scrub { min-width: 0; }
+  .preview .dock > .scrub { border-left: none; padding-left: 0; min-width: 0; }
   .preview .dock .scrub input { min-width: 60px; }
   .preview .dock .scrub-label { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 }
 
 /* ---- the bottom bar ----
-   One bar, the full width of the view, at the bottom: two rows at the
-   left (the plates and the history, then the replay), and the print at
-   the right. The details of the print open in a pane over the bar. */
+   One bar, the full width of the view, at the bottom, in one row: the
+   plates, undo, redo, and history, the replay, and the print at the
+   right. The details of the print open in a pane over the bar. */
 .preview .dock {
   left: 0; right: 0; bottom: 0; min-height: 0; border-radius: 0;
-  display: grid; grid-template-columns: auto minmax(0, 1fr) auto; grid-template-rows: auto auto;
-  column-gap: 12px; row-gap: 2px; padding: 5px 12px 6px; align-items: center;
+  display: grid; grid-template-columns: auto auto minmax(0, 1fr) auto; grid-template-rows: auto;
+  column-gap: 10px; row-gap: 2px; padding: 4px 12px; align-items: center;
   border-top: 1px solid rgba(var(--fg-rgb), 0.12); box-shadow: 0 -2px 10px var(--shadow-soft);
   background: var(--popover); z-index: 4;
 }
 .preview .dock > .plate-bar { grid-column: 1; grid-row: 1; padding: 0; }
-.preview .dock > .timeline { grid-column: 2; grid-row: 1; justify-self: start; border-left: 1px solid rgba(var(--fg-rgb), 0.15); padding-left: 8px; max-width: 100%; }
-.preview .dock > .scrub { grid-column: 1 / 3; grid-row: 2; border-left: none; padding-left: 0; min-width: 0; width: auto; }
+.preview .dock > .hist-tools { grid-column: 2; grid-row: 1; border-left: 1px solid rgba(var(--fg-rgb), 0.15); padding-left: 8px; }
+.preview .dock > .scrub { grid-column: 3; grid-row: 1; border-left: 1px solid rgba(var(--fg-rgb), 0.15); padding-left: 8px; min-width: 0; width: auto; }
 .preview .dock .scrub input { width: auto; min-width: 60px; }
-.preview .dock > .dock-summary { grid-column: 3; grid-row: 1 / 3; }
+.preview .dock > .dock-summary { grid-column: 4; grid-row: 1; }
+/* A narrow view: the replay goes to a second row, under the plates. */
+@container (max-width: 760px) {
+  .preview .dock { grid-template-columns: auto minmax(0, 1fr) auto; grid-template-rows: auto auto; }
+  .preview .dock > .scrub { grid-column: 1 / 3; grid-row: 2; border-left: none; padding-left: 0; }
+  .preview .dock > .dock-summary { grid-column: 3; grid-row: 1 / 3; }
+}
 .dock-summary {
   position: relative; display: flex; align-items: center; gap: 10px;
   background: none; border: none; padding: 0 0 0 12px; border-left: 1px solid rgba(var(--fg-rgb), 0.15);

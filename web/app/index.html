@@ -109,8 +109,9 @@
         <div class="bubble hi"></div>
         <div class="bubble lo" hidden></div>
       </div>
-      <!-- One bar at the bottom, the full width of the view: the plates,
-           the history, the replay of the print, and the print. -->
+      <!-- One bar at the bottom, the full width of the view, in one row:
+           the plates, undo, redo, and history, the replay of the print,
+           and the print. -->
       <div id="dock" class="float dock">
       <div id="plate-bar" class="float plate-bar">
         <button id="plate-prev" class="tool icon" title="The plate before ([)" aria-label="The plate before">‹</button>
@@ -120,6 +121,21 @@
         <button id="plate-add" class="tool" title="Add an empty plate after the others">+ Plate</button>
         <button id="plate-remove" class="tool icon" title="Remove this plate" aria-label="Remove this plate">×</button>
       </div>
+      <!-- Undo, redo, and the history. The history button opens the list
+           of the changes over it. Its count is the changes since you
+           opened or saved. -->
+      <div id="hist-tools" class="float hist-tools" role="group" aria-label="Undo and history">
+        <button id="undo" class="tool icon" title="Undo (Ctrl+Z)" aria-label="Undo" disabled>
+          <svg viewBox="0 0 18 18" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6.5 3.5 3 7l3.5 3.5"/><path d="M3 7h7.5a4.5 4.5 0 0 1 0 9H8"/></svg>
+        </button>
+        <button id="redo" class="tool icon" title="Redo (Ctrl+Shift+Z)" aria-label="Redo" disabled>
+          <svg viewBox="0 0 18 18" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M11.5 3.5 15 7l-3.5 3.5"/><path d="M15 7H7.5a4.5 4.5 0 0 0 0 9H10"/></svg>
+        </button>
+        <button id="history-button" class="tool icon hist-button" title="History (Ctrl+H)" aria-label="History" aria-haspopup="dialog" aria-expanded="false" aria-controls="history-pop">
+          <svg viewBox="0 0 18 18" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3.2 9a5.8 5.8 0 1 0 1.7-4.1"/><path d="M4.9 1.9v3h3"/><path d="M9 5.8V9l2.3 1.5"/></svg>
+          <span id="history-count" class="hist-count" aria-hidden="true" hidden></span>
+        </button>
+      </div>
       <div id="scrub" class="float scrub" hidden>
         <button id="play" class="tool icon" title="Replay the print">
           <svg viewBox="0 0 16 16" width="14" height="14"><path id="play-icon" d="M4 2.5v11l9-5.5z" fill="currentColor"/></svg>
@@ -128,7 +144,6 @@
         <input id="scrub-range" type="range" min="0" max="1" step="0.001" value="1">
         <span id="scrub-label" class="scrub-label"></span>
       </div>
-      <div id="timeline" class="float timeline" tabindex="0" hidden></div>
         <!-- The print: its time, the details pane, and Print or Export. -->
         <div id="summary" class="summary dock-summary" aria-label="The print">
           <button id="sum-more" class="sum-head" title="The details of the print" aria-expanded="false" aria-controls="sum-pop">
@@ -163,8 +178,14 @@
       <div id="work" class="work" aria-hidden="true"><div id="work-fill"></div></div>
       <div id="busy" class="busy" role="status"></div>
       <div id="toast" class="toast" hidden></div>
-      <!-- The history: a popover over the history bar. -->
+      <!-- The history: a popover over its button in the dock (app.js
+           placeHistory puts it there). -->
       <div id="history-pop" class="float history-pop" role="dialog" aria-label="History" hidden>
+        <div class="hist-pop-head">
+          <span class="panel-title">History</span>
+          <span id="history-sum" class="dim hist-sum"></span>
+          <button id="history-close" class="flat icon" title="Close (Esc)" aria-label="Close">×</button>
+        </div>
         <div id="page-history" class="page"></div>
       </div>
       <!-- The printers: a page of its own over the view. -->
