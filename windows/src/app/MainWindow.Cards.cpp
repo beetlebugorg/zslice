@@ -40,6 +40,7 @@ namespace winrt::ZSlice::implementation
         LineClose().Click([this](auto &&, auto &&) { ClearSelection(); });
         PartClose().Click([this](auto &&, auto &&) { ClearSelection(); });
         MakeCardMovable(LineCard(), LineCardHead(), &line_card_moved);
+        WireLineMark();
         MakeCardMovable(PartCard(), PartCardHead(), &part_card_moved);
 
         LineFade().Click([this](auto &&, auto &&) {
@@ -396,6 +397,92 @@ namespace winrt::ZSlice::implementation
         PlaceCard(PartCard(), box);
     }
 
+    // The support mark at the selected line: above a support line (the
+    // support goes down from the mark), or on the layer of another line.
+    int64_t MainWindow::MarkOfSelection()
+    {
+        zs_app *app = model->Active();
+        double x, y, z;
+        if (zs_app_mark_count(app) == 0 || !MenuPlace(x, y, z))
+            return -1;
+        zs_toolpaths tp{};
+        if (zs_app_toolpaths(app, &tp) != ZS_OK)
+            return -1;
+        int feature = tp.path_features[selected_path];
+        bool support = feature == ZS_FEATURE_SUPPORT || feature == ZS_FEATURE_SUPPORT_INTERFACE;
+        auto at = [&](double px, double py) { return support ? zs_app_mark_at(app, px, py, z + 500, 500) : zs_app_mark_at(app, px, py, z, 0.05); };
+        ptrdiff_t mark = at(x, y);
+        // A slice can renumber the lines, and the selection then has no
+        // segment: any point of the line finds its mark.
+        if (mark < 0 && selected_segment < 0)
+        {
+            uint32_t first = selected_path == 0 ? 0 : tp.path_ends[selected_path - 1], end = tp.path_ends[selected_path];
+            for (uint32_t i = first; i < end && mark < 0; i++)
+                mark = at(tp.points[2 * i], tp.points[2 * i + 1]);
+        }
+        return mark >= 0 ? (int64_t)mark : -1;
+    }
+
+    void MainWindow::WireLineMark()
+    {
+        LineMarkKind().SelectionChanged([this](auto &&, auto &&) {
+            int32_t kind = LineMarkKind().SelectedIndex();
+            double r = 3;
+            if (line_mark_filling || model == nullptr || line_mark < 0 || kind < 0 ||
+                zs_app_mark_get(model->Active(), (size_t)line_mark, nullptr, nullptr, nullptr, &r, nullptr) != ZS_OK)
+                return;
+            if (zs_app_mark_set(model->Active(), (size_t)line_mark, kind, r) == ZS_OK)
+                SupportEdited();
+        });
+        LineMarkRadius().ValueChanged([this](NumberBox const &, NumberBoxValueChangedEventArgs const &e) {
+            if (line_mark_filling || model == nullptr || line_mark < 0)
+                return;
+            int kind = 0;
+            double r = 3;
+            if (zs_app_mark_get(model->Active(), (size_t)line_mark, nullptr, nullptr, nullptr, &r, &kind) != ZS_OK)
+                return;
+            // An empty entry has no value: the radius stays.
+            if (std::isnan(e.NewValue()))
+            {
+                line_mark_filling = true;
+                LineMarkRadius().Value(r);
+                line_mark_filling = false;
+                return;
+            }
+            double value = std::clamp(e.NewValue(), 0.5, 30.0);
+            if (std::abs(value - r) > 1e-6 && zs_app_mark_set(model->Active(), (size_t)line_mark, kind, value) == ZS_OK)
+                SupportEdited();
+        });
+        LineMarkRemove().Click([this](auto &&, auto &&) {
+            if (model == nullptr || line_mark < 0)
+                return;
+            zs_app_mark_remove(model->Active(), (size_t)line_mark);
+            line_mark = -1;
+            LineMark().Visibility(Visibility::Collapsed);
+            SupportEdited();
+        });
+    }
+
+    void MainWindow::FillLineMark()
+    {
+        line_mark = MarkOfSelection();
+        double r = 3;
+        int kind = 0;
+        bool shown = line_mark >= 0 && zs_app_mark_get(model->Active(), (size_t)line_mark, nullptr, nullptr, nullptr, &r, &kind) == ZS_OK;
+        LineMark().Visibility(shown ? Visibility::Visible : Visibility::Collapsed);
+        if (!shown)
+        {
+            line_mark = -1;
+            return;
+        }
+        line_mark_filling = true;
+        if (LineMarkKind().SelectedIndex() != kind)
+            LineMarkKind().SelectedIndex(kind);
+        if (LineMarkRadius().Value() != r)
+            LineMarkRadius().Value(r);
+        line_mark_filling = false;
+    }
+
     void MainWindow::FillLineCard()
     {
         if (model == nullptr || selected_path < 0)
@@ -500,6 +587,7 @@ namespace winrt::ZSlice::implementation
         setting_editors.insert(setting_editors.end(), line_editors.begin(), line_editors.end());
 
         FillLineFilament();
+        FillLineMark();
         PartCard().Visibility(Visibility::Collapsed);
         LineCard().Visibility(Visibility::Visible);
         PlaceLineCard();
