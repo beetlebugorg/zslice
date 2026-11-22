@@ -4770,9 +4770,12 @@ pub const View = struct {
                 mv[1] = move[1] - pivot[1] - (ylo + yhi) / 2;
             }
         }
-        if (place.on_bed) {
+        {
             // The lowest point of the turned part: the corners of the
-            // beads (a bead is no wider than its box).
+            // beads (a bead is no wider than its box). On the bed: that
+            // point goes to z 0. Else the part may float (a hold, a lift),
+            // but it never goes into the bed: a turn or a fall of a shell
+            // with no on_bed flag drew the part through the bed.
             var zmin = std.math.inf(f32);
             const side = @sqrt(rot[6] * rot[6] + rot[7] * rot[7]);
             for (v.preview_hull.items) |e| for ([_]f32{ e[2], e[3] }) |bz| {
@@ -4782,7 +4785,13 @@ pub const View = struct {
                 const zz = rot[6] * d[0] + rot[7] * d[1] + rot[8] * d[2];
                 zmin = @min(zmin, zz - e[4] * side);
             };
-            mv[2] = -(zmin + pivot[2]);
+            if (std.math.isFinite(zmin)) {
+                if (place.on_bed) {
+                    mv[2] = -(zmin + pivot[2]);
+                } else if (zmin + pivot[2] + mv[2] < 0) {
+                    mv[2] = -(zmin + pivot[2]);
+                }
+            }
         }
         // m = T(pivot + move) * R * T(-pivot), column-major.
         var m: [16]f32 = .{ rot[0], rot[3], rot[6], 0, rot[1], rot[4], rot[7], 0, rot[2], rot[5], rot[8], 0, 0, 0, 0, 1 };
@@ -6104,6 +6113,13 @@ test "a part preview draws the beads of the part apart, turned" {
     // On the bed: the lowest bead goes to z 0 after a half turn about x.
     try v.setPartPreview(1, .{ 1, 0, 0, 0 }, .{ 0, 0, 3 }, .{ 0, 0, 0 }, .{ .on_bed = true });
     try std.testing.expect(v.preview.?.move[2] != 0);
+    // No flag: a half turn about x through z 3 with no move keeps the
+    // part above the bed (it went into the bed before), and a move up
+    // (a lift) stays.
+    try v.setPartPreview(1, .{ 1, 0, 0, 0 }, .{ 0, 0, 0 }, .{ 0, 0, 0 }, .{});
+    try std.testing.expect(v.preview.?.move[2] > 0);
+    try v.setPartPreview(1, .{ 0, 0, 0, 1 }, .{ 0, 0, 0 }, .{ 0, 0, 50 }, .{});
+    try std.testing.expectApproxEqAbs(@as(f32, 50), v.preview.?.move[2], 1e-5);
     // Centered: the box of the part goes to x 10, y 20.
     try v.setPartPreview(1, .{ 0, 0, 0, 1 }, .{ 0, 0, 0 }, .{ 10, 20, 0 }, .{ .centered = true });
     const lo = v.preview_box[0];
