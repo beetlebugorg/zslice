@@ -36,6 +36,9 @@ gboolean zg_float_get(GtkWidget *card, double *x, double *y);
  * step of a drag (can be NULL). */
 typedef void (*ZgFloatMoved)(GtkWidget *card, double x, double y, gpointer data);
 void zg_float_movable(GtkWidget *card, GtkWidget *handle, ZgFloatMoved moved, gpointer data);
+/* A fixed card does not move with a drag of its handle (the search on a
+ * rail). */
+void zg_float_set_fixed(GtkWidget *card, gboolean fixed);
 /* TRUE after the user moved the card, until zg_float_forget. */
 gboolean zg_float_user_moved(GtkWidget *card);
 void zg_float_forget(GtkWidget *card);

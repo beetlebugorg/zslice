@@ -17,6 +17,7 @@ typedef struct {
     gboolean set;
     double x, y;
     gboolean moved; /* the user moved it */
+    gboolean fixed; /* a drag of the handle does not move it */
     /* A drag: the point of the press in the card. */
     double grab_x, grab_y;
     ZgFloatMoved on_moved;
@@ -121,6 +122,10 @@ static gboolean pointer_in_overlay(GtkGesture *g, GtkWidget *card, double *ox, d
 static void on_drag_begin(GtkGestureDrag *g, double x, double y, gpointer data) {
     GtkWidget *card = data;
     Place *p = place_of(card);
+    if (p->fixed) {
+        gtk_gesture_set_state(GTK_GESTURE(g), GTK_EVENT_SEQUENCE_DENIED);
+        return;
+    }
     GtkWidget *overlay = gtk_widget_get_parent(card);
     graphene_point_t at;
     if (!overlay || !gtk_widget_compute_point(card, overlay, &GRAPHENE_POINT_INIT(0, 0), &at)) return;
@@ -148,6 +153,10 @@ static void on_drag_update(GtkGestureDrag *g, double dx, double dy, gpointer dat
 
 static void on_drag_end(GtkGestureDrag *g, double dx, double dy, gpointer data) {
     gtk_widget_remove_css_class(GTK_WIDGET(data), "zg-card-moving");
+}
+
+void zg_float_set_fixed(GtkWidget *card, gboolean fixed) {
+    place_of(card)->fixed = fixed;
 }
 
 void zg_float_movable(GtkWidget *card, GtkWidget *handle, ZgFloatMoved moved, gpointer data) {

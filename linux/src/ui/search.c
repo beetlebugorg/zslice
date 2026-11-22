@@ -1,7 +1,12 @@
 /* search.c: see search.h.
  *
- * The entry and the scope label move between the field of the header
- * (docked) and the head of the card (undocked, while the card shows).
+ * The search has four places, as on the web (web/app/search.js): the
+ * results under the field of the header (docked), a card that the user
+ * moves and resizes, or the left or the right rail of the view. The
+ * entry and the scope label move between the field of the header
+ * (docked) and the head of the card (in the other places, while the card
+ * shows). The docked results close at a click outside them; a card or a
+ * rail stays open until × or Esc.
  *
  * The settings come from the search of the core (zs_setting_search): each
  * word of the query must match a setting, by itself or by a word of the
@@ -27,7 +32,7 @@ enum { MAX_SETTINGS = 14, MAX_ACTIONS = 4, DRAG_MS = 90 };
 static const double PLACE_Y = 12;
 /* The least width of the docked results, and of the card. The least
  * height of the list of the card. */
-enum { DOCKED_WIDTH = 560, CARD_WIDTH = 500, MIN_WIDTH = 360, MIN_LIST = 120, LIST_HEIGHT = 520 };
+enum { DOCKED_WIDTH = 640, CARD_WIDTH = 500, MIN_WIDTH = 360, MIN_LIST = 120, LIST_HEIGHT = 520 };
 
 
 /* The actions in the results: the label, the keys, a hint, and the
@@ -76,6 +81,10 @@ typedef struct {
     const Action *action;
 } Row;
 
+/* The places of the search. */
+typedef enum { AT_HEADER, AT_CARD, AT_LEFT, AT_RIGHT } At;
+static const char *const AT_NAMES[] = {"header", "card", "left", "right"};
+
 typedef struct {
     ZgModel *model;
     GtkWidget *card, *head, *scope_label, *entry, *list, *scroll;
@@ -85,11 +94,18 @@ typedef struct {
     const char *placeholder;
     /* The header: the field (the icon, the entry, ×, and the undock
      * button), and the Search button of the undocked search. */
-    GtkWidget *header, *field, *field_icon, *field_close, *open_button;
+    GtkWidget *header, *field, *field_icon, *field_key, *field_close, *open_button;
+    /* The buttons that move the search to the other places: in the head
+     * of the card, or in a row over the docked results. */
+    GtkWidget *head_pins, *dock_row, *dock_pins;
     /* The head of the card: the grip, and the resize grip at the lower
      * right corner. */
     GtkWidget *grip, *resize;
-    gboolean undocked;
+    At at;
+    /* A press outside the docked results, at x, y of the window. */
+    gboolean outside_down;
+    double down_x, down_y;
+    gboolean watching; /* the controllers of the window are in */
     int drag_w, drag_h; /* the size at the start of a resize */
     GPtrArray *rows; /* Row * */
     guint index;
@@ -259,7 +275,10 @@ static void mark_control(GtkWidget *w) {
 }
 
 static GtkWidget *setting_row(Search *s, const zs_setting_info *info) {
-    GtkWidget *row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
+    /* In a rail the rows are narrow: the name goes on its own line, and
+     * the controls under it, with the slider as wide as the row. */
+    gboolean rail = s->at == AT_LEFT || s->at == AT_RIGHT;
+    GtkWidget *row = gtk_box_new(rail ? GTK_ORIENTATION_VERTICAL : GTK_ORIENTATION_HORIZONTAL, rail ? 2 : 8);
     Row *r = row_new(s, row);
     r->info = *info;
     GtkWidget *labels = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
@@ -289,19 +308,19 @@ static GtkWidget *setting_row(Search *s, const zs_setting_info *info) {
     gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(r->eye), s->eye_on && strcmp(s->eye_on, info->name) == 0);
     g_object_set_data(G_OBJECT(r->eye), "zg-row", r);
     g_signal_connect(r->eye, "toggled", G_CALLBACK(on_eye), s);
-    gtk_box_append(GTK_BOX(row), r->eye);
     /* The controls: a slider for a number with a usual range, the editor,
      * and the unit. */
     GtkWidget *controls = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 4);
     gtk_widget_set_valign(controls, GTK_ALIGN_CENTER);
+    gtk_box_append(GTK_BOX(rail ? controls : row), r->eye);
     r->editor = s->part >= 0 ? zg_setting_editor_new_for_part(s->model, info, (size_t)s->part)
                              : zg_setting_editor_new(s->model, info, FALSE);
     gboolean number = (info->kind == ZS_SETTING_NUMBER || info->kind == ZS_SETTING_INTEGER) && !zg_setting_is_filament(info->name);
     if (number && info->slider_max > info->slider_min) {
         r->slider = zg_setting_editor_slider_new(r->editor);
         zg_setting_editor_slider_throttle(r->slider, DRAG_MS);
-        gtk_widget_set_size_request(r->slider, 130, -1);
-        gtk_widget_set_hexpand(r->slider, FALSE);
+        gtk_widget_set_size_request(r->slider, rail ? 60 : 130, -1);
+        gtk_widget_set_hexpand(r->slider, rail);
         gtk_widget_add_css_class(r->slider, "zg-sr-slider");
         mark_control(r->slider);
         gtk_box_append(GTK_BOX(controls), r->slider);
@@ -320,6 +339,10 @@ static GtkWidget *setting_row(Search *s, const zs_setting_info *info) {
         gtk_widget_add_css_class(unit, "dim-label");
         gtk_widget_add_css_class(unit, "zg-unit");
         gtk_label_set_xalign(GTK_LABEL(unit), 0);
+        /* The unit has a column of its own, wide enough for a speed hint
+         * ("% ≈ 150 mm/s"): the sliders and the fields of all rows line
+         * up, as on the web. */
+        if (!rail) gtk_label_set_width_chars(GTK_LABEL(unit), 13);
         gtk_box_append(GTK_BOX(controls), unit);
         /* A speed ratio: the speed it gives, as in the panel. */
         zg_setting_editor_show_speed(r->editor, unit);
@@ -652,33 +675,112 @@ static void move_entry(Search *s, gboolean to_card) {
     }
 }
 
-/* The header shows the field (docked), or the Search button (undocked).
- * The card has its head and its resize grip only while undocked. */
-static void apply_dock(Search *s) {
-    gtk_widget_set_visible(s->field, !s->undocked);
-    gtk_widget_set_visible(s->open_button, s->undocked);
-    gtk_widget_set_visible(s->head, s->undocked);
-    gtk_widget_set_visible(s->resize, s->undocked);
-    if (s->undocked) gtk_widget_remove_css_class(s->card, "zg-search-docked");
-    else gtk_widget_add_css_class(s->card, "zg-search-docked");
+/* The glyphs of the place buttons: the paths of the web glyphs
+ * (search.js, placeButtons), 16 px, stroke 1.5. */
+static void draw_place(GtkDrawingArea *a, cairo_t *cr, int w, int h, gpointer data) {
+    At at = (At)GPOINTER_TO_INT(data);
+    GdkRGBA c;
+    gtk_widget_get_color(GTK_WIDGET(a), &c);
+    gdk_cairo_set_source_rgba(cr, &c);
+    cairo_translate(cr, (w - 16) / 2.0, (h - 16) / 2.0);
+    cairo_set_line_width(cr, 1.5);
+    cairo_set_line_cap(cr, CAIRO_LINE_CAP_ROUND);
+    cairo_set_line_join(cr, CAIRO_LINE_JOIN_ROUND);
+    if (at == AT_LEFT || at == AT_RIGHT) {
+        /* A rail and a box beside it. */
+        double rail = at == AT_LEFT ? 2.5 : 13.5, box = at == AT_LEFT ? 5.5 : 2.5;
+        cairo_move_to(cr, rail, 2.5);
+        cairo_line_to(cr, rail, 13.5);
+        cairo_rectangle(cr, box, 4.5, 8, 7);
+    } else if (at == AT_CARD) {
+        /* A box with an arrow out of it. */
+        cairo_move_to(cr, 9.5, 2.5);
+        cairo_line_to(cr, 13.5, 2.5);
+        cairo_line_to(cr, 13.5, 6.5);
+        cairo_move_to(cr, 13.5, 2.5);
+        cairo_line_to(cr, 8, 8);
+        cairo_move_to(cr, 7, 3.5);
+        cairo_line_to(cr, 2.5, 3.5);
+        cairo_line_to(cr, 2.5, 13.5);
+        cairo_line_to(cr, 12.5, 13.5);
+        cairo_line_to(cr, 12.5, 9);
+    } else {
+        /* Dock: an arrow up to a line (the header). */
+        cairo_move_to(cr, 2.5, 2.5);
+        cairo_line_to(cr, 13.5, 2.5);
+        cairo_move_to(cr, 8, 13.5);
+        cairo_line_to(cr, 8, 6);
+        cairo_move_to(cr, 5, 9);
+        cairo_line_to(cr, 8, 6);
+        cairo_line_to(cr, 11, 9);
+    }
+    cairo_stroke(cr);
 }
 
-/* Docks the search in the header, or undocks it into a card. The search
- * opens again in its new place, with its text. */
-static void set_docked(Search *s, gboolean docked) {
+static void set_at(Search *s, At at);
+
+static void on_place_clicked(GtkButton *b, gpointer data) {
+    set_at(data, (At)GPOINTER_TO_INT(g_object_get_data(G_OBJECT(b), "zg-at")));
+}
+
+static GtkWidget *place_button(Search *s, At at, const char *tip) {
+    GtkWidget *glyph = gtk_drawing_area_new();
+    gtk_drawing_area_set_content_width(GTK_DRAWING_AREA(glyph), 16);
+    gtk_drawing_area_set_content_height(GTK_DRAWING_AREA(glyph), 16);
+    gtk_drawing_area_set_draw_func(GTK_DRAWING_AREA(glyph), draw_place, GINT_TO_POINTER(at), NULL);
+    GtkWidget *b = gtk_button_new();
+    gtk_button_set_child(GTK_BUTTON(b), glyph);
+    gtk_widget_add_css_class(b, "flat");
+    gtk_widget_add_css_class(b, "circular");
+    gtk_widget_add_css_class(b, "zg-search-pin");
+    gtk_widget_set_tooltip_text(b, tip);
+    gtk_widget_set_focus_on_click(b, FALSE);
+    g_object_set_data(G_OBJECT(b), "zg-at", GINT_TO_POINTER(at));
+    g_signal_connect(b, "clicked", G_CALLBACK(on_place_clicked), s);
+    return b;
+}
+
+/* The buttons that move the search to the other places, as on the web:
+ * the left rail, the right rail, the card, and the dock. */
+static void fill_pins(Search *s, GtkWidget *box, gboolean with_dock) {
+    GtkWidget *c;
+    while ((c = gtk_widget_get_first_child(box))) gtk_box_remove(GTK_BOX(box), c);
+    if (s->at != AT_LEFT) gtk_box_append(GTK_BOX(box), place_button(s, AT_LEFT, "Pin to the left rail: the search stays open at the left of the view"));
+    if (s->at != AT_RIGHT) gtk_box_append(GTK_BOX(box), place_button(s, AT_RIGHT, "Pin to the right rail: the search stays open at the right of the view"));
+    if (s->at != AT_CARD) gtk_box_append(GTK_BOX(box), place_button(s, AT_CARD, "Undock the search: a card over the view that you can move and resize"));
+    if (with_dock && s->at != AT_HEADER) gtk_box_append(GTK_BOX(box), place_button(s, AT_HEADER, "Dock the search: put it back in the header"));
+}
+
+/* The header shows the field (docked), or the Search button (the other
+ * places). The card has its head when it is not docked, and its resize
+ * grip only as a card. A rail does not move. */
+static void apply_dock(Search *s) {
+    gboolean docked = s->at == AT_HEADER, rail = s->at == AT_LEFT || s->at == AT_RIGHT;
+    gtk_widget_set_visible(s->field, docked);
+    gtk_widget_set_visible(s->open_button, !docked);
+    gtk_widget_set_visible(s->head, !docked);
+    gtk_widget_set_visible(s->dock_row, docked);
+    gtk_widget_set_visible(s->resize, s->at == AT_CARD);
+    gtk_widget_set_visible(s->grip, s->at == AT_CARD);
+    zg_float_set_fixed(s->card, rail);
+    gtk_widget_set_cursor_from_name(s->head, rail ? NULL : "grab");
+    if (docked) gtk_widget_add_css_class(s->card, "zg-search-docked");
+    else gtk_widget_remove_css_class(s->card, "zg-search-docked");
+    if (rail) gtk_widget_add_css_class(s->card, "zg-search-rail");
+    else gtk_widget_remove_css_class(s->card, "zg-search-rail");
+    fill_pins(s, s->head_pins, TRUE);
+    fill_pins(s, s->dock_pins, FALSE);
+}
+
+/* Moves the search to a place. The search opens again there, with its
+ * text. */
+static void set_at(Search *s, At at) {
     zg_search_close(s->card);
-    s->undocked = !docked;
-    zg_pref_set("search_docked", docked ? "1" : "0");
+    s->at = at;
+    zg_pref_set("search_at", AT_NAMES[at]);
+    zg_pref_set("search_docked", at == AT_HEADER ? "1" : "0");
     apply_dock(s);
     show_search(s, NULL, -1, TRUE);
-}
-
-static void on_undock(GtkButton *b, gpointer data) {
-    set_docked(data, FALSE);
-}
-
-static void on_dock(GtkButton *b, gpointer data) {
-    set_docked(data, TRUE);
 }
 
 static void on_open_clicked(GtkButton *b, gpointer data) {
@@ -688,7 +790,94 @@ static void on_open_clicked(GtkButton *b, gpointer data) {
 /* A click in the docked field shows the results. */
 static void on_field_press(GtkGestureClick *g, int n, double x, double y, gpointer data) {
     Search *s = data;
-    if (!s->undocked && !gtk_widget_get_visible(s->card)) show_search(s, NULL, -1, FALSE);
+    if (s->at == AT_HEADER && !gtk_widget_get_visible(s->card)) show_search(s, NULL, -1, FALSE);
+}
+
+/* TRUE if the press of `ev` is in the docked results or in the field.
+ * A press in a popover (the list of a setting) counts as inside. */
+static gboolean press_inside(Search *s, GdkEvent *ev) {
+    GtkWidget *root = GTK_WIDGET(gtk_widget_get_root(s->card));
+    GtkNative *native = gtk_native_get_for_surface(gdk_event_get_surface(ev));
+    if (!root || GTK_WIDGET(native) != root) return TRUE;
+    double x, y, tx, ty;
+    if (!gdk_event_get_position(ev, &x, &y)) return TRUE;
+    gtk_native_get_surface_transform(native, &tx, &ty);
+    GtkWidget *hit = gtk_widget_pick(root, x - tx, y - ty, GTK_PICK_DEFAULT);
+    for (GtkWidget *w = hit; w; w = gtk_widget_get_parent(w))
+        if (w == s->card || w == s->field) return TRUE;
+    return FALSE;
+}
+
+/* A click outside the docked results and the field closes them, as on
+ * the web. A drag in the view (a turn, a pan) keeps them open: only a
+ * press and a release less than 5 px apart close them. */
+static gboolean on_window_event(GtkEventControllerLegacy *c, GdkEvent *ev, gpointer data) {
+    Search *s = data;
+    if (s->at != AT_HEADER || !gtk_widget_get_visible(s->card)) {
+        s->outside_down = FALSE;
+        return FALSE;
+    }
+    GdkEventType type = gdk_event_get_event_type(ev);
+    double x = 0, y = 0;
+    if (type == GDK_BUTTON_PRESS || type == GDK_TOUCH_BEGIN) {
+        s->outside_down = !press_inside(s, ev) && gdk_event_get_position(ev, &x, &y);
+        s->down_x = x;
+        s->down_y = y;
+    } else if (type == GDK_BUTTON_RELEASE || type == GDK_TOUCH_END) {
+        if (s->outside_down && gdk_event_get_position(ev, &x, &y) && hypot(x - s->down_x, y - s->down_y) < 5) zg_search_close(s->card);
+        s->outside_down = FALSE;
+    }
+    return FALSE;
+}
+
+/* The place of a rail: the height of the view, beside the tool strip
+ * (left) or at the right edge, 260 to 380 px wide. */
+static void place_rail(Search *s) {
+    if (s->at != AT_LEFT && s->at != AT_RIGHT) return;
+    GtkWidget *host = gtk_widget_get_parent(s->card);
+    if (!host) return;
+    int W = gtk_widget_get_width(host);
+    if (W <= 0) return;
+    double area[4];
+    zg_free_area(host, area);
+    int w = CLAMP((int)(W * 0.3), 260, 380);
+    /* The free area leaves out about 82 px for the dock; the dock of two
+     * rows is taller, and the rail ends 8 px over it. */
+    double top = 8, bottom = area[3] - 22;
+    double x = s->at == AT_LEFT ? area[0] : W - w - 8;
+    gtk_widget_set_size_request(s->card, w, -1);
+    int hh = 0;
+    gtk_widget_measure(s->head, GTK_ORIENTATION_VERTICAL, w, NULL, &hh, NULL, NULL);
+    /* The padding of the card: 8 px at the top, 6 px at the bottom. */
+    set_list_height(s, MAX(MIN_LIST, (int)(bottom - top) - hh - 14), TRUE);
+    zg_float_place(s->card, x, top);
+}
+
+static gboolean place_rail_later(gpointer data) {
+    place_rail(data);
+    return G_SOURCE_REMOVE;
+}
+
+/* A new size of the window: the rail takes the new height. */
+static void on_window_size(GObject *o, GParamSpec *ps, gpointer data) {
+    Search *s = data;
+    if (gtk_widget_get_visible(s->card) && (s->at == AT_LEFT || s->at == AT_RIGHT)) g_idle_add(place_rail_later, s);
+}
+
+/* The window watches the clicks for the docked results, and its size for
+ * the rails. This happens once, after the card is in the window. */
+static void watch_window(Search *s) {
+    if (s->watching) return;
+    GtkRoot *root = gtk_widget_get_root(s->card);
+    if (!root || !GTK_IS_WINDOW(root)) return;
+    s->watching = TRUE;
+    GtkEventController *legacy = gtk_event_controller_legacy_new();
+    gtk_event_controller_set_propagation_phase(legacy, GTK_PHASE_CAPTURE);
+    g_signal_connect(legacy, "event", G_CALLBACK(on_window_event), s);
+    gtk_widget_add_controller(GTK_WIDGET(root), legacy);
+    g_signal_connect(root, "notify::default-width", G_CALLBACK(on_window_size), s);
+    g_signal_connect(root, "notify::default-height", G_CALLBACK(on_window_size), s);
+    g_signal_connect(root, "notify::maximized", G_CALLBACK(on_window_size), s);
 }
 
 static void on_close_clicked(GtkButton *b, gpointer data) {
@@ -749,13 +938,17 @@ static void header_new(Search *s) {
     gtk_box_append(GTK_BOX(s->field), s->field_icon);
     gtk_box_append(GTK_BOX(s->field), s->scope_label);
     gtk_box_append(GTK_BOX(s->field), s->entry_box);
+    /* The key of the search, as on the web. × takes its place while the
+     * results show. */
+    s->field_key = gtk_label_new("/");
+    gtk_widget_add_css_class(s->field_key, "zg-keycap");
+    gtk_widget_set_valign(s->field_key, GTK_ALIGN_CENTER);
+    gtk_box_append(GTK_BOX(s->field), s->field_key);
     s->field_close = flat_icon_button("window-close-symbolic", "Close the search (Esc)");
     gtk_widget_set_visible(s->field_close, FALSE);
     g_signal_connect(s->field_close, "clicked", G_CALLBACK(on_close_clicked), s);
     gtk_box_append(GTK_BOX(s->field), s->field_close);
-    GtkWidget *undock = flat_icon_button("window-new-symbolic", "Undock the search: a card over the view that you can move and resize");
-    g_signal_connect(undock, "clicked", G_CALLBACK(on_undock), s);
-    gtk_box_append(GTK_BOX(s->field), undock);
+    gtk_box_append(GTK_BOX(s->field), place_button(s, AT_CARD, "Undock the search: a card over the view that you can move and resize"));
     GtkGesture *press = gtk_gesture_click_new();
     gtk_event_controller_set_propagation_phase(GTK_EVENT_CONTROLLER(press), GTK_PHASE_CAPTURE);
     g_signal_connect(press, "pressed", G_CALLBACK(on_field_press), s);
@@ -809,16 +1002,15 @@ GtkWidget *zg_search_new(ZgModel *model) {
      * header lose room. */
     gtk_editable_set_width_chars(GTK_EDITABLE(s->entry), 6);
     g_signal_connect(s->entry, "changed", G_CALLBACK(on_changed), s);
-    /* The head of the undocked card: a grip, the scope, the entry, the
-     * dock button, and ×. */
+    /* The head of the card or the rail: a grip (card only), the scope, the
+     * entry, the place buttons, and ×. */
     GtkWidget *head = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
     gtk_widget_add_css_class(head, "zg-card-head");
     s->grip = gtk_image_new_from_icon_name("system-search-symbolic");
     gtk_widget_set_tooltip_text(s->grip, "Drag to move the search. Double-click: back to its first place.");
     gtk_box_append(GTK_BOX(head), s->grip);
-    GtkWidget *dock = flat_icon_button("go-top-symbolic", "Dock the search: put it back in the header");
-    g_signal_connect(dock, "clicked", G_CALLBACK(on_dock), s);
-    gtk_box_append(GTK_BOX(head), dock);
+    s->head_pins = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 2);
+    gtk_box_append(GTK_BOX(head), s->head_pins);
     GtkWidget *close = flat_icon_button("window-close-symbolic", "Close the search (Esc)");
     g_signal_connect(close, "clicked", G_CALLBACK(on_close_clicked), s);
     gtk_box_append(GTK_BOX(head), close);
@@ -828,6 +1020,14 @@ GtkWidget *zg_search_new(ZgModel *model) {
     GtkGesture *dbl = gtk_gesture_click_new();
     g_signal_connect(dbl, "pressed", G_CALLBACK(on_head_click), s);
     gtk_widget_add_controller(head, GTK_EVENT_CONTROLLER(dbl));
+    /* Over the docked results: the buttons that pin the search to a rail
+     * or undock it. */
+    s->dock_row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
+    s->dock_pins = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 2);
+    gtk_widget_set_hexpand(s->dock_pins, TRUE);
+    gtk_widget_set_halign(s->dock_pins, GTK_ALIGN_END);
+    gtk_box_append(GTK_BOX(s->dock_row), s->dock_pins);
+    gtk_box_append(GTK_BOX(s->card), s->dock_row);
     /* The results. */
     s->list = gtk_box_new(GTK_ORIENTATION_VERTICAL, 2);
     s->scroll = gtk_scrolled_window_new();
@@ -854,8 +1054,14 @@ GtkWidget *zg_search_new(ZgModel *model) {
     gtk_widget_add_controller(s->card, keys);
     gtk_widget_set_visible(s->card, FALSE);
     header_new(s);
+    /* The place of the last search; an older version kept only
+     * search_docked. */
+    char *at = zg_pref_get("search_at", "");
     char *docked = zg_pref_get("search_docked", "1");
-    s->undocked = strcmp(docked, "0") == 0;
+    s->at = strcmp(docked, "0") == 0 ? AT_CARD : AT_HEADER;
+    for (int i = 0; i < 4; i++)
+        if (strcmp(at, AT_NAMES[i]) == 0) s->at = (At)i;
+    g_free(at);
     g_free(docked);
     apply_dock(s);
     g_object_set_data_full(G_OBJECT(s->card), "zg-search", s, search_free);
@@ -895,21 +1101,24 @@ static void show_search(Search *s, const char *text, gint64 part, gboolean focus
         gtk_editable_set_text(GTK_EDITABLE(s->entry), text);
         s->filling = FALSE;
     }
-    if (s->undocked) {
+    if (s->at != AT_HEADER) {
         move_entry(s, TRUE);
-        if (!was_open) size_saved(s);
+        if (!was_open && s->at == AT_CARD) size_saved(s);
     } else {
+        gtk_widget_set_visible(s->field_key, FALSE);
         gtk_widget_set_visible(s->field_close, TRUE);
         gtk_widget_add_css_class(s->field, "zg-open");
     }
     fill(s);
     gtk_widget_set_visible(s->card, TRUE);
+    watch_window(s);
     /* After the show: the card has its width for the middle. */
     if (!was_open) {
-        if (s->undocked) place_saved(s);
-        else place_docked(s);
+        if (s->at == AT_CARD) place_saved(s);
+        else if (s->at == AT_HEADER) place_docked(s);
+        else place_rail(s);
     }
-    if (focus || s->undocked) {
+    if (focus || s->at != AT_HEADER) {
         gtk_widget_grab_focus(s->entry);
         if (focus) gtk_editable_select_region(GTK_EDITABLE(s->entry), 0, -1);
     }
@@ -935,6 +1144,7 @@ void zg_search_close(GtkWidget *search) {
     gtk_widget_set_visible(s->scope_label, FALSE);
     set_placeholder(s, "Search settings and actions");
     gtk_widget_set_visible(s->field_close, FALSE);
+    gtk_widget_set_visible(s->field_key, TRUE);
     gtk_widget_remove_css_class(s->field, "zg-open");
     /* The view shows the whole print again (or the focus of the panel). */
     zg_model_set_focus(s->model, 0, FALSE);

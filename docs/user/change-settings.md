@@ -14,16 +14,22 @@ Press `/`, type a few letters, and drag the slider. The print slices again while
 - An action (Export G-code, Arrange the plate, Undo, and others) runs with a click or Enter.
 - The search does not block the view. Turn the view and click lines while it is open.
 - Keys: ↑ and ↓ go through the results. ← and → change the value. Esc closes the search.
+- A click outside the results closes them. A drag in the view keeps them open.
 
-### Undock the search
+### Pin or undock the search
 
-The search field is always in the header. The results show under it.
+The search field is always in the header. The results show under it. The buttons over the results move the search to another place:
 
-- Click the undock button at the right end of the field. The search becomes a card over the view.
+- **Pin to the left rail** or **Pin to the right rail**: the search stays open at that side of the view, the full height of the view.
+- **Undock**: the search becomes a card over the view. The undock button is also at the right end of the field.
+
+A rail or a card stays open until you click × or press Esc. The app remembers the place for the next search.
+
+- Drag the head of the card to move it.
 - Drag the head of the card to move it. Drag its lower right corner to change its size.
 - The card opens at the same place and size next time. A double-click on its head moves it back to its first place.
 - While the search is undocked, the header has a **Search** button. Click it, or press `/`, to open the card.
-- Click the dock button in the head of the card to put the search back in the header.
+- Click the dock button in the head of the card or the rail to put the search back in the header.
 
 ## The settings panel
 
