@@ -18,7 +18,7 @@ Each action of the app has a key, or a path from the keyboard. No action needs t
 
 - `?` opens the sheet of all keyboard shortcuts, grouped (view, tools, parts, layers, plates, settings, history, print). The sheet comes from the same table that the menus and the tooltips use, so it is always complete. Type in the sheet to filter it.
 - `/` opens the settings search. The arrow keys move in the results. Enter edits a value, and Left and Right change a slider or a list.
-- Each tool has one key. The apps have Select `V`, Move `M` (the transform tool; `R` and `G` pick it too), Support `S`, Measure `T`, Paint `P`, Label `L`, Gaps `G`, and Duplicate `D` ([Keys and mouse](../user/keys.md)). Scale, Lay flat, Cut, Check, and Edit lines have no key yet.
+- Each tool has one key. The apps have Select `V`, Move `M` (the transform tool; `R` and `G` pick it too), Support `S`, Measure `T`, Paint `P`, Label `E`, and Duplicate `D` ([Keys and mouse](../user/keys.md)). Gaps, Scale, Lay flat, Cut, Check, and Edit lines have no key yet.
 - `Tab` and `Shift+Tab` go through the parts of the active plate. The arrow keys move the selected part (with `Shift`: 10 times the step), `Page Up` and `Page Down` lift it, `[` and `]` turn it about Z, and `Ctrl` with the arrow keys turns it about X and Y.
 - `[` and `]` go to the plate before and the next plate, and `Home` frames all plates.
 - `Page Up` and `Page Down` (or `Up` and `Down` when the layer slider has the focus) go through the layers.

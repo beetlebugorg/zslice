@@ -181,7 +181,7 @@ Each edit is a step of the history, so Command-Z takes it back, and a project fi
 
 ### Grab a part
 
-The Grab tool (H) picks a part up with a click. It stays in the hand with no button held.
+The Grab tool (G) picks a part up with a click. It stays in the hand with no button held.
 
 1. Move the pointer to carry it as a real object: it swings and turns about the point that you hold.
 2. Hold Option while you move to turn it (Shift: steps of 15°). The wheel lifts it or puts it lower.

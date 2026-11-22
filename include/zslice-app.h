@@ -994,6 +994,10 @@ int zs_app_part_fit_text(const zs_app *app, size_t i, char *buf, size_t cap, siz
  * Export and Print with this reason. The same buffer rules as
  * zs_app_setting_get. */
 int zs_app_plate_printable(const zs_app *app, char *buf, size_t cap, size_t *out_len);
+/* The name of the error of the last failed slice ("PartTooThin"), or ""
+ * if the last slice did not fail. For a bug report: the status of
+ * ZS_EVENT_FAILED groups some errors. Valid until zs_app_free. */
+const char *zs_app_failure_name(const zs_app *app);
 
 /* A copy of part i (its mesh, pose, scale, settings, and modifier
  * volumes) at a free place on the bed. Returns its index, or a negative
