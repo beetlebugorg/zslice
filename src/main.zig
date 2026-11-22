@@ -28,6 +28,8 @@ const usage =
     \\
     \\Commands:
     \\  slice     Slice a model and write G-code (default output: stdout).
+    \\            A part that does not fit the printer slices with a
+    \\            warning; --strict refuses it.
     \\  preview   Write an SVG picture of one layer.
     \\  check     The printability check: lines over the flow limit of the
     \\            hot end, layers that cool too little, overhangs with no
@@ -113,6 +115,8 @@ const Options = struct {
     copies: usize = 1,
     /// sweep: the values of a number setting.
     points: usize = 5,
+    /// slice: refuse a part that does not fit the printer (else warn).
+    strict: bool = false,
 };
 
 pub fn main(init: std.process.Init) !void {
@@ -358,13 +362,20 @@ pub fn main(init: std.process.Init) !void {
         return;
     }
 
-    // A part wider or deeper than the bed cannot print: the G-code would
-    // move off the bed. Refuse it, as a part higher than the printer.
+    // A part higher than the printer, or wider or deeper than the bed,
+    // does not print: the G-code would move off the bed. The CLI slices it
+    // with a warning, as the apps do, and refuses it with --strict.
     {
         const b = m.bounds();
-        if (!zslice.engine.fitsBed(b.min, b.max, settings)) fail(err, "slice failed: PartTooLarge (the part is {d:.1} x {d:.1} mm; the bed is {d:.0} x {d:.0} mm)\n", .{
-            b.max[0] - b.min[0], b.max[1] - b.min[1], settings.machine.bed_size_x, settings.machine.bed_size_y,
-        });
+        const f = zslice.engine.fitOf(b.min, b.max, settings);
+        if (f.cause != .fits) {
+            var words: [400]u8 = undefined;
+            var w: Io.Writer = .fixed(&words);
+            zslice.engine.fitText(f, &w) catch {};
+            if (opts.strict) fail(err, "slice failed: PartTooLarge. {s}\n", .{w.buffered()});
+            err.print("warning: the part does not fit the printer, and the G-code does not print on it. {s}\n", .{w.buffered()}) catch {};
+            err.flush() catch {};
+        }
     }
 
     const t0 = Io.Clock.awake.now(io);
@@ -1234,6 +1245,10 @@ fn parseOptions(arena: std.mem.Allocator, err: *Io.Writer, args: []const [:0]con
     var i: usize = 0;
     while (i < args.len) : (i += 1) {
         const a = args[i];
+        if (std.mem.eql(u8, a, "--strict")) {
+            opts.strict = true;
+            continue;
+        }
         const takes_value = for ([_][]const u8{ "-o", "-s", "--layer", "-m", "--machine", "-f", "--filament", "-p", "--project", "--only", "--runs", "--points", "--copies" }) |o| {
             if (std.mem.eql(u8, a, o)) break true;
         } else false;

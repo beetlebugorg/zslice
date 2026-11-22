@@ -113,8 +113,8 @@ pub const pass1_share = 0.3;
 
 /// True if a part (or the parts of a plate) with these bounds can stand
 /// on the bed: its size in X and in Y, with the shrinkage of the filament,
-/// is at most the size of the bed. The CLI refuses a wider part, as the
-/// engine refuses a part higher than the printer (error.PartTooLarge).
+/// is at most the size of the bed. The CLI warns about a wider part, and
+/// refuses it with --strict.
 pub fn fitsBed(min: [3]f64, max: [3]f64, s: Settings) bool {
     const k = s.filament.shrinkage_xy;
     const eps = 1e-6;
@@ -717,7 +717,9 @@ pub const Job = struct {
         const height = (b.max[2] - bed) * f.shrinkage_z;
         if (!(height > 0)) return error.EmptyMesh;
         const m = settings.machine;
-        if (height > m.max_height) return error.PartTooLarge;
+        // A part higher than the printer slices, so that the view shows
+        // it. The app does not print it (see fitOf and
+        // zs_app_plate_printable), and the CLI warns.
         // The skirt and the brim go around the part, so they must also be
         // on the bed for the file position.
         const pr = settings.project;

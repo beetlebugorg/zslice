@@ -107,7 +107,7 @@ export fn zs_status_message(code: c_int) [*:0]const u8 {
         .unknown_setting => "This version of zslice does not know the setting.",
         .invalid_value => "The value does not fit the setting.",
         .invalid_settings => "The settings cannot make a print. Check the layer height, the line width, and the nozzle.",
-        .part_too_large => "A part is higher than the printer. Lay it on a side, scale it down, or cut it (Cut on the part card). zs_app_part_fit_text gives the sizes.",
+        .part_too_large => "A part does not fit the printer: it is higher than the printer, or larger than the bed. The plate shows in the view, but it does not print. Lay the part on a side, turn it, scale it down, or cut it (Cut on the part card).",
         .write_failed => "The file did not write.",
         .canceled => "Canceled.",
         .busy => "A slice is running. Try again in a moment.",

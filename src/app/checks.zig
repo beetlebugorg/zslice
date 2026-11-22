@@ -38,6 +38,10 @@
 //!   with the color of the label), with the size of text that prints
 //!   clean.
 //!
+//! - fit: a part that does not fit the printer: higher than the printer,
+//!   or wider or deeper than the bed. The part slices, so that the view
+//!   shows it, but the plate does not print (zs_app_plate_printable).
+//!
 //! - infill: combined infill (project.infill_layers) that combines fewer
 //!   layers than the setting asks: the bead of all of them is
 //!   thicker than the nozzle of the infill can print.
@@ -55,7 +59,7 @@ const Allocator = std.mem.Allocator;
 const Toolpaths = @import("toolpaths.zig").Toolpaths;
 const geom = zs.geom;
 
-pub const Kind = enum(u8) { flow, cooling, overhang, island, retractions, bridge, stand, color, changes, tower, reach, label, sequence, infill };
+pub const Kind = enum(u8) { flow, cooling, overhang, island, retractions, bridge, stand, color, changes, tower, reach, label, sequence, infill, fit };
 
 pub const Issue = extern struct {
     kind: Kind,
@@ -150,6 +154,7 @@ pub fn runWith(gpa: Allocator, job: *const zs.PlateJob, t: *const Toolpaths, s: 
     try reachIssues(&b, job, s);
     try sequenceIssues(&b, job, s);
     try infillIssues(&b, job);
+    try fitIssues(&b, job, s);
     try labelIssues(&b, job, s, labels);
     // The worst first: problems, then warnings, then by layer.
     std.mem.sort(Issue, b.issues.items, {}, struct {
@@ -721,6 +726,36 @@ fn infillIssues(b: *Builder, pj: *const zs.PlateJob) Allocator.Error!void {
         const h = r.settings.project.layer_height;
         const limit = zs.layer.maxThickness(r);
         try b.add(.{ .kind = .infill, .severity = 1, .layer = 0, .path = Issue.no_path, .x = 0, .y = 0, .value = @floatFromInt(most), .text_start = 0, .text_len = 0 }, "Combined infill: {d} layers of {d:.2} mm are {d:.2} mm, more than the nozzle of the infill prints in one bead ({d:.2} mm: its diameter or its line width). The infill combines {d} layers (project.infill_layers is {d}). A larger nozzle for the infill (machine.nozzle2_diameter), or thinner layers, combines more.", .{ want, h, @as(f64, @floatFromInt(want)) * h, limit, most, want });
+    }
+}
+
+fn fitIssues(b: *Builder, job: *const zs.PlateJob, s: zs.Settings) Allocator.Error!void {
+    for (job.instances) |inst| {
+        const j = &job.groups[inst.group].job;
+        if (j.layers.len == 0) continue;
+        var box = geom.Box.empty;
+        for (j.outlines) |o| {
+            const ob = o.bounds();
+            if (ob.isEmpty()) continue;
+            box.extend(ob.min);
+            box.extend(ob.max);
+        }
+        if (box.isEmpty()) continue;
+        // The outlines and the layers have the shrinkage of the filament
+        // in them already.
+        var flat = s;
+        flat.filament.shrinkage_xy = 1;
+        flat.filament.shrinkage_z = 1;
+        const top = j.layers[j.layers.len - 1].z;
+        const f = zs.engine.fitOf(.{ geom.toMm(box.min.x), geom.toMm(box.min.y), 0 }, .{ geom.toMm(box.max.x), geom.toMm(box.max.y), top }, flat);
+        if (f.cause == .fits) continue;
+        const name = if (inst.name.len > 0) inst.name else "A part";
+        const x = geom.toMm(box.min.x + inst.dx) / 2 + geom.toMm(box.max.x + inst.dx) / 2;
+        const y = geom.toMm(box.min.y + inst.dy) / 2 + geom.toMm(box.max.y + inst.dy) / 2;
+        var words: [400]u8 = undefined;
+        var w: std.Io.Writer = .fixed(&words);
+        zs.engine.fitText(f, &w) catch {};
+        try b.add(.{ .kind = .fit, .severity = 2, .layer = 0, .path = Issue.no_path, .x = x, .y = y, .value = @intFromEnum(f.cause), .text_start = 0, .text_len = 0 }, "{s} does not fit the printer, so the plate does not print. {s}", .{ name, w.buffered() });
     }
 }
 

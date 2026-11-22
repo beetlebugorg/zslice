@@ -576,6 +576,7 @@ export fn zs_bambu_file_plate(gcode: ?[*]const u8, len: usize, plate: ?*const Ba
 /// never sends it.
 export fn zs_app_bambu_file(a: ?*const App, title: ?[*:0]const u8, out: ?*?[*]u8, out_len: ?*usize) c_int {
     const app = a orelse return @intFromEnum(Status.invalid_argument);
+    if (firstUnfit(app) != null) return @intFromEnum(Status.part_too_large);
     const g = app.exactGcode() orelse return @intFromEnum(Status.no_result);
     return bambuFileOf(app, g, title, out, out_len);
 }
@@ -585,6 +586,7 @@ export fn zs_app_bambu_file(a: ?*const App, title: ?[*:0]const u8, out: ?*?[*]u8
 /// the filaments of the last slice.
 export fn zs_app_bambu_file_gcode(a: ?*const App, gcode: ?[*]const u8, len: usize, title: ?[*:0]const u8, out: ?*?[*]u8, out_len: ?*usize) c_int {
     const app = a orelse return @intFromEnum(Status.invalid_argument);
+    if (firstUnfit(app) != null) return @intFromEnum(Status.part_too_large);
     const g = gcode orelse return @intFromEnum(Status.invalid_argument);
     return bambuFileOf(app, g[0..len], title, out, out_len);
 }
@@ -1463,9 +1465,11 @@ export fn zs_app_write_3mf(a: ?*App, out: ?*?[*]const u8, out_len: ?*usize) c_in
 
 /// The G-code of the last slice. The bytes stay valid until the next
 /// slice, the next model, or zs_app_free. A draft slice has no G-code
-/// (see zs_app_set_draft).
+/// (see zs_app_set_draft). A plate with a part that does not fit the
+/// printer has no G-code: ZS_PART_TOO_LARGE (see zs_app_plate_printable).
 export fn zs_app_gcode(a: ?*const App, out: ?*?[*]const u8, out_len: ?*usize) c_int {
     const app = a orelse return @intFromEnum(Status.invalid_argument);
+    if (firstUnfit(app) != null) return @intFromEnum(Status.part_too_large);
     const o = out orelse return @intFromEnum(Status.invalid_argument);
     const l = out_len orelse return @intFromEnum(Status.invalid_argument);
     const g = app.exactGcode() orelse return @intFromEnum(Status.no_result);
@@ -1612,6 +1616,7 @@ export fn zs_app_edit_remove(a: ?*App, i: usize) c_int {
 /// bytes with zs_buffer_free.
 export fn zs_app_debug_gcode(a: ?*App, lo: usize, hi: usize, out: ?*?[*]u8, out_len: ?*usize) c_int {
     const app = a orelse return @intFromEnum(Status.invalid_argument);
+    if (firstUnfit(app) != null) return @intFromEnum(Status.part_too_large);
     const o = out orelse return @intFromEnum(Status.invalid_argument);
     const l = out_len orelse return @intFromEnum(Status.invalid_argument);
     const bytes = app.debugGcode(gpa, lo, hi) catch |e| return switch (e) {
@@ -2350,6 +2355,43 @@ export fn zs_app_part_get(a: ?*App, i: usize, out: ?*Part) c_int {
     const an = app.plate.angles(i);
     o.* = .{ .name = p.name.ptr, .x = p.x, .y = p.y, .rotation = p.rot, .size_x = 2 * p.half[0], .size_y = 2 * p.half[1], .size_z = p.height, .scale_x = p.scale[0], .scale_y = p.scale[1], .scale_z = p.scale[2], .z = p.z, .angle_x = an[0], .angle_y = an[1], .angle_z = an[2] };
     return ok;
+}
+
+/// The first part of the plate that does not fit the printer (see
+/// engine.fitOf), or null. A plate with such a part slices, but it does
+/// not print: the calls that make a file to print refuse it.
+fn firstUnfit(app: *const App) ?usize {
+    for (app.plate.parts.items, 0..) |*p, i| {
+        const f = zs.engine.fitOf(.{ 0, 0, 0 }, .{ 2 * p.half[0], 2 * p.half[1], p.height }, app.settings);
+        if (f.cause != .fits) return i;
+    }
+    return null;
+}
+
+/// ZS_OK if the plate can print, or ZS_PART_TOO_LARGE with the reason
+/// for a person: the name of the part that does not fit, and its sizes.
+/// The same buffer rules as zs_app_setting_get; the text is "" for ZS_OK.
+export fn zs_app_plate_printable(a: ?*const App, buf: ?[*]u8, cap: usize, out_len: ?*usize) c_int {
+    const app = a orelse return @intFromEnum(Status.invalid_argument);
+    var aw: Writer.Allocating = .init(gpa);
+    defer aw.deinit();
+    const bad = firstUnfit(app);
+    if (bad) |i| {
+        const p = &app.plate.parts.items[i];
+        const f = zs.engine.fitOf(.{ 0, 0, 0 }, .{ 2 * p.half[0], 2 * p.half[1], p.height }, app.settings);
+        aw.writer.print("{s}: ", .{if (p.name.len > 0) p.name else "A part"}) catch return @intFromEnum(Status.out_of_memory);
+        zs.engine.fitText(f, &aw.writer) catch return @intFromEnum(Status.out_of_memory);
+    }
+    const text = aw.written();
+    if (out_len) |l| l.* = text.len;
+    if (buf) |b| {
+        if (cap > 0) {
+            const k = @min(text.len, cap - 1);
+            @memcpy(b[0..k], text[0..k]);
+            b[k] = 0;
+        }
+    }
+    return if (bad != null) @intFromEnum(Status.part_too_large) else ok;
 }
 
 /// How part i fits the printer of its plate (see engine.fitOf): the cause
@@ -4526,4 +4568,47 @@ test "C API: the spools of an X2D: the filament of a part is the same in the vie
             for (v.beads.items) |bd| if (bd.rgba[3] < 11) try t.expectEqualSlices(u8, &want, bd.rgba[0..3]);
         }
     }
+}
+
+test "C API: a part higher than the printer slices, shows a check, and does not print" {
+    const t = std.testing;
+    const alloc = t.allocator;
+    var a: ?*App = null;
+    try t.expectEqual(ok, zs_app_new(null, null, &a));
+    defer zs_app_free(a);
+    var b: zs.mesh.Builder = .init(alloc);
+    errdefer b.deinit();
+    try zs.mesh.shapes.addBox(&b, 0, 0, 0, 10, 10, 30);
+    var mesh = try b.finish();
+    defer mesh.deinit(alloc);
+    var stl: Writer.Allocating = .init(alloc);
+    defer stl.deinit();
+    try mesh.writeStl(&stl.writer);
+    try t.expectEqual(ok, zs_app_load_stl(a, "post.stl", stl.written().ptr, stl.written().len));
+    try t.expectEqual(ok, zs_app_setting_set(a, "machine.max_height", "20"));
+    // It slices.
+    try t.expectEqual(ok, zs_app_slice(a));
+    a.?.stopWorkerForTest();
+    // The plate does not print, and the reason names the part.
+    var buf: [400]u8 = undefined;
+    var len: usize = 0;
+    try t.expectEqual(@intFromEnum(Status.part_too_large), zs_app_plate_printable(a, &buf, buf.len, &len));
+    try t.expect(std.mem.indexOf(u8, buf[0..len], "30 mm high") != null);
+    var g: ?[*]const u8 = null;
+    var glen: usize = 0;
+    try t.expectEqual(@intFromEnum(Status.part_too_large), zs_app_gcode(a, &g, &glen));
+    // The check has an issue of the fit.
+    var issues: ?[*]const zs.app.checks_mod.Issue = null;
+    var n: usize = 0;
+    var text: ?[*]const u8 = null;
+    try t.expectEqual(ok, zs_app_checks(a, &issues, &n, &text));
+    var found = false;
+    for (issues.?[0..n]) |i| {
+        if (i.kind == .fit) found = true;
+    }
+    try t.expect(found);
+    // With room, it prints.
+    try t.expectEqual(ok, zs_app_setting_set(a, "machine.max_height", "200"));
+    try t.expectEqual(ok, zs_app_plate_printable(a, &buf, buf.len, &len));
+    try t.expectEqual(@as(usize, 0), len);
 }
