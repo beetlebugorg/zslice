@@ -350,6 +350,14 @@ namespace winrt::ZSlice::implementation
             {
                 WorkSliceEnded(false);
                 SliceProgress().Visibility(Visibility::Collapsed);
+                // A failed slice has no G-code to export.
+                ExportButton().IsEnabled(false);
+                {
+                    std::wstring refusal = PlateRefusal(model->Active());
+                    ToolTipService::SetToolTip(ExportGroup(), refusal.empty() ? nullptr : box_value(refusal));
+                }
+                // The name of the error goes to the log, for a bug report.
+                zs::Log("shell: the slice failed: %s\n", zs_app_failure_name(model->Active()));
                 ShowError(zs::ToWide(zs_status_message(event.status)));
                 PrintersOnFailed();
             }
