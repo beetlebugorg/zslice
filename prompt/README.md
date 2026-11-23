@@ -1,6 +1,6 @@
 # A prompt that could build zslice
 
-Describes: main at commit `aeec8973` ("Add the Mac ZIP picker to the prompt"), 2026-11-23.
+Describes: main at commit `1aaa600c` ("Add the H.264 camera to the Windows prompt"), 2026-11-23.
 
 ## Read this first
 
