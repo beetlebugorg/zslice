@@ -3040,6 +3040,207 @@ test "plate job: each Prusa model of the library prints two filaments with its c
     try testing.expectEqual(prusa_checks.len, count);
 }
 
+/// The firmware facts of each Creality model of the library: Klipper or
+/// Marlin, CoreXY, and a start G-code that calls the START_PRINT macro.
+const creality_checks = [_]struct { id: []const u8, klipper: bool, corexy: bool, macro: bool }{
+    .{ .id = "creality-cr-5-pro", .klipper = false, .corexy = false, .macro = false },
+    .{ .id = "creality-cr-5-pro-h", .klipper = false, .corexy = false, .macro = false },
+    .{ .id = "creality-cr-6-max", .klipper = false, .corexy = false, .macro = false },
+    .{ .id = "creality-cr-6-se", .klipper = false, .corexy = false, .macro = false },
+    .{ .id = "creality-cr-8", .klipper = false, .corexy = false, .macro = false },
+    .{ .id = "creality-cr-10", .klipper = false, .corexy = false, .macro = false },
+    .{ .id = "creality-cr-10-max", .klipper = false, .corexy = false, .macro = false },
+    .{ .id = "creality-cr-10-mini", .klipper = false, .corexy = false, .macro = false },
+    .{ .id = "creality-cr-10-s", .klipper = false, .corexy = false, .macro = false },
+    .{ .id = "creality-cr-10-s4", .klipper = false, .corexy = false, .macro = false },
+    .{ .id = "creality-cr-10-s5", .klipper = false, .corexy = false, .macro = false },
+    .{ .id = "creality-cr-10-s-pro", .klipper = false, .corexy = false, .macro = false },
+    .{ .id = "creality-cr-10-se", .klipper = true, .corexy = false, .macro = false },
+    .{ .id = "creality-cr-10-smart", .klipper = false, .corexy = false, .macro = false },
+    .{ .id = "creality-cr-10-smart-pro", .klipper = false, .corexy = false, .macro = false },
+    .{ .id = "creality-cr-10-v2", .klipper = false, .corexy = false, .macro = false },
+    .{ .id = "creality-cr-10-v3", .klipper = false, .corexy = false, .macro = false },
+    .{ .id = "creality-cr-10s-pro-v2", .klipper = false, .corexy = false, .macro = false },
+    .{ .id = "creality-cr-20", .klipper = false, .corexy = false, .macro = false },
+    .{ .id = "creality-cr-20-pro", .klipper = false, .corexy = false, .macro = false },
+    .{ .id = "creality-cr-100", .klipper = false, .corexy = false, .macro = false },
+    .{ .id = "creality-cr-200b", .klipper = false, .corexy = false, .macro = false },
+    .{ .id = "creality-cr-m4", .klipper = false, .corexy = false, .macro = false },
+    .{ .id = "creality-cr-m4-se", .klipper = true, .corexy = false, .macro = false },
+    .{ .id = "creality-cr-x", .klipper = false, .corexy = false, .macro = false },
+    .{ .id = "creality-ender-2", .klipper = false, .corexy = false, .macro = false },
+    .{ .id = "creality-ender-2-pro", .klipper = false, .corexy = false, .macro = false },
+    .{ .id = "creality-ender-3", .klipper = false, .corexy = false, .macro = false },
+    .{ .id = "creality-ender-3-ender-3-v2", .klipper = false, .corexy = false, .macro = false },
+    .{ .id = "creality-ender-3-bltouch", .klipper = false, .corexy = false, .macro = false },
+    .{ .id = "creality-ender-3-max", .klipper = false, .corexy = false, .macro = false },
+    .{ .id = "creality-ender-3-max-neo", .klipper = false, .corexy = false, .macro = false },
+    .{ .id = "creality-ender-3-neo", .klipper = false, .corexy = false, .macro = false },
+    .{ .id = "creality-ender-3-pro", .klipper = false, .corexy = false, .macro = false },
+    .{ .id = "creality-ender-3-s1", .klipper = false, .corexy = false, .macro = false },
+    .{ .id = "creality-ender-3-s1-plus", .klipper = false, .corexy = false, .macro = false },
+    .{ .id = "creality-ender-3-s1-pro", .klipper = false, .corexy = false, .macro = false },
+    .{ .id = "creality-ender-3-s1-sonic", .klipper = true, .corexy = false, .macro = false },
+    .{ .id = "creality-ender-3-v2", .klipper = false, .corexy = false, .macro = false },
+    .{ .id = "creality-ender-3-v2-neo", .klipper = false, .corexy = false, .macro = false },
+    .{ .id = "creality-ender-3-v3", .klipper = true, .corexy = false, .macro = true },
+    .{ .id = "creality-ender-3-v3-ke", .klipper = true, .corexy = false, .macro = false },
+    .{ .id = "creality-ender-3-v3-plus", .klipper = true, .corexy = false, .macro = true },
+    .{ .id = "creality-ender-3-v3-se", .klipper = false, .corexy = false, .macro = false },
+    .{ .id = "creality-ender-3-v4", .klipper = true, .corexy = false, .macro = true },
+    .{ .id = "creality-ender-4", .klipper = false, .corexy = true, .macro = false },
+    .{ .id = "creality-ender-5", .klipper = false, .corexy = false, .macro = false },
+    .{ .id = "creality-ender-5-max", .klipper = true, .corexy = false, .macro = false },
+    .{ .id = "creality-ender-5-plus", .klipper = false, .corexy = false, .macro = false },
+    .{ .id = "creality-ender-5-pro", .klipper = false, .corexy = false, .macro = false },
+    .{ .id = "creality-ender-5-pro-2019", .klipper = false, .corexy = false, .macro = false },
+    .{ .id = "creality-ender-5-s1", .klipper = false, .corexy = false, .macro = false },
+    .{ .id = "creality-ender-5-s1-sonic", .klipper = true, .corexy = false, .macro = false },
+    .{ .id = "creality-ender-5s", .klipper = false, .corexy = false, .macro = false },
+    .{ .id = "creality-ender-6", .klipper = false, .corexy = true, .macro = false },
+    .{ .id = "creality-ender-7", .klipper = false, .corexy = false, .macro = false },
+    .{ .id = "creality-hi", .klipper = true, .corexy = false, .macro = true },
+    .{ .id = "creality-k1", .klipper = true, .corexy = true, .macro = true },
+    .{ .id = "creality-k1-max", .klipper = true, .corexy = true, .macro = true },
+    .{ .id = "creality-k1-max-cfs-c", .klipper = true, .corexy = true, .macro = true },
+    .{ .id = "creality-k1-se", .klipper = true, .corexy = true, .macro = true },
+    .{ .id = "creality-k1-se-cfs-c", .klipper = true, .corexy = true, .macro = true },
+    .{ .id = "creality-k1-cfs-c", .klipper = true, .corexy = true, .macro = true },
+    .{ .id = "creality-k1c", .klipper = true, .corexy = true, .macro = true },
+    .{ .id = "creality-k1c-cfs-c", .klipper = true, .corexy = true, .macro = true },
+    .{ .id = "creality-k2", .klipper = true, .corexy = true, .macro = true },
+    .{ .id = "creality-k2-plus", .klipper = true, .corexy = true, .macro = true },
+    .{ .id = "creality-k2-pro", .klipper = true, .corexy = true, .macro = true },
+    .{ .id = "creality-k2-se", .klipper = true, .corexy = false, .macro = true },
+    .{ .id = "creality-sermoon-d3", .klipper = false, .corexy = false, .macro = false },
+    .{ .id = "creality-sermoon-d3-pro", .klipper = false, .corexy = false, .macro = false },
+    .{ .id = "creality-sermoon-m300", .klipper = true, .corexy = false, .macro = true },
+    .{ .id = "creality-sermoon-v1", .klipper = false, .corexy = false, .macro = true },
+    .{ .id = "creality-sermoon-v1-v1-pro", .klipper = false, .corexy = false, .macro = false },
+    .{ .id = "creality-sermoon-v1-pro", .klipper = false, .corexy = false, .macro = false },
+    .{ .id = "creality-sermoon-d1", .klipper = false, .corexy = false, .macro = false },
+    .{ .id = "creality-sparkx-i7", .klipper = true, .corexy = false, .macro = true },
+};
+
+/// The check of one Creality model of the library (see the test below): a
+/// plate of two cubes of two filaments.
+fn checkCrealityModel(gpa: Allocator, lib: *const @import("printers.zig").Library, i: usize, klipper: bool, corexy: bool, macro: bool) !void {
+    const m = lib.models[i];
+    var arena_state: std.heap.ArenaAllocator = .init(gpa);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+    var text: Writer.Allocating = .init(a);
+    try lib.profileText(i, 0, &text.writer);
+    var s: Settings = .{};
+    s.engine.threads = 1;
+    var diag: @import("profile.zig").Diagnostic = .{};
+    try @import("profile.zig").apply(a, &s, .machine, m.id, text.written(), null, &diag);
+    try testing.expectEqual(klipper, m.flavor == .klipper);
+    try testing.expectEqual(corexy, std.mem.eql(u8, m.kinematics, "corexy"));
+    const tools = s.machine.filament_change == .tool;
+    const cx = s.machine.bed_size_x / 2;
+    const cy = s.machine.bed_size_y / 2;
+    var m1 = try testBox(cx - 15, cy - 5, cx - 5, cy + 5, 2);
+    defer m1.deinit(gpa);
+    var m2 = try testBox(cx + 5, cy - 5, cx + 15, cy + 5, 2);
+    defer m2.deinit(gpa);
+    var second = s.filament;
+    second.color = "#d93a3a";
+    second.material = "PETG";
+    if (s.machine.nozzles >= 2) second.nozzle = 1;
+    const parts = [_]PartInput{
+        .{ .mesh = &m1, .part = 0 },
+        .{ .mesh = &m2, .part = 1, .changes = &.{.{ .name = "project.filament", .value = "2" }} },
+    };
+    var pj = try PlateJob.init(gpa, s, &parts, .{ .filaments = &.{second} });
+    defer pj.deinit();
+    var out: Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    _ = try pj.writeGcode(&out.writer);
+    const g = out.written();
+    try testing.expectEqual(macro, std.mem.indexOf(u8, g, "\nSTART_PRINT") != null);
+
+    var lines = std.mem.splitScalar(u8, g, '\n');
+    var x: f64 = 0;
+    var y: f64 = 0;
+    var z: f64 = 0;
+    var relative = false;
+    var printing = false;
+    var t1: usize = 0;
+    var pauses: usize = 0;
+    while (lines.next()) |line| {
+        if (std.mem.startsWith(u8, line, ";LAYER:0")) {
+            printing = true;
+            // The print uses absolute positions after the start G-code.
+            try testing.expect(!relative);
+        }
+        if (std.mem.startsWith(u8, line, ";Filament used:")) printing = false;
+        try testing.expect(std.mem.indexOf(u8, line, "zslice: no value for ") == null);
+        const cmd = std.mem.trim(u8, if (std.mem.indexOfScalar(u8, line, ';')) |c| line[0..c] else line, " \t\r");
+        if (cmd.len == 0) continue;
+        try testing.expect(std.mem.indexOfAny(u8, cmd, "{}[]") == null);
+        var words = std.mem.tokenizeScalar(u8, cmd, ' ');
+        const op = words.next().?;
+        if (std.mem.eql(u8, cmd, "T1") or std.mem.startsWith(u8, cmd, "T1 ")) t1 += 1;
+        // A pause for a change by hand: PAUSE on Klipper, M600 on Marlin.
+        if (std.mem.eql(u8, op, if (klipper) "PAUSE" else "M600")) pauses += 1;
+        if (std.mem.eql(u8, op, "G90")) relative = false;
+        if (std.mem.eql(u8, op, "G91")) relative = true;
+        const nozzle = std.mem.eql(u8, op, "M104") or std.mem.eql(u8, op, "M109");
+        const bed = std.mem.eql(u8, op, "M140") or std.mem.eql(u8, op, "M190");
+        if (nozzle or bed) while (words.next()) |w| {
+            if (w.len < 2 or w[0] != 'S') continue;
+            const v = try std.fmt.parseFloat(f64, w[1..]);
+            if (nozzle) try testing.expect(v == 0 or (v >= 50 and v <= 300));
+            if (bed) try testing.expect(v >= 0 and v <= 120);
+        };
+        if (!(std.mem.eql(u8, op, "G0") or std.mem.eql(u8, op, "G1"))) continue;
+        var e: f64 = 0;
+        while (words.next()) |w| {
+            if (w.len < 2) continue;
+            const v = std.fmt.parseFloat(f64, w[1..]) catch continue;
+            switch (w[0]) {
+                'X' => x = if (relative) x + v else v,
+                'Y' => y = if (relative) y + v else v,
+                'Z' => z = if (relative) z + v else v,
+                'E' => e = v,
+                else => {},
+            }
+        }
+        // The extrusions of the print stay on the bed and under the height.
+        if (e <= 0 or !printing) continue;
+        const eps = 1e-3;
+        try testing.expect(x >= s.machine.origin_x - eps and x <= s.machine.origin_x + s.machine.bed_size_x + eps);
+        try testing.expect(y >= s.machine.origin_y - eps and y <= s.machine.origin_y + s.machine.bed_size_y + eps);
+        try testing.expect(z > 0 and z <= s.machine.max_height + eps);
+    }
+    if (tools) try testing.expect(t1 > 0) else try testing.expect(pauses > 0);
+}
+
+test "plate job: each Creality model of the library prints two filaments with its checks" {
+    const printers = @import("printers.zig");
+    if (printers.builtin_data.len == 0) return error.SkipZigTest;
+    const gpa = testing.allocator;
+    const lib = try printers.Library.parse(gpa, printers.builtin_data);
+    defer lib.deinit();
+    var count: usize = 0;
+    for (lib.models, 0..) |m, i| {
+        if (!std.mem.startsWith(u8, m.id, "creality-")) continue;
+        const check = for (creality_checks) |c| {
+            if (std.mem.eql(u8, c.id, m.id)) break c;
+        } else {
+            std.debug.print("{s}: not in creality_checks\n", .{m.id});
+            return error.TestUnexpectedResult;
+        };
+        checkCrealityModel(gpa, lib, i, check.klipper, check.corexy, check.macro) catch |e| {
+            std.debug.print("{s}: {s}\n", .{ m.id, @errorName(e) });
+            return e;
+        };
+        count += 1;
+    }
+    try testing.expectEqual(creality_checks.len, count);
+}
+
 test "plate job: a PLA part with a PETG support interface, and a tower for each" {
     const gpa = testing.allocator;
     // A post with a shelf on one side, 4 mm over the bed: support under
