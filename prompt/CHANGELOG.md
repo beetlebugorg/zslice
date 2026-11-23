@@ -52,3 +52,4 @@ One line for each update: the date, the commit that the folder describes, and th
 | 2026-11-23 | `147899d3` | README, CHANGELOG: an upload to a USB printer is an error in the GTK app, so a send of all plates cannot start a live print. |
 | 2026-11-23 | `ed81f35b` | README, CHANGELOG: GTK opens a USB port only after the user agrees, and Stop on USB turns off the heaters and the fan with no move. |
 | 2026-11-23 | `8152a96a` | README, CHANGELOG, 11: the Mac test build links the current SDK, so a UI check shows the release look. |
+| 2026-11-23 | `10392b44` | README, CHANGELOG: Stop on USB in GTK turns off each nozzle with `M104 T<n> S0`. |
