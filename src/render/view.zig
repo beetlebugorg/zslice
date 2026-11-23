@@ -331,6 +331,8 @@ pub const View = struct {
     /// The press of an arrow of the transform tool: the place on the
     /// axis (mm from the center) under the pointer at the press.
     arrow_t0: f32 = 0,
+    /// The center of the gizmo at the press of an arrow.
+    arrow_c: [3]f32 = .{ 0, 0, 0 },
     /// The plane of a cut (see `setCut`): x0, y0, x1, y1, and z (mm).
     cut_plane: ?[5]f32 = null,
     /// The handle of a drag in progress: the ring of a turn (0 X, 1 Y,
@@ -2986,18 +2988,16 @@ pub const View = struct {
         return if (ring >= 0) ring else best;
     }
 
-    /// The place on the line of `axis` through the center of the gizmo
-    /// (mm from the center) nearest to the ray of the pixel, or null if the
-    /// ray runs along the axis.
-    fn axisParam(v: *const View, axis: u2, px: f32, py: f32) ?f32 {
-        const rg = v.rings orelse return null;
+    /// The place on the line of `axis` through `c` (mm from `c`) nearest
+    /// to the ray of the pixel, or null if the ray runs along the axis.
+    fn axisParam(v: *const View, c: [3]f32, axis: u2, px: f32, py: f32) ?f32 {
         const r = v.ray(px, py);
         const e = [3]f32{ r[0], r[1], r[2] };
         const d = [3]f32{ r[3], r[4], r[5] };
         var a = [3]f32{ 0, 0, 0 };
         a[axis] = 1;
         // The nearest points of two lines c + t a and e + s d.
-        const w = [3]f32{ rg.c[0] - e[0], rg.c[1] - e[1], rg.c[2] - e[2] };
+        const w = [3]f32{ c[0] - e[0], c[1] - e[1], c[2] - e[2] };
         const b = d[axis];
         const denom = 1 - b * b;
         if (denom < 1e-4) return null;
@@ -3009,7 +3009,11 @@ pub const View = struct {
     /// pixel (px, py). False with no arrows, or a ray along the axis.
     pub fn arrowPress(v: *View, axis: u2, px: f32, py: f32) bool {
         if (v.rings == null or !v.rings.?.arrows) return false;
-        v.arrow_t0 = v.axisParam(axis, px, py) orelse return false;
+        // The drag measures from the center at the press: the shell moves
+        // the gizmo with the part, and a moving origin feeds the move back
+        // into itself.
+        v.arrow_c = v.rings.?.c;
+        v.arrow_t0 = v.axisParam(v.arrow_c, axis, px, py) orelse return false;
         v.ring_axis = @as(i8, axis) + 3;
         return true;
     }
@@ -3020,7 +3024,7 @@ pub const View = struct {
     /// change).
     pub fn arrowDrag(v: *const View, px: f32, py: f32) ?f32 {
         if (v.ring_axis < 3) return null;
-        const t = v.axisParam(@intCast(v.ring_axis - 3), px, py) orelse return null;
+        const t = v.axisParam(v.arrow_c, @intCast(v.ring_axis - 3), px, py) orelse return null;
         return t - v.arrow_t0;
     }
 
@@ -6595,6 +6599,13 @@ test "the arrows of the gizmo: the pick, and a drag along X and Z" {
         const b = v.pixelOf(far).?;
         try std.testing.expect(v.arrowPress(axis, a[0], a[1]));
         try std.testing.expectApproxEqAbs(@as(f32, 7), v.arrowDrag(b[0], b[1]).?, 0.05);
+        // The shell moves the gizmo with the part. The same pointer still
+        // gives the same move.
+        var moved = [3]f32{ 0, 0, 5 };
+        moved[axis] += 7;
+        v.setGizmo(moved, 10, true);
+        try std.testing.expectApproxEqAbs(@as(f32, 7), v.arrowDrag(b[0], b[1]).?, 0.05);
+        v.setGizmo(.{ 0, 0, 5 }, 10, true);
         v.ringRelease();
         try std.testing.expectEqual(@as(?f32, null), v.arrowDrag(b[0], b[1]));
     }
