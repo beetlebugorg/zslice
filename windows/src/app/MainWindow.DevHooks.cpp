@@ -290,9 +290,11 @@ namespace winrt::ZSlice::implementation
                 if (popup.Child() != nullptr)
                     walk(popup.Child());
             walk(Root());
-            if (found != nullptr)
+            // The peer throws for a disabled button.
+            bool enabled = found != nullptr && found.IsEnabled();
+            if (enabled)
                 Microsoft::UI::Xaml::Automation::Peers::ButtonAutomationPeer(found).Invoke();
-            zs::Log("dev: press '%s' %s\n", zs::ToUtf8(want).c_str(), found != nullptr ? "done" : "not found");
+            zs::Log("dev: press '%s' %s\n", zs::ToUtf8(want).c_str(), enabled ? "done" : found != nullptr ? "disabled" : "not found");
         }
         else if (verb == L"appkey" && !words.empty())
         {
@@ -354,6 +356,65 @@ namespace winrt::ZSlice::implementation
         else if (verb == L"keysheet")
         {
             ShowShortcuts();
+        }
+        else if (verb == L"pickeropen" && !words.empty())
+        {
+            printers->ShowPicker(words[0] == L"1");
+        }
+        else if (verb == L"panelesc")
+        {
+            if (!printers->panels.empty())
+                printers->EscapePanel(printers->panels.back());
+            zs::Log("dev: panels open %zu\n", printers->panels.size());
+        }
+        else if (verb == L"numberset" && words.size() >= 2)
+        {
+            // numberset Bed_width 220.6: a number box by its name.
+            std::wstring want = words[0];
+            std::replace(want.begin(), want.end(), L'_', L' ');
+            using Node = Microsoft::UI::Xaml::DependencyObject;
+            using Tree = Microsoft::UI::Xaml::Media::VisualTreeHelper;
+            Microsoft::UI::Xaml::Controls::NumberBox found{ nullptr };
+            std::function<void(Node const &)> walk = [&](Node const &at) {
+                if (found != nullptr)
+                    return;
+                auto b = at.try_as<Microsoft::UI::Xaml::Controls::NumberBox>();
+                if (b != nullptr && std::wstring(Microsoft::UI::Xaml::Automation::AutomationProperties::GetName(b)) == want)
+                    found = b;
+                for (int32_t i = 0, n = Tree::GetChildrenCount(at); i < n; i++)
+                    walk(Tree::GetChild(at, i));
+            };
+            walk(Root());
+            if (found != nullptr)
+            {
+                found.Value(_wtof(words[1].c_str()));
+                zs::Log("dev: number '%s' %.3f\n", zs::ToUtf8(want).c_str(), found.Value());
+            }
+            else
+                zs::Log("dev: number '%s' not found\n", zs::ToUtf8(want).c_str());
+        }
+        else if (verb == L"listpick" && words.size() >= 2)
+        {
+            // listpick Name 3: the row of a list by the name of the list.
+            std::wstring want = words[0];
+            std::replace(want.begin(), want.end(), L'_', L' ');
+            using Node = Microsoft::UI::Xaml::DependencyObject;
+            using Tree = Microsoft::UI::Xaml::Media::VisualTreeHelper;
+            Microsoft::UI::Xaml::Controls::ListView found{ nullptr };
+            std::function<void(Node const &)> walk = [&](Node const &at) {
+                if (found != nullptr)
+                    return;
+                auto l = at.try_as<Microsoft::UI::Xaml::Controls::ListView>();
+                if (l != nullptr && std::wstring(Microsoft::UI::Xaml::Automation::AutomationProperties::GetName(l)) == want)
+                    found = l;
+                for (int32_t i = 0, n = Tree::GetChildrenCount(at); i < n; i++)
+                    walk(Tree::GetChild(at, i));
+            };
+            walk(Root());
+            int row = _wtoi(words[1].c_str());
+            if (found != nullptr && row >= 0 && (uint32_t)row < found.Items().Size())
+                found.SelectedIndex(row);
+            zs::Log("dev: list '%s' %s, %u rows\n", zs::ToUtf8(want).c_str(), found != nullptr ? "found" : "not found", found != nullptr ? found.Items().Size() : 0);
         }
         else if (verb == L"manageopen")
         {

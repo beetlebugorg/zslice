@@ -174,7 +174,7 @@ namespace winrt::ZSlice::implementation
         Plan plan;
         if (!ReadPlan(model->Active(), plan))
         {
-            ShowToast(L"This plate has no calibration test. Open Calibrate in the main menu to make one.");
+            ShowAlert(L"This plate has no calibration test", L"Open Calibrate in the main menu to make one.");
             return;
         }
         StackPanel body = ui::Column(12);

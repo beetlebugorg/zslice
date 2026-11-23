@@ -144,6 +144,7 @@ namespace winrt::ZSlice::implementation
             PasswordBox key{ nullptr };
             ComboBox nozzle{ nullptr }, filament{ nullptr }, kind{ nullptr };
             NumberBox bed_x{ nullptr }, bed_y{ nullptr }, bed_z{ nullptr };
+            bool filling_bed = false;
             StackPanel url_row{ nullptr }, key_row{ nullptr }, serial_row{ nullptr };
             TextBlock key_label{ nullptr }, test_result{ nullptr }, summary{ nullptr };
             std::vector<double> nozzles;
@@ -340,9 +341,12 @@ namespace winrt::ZSlice::implementation
                 }
                 nozzle.SelectedIndex(chosen);
                 filament.SelectedIndex(have && m.filament > 2.2 ? 1 : 0);
+                // The size of a profile stays exact. Only an edit rounds.
+                filling_bed = true;
                 bed_x.Value(have ? m.bed_x : 220);
                 bed_y.Value(have ? (m.round ? m.bed_x : m.bed_y) : 220);
                 bed_z.Value(have ? m.height : 250);
+                filling_bed = false;
                 bed_y.IsEnabled(!(have && m.round));
                 // The connection: from the printer on the network, if one
                 // was picked.
@@ -393,8 +397,9 @@ namespace winrt::ZSlice::implementation
         NumberBox BedBox(wchar_t const *name)
         {
             NumberBox b;
-            b.Minimum(1);
-            b.Maximum(5000);
+            b.Minimum(10);
+            b.Maximum(2000);
+            b.SmallChange(1);
             b.Width(92);
             Name(b, name);
             return b;
@@ -504,7 +509,7 @@ namespace winrt::ZSlice::implementation
         center.RowDefinitions().Append(StarRow());
         Grid::SetColumn(center, 1);
         p->query = TextBox();
-        p->query.PlaceholderText(L"Search: ender 3, mk4, voron 2.4");
+        p->query.PlaceholderText(L"Search 1000+ printers: “ender 3”, “mk4”, “voron”");
         Name(p->query, L"Search the printers");
         center.Children().Append(p->query);
         p->hint = Label(L"", 12, false, true);
@@ -580,7 +585,11 @@ namespace winrt::ZSlice::implementation
         TextBlock mm = Label(L"mm", 12, false, true);
         mm.VerticalAlignment(VerticalAlignment::Center);
         bed.Children().Append(mm);
-        form.Children().Append(FormRow(L"Size", bed));
+        form.Children().Append(FormRow(L"Build volume", bed));
+        TextBlock bed_note = Label(L"Change the size only if your printer differs from the profile.", 12, false, true);
+        bed_note.TextWrapping(TextWrapping::Wrap);
+        bed_note.MaxWidth(360);
+        form.Children().Append(FormRow(L"", bed_note));
         p->kind = ComboBox();
         p->kind.Width(240);
         Name(p->kind, L"Connection");
@@ -624,7 +633,9 @@ namespace winrt::ZSlice::implementation
         StackPanel buttons = Row();
         buttons.HorizontalAlignment(HorizontalAlignment::Right);
         Grid::SetRow(buttons, 1);
-        Button cancel = TextButton(L"Cancel");
+        Button cancel = TextButton(welcome ? L"Skip" : L"Cancel");
+        if (welcome)
+            ToolTipService::SetToolTip(cancel, box_value(L"Use the generic printer. Add your printer later from the printer menu."));
         p->back = TextButton(L"Back");
         p->back.Visibility(Visibility::Collapsed);
         p->next = TextButton(L"Next", true);
@@ -647,7 +658,23 @@ namespace winrt::ZSlice::implementation
             p->panel = nullptr;
         };
 
+        // Esc in the second step goes back to the list.
+        panel->escape = [weak] {
+            auto s = weak.lock();
+            if (s == nullptr || s->back.Visibility() != Visibility::Visible)
+                return false;
+            s->GoChoose();
+            return true;
+        };
+
         // ---- events ----
+        for (NumberBox const &box : { p->bed_x, p->bed_y, p->bed_z })
+            box.ValueChanged([weak](NumberBox const &self, NumberBoxValueChangedEventArgs const &e) {
+                auto s = weak.lock();
+                double v = e.NewValue();
+                if (s != nullptr && !s->filling_bed && !std::isnan(v) && v != std::round(v))
+                    self.Value(std::round(v));
+            });
         p->query.TextChanged([weak](auto &&, auto &&) {
             auto s = weak.lock();
             if (s == nullptr || s->filling)

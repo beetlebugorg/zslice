@@ -910,6 +910,14 @@ namespace winrt::ZSlice::implementation
             AskProfileName(ZS_GROUP_FILAMENT);
         });
         filament_panel.Children().Append(save);
+        Button import_button = TextButton(L"Import a profile…");
+        import_button.HorizontalAlignment(HorizontalAlignment::Stretch);
+        ToolTipService::SetToolTip(import_button, box_value(L"Read the settings of a PrusaSlicer, OrcaSlicer, Bambu Studio, or Cura profile"));
+        import_button.Click([this](auto &&, auto &&) {
+            filament_flyout.Hide();
+            w.PickProfile();
+        });
+        filament_panel.Children().Append(import_button);
     }
 
     // ---- panels over the window ----
@@ -968,12 +976,18 @@ namespace winrt::ZSlice::implementation
             if (e.Key() != VirtualKey::Escape)
                 return;
             if (auto p = weak.lock())
-                ClosePanel(p);
+                EscapePanel(p);
             e.Handled(true);
         });
         w.Root().Children().Append(panel->root);
         panels.push_back(panel);
         return panel;
+    }
+
+    void MainWindow::PrintersUi::EscapePanel(std::shared_ptr<OverlayPanel> const &panel)
+    {
+        if (!panel->escape || !panel->escape())
+            ClosePanel(panel);
     }
 
     void MainWindow::PrintersUi::ClosePanel(std::shared_ptr<OverlayPanel> const &panel)
