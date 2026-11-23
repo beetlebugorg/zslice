@@ -110,7 +110,7 @@
 <h2 id="give-a-line-a-filament">Give a line a filament</h2>
 <p>The line card has the row <strong>Filament</strong>. It is for this part of the layer only: the line and the lines joined to it on its layer. An inner line also takes the outer wall around it.</p>
 <ol><li>Click a line.</li><li>Pick a filament chip in <strong>Filament</strong>. Pick <strong>+</strong> to add a filament to the plate.</li><li>That part of the layer turns the color of the filament at once. The slice follows.</li><li>The card then shows <strong>Also the layers above</strong> and <strong>Also the layers below</strong> when the body goes on there. Click one to give those layers the same filament.</li></ol>
-<p>The other parts of the layer keep their filament. zslice paints the part, as in <a href="#give-a-body-a-filament">Give a body a filament</a>. Each change is one step of the history, and Ctrl+Z undoes it.</p>
+<p>The other parts of the layer keep their filament. Only the lines of that part on that layer change, as in <a href="#give-a-body-a-filament">Give a body a filament</a>. Each change is one step of the history, and Ctrl+Z undoes it.</p>
 <h2 id="move-and-size-the-cards">Move and size the cards</h2>
 <p>The cards remember where you put them:</p>
 <ul><li>Drag the top row of a card to move it. The next card of that kind opens there.</li><li>Drag the lower right corner to make it larger or smaller. The size stays too.</li><li>Double-click the top row to give the card its automatic place and size again.</li></ul>
@@ -128,14 +128,14 @@
 <h2 id="give-a-body-a-filament">Give a body a filament</h2>
 <p>A drag from a line lights one body. Shift+J and Shift+K from a selected line do the same. The card then has two filament rows:</p>
 <ul><li><strong>This part of the layers</strong>: only the lit body.</li><li><strong>Whole layers</strong>: all the lines of these layers.</li><li>Pick a filament chip in <strong>This part of the layers</strong>.</li><li>The body turns the color of that filament at once. The slice follows.</li></ul>
-<p>zslice paints the faces of the part under the lines of the body, as the Paint tool does. So the color stays when you change the walls, the layer height, or the place of the part. The color goes into the body by about 2 mm from its surface. The core of a wide body keeps the filament of the part, because nobody sees it.</p>
-<p>To take the color away, pick the filament of the part in <strong>This part of the layers</strong>. Each change is one step of the history, and Ctrl+Z undoes it. The project file keeps the paint.</p>
+<p>zslice changes the filament of the walls, skin, and infill of the body on these layers. The lines keep their shape, and no other layer changes. The pick stays when you slice again, and it moves and turns with the part.</p>
+<p>To take the color away, pick the filament of the part in <strong>This part of the layers</strong>. Each change is one step of the history, and Ctrl+Z undoes it. The project file keeps the pick. A project from an older version keeps its paint.</p>
 <h2 id="change-a-setting-for-one-body">Change a setting for one body</h2>
 <p>With a lit body, each row of the card has a switch:</p>
 <ul><li><strong>This part</strong>: the change is for the lit body only. This is the default.</li><li><strong>Whole layers</strong>: the change is for all the lines of these layers.</li></ul>
 <p>A change for this part makes a region of the part. The region is a modifier volume: it follows the body on each of its layers. The view shows its outline as thin purple rings. The history, Ctrl+Z, and the project file keep it. The region goes when it has no change left.</p>
 <p>A region keeps the walls and the skin of the part. It changes the infill inside the walls. These settings can be different in a region:</p>
-<ul><li>the filament (paint, see above);</li><li>the infill density, pattern, angle, angles, and stacking;</li><li>the infill flow and the infill speed;</li><li>the infill acceleration.</li></ul>
+<ul><li>the filament (see above);</li><li>the infill density, pattern, angle, angles, and stacking;</li><li>the infill flow and the infill speed;</li><li>the infill acceleration.</li></ul>
 <p>The other settings are for the whole layers only. Their rows say why. For example:</p>
 <ul><li>The plate has one layer height at each layer.</li><li>The fan runs at one speed for the whole layer.</li><li>The nozzle has one temperature for the whole layer.</li><li>The walls of the part go around the whole layer.</li><li>The travel moves and the retractions are for the whole layer.</li></ul>
 <p>"+ Add a setting for these layers" uses the same rule. A setting that a region can have goes to this part. The others go to the whole layers. A search for the filament ("color", "material", "tool") shows both chips: this part of the layers, and the whole layers.</p>

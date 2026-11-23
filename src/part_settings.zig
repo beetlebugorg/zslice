@@ -33,6 +33,7 @@ const settings_mod = @import("settings.zig");
 const import_cura = @import("import_cura.zig");
 const threemf = @import("threemf.zig");
 const engine = @import("engine.zig");
+const body_region = @import("body_region.zig");
 const Mesh = mesh_mod.Mesh;
 const Change = settings_mod.Change;
 
@@ -58,6 +59,9 @@ pub const PartPlan = struct {
     /// The modifier volumes of the part. Their meshes are the meshes of
     /// the inputs.
     modifiers: []const engine.Job.ModifierInput = &.{},
+    /// The filament picks of some layers of the part, the oldest first
+    /// (see body_region.zig). Their meshes are the meshes of the inputs.
+    picks: []const body_region.Pick = &.{},
 };
 
 pub const Plan = struct {
@@ -148,6 +152,8 @@ pub fn plan(gpa: Allocator, inputs: []const Input, settings: *const settings_mod
     // The modifier volumes, each on its part.
     const mods = try a.alloc(std.ArrayList(engine.Job.ModifierInput), parts.items.len);
     @memset(mods, .empty);
+    const picks = try a.alloc(std.ArrayList(body_region.Pick), parts.items.len);
+    @memset(picks, .empty);
     for (inputs, ps) |in, p| {
         switch (p.role) {
             .normal => {},
@@ -157,6 +163,11 @@ pub fn plan(gpa: Allocator, inputs: []const Input, settings: *const settings_mod
                     try notes.append(a, try std.fmt.allocPrint(a, "{s}: the modifier volume has no part to change", .{in.name}));
                     continue;
                 };
+                // A filament pick changes no setting of the volume.
+                if (body_region.pickFilament(in.meta)) |f| {
+                    try picks[host].append(a, .{ .mesh = mesh, .filament = @intCast(@min(f, 255)) });
+                    continue;
+                }
                 // As in Cura, a modifier volume has the settings of the
                 // profile and its own: the settings of the plate from the
                 // parts (`base`) and of its part do not apply to it.
@@ -176,7 +187,10 @@ pub fn plan(gpa: Allocator, inputs: []const Input, settings: *const settings_mod
             else => try notes.append(a, try std.fmt.allocPrint(a, "{s}: {s} does not print: zslice has no such volume yet", .{ in.name, roleName(p.role) })),
         }
     }
-    for (parts.items, mods) |*pp, m| pp.modifiers = m.items;
+    for (parts.items, mods, picks) |*pp, m, k| {
+        pp.modifiers = m.items;
+        pp.picks = k.items;
+    }
     out.parts = parts.items;
     out.notes = notes.items;
     return out;

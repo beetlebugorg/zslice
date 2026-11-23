@@ -523,8 +523,7 @@ pub fn brushTriangle(p: *Paint, gpa: Allocator, m: *const Mesh, tri: usize, s: S
 ///
 /// A triangle on the edge of the shape splits until its pieces are
 /// smaller than `fine` (mm), or `max_depth`. Returns true if the paint
-/// changed. The brush (`Sphere`) and the body of a range of layers
-/// (paint_body.zig) use it.
+/// changed. The brush (`Sphere`) uses it.
 pub fn paintTriangle(p: *Paint, gpa: Allocator, m: *const Mesh, tri: usize, shape: anytype, state: u8, fine: f32) Allocator.Error!bool {
     const face = m.faces.items[tri];
     const v = [3]V3{ vec(m, face[0]), vec(m, face[1]), vec(m, face[2]) };

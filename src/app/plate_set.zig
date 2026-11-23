@@ -1659,6 +1659,68 @@ test "plate set: a session brings back the plates, the camera, and the app text"
     try testing.expectEqualStrings("panel=settings;scroll=120", r.app_text);
 }
 
+test "plate set: undo, redo, and a session keep a filament pick of one layer" {
+    const session = @import("session.zig");
+    const gpa = testing.allocator;
+    var ev: Events = .{};
+    const set = try Set.create(gpa, Events.f, &ev, false);
+    defer set.destroy();
+    const app = set.appOf(0).?;
+    var b: zs.mesh.Builder = .init(gpa);
+    try zs.mesh.shapes.addBox(&b, 0, 0, 0, 20, 20, 4);
+    var mesh = try b.finish();
+    var stl: std.Io.Writer.Allocating = .init(gpa);
+    defer stl.deinit();
+    try mesh.writeStl(&stl.writer);
+    mesh.deinit(gpa);
+    try app.loadStl("box.stl", stl.written());
+    _ = try @import("filament_slots.zig").add(app);
+    try app.startSlice();
+    app.stopWorkerForTest();
+    _ = app.undo.commit(app, 0);
+    const tp = app.allToolpaths().?;
+    const layer: usize = 10;
+    var beads: std.ArrayList(f32) = .empty;
+    defer beads.deinit(gpa);
+    for (tp.layer_ends.items[layer - 1]..tp.layer_ends.items[layer]) |p| {
+        var k: usize = tp.path_ends.items[p - 1];
+        while (k + 1 < tp.path_ends.items[p]) : (k += 1) {
+            try beads.appendSlice(gpa, &.{ 0, @floatFromInt(layer), tp.layer_z.items[layer], tp.layer_height.items[layer], tp.points.items[2 * k], tp.points.items[2 * k + 1], tp.points.items[2 * k + 2], tp.points.items[2 * k + 3], 0.4 });
+        }
+    }
+    // The next change drops the toolpaths of this slice.
+    const count = tp.layer_ends.items[layer] - tp.layer_ends.items[layer - 1];
+    try testing.expect(try app.paintBody(beads.items, 2) > 0);
+    app.undo.note(gpa, null, true);
+    _ = app.undo.commit(app, 1000);
+    _ = app.undo.undo(app, 2000);
+    try testing.expectEqual(@as(usize, 0), app.plate.parts.items[0].volumes.items.len);
+    _ = app.undo.redo(app, 3000);
+    try testing.expectEqual(@as(usize, 1), app.plate.parts.items[0].volumes.items.len);
+    const bytes = try session.write(gpa, set, null, "");
+    defer gpa.free(bytes);
+    const back = try Set.create(gpa, Events.f, &ev, false);
+    defer back.destroy();
+    var diag: @import("project_file.zig").Diagnostic = .{};
+    const r = try session.read(gpa, bytes, back, &diag);
+    defer gpa.free(r.app_text);
+    const again = back.appOf(0).?;
+    try testing.expectEqual(@as(?u32, 2), zs.body_region.pickFilament(again.plate.parts.items[0].volumes.items[0].meta));
+    try again.startSlice();
+    again.stopWorkerForTest();
+    const tq = again.allToolpaths().?;
+    var first: usize = 0;
+    var on: usize = 0;
+    for (tq.layer_ends.items, 0..) |end, l| {
+        defer first = end;
+        for (tq.path_tool.items[first..end]) |t| if (t == 1) {
+            try testing.expectEqual(layer, l);
+            on += 1;
+        };
+    }
+    try testing.expectEqual(count, on);
+}
+
 test "plate set: a session snapshot gives the bytes of the set when it was taken" {
     const session = @import("session.zig");
     const gpa = testing.allocator;

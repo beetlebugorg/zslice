@@ -36,7 +36,7 @@ The line card has the row **Filament**. It is for this part of the layer only: t
 3. That part of the layer turns the color of the filament at once. The slice follows.
 4. The card then shows **Also the layers above** and **Also the layers below** when the body goes on there. Click one to give those layers the same filament.
 
-The other parts of the layer keep their filament. zslice paints the part, as in [Give a body a filament](#give-a-body-a-filament). Each change is one step of the history, and Ctrl+Z undoes it.
+The other parts of the layer keep their filament. Only the lines of that part on that layer change, as in [Give a body a filament](#give-a-body-a-filament). Each change is one step of the history, and Ctrl+Z undoes it.
 
 ## Move and size the cards
 
@@ -81,9 +81,9 @@ A drag from a line lights one body. Shift+J and Shift+K from a selected line do 
 1. Pick a filament chip in **This part of the layers**.
 2. The body turns the color of that filament at once. The slice follows.
 
-zslice paints the faces of the part under the lines of the body, as the Paint tool does. So the color stays when you change the walls, the layer height, or the place of the part. The color goes into the body by about 2 mm from its surface. The core of a wide body keeps the filament of the part, because nobody sees it.
+zslice changes the filament of the walls, skin, and infill of the body on these layers. The lines keep their shape, and no other layer changes. The pick stays when you slice again, and it moves and turns with the part.
 
-To take the color away, pick the filament of the part in **This part of the layers**. Each change is one step of the history, and Ctrl+Z undoes it. The project file keeps the paint.
+To take the color away, pick the filament of the part in **This part of the layers**. Each change is one step of the history, and Ctrl+Z undoes it. The project file keeps the pick. A project from an older version keeps its paint.
 
 ## Change a setting for one body
 
@@ -96,7 +96,7 @@ A change for this part makes a region of the part. The region is a modifier volu
 
 A region keeps the walls and the skin of the part. It changes the infill inside the walls. These settings can be different in a region:
 
-- the filament (paint, see above);
+- the filament (see above);
 - the infill density, pattern, angle, angles, and stacking;
 - the infill flow and the infill speed;
 - the infill acceleration.

@@ -999,34 +999,81 @@ pub const App = struct {
         try p.paint.readLines(app.gpa, text, p.mesh.faces.items.len);
     }
 
-    /// Paints a body of a range of layers with filament `filament` (from
-    /// 1): the parts of the plate under the beads of `beads` (see
-    /// paint_body.zig, the beads of zs_view_connected_beads). The filament
-    /// of a part is no paint on it. Returns the count of triangles whose
-    /// paint changed. The next slice splits each painted part.
+    /// Gives a body of a range of layers the filament `filament` (from 1):
+    /// a pick of the lines of the beads of `beads` (see body_region.zig,
+    /// the beads of zs_view_connected_beads) on each part under them. The
+    /// pick is a volume of the part, so it moves and turns with the part.
+    /// A newer pick wins over an older pick and over paint. A pick in the
+    /// filament of the part goes if no other pick or paint is under it.
+    /// Returns the count of triangles of the picks that changed.
     pub fn paintBody(app: *App, beads: []const f32, filament: u32) Allocator.Error!usize {
-        const stride = zs.paint_body.stride;
+        const stride = zs.body_region.stride;
         var changed: usize = 0;
+        var list: std.ArrayList(f32) = .empty;
+        defer list.deinit(app.gpa);
         for (0..app.plate.parts.items.len) |i| {
-            var has = false;
+            list.clearRetainingCapacity();
             var k: usize = 0;
             while (k + stride <= beads.len) : (k += stride) {
-                if (beads[k] == @as(f32, @floatFromInt(i))) {
-                    has = true;
-                    break;
-                }
+                if (beads[k] == @as(f32, @floatFromInt(i))) try list.appendSlice(app.gpa, beads[k..][0..stride]);
             }
-            if (!has) continue;
-            // The filament of the part: paint of it is no paint.
+            if (list.items.len == 0) continue;
+            // The filament of the part.
             var own: u32 = app.settings.project.filament;
             if (app.partSetting(i, "project.filament")) |v| own = std.fmt.parseInt(u32, std.mem.trim(u8, v, " "), 10) catch own;
-            const state: u8 = if (filament == own) 0 else @intCast(@min(filament, 255));
             var mesh = try app.plate.partMesh(app.gpa, i);
             defer mesh.deinit(app.gpa);
+            var vol = zs.body_region.pickVolume(app.gpa, list.items, &mesh) catch |e| switch (e) {
+                error.OutOfMemory => return error.OutOfMemory,
+                else => continue,
+            };
+            var owned = true;
+            defer if (owned) vol.deinit(app.gpa);
+            const faces = vol.faces.items.len;
+            if (faces == 0) continue;
+            // The pick of the same shape, and what else is on the part.
+            const want = vol.bounds();
             const p = &app.plate.parts.items[i];
-            // No slice reads the paint while it changes.
-            if (changed == 0) app.stopWorker();
-            changed += try zs.paint_body.paintBody(&p.paint, app.gpa, &mesh, beads, @intCast(i), state);
+            var same: ?usize = null;
+            var others = !p.paint.isEmpty();
+            for (p.volumes.items, 0..) |v, vk| {
+                if (zs.body_region.pickFilament(v.meta) == null) continue;
+                var vm = try app.plate.volumeMesh(app.gpa, i, vk);
+                defer vm.deinit(app.gpa);
+                const got = vm.bounds();
+                var eq = vm.faces.items.len == faces;
+                for (0..3) |d| eq = eq and @abs(got.min[d] - want.min[d]) < 0.02 and @abs(got.max[d] - want.max[d]) < 0.02;
+                if (eq) same = vk else others = true;
+            }
+            if (same) |vk| {
+                // The same filament on the newest pick: no change.
+                if (vk + 1 == p.volumes.items.len and zs.body_region.pickFilament(p.volumes.items[vk].meta) == filament) continue;
+                app.stopWorker();
+                app.plate.removeVolume(app.gpa, i, vk);
+                changed += faces;
+            }
+            if (filament == own and !others) {
+                if (same != null) try app.plateChanged();
+                continue;
+            }
+            var next: u32 = 1;
+            for (app.plate.parts.items) |q| for (q.volumes.items) |v| {
+                next = @max(next, regionId(v.meta) + 1);
+            };
+            var name_buf: [32]u8 = undefined;
+            const vname = std.fmt.bufPrint(&name_buf, "Pick {d}", .{next}) catch unreachable;
+            const meta = try app.gpa.alloc(zs.threemf.Meta, 4);
+            @memset(meta, .{ .key = &.{}, .value = &.{} });
+            errdefer zs.threemf.freeMeta(app.gpa, meta);
+            meta[0] = .{ .key = try app.gpa.dupe(u8, "cura:infill_mesh"), .value = try app.gpa.dupe(u8, "True") };
+            meta[1] = .{ .key = try app.gpa.dupe(u8, region_key), .value = try std.fmt.allocPrint(app.gpa, "{d}", .{next}) };
+            meta[2] = .{ .key = try app.gpa.dupe(u8, "zslice:project.wall_count"), .value = try app.gpa.dupe(u8, "0") };
+            meta[3] = .{ .key = try app.gpa.dupe(u8, zs.body_region.pick_key), .value = try std.fmt.allocPrint(app.gpa, "{d}", .{filament}) };
+            app.stopWorker();
+            owned = false;
+            try app.plate.addVolumeOnBed(app.gpa, i, vname, vol, meta);
+            if (same == null) changed += faces;
+            try app.plateChanged();
         }
         return changed;
     }
@@ -1054,6 +1101,7 @@ pub const App = struct {
     pub fn isRegionSettingKey(key: []const u8) bool {
         if (!std.mem.startsWith(u8, key, "zslice:")) return false;
         if (std.mem.eql(u8, key, region_key)) return false;
+        if (std.mem.eql(u8, key, zs.body_region.pick_key)) return false;
         return !std.mem.eql(u8, key, "zslice:project.wall_count");
     }
 
@@ -1156,7 +1204,7 @@ pub const App = struct {
         const want = zs.body_region.bounds(beads) orelse return null;
         const p = &app.plate.parts.items[part];
         for (p.volumes.items, 0..) |v, k| {
-            if (regionId(v.meta) == 0) continue;
+            if (regionId(v.meta) == 0 or zs.body_region.pickFilament(v.meta) != null) continue;
             var vm = try app.plate.volumeMesh(app.gpa, part, k);
             defer vm.deinit(app.gpa);
             const got = vm.bounds();
@@ -2048,6 +2096,11 @@ pub const App = struct {
             for (p.volumes.items) |v| {
                 const rid = regionId(v.meta);
                 if (rid == 0) continue;
+                // A filament pick: its filament and its shape.
+                if (zs.body_region.pickFilament(v.meta)) |f| {
+                    try w.print("part:{s}\t(pick {d})\t{d} {x}\n", .{ name, rid, f, std.hash.Wyhash.hash(0, std.mem.sliceAsBytes(v.mesh.vertices.items)) });
+                    continue;
+                }
                 for (v.meta) |m| {
                     if (!isRegionSettingKey(m.key)) continue;
                     try w.print("part:{s}\tregion {d} {s}\t", .{ name, rid, m.key["zslice:".len..] });
@@ -3110,6 +3163,7 @@ pub const App = struct {
                 .mesh = mesh,
                 .changes = changes,
                 .modifiers = pp.modifiers,
+                .picks = pp.picks,
                 .marks = marks.items,
                 .part = part_of[pp.input] orelse 0,
                 .trees = trees,
@@ -4067,13 +4121,166 @@ test "app: the filament of a body of some layers paints the body, a step of kind
     }
     try testing.expect(two > 0);
 
-    // The filament of the part removes the paint. Undo restores it.
+    // The filament of the part removes the pick. Undo restores it.
     _ = try app.paintBody(beads.items, 1);
-    try testing.expect(app.plate.parts.items[0].paint.isEmpty());
+    try testing.expectEqual(@as(usize, 0), app.plate.parts.items[0].volumes.items.len);
     app.undo.note(gpa, null, true);
     _ = app.undo.commit(app, 2000);
     _ = app.undo.undo(app, 3000);
-    try testing.expect(!app.plate.parts.items[0].paint.isEmpty());
+    try testing.expectEqual(@as(usize, 1), app.plate.parts.items[0].volumes.items.len);
+}
+
+/// The beads of all paths of layer `layer` of the last slice, as the view
+/// gives them (see body_region.stride).
+fn layerBeads(gpa: Allocator, app: *App, layer: usize, out: *std.ArrayList(f32)) !void {
+    const tp = app.allToolpaths().?;
+    const first: usize = if (layer == 0) 0 else tp.layer_ends.items[layer - 1];
+    const z = tp.layer_z.items[layer];
+    const h = tp.layer_height.items[layer];
+    for (first..tp.layer_ends.items[layer]) |p| {
+        const a: usize = if (p == 0) 0 else tp.path_ends.items[p - 1];
+        const e: usize = tp.path_ends.items[p];
+        var k = a;
+        while (k + 1 < e) : (k += 1) {
+            try out.appendSlice(gpa, &.{ 0, @floatFromInt(layer), z, h, tp.points.items[2 * k], tp.points.items[2 * k + 1], tp.points.items[2 * k + 2], tp.points.items[2 * k + 3], 0.4 });
+        }
+    }
+}
+
+test "app: a filament pick of one layer changes all its lines and no other layer" {
+    const gpa = testing.allocator;
+    // A base and a column on it: the top of the base is a flat face at
+    // the top of the picked layer.
+    var b: zs.mesh.Builder = .init(gpa);
+    try zs.mesh.shapes.addBox(&b, 0, 0, 0, 30, 20, 3);
+    try zs.mesh.shapes.addBox(&b, 12, 7, 3, 18, 13, 13);
+    var mesh = try b.finish();
+    var bytes: std.Io.Writer.Allocating = .init(gpa);
+    defer bytes.deinit();
+    try mesh.writeStl(&bytes.writer);
+    mesh.deinit(gpa);
+    const app = try App.create(gpa, null, null);
+    defer app.destroy();
+    try app.loadStl("column.stl", bytes.written());
+    _ = try filament_slots.add(app);
+    try app.startSlice();
+    app.stopWorkerForTest();
+    // The last layer of the base.
+    const before = app.allToolpaths().?;
+    var layer: usize = 0;
+    while (before.layer_z.items[layer] < 3 - 1e-3) layer += 1;
+    var beads: std.ArrayList(f32) = .empty;
+    defer beads.deinit(gpa);
+    try layerBeads(gpa, app, layer, &beads);
+    const count = before.layer_ends.items[layer] - before.layer_ends.items[layer - 1];
+    try testing.expect(try app.paintBody(beads.items, 2) > 0);
+    try app.startSlice();
+    app.stopWorkerForTest();
+    const tp = app.allToolpaths().?;
+    var first: usize = 0;
+    var on_layer: usize = 0;
+    var off_layer: usize = 0;
+    for (tp.layer_ends.items, 0..) |end, l| {
+        defer first = end;
+        for (tp.path_tool.items[first..end]) |t| {
+            if (t != 1) continue;
+            if (l == layer) on_layer += 1 else off_layer += 1;
+        }
+    }
+    try testing.expectEqual(@as(usize, 0), off_layer);
+    try testing.expectEqual(count, on_layer);
+}
+
+/// The count of the paths of filament 2 on layer `layer`, and on all other
+/// layers.
+fn pickCounts(app: *App, layer: usize) [2]usize {
+    const tp = app.allToolpaths().?;
+    var out: [2]usize = .{ 0, 0 };
+    var first: usize = 0;
+    for (tp.layer_ends.items, 0..) |end, l| {
+        defer first = end;
+        for (tp.path_tool.items[first..end]) |t| {
+            if (t == 1) out[@intFromBool(l != layer)] += 1;
+        }
+    }
+    return out;
+}
+
+test "app: a filament pick keeps to its body and follows the part" {
+    const gpa = testing.allocator;
+    // A plate with a ring, a post inside the ring, and a column.
+    var b: zs.mesh.Builder = .init(gpa);
+    try zs.mesh.shapes.addBox(&b, 0, 0, 0, 50, 20, 2);
+    try zs.mesh.shapes.addBox(&b, 4, 2, 2, 24, 5, 10);
+    try zs.mesh.shapes.addBox(&b, 4, 15, 2, 24, 18, 10);
+    try zs.mesh.shapes.addBox(&b, 4, 5, 2, 7, 15, 10);
+    try zs.mesh.shapes.addBox(&b, 21, 5, 2, 24, 15, 10);
+    try zs.mesh.shapes.addBox(&b, 12, 8, 2, 16, 12, 10);
+    try zs.mesh.shapes.addBox(&b, 30, 5, 2, 40, 15, 10);
+    var mesh = try b.finish();
+    var bytes: std.Io.Writer.Allocating = .init(gpa);
+    defer bytes.deinit();
+    try mesh.writeStl(&bytes.writer);
+    mesh.deinit(gpa);
+    const app = try App.create(gpa, null, null);
+    defer app.destroy();
+    try app.loadStl("ring.stl", bytes.written());
+    _ = try filament_slots.add(app);
+    try app.startSlice();
+    app.stopWorkerForTest();
+    var placed = try app.plate.partMesh(gpa, 0);
+    const box = placed.bounds();
+    placed.deinit(gpa);
+    const ox: f32 = @floatCast(box.min[0]);
+    const oy: f32 = @floatCast(box.min[1]);
+    const tp = app.allToolpaths().?;
+    var layer: usize = 0;
+    while (tp.layer_z.items[layer] < 6 - 1e-3) layer += 1;
+    // The beads of the ring alone: no line of the post or the column.
+    var beads: std.ArrayList(f32) = .empty;
+    defer beads.deinit(gpa);
+    var ring: usize = 0;
+    for (tp.layer_ends.items[layer - 1]..tp.layer_ends.items[layer]) |p| {
+        const a: usize = if (p == 0) 0 else tp.path_ends.items[p - 1];
+        const e: usize = tp.path_ends.items[p];
+        const x = tp.points.items[2 * a] - ox;
+        const y = tp.points.items[2 * a + 1] - oy;
+        if (x > 26 or (x > 10 and x < 18 and y > 6 and y < 14)) continue;
+        ring += 1;
+        var k = a;
+        while (k + 1 < e) : (k += 1) {
+            try beads.appendSlice(gpa, &.{ 0, @floatFromInt(layer), tp.layer_z.items[layer], tp.layer_height.items[layer], tp.points.items[2 * k], tp.points.items[2 * k + 1], tp.points.items[2 * k + 2], tp.points.items[2 * k + 3], 0.4 });
+        }
+    }
+    try testing.expect(ring > 0);
+    try testing.expect(try app.paintBody(beads.items, 2) > 0);
+    try app.startSlice();
+    app.stopWorkerForTest();
+    try testing.expectEqual([2]usize{ ring, 0 }, pickCounts(app, layer));
+    // The pick moves and turns with the part.
+    try app.movePart(0, app.plate.parts.items[0].x + 5, app.plate.parts.items[0].y + 3);
+    try app.startSlice();
+    app.stopWorkerForTest();
+    try testing.expectEqual([2]usize{ ring, 0 }, pickCounts(app, layer));
+    try app.rotatePart(0, 90);
+    try app.startSlice();
+    app.stopWorkerForTest();
+    const turned = pickCounts(app, layer);
+    try testing.expect(turned[0] > 0);
+    try testing.expectEqual(@as(usize, 0), turned[1]);
+    // The pick goes in a 3MF file and comes back.
+    const saved = try gpa.dupe(u8, try app.write3mf());
+    defer gpa.free(saved);
+    const back = try App.create(gpa, null, null);
+    defer back.destroy();
+    try back.loadStl("ring.3mf", saved);
+    try testing.expectEqual(@as(usize, 1), back.plate.parts.items[0].volumes.items.len);
+    try back.startSlice();
+    back.stopWorkerForTest();
+    try testing.expectEqual(turned, pickCounts(back, layer));
+    // The pick goes with its filament.
+    try filament_slots.remove(app, 1);
+    try testing.expectEqual(@as(usize, 0), app.plate.parts.items[0].volumes.items.len);
 }
 
 /// The infill length (mm) of the paths of `tp` with x in [x0, x1], on the

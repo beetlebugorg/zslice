@@ -2947,7 +2947,7 @@ var rangeCard = new RangeCard({ // var: drawFrame can run before this line
   // The range lights one body of a part (a drag from a line).
   body: () => (app.rangeLight?.path ?? -1) >= 0,
   // The filament of the lit body: its beads go to the worker, which
-  // paints the part under them (src/paint_body.zig) and slices. The body
+  // makes a pick of those lines (src/body_region.zig) and slices. The body
   // shows in the color of the filament at once.
   paintBody: async (f) => {
     const r = app.rangeLight;

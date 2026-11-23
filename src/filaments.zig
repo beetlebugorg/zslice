@@ -117,6 +117,8 @@ pub fn pathSlot(feature: @import("settings.zig").Feature, p: anytype, count: usi
 /// the root of a painted feature (a hidden path), which keeps the
 /// filament of the part.
 pub fn slotOfPath(path: anytype, p: anytype, count: usize) u32 {
+    // A filament pick of some layers (see body_region.zig).
+    if (path.pick > 0) return if (count < 2) 0 else slotOf(path.pick, count);
     if (path.hidden) return if (count < 2) 0 else slotOf(p.filament, count);
     return lineSlot(path.feature, path.height > 0, p, count);
 }

@@ -1213,6 +1213,8 @@ fn mapSettings(arena: Allocator, meta: anytype, base: *const @import("settings.z
         if (std.mem.eql(u8, m.key, "zslice:quality")) continue;
         // The id of a region of some layers (see body_region.zig).
         if (std.mem.eql(u8, m.key, "zslice:region")) continue;
+        // The filament of a pick of some layers (see body_region.zig).
+        if (std.mem.eql(u8, m.key, "zslice:layer_pick")) continue;
         // A zslice setting of the part ("zslice:project.infill_density"):
         // as it is, if the setting takes the value.
         if (std.mem.startsWith(u8, m.key, "zslice:")) {

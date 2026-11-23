@@ -24,8 +24,17 @@
 //! that layer, so the region follows the body as it grows and shrinks.
 //!
 //! The beads come from the view (zs_view_connected_beads), in the frame of
-//! the part on the bed: paint_body.stride floats each (part, layer, top z,
+//! the part on the bed: `stride` floats each (part, layer, top z,
 //! height, ends a and b, width).
+//!
+//! A filament pick of a range of layers is a volume of the same form, with
+//! the metadata key `pick_key` (see App.paintBody). It changes no outline
+//! and no line. The plate job cuts it at each layer, and each line of the
+//! part that lies mostly in the cut gets the filament of the pick (see
+//! PlateJob.markPicks). So a pick changes the lines of its layers and of
+//! no other layer. The prism of a pick keeps the holes of the part, and it
+//! leaves out the islands of the layer that no bead of the body touches
+//! (a post inside a ring). A hole is a prism with its faces turned in.
 //!
 //! References (see docs/references/cura.md): the infill meshes of
 //! CuraEngine (the modifier volume). The rule that turns the lines of a
@@ -39,12 +48,27 @@ const geom = @import("geom.zig");
 const clip = @import("clip.zig");
 const mesh_mod = @import("mesh.zig");
 const cut = @import("cut.zig");
-const paint_body = @import("paint_body.zig");
+const offset_mod = @import("offset.zig");
+const slicer = @import("slicer.zig");
 const Mesh = mesh_mod.Mesh;
 const Paths = geom.Paths;
 const Point = geom.Point;
 
-const stride = paint_body.stride;
+/// The floats of one bead: part, layer, z (top), h, ax, ay, bx, by, w.
+pub const stride = 9;
+
+/// The metadata key of a filament pick: its value is the filament number.
+pub const pick_key = "zslice:layer_pick";
+
+/// A filament pick of a part for a slice: its volume on the bed and its
+/// filament (from 1).
+pub const Pick = struct { mesh: *const Mesh, filament: u8 };
+
+/// The filament of a volume that is a pick, or null.
+pub fn pickFilament(meta: anytype) ?u32 {
+    for (meta) |m| if (std.mem.eql(u8, m.key, pick_key)) return std.fmt.parseInt(u32, std.mem.trim(u8, m.value, " "), 10) catch null;
+    return null;
+}
 
 /// The tolerance of the simplified outline (mm).
 const simplify_mm: f64 = 0.1;
@@ -85,6 +109,14 @@ pub fn bounds(beads: []const f32) ?[2][3]f64 {
 /// The outlines of the footprint of the beads of one layer (their indices
 /// in `idx`), counterclockwise, with no holes. The caller owns the result.
 pub fn footprint(gpa: Allocator, beads: []const f32, idx: []const usize) Allocator.Error!Paths {
+    var all = try beadUnion(gpa, beads, idx);
+    defer all.deinit(gpa);
+    return cleaned(gpa, all, false);
+}
+
+/// The union of the beads of one layer, each a rectangle with its ends
+/// out by half a bead.
+fn beadUnion(gpa: Allocator, beads: []const f32, idx: []const usize) Allocator.Error!Paths {
     var rects: Paths = .empty;
     defer rects.deinit(gpa);
     for (idx) |k| {
@@ -112,8 +144,12 @@ pub fn footprint(gpa: Allocator, beads: []const f32, idx: []const usize) Allocat
         for (pts) |q| try rects.appendPoint(gpa, .init(geom.fromMm(q[0]), geom.fromMm(q[1])));
         try rects.endPath(gpa, 3);
     }
-    var all = try clip.unionAll(gpa, rects, .non_zero);
-    defer all.deinit(gpa);
+    return clip.unionAll(gpa, rects, .non_zero);
+}
+
+/// The outlines of `all`, simplified, with no crumbs. `holes`: the holes
+/// stay (clockwise); else they go.
+fn cleaned(gpa: Allocator, all: Paths, holes: bool) Allocator.Error!Paths {
     var out: Paths = .empty;
     errdefer out.deinit(gpa);
     var buf: std.ArrayList(Point) = .empty;
@@ -121,8 +157,8 @@ pub fn footprint(gpa: Allocator, beads: []const f32, idx: []const usize) Allocat
     for (0..all.count()) |k| {
         const poly = all.get(k);
         const a = geom.areaMm2(poly);
-        // A hole (clockwise) goes; a crumb goes.
-        if (!(a >= min_area_mm2)) continue;
+        // A crumb goes, and a hole (clockwise) unless the caller keeps it.
+        if (!((if (holes) @abs(a) else a) >= min_area_mm2)) continue;
         buf.clearRetainingCapacity();
         try buf.appendSlice(gpa, poly);
         var tol = geom.fromMm(simplify_mm);
@@ -137,10 +173,57 @@ pub fn footprint(gpa: Allocator, beads: []const f32, idx: []const usize) Allocat
     return out;
 }
 
+/// The area of a pick on one layer: the filled footprint of the beads,
+/// inside the cut of the part at `z` grown by half a bead (so the holes of
+/// the part stay), less the islands of the cut that no bead touches. The
+/// beads themselves always stay in it. The caller owns the result.
+fn pickFootprint(gpa: Allocator, beads: []const f32, idx: []const usize, part: *const Mesh, faces: []const u32, z: f64, w: f64) Allocator.Error!Paths {
+    var lines = try beadUnion(gpa, beads, idx);
+    defer lines.deinit(gpa);
+    var filled = try cleaned(gpa, lines, false);
+    defer filled.deinit(gpa);
+    var cut_z = try slicer.sliceAt(gpa, part, faces, z, 10, 50);
+    defer cut_z.deinit(gpa);
+    if (cut_z.isEmpty()) return filled.clone(gpa);
+    var away: Paths = .empty;
+    defer away.deinit(gpa);
+    var one: Paths = .empty;
+    defer one.deinit(gpa);
+    for (0..cut_z.count()) |k| {
+        const poly = cut_z.get(k);
+        if (!(geom.areaMm2(poly) > 0)) continue;
+        one.points.clearRetainingCapacity();
+        one.ends.clearRetainingCapacity();
+        try one.append(gpa, poly);
+        var meet = try clip.intersect(gpa, one, lines);
+        defer meet.deinit(gpa);
+        if (meet.isEmpty()) try away.append(gpa, poly);
+    }
+    var grown = try offset_mod.offset(gpa, cut_z, geom.fromMm(0.5 * w), .{});
+    defer grown.deinit(gpa);
+    var inside = try clip.intersect(gpa, filled, grown);
+    defer inside.deinit(gpa);
+    var kept = try clip.difference(gpa, inside, away);
+    defer kept.deinit(gpa);
+    var all = try clip.unite(gpa, kept, lines);
+    defer all.deinit(gpa);
+    return cleaned(gpa, all, true);
+}
+
 /// The volume of the beads: a prism on each layer for each outline of its
 /// footprint, in the frame of the beads (the part on the bed). The caller
 /// owns the mesh. An empty mesh: no beads, or no footprint.
 pub fn volume(gpa: Allocator, beads: []const f32) (Allocator.Error || mesh_mod.Error)!Mesh {
+    return stack(gpa, beads, null);
+}
+
+/// The volume of a filament pick of the beads on `part`, the mesh of the
+/// part on the bed (see the header).
+pub fn pickVolume(gpa: Allocator, beads: []const f32, part: *const Mesh) (Allocator.Error || mesh_mod.Error)!Mesh {
+    return stack(gpa, beads, part);
+}
+
+fn stack(gpa: Allocator, beads: []const f32, part: ?*const Mesh) (Allocator.Error || mesh_mod.Error)!Mesh {
     const n = beads.len / stride;
     // The beads of each layer, in the order of their layers.
     const order = try gpa.alloc(usize, n);
@@ -157,6 +240,10 @@ pub fn volume(gpa: Allocator, beads: []const f32) (Allocator.Error || mesh_mod.E
     defer tris.deinit(gpa);
     var ring: std.ArrayList([2]f32) = .empty;
     defer ring.deinit(gpa);
+    var ccw: std.ArrayList([2]f32) = .empty;
+    defer ccw.deinit(gpa);
+    var faces: std.ArrayList(u32) = .empty;
+    defer faces.deinit(gpa);
     var start: usize = 0;
     // The top of the layer before: the bottom of the next layer starts
     // there, with the same float, so no cut plane falls between them.
@@ -171,7 +258,20 @@ pub fn volume(gpa: Allocator, beads: []const f32) (Allocator.Error || mesh_mod.E
             h = @max(h, beads[order[end] * stride + 3]);
         }
         defer start = end;
-        var foot = try footprint(gpa, beads, order[start..end]);
+        var foot = if (part) |m| blk: {
+            // The faces of the part that reach the middle of the layer.
+            const zm = top - 0.5 * h;
+            faces.clearRetainingCapacity();
+            const vs = m.vertices.items;
+            for (m.faces.items, 0..) |f, fi| {
+                const lo = @min(vs[f[0]].z, vs[f[1]].z, vs[f[2]].z);
+                const hi = @max(vs[f[0]].z, vs[f[1]].z, vs[f[2]].z);
+                if (lo <= zm and hi >= zm) try faces.append(gpa, @intCast(fi));
+            }
+            var w: f32 = 0;
+            for (order[start..end]) |o| w = @max(w, beads[o * stride + 8]);
+            break :blk try pickFootprint(gpa, beads, order[start..end], m, faces.items, zm, w);
+        } else try footprint(gpa, beads, order[start..end]);
         defer foot.deinit(gpa);
         const z0 = if (@abs(top - h - prev_top) < 0.01) prev_top else top - h;
         const z1 = top;
@@ -187,12 +287,20 @@ pub fn volume(gpa: Allocator, beads: []const f32) (Allocator.Error || mesh_mod.E
                 try b.addTriangle(.{ .x = p[0], .y = p[1], .z = z0 }, .{ .x = q[0], .y = q[1], .z = z0 }, .{ .x = q[0], .y = q[1], .z = z1 });
                 try b.addTriangle(.{ .x = p[0], .y = p[1], .z = z0 }, .{ .x = q[0], .y = q[1], .z = z1 }, .{ .x = p[0], .y = p[1], .z = z1 });
             }
-            // The top faces up, the bottom faces down.
+            // The top faces up, the bottom faces down. Ear clipping needs
+            // a counterclockwise ring, and the caps of a hole face the
+            // other way.
+            const hole = geom.areaMm2(poly) < 0;
+            ccw.clearRetainingCapacity();
+            try ccw.appendSlice(gpa, ring.items);
+            if (hole) std.mem.reverse([2]f32, ccw.items);
             tris.clearRetainingCapacity();
-            try cut.earClip(gpa, ring.items, &tris);
+            try cut.earClip(gpa, ccw.items, &tris);
             for (tris.items) |t| {
-                try b.addTriangle(.{ .x = t[0][0], .y = t[0][1], .z = z1 }, .{ .x = t[1][0], .y = t[1][1], .z = z1 }, .{ .x = t[2][0], .y = t[2][1], .z = z1 });
-                try b.addTriangle(.{ .x = t[0][0], .y = t[0][1], .z = z0 }, .{ .x = t[2][0], .y = t[2][1], .z = z0 }, .{ .x = t[1][0], .y = t[1][1], .z = z0 });
+                const u = if (hole) t[2] else t[1];
+                const v = if (hole) t[1] else t[2];
+                try b.addTriangle(.{ .x = t[0][0], .y = t[0][1], .z = z1 }, .{ .x = u[0], .y = u[1], .z = z1 }, .{ .x = v[0], .y = v[1], .z = z1 });
+                try b.addTriangle(.{ .x = t[0][0], .y = t[0][1], .z = z0 }, .{ .x = v[0], .y = v[1], .z = z0 }, .{ .x = u[0], .y = u[1], .z = z0 });
             }
         }
     }
@@ -250,7 +358,6 @@ test "body region: a prism on each layer, from its bottom to its top" {
 
 test "body region: the slice of the volume at the middle of a layer is the footprint" {
     const gpa = testing.allocator;
-    const slicer = @import("slicer.zig");
     var beads = try squareBeads(gpa, 10, 10, 6, 5, 9);
     defer beads.deinit(gpa);
     var m = try volume(gpa, beads.items);

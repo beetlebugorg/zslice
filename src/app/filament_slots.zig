@@ -74,6 +74,24 @@ pub fn remove(app: *App, i: usize) Error!void {
         }
         _ = p;
     }
+    // The filament picks of some layers.
+    for (app.plate.parts.items, 0..) |*p, k| {
+        var v = p.volumes.items.len;
+        while (v > 0) {
+            v -= 1;
+            const vol = &p.volumes.items[v];
+            const n = zs.body_region.pickFilament(vol.meta) orelse continue;
+            if (n == number) {
+                app.plate.removeVolume(app.gpa, k, v);
+            } else if (n > number) {
+                for (vol.meta) |*m| if (std.mem.eql(u8, m.key, zs.body_region.pick_key)) {
+                    const t = try std.fmt.allocPrint(app.gpa, "{d}", .{n - 1});
+                    app.gpa.free(m.value);
+                    m.value = t;
+                };
+            }
+        }
+    }
     // The layers.
     var j: usize = 0;
     while (j < app.overrides.items.len) {

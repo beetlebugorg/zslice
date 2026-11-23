@@ -2446,8 +2446,8 @@ pub fn isLayerSetting(old_name: []const u8) bool {
 /// a body that the user lights on the layers (a modifier volume, see
 /// part_settings.zig and layer.Modifier). A region keeps the walls and
 /// the skin of the part, and gets its own sparse infill inside the walls,
-/// with its own speed and flow. `project.filament` of a region is paint
-/// on the part (see paint_body.zig). It is no modifier.
+/// with its own speed and flow. `project.filament` of a region is a
+/// filament pick (see body_region.zig). It is no modifier.
 /// docs/user/lines.md lists them.
 pub const region_settings = [_][]const u8{
     "project.filament",

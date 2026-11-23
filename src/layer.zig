@@ -152,6 +152,9 @@ pub const Path = struct {
     /// the part covers it on all sides. The flush of a filament change
     /// can go into it, as into the sparse infill.
     hidden: bool = false,
+    /// The filament (from 1) of a pick of some layers over this line (see
+    /// body_region.zig), or 0: the filament of its settings.
+    pick: u8 = 0,
     /// A piece of a wall that hangs over air (see `markOverhangWalls`):
     /// it prints with `overhang_wall_speed` and `overhang_wall_fan`.
     overhang: bool = false,

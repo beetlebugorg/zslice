@@ -4278,7 +4278,7 @@ pub const View = struct {
         return odd;
     }
 
-    /// The beads of `paths` for the paint of a body (paint_body.zig): for
+    /// The beads of `paths` for the filament of a body (body_region.zig): for
     /// each bead, its part, its layer, its top z, its height, its ends,
     /// and its width, in `out` (cleared first). The frame is the frame of
     /// the beads: the part on the bed.

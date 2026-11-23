@@ -2480,11 +2480,11 @@ export fn zs_app_part_paint_set(a: ?*App, i: usize, text: ?[*]const u8, len: usi
     return ok;
 }
 
-/// Paints a body of a range of layers with filament `filament` (from 1):
-/// the mesh of each part under the beads of `beads` (`n` floats, see
-/// zs_view_connected_beads). The filament of a part is no paint on it.
-/// `changed` (may be NULL): the count of triangles whose paint changed. A
-/// change is a step of the undo list, and the next slice splits the part.
+/// Gives a body of a range of layers filament `filament` (from 1): a pick
+/// of exactly the lines of those layers on each part under the beads of
+/// `beads` (`n` floats, see zs_view_connected_beads, and body_region.zig).
+/// `changed` (may be NULL): the count of triangles of the picks that
+/// changed. A change is a step of the undo list.
 pub export fn zs_app_paint_body(a: ?*App, beads: ?[*]align(1) const f32, n: usize, filament: u32, changed: ?*usize) c_int {
     const app = a orelse return @intFromEnum(Status.invalid_argument);
     // A copy with the alignment of f32 (the web app gives bytes).

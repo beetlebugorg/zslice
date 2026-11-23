@@ -1014,7 +1014,7 @@ pub const Job = struct {
     /// The outline of `mesh` on each layer of the job, cut as pass 1 cuts
     /// the mesh of the job (the same z, move, and shrinkage, with no XY
     /// offsets). The result goes in `a`.
-    fn sliceExtra(self: *const Job, a: Allocator, mesh: *const Mesh) Error![]Paths {
+    pub fn sliceExtra(self: *const Job, a: Allocator, mesh: *const Mesh) Error![]Paths {
         const n = self.layers.len;
         const out = try a.alloc(Paths, n);
         @memset(out, .empty);

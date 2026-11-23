@@ -13,8 +13,8 @@
 // A range that lights one body of the part (a drag that starts on a
 // line, or Shift+K and Shift+J from a selected line) gets two filament
 // rows. "This part of the layers" comes first: a chip paints the body
-// with that filament (zs_app_paint_body: the mesh of the part under the
-// lines of the body, see src/paint_body.zig). The body shows in the color
+// with that filament (zs_app_paint_body: a pick of the lines of the
+// body on its layers, see src/body_region.zig). The body shows in the color
 // of the filament at once, and the slice follows. "Whole layers" is the
 // filament of the layers (project.filament). The filament of the part
 // removes the paint of the body.

@@ -1110,13 +1110,14 @@ int zs_app_part_paint_set(zs_app *app, size_t i, const char *text, size_t len);
 /* The states that the paint of part i uses: bit k for state k (bit 0:
  * the filament of the part; bit k + 1: filament k). 0: no paint. */
 int zs_app_part_paint_used(const zs_app *app, size_t i, uint32_t *out);
-/* Paints a body of a range of layers with filament `filament` (from 1):
- * the mesh of each part under the beads (`n` floats, from
- * zs_view_connected_beads). The paint follows later changes of the walls,
- * the layer height, and the place of the part. The filament of a part is
- * no paint on it. `changed` (may be NULL): the count of triangles whose
- * paint changed. A change is a step of the undo list (kind filament), and
- * the next slice splits the part. */
+/* Gives a body of a range of layers filament `filament` (from 1): a pick
+ * of exactly the lines of those layers on each part under the beads (`n`
+ * floats, from zs_view_connected_beads). The pick is a volume of the part,
+ * so it moves and turns with the part. The newest pick wins over older
+ * picks and paint. A pick in the filament of the part goes if no other
+ * pick or paint is under it. `changed` (may be NULL): the count of
+ * triangles of the picks that changed. A change is a step of the undo
+ * list (kind filament). */
 int zs_app_paint_body(zs_app *app, const float *beads, size_t n, uint32_t filament, size_t *changed);
 /* The settings of a region of some layers: a body (the beads of
  * zs_view_connected_beads) becomes a modifier volume of its part with its

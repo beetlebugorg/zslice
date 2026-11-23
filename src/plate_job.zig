@@ -76,6 +76,7 @@ const parallel = @import("parallel.zig");
 const filaments_mod = @import("filaments.zig");
 const paint_mod = @import("paint.zig");
 const paint_split = @import("paint_split.zig");
+const body_region = @import("body_region.zig");
 const label_mod = @import("label.zig");
 const Mesh = mesh_mod.Mesh;
 const Settings = settings_mod.Settings;
@@ -104,6 +105,9 @@ pub const PartInput = struct {
     changes: []const settings_mod.Change = &.{},
     /// The modifier volumes of the part, in the coordinates of the plate.
     modifiers: []const Job.ModifierInput = &.{},
+    /// The filament picks of some layers of the part, the oldest first, in
+    /// the coordinates of the plate (see body_region.zig).
+    picks: []const body_region.Pick = &.{},
     /// The support marks of the part (see support.Mark).
     marks: []const support_mod.Mark = &.{},
     /// The trees of the user for the part, in the coordinates of the plate,
@@ -163,7 +167,12 @@ pub const Group = struct {
     paint_index: usize = 0,
     /// The level of each layer of the job.
     layer_level: []u32,
+    /// The filament picks of the part, cut at the layers of the job.
+    picks: []const LayerPick = &.{},
 };
+
+/// A filament pick, cut at each layer of a job (see `PlateJob.markPicks`).
+const LayerPick = struct { outlines: []const Paths, filament: u8 };
 
 /// The top of a layer of a group (see `PlateJob.makeLevels`).
 const Top_ = struct { z: f64, group: u32, layer: u32 };
@@ -286,6 +295,9 @@ pub const PlateJob = struct {
     /// changes of their jobs.
     splits: []*paint_split.Split = &.{},
     arena: ?std.heap.ArenaAllocator = null,
+    /// The slots of the filament picks on each level, as a mask, or empty
+    /// with no pick.
+    level_picks: []u32 = &.{},
 
     /// Slices each group of parts (steps 1 to 4 of the engine for each
     /// job), and finds the levels.
@@ -397,8 +409,17 @@ pub const PlateJob = struct {
             job.monitor = opts.monitor;
             job.keep_memos = opts.keep_memos;
             if (p.modifiers.len > 0) try job.setModifiers(p.modifiers);
+            // The picks of the part, cut as the job cuts its mesh. One
+            // filament on the plate: a pick has no effect.
+            var layer_picks: []LayerPick = &.{};
+            if (p.picks.len > 0 and pj.slots.len > 1) {
+                if (pj.arena == null) pj.arena = .init(gpa);
+                const pa = pj.arena.?.allocator();
+                layer_picks = try pa.alloc(LayerPick, p.picks.len);
+                for (p.picks, layer_picks) |pk, *lp| lp.* = .{ .outlines = try job.sliceExtra(pa, pk.mesh), .filament = pk.filament };
+            }
             const layer_level = try gpa.alloc(u32, job.layers.len);
-            groups.appendAssumeCapacity(.{ .job = job, .part = p.part, .layer_level = layer_level, .painted = p.paint_split != null, .split = p.paint_split, .paint_index = p.paint_index });
+            groups.appendAssumeCapacity(.{ .job = job, .part = p.part, .layer_level = layer_level, .painted = p.paint_split != null, .split = p.paint_split, .paint_index = p.paint_index, .picks = layer_picks });
         }
         pj.groups = try groups.toOwnedSlice(gpa);
 
@@ -406,6 +427,7 @@ pub const PlateJob = struct {
         @memcpy(pj.left_out[0..pj.left_out_n], opts.left_out[0..pj.left_out_n]);
         pj.sequential = settings.project.print_sequence == .by_object and !pj.single();
         try pj.makeLevels(settings, opts.overrides, slot_nozzles);
+        try pj.makeLevelPicks();
         try pj.makeOutline0();
         try pj.makeIslands();
         // A sequential plate has no move streams: a stream starts where the
@@ -456,6 +478,7 @@ pub const PlateJob = struct {
         gpa.free(self.entries);
         gpa.free(self.level_set);
         gpa.free(self.level_resolved);
+        gpa.free(self.level_picks);
         self.outline0.deinit(gpa);
         gpa.free(self.islands);
         for (self.streams) |*s| s.deinit(gpa);
@@ -657,6 +680,11 @@ pub const PlateJob = struct {
             if (tool != null and tool.? != t) last = i;
             tool = t;
         };
+        // A pick changes the filament on its level, and the level after
+        // it can change back.
+        for (self.level_picks, 0..) |m, i| if (m != 0) {
+            last = @max(last orelse 0, @min(i + 1, self.levels.len - 1));
+        };
         return last;
     }
 
@@ -746,6 +774,7 @@ pub const PlateJob = struct {
                 for (self.entries[lv.first..lv.end]) |e| {
                     mask |= @as(u32, 1) << @intCast(@min(self.toolAt(self.instances[e.instance].group, e.layer), n_slots - 1));
                 }
+                if (i < self.level_picks.len) mask |= self.level_picks[i];
                 if (sup_top) |top| if (i <= top) {
                     mask |= (@as(u32, 1) << @intCast(sup)) | (@as(u32, 1) << @intCast(iface));
                 };
@@ -861,6 +890,7 @@ pub const PlateJob = struct {
             const t = self.toolAt(self.instances[e.instance].group, e.layer);
             mask |= @as(u32, 1) << @intCast(@min(t, tm.n_slots - 1));
         }
+        if (li < self.level_picks.len) mask |= self.level_picks[li];
         return mask;
     }
 
@@ -1094,15 +1124,28 @@ pub const PlateJob = struct {
             for (self.slots) |f| seen[m.nozzleIndex(f.nozzle)] = true;
             for (seen) |b| left += @intFromBool(b);
         } else left = 1;
-        for (self.levels) |lv| for (self.entries[lv.first..lv.end]) |e| {
-            const t = self.toolAt(self.instances[e.instance].group, e.layer);
-            const n: usize = if (many and t < self.slots.len) m.nozzleIndex(self.slots[t].nozzle) else 0;
-            if (out[n] == null) {
-                out[n] = t;
-                left -|= 1;
-                if (left == 0) return out;
+        for (self.levels, 0..) |lv, li| {
+            for (self.entries[lv.first..lv.end]) |e| {
+                const t = self.toolAt(self.instances[e.instance].group, e.layer);
+                const n: usize = if (many and t < self.slots.len) m.nozzleIndex(self.slots[t].nozzle) else 0;
+                if (out[n] == null) {
+                    out[n] = t;
+                    left -|= 1;
+                    if (left == 0) return out;
+                }
             }
-        };
+            // The filaments of the picks on this level.
+            const mask = if (li < self.level_picks.len) self.level_picks[li] else 0;
+            if (mask != 0) for (0..self.slots.len) |k| {
+                if (mask & (@as(u32, 1) << @intCast(k)) == 0) continue;
+                const n: usize = if (many) m.nozzleIndex(self.slots[k].nozzle) else 0;
+                if (out[n] == null) {
+                    out[n] = @intCast(k);
+                    left -|= 1;
+                    if (left == 0) return out;
+                }
+            };
+        }
         return out;
     }
 
@@ -1221,6 +1264,7 @@ pub const PlateJob = struct {
             const e = self.entries[lv.first];
             var lp = try layer_mod.plan(gpa, ctxs[0], e.layer);
             lp.part = self.instances[0].part;
+            self.markPicks(&lp, 0, e.layer);
             return lp;
         }
         const r = self.levelResolved(i);
@@ -1253,12 +1297,14 @@ pub const PlateJob = struct {
                 var p = try layer_mod.plan(gpa, own, e.layer);
                 defer p.deinit();
                 self.markRoot(&p, inst.group, e.layer);
+                self.markPicks(&p, inst.group, e.layer);
                 try lp.append(&p, inst.dx, inst.dy, inst.part, e.layer);
                 continue;
             }
             if (plans[inst.group] == null) {
                 plans[inst.group] = try layer_mod.plan(gpa, ctx, e.layer);
                 self.markRoot(&plans[inst.group].?, inst.group, e.layer);
+                self.markPicks(&plans[inst.group].?, inst.group, e.layer);
             }
             try lp.append(&plans[inst.group].?, inst.dx, inst.dy, inst.part, e.layer);
         }
@@ -1268,6 +1314,47 @@ pub const PlateJob = struct {
         // part on a second nozzle of another size).
         if (lp.paths.items.len > 0) lp.width = if (i == 0) r.first_layer_line_width else r.line_width;
         return lp;
+    }
+
+    /// The slots of the picks on each level: a pick counts on a level if
+    /// its cut and the outline of its job are there.
+    fn makeLevelPicks(self: *PlateJob) Allocator.Error!void {
+        var any = false;
+        for (self.groups) |g| any = any or g.picks.len > 0;
+        if (!any) return;
+        self.level_picks = try self.gpa.alloc(u32, self.levels.len);
+        @memset(self.level_picks, 0);
+        const n_slots = @min(self.slots.len, filaments_mod.max_slots);
+        for (self.groups) |g| for (g.picks) |pk| {
+            const bit = @as(u32, 1) << @intCast(filaments_mod.slotOf(pk.filament, n_slots));
+            for (pk.outlines, g.job.outlines, g.layer_level) |area, o, lv| {
+                if (!area.isEmpty() and !o.isEmpty()) self.level_picks[lv] |= bit;
+            }
+        };
+    }
+
+    /// Gives each line of the plan of layer `layer` of group `g` the
+    /// filament of the newest pick that holds most of its length. The
+    /// lines stay as they are. Skirt, brim, and support have no pick.
+    fn markPicks(self: *const PlateJob, p: *LayerPlan, g: usize, layer: usize) void {
+        const picks = self.groups[g].picks;
+        if (picks.len == 0) return;
+        for (p.paths.items, 0..) |*path, k| {
+            switch (path.feature) {
+                .skirt, .support, .support_interface => continue,
+                else => {},
+            }
+            const pts = p.points.get(k);
+            var j = picks.len;
+            while (j > 0) {
+                j -= 1;
+                if (layer >= picks[j].outlines.len) continue;
+                const area = picks[j].outlines[layer];
+                if (area.isEmpty() or !mostlyInside(area, pts, path.closed)) continue;
+                path.pick = picks[j].filament;
+                break;
+            }
+        }
     }
 
     /// Marks the paths of the plan of layer `layer` of group `g` hidden
@@ -1438,6 +1525,30 @@ pub const PlateJob = struct {
     }
 };
 
+/// True if at least half of the length of a line is inside `area`. Each
+/// segment counts at sample points at most 2 mm apart.
+fn mostlyInside(area: Paths, pts: []const geom.Point, closed: bool) bool {
+    if (pts.len == 0) return false;
+    if (pts.len == 1) return geom.insideAny(area, pts[0]);
+    var total: f64 = 0;
+    var inside: f64 = 0;
+    const n_seg = if (closed) pts.len else pts.len - 1;
+    for (0..n_seg) |i| {
+        const a = pts[i];
+        const b = pts[(i + 1) % pts.len];
+        const len = geom.Point.dist(a, b) * geom.toMm(1);
+        if (!(len > 0)) continue;
+        const n: usize = @intFromFloat(@min(6, @floor(len / 2) + 1));
+        for (0..n) |s| {
+            const t = (@as(f64, @floatFromInt(s)) + 0.5) / @as(f64, @floatFromInt(n));
+            const q: geom.Point = .init(a.x + @as(i64, @intFromFloat(t * @as(f64, @floatFromInt(b.x - a.x)))), a.y + @as(i64, @intFromFloat(t * @as(f64, @floatFromInt(b.y - a.y)))));
+            if (geom.insideAny(area, q)) inside += len / @as(f64, @floatFromInt(n));
+        }
+        total += len;
+    }
+    return total > 0 and inside >= 0.5 * total;
+}
+
 /// The area of a bead of width `w` and height `h` (see flow.beadArea).
 fn flowArea(w: f64, h: f64) f64 {
     return @import("flow.zig").beadArea(w, h);
@@ -1493,6 +1604,13 @@ fn planStamp(settings: Settings, parts: []const PartInput, overrides: []const se
         hv(&h, b.min);
         hv(&h, b.max);
         changes(&h, p.changes);
+        // The picks change the filament of the lines of a plan.
+        hv(&h, p.picks.len);
+        for (p.picks) |pk| {
+            hv(&h, pk.filament);
+            hv(&h, shapeKey(pk.mesh));
+            h.update(std.mem.sliceAsBytes(pk.mesh.vertices.items));
+        }
         hv(&h, p.modifiers.len);
         for (p.modifiers) |m| {
             const mb = m.mesh.bounds();
@@ -1525,6 +1643,7 @@ fn copies(p: PartInput, q: PartInput, kp: u64, kq: u64, bp: mesh_mod.Bounds3, bq
     if (kp != kq) return false;
     if (p.paint_split != null or q.paint_split != null) return false;
     if (p.modifiers.len > 0 or q.modifiers.len > 0 or p.marks.len > 0 or q.marks.len > 0) return false;
+    if (p.picks.len > 0 or q.picks.len > 0) return false;
     if (p.trees != null or q.trees != null) return false;
     if (p.changes.len != q.changes.len) return false;
     for (p.changes, q.changes) |x, y| {

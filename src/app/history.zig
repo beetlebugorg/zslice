@@ -239,6 +239,7 @@ pub fn writeChange(w: *std.Io.Writer, c: Change) std.Io.Writer.Error!void {
     }
     if (std.mem.eql(u8, c.key, "(slot)")) return w.writeAll(if (c.new.len > 0) "Added to the plate" else "Removed from the plate");
     if (is_part and std.mem.eql(u8, c.key, "(paint)")) return w.writeAll(if (c.new.len > 0) "Painted" else "Paint removed");
+    if (is_part and std.mem.startsWith(u8, c.key, "(pick ")) return w.writeAll(if (c.new.len > 0) "Filament of some layers" else "Filament of some layers removed");
     if (is_part and std.mem.startsWith(u8, c.key, "label ")) return writeLabelChange(w, c);
     // A setting of a region of some layers: "region 2 project.infill_density".
     if (is_part) if (regionKey(c.key)) |r| {
@@ -405,6 +406,7 @@ pub fn kindOf(c: Change) Kind {
         // The paint of a part (the Paint tool, or the filament of a body of
         // some layers): its filaments.
         if (eq(u8, c.key, "(paint)")) return .filament;
+        if (std.mem.startsWith(u8, c.key, "(pick ")) return .filament;
         // A setting of a region: the kind of the setting.
         if (regionKey(c.key)) |r| {
             const info = infoOf(r.name) orelse return .other;
