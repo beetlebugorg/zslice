@@ -34,6 +34,8 @@ Build the native Windows app in `windows/`: a WinUI 3 shell in C++/WinRT around 
    - The import of a model (`MainWindow.ModelImport.cpp`, [the contract](../docs/internals/model-import.md)): a page link gets the text of the core and **Open the page**. A ZIP file from Open, a drop, or Open With gets the list, with Cancel as the default button. The checked files become parts, then `zs_set_spill`. No request goes to a site.
    - The spools of a printer: `zs_app_filaments_from_printer`, with flag 1 for **Use the filaments of** and flag 2 for each status of the current printer.
    - The link to the current printer, also with the Printers page closed: one status read each 5 s for an HTTP printer, and one MQTT connection for a Bambu Lab printer. A printer never has two connections.
+   - The rest of the core API: the User-Agent of the core on file links (`zs_import_user_agent`), Popular and the counts in the printer picker, `zs_app_fall_cancel` before each change of the plate, the key of a line for edits during a slice (`zs_app_path_key`, `zs_app_edit_add_key`), Shift+click for a run (`zs_app_path_run`, `zs_view_highlight_more`), the float note and the file settings on the part card, the test print in the view menu (`zs_app_debug_gcode`, a saved file only), the lines of a setting with their times (`zs_app_feature_stats`), and the empty-plate button that hides under another plate (`zs_view_plate_at`).
+   - Windows calls `zs_set_project_load` for a project, so it needs no separate `zs_project_profiles` or `zs_app_project_load`. It has no islands button: the Check lists the islands.
 
 ## Rules that matter
 
@@ -64,6 +66,8 @@ Build the native Windows app in `windows/`: a WinUI 3 shell in C++/WinRT around 
 - **An empty deck path means the root of the deck** (part 13). The pairing had this right, and `DeckAddress` follows it now too.
 - **Find a support mark from the whole line.** A slice can renumber the lines and drop the selected segment. The middle of a long wall is then far from the mark, and the card lost its editor right after the mark was added.
 - **Keep a key out of each log, also in a test build.** The step log of the test hooks wrote the text of `prefset key` to the log file. The log now hides that step.
+- **Fill the times of a setting's lines after the slice.** A change refilled the page during the slice, when the core has no stats, and the times stayed away. `AfterScene` now fills them again.
+- **Say where a default value comes from.** The page wrote "From:" with no source for a default. It now has the wording of the GTK app, and Reset shows only for a change.
 
 ## Acceptance checks
 
