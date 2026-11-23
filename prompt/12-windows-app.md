@@ -27,10 +27,11 @@ Build the native Windows app in `windows/`: a WinUI 3 shell in C++/WinRT around 
    - Compare with Cura: `zs_cura_stack` finds the stack in `%APPDATA%\cura` and the resources in the Cura folder of Program Files. Of a global stack file, it parses only `[containers]`, because `[metadata]` can hold an API key.
    - The parity steps after that, in the order they came: the small items (the monochrome glyph of the colors button, long titles that wrap, search results 640 px wide with a column for the speed hint, two save items for one plate and all plates), the card glyph of the search undock, the Label tool with SVG, handles, guides, and modes (Alt turns the snap off), profile import and Calibrate, the layer range card (Shift+K and Shift+J, an override of the z range), Print earlier and Print later, the settings of each nozzle, the history button (Ctrl+H) in a bottom bar of one row, the waste line, the Filament row and the range rows of a part of some layers (the rows of the range card scroll), the Speed section with the switches of the draft slices and the print as it forms in Preferences, layer profiles in the settings pane (a bar with the name and the layers, and an orange mark on the layer rail for each range), a part that does not fit (no export and no upload for its plate, and a Check line that selects the part), and "Settings for": this print, global (`global.toml`), or one part. Formulas stay after a restart.
    - The icon: the exe holds the `.ico` file of 16 to 256 px, and the file types and links use it. `make-logos.ps1` draws the package logos, but the unpackaged app does not load them yet.
-   - Windows keeps Move, Turn, and Grab as three tools. It does not have the transform tool or the import from a model page yet.
+   - Windows keeps Move, Turn, and Grab as three tools. It does not have the transform tool yet.
    - Projects: GitHub reads use a separate WinHTTP session with no key or token. Each URL and each redirect must be https to a GitHub host. Each file has a limit of 256 MB. PrinterSetup writes no machine profile while plates of a project are on the view.
    - The part card: the settings that the part has of its own (`zs_app_part_setting_set`), each with its editor and ×, and "+ Add a setting" for the selected part or parts. The filament stays in its row of chips.
    - The line card: "Support you added" for a line at a support mark, with its kind, its radius, and Remove (`zs_app_mark_at`, `zs_app_mark_set`, `zs_app_mark_remove`).
+   - The import of a model (`MainWindow.ModelImport.cpp`, [the contract](../docs/internals/model-import.md)): a page link gets the text of the core and **Open the page**. A ZIP file from Open, a drop, or Open With gets the list, with Cancel as the default button. The checked files become parts, then `zs_set_spill`. No request goes to a site.
 
 ## Rules that matter
 
@@ -72,3 +73,4 @@ Build the native Windows app in `windows/`: a WinUI 3 shell in C++/WinRT around 
 8. The ring drag hook of the test build drags a ring along a right-hand turn, and logs the angle from the front, the back, or above.
 9. A part with its own wall count keeps it through undo and redo, and × gives it the value of the plate again.
 10. A line at a support mark shows the kind and the radius of the mark. A change of either reaches the core, and Remove takes the mark away.
+11. A ZIP file with more parts than one bed holds loads its checked files, and the parts that do not fit go on new plates. A file that is not a ZIP file shows the message of the core.
