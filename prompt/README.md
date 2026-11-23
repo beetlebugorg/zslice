@@ -1,6 +1,6 @@
 # A prompt that could build zslice
 
-Describes: main at commit `4b76ddc5` ("Drop the old fit example from the Mac guide"), 2026-11-23.
+Describes: main at commit `724b751d` ("Add the line card notes to the Windows prompt"), 2026-11-23.
 
 ## Read this first
 
