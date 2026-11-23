@@ -49,6 +49,10 @@ struct DocumentWindow: View {
     }
 
     private func open() async {
+        // ZSLICE_NO_FILE_URL=1: SwiftUI gives the window no file URL yet.
+        let late = ProcessInfo.processInfo.environment["ZSLICE_NO_FILE_URL"] != nil
+        let name = late ? "" : self.name
+        let url = late ? nil : self.url
         document.model = workspace.model
         // A ZIP file opens an empty window with the list of its files.
         let zip = url?.pathExtension.lowercased() == "zip" ? document.data : nil
@@ -116,20 +120,23 @@ struct DocumentWindow: View {
         }
         // A model file: the window imports it, as an untitled project
         // with the name of the model, so a save asks where to save and
-        // never writes over the model.
+        // never writes over the model. SwiftUI can open the window before
+        // it has the file URL, and the document has it then.
+        let fileName = doc.fileURL?.lastPathComponent ?? url?.lastPathComponent ?? name
         if let zip {
             doc.fileURL = nil
             doc.fileType = UTType.threeMF.identifier
-            doc.displayName = ((url?.lastPathComponent ?? name) as NSString).deletingPathExtension
+            doc.displayName = (fileName as NSString).deletingPathExtension
             for c in doc.windowControllers { c.synchronizeWindowTitleWithDocumentName() }
             w.title = doc.displayName
-            workspace.openZip(name: url?.lastPathComponent ?? name, data: zip)
+            workspace.openZip(name: fileName, data: zip)
         } else if !document.data.isEmpty, !document.isProject {
             doc.fileURL = nil
             doc.fileType = UTType.threeMF.identifier
-            doc.displayName = ((url?.lastPathComponent ?? name) as NSString).deletingPathExtension
+            doc.displayName = (fileName as NSString).deletingPathExtension
             for c in doc.windowControllers { c.synchronizeWindowTitleWithDocumentName() }
             w.title = doc.displayName
+            if name.isEmpty { workspace.model.adoptName(fileName) }
         }
         doc.updateChangeCount(.changeCleared)
         workspace.model.markSaved()
@@ -1082,7 +1089,8 @@ struct FileButton: View {
         // The generation of the history: the name and the dot follow each step.
         let _ = workspace.model.history.generation
         let doc = workspace.model.document
-        let name = doc?.displayName ?? "Untitled"
+        let shown = doc?.displayName ?? ""
+        let name = shown.isEmpty ? "Untitled" : shown
         Menu {
             Button("New Window") { NSDocumentController.shared.newDocument(nil) }
             Button("Open…") { NSDocumentController.shared.openDocument(nil) }
@@ -1103,7 +1111,13 @@ struct FileButton: View {
                 .disabled(workspace.model.state != .done)
         } label: {
             HStack(spacing: 5) {
-                Text(name).fontWeight(.semibold).fixedSize()
+                // A long name stays short, so the items at the right fit.
+                Text(name)
+                    .fontWeight(.semibold)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .frame(maxWidth: 200)
+                    .fixedSize()
                 if doc?.isDocumentEdited == true {
                     Circle().fill(.secondary).frame(width: 6, height: 6).help("Unsaved changes")
                 }
@@ -1111,7 +1125,7 @@ struct FileButton: View {
         }
         .menuIndicator(.visible)
         .fixedSize()
-        .help("The file: open, add models, save, and export")
+        .help("\(name): open, add models, save, and export")
     }
 }
 

@@ -304,6 +304,14 @@ final class SliceModel {
         requestSlice()
     }
 
+    /// The name of the file, for a plate that loaded before the window
+    /// had it.
+    func adoptName(_ file: String) {
+        guard !file.isEmpty else { return }
+        zs_set_name(set, active, file)
+        name = file
+    }
+
     /// Adds the parts of an STL or 3MF file to the active plate.
     func add(name: String, data: Data) throws {
         let rc = data.withUnsafeBytes { buf in
