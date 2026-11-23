@@ -777,6 +777,7 @@ namespace winrt::ZSlice::implementation
 
     FrameworkElement MainWindow::MakeEditor(zs_setting_info const &info, std::shared_ptr<EditorTarget> const &target)
     {
+        made_field = nullptr;
         std::string name = info.name;
         zs_setting_info copy = info;
         auto value = [this, name, target]() {
@@ -903,6 +904,8 @@ namespace winrt::ZSlice::implementation
         auto fill = [this, box, name, value, field, copy, kind = info.kind]() mutable {
             std::string now = value();
             ShowUnusual(*field, copy, now);
+            if (field->follow)
+                field->follow(now);
             auto focused = Input::FocusManager::GetFocusedElement(Content().XamlRoot());
             if (focused != nullptr && focused == box.try_as<Windows::Foundation::IInspectable>())
                 return;
@@ -962,7 +965,7 @@ namespace winrt::ZSlice::implementation
                 double steps = key == VirtualKey::Up || key == VirtualKey::PageUp ? 1 : -1;
                 if (page || held(VirtualKey::Shift))
                     steps *= 10;
-                StepField(*field, copy, steps, held(VirtualKey::Control), 150);
+                StepField(*field, copy, std::wstring(field->box.Text()), steps, held(VirtualKey::Control), 150);
                 e.Handled(true);
             });
         }
@@ -992,6 +995,7 @@ namespace winrt::ZSlice::implementation
             });
         }
         setting_editors.push_back({ name, fill });
+        made_field = field;
         if (!is_number && (info.unit == nullptr || info.unit[0] == 0))
             return box;
 
@@ -1077,15 +1081,80 @@ namespace winrt::ZSlice::implementation
         TextBlock title = Wrapped(zs::ToWide(info.label), 18);
         title.FontWeight(Microsoft::UI::Text::FontWeights::SemiBold());
         page.Children().Append(title);
+        TextBlock path = Wrapped(std::wstring(TitleOf(info.group)) + L" › " + zs::ToWide(info.section), 12);
+        path.Foreground(TokenBrush(Root(), L"ZsDim"));
+        path.Margin(ThicknessHelper::FromLengths(0, -6, 0, 0));
+        page.Children().Append(path);
         // A setting of the printer or the filament: say so, with the name.
         if (FrameworkElement owner = OwnerLabel(info.group, strcmp(info.group, "machine") == 0
                                                                 ? L": each printer has its own value. It changes when you change the printer."
                                                                 : L": each filament has its own value. It changes when you change the filament.");
             owner != nullptr)
             page.Children().Append(owner);
-        FrameworkElement detail_editor = MakeEditor(info, PaneTarget());
+        // The name and its editor, the slider, and the formula, in one grid.
+        Grid form;
+        form.ColumnSpacing(10);
+        form.RowSpacing(6);
+        ColumnDefinition form_name, form_value;
+        form_name.Width(GridLengthHelper::Auto());
+        form_value.Width(GridLengthHelper::FromValueAndType(1, GridUnitType::Star));
+        form.ColumnDefinitions().Append(form_name);
+        form.ColumnDefinitions().Append(form_value);
+        int form_row = 0;
+        auto form_add = [&form, &form_row](FrameworkElement const &left, FrameworkElement const &right) {
+            RowDefinition line;
+            line.Height(GridLengthHelper::Auto());
+            form.RowDefinitions().Append(line);
+            if (left != nullptr)
+            {
+                Grid::SetRow(left, form_row);
+                form.Children().Append(left);
+            }
+            Grid::SetRow(right, form_row);
+            Grid::SetColumn(right, left != nullptr ? 1 : 0);
+            if (left == nullptr)
+                Grid::SetColumnSpan(right, 2);
+            form.Children().Append(right);
+            form_row++;
+        };
+        auto form_name_text = [this](std::wstring const &text) {
+            TextBlock name = Wrapped(text);
+            name.MaxWidth(170);
+            name.HorizontalAlignment(HorizontalAlignment::Left);
+            name.VerticalAlignment(VerticalAlignment::Center);
+            return name;
+        };
+        auto detail_target = PaneTarget();
+        FrameworkElement detail_editor = MakeEditor(info, detail_target);
+        auto detail_field = made_field;
         TurnOffForScope(detail_editor, info);
-        page.Children().Append(detail_editor);
+        TextBlock editor_name = form_name_text(zs::ToWide(info.label));
+        ToolTipService::SetToolTip(editor_name, box_value(PlainDoc(info.doc)));
+        if (info.kind == ZS_SETTING_TEXT && info.multiline != 0)
+        {
+            form_add(nullptr, editor_name);
+            form_add(nullptr, detail_editor);
+        }
+        else
+        {
+            if (info.kind == ZS_SETTING_BOOLEAN || info.kind == ZS_SETTING_CHOICE)
+                detail_editor.HorizontalAlignment(HorizontalAlignment::Right);
+            form_add(editor_name, detail_editor);
+        }
+        bool detail_number = (info.kind == ZS_SETTING_NUMBER || info.kind == ZS_SETTING_INTEGER) && !IsFilamentSetting(info.name);
+        if (detail_number && detail_field != nullptr && ScopeEditable(info))
+            AddScrub(editor_name, detail_field, info, detail_target);
+        if (detail_number && detail_field != nullptr && info.slider_max > info.slider_min)
+        {
+            FrameworkElement slider = MakeFieldSlider(detail_field, info, detail_target, detail_target != nullptr ? detail_target->get(info.name) : model->GetSetting(info.name));
+            if (!ScopeEditable(info))
+            {
+                slider.IsHitTestVisible(false);
+                slider.Opacity(0.5);
+            }
+            form_add(nullptr, slider);
+        }
+        page.Children().Append(form);
 
         TextBlock source = Wrapped(L"", 12);
         source.Foreground(TokenBrush(Root(), L"ZsDim"));
@@ -1107,7 +1176,7 @@ namespace winrt::ZSlice::implementation
         auto fill_source = [this, source, reset, key, per_layer = info.per_layer != 0, per_part = info.per_part != 0, default_value = std::string(info.default_value != nullptr ? info.default_value : "")]() mutable {
             if (model == nullptr)
                 return;
-            if (in_profile)
+            if (in_profile && !ScopeIsGlobal())
             {
                 // Changed for these layers, or the value of all layers.
                 bool changed = ProfileHas(key);
@@ -1183,7 +1252,7 @@ namespace winrt::ZSlice::implementation
         fill_source();
         setting_editors.push_back({ key, fill_source });
         reset.Click([this, key](auto &&, auto &&) {
-            if (in_profile)
+            if (in_profile && !ScopeIsGlobal())
                 ProfileClear(key);
             else if (ScopeReset(key))
                 return;
@@ -1196,7 +1265,6 @@ namespace winrt::ZSlice::implementation
         if (info.kind != ZS_SETTING_TEXT && PaneTarget() == nullptr)
         {
             TextBox formula;
-            formula.Header(box_value(L"Formula"));
             formula.PlaceholderText(L"= {line_width} * 2");
             ToolTipService::SetToolTip(formula, box_value(L"A formula makes the value follow other settings: {name} is a setting (for example {layer_height} or {filament.nozzle_temp}); + - * / ^, min, max, round, clamp, and cond ? a : b. Enter sets it. A plain value in the field above removes it."));
             auto fill_formula = [this, formula, key]() mutable {
@@ -1220,10 +1288,40 @@ namespace winrt::ZSlice::implementation
                     text = "= " + text;
                 CommitSetting(key, text);
             });
-            page.Children().Append(formula);
+            TextBlock formula_name = form_name_text(L"Formula");
+            formula_name.Foreground(TokenBrush(Root(), L"ZsDim"));
+            form_add(formula_name, formula);
         }
 
-        page.Children().Append(Wrapped(PlainDoc(info.doc)));
+        // The help: the text in `backticks` is in a code font.
+        {
+            namespace Documents = Microsoft::UI::Xaml::Documents;
+            TextBlock doc = Wrapped(L"");
+            std::wstring all = zs::ToWide(info.doc != nullptr ? info.doc : "");
+            bool code = false;
+            size_t from = 0;
+            while (from <= all.size())
+            {
+                size_t tick = all.find(L'`', from);
+                std::wstring part = all.substr(from, tick == std::wstring::npos ? tick : tick - from);
+                if (!part.empty())
+                {
+                    Documents::Run run;
+                    run.Text(part);
+                    if (code)
+                        run.FontFamily(Media::FontFamily(L"Cascadia Mono, Consolas"));
+                    doc.Inlines().Append(run);
+                }
+                if (tick == std::wstring::npos)
+                    break;
+                code = !code;
+                from = tick + 1;
+            }
+            page.Children().Append(doc);
+        }
+        TextBlock project_heading = Wrapped(L"In your project");
+        project_heading.FontWeight(Microsoft::UI::Text::FontWeights::SemiBold());
+        page.Children().Append(project_heading);
         // The times of its lines come again with each slice (AfterScene).
         effect_box = StackPanel{};
         effect_box.Spacing(2);
@@ -1262,9 +1360,8 @@ namespace winrt::ZSlice::implementation
 
     // Adds steps to the shown value. A step is one unit of its last decimal
     // place (0.44 steps by 0.01, 150 by 1), and 1 for an integer.
-    void MainWindow::StepField(EditorField &field, zs_setting_info const &info, double steps, bool fine, int delay_ms)
+    void MainWindow::StepField(EditorField &field, zs_setting_info const &info, std::wstring const &base, double steps, bool fine, int delay_ms)
     {
-        std::wstring base{ field.box.Text() };
         bool integer = info.kind == ZS_SETTING_INTEGER;
         size_t dot = base.find(L'.');
         int decimals = 0;
@@ -1286,6 +1383,154 @@ namespace winrt::ZSlice::implementation
         field.live.Stop();
         field.live.Interval(std::chrono::milliseconds(delay_ms));
         field.live.Start();
+    }
+
+    // The slider of a number on the detail page: it snaps to its step, has
+    // a tick at the default, and sends the value during a drag.
+    FrameworkElement MainWindow::MakeFieldSlider(std::shared_ptr<EditorField> const &field, zs_setting_info const &info,
+                                                 std::shared_ptr<EditorTarget> const &target, std::string const &now)
+    {
+        double k = info.unit != nullptr && strcmp(info.unit, "%") == 0 ? 100 : 1;
+        double lo = info.slider_min * k, hi = info.slider_max * k;
+        double step = info.kind == ZS_SETTING_INTEGER ? 1 : info.slider_step * k;
+        if (!(step > 0))
+            step = std::pow(10.0, std::floor(std::log10((hi - lo) / 100)));
+        int decimals = step >= 1 ? 0 : (int)std::ceil(-std::log10(step) - 1e-9);
+        Slider slider;
+        slider.Minimum(lo);
+        slider.Maximum(hi);
+        slider.StepFrequency(step);
+        slider.SmallChange(step);
+        slider.IsThumbToolTipEnabled(false);
+        slider.VerticalAlignment(VerticalAlignment::Center);
+        ToolTipService::SetToolTip(slider, box_value(field->doc));
+        Microsoft::UI::Xaml::Automation::AutomationProperties::SetName(slider, zs::ToWide(info.label));
+        auto syncing = std::make_shared<bool>(false), held = std::make_shared<bool>(false);
+        field->follow = [slider, syncing, held, k](std::string const &value) mutable {
+            if (*held || !ParsesAsNumber(value))
+                return;
+            *syncing = true;
+            slider.Value(strtod(value.c_str(), nullptr) * k);
+            *syncing = false;
+        };
+        field->follow(now);
+        zs_setting_info copy = info;
+        slider.ValueChanged([this, field, syncing, lo, step, decimals](auto &&, Primitives::RangeBaseValueChangedEventArgs const &e) {
+            if (*syncing)
+                return;
+            double v = lo + std::round((e.NewValue() - lo) / step) * step;
+            wchar_t text[64];
+            swprintf_s(text, L"%.*f", decimals, v);
+            if (std::wstring(field->box.Text()) == text)
+                return;
+            field->shown = text;
+            field->box.Text(text);
+            if (field->state == 2)
+                SetFieldState(*field, 0, field->doc);
+            // Each value starts a slice: at most one each 60 ms.
+            if (!field->live.IsRunning())
+            {
+                field->live.Interval(std::chrono::milliseconds(60));
+                field->live.Start();
+            }
+        });
+        // A drag and the typing in the field are one edit of the history.
+        std::string name = info.name;
+        slider.GotFocus([this, name](auto &&, auto &&) {
+            if (model != nullptr && model->HistoryFocus(name.c_str()))
+                RefreshHistoryButtons();
+        });
+        slider.LostFocus([this](auto &&, auto &&) {
+            if (model != nullptr && model->HistoryFocus(nullptr))
+                RefreshHistoryButtons();
+        });
+        slider.AddHandler(UIElement::PointerPressedEvent(), box_value(Input::PointerEventHandler([held](auto &&, auto &&) { *held = true; })), true);
+        auto let_go = [this, field, held, copy, target](auto &&, auto &&) {
+            *held = false;
+            if (field->live.IsRunning())
+            {
+                field->live.Stop();
+                CommitSettingText(copy, std::wstring(field->box.Text()), target.get(), field.get(), true);
+            }
+        };
+        slider.AddHandler(UIElement::PointerReleasedEvent(), box_value(Input::PointerEventHandler(let_go)), true);
+        slider.AddHandler(UIElement::PointerCaptureLostEvent(), box_value(Input::PointerEventHandler(let_go)), true);
+
+        Grid holder;
+        holder.Children().Append(slider);
+        if (info.default_value != nullptr && ParsesAsNumber(std::string(info.default_value)))
+        {
+            double d = strtod(info.default_value, nullptr) * k;
+            if (d >= lo && d <= hi)
+            {
+                // A tick at the default, on the track under the thumb.
+                Canvas marks;
+                marks.IsHitTestVisible(false);
+                marks.Height(5);
+                marks.VerticalAlignment(VerticalAlignment::Bottom);
+                Border tick;
+                tick.Width(1.5);
+                tick.Height(5);
+                tick.Background(TokenBrush(Root(), L"ZsDim"));
+                marks.Children().Append(tick);
+                holder.Children().Append(marks);
+                double at = (d - lo) / (hi - lo);
+                holder.SizeChanged([tick, at](auto &&, SizeChangedEventArgs const &e) {
+                    // The thumb is 18 points wide: its center stops 9 from each end.
+                    Canvas::SetLeft(tick, 9 + at * (e.NewSize().Width - 18) - 0.75);
+                });
+            }
+        }
+        return holder;
+    }
+
+    void MainWindow::AddScrub(FrameworkElement const &label, std::shared_ptr<EditorField> const &field, zs_setting_info const &info,
+                              std::shared_ptr<EditorTarget> const &target)
+    {
+        if (auto element = label.try_as<IUIElementProtected>())
+            element.ProtectedCursor(Microsoft::UI::Input::InputSystemCursor::Create(Microsoft::UI::Input::InputSystemCursorShape::SizeWestEast));
+        struct Drag
+        {
+            bool on = false;
+            double from = 0;
+            std::wstring base;
+        };
+        auto drag = std::make_shared<Drag>();
+        zs_setting_info copy = info;
+        label.PointerPressed([label, field, drag](auto &&, Input::PointerRoutedEventArgs const &e) {
+            auto point = e.GetCurrentPoint(nullptr);
+            if (!point.Properties().IsLeftButtonPressed() || !field->box.IsEnabled())
+                return;
+            drag->on = true;
+            drag->from = point.Position().X;
+            drag->base = field->box.Text();
+            label.CapturePointer(e.Pointer());
+            e.Handled(true);
+        });
+        label.PointerMoved([this, field, drag, copy](auto &&, Input::PointerRoutedEventArgs const &e) {
+            if (!drag->on || !ParsesAsNumber(drag->base))
+                return;
+            auto mods = static_cast<uint32_t>(e.KeyModifiers());
+            double steps = std::trunc((e.GetCurrentPoint(nullptr).Position().X - drag->from) / 6);
+            if ((mods & static_cast<uint32_t>(Windows::System::VirtualKeyModifiers::Shift)) != 0)
+                steps *= 10;
+            StepField(*field, copy, drag->base, steps, (mods & static_cast<uint32_t>(Windows::System::VirtualKeyModifiers::Control)) != 0, 60);
+            e.Handled(true);
+        });
+        auto ended = [this, label, field, drag, copy, target](auto &&, Input::PointerRoutedEventArgs const &e) {
+            if (!drag->on)
+                return;
+            drag->on = false;
+            label.ReleasePointerCapture(e.Pointer());
+            // The last value goes to the core at once.
+            if (field->live.IsRunning())
+            {
+                field->live.Stop();
+                CommitSettingText(copy, std::wstring(field->box.Text()), target.get(), field.get(), true);
+            }
+        };
+        label.PointerReleased(ended);
+        label.PointerCaptureLost(ended);
     }
 
     bool MainWindow::CommitSettingText(zs_setting_info const &info, std::wstring const &text, EditorTarget const *target, EditorField *field, bool quiet)

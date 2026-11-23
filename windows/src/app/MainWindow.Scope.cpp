@@ -51,6 +51,9 @@ namespace winrt::ZSlice::implementation
 
     std::shared_ptr<MainWindow::EditorTarget> MainWindow::PaneTarget()
     {
+        // An explicit Global scope wins over an open layer profile.
+        if (settings_scope == scope_global)
+            return scope_target;
         if (in_profile)
             return profile_target;
         return settings_scope != scope_print ? scope_target : nullptr;
@@ -58,7 +61,7 @@ namespace winrt::ZSlice::implementation
 
     bool MainWindow::ScopeEditable(zs_setting_info const &info)
     {
-        if (in_profile)
+        if (in_profile && settings_scope != scope_global)
             return true;
         if (settings_scope >= 0)
             return info.per_part != 0;
