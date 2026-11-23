@@ -61,6 +61,7 @@
 <div class="group">Internals</div>
 <a href="../../internals/architecture/">Architecture</a>
 <a href="../../internals/one-view/" aria-current="page">Plan: one view</a>
+<a href="../../internals/selection/">Selection and focus</a>
 <a href="../../internals/how-slicing-works/">How slicing works</a>
 <a href="../../internals/layer-settings/">Settings for some layers</a>
 <a href="../../internals/gcode/">G-code reference</a>
@@ -139,7 +140,7 @@
 <div class="table-wrap"><table><thead><tr><th>Scene</th><th>main</th><th>one-view</th></tr></thead><tbody><tr><td>printdeck plate 1 alone (main), or all 6 plates with plate 1 in the view</td><td>GPU 22.6 ms, orbit 33 ms</td><td>GPU 7.1 ms, orbit 16.7 ms</td></tr><tr><td>All 6 plates (<code>Home</code>)</td><td>(one plate only)</td><td>GPU 6.1 ms, orbit 16.7 ms</td></tr><tr><td>Plate 5 (14 parts) in the view</td><td>(one plate only)</td><td>GPU 7.6 ms, orbit 16.7 ms</td></tr><tr><td>20 Benchies on one plate, start view</td><td>GPU 205 ms, orbit 217 ms</td><td>GPU 40.6 ms, orbit 50 ms</td></tr></tbody></table></div>
 <ul><li>The 6 plates of the printdeck project hold 60 frames a second in an orbit, in each camera position. A zoom close to a plate is slower (p95 50 to 67 ms): near the camera, the beads are full.</li><li>20 Benchies on one plate (1.76 million beads) do not reach 60 frames a second on this GPU. A 7th plate of 20 Benchies next to the 6 plates of the project does not slice: the worker reached the 2 GB of the wasm memory of the module with threads. The limit is now 4 GB (<code>wasm_mt_max</code> in build.zig), and this test did not run again. The 6 plates take about 920 MB at the high point.</li><li>The G-code of a single plate is the same as on main (the Benchy, 2 758 371 bytes, the same hash).</li><li>Plate 1 of the project slices to 108 layers, 5 h 22 min, 67.4 g, in the set as alone.</li></ul>
 <h3 id="changes-to-the-plan">Changes to the plan</h3>
-<ul><li>The active plate does not fade while it slices again. It slices first, and a fade on each drag of a part would flicker.</li><li>A resin plate shows as a light grid with its label ("Resin: not yet"). It shows no parts yet.</li><li>The labels and the bar are a first form for step 3.</li></ul><nav class="pager"><a class="prev" href="../../internals/architecture/"><span>Previous</span><b>Architecture</b></a><a class="next" href="../../internals/how-slicing-works/"><span>Next</span><b>How slicing works</b></a></nav>
+<ul><li>The active plate does not fade while it slices again. It slices first, and a fade on each drag of a part would flicker.</li><li>A resin plate shows as a light grid with its label ("Resin: not yet"). It shows no parts yet.</li><li>The labels and the bar are a first form for step 3.</li></ul><nav class="pager"><a class="prev" href="../../internals/architecture/"><span>Previous</span><b>Architecture</b></a><a class="next" href="../../internals/selection/"><span>Next</span><b>Selection and focus</b></a></nav>
 </main>
 </div>
 <footer>zslice is free software (AGPL-3.0-or-later). <a href="../../privacy/">Privacy</a>: no analytics, no cookies, nothing from other sites. <a href="https://github.com/beetlebugorg/zslice/blob/main/docs/build.py">docs/build.py</a> writes this site from <a href="https://github.com/beetlebugorg/zslice/blob/main/docs/internals/one-view.md">docs/internals/one-view.md</a>.</footer>

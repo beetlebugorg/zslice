@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Selection and focus · zslice</title>
+<meta name="description" content="The core has one model of what the user points at. The code is in src/app/selection.zig, and the C calls are the zs_sel_* functions of include/zslice-app.h. A shell reads and changes the selection only through these calls.">
+<link rel="canonical" href="https://zslice.beetlebug.org/internals/selection/">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"%3E %3Crect width="32" height="32" rx="7" fill="%23171717"/%3E %3Crect x=".5" y=".5" width="31" height="31" rx="6.5" fill="none" stroke="%23ffffff" stroke-opacity=".2"/%3E %3Cg fill="none" stroke-linecap="round" stroke-linejoin="round" stroke-width="4.2"%3E %3Cpath d="M7.5 7.5 H24.5 L7.5 24.5" stroke="%23f4f0e6"/%3E %3Cpath d="M7.5 24.5 H24.5" stroke="%23ff5a1f"/%3E %3C/g%3E %3C/svg%3E">
+<link rel="stylesheet" href="../../site.css">
+</head>
+<body>
+<input type="checkbox" id="menu">
+<header class="top">
+  <a class="brand" href="../../docs.html"><span class="mark">ZSLICE</span><span class="docs">DOCS</span></a>
+  <label class="menu-btn" for="menu">Contents</label>
+  <nav class="top-links"><a href="../../index.html">Open the app</a><a href="../../user/getting-started/">Get started</a><a href="../../roadmap/">Roadmap</a><a href="../../privacy/">Privacy</a><a href="https://github.com/beetlebugorg/zslice">GitHub</a></nav>
+</header>
+<div class="layout">
+<aside class="side"><nav><a href="../../docs.html">Home</a>
+<a href="../../contents/">All documents</a>
+<div class="group">Start</div>
+<a href="../../user/getting-started/"><span class="n">1</span>Your first print</a>
+<div class="group">Everyday tasks</div>
+<a href="../../user/look/"><span class="n">2</span>Look at the print</a>
+<a href="../../user/lines/"><span class="n">3</span>Click a line</a>
+<a href="../../user/change-settings/"><span class="n">4</span>Change a setting</a>
+<a href="../../user/parts/"><span class="n">5</span>Place the parts</a>
+<a href="../../user/support/"><span class="n">6</span>Add support</a>
+<a href="../../user/filaments/"><span class="n">7</span>Print in colors</a>
+<a href="../../user/labels/"><span class="n">8</span>Labels on a part</a>
+<a href="../../user/check/"><span class="n">9</span>Check the print</a>
+<a href="../../user/calibrate/"><span class="n">10</span>Calibrate the filament</a>
+<a href="../../user/plates/"><span class="n">11</span>Plates and files</a>
+<a href="../../user/printers/"><span class="n">12</span>Send to a printer</a>
+<a href="../../user/history/"><span class="n">13</span>Undo and history</a>
+<div class="group">Features</div>
+<a href="../../user/features/"><span class="n">14</span>The best features</a>
+<a href="../../user/print-as-it-forms/"><span class="n">15</span>The print as it forms</a>
+<a href="../../user/projects/"><span class="n">16</span>printdeck projects</a>
+<a href="../../user/farm/"><span class="n">17</span>A print farm</a>
+<div class="group">Reference</div>
+<a href="../../user/keys/">Keys and mouse</a>
+<a href="../../user/settings/">Settings</a>
+<a href="../../user/expert/">Formulas and rules</a>
+<a href="../../user/profiles/">Profiles</a>
+<a href="../../user/setting-coverage/">Cura and OrcaSlicer settings</a>
+<a href="../../user/command-line/">The command line</a>
+<a href="../../user/apps/">Web, Linux, and Mac</a>
+<a href="../../user/macos/">The macOS app</a>
+<a href="../../user/windows/">The Windows app</a>
+<a href="../../user/troubleshooting/">Problems and errors</a>
+<div class="group">Embedding</div>
+<a href="../../embedding/">Overview</a>
+<a href="../../embedding/c/">C</a>
+<a href="../../embedding/zig/">Zig</a>
+<a href="../../embedding/javascript/">JavaScript</a>
+<a href="../../embedding/print-view/">The print view</a>
+<a href="../../embedding/viewer/">The G-code viewer</a>
+<a href="../../embedding/labels/">Labels</a>
+<div class="group">Internals</div>
+<a href="../../internals/architecture/">Architecture</a>
+<a href="../../internals/one-view/">Plan: one view</a>
+<a href="../../internals/selection/" aria-current="page">Selection and focus</a>
+<a href="../../internals/how-slicing-works/">How slicing works</a>
+<a href="../../internals/layer-settings/">Settings for some layers</a>
+<a href="../../internals/gcode/">G-code reference</a>
+<a href="../../internals/arachne/">Arachne walls</a>
+<a href="../../internals/print-sim/">The print simulation</a>
+<a href="../../internals/performance/">Speed: the lower bound</a>
+<a href="../../internals/cura-compare/">Compared with other slicers</a>
+<a href="../../internals/contributing/">Contributing</a>
+<a href="../../internals/code-quality/">Code quality</a>
+<a href="../../internals/macos/">The macOS app</a>
+<a href="../../internals/windows/">The Windows app</a>
+<a href="../../internals/open-links/">Links that open a model</a>
+<a href="../../internals/model-import/">Import from a model page</a>
+<a href="../../internals/release/">CI and releases</a>
+<div class="group">Project</div>
+<a href="../../app/">App</a>
+<a href="../../roadmap/">Roadmap</a>
+<a href="../../privacy/">Privacy</a>
+<div class="group">References</div>
+<a href="../../references/">References</a>
+<a href="../../references/explore/">Explorer</a>
+<a href="../../references/libraries/">Libraries and tools</a>
+<a href="../../references/cura/">Cura</a>
+<a href="../../references/orcaslicer/">OrcaSlicer</a>
+<a href="../../references/prusaslicer/">PrusaSlicer</a>
+<a href="../../references/bambu-studio/">Bambu Studio</a>
+<a href="../../references/slicer-techniques/">Slicer techniques</a>
+<a href="../../references/printer-data/">Printer data</a>
+<a href="../../references/klipper-marlin-firmware/">Firmware and G-code</a>
+<a href="../../references/fonts/">Fonts</a>
+<a href="../../references/papers-and-algorithms/">Papers and algorithms</a>
+<a href="../../references/physics-and-materials/">Physics and materials</a>
+<a href="../../references/formats-and-protocols/">Formats and protocols</a>
+<a href="../../references/printables/">Printables</a>
+<a href="../../references/thingiverse/">Thingiverse</a></nav></aside>
+<main>
+<p class="eyebrow">Internals</p>
+<h1>Selection and focus</h1>
+<p class="lede">The core has one model of what the user points at. The code is in <code>src/app/selection.zig</code>, and the C calls are the <code>zs_sel_*</code> functions of <code>include/zslice-app.h</code>. A shell reads and changes the selection only through these calls.</p>
+<nav class="onpage"><b>On this page</b><ol><li><a href="#the-fault-that-this-model-removes">The fault that this model removes</a></li><li><a href="#the-state">The state</a></li><li><a href="#stable-part-ids">Stable part ids</a></li><li><a href="#the-generation-rule">The generation rule</a></li><li><a href="#the-pick">The pick</a></li><li><a href="#a-selected-line">A selected line</a></li><li><a href="#a-click-on-a-gizmo-handle">A click on a gizmo handle</a></li><li><a href="#the-c-calls-in-order">The C calls in order</a></li><li><a href="#notes-for-the-mac-and-windows-ports">Notes for the Mac and Windows ports</a></li></ol></nav><h2 id="the-fault-that-this-model-removes">The fault that this model removes</h2>
+<p>Each shell kept its own copy of the selection. A selected part was an index, and a copy of the part from the worker. After a move, a delete, a plate change, or an undo, that index could name another part. A late reply of the worker could also write an old state over a newer click.</p>
+<h2 id="the-state">The state</h2>
+<div class="table-wrap"><table><thead><tr><th>State</th><th>Identity</th><th>Notes</th></tr></thead><tbody><tr><td>Active plate</td><td>Plate index</td><td>The reported plate, and a request of the user until its reply</td></tr><tr><td>Selected parts</td><td>Stable part ids</td><td>An ordered list. The last id is the primary part</td></tr><tr><td>Selected line</td><td>The key of the line (<code>edits.pathKey</code>)</td><td>With its path index and segment in the slice now</td></tr><tr><td>Hover</td><td>Stable part id</td><td>0: none</td></tr><tr><td>Tool</td><td>An integer of the shell</td><td>The web app: select, move, measure, support</td></tr><tr><td>Camera target</td><td>Plate index, or all plates</td><td>A request. It waits until its plate is active</td></tr></tbody></table></div>
+<p>The model also has three tables of parts:</p>
+<ul><li><code>parts</code>: the facts of the owner of the plates.</li><li><code>over</code>: the local places of a drag. These places are newer than the facts.</li><li><code>scene</code>: the places of the beads that the view shows now.</li></ul>
+<h2 id="stable-part-ids">Stable part ids</h2>
+<p><code>plate.Part.id</code> is a number over 0. It is unique on its plate.</p>
+<div class="table-wrap"><table><thead><tr><th>Event</th><th>The id</th></tr></thead><tbody><tr><td>A move, a turn, a scale</td><td>Stays</td></tr><tr><td>A delete of another part</td><td>Stays. The index can change</td></tr><tr><td>A move to another plate</td><td>Stays, if the id is free on that plate</td></tr><tr><td>A copy, a paste, a duplicate</td><td>A new id</td></tr><tr><td>A split or a cut</td><td>New ids for the pieces</td></tr><tr><td>Undo and redo</td><td>The snapshot has the ids, so each part comes back with its id</td></tr><tr><td>A save and a load</td><td>The <code>partid</code> lines of <code>Metadata/zslice_overrides.txt</code> keep the ids</td></tr></tbody></table></div>
+<p>An older version of zslice leaves the <code>partid</code> lines out. Undo lists are per plate. So an undo of a move to another plate can show the same id on two plates. The model is safe in this case, because it looks up an id only on the active plate.</p>
+<h2 id="the-generation-rule">The generation rule</h2>
+<ol><li>Each change of the model adds 1 to the generation (<code>zs_sel_generation</code>).</li><li>A shell with a worker notes the generation when it sends a request.</li><li>When the reply comes, the shell calls <code>zs_sel_answered</code> with that generation.</li><li><code>zs_sel_answered</code> ends the local places and the plate request of that age or older.</li><li>A local change that is newer than the reply stays.</li></ol>
+<p>So a late reply never undoes a newer click. A request that fails also gets a reply, so a plate request never stays open.</p>
+<p>A reply that selects parts (a paste, a duplicate) must also check that the user changed no selection since the request. The web app uses a stamp for this (<code>tools.selectReply</code>).</p>
+<h2 id="the-pick">The pick</h2>
+<p><code>zs_sel_pick(sel, view, px, py)</code> gives the id of the part under a pixel. It needs no slice and no reply.</p>
+<ol><li>The bead under the pixel names a part, if the beads of that part are at its current place.</li><li>A part that moved since the slice in the view has beads at an old place. Its box at the current place counts in place of its beads.</li><li>The nearest candidate along the ray wins.</li><li>With no candidate, the smallest footprint under the bed point wins.</li></ol>
+<p>The pick returns 0 while a plate request is open, because the table is still of the plate before.</p>
+<h2 id="a-selected-line">A selected line</h2>
+<p>A new slice can renumber the paths. The model keeps the key of the line. After a slice, a shell finds the path of that key (<code>zs_app_path_of_key</code>) and calls <code>zs_sel_line_found</code>. A line that the slice did not make again has no path, and the line selection ends.</p>
+<h2 id="a-click-on-a-gizmo-handle">A click on a gizmo handle</h2>
+<p>A handle of the gizmo can lie over another part. A press and a release at one place is a click, so the click goes to the part under the pointer. A drag starts only after the pointer moves more than 4 CSS pixels.</p>
+<h2 id="the-c-calls-in-order">The C calls in order</h2>
+<p>For a shell with no worker (GTK, the Mac, Windows):</p>
+<ol><li><code>zs_sel_new</code> once.</li><li><code>zs_sel_sync(sel, set, 0)</code> after each change of the set.</li><li><code>zs_sel_sync(sel, set, 1)</code> after the view loads a slice.</li><li>On a click: <code>zs_sel_pick</code>, then <code>zs_sel_select</code> with a mode.</li><li>On a drag: <code>zs_sel_place</code> on each frame. Send the place to the app at the end, or as the shell does now.</li><li>To change the plate: <code>zs_sel_plate_request</code>, <code>zs_set_select</code>, then <code>zs_sel_sync</code>. The sync ends the request.</li><li>To act on a part: <code>zs_app_part_index(app, id)</code>. Never keep the index.</li><li>After a slice: <code>zs_app_path_of_key</code> for the key of <code>zs_sel_line_get</code>, then <code>zs_sel_line_found</code>.</li><li><code>zs_sel_free</code> at the end.</li></ol>
+<p>For a shell with a worker (the web app):</p>
+<ol><li>The worker sends the table (<code>zs_app_sel_parts</code>) before the reply of each call that changed it.</li><li>The page calls <code>zs_sel_set_parts</code> with the table, and <code>zs_sel_set_scene</code> when the view loads a scene.</li><li>The page calls <code>zs_sel_plate_report</code> for each list of plates.</li><li>The client sends the generation with each call, and the stable id of each part that the call names.</li><li>The worker finds the index of the id. A call for a part that is gone does nothing.</li></ol>
+<h2 id="notes-for-the-mac-and-windows-ports">Notes for the Mac and Windows ports</h2>
+<p>The older calls still work, so a shell can move in steps.</p>
+<p>Delete from the shell:</p>
+<ul><li>Each stored part index, and each stored copy of a part as the selection.</li><li>Each stored selected path index that outlives a slice. Keep the key.</li><li>Each "wanted plate" or "frame this plate" flag.</li><li>Each pick that asks the app for the part of a path. Call <code>zs_sel_pick</code>.</li></ul>
+<p>Port in this order:</p>
+<ol><li>Make one <code>zs_selection</code> next to the <code>zs_set</code>. Call <code>zs_sel_sync</code> after each change of the set and after each view load.</li><li>Move the part pick and the selection of parts to the model.</li><li>Find each call with a part index. Get the index from the id just before the call.</li><li>Move the active plate and the camera target.</li><li>Move the line selection to the key.</li><li>For the transform tool: call <code>zs_sel_place</code> on each frame of a drag. Treat a press and a release at one place on a handle as a click on the part under the pointer.</li></ol>
+<p>The transform tool of Windows can start at step 6 once steps 1 to 3 work.</p><nav class="pager"><a class="prev" href="../../internals/one-view/"><span>Previous</span><b>Plan: one view</b></a><a class="next" href="../../internals/how-slicing-works/"><span>Next</span><b>How slicing works</b></a></nav>
+</main>
+</div>
+<footer>zslice is free software (AGPL-3.0-or-later). <a href="../../privacy/">Privacy</a>: no analytics, no cookies, nothing from other sites. <a href="https://github.com/beetlebugorg/zslice/blob/main/docs/build.py">docs/build.py</a> writes this site from <a href="https://github.com/beetlebugorg/zslice/blob/main/docs/internals/selection.md">docs/internals/selection.md</a>.</footer>
+</body>
+</html>
