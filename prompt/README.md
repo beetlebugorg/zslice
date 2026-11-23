@@ -1,6 +1,6 @@
 # A prompt that could build zslice
 
-Describes: main at commit `58f58ca0` ("Add the part settings and failed slices to the Windows prompt"), 2026-11-22.
+Describes: main at commit `c0a7de63` ("Add support marks to the Windows prompt"), 2026-11-22.
 
 ## Read this first
 

@@ -58,6 +58,7 @@ The prefixes of `zslice-app.h` (about 3100 lines), with their rough counts: `zs_
 - **Settle parts in the core.** A part fell over only when a shell called the settle after the Turn tool. Now the core settles each part that gets a new orientation from a load, a placement, smart placement, or a reset, while support is off.
 - `zs_set_app` must not wait for the lock of the set while a slice thread holds it (it waited about 12 ms on the Mac).
 - Keep each Support edit as its own history step. Keep a drag of a part setting in the search as one step.
+- **Each user edit must be in the snapshot.** A step compares the settings and the 3MF of the plate. The support marks were in neither, so a mark made no step: Undo went to the step before it, and a restart lost the mark. Write each kind of user edit as a line of the plate 3MF (`mark` lines now), and test undo, redo, and a reload for it.
 - Keep the printer of each plate in the core and in the project file.
 - After a cut that leaves no free place, arrange the plate. `zs_app_plate_fits` says when parts still do not fit.
 - Never show an empty view for a focus on a setting with no lines on the plate. `zs_view_focus` returns 0, and the shell says so.
