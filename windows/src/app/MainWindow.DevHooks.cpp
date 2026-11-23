@@ -93,6 +93,8 @@
 |1, prefsimulate 0|1.
 // A part that does not fit: fitlog, fitexport, fitissue.
 // Spools of the printer: spoolread, spoolfollow file, spoollog, followlog.
+// Test print: testprint 1|0. A run and the part card: runlog.
+// What a setting changes: effectopen name, effectfeature f, effectlog.
 // Import: miask [text], migo, mizip path, micheck i 0|1, miok, micancel, milog.
 // Settings for: scopeset n, scopeedit name value, scopereset name, scopelog name.
 // The print order of the part card: orderlog.
@@ -702,6 +704,30 @@ namespace winrt::ZSlice::implementation
                 }
                 zs::Log("dev: spool follow changed %d '%s'\n", changed ? 1 : 0, message.c_str());
             }
+        }
+        else if (verb == L"effectopen" && !words.empty())
+        {
+            ShowSettingsPane(true);
+            detail_from = SettingsPage::Sections;
+            ShowDetail(zs::ToUtf8(words[0]).c_str());
+        }
+        else if (verb == L"effectfeature" && !words.empty())
+        {
+            ShowFeature(_wtoi(words[0].c_str()));
+        }
+        else if (verb == L"effectlog")
+        {
+            zs::Log("dev: effect hint %d lines %u page %d crumb '%s' rows %u focus %u first %d on %d\n", EmptyHint().Visibility() == Microsoft::UI::Xaml::Visibility::Visible ? 1 : 0, effect_box != nullptr ? effect_box.Children().Size() : 0, (int)settings_page, to_string(SettingsCrumb().Text()).c_str(), SettingsList().Children().Size(), pane_focus,
+                    pane_focus_first ? 1 : 0, pane_focus_on ? 1 : 0);
+        }
+        else if (verb == L"testprint")
+        {
+            printers->ExportTestPrint(number(0) != 0);
+        }
+        else if (verb == L"runlog")
+        {
+            zs::Log("dev: run edits %zu lit %d others %zu path %lld key %d layer %zu | float '%s' | file box %d '%s'\n", zs_app_edit_count(model->Active()), run_lit ? 1 : 0, run_others, (long long)selected_path, line_key != 0 ? 1 : 0, line_key_layer,
+                    to_string(PartFloatNote().Text()).c_str(), PartFileBox().Visibility() == Microsoft::UI::Xaml::Visibility::Visible ? 1 : 0, to_string(PartFileText().Text()).substr(0, 70).c_str());
         }
         else if (verb == L"followlog")
         {
