@@ -1,6 +1,6 @@
 # A prompt that could build zslice
 
-Describes: main at commit `473b94b1` ("Add the Mac selection port and line foot to the prompt"), 2026-11-23.
+Describes: main at commit `64f2e4eb` ("Test a Mac Turn handle click, a drag pick, and a plate that fits"), 2026-11-23.
 
 ## Read this first
 
