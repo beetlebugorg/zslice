@@ -56,6 +56,10 @@ namespace zs::usb
     {
         bool ok = false;
         bool cancelled = false;
+        // At least one command went to the printer.
+        bool sent = false;
+        // After a stop: the printer confirmed each cooling command.
+        bool cooled = false;
         std::string message;
     };
 
@@ -65,9 +69,14 @@ namespace zs::usb
         int settle_ms = 2000;
         // The longest wait for one "ok": a long move or a heat-up.
         int answer_ms = 600000;
+        // The longest wait for the "ok" of one cooling command.
+        int cool_ms = 30000;
     };
 
     // Sends each command of the G-code and waits for its "ok". `stop` ends
-    // it before the next command. It sends nothing more after a stop.
+    // the print. If a command is in flight, Stream reads its "ok" first. It
+    // then sends M104 S0, M140 S0, and M107, reads each "ok", and sends no
+    // move. If no command went out, a stop sends nothing. `cooled` is true
+    // only when the printer confirmed all three.
     Result Stream(Port &port, std::string const &gcode, std::atomic<bool> const &stop, std::function<void(double)> const &progress, Timing timing = {});
 }

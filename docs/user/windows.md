@@ -228,7 +228,11 @@ A part that is too high or too large for the printer still slices, so you can se
 
 F10 opens the main menu. It has **Save project…** (Ctrl+S), **Send all plates**, and **Export all plates…**. Ctrl+E exports the G-code, and Ctrl+Q quits. A dialog that is open keeps these keys.
 
-**The Windows app never starts a print.** It uploads the file, and you start the print on the printer.
+**On a network printer, the Windows app never starts a print.** It uploads the file, and you start the print on the printer.
+
+**On a USB printer, Print over USB starts the print at once.** A serial port has no upload, so the app sends each command while the printer runs it. Set **USB (serial port)**, the port, and the speed in Preferences. The app asks before each print, and **Cancel** is the default. Clear the bed first. Keep the computer on and the cable in until the print ends. The computer stays awake during the print, and closing the app asks first.
+
+**Stop the USB print** ends the print and turns off the nozzle heater, the bed heater, and the fan. It sends no move, so the nozzle stays where it is. The app shows what the printer confirmed. If the printer does not confirm or the port is gone, the message says that the heaters may still be on, so turn them off on the printer. The list of ports opens no port. **Test the connection** asks first, because most boards restart when their port opens, and a print from the card of the printer then ends. On the **Printers** page, a USB printer has a card that says **USB: no live status**.
 
 ## Compare with Cura
 
@@ -254,7 +258,7 @@ A click on a line, a part, or a gap opens its **Selected** page in the pane. **A
 
 The **Speed** section at the top of the settings pane lists the options that change the time of a slice, with the gain and the cost of each. **Faster slicing** sets all of them to their faster values. It reads **Custom** when one option has another value.
 
-The Windows app has no USB connection yet, and it does not keep filament settings for each roll in the printer.
+The Windows app does not keep filament settings for each roll in the printer.
 
 ## Where your settings are
 

@@ -651,6 +651,10 @@ namespace winrt::ZSlice::implementation
         // (MainWindow.ContextMenu.cpp).
         void ShowContextMenu(double x, double y);
         bool MenuPlace(double &x, double &y, double &z);
+        bool UsbHoldsClose();
+#ifdef ZS_DEV_HOOKS
+        bool RunUsbStep(std::wstring const &verb, std::vector<std::wstring> const &words);
+#endif
         void PutSideDown(ptrdiff_t part, float const *ray);
         void SupportEdited();
         void RemoveSupportHere();

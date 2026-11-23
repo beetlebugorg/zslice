@@ -8,9 +8,10 @@
 // reply (zs_printer_status). The flow follows linux/src/net/printer-link.c
 // and web/app/link.js. See docs/references/formats-and-protocols.md.
 //
-// THE APP NEVER STARTS A PRINT. Upload always sends print=false, and no
+// NOTHING HERE STARTS A PRINT. Upload always sends print=false, and no
 // function here can send anything else. The person starts the print on the
-// printer.
+// printer. A USB printer has no upload: see zs_usb.h, the one path that
+// prints, after a yes of the user for that print.
 //
 // Each call blocks, so it runs on a worker thread. It has no WinRT.
 //

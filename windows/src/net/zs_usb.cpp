@@ -243,6 +243,38 @@ namespace zs::usb
         return std::make_unique<ComPort>(h);
     }
 
+    namespace
+    {
+        // The end of a stopped print: the heaters and the fan go off. It
+        // sends no move.
+        void CoolDown(Port &port, Answers &answers, bool in_flight, Timing const &timing, Result &result)
+        {
+            result.cancelled = true;
+            std::atomic<bool> no_stop{ false };
+            std::string error;
+            if (in_flight && !answers.WaitOk(no_stop, timing.answer_ms, error))
+            {
+                result.message = error;
+                return;
+            }
+            for (char const *command : { "M104 S0\n", "M140 S0\n", "M107\n" })
+            {
+                if (!port.Write(command, strlen(command)))
+                {
+                    result.message = "The port stopped.";
+                    return;
+                }
+                if (!answers.WaitOk(no_stop, timing.cool_ms, error))
+                {
+                    result.message = error;
+                    return;
+                }
+            }
+            result.cooled = true;
+            result.message = "The printer turned off the heaters and the fan.";
+        }
+    }
+
     Result Stream(Port &port, std::string const &gcode, std::atomic<bool> const &stop, std::function<void(double)> const &progress, Timing timing)
     {
         Result result;
@@ -267,8 +299,13 @@ namespace zs::usb
         {
             if (stop.load())
             {
-                result.cancelled = true;
-                result.message = "Stopped.";
+                if (result.sent)
+                    CoolDown(port, answers, false, timing, result);
+                else
+                {
+                    result.cancelled = true;
+                    result.message = "Stopped before the first command.";
+                }
                 return result;
             }
             size_t nl = gcode.find('\n', pos);
@@ -292,14 +329,12 @@ namespace zs::usb
                 result.message = "The port stopped.";
                 return result;
             }
+            result.sent = true;
             std::string error;
             if (!answers.WaitOk(stop, timing.answer_ms, error))
             {
                 if (error.empty())
-                {
-                    result.cancelled = true;
-                    result.message = "Stopped.";
-                }
+                    CoolDown(port, answers, true, timing, result);
                 else
                     result.message = error;
                 return result;

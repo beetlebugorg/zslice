@@ -37,6 +37,12 @@ namespace winrt::ZSlice::implementation
             return p.kind != zs::LinkKind::None;
         }
 
+        // A USB printer has no status to read: an open can restart it.
+        bool Polled(zs::SavedPrinter const &p)
+        {
+            return HasLink(p) && p.kind != zs::LinkKind::Usb;
+        }
+
         bool UsesKey(zs::LinkKind kind)
         {
             return kind == zs::LinkKind::Printdeck || kind == zs::LinkKind::OctoPrint || kind == zs::LinkKind::PrusaLink;
@@ -324,7 +330,7 @@ namespace winrt::ZSlice::implementation
                     ShowCameraLarge(t);
             });
             menu.Items().Append(show_camera);
-            if (printer.kind != zs::LinkKind::Bambu)
+            if (printer.kind != zs::LinkKind::Bambu && printer.kind != zs::LinkKind::Usb)
             {
                 MenuFlyoutItem open;
                 open.Text(L"Open the page of the printer");
@@ -365,6 +371,13 @@ namespace winrt::ZSlice::implementation
 
             tile_grid.Children().Append(card);
             tiles.push_back(tile);
+
+            // A USB printer shows, with no live status and no read.
+            if (printer.kind == zs::LinkKind::Usb)
+            {
+                UpdateTile(tile, nullptr, {});
+                continue;
+            }
 
             if (printer.kind == zs::LinkKind::Bambu)
             {
@@ -452,7 +465,7 @@ namespace winrt::ZSlice::implementation
         bool page_open = page != nullptr && page.Visibility() == Visibility::Visible;
         bool printing = details_has_status && details_status_id == printer.id &&
                         (details_status.farm_state == ZS_FARM_PRINTING || details_status.farm_state == ZS_FARM_PAUSED);
-        if (!details_open || follow_stopped || page_open || !HasLink(printer) || !printing)
+        if (!details_open || follow_stopped || page_open || !Polled(printer) || !printing)
         {
             hide();
             return;
@@ -591,7 +604,7 @@ namespace winrt::ZSlice::implementation
         SyncBambuLinks();
         zs::SavedPrinter const &printer = zs::Printers().Current();
         bool page_open = page != nullptr && page.Visibility() == Visibility::Visible;
-        if (follow_asleep || follow_reading || page_open || !HasLink(printer) || printer.kind == zs::LinkKind::Bambu || printer.url.empty())
+        if (follow_asleep || follow_reading || page_open || !Polled(printer) || printer.kind == zs::LinkKind::Bambu || printer.url.empty())
             return;
         follow_reading = true;
         zs::link::Target target = zs::link::TargetOf(printer);
@@ -820,7 +833,7 @@ namespace winrt::ZSlice::implementation
         for (auto const &tile : tiles)
         {
             zs::SavedPrinter *printer = zs::Printers().Find(tile->id);
-            if (printer == nullptr || printer->kind == zs::LinkKind::Bambu || tile->reading)
+            if (printer == nullptr || printer->kind == zs::LinkKind::Bambu || printer->kind == zs::LinkKind::Usb || tile->reading)
                 continue;
             tile->reading = true;
             zs::link::Target target = zs::link::TargetOf(*printer);
@@ -924,6 +937,22 @@ namespace winrt::ZSlice::implementation
             counts.Text(text);
         };
         auto show = [](FrameworkElement const &e, bool on) { e.Visibility(on ? Visibility::Visible : Visibility::Collapsed); };
+        if (printer->kind == zs::LinkKind::Usb)
+        {
+            // In no count of the page: the app does not know its state.
+            t->state = -1;
+            t->badge.Text(L"USB");
+            show(t->job, false);
+            show(t->bar, false);
+            show(t->facts, false);
+            show(t->heat, false);
+            show(t->roll, false);
+            t->why.Text(L"USB: no live status");
+            show(t->why, true);
+            show(t->action, false);
+            counts_now();
+            return;
+        }
         if (st == nullptr)
         {
             t->state = ZS_FARM_OFFLINE;
@@ -1118,7 +1147,7 @@ namespace winrt::ZSlice::implementation
                     if (tile->bed_x > 0 && (tile->bed_x + 0.5 < info.bed_x || tile->bed_y + 0.5 < info.bed_y))
                         continue;
                     zs::SavedPrinter *p = zs::Printers().Find(tile->id);
-                    if (p == nullptr || p->kind == zs::LinkKind::Bambu)
+                    if (p == nullptr || p->kind == zs::LinkKind::Bambu || p->kind == zs::LinkKind::Usb)
                         continue;
                     std::wstring label = zs::ToWide(p->name);
                     if (tile->state == ZS_FARM_IDLE)
@@ -1237,9 +1266,16 @@ namespace winrt::ZSlice::implementation
                 Button forget = TextButton(L"Forget the key");
                 forget.IsEnabled(!printer.api_key.empty());
                 Button test = TextButton(L"Test");
-                test.Visibility(printer.kind == zs::LinkKind::None || printer.kind == zs::LinkKind::Bambu ? Visibility::Collapsed : Visibility::Visible);
+                test.Visibility(printer.kind == zs::LinkKind::None || printer.kind == zs::LinkKind::Usb || printer.kind == zs::LinkKind::Bambu ? Visibility::Collapsed : Visibility::Visible);
                 Button remove = TextButton(L"Remove");
                 remove.IsEnabled(store.Count() > 1);
+                if (printer.kind == zs::LinkKind::Usb)
+                {
+                    url.Visibility(Visibility::Collapsed);
+                    key.Visibility(Visibility::Collapsed);
+                    forget.Visibility(Visibility::Collapsed);
+                    rows.Children().Append(Label(L"Set the serial port in Preferences.", 12, false, true));
+                }
                 for (auto const &b : { use, settings, get_key, forget, test, remove })
                     line3.Children().Append(b);
                 rows.Children().Append(line3);

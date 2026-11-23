@@ -31,7 +31,7 @@ kind: format
 source: RepRap
 license: Protocol
 link: https://reprap.org/wiki/G-code
-files: linux/src/net/printer-link.c
+files: linux/src/net/printer-link.c, windows/src/net/zs_usb.cpp
 area: network
 summary: The USB connection.
 ```
@@ -40,7 +40,7 @@ G-code over a serial port: one command, then wait for the line `ok` (the Marlin 
 
 **License:** Protocol
 
-**Used in:** `linux/src/net/printer-link.c`
+**Used in:** `linux/src/net/printer-link.c`, `windows/src/net/zs_usb.cpp`
 
 **How zslice uses it:** The USB connection.
 

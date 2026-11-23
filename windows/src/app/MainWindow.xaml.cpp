@@ -110,6 +110,11 @@ namespace winrt::ZSlice::implementation
         Wire2D();
         WireChrome();
         WireSummary();
+        // A USB print runs through this app, so a close asks first.
+        AppWindow().Closing([this](auto &&, Microsoft::UI::Windowing::AppWindowClosingEventArgs const &args) {
+            if (UsbHoldsClose())
+                args.Cancel(true);
+        });
         Closed([this](auto &&, auto &&) {
             CloseCuraCompare();
             SaveSession(true);

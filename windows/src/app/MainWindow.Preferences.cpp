@@ -13,7 +13,8 @@
 // The core keeps no thread count across a restart and copies none to a new
 // plate, so the shell gives the preference to each plate.
 //
-// The app never starts a print. The test here only reads the printer.
+// Nothing here starts a print. The test only reads the printer, and for USB
+// it only opens the port, after a question.
 //
 // See MainWindow.Printers.h.
 //
@@ -21,6 +22,7 @@
 
 #include "pch.h"
 #include "MainWindow.Printers.h"
+#include "zs_usb.h"
 
 #include <dwmapi.h>
 
@@ -124,6 +126,10 @@ namespace winrt::ZSlice::implementation
         <TextBlock x:Name="FormTrust" Grid.Row="2" Grid.Column="1" Style="{StaticResource Caption}" />
         <TextBlock x:Name="UrlLabel" Grid.Row="3" Text="Address" Style="{StaticResource FormLabel}" />
         <TextBox x:Name="FormUrl" Grid.Row="3" Grid.Column="1" FontSize="13" AutomationProperties.Name="Address" />
+        <TextBlock x:Name="UsbPortLabel" Grid.Row="3" Text="Serial port" Style="{StaticResource FormLabel}" Visibility="Collapsed" />
+        <ComboBox x:Name="FormUsbPort" Grid.Row="3" Grid.Column="1" IsEditable="True" HorizontalAlignment="Stretch" FontSize="13" PlaceholderText="COM3" Visibility="Collapsed" AutomationProperties.Name="Serial port" />
+        <TextBlock x:Name="UsbBaudLabel" Grid.Row="4" Text="Speed (baud)" Style="{StaticResource FormLabel}" Visibility="Collapsed" />
+        <ComboBox x:Name="FormUsbBaud" Grid.Row="4" Grid.Column="1" HorizontalAlignment="Stretch" FontSize="13" Visibility="Collapsed" AutomationProperties.Name="Speed in baud" />
         <TextBlock x:Name="SerialLabel" Grid.Row="4" Text="Serial number" Style="{StaticResource FormLabel}" />
         <Grid x:Name="SerialBox" Grid.Row="4" Grid.Column="1" ColumnSpacing="6">
           <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
@@ -285,7 +291,8 @@ namespace winrt::ZSlice::implementation
         Button add{ nullptr }, remove{ nullptr }, read{ nullptr }, get_key{ nullptr }, test{ nullptr }, use{ nullptr }, use_machine{ nullptr }, use_filament{ nullptr }, open{ nullptr };
         TextBox name{ nullptr }, url{ nullptr }, serial{ nullptr };
         PasswordBox key{ nullptr };
-        ComboBox kind{ nullptr }, theme{ nullptr }, first_view{ nullptr };
+        ComboBox kind{ nullptr }, theme{ nullptr }, first_view{ nullptr }, usb_port{ nullptr }, usb_baud{ nullptr };
+        TextBlock usb_port_label{ nullptr }, usb_baud_label{ nullptr };
         NumberBox threads{ nullptr };
         ToggleSwitch draft{ nullptr }, simulate{ nullptr };
         TextBlock trust{ nullptr }, url_label{ nullptr }, serial_label{ nullptr }, key_label{ nullptr }, result{ nullptr }, folder{ nullptr };
@@ -323,6 +330,8 @@ namespace winrt::ZSlice::implementation
         void UsePrinter();
         void RemovePrinter();
         void KindChanged();
+        void FillPorts();
+        void CommitPort(std::wstring text);
     };
 
     void MainWindow::PrintersUi::PrefsPage::Build(FrameworkElement const &root)
@@ -344,6 +353,13 @@ namespace winrt::ZSlice::implementation
         key_label = Get<TextBlock>(root, L"KeyLabel");
         key_box = Get<Grid>(root, L"KeyBox");
         key = Get<PasswordBox>(root, L"FormKey");
+        usb_port = Get<ComboBox>(root, L"FormUsbPort");
+        usb_baud = Get<ComboBox>(root, L"FormUsbBaud");
+        usb_port_label = Get<TextBlock>(root, L"UsbPortLabel");
+        usb_baud_label = Get<TextBlock>(root, L"UsbBaudLabel");
+        for (int b : zs::usb::bauds)
+            usb_baud.Items().Append(box_value(std::to_wstring(b)));
+        ToolTipService::SetToolTip(usb_port, box_value(L"The serial ports of this computer. Pick one to use it."));
         get_key = Get<Button>(root, L"FormGetKey");
         test = Get<Button>(root, L"FormTest");
         use = Get<Button>(root, L"FormUse");
@@ -409,6 +425,33 @@ namespace winrt::ZSlice::implementation
         });
         remove.Click(on(&PrefsPage::RemovePrinter));
         kind.SelectionChanged(on(&PrefsPage::KindChanged));
+        // The list reads the names of the ports, and opens none of them.
+        usb_port.DropDownOpened([weak](auto &&, auto &&) {
+            if (auto s = weak.lock())
+                s->FillPorts();
+        });
+        usb_port.SelectionChanged([weak](auto &&, SelectionChangedEventArgs const &e) {
+            auto s = weak.lock();
+            if (s == nullptr || s->filling || e.AddedItems().Size() == 0)
+                return;
+            if (auto text = e.AddedItems().GetAt(0).try_as<hstring>())
+                s->CommitPort(std::wstring(*text));
+        });
+        usb_port.LostFocus([weak](auto &&, auto &&) {
+            if (auto s = weak.lock(); s != nullptr && !s->filling)
+                s->CommitPort(std::wstring(s->usb_port.Text()));
+        });
+        usb_baud.SelectionChanged([weak](auto &&, auto &&) {
+            auto s = weak.lock();
+            if (s == nullptr || s->filling)
+                return;
+            zs::SavedPrinter *p = s->Printer();
+            int at = s->usb_baud.SelectedIndex();
+            if (p == nullptr || at < 0 || at >= (int)std::size(zs::usb::bauds) || zs::usb::bauds[at] == p->baud)
+                return;
+            p->baud = zs::usb::bauds[at];
+            zs::Printers().Save();
+        });
         // The list shows the new name while it is typed.
         name.TextChanged([weak](auto &&, auto &&) {
             auto s = weak.lock();
@@ -576,8 +619,49 @@ namespace winrt::ZSlice::implementation
         url.Text(zs::ToWide(p->url));
         serial.Text(zs::ToWide(p->serial));
         key.Password(L"");
+        FillPorts();
+        usb_port.Text(zs::ToWide(p->device));
+        {
+            auto at = std::find(std::begin(zs::usb::bauds), std::end(zs::usb::bauds), p->baud);
+            usb_baud.SelectedIndex(at != std::end(zs::usb::bauds) ? (int)(at - std::begin(zs::usb::bauds)) : 0);
+        }
         ShowRows();
         filling = false;
+    }
+
+    // The names of the ports, from the registry. No port opens.
+    void MainWindow::PrintersUi::PrefsPage::FillPorts()
+    {
+        bool was = filling;
+        filling = true;
+        hstring text = usb_port.Text();
+        usb_port.Items().Clear();
+        for (std::string const &name : zs::usb::Ports())
+            usb_port.Items().Append(box_value(zs::ToWide(name)));
+        usb_port.Text(text);
+        filling = was;
+    }
+
+    void MainWindow::PrintersUi::PrefsPage::CommitPort(std::wstring text)
+    {
+        zs::SavedPrinter *p = Printer();
+        if (p == nullptr || p->kind != zs::LinkKind::Usb)
+            return;
+        std::string to = zs::ToUtf8(text);
+        to.erase(0, to.find_first_not_of(" \t"));
+        to.erase(to.find_last_not_of(" \t") + 1);
+        std::transform(to.begin(), to.end(), to.begin(), [](unsigned char c) { return (char)std::toupper(c); });
+        if (!to.empty() && !zs::usb::ValidPort(to))
+        {
+            SetResult(L"Pick a serial port, for example COM3.", true);
+            return;
+        }
+        if (result_error)
+            SetResult(L"", false);
+        if (to == p->device)
+            return;
+        p->device = to;
+        zs::Printers().Save();
     }
 
     void MainWindow::PrintersUi::PrefsPage::ShowRows()
@@ -586,12 +670,17 @@ namespace winrt::ZSlice::implementation
         if (p == nullptr)
             return;
         zs::LinkKind k = p->kind;
-        bool is_bambu = k == zs::LinkKind::Bambu, net = k != zs::LinkKind::None, keyed = UsesKey(k);
+        bool is_usb = k == zs::LinkKind::Usb;
+        bool is_bambu = k == zs::LinkKind::Bambu, net = k != zs::LinkKind::None && !is_usb, keyed = UsesKey(k);
         wchar_t const *words = TrustWords(*p);
         trust.Text(words != nullptr ? words : L"");
         Show(trust, words != nullptr);
         Show(url_label, net);
         Show(url, net);
+        Show(usb_port_label, is_usb);
+        Show(usb_port, is_usb);
+        Show(usb_baud_label, is_usb);
+        Show(usb_baud, is_usb);
         Show(serial_label, is_bambu);
         Show(serial_box, is_bambu);
         Show(key_label, keyed);
@@ -601,7 +690,7 @@ namespace winrt::ZSlice::implementation
         key_label.Text(is_bambu ? L"Access code" : L"API key");
         key.PlaceholderText(!p->api_key.empty() ? L"A key is saved" : is_bambu ? L"Access code" : L"API key");
         url.PlaceholderText(is_bambu ? L"The IP address of the printer, for example 192.168.1.50" : L"http://printdeck.local or http://192.168.1.20:5000");
-        test.IsEnabled(net);
+        test.IsEnabled(net || is_usb);
         Show(use, id != zs::Printers().Current().id);
     }
 
@@ -844,6 +933,23 @@ namespace winrt::ZSlice::implementation
         zs::SavedPrinter *p = Printer();
         if (p == nullptr || p->kind == zs::LinkKind::None)
             return;
+        if (p->kind == zs::LinkKind::Usb)
+        {
+            ClearInfo();
+            CommitPort(std::wstring(usb_port.Text()));
+            if (result_error)
+                return;
+            test.IsEnabled(false);
+            std::weak_ptr<PrefsPage> usb_weak = weak_from_this();
+            ui.AskUsbTest(p->device, p->baud, [usb_weak](std::wstring const &text, bool error) {
+                auto s = usb_weak.lock();
+                if (s == nullptr)
+                    return;
+                s->test.IsEnabled(true);
+                s->SetResult(text, error);
+            });
+            return;
+        }
         ClearInfo();
         cancel = std::make_shared<zs::http::Cancel>();
         auto token = cancel;
