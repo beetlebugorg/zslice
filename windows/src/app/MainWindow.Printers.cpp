@@ -587,7 +587,45 @@ namespace winrt::ZSlice::implementation
         quality_panel.Children().Append(import_button);
     }
 
-    void MainWindow::PrintersUi::AskProfileName(int group)
+    // A switch of profile, after a question when the settings have changes
+    // that are in no profile.
+    winrt::fire_and_forget MainWindow::PrintersUi::AskSwitch(int group, std::wstring name, std::function<void()> load)
+    {
+        if (!setup.GroupChanged(group))
+        {
+            load();
+            co_return;
+        }
+        auto keep = shared_from_this();
+        wchar_t const *words[] = { L"printer", L"filament", L"part" };
+        ContentDialog dialog;
+        dialog.XamlRoot(w.Content().XamlRoot());
+        w.ThemeDialog(dialog);
+        dialog.Title(box_value(L"Save the changes first?"));
+        TextBlock text;
+        text.TextWrapping(TextWrapping::Wrap);
+        text.Text(std::wstring(L"The ") + words[group] + L" settings have changes that are in no profile. Save them as a profile before you switch to " + name + L"?");
+        dialog.Content(text);
+        dialog.PrimaryButtonText(L"Save as profile…");
+        dialog.SecondaryButtonText(L"Discard");
+        dialog.CloseButtonText(L"Cancel");
+        dialog.DefaultButton(ContentDialogButton::Primary);
+        ContentDialogResult answer = ContentDialogResult::None;
+        try
+        {
+            answer = co_await dialog.ShowAsync();
+        }
+        catch (winrt::hresult_error const &)
+        {
+            co_return;
+        }
+        if (answer == ContentDialogResult::Primary)
+            AskProfileName(group, load);
+        else if (answer == ContentDialogResult::Secondary)
+            load();
+    }
+
+    void MainWindow::PrintersUi::AskProfileName(int group, std::function<void()> then)
     {
         StackPanel body = Column(10);
         body.Padding(ThicknessHelper::FromUniformLength(16));
@@ -605,10 +643,10 @@ namespace winrt::ZSlice::implementation
         buttons.Children().Append(cancel);
         buttons.Children().Append(ok);
         body.Children().Append(buttons);
-        wchar_t const *titles[] = { L"Save the printer settings", L"Save the filament settings", L"Save the quality settings" };
+        wchar_t const *titles[] = { L"Save the Printer settings", L"Save the Filament settings", L"Save the Quality settings" };
         auto panel = OpenPanel(titles[group], 380, 0, body);
         cancel.Click([this, panel](auto &&, auto &&) { ClosePanel(panel); });
-        ok.Click([this, panel, name, error, group](auto &&, auto &&) {
+        auto save_it = [this, panel, name, error, group, then] {
             std::string message;
             if (!setup.SaveProfile(group, zs::ToUtf8(std::wstring(name.Text())), message))
             {
@@ -618,6 +656,16 @@ namespace winrt::ZSlice::implementation
             ClosePanel(panel);
             w.RefreshSettingValues();
             RefreshBar();
+            if (then)
+                then();
+        };
+        ok.Click([save_it](auto &&, auto &&) { save_it(); });
+        name.KeyDown([save_it](auto &&, Input::KeyRoutedEventArgs const &e) {
+            if (e.Key() == Windows::System::VirtualKey::Enter)
+            {
+                e.Handled(true);
+                save_it();
+            }
         });
     }
 
@@ -817,11 +865,13 @@ namespace winrt::ZSlice::implementation
             Button b = TextButton((now ? L"✓ " : L"") + zs::ToWide(upper));
             b.Click([this, upper](auto &&, auto &&) {
                 filament_flyout.Hide();
-                std::string message;
-                if (!setup.UseMaterial(upper, message))
-                    w.ShowError(zs::ToWide(message));
-                w.RefreshSettingValues();
-                RefreshBar();
+                AskSwitch(ZS_GROUP_FILAMENT, zs::ToWide(upper), [this, upper] {
+                    std::string message;
+                    if (!setup.UseMaterial(upper, message))
+                        w.ShowError(zs::ToWide(message));
+                    w.RefreshSettingValues();
+                    RefreshBar();
+                });
             });
             mats.Children().Append(b);
             if (++in_row == 4)
@@ -843,11 +893,13 @@ namespace winrt::ZSlice::implementation
                 Button b = TextButton(zs::ToWide(name));
                 b.Click([this, name](auto &&, auto &&) {
                     filament_flyout.Hide();
-                    std::string message;
-                    if (!setup.LoadUserProfile(ZS_GROUP_FILAMENT, name, message))
-                        w.ShowError(zs::ToWide(message));
-                    w.RefreshSettingValues();
-                    RefreshBar();
+                    AskSwitch(ZS_GROUP_FILAMENT, zs::ToWide(name), [this, name] {
+                        std::string message;
+                        if (!setup.LoadUserProfile(ZS_GROUP_FILAMENT, name, message))
+                            w.ShowError(zs::ToWide(message));
+                        w.RefreshSettingValues();
+                        RefreshBar();
+                    });
                 });
                 filament_panel.Children().Append(b);
             }

@@ -667,6 +667,69 @@ namespace winrt::ZSlice::implementation
         }
     }
 
+    // A saved key goes to another host, port, or scheme only after a yes.
+    bool MainWindow::PrintersUi::AddressAsks(zs::SavedPrinter const &printer, std::string const &to)
+    {
+        if (printer.api_key.empty() || printer.url.empty() || to.empty())
+            return false;
+        return !zs::link::SameOrigin(zs::link::BaseUrl(printer.url), zs::link::BaseUrl(to));
+    }
+
+    // Yes keeps the key. No drops it, and the printer asks for a key. Cancel
+    // keeps the old address and the key, so a typo loses nothing.
+    winrt::fire_and_forget MainWindow::PrintersUi::ChangeAddress(std::string id, std::string to, std::function<void(bool)> done)
+    {
+        auto keep = shared_from_this();
+        if (address_asking)
+        {
+            done(false);
+            co_return;
+        }
+        zs::SavedPrinter *printer = zs::Printers().Find(id);
+        if (printer == nullptr)
+        {
+            done(false);
+            co_return;
+        }
+        address_asking = true;
+        ContentDialog dialog;
+        dialog.XamlRoot(w.Content().XamlRoot());
+        w.ThemeDialog(dialog);
+        dialog.Title(box_value(L"Send the saved key to this new address?"));
+        TextBlock text;
+        text.TextWrapping(TextWrapping::Wrap);
+        text.Text(L"The saved key of this printer is for " + zs::ToWide(printer->url) + L". The new address is " + zs::ToWide(to) +
+                  L". Send the key there only if you trust that address. With No, the printer asks for a key.");
+        dialog.Content(text);
+        dialog.PrimaryButtonText(L"Yes, send it");
+        dialog.SecondaryButtonText(L"No");
+        dialog.CloseButtonText(L"Cancel");
+        dialog.DefaultButton(ContentDialogButton::Secondary);
+        ContentDialogResult answer = ContentDialogResult::None;
+        try
+        {
+            answer = co_await dialog.ShowAsync();
+        }
+        catch (winrt::hresult_error const &)
+        {
+            answer = ContentDialogResult::None;
+        }
+        address_asking = false;
+        printer = zs::Printers().Find(id);
+        if (printer == nullptr || answer == ContentDialogResult::None)
+        {
+            done(false);
+            co_return;
+        }
+        if (answer == ContentDialogResult::Secondary)
+            zs::Printers().ForgetKey(*printer);
+        printer->url = to;
+        zs::Printers().Save();
+        RefreshBar();
+        SyncBambuLinks();
+        done(true);
+    }
+
     std::string MainWindow::PrintersUi::BambuLinkOf(zs::SavedPrinter const &printer) const
     {
         zs::PrinterStore &store = zs::Printers();
@@ -1145,11 +1208,24 @@ namespace winrt::ZSlice::implementation
                         zs_app_setting_set(w.model->Active(), "machine.name", to.c_str());
                     saved();
                 });
-                url.LostFocus([id, url, saved](auto &&, auto &&) {
+                url.LostFocus([this, id, url, key, forget, saved](auto &&, auto &&) {
                     zs::SavedPrinter *p = zs::Printers().Find(id);
                     std::string to = zs::ToUtf8(std::wstring(url.Text()));
                     if (p == nullptr || to == p->url)
                         return;
+                    if (AddressAsks(*p, to))
+                    {
+                        ChangeAddress(id, to, [id, url, key, forget](bool) {
+                            zs::SavedPrinter *now = zs::Printers().Find(id);
+                            if (now == nullptr)
+                                return;
+                            url.Text(zs::ToWide(now->url));
+                            forget.IsEnabled(!now->api_key.empty());
+                            if (now->api_key.empty())
+                                key.PlaceholderText(L"");
+                        });
+                        return;
+                    }
                     p->url = to;
                     saved();
                 });
@@ -1188,12 +1264,15 @@ namespace winrt::ZSlice::implementation
                 serial.LostFocus([id, serial, saved](auto &&, auto &&) {
                     zs::SavedPrinter *p = zs::Printers().Find(id);
                     std::string to = zs::ToUtf8(std::wstring(serial.Text()));
+                    // A space from a paste is no part of a serial number.
+                    size_t first = to.find_first_not_of(" \t\r\n");
+                    to = first == std::string::npos ? std::string() : to.substr(first, to.find_last_not_of(" \t\r\n") - first + 1);
                     if (p == nullptr || to == p->serial)
                         return;
-                    // The code file has the serial number in its name.
+                    // The code file has the serial number in its name: the
+                    // code moves to the file of the new number.
                     std::string code = p->api_key;
-                    p->api_key.clear();
-                    zs::Printers().Save();
+                    zs::Printers().ForgetKey(*p);
                     p->serial = to;
                     p->api_key = code;
                     zs::state::Wipe(code);
@@ -1225,7 +1304,7 @@ namespace winrt::ZSlice::implementation
                 });
                 forget.Click([id, weak_fill, saved](auto &&, auto &&) {
                     if (zs::SavedPrinter *p = zs::Printers().Find(id))
-                        zs::state::Wipe(p->api_key);
+                        zs::Printers().ForgetKey(*p);
                     saved();
                     if (auto f = weak_fill.lock(); f != nullptr && *f)
                         (*f)();

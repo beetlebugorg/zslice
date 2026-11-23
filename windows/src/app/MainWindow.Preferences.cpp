@@ -315,6 +315,8 @@ namespace winrt::ZSlice::implementation
         void BambuDone(zs::link::Snapshot const *status, std::string const &error);
         // The link of this id gives the answer of a test.
         std::string bambu_wait;
+        // A new address waits for the answer about the saved key.
+        bool address_pending = false, test_after = false, test_waiting = false;
         void ShowInfo(zs::link::Snapshot const &status);
         void Apply(int what);
         void ReadSerial();
@@ -670,10 +672,32 @@ namespace winrt::ZSlice::implementation
             changed = true;
         }
         to = Utf8(url.Text());
-        if (to != p->url)
+        if (to != p->url && !address_pending)
         {
-            p->url = to;
-            changed = true;
+            if (AddressAsks(*p, to))
+            {
+                address_pending = true;
+                std::weak_ptr<PrefsPage> weak = weak_from_this();
+                ui.ChangeAddress(p->id, to, [weak](bool moved) {
+                    auto s = weak.lock();
+                    if (s == nullptr)
+                        return;
+                    s->address_pending = false;
+                    s->FillForm();
+                    bool again = s->test_after && moved;
+                    s->test_after = false;
+                    if (again)
+                        s->Test();
+                    else if (s->test_waiting)
+                        s->test.IsEnabled(true);
+                    s->test_waiting = false;
+                });
+            }
+            else
+            {
+                p->url = to;
+                changed = true;
+            }
         }
         // A space from a paste is no part of a serial number or a code.
         auto trimmed = [](std::string text) {
@@ -809,6 +833,14 @@ namespace winrt::ZSlice::implementation
     void MainWindow::PrintersUi::PrefsPage::Test()
     {
         Commit();
+        // The test waits for the answer about the new address.
+        if (address_pending)
+        {
+            test_after = true;
+            test_waiting = true;
+            test.IsEnabled(false);
+            return;
+        }
         zs::SavedPrinter *p = Printer();
         if (p == nullptr || p->kind == zs::LinkKind::None)
             return;

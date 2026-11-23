@@ -403,6 +403,7 @@ namespace winrt::ZSlice::implementation
         void RangeClearChanges(std::vector<std::pair<std::string, std::string>> const &changes);
 #ifdef ZS_DEV_HOOKS
         bool RunRangeStep(std::wstring const &verb, std::vector<std::wstring> const &words);
+        bool RunDialogStep(std::wstring const &verb, std::vector<std::wstring> const &words);
         bool RunProfileStep(std::wstring const &verb, std::vector<std::wstring> const &words);
         bool RunScopeStep(std::wstring const &verb, std::vector<std::wstring> const &words);
         bool RunModelImportStep(std::wstring const &verb, std::vector<std::wstring> const &words);
