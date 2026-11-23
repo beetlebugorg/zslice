@@ -1312,10 +1312,10 @@ namespace winrt::ZSlice::implementation
         ProfilesRefresh();
     }
 
-    void MainWindow::RangePlace()
+    void MainWindow::RangePlace(bool force)
     {
         if (range != nullptr)
-            range->Place(false);
+            range->Place(force);
     }
 
 #ifdef ZS_DEV_HOOKS

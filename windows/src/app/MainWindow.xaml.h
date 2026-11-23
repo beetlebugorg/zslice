@@ -405,6 +405,8 @@ namespace winrt::ZSlice::implementation
         int selected_scope = 0;
         std::map<std::wstring, bool> selected_sections;
         bool line_lost = false;
+        // The slider under the pointer. It ends with its page.
+        std::weak_ptr<bool> slider_hold;
         bool page_gap = false, page_gap_closed = false;
         uint32_t page_gap_serial = 0;
         double page_gap_x = 0, page_gap_y = 0;
@@ -462,6 +464,8 @@ namespace winrt::ZSlice::implementation
         void SaveLinePlace();
         void RestoreLineSegment(int64_t path);
         void FindSelectedLine();
+        bool SliderHeld() const;
+        void ResolveLostLine();
         void FillLineNotes(zs_inspect const &info);
         void RefreshLineNotes();
         // The other lines of a multiple selection: each by its key and its
@@ -508,7 +512,7 @@ namespace winrt::ZSlice::implementation
         void RangeRelease();
         void RangeScene();
         void RangeRefresh();
-        void RangePlace();
+        void RangePlace(bool force = false);
         // The changes of the layers of the card: name and value.
         std::vector<std::pair<std::string, std::string>> RangeChangesNow();
         void RangePaste(std::vector<std::pair<std::string, std::string>> const &changes);
@@ -831,6 +835,7 @@ namespace winrt::ZSlice::implementation
         void MovePartInOrder(int direction);
         void PlaceCard(Microsoft::UI::Xaml::FrameworkElement const &card, double const box[4]);
         void PlaceLineCard();
+        void PlaceOpenCards();
         void PlacePartCard();
         void HideCards();
         void MakeCardMovable(Microsoft::UI::Xaml::FrameworkElement const &card, Microsoft::UI::Xaml::FrameworkElement const &head, bool *moved);
@@ -880,7 +885,7 @@ namespace winrt::ZSlice::implementation
         void LabelDropSvg(std::wstring const &path, double x, double y);
         bool LabelKey(Windows::System::VirtualKey key);
         void LabelReload();
-        void LabelPlace();
+        void LabelPlace(bool force = false);
         void LabelOpen(int64_t part, uint32_t id);
         void LabelFilamentsChanged();
         // Copy and paste of the selected label, as its JSON.

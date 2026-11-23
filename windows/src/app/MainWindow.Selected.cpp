@@ -1340,6 +1340,14 @@ namespace winrt::ZSlice::implementation
     {
         if (verb.rfind(L"selected", 0) != 0 || model == nullptr)
             return false;
+        if (verb == L"selectedlost")
+        {
+            bool page = settings_page == SettingsPage::Selected && selected_page != nullptr;
+            zs::Log("dev: lost %d path %lld draft %d state %d page %d kind %d opacity %.2f card %d\n", line_lost ? 1 : 0, (long long)SelectedPath(), zs_app_is_draft(model->Active()),
+                    (int)zs_app_state(model->Active()), page ? 1 : 0, page ? (int)selected_page->kind : -1, page ? selected_page->root.Opacity() : 0.0,
+                    LineCard().Visibility() == Visibility::Visible ? 1 : 0);
+            return true;
+        }
         if (verb == L"selectedshow")
         {
             ShowSettingsPane(true);
