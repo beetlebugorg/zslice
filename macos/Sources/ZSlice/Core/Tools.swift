@@ -379,6 +379,12 @@ extension Workspace {
         // The frames follow at once; the core gets the places at most each
         // 60 ms, and the slice waits for the end of the drag.
         showPartBoxes(d.places)
+        // The model has the new places at once, for a pick during the drag.
+        for (k, c) in d.places {
+            let id = zs_app_part_id(model.core, k)
+            var b = zs_sel_part()
+            if zs_sel_part_box(model.sel, id, &b) != 0 { zs_sel_place(model.sel, id, c.x, c.y, b.z0) }
+        }
         if Date().timeIntervalSince(d.sent) > 0.06 {
             d.sent = Date()
             for (k, c) in d.places { zs_app_part_move(model.core, k, c.x, c.y) }

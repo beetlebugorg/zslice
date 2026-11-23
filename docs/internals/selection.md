@@ -114,4 +114,4 @@ Port in this order:
 
 The transform tool of Windows can start at step 6 once steps 1 to 3 work.
 
-The Mac app has steps 1 to 3 and the click on a Turn handle. `Workspace.selectedIDs` holds the ids, and `selectedPart` and `selectedParts` read each index from its id. The plate, the camera target, the line key, and `zs_sel_place` are still to move.
+The Mac app has all six steps. `Workspace.selectedIDs` holds the ids, and `selectedPart` and `selectedParts` read each index from its id. The line is its key, and a drag calls `zs_sel_place` on each event.
