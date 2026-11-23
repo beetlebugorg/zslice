@@ -1,6 +1,6 @@
 # A prompt that could build zslice
 
-Describes: main at commit `147899d3` ("Refuse an upload to a USB printer in the GTK app"), 2026-11-23.
+Describes: main at commit `ed81f35b` ("Keep the GTK app off a USB port until the user asks"), 2026-11-23.
 
 ## Read this first
 
