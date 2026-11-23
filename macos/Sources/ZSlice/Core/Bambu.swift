@@ -24,6 +24,12 @@
 //! (bambu-pins.json in the settings folder), and from then on accepts only
 //! that certificate at that address. The app says so when it pins one.
 //!
+//! A gate for each address (BambuGate) allows one MQTT connection at a
+//! time, because these printers take few clients. After a refusal or a
+//! drop it holds new connections back for 15 s, doubling to 5 minutes. The
+//! wait belongs to the printer, so a new status read or a Test keeps it. A
+//! new access code ends it. Test reads a login of the last 15 s.
+//!
 //! A print starts only after a fresh confirmation of the user that the
 //! plate is clear (Workspace.send), never from a timer or a retry.
 //!
@@ -319,9 +325,27 @@ enum BambuLink {
         return Data(bytes: out, count: len)
     }
 
-    /// A session: CONNECT, its CONNACK, and SUBSCRIBE to the reports.
+    private static func gateKey(_ p: Printer) -> String { host(p) + ":8883" }
+
+    /// A session through the gate of the address. Close it with `close`.
     private static func mqtt(_ p: Printer, pinned: inout String?) async throws -> MQTTSession {
         guard !p.serial.isEmpty else { throw BambuError(message: "The printer has no serial number. Find it on the printer, or add the printer from the search of the network.") }
+        let key = gateKey(p), code = p.apiKey
+        if case let .wait(seconds, why) = await BambuGate.shared.enter(key, code: code) {
+            throw BambuError(message: (why.isEmpty ? "The printer did not answer." : why) + " zslice tries again in \(seconds) s.")
+        }
+        do {
+            let m = try await login(p, pinned: &pinned)
+            m.gate = (key, code)
+            return m
+        } catch {
+            BambuGate.shared.leave(key, code: code, reached: false, dropped: false, why: error.localizedDescription)
+            throw error
+        }
+    }
+
+    /// CONNECT, its CONNACK, and SUBSCRIBE to the reports.
+    private static func login(_ p: Printer, pinned: inout String?) async throws -> MQTTSession {
         let s = try await open(p, port: 8883, pinned: &pinned)
         let m = MQTTSession(s)
         let id = "zslice-\(UUID().uuidString.prefix(8))"
@@ -377,12 +401,13 @@ enum BambuLink {
     /// object of the core (kind 4). Free it with zs_printer_status_free.
     static func statusObject(_ p: Printer) async -> OpaquePointer? {
         var pinned: String?
-        guard let s = try? await mqtt(p, pinned: &pinned), let st = zs_printer_status_new() else { return nil }
-        defer { s.close() }
+        guard let s = try? await mqtt(p, pinned: &pinned) else { return nil }
+        var reports = 0
+        defer { s.close(dropped: reports == 0) }
+        guard let st = zs_printer_status_new() else { return nil }
         let serial = p.serial
         if let push = packet({ zs_bambu_push_all_packet(serial, $0, $1) }) { try? await s.stream.send(push) }
         let end = Date().addingTimeInterval(3)
-        var reports = 0
         while Date() < end {
             guard let pk = try? await s.next(timeout: max(0.2, end.timeIntervalSinceNow)) else { break }
             guard pk.kind == 3 else { continue }
@@ -402,6 +427,10 @@ enum BambuLink {
     /// Tests the connection: the MQTT login, which checks the access code
     /// and the serial number.
     static func test(_ p: Printer) async -> LinkResult {
+        // A login of the last seconds answers, with no second connection.
+        if !p.serial.isEmpty, BambuGate.shared.recentlyOpen(gateKey(p), code: p.apiKey) {
+            return LinkResult(ok: true, message: "Connected. (Bambu support is untested with a real printer.)")
+        }
         var pinned: String?
         do {
             let s = try await mqtt(p, pinned: &pinned)
@@ -415,10 +444,97 @@ enum BambuLink {
     }
 }
 
+/// One MQTT connection to an address, and the wait after a failure.
+final class BambuGate: @unchecked Sendable {
+    static let shared = BambuGate()
+
+    enum Entry {
+        case open
+        case wait(seconds: Int, why: String)
+    }
+
+    private struct State {
+        var held = false
+        var failures = 0
+        var notBefore = Date.distantPast
+        var why = ""
+        var code = 0
+        var okAt = Date.distantPast
+        var okCode = 0
+    }
+
+    private let lock = NSLock()
+    private var states: [String: State] = [:]
+
+    /// 15 s, doubling to 5 minutes.
+    static func retrySeconds(_ failures: Int) -> Int {
+        var wait = 15
+        for _ in 1 ..< max(failures, 1) where wait < 300 { wait *= 2 }
+        return min(wait, 300)
+    }
+
+    private func tryEnter(_ key: String, _ code: Int) -> Entry? {
+        lock.withLock {
+            var s = states[key] ?? State()
+            defer { states[key] = s }
+            // A new access code is a new try.
+            if !s.held, s.code != code {
+                s.failures = 0
+                s.notBefore = .distantPast
+            }
+            let left = s.notBefore.timeIntervalSinceNow
+            if left > 0 { return .wait(seconds: Int(left.rounded(.up)), why: s.why) }
+            guard !s.held else { return nil }
+            s.held = true
+            s.code = code
+            return .open
+        }
+    }
+
+    /// Waits up to 12 s for the connection that is open now to end.
+    func enter(_ key: String, code: String) async -> Entry {
+        let h = code.hashValue
+        for _ in 0 ..< 120 {
+            if let e = tryEnter(key, h) { return e }
+            try? await Task.sleep(for: .milliseconds(100))
+        }
+        return .wait(seconds: 1, why: "Another connection to the printer is open.")
+    }
+
+    /// reached: the login worked. dropped: the session then failed.
+    func leave(_ key: String, code: String, reached: Bool, dropped: Bool, why: String = "") {
+        lock.withLock {
+            var s = states[key] ?? State()
+            s.held = false
+            if reached, !dropped {
+                s.failures = 0
+                s.notBefore = .distantPast
+                s.okAt = Date()
+                s.okCode = code.hashValue
+            } else {
+                s.failures = reached ? 1 : s.failures + 1
+                s.notBefore = Date().addingTimeInterval(Double(Self.retrySeconds(s.failures)))
+                s.why = why
+            }
+            states[key] = s
+        }
+    }
+
+    /// A login with this code worked in the last 15 s.
+    func recentlyOpen(_ key: String, code: String) -> Bool {
+        lock.withLock {
+            guard let s = states[key] else { return false }
+            return s.okCode == code.hashValue && s.okAt.timeIntervalSinceNow > -15
+        }
+    }
+}
+
 /// An MQTT session over a TLS stream, with the reader of the core
 /// (zs_mqtt_reader): the packets that come, whole.
 final class MQTTSession: @unchecked Sendable {
     let stream: TLSStream
+    /// The address and the code of the gate that this session holds.
+    var gate: (key: String, code: String)?
     private let reader: OpaquePointer?
 
     init(_ stream: TLSStream) {
@@ -445,12 +561,15 @@ final class MQTTSession: @unchecked Sendable {
         }
     }
 
-    /// DISCONNECT, then the close of the stream.
-    func close() {
-        let s = stream
+    /// DISCONNECT, then the close of the stream, then the gate opens.
+    /// dropped: the session gave no report.
+    func close(dropped: Bool = false) {
+        let s = stream, g = gate
+        gate = nil
         Task {
             try? await s.send(Data([0xE0, 0]))
             s.close()
+            if let g { BambuGate.shared.leave(g.key, code: g.code, reached: true, dropped: dropped, why: "The printer sent no report.") }
         }
     }
 }

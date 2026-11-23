@@ -235,6 +235,9 @@ final class Workspace {
     /// its key and segment from before a draft (Selection.swift).
     @ObservationIgnored var refindKey: RefindKey?
     @ObservationIgnored var draftLine: (key: UInt64, seg: Int)?
+    /// Waits for the release of a slider that removed the selected line.
+    @ObservationIgnored var releaseTimer: Timer?
+    @ObservationIgnored var heldForTest: Bool?
     var cardOpen = false
     /// Where the click was (points in the view), and where the user moved
     /// the card to; the card keeps that place until it closes.
@@ -268,6 +271,9 @@ final class Workspace {
             testPrinter = Printer(name: "test", kind: .printdeck, url: u)
         }
         startStatus()
+        if PrinterStore.shared.unreadable {
+            showNote("The file of your printers did not read. zslice keeps it as it is, and does not save changes to the printers.", seconds: 12)
+        }
         if ProcessInfo.processInfo.environment["ZSLICE_PANEL"] != nil { showSettings = true }
         // ZSLICE_SEARCH=text opens the search with that text (the field reads it).
         if let t = ProcessInfo.processInfo.environment["ZSLICE_SEARCH"] {
@@ -674,6 +680,50 @@ final class Workspace {
             model.settingsChanged()
             model.readPlates()
             NSLog("zslice save guard: handled %d", w.tryToPerform(#selector(NSDocument.save(_:)), with: nil) ? 1 : 0)
+        }
+        // ZSLICE_BAMBU_GATE=1: three reads at once of a local stub on port
+        // 8883 and a Test, then the steps of the wait. Never a real printer.
+        if env["ZSLICE_BAMBU_GATE"] != nil {
+            Task { @MainActor in
+                var p = Printer(name: "stub", kind: .bambu, url: "127.0.0.1")
+                p.serial = "STUB"
+                p.apiKey = "code"
+                let q = p
+                let reads = (0 ..< 3).map { _ in
+                    Task { @MainActor () -> Bool in
+                        guard let o = await PrinterLink.statusObject(q) else { return false }
+                        zs_printer_status_free(o)
+                        return true
+                    }
+                }
+                var got = 0
+                for r in reads where await r.value { got += 1 }
+                let test = await PrinterLink.test(q)
+                NSLog("zslice bambu gate: reports %ld, test ok %d, %@; waits %@", got, test.ok ? 1 : 0, test.message,
+                      [1, 2, 3, 4, 5, 6, 9].map { String(BambuGate.retrySeconds($0)) }.joined(separator: " "))
+                p.apiKey = ""
+            }
+        }
+        // ZSLICE_PRINTERS_LOG=1: the state of the store, after a save.
+        if env["ZSLICE_PRINTERS_LOG"] != nil {
+            let store = PrinterStore.shared
+            store.currentID = store.currentID
+            NSLog("zslice printers: unreadable %d, count %ld", store.unreadable ? 1 : 0, store.printers.count)
+        }
+        // ZSLICE_ZERO_LOG=1: on two nozzles, the settings at 0 that show as
+        // unusual, and those whose text does not come back as the value.
+        if env["ZSLICE_ZERO_LOG"] != nil {
+            _ = model.set("machine.nozzles", "2")
+            let on = SettingInfo.all.filter { $0.on(nozzles: 2) && $0.isNumber }
+            let odd = on.filter { i in
+                let v = model.entry(i.name).value
+                return Double(v) == 0 && i.hasSlider && 0 < i.sliderMin - 1e-9
+            }.map(\.name)
+            let moved = on.filter { i in
+                let v = model.entry(i.name).value
+                return ValueText.toCore(i, ValueText.display(i, v)) != v
+            }.map(\.name)
+            NSLog("zslice zero: %ld numbers; unusual at 0: %@; changed by text: %@", on.count, odd.joined(separator: " "), moved.joined(separator: " "))
         }
         // ZSLICE_KEY_ADDRESS=1 logs when a saved key needs a yes, and what
         // each answer does to the printer (issue #41).
@@ -1461,6 +1511,18 @@ final class Workspace {
                         let picked = v.map { zs_sel_pick(self.model.sel, $0, Float(to.x * (self.canvas.window?.backingScaleFactor ?? 2)), Float(to.y * (self.canvas.window?.backingScaleFactor ?? 2))) } ?? 0
                         self.release(to)
                         NSLog("zslice clip dragpick: pressed %d, same %d", pressed ? 1 : 0, picked == id ? 1 : 0)
+                    case "linegone":
+                        // A held slider makes a slice with no such line: the
+                        // page stays, and the release ends the selection.
+                        self.showLineSettings()
+                        self.heldForTest = true
+                        self.refindKey = nil
+                        zs_sel_line_set(self.model.sel, 0, -1, -1)
+                        self.refindSelection()
+                        let held = self.selection != nil && self.lineInPane
+                        self.heldForTest = false
+                        try? await Task.sleep(for: .seconds(0.4))
+                        NSLog("zslice clip linegone: held %d, after release %d", held ? 1 : 0, self.selection == nil ? 0 : 1)
                     case "selundo":
                         // Undo and redo of a delete keep the selected part.
                         self.selectOnlyPart(1)
@@ -1745,6 +1807,12 @@ final class Workspace {
         }
         // ZSLICE_LINE_PAGE=1 opens the page of the picked line.
         if env["ZSLICE_LINE_PAGE"] != nil, selection != nil { showLineSettings() }
+        // ZSLICE_CARD_FAR=1: a card moved to the far right, with the pane open.
+        if env["ZSLICE_CARD_FAR"] != nil, selection != nil {
+            cardMoved = CGPoint(x: 9000, y: 240)
+            cardOpen = true
+            showSettings = true
+        }
         // ZSLICE_DOUBLE_CLICK=x,y: a double click there (as in the GTK app).
         if let xy = env["ZSLICE_DOUBLE_CLICK"]?.split(separator: ",").compactMap({ Double($0) }), xy.count == 2, let v = canvas.view {
             if !lookAtSide(CGPoint(x: xy[0], y: xy[1])) { zs_view_reset_smooth(v) }

@@ -302,8 +302,13 @@ final class PrinterStore {
 
     var current: Printer? { printers.first { $0.id == currentID } }
 
-    private var file: URL { SavedSettings.folder.appendingPathComponent("printers.json") }
-    private let fresh = ProcessInfo.processInfo.environment["ZSLICE_FRESH"] != nil
+    /// ZSLICE_PRINTERS_FILE=path: another file, for a test.
+    private static let testFile = ProcessInfo.processInfo.environment["ZSLICE_PRINTERS_FILE"]
+    private var file: URL { Self.testFile.map { URL(fileURLWithPath: $0) } ?? SavedSettings.folder.appendingPathComponent("printers.json") }
+    private let fresh = ProcessInfo.processInfo.environment["ZSLICE_FRESH"] != nil && testFile == nil
+    /// The file exists and did not read. It stays as it is, and no save
+    /// writes over it, so the printers in it are not lost.
+    private(set) var unreadable = false
 
     private struct Saved: Codable {
         var printers: [Printer]
@@ -311,13 +316,18 @@ final class PrinterStore {
     }
 
     private init() {
-        guard !fresh, let d = try? Data(contentsOf: file), let s = try? JSONDecoder().decode(Saved.self, from: d) else { return }
+        guard !fresh, FileManager.default.fileExists(atPath: file.path) else { return }
+        guard let d = try? Data(contentsOf: file), let s = try? JSONDecoder().decode(Saved.self, from: d) else {
+            unreadable = true
+            NSLog("zslice: %@ did not read. It stays as it is, and changes to the printers are not saved.", file.path)
+            return
+        }
         printers = s.printers
         currentID = s.current
     }
 
     private func save() {
-        guard !fresh else { return }
+        guard !fresh, !unreadable else { return }
         try? FileManager.default.createDirectory(at: SavedSettings.folder, withIntermediateDirectories: true)
         if let d = try? JSONEncoder().encode(Saved(printers: printers, current: currentID)) {
             try? d.write(to: file, options: .atomic)

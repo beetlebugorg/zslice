@@ -189,7 +189,7 @@ struct LineCard: View {
     /// The center of the card: in a corner of the view, clear of the
     /// clicked line (a card that the user moved stays there).
     private var place: CGPoint {
-        if let m = workspace.cardMoved { return m }
+        if let m = workspace.cardMoved { return keptInView(m, size: cardSize, area: area, bottom: workspace.dockHeight) }
         let box = workspace.selection.flatMap { workspace.lineRect($0.path) }
         // The place that the user gave the card, when it is clear of the line.
         if let c = SpatialStore.shared.center("line", size: cardSize, area: area, bottom: workspace.dockHeight, avoiding: box) { return c }

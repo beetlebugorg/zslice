@@ -253,7 +253,7 @@ struct PartCard: View {
     }
 
     private var place: CGPoint {
-        if let moved { return moved }
+        if let moved { return keptInView(moved, size: cardSize, area: area, bottom: workspace.dockHeight + 12) }
         let at = CGPoint(x: area.width - 92 - cardSize.width / 2, y: 236)
         // Clear of all selected parts.
         let box = workspace.selectedParts.compactMap { workspace.partRect($0) }.reduce(nil as CGRect?) { acc, r in acc.map { $0.union(r) } ?? r }
