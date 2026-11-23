@@ -31,10 +31,8 @@ The header has the file, the search, the printer, filament, and quality, and the
 | Key | Tool | What it does |
 |---|---|---|
 | V | Select | Click a line to see what it is, its numbers, and the settings that change it. Keys h and l step along the line, and Shift-H and Shift-L step a whole line. |
-| M | Move | Drag a part. The arrow keys move a selected part by 1 mm, and with Shift by 10 mm. |
-| R | Turn | Click a part, then drag one of its rings. Hold Shift for steps of 5 degrees. |
+| M (also R, G) | Move | Click a part for its gizmo. Drag the part to move it on the bed, an arrow to move it along X or Y or lift it, and a ring to turn it in steps of 15 degrees. Hold Shift for no snap and steps of 1 degree. See [Parts](parts.md). |
 | S | Support | Point at an overhang and click to put support under it. Hold Alt and click to draw an area. See [Add support](support.md). |
-| G | Grab | Click a part to pick it up, move the pointer to carry it, and click to let go. It falls and rests on the plate. Hold Alt and move to turn it. |
 | T | Measure | Click two points. The ends of the lines snap, and a click on a circle measures from its center. Hold Shift for no snap. |
 | P | Paint | Paint filaments on a part. See [Paint](#paint). |
 | E | Label | Put text or marks on a face of a part. See [Labels](#labels). |

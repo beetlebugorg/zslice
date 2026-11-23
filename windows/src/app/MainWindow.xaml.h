@@ -378,6 +378,9 @@ namespace winrt::ZSlice::implementation
         void BodyMove(double x, double y, bool free);
         void LiveEnd();
         void HoldForKeys();
+        Microsoft::UI::Xaml::Controls::TextBox PoseBox(int field);
+        void ShowPose(zs_part const &p);
+        void ApplyPose(int field);
         bool PartTurnKey(Windows::System::VirtualKey key, bool shift);
         bool PartBracket(bool forward, bool shift);
         bool PartWheel(int delta);

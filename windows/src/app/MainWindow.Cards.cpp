@@ -123,6 +123,27 @@ namespace winrt::ZSlice::implementation
                     PlateEdited();
             });
         });
+        for (int axis = 0; axis < 2; axis++)
+        {
+            auto button = axis == 0 ? PartMirrorX() : PartMirrorY();
+            button.Click([this, one, axis](auto &&, auto &&) {
+                one([this, axis](zs_app *app, size_t i) {
+                    if (zs_app_part_mirror(app, i, axis) == ZS_OK)
+                        PlateEdited();
+                });
+            });
+        }
+        for (int field = 0; field < 6; field++)
+        {
+            PoseBox(field).KeyDown([this, field](auto &&, Input::KeyRoutedEventArgs const &e) {
+                if (e.Key() != Windows::System::VirtualKey::Enter)
+                    return;
+                ApplyPose(field);
+                e.Handled(true);
+            });
+            // A field that lost the focus shows the part again.
+            PoseBox(field).LostFocus([this](auto &&, auto &&) { FillPartCard(); });
+        }
         PartEarlier().Click([this](auto &&, auto &&) { MovePartInOrder(-1); });
         PartLater().Click([this](auto &&, auto &&) { MovePartInOrder(1); });
         auto commit_scale = [this]() {
@@ -393,6 +414,8 @@ namespace winrt::ZSlice::implementation
     {
         if (PartCard().Visibility() != Visibility::Visible || part_card_moved || view == nullptr || model == nullptr)
             return;
+        // A narrow view beside a pinned panel: the card stays in the view.
+        PartCard().Width(std::clamp(CardLayer().ActualWidth() - 66, 240.0, 320.0));
         double box[4] = { 1e9, 1e9, -1e9, -1e9 };
         double s = Scale();
         for (int64_t i : SelectedParts())
@@ -664,6 +687,7 @@ namespace winrt::ZSlice::implementation
                 scale_edited = false;
                 PartScale().Text(scale);
             }
+            ShowPose(p);
             // Why the part floats over the bed.
             char float_note[256] = "";
             size_t float_len = 0;
@@ -676,6 +700,76 @@ namespace winrt::ZSlice::implementation
         LineCard().Visibility(Visibility::Collapsed);
         PartCard().Visibility(Visibility::Visible);
         PlacePartCard();
+    }
+
+    Microsoft::UI::Xaml::Controls::TextBox MainWindow::PoseBox(int field)
+    {
+        switch (field)
+        {
+        case 0: return PartPose0();
+        case 1: return PartPose1();
+        case 2: return PartPose2();
+        case 3: return PartPose3();
+        case 4: return PartPose4();
+        default: return PartPose5();
+        }
+    }
+
+    // The pose follows the part, except the field that the user types in.
+    void MainWindow::ShowPose(zs_part const &p)
+    {
+        double values[6] = { p.x, p.y, p.z, p.angle_x, p.angle_y, p.angle_z };
+        auto focused = Input::FocusManager::GetFocusedElement(Content().XamlRoot());
+        for (int field = 0; field < 6; field++)
+        {
+            auto box = PoseBox(field);
+            if (focused != nullptr && focused == box.try_as<Windows::Foundation::IInspectable>())
+                continue;
+            wchar_t text[32];
+            swprintf_s(text, L"%.2f", std::round(values[field] * 100) / 100 + 0.0);
+            box.Text(text);
+        }
+    }
+
+    // Enter: one change of the part, and the physics after it.
+    void MainWindow::ApplyPose(int field)
+    {
+        std::vector<int64_t> parts = SelectedParts();
+        zs_part p{};
+        if (parts.size() != 1 || zs_app_part_get(model->Active(), (size_t)parts[0], &p) != ZS_OK)
+            return;
+        zs_app *app = model->Active();
+        size_t i = (size_t)parts[0];
+        std::wstring text{ PoseBox(field).Text() };
+        wchar_t *end = nullptr;
+        double v = wcstod(text.c_str(), &end);
+        if (end == text.c_str() || !std::isfinite(v))
+            return;
+        int rc = ZS_OK;
+        if (field <= 1)
+        {
+            if (std::abs(v - (field == 0 ? p.x : p.y)) < 1e-6)
+                return;
+            rc = zs_app_part_move(app, i, field == 0 ? v : p.x, field == 1 ? v : p.y);
+        }
+        else if (field == 2)
+        {
+            if (std::abs(v - p.z) < 1e-6)
+                return;
+            rc = zs_app_part_lift(app, i, v);
+        }
+        else
+        {
+            double angles[3] = { p.angle_x, p.angle_y, p.angle_z };
+            if (std::abs(v - angles[field - 3]) < 1e-6)
+                return;
+            angles[field - 3] = v;
+            rc = zs_app_part_set_angles(app, i, angles[0], angles[1], angles[2]);
+        }
+        if (rc != ZS_OK)
+            return;
+        PlateEdited();
+        CheckFall();
     }
 
     // The place of the part in the print order, shown only with

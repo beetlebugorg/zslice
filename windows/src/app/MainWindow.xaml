@@ -382,7 +382,7 @@
                                     CornerRadius="9" Background="#B42318" Visibility="Collapsed">
                                 <TextBlock x:Name="SummaryBadgeText" Text="Check" FontSize="11" Foreground="#FFFFFF" />
                             </Border>
-                            <TextBlock x:Name="SummaryDetail" Grid.Row="1" Grid.ColumnSpan="2" FontSize="11.5" Foreground="{ThemeResource ZsDim}" />
+                            <TextBlock x:Name="SummaryDetail" Grid.Row="1" Grid.ColumnSpan="2" TextWrapping="Wrap" FontSize="11.5" Foreground="{ThemeResource ZsDim}" />
                         </Grid>
                         <Button.Flyout>
                             <Flyout x:Name="SummaryFlyout" Placement="TopEdgeAlignedRight">
@@ -456,9 +456,13 @@
                 </Canvas>
             </Grid>
 
-            <!-- The tools: V M R S G T P E, built in MainWindow.Tools.cpp. -->
-            <StackPanel x:Name="ToolStrip" HorizontalAlignment="Left" VerticalAlignment="Top"
-                        Margin="10,18,0,0" Padding="4" Spacing="2" Background="{ThemeResource ZsFloat}" CornerRadius="10" />
+            <!-- The tools: V M S T P E, built in MainWindow.Tools.cpp. In a low
+                 window the strip scrolls, so it stays clear of the bottom bar. -->
+            <ScrollViewer x:Name="ToolScroll" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="10,18,0,0"
+                          HorizontalScrollMode="Disabled" HorizontalScrollBarVisibility="Disabled"
+                          VerticalScrollMode="Auto" VerticalScrollBarVisibility="Hidden" ZoomMode="Disabled">
+                <StackPanel x:Name="ToolStrip" Padding="4" Spacing="2" Background="{ThemeResource ZsFloat}" CornerRadius="10" />
+            </ScrollViewer>
 
             <!-- The cards float over the view, beside what they describe. -->
             <Canvas x:Name="CardLayer">
@@ -617,8 +621,50 @@
                             </Button>
                         </Grid>
                         <TextBlock x:Name="PartFacts" FontSize="12" Foreground="{ThemeResource ZsDim}" TextWrapping="WrapWholeWords" />
-                        <TextBlock x:Name="PartFloatNote" FontSize="12" Foreground="#B45309" TextWrapping="WrapWholeWords" Visibility="Collapsed" />
                         <StackPanel x:Name="PartSingle" Spacing="6">
+                            <!-- The pose: the place and the lift, then the turns. Enter applies a field. -->
+                            <Grid ColumnSpacing="4" RowSpacing="4">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
+                                </Grid.RowDefinitions>
+                                <TextBlock Grid.Row="0" Grid.Column="0" Text="X" FontSize="12" VerticalAlignment="Center" Foreground="{ThemeResource ZsDim}" />
+                                <TextBox x:Name="PartPose0" Grid.Row="0" Grid.Column="1" MinWidth="0" MinHeight="28" Padding="3,3,1,3" FontSize="11.5"
+                                         AutomationProperties.Name="The place of the center of the part along X of the bed, mm (Enter applies)" ToolTipService.ToolTip="The place of the center of the part along X of the bed, mm (Enter applies)" />
+                                <TextBlock Grid.Row="0" Grid.Column="2" Text="mm" FontSize="12" VerticalAlignment="Center" Foreground="{ThemeResource ZsDim}" />
+                                <TextBlock Grid.Row="0" Grid.Column="3" Text="Y" FontSize="12" Margin="3,0,0,0" VerticalAlignment="Center" Foreground="{ThemeResource ZsDim}" />
+                                <TextBox x:Name="PartPose1" Grid.Row="0" Grid.Column="4" MinWidth="0" MinHeight="28" Padding="3,3,1,3" FontSize="11.5"
+                                         AutomationProperties.Name="The place of the center of the part along Y of the bed, mm (Enter applies)" ToolTipService.ToolTip="The place of the center of the part along Y of the bed, mm (Enter applies)" />
+                                <TextBlock Grid.Row="0" Grid.Column="5" Text="mm" FontSize="12" VerticalAlignment="Center" Foreground="{ThemeResource ZsDim}" />
+                                <TextBlock Grid.Row="0" Grid.Column="6" Text="Z" FontSize="12" Margin="3,0,0,0" VerticalAlignment="Center" Foreground="{ThemeResource ZsDim}" />
+                                <TextBox x:Name="PartPose2" Grid.Row="0" Grid.Column="7" MinWidth="0" MinHeight="28" Padding="3,3,1,3" FontSize="11.5"
+                                         AutomationProperties.Name="The lift: the bottom of the part over the bed, mm. Over 0 it floats (it prints on support); under 0 it sinks into the bed, and the part under the bed does not print (Enter applies)" ToolTipService.ToolTip="The lift: the bottom of the part over the bed, mm. Over 0 it floats (it prints on support); under 0 it sinks into the bed, and the part under the bed does not print (Enter applies)" />
+                                <TextBlock Grid.Row="0" Grid.Column="8" Text="mm" FontSize="12" VerticalAlignment="Center" Foreground="{ThemeResource ZsDim}" />
+                                <TextBlock Grid.Row="1" Grid.Column="0" Text="↻X" FontSize="12" VerticalAlignment="Center" Foreground="{ThemeResource ZsDim}" />
+                                <TextBox x:Name="PartPose3" Grid.Row="1" Grid.Column="1" MinWidth="0" MinHeight="28" Padding="3,3,1,3" FontSize="11.5"
+                                         AutomationProperties.Name="The turn about the X axis of the bed, degrees (Enter applies)" ToolTipService.ToolTip="The turn about the X axis of the bed, degrees (Enter applies)" />
+                                <TextBlock Grid.Row="1" Grid.Column="2" Text="°" FontSize="12" VerticalAlignment="Center" Foreground="{ThemeResource ZsDim}" />
+                                <TextBlock Grid.Row="1" Grid.Column="3" Text="↻Y" FontSize="12" Margin="3,0,0,0" VerticalAlignment="Center" Foreground="{ThemeResource ZsDim}" />
+                                <TextBox x:Name="PartPose4" Grid.Row="1" Grid.Column="4" MinWidth="0" MinHeight="28" Padding="3,3,1,3" FontSize="11.5"
+                                         AutomationProperties.Name="The turn about the Y axis of the bed, degrees (Enter applies)" ToolTipService.ToolTip="The turn about the Y axis of the bed, degrees (Enter applies)" />
+                                <TextBlock Grid.Row="1" Grid.Column="5" Text="°" FontSize="12" VerticalAlignment="Center" Foreground="{ThemeResource ZsDim}" />
+                                <TextBlock Grid.Row="1" Grid.Column="6" Text="↻Z" FontSize="12" Margin="3,0,0,0" VerticalAlignment="Center" Foreground="{ThemeResource ZsDim}" />
+                                <TextBox x:Name="PartPose5" Grid.Row="1" Grid.Column="7" MinWidth="0" MinHeight="28" Padding="3,3,1,3" FontSize="11.5"
+                                         AutomationProperties.Name="The turn about the Z axis of the bed, degrees (Enter applies)" ToolTipService.ToolTip="The turn about the Z axis of the bed, degrees (Enter applies)" />
+                                <TextBlock Grid.Row="1" Grid.Column="8" Text="°" FontSize="12" VerticalAlignment="Center" Foreground="{ThemeResource ZsDim}" />
+                            </Grid>
+                            <TextBlock x:Name="PartFloatNote" FontSize="12" Foreground="{ThemeResource ZsWarning}" TextWrapping="WrapWholeWords" Visibility="Collapsed" />
                             <Grid ColumnSpacing="6">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="*" />
@@ -638,9 +684,10 @@
                                     <RowDefinition Height="Auto" />
                                     <RowDefinition Height="Auto" />
                                     <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
                                 </Grid.RowDefinitions>
-                                <Button x:Name="PartDuplicate" Content="Duplicate" HorizontalAlignment="Stretch" />
-                                <Button x:Name="PartSplit" Grid.Column="1" Content="Split" HorizontalAlignment="Stretch" />
+                                <Button x:Name="PartDuplicate" Content="Duplicate" HorizontalAlignment="Stretch" ToolTipService.ToolTip="A copy of the part at a free place on the bed (D)" />
+                                <Button x:Name="PartSplit" Grid.Column="1" Content="Split to parts" HorizontalAlignment="Stretch" ToolTipService.ToolTip="Make each separate body of the part a part of its own, at its place" />
                                 <DropDownButton x:Name="PartCut" Grid.Row="1" Content="Cut…" HorizontalAlignment="Stretch">
                                     <DropDownButton.Flyout>
                                         <Flyout x:Name="PartCutFlyout">
@@ -658,9 +705,11 @@
                                     </DropDownButton.Flyout>
                                 </DropDownButton>
                                 <Button x:Name="PartBest" Grid.Row="1" Grid.Column="1" Content="Best orientation"
-                                        HorizontalAlignment="Stretch" />
-                                <Button x:Name="PartLess" Grid.Row="2" Content="Less support" HorizontalAlignment="Stretch" />
-                                <Button x:Name="PartReset" Grid.Row="2" Grid.Column="1" Content="Reset" HorizontalAlignment="Stretch" />
+                                        HorizontalAlignment="Stretch" ToolTipService.ToolTip="Turn the part to its best orientation: less support, more on the bed, low" />
+                                <Button x:Name="PartLess" Grid.Row="2" Content="Less support" HorizontalAlignment="Stretch" ToolTipService.ToolTip="Turn the part to need the least support" />
+                                <Button x:Name="PartMirrorX" Grid.Row="2" Grid.Column="1" Content="Mirror X" HorizontalAlignment="Stretch" ToolTipService.ToolTip="Mirror the part from left to right" />
+                                <Button x:Name="PartMirrorY" Grid.Row="3" Content="Mirror Y" HorizontalAlignment="Stretch" ToolTipService.ToolTip="Mirror the part from front to back" />
+                                <Button x:Name="PartReset" Grid.Row="3" Grid.Column="1" Content="Reset" HorizontalAlignment="Stretch" ToolTipService.ToolTip="The orientation and the scale of the file again" />
                             </Grid>
                             <!-- One part at a time: the place of the part in the print order. -->
                             <Grid x:Name="PartOrderRow" ColumnSpacing="6" Visibility="Collapsed">
@@ -711,8 +760,8 @@
                             </Grid.RowDefinitions>
                             <Button x:Name="PartsDuplicate" Content="Duplicate" Visibility="Collapsed" HorizontalAlignment="Stretch" />
                             <Button x:Name="PartsArrange" Grid.Column="1" Content="Arrange" Visibility="Collapsed" HorizontalAlignment="Stretch" />
-                            <Button x:Name="PartNewPlate" Grid.Row="1" Content="To a new plate" HorizontalAlignment="Stretch" />
-                            <Button x:Name="PartRemove" Grid.Row="1" Grid.Column="1" Content="Remove" HorizontalAlignment="Stretch" />
+                            <Button x:Name="PartNewPlate" Grid.Row="1" Content="To a new plate" ToolTipService.ToolTip="Move the part to a new plate, with the settings of this plate" HorizontalAlignment="Stretch" />
+                            <Button x:Name="PartRemove" Grid.Row="1" Grid.Column="1" Content="Remove" ToolTipService.ToolTip="Remove the part from the plate (Delete). Ctrl+Z brings it back." HorizontalAlignment="Stretch" />
                         </Grid>
                     </StackPanel>
                 </Border>

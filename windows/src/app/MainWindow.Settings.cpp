@@ -310,7 +310,7 @@ namespace winrt::ZSlice::implementation
     }
 
     // Over the view: 460 points, or less in a narrow window. Pinned: the
-    // saved width, with at least 240 points left for the view.
+    // saved width, with at least 360 points left for the view, so the bottom bar fits.
     void MainWindow::FitPanel()
     {
         double room = Root().ActualWidth();
@@ -319,7 +319,7 @@ namespace winrt::ZSlice::implementation
         {
             width = std::clamp(atof(zs::Printers().Pref("panel_width", "560").c_str()), 300.0, 2000.0);
             if (room > 0)
-                width = std::min(width, std::max(300.0, room - 240));
+                width = std::min(width, std::max(300.0, room - 360));
         }
         else
             width = room > 0 ? std::min(460.0, room * 0.92) : 460.0;
@@ -329,7 +329,7 @@ namespace winrt::ZSlice::implementation
     void MainWindow::PanelDragTo(double x)
     {
         double room = Root().ActualWidth();
-        SettingsPane().Width(std::clamp(room - x, 300.0, std::max(300.0, room - 240)));
+        SettingsPane().Width(std::clamp(room - x, 300.0, std::max(300.0, room - 360)));
     }
 
     void MainWindow::PanelDragEnd()

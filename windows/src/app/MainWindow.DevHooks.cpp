@@ -638,6 +638,25 @@ namespace winrt::ZSlice::implementation
             }
             zs::Log("dev: pose %s falling %d live %d\n", all.c_str(), falling ? 1 : 0, live_on ? 1 : 0);
         }
+        else if (verb == L"poseset" && words.size() >= 2)
+        {
+            int field = _wtoi(words[0].c_str());
+            PoseBox(field).Text(words[1]);
+            ApplyPose(field);
+        }
+        else if (verb == L"poseshow")
+        {
+            std::string all;
+            for (int field = 0; field < 6; field++)
+                all += zs::ToUtf8(std::wstring(PoseBox(field).Text())) + " ";
+            zs::Log("dev: pose fields %s\n", all.c_str());
+        }
+        else if (verb == L"mirror" && !words.empty())
+        {
+            int64_t part = PrimaryPart();
+            if (part >= 0 && zs_app_part_mirror(model->Active(), (size_t)part, _wtoi(words[0].c_str())) == ZS_OK)
+                PlateEdited();
+        }
         else if (verb == L"manageopen")
         {
             printers->ShowManage();
