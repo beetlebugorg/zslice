@@ -374,8 +374,16 @@ namespace winrt::ZSlice::implementation
         void TogglePart(int64_t part);
         void ClearSelection();
         void ApplySelection();
-        void SaveLineAnchor();
-        void FindLineAnchor();
+        void SaveLinePlace();
+        void RestoreLineSegment(int64_t path);
+        void FindSelectedLine();
+        // The place of the selected line. A strict key can miss a line that
+        // moved a little, so a slice looks here next, as the web app does.
+        bool line_placed = false;
+        double line_place_x = 0, line_place_y = 0, line_place_z = 0;
+        int line_place_feature = 0;
+        uint64_t line_place_key = 0;
+        int64_t line_place_segment = -1;
         void StepLine(int direction, bool whole);
         void StepLayer(int direction);
         void PlateEdited();
@@ -921,8 +929,6 @@ namespace winrt::ZSlice::implementation
         Tool tool = Tool::Select;
         std::vector<Microsoft::UI::Xaml::Controls::Primitives::ToggleButton> tool_buttons;
         // The selection: a line, or one or more parts.
-        int64_t selected_path = -1;
-        int64_t selected_segment = -1;
         // The selected parts are stable ids in the selection model of the
         // core (docs/internals/selection.md). An index is good for one call.
         struct SelectionFree
@@ -936,14 +942,21 @@ namespace winrt::ZSlice::implementation
         bool PartSelected(int64_t part) const;
         void SetSelectedParts(std::vector<int64_t> const &parts);
         void RequestFrame(ptrdiff_t target);
-        bool line_anchored = false;
-        double anchor_x = 0, anchor_y = 0, anchor_z = 0;
-        int anchor_feature = 0;
+        int64_t SelectedPath() const;
+        int64_t SelectedSegment() const;
+#ifdef ZS_DEV_HOOKS
+        uint64_t LineKeyForLog() const
+        {
+            uint64_t key = 0;
+            if (sel != nullptr)
+                zs_sel_line_get(sel.get(), &key, nullptr, nullptr);
+            return key;
+        }
+#endif
+        void SetSelectedLine(int64_t path, int64_t segment);
         double click_x = 0, click_y = 0;
         bool line_card_moved = false;
-        uint64_t line_key = 0;
         size_t line_key_layer = 0;
-        int64_t line_key_path = -1;
         bool run_lit = false;
         size_t run_others = 0;
         zs_app *fall_app = nullptr;

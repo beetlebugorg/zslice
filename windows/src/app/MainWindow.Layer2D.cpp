@@ -161,13 +161,13 @@ namespace winrt::ZSlice::implementation
 
         zs::Layer2DStyle style;
         style.dark = Root().ActualTheme() == ElementTheme::Dark;
-        style.segment = selected_segment;
+        style.segment = SelectedSegment();
         zs_toolpaths tp{};
-        if (selected_path >= 0 && zs_app_toolpaths(app, &tp) == ZS_OK && layer2d_layer < tp.layer_count)
+        if (SelectedPath() >= 0 && zs_app_toolpaths(app, &tp) == ZS_OK && layer2d_layer < tp.layer_count)
         {
             int64_t first = layer2d_layer == 0 ? 0 : tp.layer_ends[layer2d_layer - 1];
-            if (selected_path >= first && selected_path < (int64_t)tp.layer_ends[layer2d_layer])
-                style.selected = selected_path - first;
+            if (SelectedPath() >= first && SelectedPath() < (int64_t)tp.layer_ends[layer2d_layer])
+                style.selected = SelectedPath() - first;
             style.fade = LineFade().IsChecked() != nullptr && LineFade().IsChecked().Value();
         }
         if (gaps_on && state == ZS_STATE_DONE && layer_count > 0)

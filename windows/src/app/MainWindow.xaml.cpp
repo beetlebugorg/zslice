@@ -412,7 +412,7 @@ namespace winrt::ZSlice::implementation
         if (effect_box != nullptr)
             FillEffect(effect_box, effect_key);
         RefreshPlates();
-        FindLineAnchor();
+        FindSelectedLine();
         ApplySelection();
         FillPartCard();
         RefreshFilamentTools();
@@ -420,6 +420,10 @@ namespace winrt::ZSlice::implementation
         bool at_top = layer_count == 0 || LayerSlider().Value() >= (double)layer_count;
         ptrdiff_t frame_target = ZS_SEL_FRAME_NONE;
         bool frame_now = sel != nullptr && zs_sel_frame_take(sel.get(), &frame_target) != 0;
+#ifdef ZS_DEV_HOOKS
+        if (frame_now)
+            zs::Log("dev: frame plate %lld\n", (long long)frame_target);
+#endif
         layer_count = count;
         setting_layer = true;
         LayerSlider().Maximum((double)std::max<size_t>(count, 1));

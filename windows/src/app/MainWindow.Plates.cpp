@@ -147,8 +147,7 @@ namespace winrt::ZSlice::implementation
         // The z range of the card is of the plate before.
         RangeClose();
         SupportReload();
-        selected_path = selected_segment = -1;
-        line_anchored = false;
+        SetSelectedLine(-1, -1);
         SetSelectedParts({});
         HideCards();
         ApplySelection();

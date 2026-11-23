@@ -243,7 +243,7 @@ namespace winrt::ZSlice::implementation
     {
         zs_app *app = model->Active();
         zs::Log("dev: %s | tool %d path %lld seg %lld parts", StepForLog(step).c_str(), (int)tool,
-                (long long)selected_path, (long long)selected_segment);
+                (long long)SelectedPath(), (long long)SelectedSegment());
         for (int64_t i : SelectedParts())
             zs::Log(" %lld", (long long)i);
         size_t count = zs_app_part_count(app);
@@ -498,6 +498,14 @@ namespace winrt::ZSlice::implementation
             zs::Log("dev: pick at %s %s: part %lld\n", zs::ToUtf8(words[0]).c_str(), zs::ToUtf8(words[1]).c_str(), (long long)part);
             if (words.size() >= 3)
                 SelectPart(part);
+        }
+        else if (verb == L"linelog")
+        {
+            uint64_t key = LineKeyForLog();
+            int64_t path = SelectedPath();
+            uint64_t now = path >= 0 ? zs_app_path_key(model->Active(), (size_t)path) : 0;
+            zs::Log("dev: line path %lld seg %lld key %llu key of path %llu same %d line card %d\n", (long long)path, (long long)SelectedSegment(), (unsigned long long)key,
+                    (unsigned long long)now, key != 0 && key == now ? 1 : 0, LineCard().Visibility() == Microsoft::UI::Xaml::Visibility::Visible ? 1 : 0);
         }
         else if (verb == L"manageopen")
         {
@@ -1117,7 +1125,7 @@ namespace winrt::ZSlice::implementation
         else if (verb == L"partsel")
         {
             // partsel i j: these parts are the selection.
-            selected_path = selected_segment = -1;
+            SetSelectedLine(-1, -1);
             std::vector<int64_t> chosen;
             for (size_t k = 0; k < words.size(); k++)
                 chosen.push_back(_wtoi(words[k].c_str()));
@@ -1242,7 +1250,7 @@ namespace winrt::ZSlice::implementation
         }
         else if (verb == L"runlog")
         {
-            zs::Log("dev: run edits %zu lit %d others %zu path %lld key %d layer %zu | float '%s' | file box %d '%s'\n", zs_app_edit_count(model->Active()), run_lit ? 1 : 0, run_others, (long long)selected_path, line_key != 0 ? 1 : 0, line_key_layer,
+            zs::Log("dev: run edits %zu lit %d others %zu path %lld key %d layer %zu | float '%s' | file box %d '%s'\n", zs_app_edit_count(model->Active()), run_lit ? 1 : 0, run_others, (long long)SelectedPath(), LineKeyForLog() != 0 ? 1 : 0, line_key_layer,
                     to_string(PartFloatNote().Text()).c_str(), PartFileBox().Visibility() == Microsoft::UI::Xaml::Visibility::Visible ? 1 : 0, to_string(PartFileText().Text()).substr(0, 70).c_str());
         }
         else if (verb == L"followlog")

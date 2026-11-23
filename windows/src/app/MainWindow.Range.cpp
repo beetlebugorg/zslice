@@ -990,10 +990,10 @@ namespace winrt::ZSlice::implementation
         Set2D(false);
         if (!r.key_on || !r.open)
         {
-            ptrdiff_t l = selected_path >= 0 ? zs_app_path_layer(app, (size_t)selected_path) : -1;
+            ptrdiff_t l = SelectedPath() >= 0 ? zs_app_path_layer(app, (size_t)SelectedPath()) : -1;
             size_t top = (size_t)std::max<int64_t>(std::lround(LayerSlider().Value()) - 1, 0);
             r.key_a = r.key_b = l >= 0 ? (size_t)l : std::min(top, tp.layer_count - 1);
-            r.key_path = l >= 0 ? selected_path : -1;
+            r.key_path = l >= 0 ? SelectedPath() : -1;
         }
         r.key_b = (size_t)std::clamp<int64_t>((int64_t)r.key_b + direction, 0, (int64_t)tp.layer_count - 1);
         size_t lo = std::min(r.key_a, r.key_b), hi = std::max(r.key_a, r.key_b);
@@ -1047,10 +1047,9 @@ namespace winrt::ZSlice::implementation
         {
             // The drag is for the layers: no line, no support, and no card
             // of an old range.
-            if (selected_path >= 0)
+            if (SelectedPath() >= 0)
             {
-                selected_path = selected_segment = -1;
-                line_anchored = false;
+                SetSelectedLine(-1, -1);
                 ApplySelection();
                 FillLineCard();
             }
@@ -1124,9 +1123,9 @@ namespace winrt::ZSlice::implementation
 
     void MainWindow::FillLineFilament()
     {
-        if (model == nullptr || selected_path < 0)
+        if (model == nullptr || SelectedPath() < 0)
             return;
-        int f = (int)zs_app_path_filament(model->Active(), (size_t)selected_path);
+        int f = (int)zs_app_path_filament(model->Active(), (size_t)SelectedPath());
         if (f > 0)
             line_filament = f;
         DrawLineChips();
@@ -1173,10 +1172,10 @@ namespace winrt::ZSlice::implementation
     // filament, and the buttons of the layers where it goes on show.
     void MainWindow::PickLineFilament(int filament)
     {
-        if (filament < 1 || selected_path < 0 || view == nullptr || model == nullptr)
+        if (filament < 1 || SelectedPath() < 0 || view == nullptr || model == nullptr)
             return;
         ClearLineExtend();
-        size_t path = (size_t)selected_path;
+        size_t path = (size_t)SelectedPath();
         ptrdiff_t at = zs_app_path_layer(model->Active(), path);
         if (at < 0)
             return;
@@ -1200,7 +1199,7 @@ namespace winrt::ZSlice::implementation
             body.above = copy(layer + 1, hi);
         if (lo < layer)
             body.below = copy(lo, layer - 1);
-        LightLine(selected_path, layer, layer, filament);
+        LightLine(SelectedPath(), layer, layer, filament);
         if (!PaintBeads(beads, filament))
             return;
         line_filament = filament;
@@ -1237,7 +1236,7 @@ namespace winrt::ZSlice::implementation
         int filament = line_body.filament;
         if (beads.empty() || b == nullptr || filament < 1 || view == nullptr || model == nullptr)
             return;
-        if (selected_path >= 0)
+        if (SelectedPath() >= 0)
         {
             size_t lo = (size_t)-1, hi = 0;
             for (size_t k = 1; k < beads.size(); k += 9)
@@ -1245,9 +1244,9 @@ namespace winrt::ZSlice::implementation
                 lo = std::min(lo, (size_t)beads[k]);
                 hi = std::max(hi, (size_t)beads[k]);
             }
-            ptrdiff_t layer = zs_app_path_layer(model->Active(), (size_t)selected_path);
+            ptrdiff_t layer = zs_app_path_layer(model->Active(), (size_t)SelectedPath());
             if (layer >= 0)
-                LightLine(selected_path, std::min(lo, (size_t)layer), std::max(hi, (size_t)layer), filament);
+                LightLine(SelectedPath(), std::min(lo, (size_t)layer), std::max(hi, (size_t)layer), filament);
         }
         if (PaintBeads(beads, filament))
             b.Visibility(Visibility::Collapsed);
@@ -1386,7 +1385,7 @@ namespace winrt::ZSlice::implementation
         else if (verb == L"linefil" && !words.empty())
         {
             PickLineFilament(_wtoi(words[0].c_str()));
-            zs::Log("dev: line filament %d, path %lld, above %zu below %zu\n", line_filament, (long long)selected_path, line_body.above.size() / 9, line_body.below.size() / 9);
+            zs::Log("dev: line filament %d, path %lld, above %zu below %zu\n", line_filament, (long long)SelectedPath(), line_body.above.size() / 9, line_body.below.size() / 9);
         }
         else if (verb == L"lineext" && !words.empty())
         {
@@ -1394,10 +1393,10 @@ namespace winrt::ZSlice::implementation
         }
         else if (verb == L"linefillog")
         {
-            int f = selected_path >= 0 ? (int)zs_app_path_filament(model->Active(), (size_t)selected_path) : 0;
+            int f = SelectedPath() >= 0 ? (int)zs_app_path_filament(model->Active(), (size_t)SelectedPath()) : 0;
             zs_toolpaths tp{};
             size_t by[3] = {}, on_layer[3] = {};
-            ptrdiff_t at = selected_path >= 0 ? zs_app_path_layer(model->Active(), (size_t)selected_path) : -1;
+            ptrdiff_t at = SelectedPath() >= 0 ? zs_app_path_layer(model->Active(), (size_t)SelectedPath()) : -1;
             if (zs_app_toolpaths(model->Active(), &tp) == ZS_OK)
                 for (size_t i = 0; i < tp.path_count; i++)
                 {
@@ -1406,7 +1405,7 @@ namespace winrt::ZSlice::implementation
                     if (zs_app_path_layer(model->Active(), i) == at)
                         on_layer[k]++;
                 }
-            zs::Log("dev: line path %lld layer %lld filament %d chip %d chips %u extend %u lit %d, paths f1 %zu f2 %zu, on its layer f1 %zu f2 %zu\n", (long long)selected_path, (long long)at, f,
+            zs::Log("dev: line path %lld layer %lld filament %d chip %d chips %u extend %u lit %d, paths f1 %zu f2 %zu, on its layer f1 %zu f2 %zu\n", (long long)SelectedPath(), (long long)at, f,
                     line_filament, LineFilamentChips().Children().Size(), LineExtend().Children().Size(), line_lit ? 1 : 0, by[1], by[2], on_layer[1], on_layer[2]);
         }
         else if (verb == L"rangelog")
