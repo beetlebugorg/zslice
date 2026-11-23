@@ -2546,15 +2546,26 @@ function onPreviewKey(e) {
     const lo = Math.min(keyRange.a, keyRange.b);
     const hi = Math.max(keyRange.a, keyRange.b);
     // From the selected line: its body of its part; else all the layers.
-    keyRange.path = app.sel;
-    if (keyRange.path >= 0) {
-      view.lightColor(null);
-      view.lightConnected(keyRange.path, lo, hi);
-      const layer = view.pathLayer(keyRange.path);
-      // A point of the body: the next slice numbers the lines again.
-      const at = view.connectedBeads(keyRange.path, layer, layer);
-      app.rangeLight = { path: keyRange.path, layer, lo, hi, pt: at ? [at[4], at[5]] : null };
-    } else view.lightLayers(lo, hi);
+    // An open range keeps its body: view.onLoad finds it again after each
+    // slice, and the selection can still be on its way then.
+    const open = rangeCard.open ? app.rangeLight : null;
+    if (open?.pt) {
+      open.lo = lo;
+      open.hi = hi;
+      view.lightColor(open.color ?? null);
+      if (open.path >= 0) view.lightConnected(open.path, lo, hi);
+      else view.lightLayers(lo, hi);
+    } else {
+      keyRange.path = app.sel;
+      if (keyRange.path >= 0) {
+        view.lightColor(null);
+        view.lightConnected(keyRange.path, lo, hi);
+        const layer = view.pathLayer(keyRange.path);
+        // A point of the body: the next slice numbers the lines again.
+        const at = view.connectedBeads(keyRange.path, layer, layer);
+        app.rangeLight = { path: keyRange.path, layer, lo, hi, pt: at ? [at[4], at[5]] : null };
+      } else view.lightLayers(lo, hi);
+    }
     rangeCard.show(lo, hi);
     requestFrame();
     e.preventDefault();
@@ -3014,7 +3025,7 @@ var rangeCard = new RangeCard({ // var: drawFrame can run before this line
   // shows in the color of the filament at once.
   paintBody: async (f) => {
     const r = app.rangeLight;
-    const beads = litBeads(r);
+    const beads = await litBeadsSoon(r);
     if (!beads) return "No body is lit.";
     r.color = filaments()[f - 1]?.color ?? null;
     view.lightColor(r.color);
@@ -3025,7 +3036,7 @@ var rangeCard = new RangeCard({ // var: drawFrame can run before this line
   // The region of the lit body (zs_app_region_find): { id, values }.
   regionOf: async () => {
     const r = app.rangeLight;
-    const beads = litBeads(r);
+    const beads = await litBeadsSoon(r);
     if (!beads) return { id: 0, values: {} };
     return client.call("regionOf", { beads });
   },
@@ -3033,7 +3044,7 @@ var rangeCard = new RangeCard({ // var: drawFrame can run before this line
   // modifier volume of the part, then a slice.
   regionSet: async (id, name, value) => {
     const r = app.rangeLight;
-    const beads = litBeads(r);
+    const beads = await litBeadsSoon(r);
     if (!beads && !id) return { error: "No part of the layers is lit." };
     const res = await client.call("regionSet", { beads, region: id, name, value });
     if (res.error) toast(res.error);
@@ -3089,6 +3100,23 @@ function litBeads(r) {
   return view.connectedBeads(r.path, r.lo, r.hi);
 }
 
+// The callers that wait for the next slice on the view.
+const loadWaiters = [];
+
+// The same, after a wait of up to 5 s if a slice has the body for now.
+async function litBeadsSoon(r) {
+  const end = performance.now() + 5000;
+  for (;;) {
+    const beads = litBeads(r);
+    const left = end - performance.now();
+    if (beads || !r?.pt || left <= 0) return beads;
+    await Promise.race([
+      new Promise((done) => loadWaiters.push(done)),
+      new Promise((done) => setTimeout(done, left)),
+    ]);
+  }
+}
+
 function lightLine(path, lo, hi, f) {
   if (app.rangeLight) return;
   app.lineLight = true;
@@ -3105,11 +3133,12 @@ view.onLoad = () => {
     view.lightColor(null);
   }
   const r = app.rangeLight;
-  if (!r) return;
-  // The slice numbers the lines again. Find the body at its point, or
-  // drop the line, so that no edit goes to another body.
-  if (r.path >= 0) r.path = r.pt && view.pickLayer(r.layer, r.pt[0], r.pt[1]) ? view.hit[0] : -1;
-  if (!rangeCard.open) return;
+  // The slice numbers the lines again. Find the body at its point. A
+  // slice with no line there (a draft) leaves no body until the next one,
+  // so that no edit goes to another body.
+  if (r?.pt) r.path = view.pickLayer(r.layer, r.pt[0], r.pt[1]) ? view.hit[0] : -1;
+  for (const done of loadWaiters.splice(0)) done();
+  if (!r || !rangeCard.open) return;
   view.lightColor(r.color ?? null);
   if (r.path >= 0 && view.pathLayer(r.path) === r.layer) view.lightConnected(r.path, r.lo, r.hi);
   else view.lightLayers(r.lo, r.hi);
