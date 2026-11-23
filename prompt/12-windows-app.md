@@ -32,6 +32,7 @@ Build the native Windows app in `windows/`: a WinUI 3 shell in C++/WinRT around 
    - The part card: the settings that the part has of its own (`zs_app_part_setting_set`), each with its editor and ×, and "+ Add a setting" for the selected part or parts. The filament stays in its row of chips.
    - The line card: "Support you added" for a line at a support mark, with its kind, its radius, and Remove (`zs_app_mark_at`, `zs_app_mark_set`, `zs_app_mark_remove`).
    - The import of a model (`MainWindow.ModelImport.cpp`, [the contract](../docs/internals/model-import.md)): a page link gets the text of the core and **Open the page**. A ZIP file from Open, a drop, or Open With gets the list, with Cancel as the default button. The checked files become parts, then `zs_set_spill`. No request goes to a site.
+   - The spools of a printer: `zs_app_filaments_from_printer`, with flag 1 for **Use the filaments of** and flag 2 for each status of the current printer. The Windows app reads a status only while the Printers page is open.
 
 ## Rules that matter
 
@@ -60,6 +61,7 @@ Build the native Windows app in `windows/`: a WinUI 3 shell in C++/WinRT around 
 - **Write no empty file.** An export wrote an empty file when the plate had no G-code.
 - **An empty deck path means the root of the deck** (part 13). The pairing had this right, and `DeckAddress` follows it now too.
 - **Find a support mark from the whole line.** A slice can renumber the lines and drop the selected segment. The middle of a long wall is then far from the mark, and the card lost its editor right after the mark was added.
+- **Keep a key out of each log, also in a test build.** The step log of the test hooks wrote the text of `prefset key` to the log file. The log now hides that step.
 
 ## Acceptance checks
 
@@ -74,3 +76,4 @@ Build the native Windows app in `windows/`: a WinUI 3 shell in C++/WinRT around 
 9. A part with its own wall count keeps it through undo and redo, and × gives it the value of the plate again.
 10. A line at a support mark shows the kind and the radius of the mark. A change of either reaches the core, and Remove takes the mark away.
 11. A ZIP file with more parts than one bed holds loads its checked files, and the parts that do not fit go on new plates. A file that is not a ZIP file shows the message of the core.
+12. Against a stub printdeck, **Use the filaments of** sends one GET and makes the plate its spools. The follow changes a printer with `machine.filament_change = tool`, and no other. No log has the key.
