@@ -1374,6 +1374,42 @@ final class Workspace {
                         }
                         try? await Task.sleep(for: .seconds(0.4))
                         NSLog("zslice clip linekeep: selected %d, same key %d, draft %d", self.selection == nil ? 0 : 1, self.selection?.key == key ? 1 : 0, self.model.draft ? 1 : 0)
+                    case "ringclick":
+                        // A press and a release on a ring over the other
+                        // part selects that part, and a drag of the ring
+                        // does not.
+                        self.selectOnlyPart(0)
+                        self.setTool(.turn)
+                        guard let v = self.canvas.view else { break }
+                        let scale = self.canvas.window?.backingScaleFactor ?? 2, size = self.canvas.bounds.size
+                        var spot: CGPoint?
+                        for y in stride(from: 4.0, to: size.height, by: 3) {
+                            for x in stride(from: 4.0, to: size.width, by: 3) where spot == nil {
+                                if zs_view_ring_at(v, Float(x * scale), Float(y * scale), Float(4 * scale)) >= 0, self.partAt(CGPoint(x: x, y: y)) == 1 {
+                                    spot = CGPoint(x: x, y: y)
+                                }
+                            }
+                        }
+                        guard let at = spot else {
+                            NSLog("zslice clip ringclick: no ring over the part")
+                            break
+                        }
+                        let pressed = self.press(at, [])
+                        self.release(at)
+                        NSLog("zslice clip ringclick: pressed %d, selected %ld", pressed ? 1 : 0, self.selectedPart ?? -1)
+                    case "dragpick":
+                        // During a drag, a pick at the new place finds the part.
+                        self.setTool(.move)
+                        guard let info = self.part(0), let from = self.canvas.viewPoint(x: info.x, y: info.y, z: info.size_z / 2) else { break }
+                        let id = zs_app_part_id(self.model.core, 0)
+                        let to = CGPoint(x: from.x + 50, y: from.y + 20)
+                        let pressed = self.press(from, [])
+                        self.drag(CGPoint(x: from.x + 25, y: from.y + 10), [])
+                        self.drag(to, [])
+                        let v = self.canvas.view
+                        let picked = v.map { zs_sel_pick(self.model.sel, $0, Float(to.x * (self.canvas.window?.backingScaleFactor ?? 2)), Float(to.y * (self.canvas.window?.backingScaleFactor ?? 2))) } ?? 0
+                        self.release(to)
+                        NSLog("zslice clip dragpick: pressed %d, same %d", pressed ? 1 : 0, picked == id ? 1 : 0)
                     case "selundo":
                         // Undo and redo of a delete keep the selected part.
                         self.selectOnlyPart(1)
