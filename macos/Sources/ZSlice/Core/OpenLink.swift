@@ -253,6 +253,13 @@ extension Workspace {
             linkFailed(LinkError(rc))
             return
         }
+        // A link to a model page: zslice downloads no page. The sheet says
+        // how to get the ZIP file (docs/internals/model-import.md).
+        var page = zs_import_page()
+        if zs_import_page_check(link.url, &page) == Int32(ZS_IMPORT_OK.rawValue) {
+            askModelPage(link.url)
+            return
+        }
         LinkRouter.busy = true
         Task { @MainActor in
             defer { LinkRouter.busy = false }

@@ -112,6 +112,7 @@ final class SearchState {
             SearchAction(label: "Export G-code…", keys: "⌘E") { workspace.exportGcode(from: NSApp.keyWindow) },
             SearchAction(label: "Test Print: the Top Layer…", keys: "") { workspace.saveTestPrint(lo: workspace.hi, hi: workspace.hi + 1) },
             SearchAction(label: "Test Print: the Layers Shown…", keys: "") { workspace.saveTestPrint(lo: workspace.lo, hi: workspace.hi + 1) },
+            SearchAction(label: "Import from a Model Page…", keys: "") { workspace.askModelPage() },
             SearchAction(label: "Undo", keys: "⌘Z") { model.history.undoManager.undo() },
             SearchAction(label: "Redo", keys: "⇧⌘Z") { model.history.undoManager.redo() },
             SearchAction(label: "Show the 3D View", keys: "3") { workspace.page = .threeD },

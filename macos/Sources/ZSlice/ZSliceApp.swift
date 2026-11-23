@@ -47,7 +47,7 @@ extension UTType {
 /// A model file (STL, STEP, OBJ, or a 3MF that is not a project) becomes an untitled
 /// document after the load, so a save never writes over the model.
 final class ProjectDocument: ReferenceFileDocument, @unchecked Sendable {
-    static let readableContentTypes: [UTType] = UTType.models
+    static let readableContentTypes: [UTType] = UTType.models + [.zip]
     static let writableContentTypes: [UTType] = [.threeMF]
 
     let data: Data
@@ -259,6 +259,9 @@ struct PlateCommands: View {
             .disabled(workspace == nil)
         Button("Add Models to the Plate…") { workspace?.addModels() }
             .keyboardShortcut("i", modifiers: [.command, .shift])
+            .disabled(workspace == nil)
+        Button("Import from a Model Page…") { workspace?.askModelPage() }
+            .help("The address of a Printables or Thingiverse model: zslice says how to get its ZIP file")
             .disabled(workspace == nil)
         Button("Smart Placement") { workspace?.smartPlace() }
             .help("Turns each part to need less support, then arranges the plate")
