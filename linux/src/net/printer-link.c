@@ -319,6 +319,15 @@ void zg_link_query(const ZgPrinter *p, GCancellable *cancel, ZgInfoFn fn, gpoint
     query_next(q);
 }
 
+int zg_link_nozzles(zs_app *app) {
+    char text[32];
+    size_t n = 0;
+    if (zs_app_setting_get(app, "machine.nozzles", text, sizeof text - 1, &n) != ZS_OK || n >= sizeof text) return 1;
+    text[n] = 0;
+    int count = (int)g_ascii_strtod(text, NULL);
+    return CLAMP(count, 1, 16);
+}
+
 void zg_link_test_port(const ZgPrinter *p, ZgInfoFn fn, gpointer data) {
     int fd = p->device[0] ? open(p->device, O_RDWR | O_NOCTTY | O_NONBLOCK) : -1;
     if (fd < 0) {
@@ -1044,6 +1053,7 @@ typedef struct {
     gboolean ok;
     char *message;
     double fraction;
+    int nozzles; /* of the machine, for Stop */
 } Serial;
 
 static speed_t baud_of(int baud) {
@@ -1122,20 +1132,33 @@ static gboolean wait_ok(int fd, GCancellable *cancel, char **error) {
 /* After a Stop by the user: the heaters and the fan off, with no move. Each
  * command must get its "ok". `pending` is the count of lines that still owe
  * an "ok". Returns the message for the user. */
-static char *cool_down(int fd, int pending) {
+static gboolean send_off(int fd, const char *line) {
+    char *e = NULL;
+    gboolean ok = write(fd, line, strlen(line)) >= 0 && wait_ok_for(fd, NULL, 10, &e);
+    g_free(e);
+    return ok;
+}
+
+static char *cool_down(int fd, int pending, int nozzles) {
     for (int i = 0; i < pending; i++) {
         char *ignored = NULL;
         wait_ok_for(fd, NULL, 3, &ignored);
         g_free(ignored);
     }
-    static const char *const off[] = {"M104 S0\n", "M140 S0\n", "M107\n"};
-    for (size_t i = 0; i < G_N_ELEMENTS(off); i++) {
-        char *e = NULL;
-        if (write(fd, off[i], strlen(off[i])) < 0 || !wait_ok_for(fd, NULL, 10, &e)) {
-            g_free(e);
-            return g_strdup("Stopped. The printer did not confirm the heaters off, so they may still be on.");
+    gboolean ok = TRUE;
+    /* On Marlin, M104 with no T acts on the active nozzle only. T names a
+     * nozzle with no tool change. */
+    if (nozzles <= 1) {
+        ok = send_off(fd, "M104 S0\n");
+    } else {
+        for (int n = 0; ok && n < nozzles; n++) {
+            char line[32];
+            g_snprintf(line, sizeof line, "M104 T%d S0\n", n);
+            ok = send_off(fd, line);
         }
     }
+    ok = ok && send_off(fd, "M140 S0\n") && send_off(fd, "M107\n");
+    if (!ok) return g_strdup("Stopped. The printer did not confirm the heaters off, so they may still be on.");
     return g_strdup("Stopped. The heaters and the fan are off.");
 }
 
@@ -1167,6 +1190,7 @@ static gpointer serial_thread(gpointer data) {
     gboolean sent = FALSE; /* a line went to the printer */
     gboolean stopped = FALSE;
     int pending = 0;
+    int nozzles = MAX(s->nozzles, 1);
     while (pos < len) {
         if (s->cancel && g_cancellable_is_cancelled(s->cancel)) {
             stopped = TRUE;
@@ -1183,6 +1207,9 @@ static gpointer serial_thread(gpointer data) {
         while (start < cut && text[start] == ' ') start++;
         pos = end + 1;
         if (cut <= start) continue;
+        /* A tool that the file selects must cool on Stop too. */
+        if (text[start] == 'T' && cut - start == 2 && g_ascii_isdigit(text[start + 1]))
+            nozzles = MAX(nozzles, text[start + 1] - '0' + 1);
         if (write(fd, text + start, cut - start) < 0 || write(fd, "\n", 1) < 0) {
             error = g_strdup_printf("The port stopped: %s. The heaters may still be on.", g_strerror(errno));
             break;
@@ -1206,7 +1233,7 @@ static gpointer serial_thread(gpointer data) {
             g_idle_add(report_progress, s);
         }
     }
-    if (stopped) error = sent ? cool_down(fd, pending) : g_strdup("Canceled. The printer got no line.");
+    if (stopped) error = sent ? cool_down(fd, pending, nozzles) : g_strdup("Canceled. The printer got no line.");
     close(fd);
     s->ok = error == NULL;
     s->message = error;
@@ -1223,6 +1250,7 @@ static void send_serial(const ZgPrinter *p, GBytes *gcode, GCancellable *cancel,
     Serial *s = g_new0(Serial, 1);
     s->device = g_strdup(p->device);
     s->baud = p->baud;
+    s->nozzles = p->nozzles;
     s->gcode = g_bytes_ref(gcode);
     s->cancel = cancel ? g_object_ref(cancel) : NULL;
     s->progress = progress;

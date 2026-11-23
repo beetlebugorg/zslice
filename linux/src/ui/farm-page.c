@@ -395,6 +395,7 @@ static void do_send(Send *s) {
         g_snprintf(base, sizeof base, "plate-%zu", index + 1);
     /* A Bambu Lab printer behind a deck prints a .gcode.3mf. */
     gboolean three = zg_link_wants_3mf(app, pr);
+    pr->nozzles = zg_link_nozzles(app);
     char *file = g_strconcat(base, three ? ".gcode.3mf" : ".gcode", NULL);
     zg_link_send_wrapped(pr, file, bytes, three ? zg_link_bambu_wrap : NULL, (gpointer)app, s->print, s->page->cancel, on_progress, on_sent, s->page);
     g_free(file);

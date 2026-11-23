@@ -158,7 +158,7 @@ static gpointer fake_printer(gpointer data) {
     }
 }
 
-static void usb_stop_turns_off_heat(void) {
+static void usb_stop_turns_off_heat(int nozzles, const char *first, const char *const *want, const char *refuse) {
     int master = posix_openpt(O_RDWR | O_NOCTTY);
     g_assert_cmpint(master, >=, 0);
     g_assert_cmpint(grantpt(master), ==, 0);
@@ -173,7 +173,7 @@ static void usb_stop_turns_off_heat(void) {
     FakePrinter f = {.fd = master, .cancel = g_cancellable_new(), .got = g_string_new(NULL)};
     g_mutex_init(&f.lock);
     GThread *th = g_thread_new("fake-printer", fake_printer, &f);
-    GString *code = g_string_new(NULL);
+    GString *code = g_string_new(first);
     for (int i = 0; i < 2000; i++) g_string_append_printf(code, "G1 X%d\n", i % 100);
     GBytes *g = g_string_free_to_bytes(code);
     ZgPrinter p = {0};
@@ -182,15 +182,17 @@ static void usb_stop_turns_off_heat(void) {
     p.kind = ZG_LINK_USB;
     p.device = name;
     p.baud = 115200;
+    p.nozzles = nozzles;
     Result r = {0};
     zg_link_send(&p, "a.gcode", g, TRUE, f.cancel, NULL, on_done, &r);
     while (!r.done) g_main_context_iteration(NULL, TRUE);
     g_mutex_lock(&f.lock);
     f.end = TRUE;
-    g_assert_nonnull(strstr(f.got->str, "M104 S0\n"));
+    for (; *want; want++) g_assert_nonnull(strstr(f.got->str, *want));
+    if (refuse) g_assert_null(strstr(f.got->str, refuse));
     g_assert_nonnull(strstr(f.got->str, "M140 S0\n"));
     g_assert_nonnull(strstr(f.got->str, "M107\n"));
-    g_assert_null(strstr(strstr(f.got->str, "M104 S0\n"), "G1"));
+    g_assert_null(strstr(strstr(f.got->str, "M140 S0\n"), "G1"));
     g_mutex_unlock(&f.lock);
     g_thread_join(th);
     g_assert_false(r.ok);
@@ -208,7 +210,14 @@ static void usb_stop_turns_off_heat(void) {
 int main(void) {
     usb_upload_sends_nothing();
     usb_query_opens_nothing();
-    usb_stop_turns_off_heat();
+    {
+        const char *const one[] = {"M104 S0\n", NULL};
+        const char *const two[] = {"M104 T0 S0\n", "M104 T1 S0\n", NULL};
+        usb_stop_turns_off_heat(1, "", one, "M104 T");
+        usb_stop_turns_off_heat(2, "", two, "M104 S0\n");
+        /* The machine says one nozzle, and the file selects T1. */
+        usb_stop_turns_off_heat(1, "T1\n", two, "M104 S0\n");
+    }
     char *dir = g_dir_make_tmp("zslice-deck-XXXXXX", NULL);
     g_setenv("XDG_CONFIG_HOME", dir, TRUE);
     GError *error = NULL;

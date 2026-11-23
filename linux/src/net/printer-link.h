@@ -56,6 +56,8 @@ typedef void (*ZgProgressFn)(double fraction, gpointer data);
 
 /* Reads what the printer knows. `info` is NULL on an error; the callback
  * owns it (free it with zg_printer_info_free). */
+/* The nozzles of the machine of `app` (1 to 16), for ZgPrinter.nozzles. */
+int zg_link_nozzles(zs_app *app);
 void zg_link_query(const ZgPrinter *p, GCancellable *cancel, ZgInfoFn fn, gpointer data);
 /* Opens and closes the serial port of a USB printer. An open can restart
  * the board, so call this only after the user asks for it and agrees. */

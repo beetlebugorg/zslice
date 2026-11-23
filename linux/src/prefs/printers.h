@@ -42,6 +42,9 @@ typedef struct {
     char *device; /* the serial port, for USB */
     char *serial; /* the serial number of a Bambu Lab printer */
     int baud;
+    /* The nozzles of the machine, for Stop on USB. The sender sets it from
+     * machine.nozzles. It is not saved. */
+    int nozzles;
     /* The pin of an https printer: the SHA-256 hash of its certificate
      * (hex), and the start of its validity (Unix seconds). "" and 0
      * before the first https reply. See printer-link.h. */

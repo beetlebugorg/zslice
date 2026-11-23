@@ -1395,6 +1395,7 @@ static void send_now(Window *w) {
     g_free(text);
     /* A Bambu Lab printer behind a deck prints a .gcode.3mf. */
     zs_app *core = zg_model_core(w->model);
+    pr->nozzles = zg_link_nozzles(core);
     if (zg_link_wants_3mf(core, pr)) {
         char *file3 = g_strconcat(file, ".3mf", NULL);
         zg_link_send_wrapped(pr, file3, bytes, zg_link_bambu_wrap, core, w->send_print, w->send_cancel, on_send_progress, on_send_done, w);
