@@ -50,6 +50,8 @@ Build the native Mac app in `macos/`: a SwiftUI and AppKit shell around the app 
 
 ## Lessons
 
+- **Ask before a saved key goes to a new address.** A change of scheme, host, or port asks, with No as the default. No drops the key, Cancel keeps the old address and key, and a new origin drops the old https address. The address field is a draft until the edit ends, and Test the Connection asks first, because each of them can send the key.
+- **Test a save with an empty active plate.** The project keeps the parts of the other plates, and it opens with the same plates.
 - **Keep the line, the plate, and the camera in the core model.** A selected line is its key. A draft can miss that key, so a miss falls back to the nearest line of the same feature at the saved place, and the exact slice goes back to the first key and segment. A plate change is a request, and the camera target waits for its plate. Test a selection through a delete, an undo, and a redo.
 - **Keep the print details inside their padding.** Filament rows wider than the card spilled over its padding and squeezed the spool mark. The card is 336 points wide, the rows have fixed columns, a head holds the close button, and the details scroll in a short window.
 - **Show the layer of a line that a key selects.** With j, the line went down under layers that stayed visible. The top of the range now goes to the layer of the line, and an empty layer is passed.
