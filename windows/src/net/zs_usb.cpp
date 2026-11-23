@@ -259,7 +259,7 @@ namespace zs::usb
         // The tool that a line uses, or -1: a line `T<n>`, or the T word of
         // M104 or M109, which heats a nozzle with no tool change. Firmware
         // also reads words with no space between them, as in M104S200T1. A
-        // T word past the last tool counts as the last tool.
+        // tool past the last one counts as the last one.
         int ToolOfLine(char const *text, size_t len)
         {
             if (len >= 2 && len <= 3 && text[0] == 'T')
@@ -271,7 +271,7 @@ namespace zs::usb
                         return -1;
                     tool = tool * 10 + (text[i] - '0');
                 }
-                return tool < max_nozzles ? tool : -1;
+                return std::min(tool, max_nozzles - 1);
             }
             if (len < 6 || (strncmp(text, "M104", 4) != 0 && strncmp(text, "M109", 4) != 0) || IsDigit(text[4]))
                 return -1;
