@@ -172,6 +172,12 @@ namespace winrt::ZSlice::implementation
         int NozzleCount();
         void ShowSection(char const *group, char const *section);
         void ShowSpeedSection();
+        void RedrawSettingsPage();
+        // Whose setting it is: the printer or the filament, with its name.
+        // With `rest`, a line of text. Without it, a badge. Null for a
+        // setting of the print.
+        std::wstring OwnerText(bool printer);
+        Microsoft::UI::Xaml::FrameworkElement OwnerLabel(char const *group, wchar_t const *rest);
         // The lines that a setting changes, and the settings of some lines.
         void FillEffect(Microsoft::UI::Xaml::Controls::StackPanel const &box, std::string const &key);
         void ShowFeature(int feature);

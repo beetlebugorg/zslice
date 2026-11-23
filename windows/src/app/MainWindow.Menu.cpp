@@ -172,9 +172,10 @@ namespace winrt::ZSlice::implementation
             return;
         bool dark = Root().ActualTheme() == ElementTheme::Dark;
         zs_view_set_dark(view, dark ? 1 : 0);
-        // The rows of the search take their colors again.
+        // The rows of the search and of the pane take their colors again.
         if (search_open)
             FillSearch();
+        RedrawSettingsPage();
         // The marks of the timeline take their colors again.
         if (HistoryFlyout().IsOpen())
             FillHistoryList();

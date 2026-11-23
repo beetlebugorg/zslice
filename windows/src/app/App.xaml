@@ -26,6 +26,8 @@
                     <SolidColorBrush x:Key="ZsDim" Color="#99000000" />
                     <SolidColorBrush x:Key="ZsAccent" Color="#1C71D8" />
                     <SolidColorBrush x:Key="ZsAccentText" Color="#1C71D8" />
+                    <SolidColorBrush x:Key="ZsOwnerMachine" Color="#1A5FB4" />
+                    <SolidColorBrush x:Key="ZsOwnerFilament" Color="#B33D00" />
                     <SolidColorBrush x:Key="ZsAccentHover" Color="#1B66C4" />
                     <SolidColorBrush x:Key="ZsView" Color="#F6F7F8" />
                     <SolidColorBrush x:Key="ZsFloat" Color="#EBFAFAFA" />
@@ -129,6 +131,8 @@
                     <SolidColorBrush x:Key="ZsDim" Color="#8CFFFFFF" />
                     <SolidColorBrush x:Key="ZsAccent" Color="#1C5FB0" />
                     <SolidColorBrush x:Key="ZsAccentText" Color="#78AEED" />
+                    <SolidColorBrush x:Key="ZsOwnerMachine" Color="#62A0EA" />
+                    <SolidColorBrush x:Key="ZsOwnerFilament" Color="#FF8F5A" />
                     <SolidColorBrush x:Key="ZsAccentHover" Color="#2468BD" />
                     <SolidColorBrush x:Key="ZsView" Color="#1D1D20" />
                     <SolidColorBrush x:Key="ZsFloat" Color="#E02D2D2D" />
