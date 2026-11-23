@@ -65,6 +65,8 @@ namespace winrt::ZSlice::implementation
         Microsoft::UI::Xaml::Controls::Grid root{ nullptr };
         Microsoft::UI::Xaml::Controls::Border card{ nullptr };
         std::function<void()> closed;
+        // True when it used the Esc key. Else Esc closes the panel.
+        std::function<bool()> escape;
     };
 
     // One card of the Printers page.
@@ -151,6 +153,7 @@ namespace winrt::ZSlice::implementation
         std::shared_ptr<OverlayPanel> OpenPanel(std::wstring const &title, double width, double height,
                                                 Microsoft::UI::Xaml::UIElement const &content);
         void ClosePanel(std::shared_ptr<OverlayPanel> const &panel);
+        void EscapePanel(std::shared_ptr<OverlayPanel> const &panel);
         // The dialog of an import or a calibration (MainWindow.Import.cpp).
         std::shared_ptr<OverlayPanel> ShowInfoPanel(std::wstring const &title, double width, Microsoft::UI::Xaml::UIElement const &content,
                                                     Microsoft::UI::Xaml::Controls::Control const &first);

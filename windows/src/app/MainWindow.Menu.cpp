@@ -160,19 +160,25 @@ namespace winrt::ZSlice::implementation
         }
     }
 
-    // The same words as the GTK app, for each way to arrange the parts.
-    winrt::fire_and_forget MainWindow::ShowPlaceFailed()
+    // An error with a heading and a detail, as the alert of the GTK app.
+    winrt::fire_and_forget MainWindow::ShowAlert(std::wstring title, std::wstring detail)
     {
         auto lifetime = get_strong();
+        // Two dialogs cannot be open: the second error goes to the toast.
         if (DialogOpen())
+        {
+            ShowError(title + L": " + detail);
             co_return;
+        }
+        zs::Log("shell: %s: %s\n", zs::ToUtf8(title).c_str(), zs::ToUtf8(detail).c_str());
+        ShowBusy(L"");
         ContentDialog dialog;
         dialog.XamlRoot(Content().XamlRoot());
         ThemeDialog(dialog);
-        dialog.Title(box_value(L"The parts do not all fit on the bed"));
+        dialog.Title(box_value(title));
         TextBlock text;
         text.TextWrapping(TextWrapping::Wrap);
-        text.Text(L"Some parts are past the edge of the bed. Remove a part, or use a printer with a larger bed.");
+        text.Text(detail);
         dialog.Content(text);
         dialog.CloseButtonText(L"Close");
         dialog.DefaultButton(ContentDialogButton::Close);
@@ -183,6 +189,11 @@ namespace winrt::ZSlice::implementation
         catch (winrt::hresult_error const &)
         {
         }
+    }
+
+    void MainWindow::ShowPlaceFailed()
+    {
+        ShowAlert(L"The parts do not all fit on the bed", L"Some parts are past the edge of the bed. Remove a part, or use a printer with a larger bed.");
     }
 
     void MainWindow::WireMenu()

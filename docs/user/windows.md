@@ -228,7 +228,7 @@ The button at the right of the bottom bar is **Export G-code…**. With a printe
 
 A part that is too high or too large for the printer still slices, so you can see it. The plate does not export or upload until the part fits. The Check names the part and its size, and a click on that line selects the part. **Export all plates…** and **Send all plates** leave that plate out and say so.
 
-The main menu has **Save project…** (Ctrl+S), **Send all plates**, and **Export all plates…**.
+F10 opens the main menu. It has **Save project…** (Ctrl+S), **Send all plates**, and **Export all plates…**. Ctrl+E exports the G-code, and Ctrl+Q quits. A dialog that is open keeps these keys.
 
 **The Windows app never starts a print.** It uploads the file, and you start the print on the printer.
 

@@ -223,7 +223,7 @@ namespace winrt::ZSlice::implementation
         int rc = zs_import_list_zip(reinterpret_cast<uint8_t const *>(bytes->data()), bytes->size(), &list);
         if (rc != ZS_IMPORT_OK)
         {
-            ShowError(name + L": " + zs::ToWide(zs_import_message(rc)));
+            ShowAlert(L"The ZIP file did not open", zs::ToWide(zs_import_message(rc)));
             co_return;
         }
         auto state = std::make_shared<ImportState>();

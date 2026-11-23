@@ -588,7 +588,8 @@ namespace winrt::ZSlice::implementation
         bool ClipKey(Windows::System::VirtualKey key, bool shift);
         bool DialogOpen();
         void RunAppKey(Windows::System::VirtualKey key);
-        winrt::fire_and_forget ShowPlaceFailed();
+        winrt::fire_and_forget ShowAlert(std::wstring title, std::wstring detail);
+        void ShowPlaceFailed();
         // The pointer, in points of the view.
         double pointer_x = 0, pointer_y = 0;
         Microsoft::UI::Xaml::Controls::MenuFlyout context_menu{ nullptr };
