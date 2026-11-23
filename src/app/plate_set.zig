@@ -1906,11 +1906,14 @@ test "plate set: a part put down on a side comes back the same from a session, a
 }
 
 test "plate set: the shoulder parts of the user, put down with the text up, come back the same" {
-    // The file of the user (the Petoi Bittle X shoulder extensions a and
-    // b). The test skips when the file is not on this computer.
+    // A file of the user (the Petoi Bittle X shoulder extensions a and b).
+    // ZSLICE_TEST_SHOULDER gives its path. With none, the test skips.
+    const os = @import("builtin").os.tag;
+    if (os == .windows or os == .wasi) return error.SkipZigTest;
+    const path = testing.environ.getPosix("ZSLICE_TEST_SHOULDER") orelse return error.SkipZigTest;
     const gpa = testing.allocator;
     const session = @import("session.zig");
-    const stl = std.Io.Dir.cwd().readFileAlloc(testing.io, "/home/jcollins/shoulderExtensions.stl", gpa, .limited(1 << 26)) catch return error.SkipZigTest;
+    const stl = std.Io.Dir.cwd().readFileAlloc(testing.io, path, gpa, .limited(1 << 26)) catch return error.SkipZigTest;
     defer gpa.free(stl);
     const set = try Set.create(gpa, null, null, false);
     defer set.destroy();
