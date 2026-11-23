@@ -83,7 +83,7 @@ static gpointer serve(gpointer data) {
 }
 
 static void test_origins(void) {
-    g_assert_true(zg_same_origin("192.168.1.5", "http://192.168.1.5/"));
+    g_assert_true(zg_same_origin("192.0.2.5", "http://192.0.2.5/"));
     g_assert_true(zg_same_origin("http://Printer.local:80", "printer.local"));
     g_assert_true(zg_same_origin("https://a.local", "https://a.local:443/x"));
     g_assert_false(zg_same_origin("http://a.local", "http://b.local"));
