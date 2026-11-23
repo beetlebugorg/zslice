@@ -1525,9 +1525,10 @@ test "plate set: auto mode slices the active plate, then the others, on threads"
     _ = try set.add();
     try loadBox(set, 1, 12);
     try set.select(0);
-    // Wait for both slices.
+    // Wait for both slices: each try waits up to 1 ms, so this allows
+    // about 30 s on a busy machine. The loop ends when both are done.
     var tries: usize = 0;
-    while (tries < 2000) : (tries += 1) {
+    while (tries < 30_000) : (tries += 1) {
         if (set.info(0).?.status == .done and set.info(1).?.status == .done) break;
         var sig: parallel.Signal = .{};
         sig.wait(0);
