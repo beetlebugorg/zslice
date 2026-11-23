@@ -255,6 +255,10 @@ final class SliceModel {
     /// After a project loads: the new plates, the active plate, and the view.
     func readPlatesAfterLoad() {
         readPlates()
+        // ZSLICE_PLATES_LOG=1: the parts of each plate of the file.
+        if ProcessInfo.processInfo.environment["ZSLICE_PLATES_LOG"] != nil {
+            NSLog("zslice plates: %@, active %ld", plates.map { String($0.parts) }.joined(separator: " "), active)
+        }
         readActive()
         onActivePlate?()
         onPlates?()

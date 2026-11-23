@@ -1389,6 +1389,14 @@ final class Workspace {
                         }
                         try? await Task.sleep(for: .seconds(0.4))
                         NSLog("zslice clip linekeep: selected %d, same key %d, draft %d", self.selection == nil ? 0 : 1, self.selection?.key == key ? 1 : 0, self.model.draft ? 1 : 0)
+                    case "emptysave":
+                        // emptysave:path: a save with an empty active plate
+                        // keeps the parts of the other plate (issue #42).
+                        self.model.addPlate()
+                        self.model.refreshSaveBytes()
+                        let bytes = self.model.saveBytes.current
+                        if f.count > 1 { try? bytes?.write(to: URL(fileURLWithPath: f[1])) }
+                        NSLog("zslice clip emptysave: bytes %d, active %ld of %ld, parts on plate 0: %ld", bytes.map { $0.isEmpty ? 0 : 1 } ?? 0, self.model.active, self.model.plates.count, self.model.plates.first?.parts ?? -1)
                     case "ringclick":
                         // A press and a release on a ring over the other
                         // part selects that part, and a drag of the ring
