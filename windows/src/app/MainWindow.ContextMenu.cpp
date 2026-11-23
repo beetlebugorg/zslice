@@ -83,7 +83,7 @@ namespace winrt::ZSlice::implementation
 
     // The G-code to a file, and a report of the line to the clipboard, to
     // paste into an AI chat.
-    void MainWindow::CopyForAi()
+    void MainWindow::CopyForAi(wchar_t const *done)
     {
         zs_app *app = model->Active();
         uint8_t const *gcode = nullptr;
@@ -116,8 +116,9 @@ namespace winrt::ZSlice::implementation
             return;
         Windows::ApplicationModel::DataTransfer::DataPackage package;
         package.SetText(zs::ToWide(std::string(report, report_len)));
-        Windows::ApplicationModel::DataTransfer::Clipboard::SetContent(package);
-        ShowToast(L"Copied a report of this line.");
+        if (!clip_private)
+            Windows::ApplicationModel::DataTransfer::Clipboard::SetContent(package);
+        ShowToast(done);
     }
 
     void MainWindow::NewProfile(int direction)
@@ -257,86 +258,185 @@ namespace winrt::ZSlice::implementation
         return clip_kind == ClipKind::Empty && zs_clipboard_parts() > 0 ? ClipKind::Parts : clip_kind;
     }
 
-    // A copy takes the first that applies: the selected label, the layers
-    // of the range card, then the parts.
-    void MainWindow::ClipCopy()
+    bool MainWindow::FocusedEditor()
     {
-        if (tool == Tool::Label)
-        {
-            std::string json = LabelCopyJson();
-            if (!json.empty())
-            {
-                clip_label = std::move(json);
-                clip_kind = ClipKind::Label;
-                ShowToast(L"Copied the label.");
-                return;
-            }
-        }
-        if (RangeOpen())
-        {
-            auto changes = RangeChangesNow();
-            if (changes.empty())
-            {
-                ShowToast(L"These layers have no changes to copy.");
-                return;
-            }
-            ShowToast(L"Copied " + std::to_wstring(changes.size()) + (changes.size() == 1 ? L" change" : L" changes") + L" of the layers.");
-            clip_range = std::move(changes);
-            clip_kind = ClipKind::Range;
-            return;
-        }
-        CopyParts();
+        if (!focused_editor.has_value())
+            return false;
+        auto focused = Input::FocusManager::GetFocusedElement(Content().XamlRoot());
+        if (focused == focused_editor->element)
+            return true;
+        focused_editor.reset();
+        return false;
     }
 
-    void MainWindow::ClipCut()
+    // What a copy takes now, as in web/app/clipboard.js.
+    MainWindow::ClipSel MainWindow::ClipSelection()
     {
-        if (tool == Tool::Label)
+        if (FocusedEditor())
+            return ClipSel::Value;
+        if (tool == Tool::Label && LabelHasSelection())
+            return ClipSel::Label;
+        if (tool == Tool::Support && SupportHasArea())
+            return ClipSel::Area;
+        if (RangeOpen())
+            return ClipSel::Range;
+        if (!selected_parts.empty())
+            return ClipSel::Parts;
+        return selected_path >= 0 ? ClipSel::Line : ClipSel::None;
+    }
+
+    bool MainWindow::ClipCopy(ClipSel sel)
+    {
+        switch (sel)
+        {
+        case ClipSel::Value:
+        {
+            clip_value = focused_editor->get();
+            clip_kind = ClipKind::Value;
+            if (!clip_private)
+            {
+                Windows::ApplicationModel::DataTransfer::DataPackage package;
+                package.SetText(zs::ToWide(clip_value));
+                Windows::ApplicationModel::DataTransfer::Clipboard::SetContent(package);
+            }
+            ShowToast(L"Copied the value.");
+            return true;
+        }
+        case ClipSel::Label:
         {
             std::string json = LabelCopyJson();
-            if (!json.empty())
-            {
-                clip_label = std::move(json);
-                clip_kind = ClipKind::Label;
-                ShowToast(L"Copied the label.");
-                LabelRemoveSelected();
-                return;
-            }
+            if (json.empty())
+                return false;
+            clip_label = std::move(json);
+            clip_kind = ClipKind::Label;
+            ShowToast(L"Copied the label.");
+            return true;
         }
-        if (RangeOpen())
+        case ClipSel::Area:
+            if (!SupportCopyArea(clip_area))
+                return false;
+            clip_kind = ClipKind::Area;
+            ShowToast(L"Copied the support area.");
+            return true;
+        case ClipSel::Range:
         {
             auto changes = RangeChangesNow();
             if (changes.empty())
             {
                 ShowToast(L"These layers have no changes to copy.");
-                return;
+                return false;
             }
             ShowToast(L"Copied " + std::to_wstring(changes.size()) + (changes.size() == 1 ? L" change" : L" changes") + L" of the layers.");
             clip_range = std::move(changes);
             clip_kind = ClipKind::Range;
-            RangeClearChanges(clip_range);
-            return;
+            return true;
         }
-        CutParts();
+        case ClipSel::Parts:
+            CopyParts();
+            return true;
+        case ClipSel::Line:
+            CopyForAi(L"The report of the line is on the clipboard.");
+            return true;
+        default:
+            ShowToast(L"Select a part, a label, a support area, or layers to copy.");
+            return false;
+        }
+    }
+
+    // A copy, then the selection goes. A setting and a line stay.
+    void MainWindow::ClipCut()
+    {
+        ClipSel sel = ClipSelection();
+        switch (sel)
+        {
+        case ClipSel::Label:
+            if (ClipCopy(sel))
+                LabelRemoveSelected();
+            break;
+        case ClipSel::Area:
+            if (ClipCopy(sel))
+                SupportRemoveArea();
+            break;
+        case ClipSel::Range:
+            if (ClipCopy(sel))
+                RangeClearChanges(clip_range);
+            break;
+        case ClipSel::Parts:
+            CutParts();
+            break;
+        default:
+            ClipCopy(sel);
+            break;
+        }
     }
 
     // A copy next to the selection. The clipboard stays.
     void MainWindow::ClipDuplicate()
     {
-        if (tool == Tool::Label)
+        ClipSel sel = ClipSelection();
+        if (sel == ClipSel::Parts)
+        {
+            DuplicateParts();
+        }
+        else if (sel == ClipSel::Label)
         {
             std::string json = LabelCopyJson();
             if (!json.empty())
-            {
                 LabelPaste(json, false, 0, 0);
-                return;
-            }
         }
-        if (RangeOpen())
+        else
         {
             ShowToast(L"Ctrl+D duplicates parts and labels.");
-            return;
         }
-        DuplicateParts();
+    }
+
+    // The text of the system clipboard goes into the setting with the
+    // focus. A copy of a value put it there too.
+    winrt::fire_and_forget MainWindow::PasteValue()
+    {
+        if (!FocusedEditor())
+            co_return;
+        ClipEditor editor = *focused_editor;
+        auto keep = get_strong();
+        std::wstring text;
+        if (clip_private)
+        {
+            text = zs::ToWide(clip_value);
+        }
+        else
+        {
+            try
+            {
+                auto clip = Windows::ApplicationModel::DataTransfer::Clipboard::GetContent();
+                if (!clip.Contains(Windows::ApplicationModel::DataTransfer::StandardDataFormats::Text()))
+                    co_return;
+                hstring got = co_await clip.GetTextAsync();
+                text = got;
+            }
+            catch (winrt::hresult_error const &)
+            {
+                co_return;
+            }
+        }
+        size_t from = text.find_first_not_of(L" \t\r\n");
+        if (from == std::wstring::npos)
+            co_return;
+        text = text.substr(from, text.find_last_not_of(L" \t\r\n") - from + 1);
+        std::string value = zs::ToUtf8(text);
+        // The core rules. A text that is not a number goes as it is, and
+        // the core refuses it with its own message.
+        size_t len = 0;
+        if (zs_setting_parse(editor.name.c_str(), value.c_str(), nullptr, 0, &len) == ZS_OK)
+        {
+            std::string parsed(len + 1, '\0');
+            if (zs_setting_parse(editor.name.c_str(), value.c_str(), parsed.data(), parsed.size(), &len) == ZS_OK)
+            {
+                parsed.resize(len);
+                value = std::move(parsed);
+            }
+        }
+        editor.set(value);
+        RefreshSettingValues();
     }
 
     // at: x, y is a place for it (the pointer, or the right click). here:
@@ -363,14 +463,23 @@ namespace winrt::ZSlice::implementation
             else
                 LabelPaste(clip_label, in_view, x, y);
             break;
+        case ClipKind::Area:
+            if (!in_view || !SupportPasteArea(clip_area, x, y))
+                ShowToast(L"Point at a part to paste the support area there.");
+            else
+                ShowToast(L"Pasted the support area.");
+            break;
         case ClipKind::Range:
             if (!RangeOpen())
                 ShowToast(L"Select layers first (drag up or down over the print), then paste the changes.");
             else
                 RangePaste(clip_range);
             break;
+        case ClipKind::Value:
+            ShowToast(L"Click a setting, then paste the value into it.");
+            break;
         default:
-            ShowToast(L"The clipboard is empty: copy a part, a label, or layers first.");
+            ShowToast(L"The clipboard is empty: copy a part, a label, a support area, or layers first.");
             break;
         }
     }
@@ -379,13 +488,16 @@ namespace winrt::ZSlice::implementation
     {
         if (key == VirtualKey::V)
         {
-            ClipPaste(true, pointer_x, pointer_y, false, shift);
+            if (FocusedEditor())
+                PasteValue();
+            else
+                ClipPaste(true, pointer_x, pointer_y, false, shift);
             return true;
         }
         if (shift)
             return false;
         if (key == VirtualKey::C)
-            ClipCopy();
+            ClipCopy(ClipSelection());
         else if (key == VirtualKey::X)
             ClipCut();
         else if (key == VirtualKey::D)

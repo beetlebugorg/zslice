@@ -1078,6 +1078,87 @@ namespace winrt::ZSlice::implementation
             return true;
         }
 
+        // ---- copy and paste (MainWindow.ContextMenu.cpp) ----
+
+        bool CopyArea(ClipArea &out)
+        {
+            Area const *a = on ? AreaAt(sel) : nullptr;
+            if (a == nullptr)
+                return false;
+            out = {};
+            out.kind = a->kind;
+            out.z_lo = a->z_lo;
+            out.z_hi = a->z_hi;
+            out.pts = a->pts;
+            // The part under the center of the area.
+            double cx = 0, cy = 0;
+            for (size_t k = 0; k < a->Count(); k++)
+            {
+                cx += a->pts[3 * k];
+                cy += a->pts[3 * k + 1];
+            }
+            cx /= (double)std::max<size_t>(a->Count(), 1);
+            cy /= (double)std::max<size_t>(a->Count(), 1);
+            ptrdiff_t i = zs_app_part_at(App(), cx, cy);
+            zs_part p{};
+            if (i >= 0 && zs_app_part_get(App(), (size_t)i, &p) == ZS_OK)
+            {
+                out.part = i;
+                out.part_x = p.x;
+                out.part_y = p.y;
+                out.part_rot = p.rotation;
+            }
+            return true;
+        }
+
+        // On the part of the copy, the center goes to the pointer. On
+        // another part (a copy of it), the area keeps its place on the part.
+        bool PasteArea(ClipArea const &a, double x, double y)
+        {
+            size_t n = a.pts.size() / 3;
+            double hit[3];
+            if (n < 3 || !SurfacePoint(x, y, false, hit))
+                return false;
+            ptrdiff_t i = zs_app_part_at(App(), hit[0], hit[1]);
+            zs_part p{};
+            if (i < 0 || zs_app_part_get(App(), (size_t)i, &p) != ZS_OK)
+                return false;
+            double cx = 0, cy = 0;
+            for (size_t k = 0; k < n; k++)
+            {
+                cx += a.pts[3 * k];
+                cy += a.pts[3 * k + 1];
+            }
+            cx /= (double)n;
+            cy /= (double)n;
+            bool same = a.part < 0 || (a.part == i && std::abs(a.part_x - p.x) < 1e-6 && std::abs(a.part_y - p.y) < 1e-6);
+            double turn = (p.rotation - a.part_rot) * 3.14159265358979323846 / 180, c = std::cos(turn), sn = std::sin(turn);
+            std::vector<double> pts(3 * n);
+            for (size_t k = 0; k < n; k++)
+            {
+                double const *q = &a.pts[3 * k];
+                if (same)
+                {
+                    pts[3 * k] = q[0] + hit[0] - cx;
+                    pts[3 * k + 1] = q[1] + hit[1] - cy;
+                }
+                else
+                {
+                    double dx = q[0] - a.part_x, dy = q[1] - a.part_y;
+                    pts[3 * k] = p.x + dx * c - dy * sn;
+                    pts[3 * k + 1] = p.y + dx * sn + dy * c;
+                }
+                pts[3 * k + 2] = q[2];
+            }
+            int64_t added = AddArea(a.kind, pts.data(), n, a.z_lo, a.z_hi);
+            if (added < 0)
+                return false;
+            if (on)
+                sel = (int)added;
+            Reload();
+            return true;
+        }
+
         int64_t AddArea(int area_kind, double const *pts, size_t n, double lo, double hi)
         {
             Flush();
@@ -1979,6 +2060,22 @@ namespace winrt::ZSlice::implementation
                 if (any && !words.empty() && words[0] == L"click")
                     w.ToolClick(x, y, false, false);
             }
+            else if (verb == L"sadd")
+            {
+                // A small area on the top of part 0, selected.
+                zs_part p{};
+                if (zs_app_part_get(App(), 0, &p) == ZS_OK)
+                {
+                    double z = p.size_z;
+                    double pts[12] = { p.x - 6, p.y - 3, z, p.x + 6, p.y - 3, z, p.x + 6, p.y + 3, z, p.x - 6, p.y + 3, z };
+                    int64_t added = AddArea(0, pts, 4, 0, z);
+                    if (added >= 0)
+                    {
+                        sel = (int)added;
+                        Reload();
+                    }
+                }
+            }
             else if (verb == L"sdrag")
             {
                 Area const *a = AreaAt((int)number(0));
@@ -2227,6 +2324,27 @@ namespace winrt::ZSlice::implementation
     bool MainWindow::SupportKey(VirtualKey key)
     {
         return support->Key(key);
+    }
+
+    bool MainWindow::SupportHasArea()
+    {
+        return support->on && support->AreaAt(support->sel) != nullptr;
+    }
+
+    bool MainWindow::SupportCopyArea(ClipArea &out)
+    {
+        return support->CopyArea(out);
+    }
+
+    bool MainWindow::SupportPasteArea(ClipArea const &area, double x, double y)
+    {
+        return support->PasteArea(area, x, y);
+    }
+
+    void MainWindow::SupportRemoveArea()
+    {
+        if (support->on)
+            support->RemoveSelected();
     }
 
     bool MainWindow::SupportPicked()
