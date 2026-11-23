@@ -427,6 +427,15 @@ namespace winrt::ZSlice::implementation
         double w = button.ActualWidth(), h = button.ActualHeight(), x = px / Scale(), y = py / Scale();
         double room_w = ViewPanel().ActualWidth(), room_h = ViewPanel().ActualHeight() - Dock().ActualHeight();
         bool fits = x - w / 2 > 4 && x + w / 2 < room_w - 4 && y - h / 2 > 4 && y + h / 2 < room_h - 4;
+        // Another plate (or its parts) at the button: it hides.
+        size_t plates = zs_set_count(model->Set()), active = zs_set_active(model->Set());
+        static constexpr double at[5][2] = { { 0, 0 }, { -0.5, 0 }, { 0.5, 0 }, { 0, -0.5 }, { 0, 0.5 } };
+        for (int k = 0; fits && plates > 1 && k < 5; k++)
+        {
+            int64_t plate = zs_view_plate_at(view, (float)((x + at[k][0] * w) * Scale()), (float)((y + at[k][1] * h) * Scale()));
+            if (plate >= 0 && (size_t)plate != active)
+                fits = false;
+        }
         EmptyHint().Visibility(fits ? Visibility::Visible : Visibility::Collapsed);
         Canvas::SetLeft(button, x - w / 2);
         Canvas::SetTop(button, y - h / 2);
