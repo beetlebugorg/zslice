@@ -222,8 +222,17 @@ int main(void) {
         usb_stop_turns_off_heat(1, "T11\n", eleven, "M104 T12");
         usb_stop_turns_off_heat(1, "M109 T1 S200\n", two, "M104 S0\n");
         usb_stop_turns_off_heat(1, "M104 S200 T1\n", two, "M104 S0\n");
-        /* A word that only looks like a tool line. */
+        /* Words with no space, and a T word of three digits. */
+        usb_stop_turns_off_heat(1, "M104T1S200\n", two, "M104 S0\n");
+        usb_stop_turns_off_heat(1, "M104 S200T1\n", two, "M104 S0\n");
+        const char *const last[] = {"M104 T0 S0\n", "M104 T15 S0\n", NULL};
+        usb_stop_turns_off_heat(1, "M109 T123 S200\n", last, "M104 T16");
+        /* Words that only look like a tool. */
         usb_stop_turns_off_heat(1, "TEST\n", one, "M104 T");
+        usb_stop_turns_off_heat(1, "M104 TEST S200\n", one, "M104 T0 S0");
+        usb_stop_turns_off_heat(1, "M104 XT1 S200\n", one, "M104 T0 S0");
+        usb_stop_turns_off_heat(1, "M1040 T1\n", one, "M104 T0 S0");
+        usb_stop_turns_off_heat(1, "M117 T1 ready\n", one, "M104 T0 S0");
     }
     char *dir = g_dir_make_tmp("zslice-deck-XXXXXX", NULL);
     g_setenv("XDG_CONFIG_HOME", dir, TRUE);

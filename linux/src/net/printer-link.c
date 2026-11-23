@@ -1173,18 +1173,20 @@ static int tool_number(const char *w, size_t n) {
     return v;
 }
 
-/* The tool that a line selects (T<n>) or heats (M104 or M109 with T<n>),
- * or -1. */
+/* The tool that a line selects (T<n>) or heats (M104 or M109 with a T word),
+ * or -1. Marlin accepts words with no space, as in M104T1S200. A T word of
+ * three or more digits counts as the last tool, so that Stop cools more. */
 static int tool_of_line(const char *line, size_t len) {
     if (len >= 2 && line[0] == 'T') return tool_number(line + 1, len - 1);
-    if (len < 5 || line[0] != 'M' || line[1] != '1' || line[2] != '0' || (line[3] != '4' && line[3] != '9') || line[4] != ' ')
+    if (len < 6 || line[0] != 'M' || line[1] != '1' || line[2] != '0' || (line[3] != '4' && line[3] != '9'))
         return -1;
-    for (size_t i = 5; i < len;) {
-        while (i < len && line[i] == ' ') i++;
-        size_t end = i;
-        while (end < len && line[end] != ' ') end++;
-        if (end > i && line[i] == 'T') return tool_number(line + i + 1, end - i - 1);
-        i = end;
+    if (g_ascii_isdigit(line[4])) return -1;
+    for (size_t i = 4; i + 1 < len; i++) {
+        if (line[i] != 'T' || !(i == 4 || line[i - 1] == ' ' || g_ascii_isdigit(line[i - 1]))) continue;
+        size_t end = i + 1;
+        while (end < len && g_ascii_isdigit(line[end])) end++;
+        if (end == i + 1 || (end < len && line[end] != ' ' && !g_ascii_isupper(line[end]))) continue;
+        return end - i - 1 > 2 ? 15 : tool_number(line + i + 1, end - i - 1);
     }
     return -1;
 }
