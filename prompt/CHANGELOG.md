@@ -34,3 +34,4 @@ One line for each update: the date, the commit that the folder describes, and th
 | 2026-11-23 | `9371dc5b` | README, CHANGELOG, 11: the Mac print details card, j and k on a selected line, and the reasons of a line at the foot of its settings page (by the Mac session). |
 | 2026-11-23 | `077bde34` | README, CHANGELOG, 12: the Windows Selected page for a line, a part, and a gap (by the Windows session). |
 | 2026-11-23 | `1401753a` | README, CHANGELOG, 12: Windows moves how the values of a line come about to the foot of the Selected line page (by the Windows session). |
+| 2026-11-23 | `43c919e0` | README, CHANGELOG, 11: the Mac line, plate, camera, and drag on the core selection model; a selected line stays through a draft; the explain text at the foot of the line page. |
