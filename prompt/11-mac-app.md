@@ -50,6 +50,7 @@ Build the native Mac app in `macos/`: a SwiftUI and AppKit shell around the app 
 
 ## Lessons
 
+- **Keep the line, the plate, and the camera in the core model.** A selected line is its key, so a new slice finds the same line or ends the selection. A plate change is a request, and the camera target waits for its plate. Test a selection through a delete, an undo, and a redo.
 - **Keep the print details inside their padding.** Filament rows wider than the card spilled over its padding and squeezed the spool mark. The card is 336 points wide, the rows have fixed columns, a head holds the close button, and the details scroll in a short window.
 - **Show the layer of a line that a key selects.** With j, the line went down under layers that stayed visible. The top of the range now goes to the layer of the line, and an empty layer is passed.
 - **Keep the reasons off the line card.** How the values come about (the planned and real speed, the flow, the reason for each pick, a slow-down, and the flow limit) is at the foot of the Selected Line page.

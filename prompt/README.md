@@ -1,6 +1,6 @@
 # A prompt that could build zslice
 
-Describes: main at commit `077bde34` ("Add the Selected page to the Windows prompt"), 2026-11-23.
+Describes: main at commit `81fe4f1c` ("Move the Mac plate, camera, and drag to the core model"), 2026-11-23.
 
 ## Read this first
 
