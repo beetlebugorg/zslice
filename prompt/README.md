@@ -1,6 +1,6 @@
 # A prompt that could build zslice
 
-Describes: main at commit `8114e228` ("Read heater words with no space on a USB Stop in GTK"), 2026-11-23.
+Describes: main at commit `620d466a` ("Add the settings of each roll to the Windows prompt"), 2026-11-23.
 
 ## Read this first
 
