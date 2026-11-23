@@ -679,18 +679,14 @@ namespace winrt::ZSlice::implementation
         double dt = std::min(std::chrono::duration<double>(now - fall_last).count(), 0.05);
         fall_last = now;
         double f[10];
+        // A step can slice the place at rest: the frame stays until then.
+        fall_gen = INT64_MAX;
         int rc = zs_app_fall_step(model->Active(), dt, f);
         if (rc == 1)
         {
-            // The beads are at fall_off from the start of the fall, when the
-            // slice of a live move came before its end.
-            double qx = f[0], qy = f[1], qz = f[2], qw = f[3];
-            double const *o = fall_off;
-            double mx = f[7] + (1 - 2 * (qy * qy + qz * qz)) * o[0] + 2 * (qx * qy - qz * qw) * o[1] + 2 * (qx * qz + qy * qw) * o[2];
-            double my = f[8] + 2 * (qx * qy + qz * qw) * o[0] + (1 - 2 * (qx * qx + qz * qz)) * o[1] + 2 * (qy * qz - qx * qw) * o[2];
-            double mz = f[9] + 2 * (qx * qz - qy * qw) * o[0] + 2 * (qy * qz + qx * qw) * o[1] + (1 - 2 * (qx * qx + qy * qy)) * o[2];
-            zs_view_part_preview(view, (int)fall_part, (float)f[0], (float)f[1], (float)f[2], (float)f[3], (float)f[4], (float)f[5],
-                                 (float)f[6], (float)mx, (float)my, (float)mz, 0);
+            std::copy(f, f + 10, fall_f);
+            fall_shown = true;
+            ShowPartPreview();
             RequestDraw();
             return;
         }
@@ -699,6 +695,7 @@ namespace winrt::ZSlice::implementation
         if (rc == 0)
         {
             // At rest: the new place, and one step of the history.
+            fall_gen = model->NoteEdit();
             model->RequestSlice();
             if (model->HistoryCommit())
                 RefreshHistoryButtons();
@@ -706,8 +703,9 @@ namespace winrt::ZSlice::implementation
         }
         else
         {
-            zs_view_part_preview(view, -1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0);
+            fall_shown = false;
         }
+        ShowPartPreview();
         RequestDraw();
     }
 
@@ -721,9 +719,10 @@ namespace winrt::ZSlice::implementation
             zs_app_fall_cancel(fall_app);
         fall_app = nullptr;
         falling = false;
+        fall_shown = false;
         if (view != nullptr)
         {
-            zs_view_part_preview(view, -1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0);
+            ShowPartPreview();
             RequestDraw();
         }
     }

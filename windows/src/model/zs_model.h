@@ -96,6 +96,7 @@ namespace zs
         // place of the drag the slice in the view has.
         void SliceNow();
         int64_t NoteEdit() { return ++edit_gen_; }
+        int64_t EditGen() const { return edit_gen_; }
         int64_t ShownGen() const { return shown_gen_; }
         double DraftMs() const { return draft_ms_; }
         double ExactMs() const { return exact_ms_; }

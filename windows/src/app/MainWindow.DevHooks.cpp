@@ -657,6 +657,21 @@ namespace winrt::ZSlice::implementation
             if (part >= 0 && zs_app_part_mirror(model->Active(), (size_t)part, _wtoi(words[0].c_str())) == ZS_OK)
                 PlateEdited();
         }
+        else if (verb == L"baselog")
+        {
+            double angle = 2 * std::acos(std::clamp(base_q[3], -1.0, 1.0)) * 180 / 3.14159265358979;
+            zs::Log("dev: base on %d press %d angle %.1f gen %lld shown %lld fall shown %d\n", base_on ? 1 : 0, press_on ? 1 : 0, angle, (long long)base_gen, (long long)model->ShownGen(),
+                    fall_shown ? 1 : 0);
+        }
+        else if (verb == L"twoturns" && words.size() >= 2)
+        {
+            // Two drags of the ring in one step: the slice of the first has
+            // not come when the second starts.
+            RunDialogStep(L"gizdrag", { words[0], words[1] });
+            RunDialogStep(L"baselog", {});
+            RunDialogStep(L"gizdrag", { words[0], words[1] });
+            RunDialogStep(L"baselog", {});
+        }
         else if (verb == L"manageopen")
         {
             printers->ShowManage();
