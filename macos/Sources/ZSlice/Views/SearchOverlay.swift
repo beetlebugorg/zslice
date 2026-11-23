@@ -161,6 +161,7 @@ final class SearchState {
 struct SearchToolbarItem: View {
     let workspace: Workspace
     @FocusState private var focused: Bool
+    @State private var hovering = false
 
     var body: some View {
         let search = workspace.search
@@ -169,6 +170,7 @@ struct SearchToolbarItem: View {
                 Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
                 TextField("Search settings and actions", text: Bindable(search).query)
                     .textFieldStyle(.plain)
+                    .focusEffectDisabled()
                     // In the center of the toolbar: it gives up its width
                     // before an item at the right cuts its label.
                     .frame(minWidth: 110, idealWidth: 260, maxWidth: 320)
@@ -180,22 +182,9 @@ struct SearchToolbarItem: View {
                         workspace.closeSearch()
                         return .handled
                     }
-                // The key of the search while it is closed; × closes the
-                // results that show.
-                if search.open {
-                    Button { workspace.closeSearch() } label: {
-                        Image(systemName: "xmark").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
-                    }
-                    .buttonStyle(.borderless)
-                    .help("Close the search (Esc)")
-                } else {
-                    Text("/")
-                        .font(.caption.monospaced())
-                        .foregroundStyle(.secondary)
-                        .padding(.horizontal, 5)
-                        .overlay(RoundedRectangle(cornerRadius: 3).strokeBorder(.separator))
-                        .help("Press / to search")
-                }
+                // The undock button shows only while the pointer is on the
+                // field or the search is open, so the field stays plain. It
+                // keeps its place, so the width of the field does not change.
                 Button {
                     search.docked = false
                     search.show()
@@ -204,11 +193,37 @@ struct SearchToolbarItem: View {
                 }
                 .buttonStyle(.borderless)
                 .help("Undock the search: a card over the view that you can move and size")
+                .opacity(hovering || search.open ? 1 : 0)
+                .allowsHitTesting(hovering || search.open)
+                // The key of the search while it is closed; × closes the
+                // results that show. One slot, so the text does not shift.
+                Group {
+                    if search.open {
+                        Button { workspace.closeSearch() } label: {
+                            Image(systemName: "xmark").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                        }
+                        .buttonStyle(.borderless)
+                        .help("Close the search (Esc)")
+                    } else {
+                        Text("/")
+                            .font(.callout)
+                            .foregroundStyle(.tertiary)
+                            .help("Press / to search")
+                    }
+                }
+                .frame(width: 14)
             }
             .padding(.horizontal, 8)
-            .padding(.vertical, 3)
-            .background(RoundedRectangle(cornerRadius: 6).fill(Color(nsColor: .controlBackgroundColor)))
-            .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(.separator))
+            .frame(height: 22)
+            // The same soft shape as the menus next to it. An open search
+            // shows as one accent line on that shape, with no second box.
+            .background(RoundedRectangle(cornerRadius: 7, style: .continuous).fill(Color.primary.opacity(search.open ? 0.02 : 0.05)))
+            .overlay(
+                RoundedRectangle(cornerRadius: 7, style: .continuous)
+                    .strokeBorder(search.open ? Color.accentColor.opacity(0.8) : Color.primary.opacity(0.08), lineWidth: search.open ? 1.5 : 1)
+            )
+            .contentShape(Rectangle())
+            .onHover { hovering = $0 }
             .help("Search the settings and the actions (/ or ⌘F)")
             .onGeometryChange(for: CGFloat.self) { $0.frame(in: .global).minX } action: { search.fieldMinX = $0 }
             .onChange(of: focused) { if focused { search.open = true } }
