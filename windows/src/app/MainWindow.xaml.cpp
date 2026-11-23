@@ -418,10 +418,12 @@ namespace winrt::ZSlice::implementation
         RefreshFilamentTools();
         size_t count = zs_app_layer_count(model->Active());
         bool at_top = layer_count == 0 || LayerSlider().Value() >= (double)layer_count;
+        ptrdiff_t frame_target = ZS_SEL_FRAME_NONE;
+        bool frame_now = sel != nullptr && zs_sel_frame_take(sel.get(), &frame_target) != 0;
         layer_count = count;
         setting_layer = true;
         LayerSlider().Maximum((double)std::max<size_t>(count, 1));
-        if (at_top || frame_next || LayerSlider().Value() > (double)count)
+        if (at_top || frame_now || LayerSlider().Value() > (double)count)
             LayerSlider().Value((double)std::max<size_t>(count, 1));
         setting_layer = false;
         size_t shown = (size_t)LayerSlider().Value();
@@ -432,11 +434,8 @@ namespace winrt::ZSlice::implementation
         if (count > 0)
             ApplyLayerRange();
         ShowLegend();
-        if (frame_next)
-        {
-            frame_next = false;
+        if (frame_now)
             zs_view_reset(view);
-        }
         ShowGaps();
         if (count > 0)
             ShowScrub(shown - 1, 1e12);
@@ -549,13 +548,13 @@ namespace winrt::ZSlice::implementation
         // A model onto a plate with parts is one more part: the plate keeps
         // its name, its view, and its history mark.
         bool adding = zs_app_part_count(model->Active()) > 0 && !zs_project_file_is(reinterpret_cast<uint8_t const *>(bytes.data()), bytes.size());
-        frame_next = !adding;
+        RequestFrame(adding ? ZS_SEL_FRAME_NONE : (ptrdiff_t)model->ActivePlate());
         // A new model has no layers of the old range.
         RangeClose();
         int rc = model->Load(name, bytes, message);
         if (rc != ZS_OK)
         {
-            frame_next = false;
+            RequestFrame(ZS_SEL_FRAME_NONE);
             ShowError(name + L": " + zs::ToWide(message));
             return;
         }

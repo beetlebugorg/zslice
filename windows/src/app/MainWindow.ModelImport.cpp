@@ -420,7 +420,7 @@ namespace winrt::ZSlice::implementation
                 ShowPlate();
             ProjectFileOpening(false, true);
             RangeClose();
-            frame_next = true;
+            RequestFrame((ptrdiff_t)model->ActivePlate());
             for (auto const &[name, bytes] : files)
             {
                 zs_app *app = model->Active();
@@ -455,7 +455,7 @@ namespace winrt::ZSlice::implementation
             }
             else
             {
-                frame_next = false;
+                RequestFrame(ZS_SEL_FRAME_NONE);
             }
         }
         zs::Log("shell: import: %zu of %zu files on %zd plates\n", loaded, total, plates);

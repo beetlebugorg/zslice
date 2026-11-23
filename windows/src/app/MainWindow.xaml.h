@@ -813,7 +813,6 @@ namespace winrt::ZSlice::implementation
         zs_view *view = nullptr;
         bool draw_queued = false;
         // The next slice is of a new file: frame it.
-        bool frame_next = false;
 
         Drag drag = Drag::None;
         double last_x = 0;
@@ -936,6 +935,7 @@ namespace winrt::ZSlice::implementation
         int64_t PrimaryPart() const;
         bool PartSelected(int64_t part) const;
         void SetSelectedParts(std::vector<int64_t> const &parts);
+        void RequestFrame(ptrdiff_t target);
         bool line_anchored = false;
         double anchor_x = 0, anchor_y = 0, anchor_z = 0;
         int anchor_feature = 0;

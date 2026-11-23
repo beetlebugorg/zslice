@@ -106,7 +106,15 @@ namespace winrt::ZSlice::implementation
 
     void MainWindow::SelectPlate(size_t index)
     {
-        if (model != nullptr && model->SelectPlate(index))
+        if (model == nullptr)
+            return;
+        SelSync();
+        if (sel != nullptr)
+            zs_sel_plate_request(sel.get(), index);
+        bool moved = model->SelectPlate(index);
+        // The sync ends the request, and a new plate drops the focus.
+        SelSync();
+        if (moved)
             ShowPlate();
     }
 
