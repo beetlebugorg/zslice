@@ -1352,6 +1352,26 @@ final class Workspace {
                         self.model.settingsChanged()
                         self.readSelectedParts()
                         NSLog("zslice clip selkeep: same %d, index %ld", self.selectedIDs.last == id ? 1 : 0, self.selectedPart ?? -1)
+                    case "selundo":
+                        // Undo and redo of a delete keep the selected part.
+                        self.selectOnlyPart(1)
+                        let id = self.selectedIDs.last
+                        self.model.history.commit()
+                        let read = { () async -> String in
+                            try? await Task.sleep(for: .seconds(0.8))
+                            self.model.syncSelection()
+                            self.readSelectedParts()
+                            return "\(self.selectedIDs.last == id ? "same" : "other") \(self.selectedPart ?? -1)"
+                        }
+                        zs_app_part_remove(self.model.core, 0)
+                        self.model.settingsChanged()
+                        self.model.history.commit()
+                        let deleted = await read()
+                        self.model.history.undoManager.undo()
+                        let undone = await read()
+                        self.model.history.undoManager.redo()
+                        let redone = await read()
+                        NSLog("zslice clip selundo: delete %@, undo %@, redo %@", deleted, undone, redone)
                     case "seq": self.model.set("project.print_sequence", "by_object")
                     case "later":
                         self.reorderPart(0, by: 1)
@@ -1682,7 +1702,12 @@ final class Workspace {
     /// Moves the camera to plate i (-1: all plates).
     func framePlate(_ i: Int) {
         guard let v = canvas.view else { return }
-        zs_view_frame_plate(v, i < 0 ? -1 : i)
+        zs_sel_frame_request(model.sel, i < 0 ? Int(ZS_SEL_FRAME_ALL) : i)
+        model.syncSelection()
+        // A plate that is not active yet waits for its plate.
+        var target = 0
+        guard zs_sel_frame_take(model.sel, &target) != 0 else { return }
+        zs_view_frame_plate(v, target < 0 ? -1 : target)
         canvas.startAnimation()
     }
 

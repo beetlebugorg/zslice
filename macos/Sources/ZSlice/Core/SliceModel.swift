@@ -240,6 +240,7 @@ final class SliceModel {
         guard i != active, i >= 0, i < plates.count else { return }
         settle()
         history.commit()
+        zs_sel_plate_request(sel, i)
         zs_set_select(set, i)
         readPlates()
         readActive()
