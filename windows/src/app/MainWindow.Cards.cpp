@@ -35,6 +35,8 @@ namespace
 
 namespace winrt::ZSlice::implementation
 {
+    Media::Brush TokenBrush(FrameworkElement const &element, wchar_t const *key);
+
     void MainWindow::WireCards()
     {
         LineClose().Click([this](auto &&, auto &&) { ClearSelection(); });
@@ -558,6 +560,7 @@ namespace winrt::ZSlice::implementation
         std::wstring limits = info.nozzle >= 2 && info.nozzle_text != nullptr ? zs::ToWide(info.nozzle_text) : L"";
         LineNozzle().Text(limits);
         LineNozzle().Visibility(limits.empty() ? Visibility::Collapsed : Visibility::Visible);
+        FillLineNotes(info);
 
         zs_measure m{};
         size_t segment = SelectedSegment() < 0 ? 0 : (size_t)SelectedSegment();
@@ -622,6 +625,75 @@ namespace winrt::ZSlice::implementation
         PartCard().Visibility(Visibility::Collapsed);
         LineCard().Visibility(Visibility::Visible);
         PlaceLineCard();
+    }
+
+    // What a support line holds up, and the warnings of the check at this
+    // line, as the Mac and web cards show them. Only a check that has run:
+    // the check of a whole slice can take too long for a click.
+    void MainWindow::FillLineNotes(zs_inspect const &info)
+    {
+        static wchar_t const *const names[ZS_FEATURE_COUNT] = { L"outer wall", L"inner wall", L"skin", L"sparse infill", L"ironing", L"skirt or brim",
+                                                                L"support", L"support interface", L"slope smoothing", L"slope ironing", L"bridge" };
+        auto box = LineNotes();
+        box.Children().Clear();
+        auto add = [&](std::wstring const &words, bool warn) {
+            TextBlock note;
+            note.Text(words);
+            note.FontSize(12);
+            note.TextWrapping(TextWrapping::WrapWholeWords);
+            note.Foreground(TokenBrush(Root(), warn ? L"ZsWarning" : L"ZsDim"));
+            box.Children().Append(note);
+        };
+        if (info.holds_layer != ZS_NO_PATH)
+        {
+            std::wstring what = info.holds_feature >= 0 && info.holds_feature < ZS_FEATURE_COUNT ? names[info.holds_feature] : L"part";
+            size_t up = info.holds_layer - info.layer;
+            add(L"Holds up: " + what + L" on layer " + std::to_wstring(info.holds_layer + 1) + L", " + std::to_wstring(up) + (up == 1 ? L" layer up." : L" layers up."), false);
+        }
+        else if (info.feature == ZS_FEATURE_SUPPORT || info.feature == ZS_FEATURE_SUPPORT_INTERFACE)
+        {
+            add(L"Holds up: no part line over it on the next layers.", false);
+        }
+        zs_app *app = model->Active();
+        zs_issue const *issues = nullptr;
+        size_t n = 0;
+        char const *words = nullptr;
+        zs_toolpaths tp{};
+        if (zs_app_checks_ready(app) != 0 && zs_app_checks(app, &issues, &n, &words) == ZS_OK && zs_app_toolpaths(app, &tp) == ZS_OK && info.path < tp.path_count)
+        {
+            uint32_t start = info.path == 0 ? 0 : tp.path_ends[info.path - 1], end = tp.path_ends[info.path];
+            uint32_t seen = 0;
+            int kinds = 0;
+            for (size_t i = 0; i < n && kinds < 2; i++)
+            {
+                zs_issue const &issue = issues[i];
+                bool wanted = issue.kind == ZS_ISSUE_FLOW || issue.kind == ZS_ISSUE_COOLING || issue.kind == ZS_ISSUE_OVERHANG || issue.kind == ZS_ISSUE_ISLAND ||
+                              issue.kind == ZS_ISSUE_BRIDGE;
+                if (issue.severity < 1 || !wanted || issue.layer != info.layer || (seen & (1u << issue.kind)) != 0)
+                    continue;
+                // Its own issue, or one within 3 mm of the line.
+                bool hit = issue.path == info.path;
+                for (uint32_t k = start; k < end && !hit; k++)
+                    hit = std::hypot(tp.points[2 * k] - issue.x, tp.points[2 * k + 1] - issue.y) <= 3;
+                if (!hit)
+                    continue;
+                seen |= 1u << issue.kind;
+                kinds++;
+                add(L"⚠ " + zs::ToWide(std::string(words + issue.text_start, issue.text_len)), true);
+            }
+        }
+        box.Visibility(box.Children().Size() > 0 ? Visibility::Visible : Visibility::Collapsed);
+    }
+
+    // The check of the slice is ready: only the notes change, so an editor
+    // of the card keeps its focus.
+    void MainWindow::RefreshLineNotes()
+    {
+        if (model == nullptr || SelectedPath() < 0 || LineCard().Visibility() != Visibility::Visible)
+            return;
+        zs_inspect info{};
+        if (zs_app_inspect(model->Active(), (size_t)SelectedPath(), &info) == ZS_OK)
+            FillLineNotes(info);
     }
 
     void MainWindow::FillPartCard()

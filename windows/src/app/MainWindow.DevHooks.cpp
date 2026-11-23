@@ -725,6 +725,46 @@ namespace winrt::ZSlice::implementation
             if (!done)
                 zs::Log("dev: %s found no line\n", zs::ToUtf8(verb).c_str());
         }
+        else if (verb == L"notelog")
+        {
+            std::string all;
+            for (auto const &child : LineNotes().Children())
+                all += zs::ToUtf8(std::wstring(child.as<Microsoft::UI::Xaml::Controls::TextBlock>().Text())) + " | ";
+            zs::Log("dev: notes path %lld ready %d: %s\n", (long long)SelectedPath(), zs_app_checks_ready(model->Active()), all.c_str());
+        }
+        else if (verb == L"noteissue")
+        {
+            // The first warning of the check that names a line.
+            zs_issue const *issues = nullptr;
+            size_t n = 0;
+            char const *text = nullptr;
+            bool found = false;
+            if (zs_app_checks(model->Active(), &issues, &n, &text) == ZS_OK)
+                for (size_t i = 0; i < n && !found; i++)
+                    if (issues[i].severity >= 1)
+                    {
+                        size_t at = issues[i].path != ZS_NO_PATH ? issues[i].path : zs_app_pick_layer(model->Active(), issues[i].layer, issues[i].x, issues[i].y);
+                        zs::Log("dev: note issue kind %d layer %u path %zu\n", (int)issues[i].kind, issues[i].layer + 1, at);
+                        if (at == (size_t)-1)
+                            continue;
+                        SelectLine((int64_t)at, -1);
+                        found = true;
+                    }
+            zs::Log("dev: note issue %d of %zu\n", found ? 1 : 0, n);
+        }
+        else if (verb == L"notesupport")
+        {
+            zs_toolpaths tp{};
+            bool found = false;
+            if (zs_app_toolpaths(model->Active(), &tp) == ZS_OK)
+                for (size_t i = 0; i < tp.path_count && !found; i++)
+                    if (tp.path_features[i] == ZS_FEATURE_SUPPORT)
+                    {
+                        SelectLine((int64_t)i, -1);
+                        found = true;
+                    }
+            zs::Log("dev: note support %d\n", found ? 1 : 0);
+        }
         else if (verb == L"manageopen")
         {
             printers->ShowManage();

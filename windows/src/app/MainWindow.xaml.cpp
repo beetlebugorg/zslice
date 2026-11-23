@@ -352,6 +352,11 @@ namespace winrt::ZSlice::implementation
         case ZS_EVENT_SIMULATED:
             OnSimulated();
             break;
+        case ZS_EVENT_CHECKED:
+            // The check ran after the slice: its count and its notes.
+            RefreshSummary();
+            RefreshLineNotes();
+            break;
         case ZS_EVENT_FAILED:
             if (zs_app_state(model->Active()) == ZS_STATE_FAILED)
             {
