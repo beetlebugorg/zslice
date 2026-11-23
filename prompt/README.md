@@ -1,6 +1,6 @@
 # A prompt that could build zslice
 
-Describes: main at commit `2b5530e7` ("Count a tool line past the last nozzle on a USB Stop"), 2026-11-23.
+Describes: main at commit `8114e228` ("Read heater words with no space on a USB Stop in GTK"), 2026-11-23.
 
 ## Read this first
 

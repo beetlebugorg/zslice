@@ -54,3 +54,4 @@ One line for each update: the date, the commit that the folder describes, and th
 | 2026-11-23 | `8152a96a` | README, CHANGELOG, 11: the Mac test build links the current SDK, so a UI check shows the release look. |
 | 2026-11-23 | `10392b44` | README, CHANGELOG: Stop on USB in GTK turns off each nozzle with `M104 T<n> S0`. |
 | 2026-11-23 | `d38ca557` | README, CHANGELOG: Stop on USB in GTK counts T10 to T15 and the T word of M104 and M109. |
+| 2026-11-23 | `8114e228` | README, CHANGELOG: Stop on USB in GTK reads heater words with no space. |
