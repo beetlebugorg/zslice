@@ -169,6 +169,14 @@ namespace winrt::ZSlice::implementation
         void ShowSection(char const *group, char const *section);
         void ShowSpeedSection();
         // The layer profiles (MainWindow.Profiles.cpp).
+        // Import from a model page or a ZIP file (MainWindow.ModelImport.cpp).
+        struct ImportState;
+        std::shared_ptr<ImportState> import_state;
+        static bool IsZipName(std::wstring const &name);
+        winrt::fire_and_forget AskImport(std::wstring text, bool from_link = false);
+        winrt::fire_and_forget ImportZip(std::wstring name, std::shared_ptr<std::string> bytes);
+        void RunImport(std::shared_ptr<ImportState> state);
+        void FinishImport(std::vector<std::pair<std::wstring, std::string>> const &files, std::wstring errors, size_t total);
         void WireProfiles();
         // "Settings for" (MainWindow.Scope.cpp).
         void WireScope();
@@ -305,6 +313,7 @@ namespace winrt::ZSlice::implementation
         bool RunRangeStep(std::wstring const &verb, std::vector<std::wstring> const &words);
         bool RunProfileStep(std::wstring const &verb, std::vector<std::wstring> const &words);
         bool RunScopeStep(std::wstring const &verb, std::vector<std::wstring> const &words);
+        bool RunModelImportStep(std::wstring const &verb, std::vector<std::wstring> const &words);
         Microsoft::UI::Xaml::UIElement RangeDevRoot();
 #endif
 

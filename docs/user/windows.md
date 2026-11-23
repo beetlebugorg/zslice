@@ -8,6 +8,8 @@ Press **Open** or Ctrl+O and pick an STL, 3MF, STEP, or OBJ file. You can also d
 
 The app adds itself to **Open with** for these file types. To make it the default, pick it in the Windows Default Apps settings. A file that you open from Explorer goes to the open window. It opens on a new plate if the current plate has parts.
 
+**Import from a model page…** (in the search, and in the menu of the bed) takes the address of a model on Printables or Thingiverse. zslice says how to get the files, and **Open the page** opens the page in your browser. zslice calls no API of the site. Click **Download all** there, then open the ZIP file in zslice or drop it on the window. A list shows its files. Check the ones you want and press **Load**. The parts go on a new plate if this plate has parts, and the parts that do not fit go on more plates. An import never starts a print.
+
 A model site can link to the app with `zslice://open?file=` and the address of the file. The app shows the file name and the site, and asks before it downloads. It takes https addresses of public sites, up to 512 MB. A link never opens a zslice project, and it never starts a print.
 
 ## Look at the slice

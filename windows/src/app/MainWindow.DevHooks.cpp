@@ -92,6 +92,7 @@
 // profclear name, profrename text, profdelete, profdone, profmark i, proflog.
 |1, prefsimulate 0|1.
 // A part that does not fit: fitlog, fitexport, fitissue.
+// Import: miask [text], migo, mizip path, micheck i 0|1, miok, micancel, milog.
 // Settings for: scopeset n, scopeedit name value, scopereset name, scopelog name.
 // The print order of the part card: orderlog.
 // Two nozzles: nozzleset i n, partfilament i k, settingspane 0|1, nozzlelog.
@@ -958,7 +959,7 @@ namespace winrt::ZSlice::implementation
             SelectPlate((size_t)number(0));
         }
         else if (!RunPaintStep(verb, words) && !RunLabelStep(verb, words) && !RunFilamentStep(verb, words) &&
-                 !RunPreferencesStep(verb, words) && !RunProjectStep(verb, words) && !RunRangeStep(verb, words) && !RunProfileStep(verb, words) && !RunScopeStep(verb, words) && verb != L"log")
+                 !RunPreferencesStep(verb, words) && !RunProjectStep(verb, words) && !RunRangeStep(verb, words) && !RunProfileStep(verb, words) && !RunScopeStep(verb, words) && !RunModelImportStep(verb, words) && verb != L"log")
         {
             zs::Log("dev: a bad step: %s\n", zs::ToUtf8(step).c_str());
         }

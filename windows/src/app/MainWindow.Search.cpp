@@ -1101,6 +1101,7 @@ namespace winrt::ZSlice::implementation
         std::vector<SearchAction> out;
         out.push_back({ L"Open a model…", L"Ctrl+O", L"", [this] { PickFile(); } });
         out.push_back({ L"Add models to the plate…", L"", L"", [this] { PickFile(); } });
+        out.push_back({ L"Import from a model page…", L"", L"Printables or Thingiverse: choose the files to load", [this] { AskImport({}); } });
         out.push_back({ L"Export G-code…", L"Ctrl+E", L"", with_printers([](PrintersUi &p) { p.ExportGcode(); }) });
         out.push_back({ L"Save the project…", L"Ctrl+S", L"all plates in one 3MF file", with_printers([](PrintersUi &p) { p.SaveProject(); }) });
         out.push_back({ L"Upload to the printer", L"", L"send the G-code to the printer, and do not start it", with_printers([](PrintersUi &p) { p.PrimaryAction(); }) });
