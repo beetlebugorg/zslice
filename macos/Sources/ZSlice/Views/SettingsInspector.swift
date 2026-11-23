@@ -190,14 +190,10 @@ struct LineSettings: View {
 
     var body: some View {
         let info = workspace.lineInfo
+        ScrollViewReader { scroller in
         List {
             if let info {
                 Text("\(info.title) · layer \(info.layer + 1)").font(.headline)
-                Section("How these values come about") {
-                    why(String(format: "Planned speed %.0f mm/s", info.plannedSpeed), info.whyPlanned)
-                    why(String(format: "Real speed %.0f mm/s", info.speed), info.whyReal)
-                    why(String(format: "Flow %.1f mm³/s", info.flow), info.whyFlow)
-                }
                 ForEach(sections(info.settings), id: \.title) { sec in
                     Section(sec.title) {
                         ForEach(sec.names.compactMap { SettingInfo.byName[$0] }) { s in
@@ -205,11 +201,32 @@ struct LineSettings: View {
                         }
                     }
                 }
+                // At the foot of the page: the line card does not show this.
+                Section("How these values come about") {
+                    why(String(format: "Planned speed %.0f mm/s", info.plannedSpeed), info.whyPlanned)
+                    why(String(format: "Real speed %.0f mm/s", info.speed), info.whyReal)
+                    why(String(format: "Flow %.1f mm³/s", info.flow), info.whyFlow)
+                    why("Slower than planned", info.slowText)
+                    if info.flowLimited, info.maxFlow > 0 {
+                        why("Flow limit", String(format: "The flow limit (%.0f mm³/s) sets the speed of this line, not the printer.", info.maxFlow))
+                    }
+                    ForEach(info.picks, id: \.name) { p in
+                        why(SettingInfo.byName[p.name]?.label ?? p.name, p.why)
+                    }
+                }
+                .id("why")
             } else {
                 Text("Click a line in the view to see the settings that change it.").foregroundStyle(.secondary)
             }
         }
         .navigationTitle("Selected Line")
+        // ZSLICE_LINE_PAGE=foot: the page opens at its foot, for a test.
+        .task {
+            guard ProcessInfo.processInfo.environment["ZSLICE_LINE_PAGE"] == "foot" else { return }
+            try? await Task.sleep(for: .milliseconds(300))
+            scroller.scrollTo("why", anchor: .top)
+        }
+        }
     }
 
     /// A text of the core with {{name}} marks as links to the settings.
