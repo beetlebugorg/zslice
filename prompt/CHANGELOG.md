@@ -23,3 +23,4 @@ One line for each update: the date, the commit that the folder describes, and th
 | 2026-11-23 | `9a9626c9` | README, CHANGELOG, 12: Windows keeps printer keys and app.ini after a failed read, one Bambu Lab connection per address with a shared wait, and the pairing fixes (by the Windows session). |
 | 2026-11-23 | `84d6c910` | README, CHANGELOG, 12: Windows forgets a key for good, asks before a key goes to a new address, and fixes plate, card, and filament data safety (by the Windows session). |
 | 2026-11-23 | `61d2765c` | README, CHANGELOG, 12: Windows window keys and main menu, the shortcuts sheet filter, and the printer picker and alert gaps (by the Windows session). |
+| 2026-11-23 | `60308c2e` | README, CHANGELOG, 07, 08, 09, 10: one selection and focus model in the core (`zs_sel_*`), stable part ids, the generation rule, the pick in the core, and the web app on the model. |
