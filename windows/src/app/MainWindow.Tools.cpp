@@ -1248,15 +1248,34 @@ namespace winrt::ZSlice::implementation
             if (closest == (size_t)-1)
             {
                 SetSelectedLine(-1, -1);
-                line_placed = true;
-                line_lost = true;
                 HideCards();
+#ifdef ZS_DEV_HOOKS
+                zs::Log("dev: line gone, draft %d held %d\n", zs_app_is_draft(app), SliderHeld() ? 1 : 0);
+#endif
+                // A draft can miss a line that the exact slice makes again,
+                // and the next value of a held slider can bring it back. The
+                // page stays until the exact slice and the release.
+                if (zs_app_is_draft(app) != 0 || SliderHeld())
+                {
+                    line_placed = true;
+                    line_lost = true;
+                    return;
+                }
+                ClearMoreLines();
                 return;
             }
             // Another key: the line closest the old place. The place stays, so
             // a line does not drift from slice to slice.
             SetSelectedLine((int64_t)closest, -1);
             RestoreLineSegment((int64_t)closest);
+            FillLineCard();
+            return;
+        }
+        // The line came back: the selection has no key to find it by.
+        if (path < 0)
+        {
+            SetSelectedLine((int64_t)found, -1);
+            RestoreLineSegment(found);
             FillLineCard();
             return;
         }
@@ -1270,6 +1289,23 @@ namespace winrt::ZSlice::implementation
         zs_sel_line_found(sel.get(), found, segments);
         RestoreLineSegment(found);
         FillLineCard();
+    }
+
+    bool MainWindow::SliderHeld() const
+    {
+        auto held = slider_hold.lock();
+        return held != nullptr && *held;
+    }
+
+    // A slider was let go: a line that it removed comes back or ends now,
+    // or at the exact slice when one is on its way.
+    void MainWindow::ResolveLostLine()
+    {
+        if (!line_lost || model == nullptr)
+            return;
+        FindSelectedLine();
+        if (!line_lost)
+            ApplySelection();
     }
 
     // A draft can miss the key of the line. When the exact slice makes the

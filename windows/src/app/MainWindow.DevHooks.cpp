@@ -106,6 +106,7 @@
 #include "pch.h"
 #include "MainWindow.xaml.h"
 #include "MainWindow.Printers.h"
+#include <array>
 
 #ifdef ZS_DEV_HOOKS
 
@@ -265,6 +266,85 @@ namespace winrt::ZSlice::implementation
     // compiler for one chain of else-if.
     bool MainWindow::RunDialogStep(std::wstring const &verb, std::vector<std::wstring> const &words)
     {
+        if (verb == L"pickfeature" && !words.empty())
+        {
+            // The first line of a feature.
+            zs_toolpaths tp{};
+            int feature = _wtoi(words[0].c_str());
+            bool found = false;
+            if (zs_app_toolpaths(model->Active(), &tp) == ZS_OK)
+                for (size_t i = 0; i < tp.path_count && !found; i++)
+                    if (tp.path_features[i] == feature)
+                    {
+                        SelectLine((int64_t)i, -1);
+                        found = true;
+                    }
+            zs::Log("dev: pick feature %d found %d path %lld\n", feature, found ? 1 : 0, (long long)SelectedPath());
+            return true;
+        }
+        if (verb == L"holdslider" && !words.empty())
+        {
+            // A slider held (1) or let go (0), with no pointer.
+            static std::shared_ptr<bool> hold = std::make_shared<bool>(false);
+            *hold = words[0] == L"1";
+            slider_hold = hold;
+            if (!*hold)
+                ResolveLostLine();
+            zs::Log("dev: slider held %d\n", SliderHeld() ? 1 : 0);
+            return true;
+        }
+        if (verb == L"cardrect")
+        {
+            auto rect = [](Microsoft::UI::Xaml::FrameworkElement const &e) {
+                return std::array<double, 4>{ Microsoft::UI::Xaml::Controls::Canvas::GetLeft(e), Microsoft::UI::Xaml::Controls::Canvas::GetTop(e), e.ActualWidth(), e.ActualHeight() };
+            };
+            auto a = rect(LineCard());
+            double pane_left = CardLayer().ActualWidth() - SettingsPane().Width();
+            zs::Log("dev: card x %.0f y %.0f w %.0f h %.0f right %.0f, layer %.0f x %.0f, mode %d pane left %.0f, clear %d\n", a[0], a[1], a[2], a[3], a[0] + a[2], CardLayer().ActualWidth(),
+                    CardLayer().ActualHeight(), (int)panel_mode, pane_left, panel_mode != PanelMode::Over || a[0] + a[2] <= pane_left ? 1 : 0);
+            return true;
+        }
+        if (verb == L"cutlog")
+        {
+            // Each visible text with an ellipsis, or wider than its box.
+            using Tree = Microsoft::UI::Xaml::Media::VisualTreeHelper;
+            using Node = Microsoft::UI::Xaml::DependencyObject;
+            using Block = Microsoft::UI::Xaml::Controls::TextBlock;
+            int seen = 0, trimmed = 0, clipped = 0;
+            std::function<void(Node const &)> walk = [&](Node const &node) {
+                if (auto e = node.try_as<Microsoft::UI::Xaml::UIElement>(); e != nullptr && e.Visibility() == Microsoft::UI::Xaml::Visibility::Collapsed)
+                    return;
+                if (auto text = node.try_as<Block>(); text != nullptr && !text.Text().empty() && text.ActualWidth() > 0)
+                {
+                    seen++;
+                    bool cut = text.IsTextTrimmed();
+                    bool wide = false;
+                    if (text.TextWrapping() == Microsoft::UI::Xaml::TextWrapping::NoWrap)
+                    {
+                        Block probe;
+                        probe.Text(text.Text());
+                        probe.FontSize(text.FontSize());
+                        probe.FontWeight(text.FontWeight());
+                        probe.FontFamily(text.FontFamily());
+                        probe.Measure({ 100000.f, 100000.f });
+                        wide = probe.DesiredSize().Width > text.ActualWidth() + 1;
+                    }
+                    trimmed += cut ? 1 : 0;
+                    clipped += wide ? 1 : 0;
+                    if ((cut || wide) && trimmed + clipped <= 16)
+                        zs::Log("dev: cut %s width %.0f: %s\n", cut ? "ellipsis" : "clip", text.ActualWidth(), zs::ToUtf8(std::wstring(text.Text())).substr(0, 60).c_str());
+                }
+                int count = Tree::GetChildrenCount(node);
+                for (int i = 0; i < count; i++)
+                    walk(Tree::GetChild(node, i));
+            };
+            walk(Root());
+            for (auto const &popup : Tree::GetOpenPopupsForXamlRoot(Root().XamlRoot()))
+                if (popup.Child() != nullptr)
+                    walk(popup.Child());
+            zs::Log("dev: cutlog %s: %d texts, %d with an ellipsis, %d clipped\n", words.empty() ? "" : zs::ToUtf8(words[0]).c_str(), seen, trimmed, clipped);
+            return true;
+        }
         if (verb == L"camrtsp" && printers != nullptr)
         {
             // The large camera, on the stub of net_link --rtsp-stub. It has

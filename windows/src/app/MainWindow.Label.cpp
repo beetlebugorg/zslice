@@ -2668,10 +2668,13 @@ namespace winrt::ZSlice::implementation
         label->Reload();
     }
 
-    void MainWindow::LabelPlace()
+    void MainWindow::LabelPlace(bool force)
     {
-        if (label != nullptr && label->on && label->sel >= 0)
-            label->Place();
+        if (label == nullptr || !label->on || label->sel < 0)
+            return;
+        if (force)
+            label->has_last_box = false;
+        label->Place();
     }
 
     void MainWindow::LabelOpen(int64_t part, uint32_t id)

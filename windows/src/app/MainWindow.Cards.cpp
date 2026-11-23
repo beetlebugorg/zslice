@@ -338,22 +338,25 @@ namespace winrt::ZSlice::implementation
     // Beside the box (points of the view), inside the view, and off it.
     void MainWindow::PlaceCard(FrameworkElement const &card, double const box[4])
     {
+        double const margin = 10;
+        double left = 60; // the tool strip
+        double right = CardLayer().ActualWidth() - margin;
+        // The panel over the view covers the right of it, with the rail. Its
+        // width is set before it shows.
+        if (panel_mode == PanelMode::Over)
+            right -= SettingsPane().Width();
+        else if (LayerCard().Visibility() == Visibility::Visible)
+            right -= LayerCard().ActualWidth() + 16;
+        // A narrow free area: the card wraps, and stays off the panel.
+        card.MaxWidth(std::max(240.0, right - left));
         card.UpdateLayout();
         double w = card.ActualWidth(), h = card.ActualHeight();
         if (w <= 0 || h <= 0)
         {
-            card.Measure({ 10000, 10000 });
+            card.Measure({ (float)card.MaxWidth(), 10000 });
             w = card.DesiredSize().Width;
             h = card.DesiredSize().Height;
         }
-        double const margin = 10;
-        double left = 60; // the tool strip
-        double right = CardLayer().ActualWidth() - margin;
-        // The panel over the view covers the right of it, with the rail.
-        if (panel_mode == PanelMode::Over)
-            right -= SettingsPane().ActualWidth();
-        else if (LayerCard().Visibility() == Visibility::Visible)
-            right -= LayerCard().ActualWidth() + 16;
         double top = margin;
         double bottom = CardLayer().ActualHeight() - 66; // the plate bar
         double x, y;
@@ -385,8 +388,21 @@ namespace winrt::ZSlice::implementation
             x = (box[0] + box[2]) / 2 > (left + right) / 2 ? left : right - w;
             y = top;
         }
-        Canvas::SetLeft(card, x);
-        Canvas::SetTop(card, y);
+        Canvas::SetLeft(card, std::clamp(x, left, std::max(left, right - w)));
+        Canvas::SetTop(card, std::clamp(y, top, std::max(top, bottom - h)));
+    }
+
+    // The panel opened, closed, or changed: each open card moves clear of
+    // it, unless the user placed the card.
+    void MainWindow::PlaceOpenCards()
+    {
+        PlaceLineCard();
+        PlacePartCard();
+        std::fill(std::begin(measure_box), std::end(measure_box), 0.0);
+        if (MeasureCard().Visibility() == Visibility::Visible)
+            PlaceMeasure();
+        LabelPlace(true);
+        RangePlace(true);
     }
 
     void MainWindow::PlaceLineCard()

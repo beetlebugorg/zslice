@@ -901,11 +901,15 @@ namespace winrt::ZSlice::implementation
                     search_timer.Start();
                 }
             });
-            slider.AddHandler(UIElement::PointerPressedEvent(), box_value(Input::PointerEventHandler([held](auto &&, auto &&) { *held = true; })), true);
+            slider.AddHandler(UIElement::PointerPressedEvent(), box_value(Input::PointerEventHandler([this, held](auto &&, auto &&) {
+                *held = true;
+                slider_hold = held;
+            })), true);
             auto let_go = [this, held, fill](auto &&, auto &&) mutable {
                 *held = false;
                 FlushSearchDrag();
                 fill();
+                ResolveLostLine();
             };
             slider.AddHandler(UIElement::PointerReleasedEvent(), box_value(Input::PointerEventHandler(let_go)), true);
             slider.AddHandler(UIElement::PointerCaptureLostEvent(), box_value(Input::PointerEventHandler(let_go)), true);

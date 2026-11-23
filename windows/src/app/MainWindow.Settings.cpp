@@ -310,6 +310,7 @@ namespace winrt::ZSlice::implementation
         if (shown)
             RefreshSettingValues();
         ApplyPaneFocus();
+        PlaceOpenCards();
     }
 
     // Over the view: 460 points, or less in a narrow window. Pinned: the
@@ -2000,7 +2001,10 @@ namespace winrt::ZSlice::implementation
             if (model != nullptr && model->HistoryFocus(nullptr))
                 RefreshHistoryButtons();
         });
-        slider.AddHandler(UIElement::PointerPressedEvent(), box_value(Input::PointerEventHandler([held](auto &&, auto &&) { *held = true; })), true);
+        slider.AddHandler(UIElement::PointerPressedEvent(), box_value(Input::PointerEventHandler([this, held](auto &&, auto &&) {
+            *held = true;
+            slider_hold = held;
+        })), true);
         auto let_go = [this, field, held, copy, target](auto &&, auto &&) {
             *held = false;
             if (field->live.IsRunning())
@@ -2008,6 +2012,7 @@ namespace winrt::ZSlice::implementation
                 field->live.Stop();
                 CommitSettingText(copy, std::wstring(field->box.Text()), target.get(), field.get(), true);
             }
+            ResolveLostLine();
         };
         slider.AddHandler(UIElement::PointerReleasedEvent(), box_value(Input::PointerEventHandler(let_go)), true);
         slider.AddHandler(UIElement::PointerCaptureLostEvent(), box_value(Input::PointerEventHandler(let_go)), true);
