@@ -125,6 +125,8 @@ With the Select tool, press on a line and drag up or down. The body of that line
 
 A card opens beside the layers. It has the filament of the layers and the settings that can change for some layers. **+ Add a setting for these layers** searches the others. A change is for these layers only and slices at once, and ↺ removes it. With a lit body, the row **This part of the layers** gives that body its own filament. Each other row then has a switch, **This part** or **Whole layers**. A change for this part stays inside the lit body. A setting that a part cannot have stays for the whole layers, and a line under its row says why. Esc, ×, a click elsewhere, or another tool closes the card.
 
+With a lit body, **+ Add a setting for these layers** says what each result changes. Its **Filament** result has chips for the whole layers and chips for this part of them.
+
 The card of a selected line has a **Filament** row. A chip gives the body of that line its own filament on its layer. **Also the layers above** and **Also the layers below** then give the same filament to the layers where the body goes on.
 
 A line at a support mark that you added shows **Support you added** on its card: the kind, the radius, and **Remove**.
@@ -167,7 +169,7 @@ With the Support tool, the keys work on the selected area. A paste needs the poi
 
 ## The 2D view
 
-Press 2, or choose **2D view** in the main menu, to see the top layer from above. Press 2 again or 3 to go back. A drag pans the layer, the wheel or a pinch zooms it, and a double click fits it. A click selects a line. A tool other than Select goes back to the 3D view.
+Press 2, or choose **2D view** in the main menu, to see the top layer from above. Press 2 again or 3 to go back. A drag pans the layer, the wheel or a pinch zooms it, and a double click fits it. A click selects a line. The tape (T) works here too, and shows its distance beside the tape. The gaps view shows the gaps of the layer in red. Another tool goes back to the 3D view.
 
 ## Set up a printer
 

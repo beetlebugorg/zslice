@@ -133,6 +133,8 @@ namespace winrt::ZSlice::implementation
         std::map<std::string, std::string> region_values;
         std::vector<Row> rows;
         std::shared_ptr<EditorTarget> target;
+        // The chips of the lit body in the search of these layers.
+        std::function<void()> body_search_fill;
 
         bool open = false;
         bool moved = false;
@@ -587,6 +589,7 @@ namespace winrt::ZSlice::implementation
             body_row.Visibility(Visibility::Collapsed);
 
             target = std::make_shared<EditorTarget>();
+            target->no_hint = true;
             target->get = [this](std::string const &name) { return EditValue(name); };
             target->set = [this](std::string const &name, std::string const &value) { EditSet(name, value); };
         }
@@ -688,7 +691,10 @@ namespace winrt::ZSlice::implementation
                 for (size_t i = before; i < w.setting_editors.size(); i++)
                     row.editors.push_back(std::move(w.setting_editors[i]));
                 w.setting_editors.resize(before);
-                if (info.kind == ZS_SETTING_NUMBER || info.kind == ZS_SETTING_INTEGER)
+                if (IsFilamentSetting(info.name))
+                {
+                }
+                else if (info.kind == ZS_SETTING_NUMBER || info.kind == ZS_SETTING_INTEGER)
                 {
                     // The units have one width, so the entries line up.
                     auto with_unit = editor.try_as<Grid>();
@@ -751,6 +757,8 @@ namespace winrt::ZSlice::implementation
                 return;
             zs_app *app = w.model->Active();
             ReadRegion();
+            if (body_search_fill)
+                body_search_fill();
             int filament = std::max(atoi(ValueAt(z0, "project.filament").c_str()), 1);
             for (auto &row : rows)
             {
@@ -893,6 +901,38 @@ namespace winrt::ZSlice::implementation
                 }
                 EditSet(name, value);
             };
+            // With a lit body: what each row changes. The filament row has
+            // chips for the whole layers and for this part of them.
+            scope->decorate = [this](zs_setting_info const &info, StackPanel const &label) {
+                if (!open || !BodyLit())
+                    return;
+                if (strcmp(info.name, "project.filament") == 0)
+                {
+                    label.Children().Append(SmallText(L"Whole layers: the chips at the right"));
+                    StackPanel sub;
+                    sub.Spacing(2);
+                    sub.Children().Append(SmallText(L"This part of the layers:"));
+                    auto chips = MakeChipPanel();
+                    chips.HorizontalAlignment(HorizontalAlignment::Left);
+                    auto key = std::make_shared<std::string>();
+                    body_search_fill = [this, chips, key] {
+                        w.FillFilamentChips(chips, *key, body_value, L"This part of the layers", [this](int k) {
+                            if (PaintBody(k))
+                            {
+                                body_value = k;
+                                Refresh();
+                            }
+                        });
+                    };
+                    body_search_fill();
+                    sub.Children().Append(chips);
+                    label.Children().Append(sub);
+                    return;
+                }
+                char const *note = zs_setting_region_note(info.name);
+                std::wstring text = Regional(info.name) ? std::wstring(L"This part of the layers") : L"Whole layers only. " + zs::ToWide(note != nullptr ? note : "");
+                label.Children().Append(SmallText(text.c_str()));
+            };
             w.OpenScopedSearch(scope);
         }
     };
@@ -919,6 +959,7 @@ namespace winrt::ZSlice::implementation
         r.light_rgb = -1;
         r.region = 0;
         r.region_values.clear();
+        r.body_search_fill = nullptr;
         r.moved = false;
         r.card.Visibility(Visibility::Collapsed);
         r.rows.clear();
@@ -1292,6 +1333,22 @@ namespace winrt::ZSlice::implementation
         if (verb == L"rangeclose")
         {
             RangeClose();
+        }
+        else if (verb == L"rangehints")
+        {
+            // A row with a speed hint would have a third column.
+            size_t with_hint = 0, wrapped = 0;
+            for (auto const &row : r.rows)
+                if (row.label != nullptr && row.label.ActualHeight() > 24)
+                    wrapped++;
+            std::function<void(Microsoft::UI::Xaml::DependencyObject const &)> walk = [&](Microsoft::UI::Xaml::DependencyObject const &at) {
+                if (auto text = at.try_as<TextBlock>(); text != nullptr && std::wstring(text.Text()).find(L"mm/s") != std::wstring::npos && std::wstring(text.Text()).find(L"≈") != std::wstring::npos)
+                    with_hint++;
+                for (int32_t i = 0, n = Media::VisualTreeHelper::GetChildrenCount(at); i < n; i++)
+                    walk(Media::VisualTreeHelper::GetChild(at, i));
+            };
+            walk(r.card);
+            zs::Log("dev: range hints %zu, wrapped labels %zu of %zu rows, card %.0f wide\n", with_hint, wrapped, r.rows.size(), r.card.ActualWidth());
         }
         else if (verb == L"rangeadd")
         {

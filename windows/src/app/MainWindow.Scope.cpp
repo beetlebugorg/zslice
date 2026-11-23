@@ -370,7 +370,10 @@ namespace winrt::ZSlice::implementation
             for (size_t i = before; i < setting_editors.size(); i++)
                 part_editors.push_back(std::move(setting_editors[i]));
             setting_editors.resize(before);
-            if (info.kind == ZS_SETTING_NUMBER || info.kind == ZS_SETTING_INTEGER)
+            if (IsFilamentSetting(info.name))
+            {
+            }
+            else if (info.kind == ZS_SETTING_NUMBER || info.kind == ZS_SETTING_INTEGER)
             {
                 auto with_unit = editor.try_as<Grid>();
                 (with_unit != nullptr ? with_unit.Children().GetAt(0).as<FrameworkElement>() : editor).Width(64);
