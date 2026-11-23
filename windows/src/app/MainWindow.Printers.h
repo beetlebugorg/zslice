@@ -200,6 +200,8 @@ namespace winrt::ZSlice::implementation
         void FillSendMenu();
         void SendPlate(std::string const &printer_id, size_t plate);
         winrt::fire_and_forget ExportGcode();
+        // The top layer, or the layers that show, alone on the bed.
+        winrt::fire_and_forget ExportTestPrint(bool top_only);
         winrt::fire_and_forget SavePlate3mf();
         winrt::fire_and_forget SaveProject();
         winrt::fire_and_forget ExportAll();

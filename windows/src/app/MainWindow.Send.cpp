@@ -302,6 +302,50 @@ namespace winrt::ZSlice::implementation
             w.ShowError(L"The G-code was not saved.");
     }
 
+    // A file to check some layers before a long print. It starts no print.
+    winrt::fire_and_forget MainWindow::PrintersUi::ExportTestPrint(bool top_only)
+    {
+        auto keep = shared_from_this();
+        // The await can outlast the window: this keeps it.
+        auto window = w.get_strong();
+        zs_app *app = w.model->Active();
+        if (zs_app_state(app) != ZS_STATE_DONE || w.layer_count == 0)
+        {
+            Note(L"No G-code: slice first.");
+            co_return;
+        }
+        size_t hi = (size_t)std::lround(w.LayerSlider().Value()) - 1;
+        size_t lo = top_only ? hi : std::min(w.layer_lo, hi);
+        uint8_t *out = nullptr;
+        size_t len = 0;
+        int rc = zs_app_debug_gcode(app, lo, hi + 1, &out, &len);
+        if (rc != ZS_OK || out == nullptr)
+        {
+            std::wstring refusal = w.PlateRefusal(app);
+            w.ShowError(refusal.empty() ? zs::ToWide(zs_status_message(rc)) : refusal);
+            co_return;
+        }
+        std::string bytes = zs::signing::Sign(std::string(reinterpret_cast<char const *>(out), len));
+        zs_buffer_free(out, len);
+        zs_plate_info info{};
+        std::string base = zs_set_plate_info(w.model->Set(), w.model->ActivePlate(), &info) == ZS_OK && info.name != nullptr && info.name[0] != 0 ? info.name : "part";
+        size_t dot = base.find_last_of('.');
+        if (dot != std::string::npos && dot > 0)
+            base.resize(dot);
+        for (char &c : base)
+            if (strchr("\\/:*?\"<>|", c) != nullptr)
+                c = '_';
+        std::wstring what = lo == hi ? L"layer-" + std::to_wstring(hi + 1) : L"layers-" + std::to_wstring(lo + 1) + L"-" + std::to_wstring(hi + 1);
+        hstring path = co_await PickSavePath(zs::ToWide(base) + L"-test-" + what, L"G-code", L".gcode");
+        if (path.empty())
+            co_return;
+        if (zs::state::WriteBytes(std::wstring(path), bytes))
+            Note(lo == hi ? L"A test print of layer " + std::to_wstring(hi + 1) + L", on the bed."
+                          : L"A test print of layers " + std::to_wstring(lo + 1) + L" to " + std::to_wstring(hi + 1) + L", on the bed.");
+        else
+            w.ShowError(L"The test print was not saved.");
+    }
+
     winrt::fire_and_forget MainWindow::PrintersUi::SavePlate3mf()
     {
         auto keep = shared_from_this();
