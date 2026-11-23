@@ -308,3 +308,42 @@ test "selection api: a part keeps its id on another plate" {
     const j = try from.movePartTo(1, to);
     try testing.expectEqual(id, zs_app_part_id(to, j));
 }
+
+test "selection api: a sync follows the set, and a removed part leaves the selection" {
+    const testing = std.testing;
+    var mesh = try zs.mesh.shapes.box(testing.allocator, 20, 20, 10);
+    defer mesh.deinit(testing.allocator);
+    var stl: std.Io.Writer.Allocating = .init(testing.allocator);
+    defer stl.deinit();
+    try mesh.writeStl(&stl.writer);
+
+    const set = try Set.create(testing.allocator, null, null, false);
+    defer set.destroy();
+    var sel: Selection = .{ .gpa = gpa };
+    defer sel.deinit();
+    const app = set.appOf(0).?;
+    try app.loadStl("a.stl", stl.written());
+    _ = try app.addStl("b.stl", stl.written());
+    try testing.expectEqual(ok, zs_sel_sync(&sel, set, 1));
+    const a = zs_app_part_id(app, 0);
+    const b = zs_app_part_id(app, 1);
+    try testing.expectEqual(ok, zs_sel_select(&sel, b, 0));
+
+    // Part a goes: part b has index 0 now, and stays selected.
+    try app.removePart(0);
+    try testing.expectEqual(ok, zs_sel_sync(&sel, set, 0));
+    try testing.expectEqual(b, zs_sel_primary(&sel));
+    try testing.expectEqual(@as(isize, 0), zs_sel_part_index(&sel, b));
+    try testing.expectEqual(@as(isize, -1), zs_sel_part_index(&sel, a));
+
+    // A new plate: the request ends with the sync, and the selection ends.
+    const i = try set.add();
+    try set.select(0);
+    try testing.expectEqual(ok, zs_sel_sync(&sel, set, 0));
+    zs_sel_plate_request(&sel, i);
+    try set.select(i);
+    try testing.expectEqual(ok, zs_sel_sync(&sel, set, 0));
+    try testing.expectEqual(i, zs_sel_plate(&sel));
+    try testing.expect(sel.plate_want == null);
+    try testing.expectEqual(@as(u64, 0), zs_sel_primary(&sel));
+}

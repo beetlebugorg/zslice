@@ -311,6 +311,21 @@ const tests = {
       await go(target);
       await page.waitForFunction((t) => window.zslice.app.shownPlate === t && window.zslice.tools.sel.plate === t, target, { timeout: 120000 });
     }
+    // A click back before the reply of the click before: the last click
+    // wins.
+    for (const [first, back] of [[1, 0], [0, 1], [2, 0]]) {
+      await go(back);
+      await page.waitForFunction((t) => window.zslice.app.shownPlate === t, back, { timeout: 60000 });
+      await page.evaluate(([a, b]) => {
+        const z = window.zslice;
+        z.activatePlate(a, true);
+        z.activatePlate(b, true);
+      }, [first, back]);
+      await page.waitForTimeout(400);
+      await idle(page);
+      const q = await state(page);
+      check(q.plate === back && (await page.evaluate(() => window.zslice.app.shownPlate)) === back, `the click back to plate ${back} was lost`);
+    }
     await idle(page);
     const s = await state(page);
     check(s.plate === 0, `the focus ended on plate ${s.plate}`);
