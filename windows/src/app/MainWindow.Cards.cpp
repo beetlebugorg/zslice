@@ -87,14 +87,16 @@ namespace winrt::ZSlice::implementation
         });
         PartSplit().Click([this, one](auto &&, auto &&) {
             one([this](zs_app *app, size_t i) {
-                if (zs_app_part_split(app, i) > 0)
+                ptrdiff_t pieces = zs_app_part_split(app, i);
+                if (pieces > 0)
                 {
                     ClearSelection();
                     PlateEdited();
+                    SelectPart((int64_t)i);
                 }
                 else
                 {
-                    ShowToast(L"This part is one piece.");
+                    ShowToast(pieces == 0 ? L"The part has one body: nothing to split." : L"zslice could not split this part.");
                 }
             });
         });
@@ -284,10 +286,17 @@ namespace winrt::ZSlice::implementation
             {
                 ClearSelection();
                 PlateEdited();
+                SelectPart((int64_t)part);
+                if (n > 2)
+                    ShowToast(L"Cut into two parts, with " + std::to_wstring(n - 2) + L" pegs. Glue the pegs into the holes to join the parts.");
+                else if (!std::isnan(pegs) && (int)pegs > 0)
+                    ShowToast(L"Cut into two parts. No peg fits: the cut is too small or too thin for one.");
+                else
+                    ShowToast(L"Cut into two parts.");
             }
             else
             {
-                ShowToast(L"The cut did not make two parts.");
+                ShowToast(L"The plane does not cut the part.");
             }
         });
     }

@@ -266,6 +266,51 @@ namespace winrt::ZSlice::implementation
     // compiler for one chain of else-if.
     bool MainWindow::RunDialogStep(std::wstring const &verb, std::vector<std::wstring> const &words)
     {
+        if (verb == L"historygo" && !words.empty())
+        {
+            GoToStep((size_t)_wtoi(words[0].c_str()));
+            zs::Log("dev: history step %zu of %zu\n", zs_app_history_current(model->Active()), zs_app_history_count(model->Active()));
+            return true;
+        }
+        if (verb == L"historyflip")
+        {
+            FlipHistoryStep();
+            zs::Log("dev: history step %zu of %zu\n", zs_app_history_current(model->Active()), zs_app_history_count(model->Active()));
+            return true;
+        }
+        if (verb == L"stepline" && !words.empty())
+        {
+            // stepline direction [whole [count]]
+            int count = words.size() > 2 ? _wtoi(words[2].c_str()) : 1;
+            for (int i = 0; i < count; i++)
+                StepLine(_wtoi(words[0].c_str()), words.size() > 1 && words[1] == L"1");
+            int64_t path = SelectedPath();
+            zs::Log("dev: step path %lld layer %lld slider %.0f scrub %.3f\n", (long long)path, path >= 0 ? (long long)zs_app_path_layer(model->Active(), (size_t)path) : -1LL, LayerSlider().Value(), ScrubSlider().Value());
+            return true;
+        }
+        if (verb == L"worktext")
+        {
+            work_has_ended = true;
+            work_ended = std::chrono::steady_clock::now();
+            ShowWorkText();
+            zs::Log("dev: work text '%s'\n", zs::ToUtf8(std::wstring(WorkText().Text())).c_str());
+            return true;
+        }
+        if (verb == L"speedon")
+        {
+            zs::Log("dev: speed set %d\n", zs_app_speed_set(model->Active(), words.empty() || words[0] != L"0" ? 1 : 0));
+            return true;
+        }
+        if (verb == L"cutgo" || verb == L"splitgo")
+        {
+            SelectPart(0);
+            if (verb == L"cutgo")
+                CutHeight().Value(8);
+            auto button = verb == L"cutgo" ? CutGo() : PartSplit();
+            Microsoft::UI::Xaml::Automation::Peers::ButtonAutomationPeer(button).as<Microsoft::UI::Xaml::Automation::Provider::IInvokeProvider>().Invoke();
+            zs::Log("dev: %s parts %zu selected %zu primary %lld\n", zs::ToUtf8(verb).c_str(), zs_app_part_count(model->Active()), SelectedParts().size(), (long long)PrimaryPart());
+            return true;
+        }
         if (verb == L"pickfeature" && !words.empty())
         {
             // The first line of a feature.

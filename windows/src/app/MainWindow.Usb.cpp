@@ -414,6 +414,26 @@ namespace winrt::ZSlice::implementation
             bool taken = printers->PageKey(words[0] == L"esc" ? winrt::Windows::System::VirtualKey::Escape : winrt::Windows::System::VirtualKey::Delete);
             zs::Log("dev: page key %s taken %d open %d parts %d\n", zs::ToUtf8(words[0]).c_str(), taken ? 1 : 0, printers->PageOpen() ? 1 : 0, (int)zs_app_part_count(model->Active()));
         }
+        else if (verb == L"usbdetails")
+        {
+            // usbdetails state roll grams job fraction, or none for no answer.
+            std::string id = zs::Printers().Current().id;
+            if (words.size() >= 5)
+            {
+                zs::link::Snapshot st;
+                st.state = zs::ToUtf8(words[0]);
+                st.spool_name = words[1] == L"-" ? "" : zs::ToUtf8(words[1]);
+                st.spool_left = _wtof(words[2].c_str());
+                st.job = words[3] == L"-" ? "" : zs::ToUtf8(words[3]);
+                st.progress = _wtof(words[4].c_str());
+                st.time_left = st.job.empty() ? -1 : 3900;
+                printers->DetailsStatus(id, &st);
+            }
+            else
+                printers->DetailsStatus(id, nullptr, "The connection to the printer failed.");
+            auto label = SummaryPrinterState();
+            zs::Log("dev: details state shown %d '%s'\n", label.Visibility() == Visibility::Visible ? 1 : 0, zs::ToUtf8(std::wstring(label.Text())).c_str());
+        }
         else if (verb == L"usbprint")
             printers->PrimaryAction();
         else if (verb == L"usbpage" && !words.empty())

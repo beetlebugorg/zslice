@@ -135,6 +135,14 @@ namespace winrt::ZSlice::implementation
                 GoToStep(now + 1);
             else if (e.Key() == VirtualKey::Down && now > 0)
                 GoToStep(now - 1);
+            else if (e.Key() == VirtualKey::Space)
+            {
+                // A focused button keeps its Space.
+                auto focused = Input::FocusManager::GetFocusedElement(Content().XamlRoot());
+                if (focused.try_as<Microsoft::UI::Xaml::Controls::Primitives::ButtonBase>() != nullptr)
+                    return;
+                FlipHistoryStep();
+            }
             else if (e.Key() != VirtualKey::Up && e.Key() != VirtualKey::Down)
                 return;
             e.Handled(true);
@@ -207,9 +215,23 @@ namespace winrt::ZSlice::implementation
         if (model == nullptr)
             return;
         history_timer.Stop();
+        zs_app *app = model->Active();
+        size_t before = zs_app_history_current(app);
         AfterRestore(model->HistoryGoto(step));
+        if (model->Active() == app && zs_app_history_current(app) != before)
+        {
+            history_flip = before + 1;
+            history_flip_app = app;
+        }
         if (HistoryFlyout().IsOpen())
             FillHistoryList();
+    }
+
+    void MainWindow::FlipHistoryStep()
+    {
+        if (model == nullptr || history_flip == 0 || history_flip_app != model->Active() || history_flip > zs_app_history_count(model->Active()))
+            return;
+        GoToStep(history_flip - 1);
     }
 
     // A double click on a change goes to its step and opens the change

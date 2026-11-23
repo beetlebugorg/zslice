@@ -137,8 +137,9 @@ namespace winrt::ZSlice::implementation
             Grid choose{ nullptr }, setup{ nullptr };
             TextBox query{ nullptr };
             ListView brands{ nullptr }, models{ nullptr }, network{ nullptr };
-            TextBlock card_title{ nullptr }, card_facts{ nullptr }, card_sources{ nullptr }, hint{ nullptr }, net_state{ nullptr };
+            TextBlock card_title{ nullptr }, card_facts{ nullptr }, hint{ nullptr }, net_state{ nullptr };
             Canvas volume{ nullptr };
+            Grid card_grid{ nullptr };
             Button rescan{ nullptr }, next{ nullptr }, back{ nullptr }, test{ nullptr }, read_serial{ nullptr };
             TextBox name{ nullptr }, url{ nullptr }, serial{ nullptr };
             PasswordBox key{ nullptr };
@@ -154,29 +155,95 @@ namespace winrt::ZSlice::implementation
                 return lib != nullptr && i >= 0 && zs_printers_model_get(lib, (size_t)i, &m) == ZS_OK;
             }
 
+            void AddFact(int row, std::wstring const &key, std::wstring const &value)
+            {
+                RowDefinition line;
+                line.Height(GridLengthHelper::Auto());
+                card_grid.RowDefinitions().Append(line);
+                TextBlock k = Label(key, 12, false, true);
+                TextBlock v = Label(value, 12);
+                v.TextWrapping(TextWrapping::Wrap);
+                Grid::SetRow(k, row);
+                Grid::SetRow(v, row);
+                Grid::SetColumn(v, 1);
+                card_grid.Children().Append(k);
+                card_grid.Children().Append(v);
+            }
+
+            static std::wstring Mm(double v)
+            {
+                char text[32];
+                snprintf(text, sizeof text, "%.4g", v);
+                return zs::ToWide(text);
+            }
+
+            // The rows of printer-picker.c.
+            void FillFacts(zs_printer_model const &m)
+            {
+                int row = 0;
+                wchar_t text[160];
+                if (m.round)
+                    swprintf_s(text, L"⌀ %.0f mm round bed, %.0f mm high", m.bed_x, m.height);
+                else
+                    swprintf_s(text, L"%.0f × %.0f × %.0f mm", m.bed_x, m.bed_y, m.height);
+                AddFact(row++, L"Build volume", text);
+                // The other nozzle sizes of the model.
+                std::wstring others;
+                std::string sizes = m.nozzles != nullptr ? m.nozzles : "";
+                for (size_t at = 0; at <= sizes.size();)
+                {
+                    size_t end = std::min(sizes.find(';', at), sizes.size());
+                    std::string size = sizes.substr(at, end - at);
+                    if (!size.empty() && std::fabs(atof(size.c_str()) - m.nozzle) >= 1e-6)
+                        others += (others.empty() ? L"" : L", ") + zs::ToWide(size);
+                    at = end + 1;
+                }
+                AddFact(row++, L"Nozzle", Mm(m.nozzle) + L" mm" + (others.empty() ? L"" : L" (also " + others + L")"));
+                AddFact(row++, L"Filament", Mm(m.filament) + L" mm");
+                AddFact(row++, L"Heating", m.heated_chamber ? L"Heated bed and chamber" : m.heated_bed ? L"Heated bed" : L"No heated bed");
+                std::wstring firmware = zs::ToWide(m.firmware != nullptr && m.firmware[0] != 0 ? m.firmware : "Marlin");
+                char const *kinematics = m.kinematics != nullptr ? m.kinematics : "";
+                firmware += _stricmp(kinematics, "corexy") == 0 ? L" · CoreXY" : _stricmp(kinematics, "delta") == 0 ? L" · delta" : _stricmp(kinematics, "i3") == 0 ? L" · bed slinger" : L"";
+                if (m.extruders > 1)
+                    firmware += L" · more than one extruder (zslice uses the first)";
+                AddFact(row++, L"Firmware", firmware);
+                if (m.max_accel > 0)
+                {
+                    if (m.max_speed > 0)
+                        swprintf_s(text, L"%.0f mm/s², up to %.0f mm/s", m.max_accel, m.max_speed);
+                    else
+                        swprintf_s(text, L"%.0f mm/s²", m.max_accel);
+                    AddFact(row++, L"Motion", text);
+                }
+                AddFact(row++, L"Start G-code", m.has_start_gcode ? L"From the printer profile" : L"The start G-code of zslice (the profile uses scripts). Check it before the first print.");
+                if (m.origin_x != 0 || m.origin_y != 0)
+                    AddFact(row++, L"Origin", L"The center of the bed is X0 Y0");
+                AddFact(row++, L"Data from", zs::ToWide(TextOf(zs_printers_sources, lib, (size_t)current)));
+            }
+
             void UpdateCard()
             {
                 zs_printer_model m{};
+                card_grid.Children().Clear();
+                card_grid.RowDefinitions().Clear();
                 if (GetModel(current, m))
                 {
                     card_title.Text(zs::ToWide(m.title));
                     card_facts.Text(zs::ToWide(TextOf(zs_printers_facts, lib, (size_t)current)));
-                    std::string from = TextOf(zs_printers_sources, lib, (size_t)current);
-                    card_sources.Text(from.empty() ? L"" : L"From " + zs::ToWide(from));
+                    FillFacts(m);
                     DrawVolume(volume, m.bed_x, m.round ? m.bed_x : m.bed_y, m.height);
                 }
                 else if (current == -2)
                 {
                     card_title.Text(L"My printer is not in the list");
                     card_facts.Text(L"Enter its size in the next step.");
-                    card_sources.Text(L"");
+                    AddFact(0, L"Settings", L"The generic printer of zslice. Enter the bed size in the next step.");
                     DrawVolume(volume, 220, 220, 250);
                 }
                 else
                 {
                     card_title.Text(L"Pick a printer");
                     card_facts.Text(L"Type a part of a name, or pick a brand.");
-                    card_sources.Text(L"");
                     volume.Children().Clear();
                 }
                 next.IsEnabled(current != -1);
@@ -530,10 +597,19 @@ namespace winrt::ZSlice::implementation
         side.Children().Append(p->volume);
         p->card_title = Label(L"", 15, true);
         p->card_facts = Label(L"", 12);
-        p->card_sources = Label(L"", 11, false, true);
+        p->card_grid = Grid();
+        p->card_grid.ColumnSpacing(10);
+        p->card_grid.RowSpacing(2);
+        {
+            ColumnDefinition key, value;
+            key.Width(GridLengthHelper::Auto());
+            value.Width(GridLengthHelper::FromValueAndType(1, GridUnitType::Star));
+            p->card_grid.ColumnDefinitions().Append(key);
+            p->card_grid.ColumnDefinitions().Append(value);
+        }
         side.Children().Append(p->card_title);
         side.Children().Append(p->card_facts);
-        side.Children().Append(p->card_sources);
+        side.Children().Append(p->card_grid);
         StackPanel net_head = Row(8);
         net_head.Margin(ThicknessHelper::FromLengths(0, 8, 0, 0));
         TextBlock net_title = Label(L"On your network", 12, true, true);

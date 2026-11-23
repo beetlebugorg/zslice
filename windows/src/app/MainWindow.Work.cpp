@@ -178,6 +178,9 @@ namespace winrt::ZSlice::implementation
             text = model->DraftMs() > 0 ? L"Draft " + WorkTime(model->DraftMs()) + L" · Exact " + WorkTime(model->ExactMs())
                                         : L"Exact " + WorkTime(model->ExactMs());
         }
+        // The Faster slicing switch, so that its state shows.
+        if (int speed = zs_app_speed_state(model->Active()); !text.empty() && speed != 0)
+            text += speed == 1 ? L" · Faster slicing on" : L" · Custom speed settings";
         if (!text.empty())
             WorkText().Text(text);
         WorkText().Opacity(!text.empty() && show ? text_opacity : 0);
