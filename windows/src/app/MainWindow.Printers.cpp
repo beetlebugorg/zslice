@@ -381,6 +381,14 @@ namespace winrt::ZSlice::implementation
             ExportGcode();
     }
 
+    void MainWindow::PrintersUi::UploadOnly()
+    {
+        if (zs::Printers().Current().kind == zs::LinkKind::Usb)
+            Note(L"A USB printer has no upload. Use Print over USB.");
+        else
+            PrimaryAction();
+    }
+
     // The spools that a printdeck printer has loaded. The core makes them the
     // filaments of the plate, also the ones set by hand: the user asked.
     void MainWindow::PrintersUi::ReadSpools()
@@ -470,6 +478,8 @@ namespace winrt::ZSlice::implementation
         std::string id = zs::Printers().Current().id;
         rolls = status.rolls;
         rolls_printer = id;
+        spool_now = status.spool_name;
+        spool_left_now = status.spool_left;
         // A change of the filaments can rebuild the page and end `status`.
         zs::RollFacts roll{ status.spool_id, status.spool_name, status.material, status.spool_color, status.diameter };
         FollowSpools(name, status);

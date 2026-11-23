@@ -145,6 +145,12 @@ namespace winrt::ZSlice::implementation
         void RefreshBar();
         void RefreshPrimary();
         void PrimaryAction();
+        // The search action: an upload, and never a print on a USB printer.
+        void UploadOnly();
+        bool PageOpen() const;
+        // A key while the Printers page is open. Esc closes the page. True
+        // if the page used the key.
+        bool PageKey(winrt::Windows::System::VirtualKey key);
         void FillPrinterMenu();
         void FillQuality();
         void FillFilament();
@@ -223,7 +229,9 @@ namespace winrt::ZSlice::implementation
 
         // ---- MainWindow.Send.cpp ----
         void FillSendMenu();
-        void SendPlate(std::string const &printer_id, size_t plate);
+        // low_ok: the user said to send with too little on the roll.
+        void SendPlate(std::string const &printer_id, size_t plate, bool low_ok = false);
+        winrt::fire_and_forget AskLowFilament(std::string printer_id, size_t plate, double need);
         winrt::fire_and_forget ExportGcode();
         // The top layer, or the layers that show, alone on the bed.
         winrt::fire_and_forget ExportTestPrint(bool top_only);
@@ -294,6 +302,11 @@ namespace winrt::ZSlice::implementation
         // The rolls of the current printer, from its last status.
         std::vector<zs::link::Roll> rolls;
         std::string rolls_printer;
+        // The roll in the current printer, and its grams. 0 is no known weight.
+        std::string spool_now;
+        double spool_left_now = 0;
+        bool low_asking = false;
+        Microsoft::UI::Xaml::Controls::Button back_button{ nullptr };
 
         std::vector<std::shared_ptr<OverlayPanel>> panels;
 

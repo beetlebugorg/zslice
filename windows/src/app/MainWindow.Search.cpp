@@ -1114,7 +1114,7 @@ namespace winrt::ZSlice::implementation
         out.push_back({ L"Import from a model page…", L"", L"Printables or Thingiverse: choose the files to load", [this] { AskImport({}); } });
         out.push_back({ L"Export G-code…", L"Ctrl+E", L"", with_printers([](PrintersUi &p) { p.ExportGcode(); }) });
         out.push_back({ L"The print as it forms", L"", L"simulated plastic: it sags and droops where nothing holds it", [this] { ToggleSimulated(); } });
-        out.push_back({ L"Upload to the printer", L"", L"send the G-code to the printer, and do not start it", with_printers([](PrintersUi &p) { p.PrimaryAction(); }) });
+        out.push_back({ L"Upload to the printer", L"", L"send the G-code to the printer, and do not start it", with_printers([](PrintersUi &p) { p.UploadOnly(); }) });
         out.push_back({ L"Arrange the plate", L"", L"pack the parts on the bed", place([](zs_app *a) { return zs_app_plate_arrange(a) != 0; }) });
         out.push_back({ L"Remove this plate", L"", L"the plate and its parts", [this] { AskRemovePlate(); } });
         AddCalibrateActions(out);

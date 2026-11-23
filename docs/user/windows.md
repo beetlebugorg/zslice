@@ -214,6 +214,8 @@ After the print, open **Calibrate**, then **Use a value of this test…**, and c
 
 The picker finds printers on your network. **Printers** in the top bar shows a card for each printer: its state, its job, its temperatures, its roll, and its camera.
 
+**Back to the plate** or Esc leaves the **Printers** page. Before a send, the app warns you if the print needs more filament than the roll in the printer has left. Cancel is the default.
+
 The app reads the state of the current printer each 5 seconds. **zslice holds one connection to the current Bambu Lab printer** while it is the current printer, and closes it when you pick another printer. With the **Printers** page open, it holds one connection to each Bambu Lab printer on the page. After a refused or dropped connection, it waits at least 15 seconds, and longer after each new failure. After 5 minutes minimized, it stops reading the printer until you restore the window.
 
 The app reads a Bambu Lab printer and sends it nothing. It shows the camera of each model: JPEG on a P1 or an A1, and H.264 on an X1, H2, P2S, or X2D. A printer has one camera stream, and it plays only while its view is open. A Windows N edition needs the Media Feature Pack for H.264.

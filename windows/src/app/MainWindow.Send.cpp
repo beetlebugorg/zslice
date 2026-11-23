@@ -122,10 +122,40 @@ namespace winrt::ZSlice::implementation
 
     // Uploads the G-code of a plate (-1: the active plate). The file has the
     // signature, and it goes with print=false.
-    void MainWindow::PrintersUi::SendPlate(std::string const &printer_id, size_t plate)
+    // The print needs more plastic than the roll in the printer has left.
+    winrt::fire_and_forget MainWindow::PrintersUi::AskLowFilament(std::string printer_id, size_t plate, double need)
+    {
+        auto keep = shared_from_this();
+        low_asking = true;
+        ContentDialog dialog;
+        dialog.XamlRoot(w.Content().XamlRoot());
+        w.ThemeDialog(dialog);
+        dialog.Title(box_value(L"Not enough filament on the roll"));
+        TextBlock text;
+        text.TextWrapping(TextWrapping::Wrap);
+        text.Text(L"This print needs " + std::to_wstring(std::lround(need)) + L" g of filament. The roll in the printer (" + zs::ToWide(spool_now) + L") has " +
+                  std::to_wstring(std::lround(spool_left_now)) + L" g left.");
+        dialog.Content(text);
+        dialog.PrimaryButtonText(L"Send anyway");
+        dialog.CloseButtonText(L"Cancel");
+        dialog.DefaultButton(ContentDialogButton::Close);
+        ContentDialogResult answer = ContentDialogResult::None;
+        try
+        {
+            answer = co_await dialog.ShowAsync();
+        }
+        catch (winrt::hresult_error const &)
+        {
+        }
+        low_asking = false;
+        if (answer == ContentDialogResult::Primary)
+            SendPlate(printer_id, plate, true);
+    }
+
+    void MainWindow::PrintersUi::SendPlate(std::string const &printer_id, size_t plate, bool low_ok)
     {
         zs::SavedPrinter *printer = zs::Printers().Find(printer_id);
-        if (printer == nullptr || sending)
+        if (printer == nullptr || sending || low_asking)
             return;
         // Each line on a USB port runs, so nothing here reaches it.
         if (printer->kind == zs::LinkKind::Usb)
@@ -159,6 +189,16 @@ namespace winrt::ZSlice::implementation
             w.model->SliceExact(index);
             Note(L"The exact slice runs. Send again when it is done.");
             return;
+        }
+        // The core gives 0 grams for a roll with no known weight.
+        if (!low_ok && !batch.on && printer_id == rolls_printer && !spool_now.empty() && spool_left_now > 0)
+        {
+            zs_stats stats{};
+            if (zs_app_stats(app, &stats) == ZS_OK && stats.filament_g > spool_left_now)
+            {
+                AskLowFilament(printer_id, index, stats.filament_g);
+                return;
+            }
         }
         std::string gcode = CopyGcode(app);
         if (gcode.empty())

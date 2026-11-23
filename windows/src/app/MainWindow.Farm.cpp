@@ -134,6 +134,19 @@ namespace winrt::ZSlice::implementation
         StackPanel box = Column(10);
         box.Padding(ThicknessHelper::FromLengths(16, 12, 16, 16));
 
+        back_button = TextButton(L"Back to the plate");
+        StackPanel back_row = Row(6);
+        FontIcon back_glyph;
+        back_glyph.Glyph(L"\xE72B");
+        back_glyph.FontSize(12);
+        back_row.Children().Append(back_glyph);
+        back_row.Children().Append(Label(L"Back to the plate", 13));
+        back_button.Content(back_row);
+        Name(back_button, L"Back to the plate");
+        ToolTipService::SetToolTip(back_button, box_value(L"Back to the plate (Esc)"));
+        back_button.Click([this](auto &&, auto &&) { ShowPage(false); });
+        box.Children().Append(back_button);
+
         StackPanel head = Row(10);
         head.Children().Append(Label(L"Printers", 20, true));
         counts = Label(L"", 12, false, true);
@@ -187,6 +200,7 @@ namespace winrt::ZSlice::implementation
 
     void MainWindow::PrintersUi::ShowPage(bool show)
     {
+        bool was = PageOpen();
         page_button.IsChecked(show);
         page.Visibility(show ? Visibility::Visible : Visibility::Collapsed);
         if (show)
@@ -200,6 +214,24 @@ namespace winrt::ZSlice::implementation
             StopTiles();
             SyncBambuLinks();
         }
+        // The keys follow the page, so they do not reach the plate behind it.
+        if (show && !was)
+            back_button.Focus(FocusState::Programmatic);
+        else if (!show && was)
+            w.ViewPanel().Focus(FocusState::Programmatic);
+    }
+
+    bool MainWindow::PrintersUi::PageOpen() const
+    {
+        return page != nullptr && page.Visibility() == Visibility::Visible;
+    }
+
+    bool MainWindow::PrintersUi::PageKey(winrt::Windows::System::VirtualKey key)
+    {
+        if (!PageOpen() || key != winrt::Windows::System::VirtualKey::Escape)
+            return false;
+        ShowPage(false);
+        return true;
     }
 
     void MainWindow::PrintersUi::StopTiles()

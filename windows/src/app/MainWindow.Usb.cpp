@@ -392,6 +392,28 @@ namespace winrt::ZSlice::implementation
             printers->RefreshBar();
             printers->RefreshPrimary();
         }
+        else if (verb == L"usblowset" && words.size() >= 2)
+        {
+            // A closed port on this computer: a send reaches no printer.
+            if (auto *p = zs::Printers().Find(zs::Printers().Current().id))
+            {
+                p->kind = zs::LinkKind::OctoPrint;
+                p->url = "http://127.0.0.1:1";
+                zs::Printers().Save();
+                printers->rolls_printer = p->id;
+                printers->spool_now = zs::ToUtf8(words[0]);
+                printers->spool_left_now = _wtof(words[1].c_str());
+                printers->RefreshBar();
+                printers->RefreshPrimary();
+            }
+        }
+        else if (verb == L"usblowsend")
+            printers->SendPlate(zs::Printers().Current().id, (size_t)-1);
+        else if (verb == L"usbpagekey" && !words.empty())
+        {
+            bool taken = printers->PageKey(words[0] == L"esc" ? winrt::Windows::System::VirtualKey::Escape : winrt::Windows::System::VirtualKey::Delete);
+            zs::Log("dev: page key %s taken %d open %d parts %d\n", zs::ToUtf8(words[0]).c_str(), taken ? 1 : 0, printers->PageOpen() ? 1 : 0, (int)zs_app_part_count(model->Active()));
+        }
         else if (verb == L"usbprint")
             printers->PrimaryAction();
         else if (verb == L"usbpage" && !words.empty())

@@ -10,6 +10,7 @@
 
 #include "pch.h"
 #include "MainWindow.xaml.h"
+#include "MainWindow.Printers.h"
 
 #include "Layer2D.h"
 
@@ -1536,6 +1537,14 @@ namespace winrt::ZSlice::implementation
         };
         bool shift = state(VirtualKey::Shift), ctrl = state(VirtualKey::Control);
         auto key = e.Key();
+        // The Printers page covers the plate. A key of the view must not
+        // change a part that the user cannot see. / still opens the search.
+        if (printers != nullptr && printers->PageOpen() && key != slash && !(key == VirtualKey::Escape && search_open))
+        {
+            if (printers->PageKey(key))
+                e.Handled(true);
+            return;
+        }
         if (ctrl && ClipKey(key, shift))
         {
         }
