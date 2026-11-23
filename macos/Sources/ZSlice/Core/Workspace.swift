@@ -131,9 +131,13 @@ final class Workspace {
     var supportPaneOpen = prefs.object(forKey: "supportPane") as? Bool ?? true {
         didSet { prefs.set(supportPaneOpen, forKey: "supportPane") }
     }
-    var selectedPart: Int?
+    /// The stable ids of the selected parts, as the core model has them.
+    /// The last is the primary part. An index is read from its id at each
+    /// use, so it never names another part after a delete or an undo.
+    var selectedIDs: [UInt64] = []
+    var selectedPart: Int? { selectedIDs.last.flatMap(partIndex) }
     /// The other selected parts (Shift and a click), the first added first.
-    var moreParts: [Int] = []
+    var moreParts: [Int] { selectedIDs.dropLast().compactMap(partIndex) }
     /// The support that the Select tool picked (SupportPick.swift).
     var supportPick: SupportPick?
     @ObservationIgnored var supportPicking = false
@@ -165,6 +169,8 @@ final class Workspace {
     @ObservationIgnored var tapeDrag: Int?
     /// A drag of a ring of the Turn tool: its axis, and the degrees sent.
     @ObservationIgnored var ringDrag: (axis: Int, sent: Double)?
+    /// The point of a press on a ring, until the drag starts.
+    @ObservationIgnored var ringPress: CGPoint?
     /// A part that falls in the view (Tools.swift, settle), and what comes
     /// at its rest.
     @ObservationIgnored var falling: (part: Int, then: (() -> Void)?)?
@@ -383,7 +389,8 @@ final class Workspace {
             guard !Task.isCancelled, let self, model.state == .done else { return }
             readIssues()
         }
-        if let i = selectedPart { selectPart(i < zs_app_part_count(model.core) ? i : nil) }
+        model.syncSelection(scene: true)
+        readSelectedParts()
         if let i = restoredPart {
             restoredPart = nil
             if i < zs_app_part_count(model.core) { selectPart(i) }
@@ -1338,6 +1345,14 @@ final class Workspace {
                             let rows = (coreString { zs_app_profile_import_report(self.model.core, $0, $1, $2) } ?? "").split(separator: "\n")
                             NSLog("zslice clip import: rc %d, %ld rows, %ld set, first %@", rc, rows.count, rows.filter { $0.hasPrefix("set\t") }.count, rows.first.map(String.init) ?? "-")
                         }
+                    case "selkeep":
+                        // A delete of an earlier part keeps the selected part.
+                        self.selectOnlyPart(1)
+                        let id = self.selectedIDs.last
+                        zs_app_part_remove(self.model.core, 0)
+                        self.model.settingsChanged()
+                        self.readSelectedParts()
+                        NSLog("zslice clip selkeep: same %d, index %ld", self.selectedIDs.last == id ? 1 : 0, self.selectedPart ?? -1)
                     case "seq": self.model.set("project.print_sequence", "by_object")
                     case "later":
                         self.reorderPart(0, by: 1)
