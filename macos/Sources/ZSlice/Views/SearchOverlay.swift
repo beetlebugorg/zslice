@@ -57,6 +57,8 @@ final class SearchState {
     }
     /// The results show (docked), or the card shows (undocked).
     var open = false
+    /// The left edge of the first item at the right of the toolbar.
+    var rightItemsX: CGFloat = 0
     var index = 0
     /// The setting whose field takes the focus next (Return on its row).
     var editing: String?
@@ -164,6 +166,16 @@ struct SearchToolbarItem: View {
     @FocusState private var focused: Bool
     @State private var hovering = false
 
+    /// The width that keeps the field in the center of the window: twice
+    /// the room from the center to the first item at the right. A window
+    /// with too little room has the narrowest field, as near the center as
+    /// the items allow, and each item keeps its label.
+    private func centeredWidth(_ search: SearchState) -> CGFloat {
+        let widest: CGFloat = 340, narrowest: CGFloat = 180
+        guard search.rightItemsX > 0, let w = workspace.canvas.window?.frame.width else { return widest }
+        return min(widest, max(narrowest, 2 * (search.rightItemsX - w / 2 - 10)))
+    }
+
     var body: some View {
         let search = workspace.search
         if search.docked {
@@ -172,9 +184,7 @@ struct SearchToolbarItem: View {
                 TextField("Search settings and actions", text: Bindable(search).query)
                     .textFieldStyle(.plain)
                     .focusEffectDisabled()
-                    // In the center of the toolbar: it gives up its width
-                    // before an item at the right cuts its label.
-                    .frame(minWidth: 110, idealWidth: 260, maxWidth: 320)
+                    .frame(maxWidth: .infinity)
                     .focused($focused)
                     .onSubmit { search.runSelected(workspace) }
                     .onKeyPress(.downArrow) { search.move(1, workspace) }
@@ -215,6 +225,7 @@ struct SearchToolbarItem: View {
                 .frame(width: 14)
             }
             .modifier(SearchFieldShape(open: search.open))
+            .frame(width: centeredWidth(search))
             .contentShape(Rectangle())
             .onHover { hovering = $0 }
             .help("Search the settings and the actions (/ or ⌘F)")
