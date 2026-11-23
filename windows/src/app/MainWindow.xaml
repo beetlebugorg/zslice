@@ -136,13 +136,18 @@
                                   ToolTipService.ToolTip="What a change here is for: this print (all parts on the plate), your global settings (all prints, under the quality profile), or one part (the values of the print, and its own changes on top)." />
                     </Grid>
                     <TextBox x:Name="SettingsSearch" AutomationProperties.Name="Search settings" ToolTipService.ToolTip="The defaults for all prints. Changes for one part are in the Selected page." Grid.Row="0" PlaceholderText="Search settings" />
-                    <StackPanel Grid.Row="2" Orientation="Horizontal" Spacing="6">
+                    <Grid Grid.Row="2" ColumnSpacing="6">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
                         <Button x:Name="SettingsBack" AutomationProperties.Name="Back" Background="Transparent" BorderThickness="0"
-                                Visibility="Collapsed" ToolTipService.ToolTip="Back">
+                                Visibility="Collapsed" ToolTipService.ToolTip="Back to the column before">
                             <FontIcon Glyph="&#xE72B;" FontSize="12" />
                         </Button>
-                        <TextBlock x:Name="SettingsCrumb" VerticalAlignment="Center" FontWeight="SemiBold" />
-                    </StackPanel>
+                        <TextBlock x:Name="SettingsCrumbs" Grid.Column="1" VerticalAlignment="Center" TextWrapping="WrapWholeWords" />
+                        <TextBlock x:Name="SettingsCrumb" Visibility="Collapsed" />
+                    </Grid>
                     <!-- The bar of the layer profile in edit. -->
                     <Border x:Name="ProfileBar" Grid.Row="3" Visibility="Collapsed" Padding="10,8" CornerRadius="8" BorderThickness="1"
                             Background="{ThemeResource ZsFloat}" BorderBrush="{ThemeResource ZsLine}">

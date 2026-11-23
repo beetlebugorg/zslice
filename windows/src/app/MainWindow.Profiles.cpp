@@ -357,6 +357,7 @@ namespace winrt::ZSlice::implementation
             if (FindSetting(std::string(o.name, o.name_len).c_str(), info))
                 SettingsList().Children().Append(MakeSettingRow(info, true));
         }
+        NotePanePlace();
     }
 
     void MainWindow::UpdateProfileBar()

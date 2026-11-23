@@ -12,6 +12,8 @@
 #include "MainWindow.xaml.h"
 
 #include <winrt/Microsoft.UI.Xaml.Documents.h>
+#include <winrt/Microsoft.UI.Xaml.Automation.Peers.h>
+#include <winrt/Microsoft.UI.Xaml.Automation.Provider.h>
 
 #include <algorithm>
 #include <cmath>
@@ -196,6 +198,46 @@ namespace winrt::ZSlice::implementation
             ShowSettingsPane(SettingsToggle().IsChecked().GetBoolean());
         });
         SettingsBack().Click([this](auto &&, auto &&) { SettingsGoBack(); });
+        // Alt+Left and the back button of the mouse: the place before.
+        Input::KeyboardAccelerator back_key;
+        back_key.Key(VirtualKey::Left);
+        back_key.Modifiers(Windows::System::VirtualKeyModifiers::Menu);
+        back_key.Invoked([this](auto &&, Input::KeyboardAcceleratorInvokedEventArgs const &e) {
+            if (SettingsPane().Visibility() != Visibility::Visible)
+                return;
+            PaneHistoryBack();
+            e.Handled(true);
+        });
+        Root().KeyboardAcceleratorPlacementMode(Input::KeyboardAcceleratorPlacementMode::Hidden);
+        Root().KeyboardAccelerators().Append(back_key);
+        SettingsPane().AddHandler(UIElement::PointerPressedEvent(), box_value(Input::PointerEventHandler([this](auto &&, Input::PointerRoutedEventArgs const &e) {
+            if (e.GetCurrentPoint(SettingsPane()).Properties().IsXButton1Pressed())
+            {
+                PaneHistoryBack();
+                e.Handled(true);
+            }
+        })), true);
+        // Up and Down move between the rows. Right opens a row, Left goes
+        // back. A text field and a list keep their own keys.
+        SettingsList().XYFocusKeyboardNavigation(Input::XYFocusKeyboardNavigationMode::Enabled);
+        SettingsList().KeyDown([this](auto &&, Input::KeyRoutedEventArgs const &e) {
+            if (e.Key() != VirtualKey::Left && e.Key() != VirtualKey::Right)
+                return;
+            auto button = Input::FocusManager::GetFocusedElement(Content().XamlRoot()).try_as<Button>();
+            if (button == nullptr || button.Tag() == nullptr)
+                return;
+            if (e.Key() == VirtualKey::Right)
+                Microsoft::UI::Xaml::Automation::Peers::ButtonAutomationPeer(button).Invoke();
+            else if (settings_page != SettingsPage::Sections)
+                SettingsGoBack();
+            else
+                return;
+            e.Handled(true);
+            queue.TryEnqueue([this] {
+                if (auto first = Input::FocusManager::FindFirstFocusableElement(SettingsList()).try_as<Control>())
+                    first.Focus(FocusState::Keyboard);
+            });
+        });
         SettingsSearch().TextChanged([this](auto &&, auto &&) {
             std::wstring query{ SettingsSearch().Text() };
             if (query == settings_query)
@@ -369,11 +411,13 @@ namespace winrt::ZSlice::implementation
             SettingsList().Children().Append(MakeSettingRow(info, true));
         }
         SetPaneFocus(1u << feature, false);
+        NotePanePlace();
     }
 
     void MainWindow::ClearSettingsList()
     {
         pane_fill++;
+        pane_leaving = SettingsScroll().VerticalOffset();
         setting_editors.clear();
         speed_toggle = nullptr;
         effect_box = nullptr;
@@ -384,6 +428,13 @@ namespace winrt::ZSlice::implementation
 
     void MainWindow::ShowSections()
     {
+        // The section that was open keeps a mark.
+        std::string chosen_group = settings_group != nullptr ? settings_group : "", chosen_section = settings_section != nullptr ? settings_section : "";
+        auto mark_chosen = [this](Button const &row) {
+            auto color = TokenBrush(Root(), L"ZsAccent").as<Media::SolidColorBrush>().Color();
+            color.A = 0x2E;
+            row.Background(Media::SolidColorBrush(color));
+        };
         ClearSettingsList();
         settings_page = SettingsPage::Sections;
         settings_group = nullptr;
@@ -405,6 +456,9 @@ namespace winrt::ZSlice::implementation
             SettingsList().Children().Append(slicing);
             Button speed = RowButton(L"Speed");
             speed.Click([this](auto &&, auto &&) { ShowSection("speed", "Speed"); });
+            speed.Tag(box_value(L"open"));
+            if (chosen_group == "speed")
+                mark_chosen(speed);
             SettingsList().Children().Append(speed);
         }
         for (auto const &g : group_titles)
@@ -431,9 +485,13 @@ namespace winrt::ZSlice::implementation
                 Button row = RowButton(info.section[0] != 0 ? zs::ToWide(info.section) : L"General");
                 char const *group = info.group, *section = info.section;
                 row.Click([this, group, section](auto &&, auto &&) { ShowSection(group, section); });
+                row.Tag(box_value(L"open"));
+                if (chosen_group == group && chosen_section == section)
+                    mark_chosen(row);
                 SettingsList().Children().Append(row);
             }
         }
+        NotePanePlace();
     }
 
     int MainWindow::NozzleCount()
@@ -552,6 +610,7 @@ namespace winrt::ZSlice::implementation
         open.Click([this](auto &&, auto &&) { ShowGeneralPreferences(); });
         foot.Children().Append(open);
         SettingsList().Children().Append(foot);
+        NotePanePlace();
     }
 
     void MainWindow::ShowSection(char const *group, char const *section)
@@ -595,6 +654,7 @@ namespace winrt::ZSlice::implementation
         }
         // A new section: its lines show, until a setting of it is picked.
         SetPaneFocus(SectionFocus(group, section), false);
+        NotePanePlace();
     }
 
     void MainWindow::ShowSearch(std::wstring const &query)
@@ -620,7 +680,15 @@ namespace winrt::ZSlice::implementation
             if (has(zs::ToWide(info.label)) || has(PlainDoc(info.doc)) || has(zs::ToWide(info.name)))
                 hits->push_back((uint32_t)i);
         }
-        SettingsCrumb().Text(hits->empty() ? L"No setting matches" : L"Search");
+        SettingsCrumb().Text(L"Search");
+        if (hits->empty())
+        {
+            TextBlock none = Wrapped(L"No setting matches.");
+            none.Foreground(TokenBrush(Root(), L"ZsDim"));
+            none.Margin(ThicknessHelper::FromLengths(4, 6, 0, 0));
+            SettingsList().Children().Append(none);
+        }
+        NotePanePlace();
         AppendSearchRows(hits, 0, pane_fill);
     }
 
@@ -638,6 +706,178 @@ namespace winrt::ZSlice::implementation
         }
         if (end < hits->size())
             queue.TryEnqueue(Microsoft::UI::Dispatching::DispatcherQueuePriority::Low, [this, hits, end, fill] { AppendSearchRows(hits, end, fill); });
+        else
+            ApplyPaneScroll();
+    }
+
+    bool MainWindow::SamePlace(PanePlace const &a, PanePlace const &b)
+    {
+        auto same = [](char const *x, char const *y) { return x == y || (x != nullptr && y != nullptr && strcmp(x, y) == 0); };
+        return a.page == b.page && same(a.group, b.group) && same(a.section, b.section) && a.feature == b.feature && a.detail == b.detail &&
+               (a.page != SettingsPage::Search || a.query == b.query);
+    }
+
+    // After each page: the place before goes on the history, and the path
+    // over the list follows.
+    void MainWindow::NotePanePlace()
+    {
+        PanePlace now;
+        now.page = settings_page;
+        now.group = settings_group;
+        now.section = settings_section;
+        now.feature = settings_group != nullptr && strcmp(settings_group, "feature") == 0 ? settings_feature : -1;
+        now.query = settings_query;
+        now.detail = settings_page == SettingsPage::Detail ? settings_detail : std::string();
+        now.detail_from = detail_from;
+        bool same = SamePlace(pane_now, now);
+        if (same)
+        {
+            // The same page again (a new scope or theme) keeps its scroll.
+            if (!pane_restoring && pane_scroll_wanted < 0)
+                pane_scroll_wanted = pane_leaving;
+        }
+        else
+        {
+            if (now.page == SettingsPage::Detail && pane_now.page != SettingsPage::Detail)
+                pane_list_scroll = pane_leaving;
+            // Typing in the search is one place.
+            bool typing = now.page == SettingsPage::Search && pane_now.page == SettingsPage::Search;
+            if (!pane_restoring && !typing)
+            {
+                PanePlace before = pane_now;
+                before.scroll = pane_leaving;
+                pane_history.push_back(std::move(before));
+                if (pane_history.size() > 50)
+                    pane_history.erase(pane_history.begin());
+            }
+        }
+        pane_now = std::move(now);
+        UpdateCrumbs();
+        // The rows of a search come in batches: its scroll waits for them.
+        if (settings_page != SettingsPage::Search)
+            ApplyPaneScroll();
+    }
+
+    void MainWindow::ApplyPaneScroll()
+    {
+        if (pane_scroll_wanted < 0)
+            return;
+        double at = pane_scroll_wanted;
+        pane_scroll_wanted = -1;
+        queue.TryEnqueue(Microsoft::UI::Dispatching::DispatcherQueuePriority::Low, [this, at] {
+            SettingsScroll().UpdateLayout();
+            SettingsScroll().ChangeView(nullptr, box_value(at).as<Windows::Foundation::IReference<double>>(), nullptr, true);
+        });
+    }
+
+    void MainWindow::RestorePanePlace(PanePlace const &place)
+    {
+        pane_restoring = true;
+        pane_scroll_wanted = place.scroll;
+        detail_from = place.detail_from;
+        settings_query = place.query;
+        if (std::wstring(SettingsSearch().Text()) != place.query)
+            SettingsSearch().Text(place.query);
+        if (place.page == SettingsPage::Section && place.group != nullptr)
+        {
+            settings_feature = place.feature;
+            ShowSection(place.group, place.section != nullptr ? place.section : "");
+        }
+        else if (place.page == SettingsPage::Search && !place.query.empty())
+        {
+            ShowSearch(place.query);
+        }
+        else if (place.page == SettingsPage::Detail && !place.detail.empty())
+        {
+            settings_group = place.group;
+            settings_section = place.section;
+            ShowDetail(std::string(place.detail).c_str());
+        }
+        else
+        {
+            ShowSections();
+        }
+        pane_restoring = false;
+    }
+
+    // The place before, or with no history the column before.
+    void MainWindow::PaneHistoryBack()
+    {
+        if (pane_history.empty())
+        {
+            if (settings_page != SettingsPage::Sections)
+                SettingsGoBack();
+            return;
+        }
+        PanePlace place = std::move(pane_history.back());
+        pane_history.pop_back();
+        RestorePanePlace(place);
+    }
+
+    // The path: Settings, the list, and the setting. A click goes there.
+    void MainWindow::UpdateCrumbs()
+    {
+        // Links in one text: a long path wraps, and no name is cut off.
+        namespace Documents = Microsoft::UI::Xaml::Documents;
+        auto crumbs = SettingsCrumbs();
+        crumbs.Inlines().Clear();
+        auto add = [this, &crumbs](std::wstring const &text, int column, bool last) {
+            if (crumbs.Inlines().Size() > 0)
+            {
+                Documents::Run arrow;
+                arrow.Text(L"  ›  ");
+                arrow.Foreground(TokenBrush(Root(), L"ZsDim"));
+                crumbs.Inlines().Append(arrow);
+            }
+            Documents::Run name;
+            name.Text(text);
+            if (last)
+            {
+                name.FontWeight(Microsoft::UI::Text::FontWeights::SemiBold());
+                crumbs.Inlines().Append(name);
+                return;
+            }
+            Documents::Hyperlink link;
+            link.UnderlineStyle(Documents::UnderlineStyle::None);
+            link.Foreground(TokenBrush(Root(), L"ZsFg"));
+            link.Inlines().Append(name);
+            link.Click([this, column](auto &&, auto &&) {
+                queue.TryEnqueue([this, column] {
+                    if (column == 0)
+                    {
+                        settings_query.clear();
+                        SettingsSearch().Text(L"");
+                        ShowSections();
+                    }
+                    else if (column == 1 && settings_page == SettingsPage::Detail)
+                    {
+                        SettingsGoBack();
+                    }
+                });
+            });
+            crumbs.Inlines().Append(link);
+        };
+        bool detail = settings_page == SettingsPage::Detail;
+        add(L"Settings", 0, settings_page == SettingsPage::Sections);
+        if (settings_page != SettingsPage::Sections)
+        {
+            std::wstring list;
+            if (settings_page == SettingsPage::Search || (detail && detail_from == SettingsPage::Search))
+                list = L"Search";
+            else if (settings_group != nullptr && strcmp(settings_group, "feature") == 0 && settings_feature >= 0)
+                list = std::wstring(feature_titles[settings_feature]) + L" lines";
+            else if (settings_group != nullptr && strcmp(settings_group, "speed") == 0)
+                list = L"Slicing · Speed";
+            else if (settings_group != nullptr && strcmp(settings_group, "profiles") == 0)
+                list = RangeName(profile_min, profile_max);
+            else if (settings_group != nullptr)
+                list = std::wstring(TitleOf(settings_group)) + L" · " + (settings_section != nullptr && settings_section[0] != 0 ? zs::ToWide(settings_section) : std::wstring(L"General"));
+            if (!list.empty())
+                add(list, 1, !detail);
+        }
+        zs_setting_info info{};
+        if (detail && FindSetting(settings_detail.c_str(), info))
+            add(zs::ToWide(info.label), 2, true);
     }
 
     uint32_t MainWindow::SectionFocus(char const *group, char const *section)
@@ -720,6 +960,8 @@ namespace winrt::ZSlice::implementation
     {
         if (settings_page == SettingsPage::Detail)
         {
+            // The list comes back at its place, with this row marked.
+            pane_scroll_wanted = pane_list_scroll;
             if (detail_from == SettingsPage::Search && !settings_query.empty())
                 ShowSearch(settings_query);
             else if (detail_from == SettingsPage::Section && settings_group != nullptr)
@@ -896,6 +1138,13 @@ namespace winrt::ZSlice::implementation
         ToolTipService::SetToolTip(more, box_value(L"What it does, and the lines and the time it changes"));
         Microsoft::UI::Xaml::Automation::AutomationProperties::SetName(more, zs::ToWide(info.label) + L": what it does");
         more.Click([this, open](auto &&, auto &&) { queue.TryEnqueue([open] { open(); }); });
+        more.Tag(box_value(L"open"));
+        if (key == settings_detail)
+        {
+            auto color = TokenBrush(Root(), L"ZsAccent").as<Media::SolidColorBrush>().Color();
+            color.A = 0x2E;
+            row.Background(Media::SolidColorBrush(color));
+        }
         Grid::SetColumn(more, 2);
         row.Children().Append(more);
 
@@ -1208,6 +1457,12 @@ namespace winrt::ZSlice::implementation
         if (!FindSetting(name, info))
             return;
         ClearSettingsList();
+        if (detail_from != SettingsPage::Search && detail_from != SettingsPage::Section)
+        {
+            settings_group = info.group;
+            settings_section = info.section;
+            detail_from = SettingsPage::Section;
+        }
         settings_page = SettingsPage::Detail;
         settings_detail = name;
         SettingsBack().Visibility(Visibility::Visible);
@@ -1470,6 +1725,7 @@ namespace winrt::ZSlice::implementation
         zs_setting_effect shown_effect{};
         zs_setting_get_effect(info.name, &shown_effect);
         SetPaneFocus(shown_effect.features != 0 ? shown_effect.features : (1u << ZS_FEATURE_COUNT) - 1, shown_effect.first_layer_only != 0);
+        NotePanePlace();
     }
 
     void MainWindow::SetFieldState(EditorField &field, int state, std::wstring const &tip)
