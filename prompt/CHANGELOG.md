@@ -22,3 +22,4 @@ One line for each update: the date, the commit that the folder describes, and th
 | 2026-11-23 | `8a128eb1` | README, CHANGELOG, 12: the Windows settings audit is complete: the setting page, rows and pane search, path and history navigation (by the Windows session). |
 | 2026-11-23 | `9a9626c9` | README, CHANGELOG, 12: Windows keeps printer keys and app.ini after a failed read, one Bambu Lab connection per address with a shared wait, and the pairing fixes (by the Windows session). |
 | 2026-11-23 | `84d6c910` | README, CHANGELOG, 12: Windows forgets a key for good, asks before a key goes to a new address, and fixes plate, card, and filament data safety (by the Windows session). |
+| 2026-11-23 | `61d2765c` | README, CHANGELOG, 12: Windows window keys and main menu, the shortcuts sheet filter, and the printer picker and alert gaps (by the Windows session). |

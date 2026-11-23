@@ -1,6 +1,6 @@
 # A prompt that could build zslice
 
-Describes: main at commit `84d6c910` ("Add the safety rules to the Windows prompt"), 2026-11-23.
+Describes: main at commit `61d2765c` ("Add the keys and picker rules to the prompt"), 2026-11-23.
 
 ## Read this first
 
