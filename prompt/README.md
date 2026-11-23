@@ -1,6 +1,6 @@
 # A prompt that could build zslice
 
-Describes: main at commit `f1893695` ("Keep the selected parts of the Mac app in the core model"), 2026-11-23.
+Describes: main at commit `99852983` ("Add the Mac part selection to the prompt"), 2026-11-23.
 
 ## Read this first
 
