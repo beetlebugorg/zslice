@@ -2203,6 +2203,8 @@ namespace winrt::ZSlice::implementation
     void MainWindow::AfterRestore(int bits)
     {
         CancelFall();
+        // An undo brings each part back with its id.
+        SelSync();
         if (model != nullptr && (bits & ZS_HISTORY_MOVED) != 0)
         {
             // The marks moved: the row of a mark must not keep its index.

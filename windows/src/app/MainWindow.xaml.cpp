@@ -403,6 +403,7 @@ namespace winrt::ZSlice::implementation
 
     void MainWindow::AfterScene()
     {
+        SelSync(true);
         model->UpdateBed(view);
         zs_set_view_sync(model->Set(), view);
         SupportLoaded();

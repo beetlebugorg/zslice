@@ -244,7 +244,7 @@ namespace winrt::ZSlice::implementation
         zs_app *app = model->Active();
         zs::Log("dev: %s | tool %d path %lld seg %lld parts", StepForLog(step).c_str(), (int)tool,
                 (long long)selected_path, (long long)selected_segment);
-        for (int64_t i : selected_parts)
+        for (int64_t i : SelectedParts())
             zs::Log(" %lld", (long long)i);
         size_t count = zs_app_part_count(app);
         zs::Log(" | %zu part(s):", count);
@@ -472,6 +472,32 @@ namespace winrt::ZSlice::implementation
                     ViewPanel().ActualWidth(), Root().ActualWidth(), SettingsPane().Visibility() == Microsoft::UI::Xaml::Visibility::Visible ? 1 : 0, SettingsPin().IsChecked().GetBoolean() ? 1 : 0,
                     zs::Printers().Pref("panel", "-").c_str(), zs::Printers().Pref("panel_pinned", "-").c_str(), zs::Printers().Pref("panel_width", "-").c_str());
         }
+        else if (verb == L"sellog")
+        {
+            std::string ids, indices;
+            if (sel != nullptr)
+                for (size_t k = 0; k < zs_sel_count(sel.get()); k++)
+                    ids += std::to_string(zs_sel_get(sel.get(), k)) + " ";
+            for (int64_t i : SelectedParts())
+                indices += std::to_string(i) + " ";
+            zs_app *app = model->Active();
+            std::string table;
+            for (size_t i = 0, n = zs_app_part_count(app); i < n; i++)
+                table += std::to_string(zs_app_part_id(app, i)) + " ";
+            zs::Log("dev: sel ids [%s] indices [%s] primary %lld | parts [%s] plate %zu\n", ids.c_str(), indices.c_str(), (long long)PrimaryPart(), table.c_str(), model->ActivePlate());
+        }
+        else if (verb == L"partremove" && !words.empty())
+        {
+            zs_app_part_remove(model->Active(), (size_t)_wtoi(words[0].c_str()));
+            PlateEdited();
+        }
+        else if (verb == L"pickat" && words.size() >= 2)
+        {
+            int64_t part = PartAt(_wtof(words[0].c_str()), _wtof(words[1].c_str()), nullptr, nullptr);
+            zs::Log("dev: pick at %s %s: part %lld\n", zs::ToUtf8(words[0]).c_str(), zs::ToUtf8(words[1]).c_str(), (long long)part);
+            if (words.size() >= 3)
+                SelectPart(part);
+        }
         else if (verb == L"manageopen")
         {
             printers->ShowManage();
@@ -621,7 +647,7 @@ namespace winrt::ZSlice::implementation
         {
             // A drag along the Z ring of the selected part, by n degrees.
             zs_part p{};
-            if (!selected_parts.empty() && zs_app_part_get(model->Active(), (size_t)selected_parts[0], &p) == ZS_OK)
+            if (!SelectedParts().empty() && zs_app_part_get(model->Active(), (size_t)PrimaryPart(), &p) == ZS_OK)
             {
                 double radius = 0.62 * std::max({ p.size_x, p.size_y, p.size_z }) + 4, degrees = number(0), s = Scale();
                 auto at = [&](double angle, double &x, double &y) {
@@ -653,9 +679,9 @@ namespace winrt::ZSlice::implementation
             // The camera on the selected part: front, back, or above, a
             // little to the side, so that no ring shows as a line.
             zs_part p{};
-            if (selected_parts.empty())
+            if (SelectedParts().empty())
                 SelectPart(0);
-            if (!selected_parts.empty() && zs_app_part_get(model->Active(), (size_t)selected_parts[0], &p) == ZS_OK)
+            if (!SelectedParts().empty() && zs_app_part_get(model->Active(), (size_t)PrimaryPart(), &p) == ZS_OK)
             {
                 float n[3] = { 0.40f, -0.80f, 0.45f };
                 if (words[0] == L"back")
@@ -681,7 +707,7 @@ namespace winrt::ZSlice::implementation
             // a point of the part takes in a right-hand turn of that many
             // degrees, as Plate.turn makes it. The log has the angle.
             zs_part p{};
-            if (!selected_parts.empty() && zs_app_part_get(model->Active(), (size_t)selected_parts[0], &p) == ZS_OK)
+            if (!SelectedParts().empty() && zs_app_part_get(model->Active(), (size_t)PrimaryPart(), &p) == ZS_OK)
             {
                 int axis = (int)number(0);
                 double degrees = number(1), s = Scale();
@@ -1091,9 +1117,10 @@ namespace winrt::ZSlice::implementation
         {
             // partsel i j: these parts are the selection.
             selected_path = selected_segment = -1;
-            selected_parts.clear();
+            std::vector<int64_t> chosen;
             for (size_t k = 0; k < words.size(); k++)
-                selected_parts.push_back(_wtoi(words[k].c_str()));
+                chosen.push_back(_wtoi(words[k].c_str()));
+            SetSelectedParts(chosen);
             FillPartCard();
         }
         else if (verb == L"scalefocus")
@@ -1273,7 +1300,7 @@ namespace winrt::ZSlice::implementation
                 if (auto entry = item.try_as<Microsoft::UI::Xaml::Controls::MenuFlyoutItem>())
                     menu += to_string(entry.Text()) + (entry.IsEnabled() ? "=on " : "=off ");
             zs::Log("dev: fit refusal '%s' | state %d gcode rc %d len %zu | export on %d | fit issues %zu of %zu | parts selected %zu | menu %s\n", zs::ToUtf8(PlateRefusal(app)).c_str(),
-                    zs_app_state(app), gcode, gcode == ZS_OK ? len : 0, ExportButton().IsEnabled() ? 1 : 0, fit, n, selected_parts.size(), menu.c_str());
+                    zs_app_state(app), gcode, gcode == ZS_OK ? len : 0, ExportButton().IsEnabled() ? 1 : 0, fit, n, SelectedParts().size(), menu.c_str());
         }
         else if (verb == L"exportall")
         {

@@ -79,8 +79,8 @@ namespace winrt::ZSlice::implementation
         LineMore().Click([edit](auto &&, auto &&) { edit(1, 1.1); });
 
         auto one = [this](auto const &action) {
-            if (model != nullptr && selected_parts.size() == 1)
-                action(model->Active(), (size_t)selected_parts[0]);
+            if (model != nullptr && SelectedParts().size() == 1)
+                action(model->Active(), (size_t)PrimaryPart());
         };
         PartDuplicate().Click([this, one](auto &&, auto &&) {
             one([this](zs_app *app, size_t i) {
@@ -130,25 +130,27 @@ namespace winrt::ZSlice::implementation
                 return;
             scale_edited = false;
             zs_app *app = model->Active();
-            if (app != scale_app || scale_part < 0 || (size_t)scale_part >= zs_app_part_count(app))
+            ptrdiff_t scale_index = app == scale_app ? zs_app_part_index(app, scale_part) : -1;
+            if (scale_index < 0)
                 return;
             std::wstring text{ PartScale().Text() };
             wchar_t *end = nullptr;
             double percent = wcstod(text.c_str(), &end);
             zs_part p{};
-            if (end == text.c_str() || !(percent > 0) || zs_app_part_get(app, (size_t)scale_part, &p) != ZS_OK)
+            if (end == text.c_str() || !(percent > 0) || zs_app_part_get(app, (size_t)scale_index, &p) != ZS_OK)
                 return;
             double scale = std::clamp(percent, 1.0, 100000.0) / 100;
             if (std::abs(scale - p.scale_x) < 1e-6)
                 return;
-            if (zs_app_part_scale(app, (size_t)scale_part, scale, scale, scale) == ZS_OK)
+            if (zs_app_part_scale(app, (size_t)scale_index, scale, scale, scale) == ZS_OK)
                 PlateEdited();
         };
         // The part that the field shows when the typing starts.
         PartScale().GotFocus([this](auto &&, auto &&) {
             scale_edited = false;
             scale_app = model != nullptr ? model->Active() : nullptr;
-            scale_part = selected_parts.size() == 1 ? selected_parts[0] : -1;
+            std::vector<int64_t> shown_parts = SelectedParts();
+            scale_part = shown_parts.size() == 1 ? zs_app_part_id(model->Active(), (size_t)shown_parts[0]) : 0;
         });
         PartScale().TextChanged([this](auto &&, auto &&) {
             if (std::wstring(PartScale().Text()) != scale_shown)
@@ -163,16 +165,16 @@ namespace winrt::ZSlice::implementation
         });
         PartScale().LostFocus([this, commit_scale](auto &&, auto &&) {
             commit_scale();
-            scale_part = -1;
+            scale_part = 0;
             // The card can show another part now.
             FillPartCard();
         });
         PartMake().Click([this](auto &&, auto &&) {
-            if (model == nullptr || selected_parts.size() != 1)
+            if (model == nullptr || SelectedParts().size() != 1)
                 return;
             size_t want = (size_t)std::max(2.0, PartMakeCount().Value());
             size_t plates = 0, plates_before = model->PlateCount(), make_plate = model->ActivePlate();
-            ptrdiff_t made = zs_set_fill(model->Set(), model->ActivePlate(), (size_t)selected_parts[0], want, &plates);
+            ptrdiff_t made = zs_set_fill(model->Set(), model->ActivePlate(), (size_t)PrimaryPart(), want, &plates);
             if (made < 0)
                 ShowToast(L"No copies were made.");
             else if ((size_t)made < want)
@@ -187,9 +189,9 @@ namespace winrt::ZSlice::implementation
             ShowPlate();
         });
         PartNewPlate().Click([this](auto &&, auto &&) {
-            if (model == nullptr || selected_parts.empty())
+            if (model == nullptr || SelectedParts().empty())
                 return;
-            std::vector<int64_t> list = selected_parts;
+            std::vector<int64_t> list = SelectedParts();
             std::sort(list.rbegin(), list.rend());
             ClearSelection();
             // All of them go to one new plate.
@@ -204,9 +206,9 @@ namespace winrt::ZSlice::implementation
             PlateEdited();
         });
         PartRemove().Click([this](auto &&, auto &&) {
-            if (model == nullptr || selected_parts.empty())
+            if (model == nullptr || SelectedParts().empty())
                 return;
-            std::vector<int64_t> list = selected_parts;
+            std::vector<int64_t> list = SelectedParts();
             std::sort(list.rbegin(), list.rend());
             ClearSelection();
             for (int64_t i : list)
@@ -216,7 +218,7 @@ namespace winrt::ZSlice::implementation
         PartsDuplicate().Click([this](auto &&, auto &&) {
             if (model == nullptr)
                 return;
-            for (int64_t i : std::vector<int64_t>(selected_parts))
+            for (int64_t i : SelectedParts())
                 zs_app_part_duplicate(model->Active(), (size_t)i);
             PlateEdited();
         });
@@ -229,20 +231,20 @@ namespace winrt::ZSlice::implementation
 
         // The cut: the plane shows while the popup is open.
         auto show_cut = [this]() {
-            if (view == nullptr || model == nullptr || selected_parts.size() != 1)
+            if (view == nullptr || model == nullptr || SelectedParts().size() != 1)
                 return;
             zs_part p{};
-            if (zs_app_part_get(model->Active(), (size_t)selected_parts[0], &p) != ZS_OK)
+            if (zs_app_part_get(model->Active(), (size_t)PrimaryPart(), &p) != ZS_OK)
                 return;
             double m = 0.55 * std::max(p.size_x, p.size_y) + 4;
             zs_view_set_cut(view, p.x - m, p.y - m, p.x + m, p.y + m, CutHeight().Value());
             RequestDraw();
         };
         PartCutFlyout().Opened([this, show_cut](auto &&, auto &&) {
-            if (model == nullptr || selected_parts.size() != 1)
+            if (model == nullptr || SelectedParts().size() != 1)
                 return;
             zs_part p{};
-            if (zs_app_part_get(model->Active(), (size_t)selected_parts[0], &p) != ZS_OK)
+            if (zs_app_part_get(model->Active(), (size_t)PrimaryPart(), &p) != ZS_OK)
                 return;
             CutHeight().Minimum(0.2);
             CutHeight().Maximum(std::max(0.4, p.size_z - 0.2));
@@ -257,9 +259,9 @@ namespace winrt::ZSlice::implementation
         });
         CutHeight().ValueChanged([show_cut](auto &&, auto &&) { show_cut(); });
         CutGo().Click([this](auto &&, auto &&) {
-            if (model == nullptr || selected_parts.size() != 1)
+            if (model == nullptr || SelectedParts().size() != 1)
                 return;
-            size_t part = (size_t)selected_parts[0];
+            size_t part = (size_t)PrimaryPart();
             double pegs = CutPegs().Value(), peg_d = CutPegSize().Value();
             ptrdiff_t n = zs_app_part_cut(model->Active(), part, CutHeight().Value(), CutFlip().IsChecked().GetBoolean() ? 1 : 0,
                                           std::isnan(pegs) ? 0 : (int)pegs, std::isnan(peg_d) ? 5 : peg_d);
@@ -393,7 +395,7 @@ namespace winrt::ZSlice::implementation
             return;
         double box[4] = { 1e9, 1e9, -1e9, -1e9 };
         double s = Scale();
-        for (int64_t i : selected_parts)
+        for (int64_t i : SelectedParts())
         {
             zs_part p{};
             if (zs_app_part_get(model->Active(), (size_t)i, &p) != ZS_OK)
@@ -619,13 +621,13 @@ namespace winrt::ZSlice::implementation
 
     void MainWindow::FillPartCard()
     {
-        if (model == nullptr || selected_parts.empty())
+        if (model == nullptr || SelectedParts().empty())
         {
             PartCard().Visibility(Visibility::Collapsed);
             return;
         }
         zs_app *app = model->Active();
-        bool many = selected_parts.size() > 1;
+        bool many = SelectedParts().size() > 1;
         PartSingle().Visibility(many ? Visibility::Collapsed : Visibility::Visible);
         PartsDuplicate().Visibility(many ? Visibility::Visible : Visibility::Collapsed);
         PartsArrange().Visibility(many ? Visibility::Visible : Visibility::Collapsed);
@@ -634,13 +636,13 @@ namespace winrt::ZSlice::implementation
                                                                     : L"Search the settings that a part can have of its own"));
         if (many)
         {
-            PartTitle().Text(std::to_wstring(selected_parts.size()) + L" parts");
+            PartTitle().Text(std::to_wstring(SelectedParts().size()) + L" parts");
             PartFacts().Text(L"Drag one to move them all.");
         }
         else
         {
             zs_part p{};
-            if (zs_app_part_get(app, (size_t)selected_parts[0], &p) != ZS_OK)
+            if (zs_app_part_get(app, (size_t)PrimaryPart(), &p) != ZS_OK)
             {
                 PartCard().Visibility(Visibility::Collapsed);
                 return;
@@ -665,7 +667,7 @@ namespace winrt::ZSlice::implementation
             // Why the part floats over the bed.
             char float_note[256] = "";
             size_t float_len = 0;
-            bool floats = zs_app_part_float_note(app, (size_t)selected_parts[0], float_note, sizeof float_note, &float_len) == ZS_OK;
+            bool floats = zs_app_part_float_note(app, (size_t)PrimaryPart(), float_note, sizeof float_note, &float_len) == ZS_OK;
             PartFloatNote().Text(floats ? zs::ToWide(float_note) : std::wstring());
             PartFloatNote().Visibility(floats ? Visibility::Visible : Visibility::Collapsed);
             FillPartOrder();
@@ -680,9 +682,9 @@ namespace winrt::ZSlice::implementation
     // project.print_sequence = by_object and two parts or more.
     void MainWindow::FillPartOrder()
     {
-        if (model == nullptr || selected_parts.size() != 1)
+        if (model == nullptr || SelectedParts().size() != 1)
             return;
-        size_t count = zs_app_part_count(model->Active()), part = (size_t)selected_parts[0];
+        size_t count = zs_app_part_count(model->Active()), part = (size_t)PrimaryPart();
         bool on = count > 1 && model->GetSetting("project.print_sequence") == "by_object";
         PartOrderRow().Visibility(on ? Visibility::Visible : Visibility::Collapsed);
         if (!on)
@@ -696,9 +698,9 @@ namespace winrt::ZSlice::implementation
     // new place.
     void MainWindow::MovePartInOrder(int direction)
     {
-        if (model == nullptr || selected_parts.size() != 1 || falling)
+        if (model == nullptr || SelectedParts().size() != 1 || falling)
             return;
-        size_t part = (size_t)selected_parts[0];
+        size_t part = (size_t)PrimaryPart();
         if (direction < 0 && part == 0)
             return;
         size_t to = direction < 0 ? part - 1 : part + 1;

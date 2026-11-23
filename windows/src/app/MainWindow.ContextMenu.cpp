@@ -142,7 +142,7 @@ namespace winrt::ZSlice::implementation
     bool MainWindow::SelectLinePart()
     {
         if (selected_path < 0)
-            return !selected_parts.empty();
+            return !SelectedParts().empty();
         ptrdiff_t part = zs_app_part_of_path(model->Active(), (size_t)selected_path);
         if (part < 0)
             return false;
@@ -157,7 +157,8 @@ namespace winrt::ZSlice::implementation
             ShowToast(L"Select a part first.");
             return;
         }
-        std::vector<size_t> parts(selected_parts.begin(), selected_parts.end());
+        std::vector<int64_t> chosen = SelectedParts();
+        std::vector<size_t> parts(chosen.begin(), chosen.end());
         if (zs_app_parts_copy(model->Active(), parts.data(), parts.size(), 0) == ZS_OK)
         {
             clip_kind = ClipKind::Parts;
@@ -173,7 +174,8 @@ namespace winrt::ZSlice::implementation
             return;
         }
         zs_app *app = model->Active();
-        std::vector<size_t> parts(selected_parts.begin(), selected_parts.end());
+        std::vector<int64_t> chosen = SelectedParts();
+        std::vector<size_t> parts(chosen.begin(), chosen.end());
         if (zs_app_parts_copy(app, parts.data(), parts.size(), 0) != ZS_OK)
             return;
         clip_kind = ClipKind::Parts;
@@ -182,7 +184,7 @@ namespace winrt::ZSlice::implementation
         std::sort(parts.rbegin(), parts.rend());
         for (size_t part : parts)
             zs_app_part_remove(app, part);
-        selected_parts.clear();
+        SetSelectedParts({});
         HideCards();
         PlateEdited();
     }
@@ -196,7 +198,7 @@ namespace winrt::ZSlice::implementation
         }
         zs_app *app = model->Active();
         std::vector<int64_t> copies;
-        for (int64_t part : std::vector<int64_t>(selected_parts))
+        for (int64_t part : SelectedParts())
         {
             ptrdiff_t copy = zs_app_part_duplicate(app, (size_t)part);
             if (copy >= 0)
@@ -205,7 +207,7 @@ namespace winrt::ZSlice::implementation
         if (copies.empty())
             return;
         selected_path = selected_segment = -1;
-        selected_parts = copies;
+        SetSelectedParts(copies);
         PlateEdited();
     }
 
@@ -218,7 +220,7 @@ namespace winrt::ZSlice::implementation
         }
         zs_app *app = model->Active();
         double bed_x = 0, bed_y = 0;
-        bool point = (here || selected_parts.empty()) &&
+        bool point = (here || SelectedParts().empty()) &&
                      zs_view_bed_point(view, (float)(x * Scale()), (float)(y * Scale()), &bed_x, &bed_y) != 0;
         ptrdiff_t first = zs_app_parts_paste(app, point ? 1 : 0, bed_x, bed_y);
         if (first < 0)
@@ -227,9 +229,10 @@ namespace winrt::ZSlice::implementation
             return;
         }
         selected_path = selected_segment = -1;
-        selected_parts.clear();
+        std::vector<int64_t> pasted;
         for (size_t k = 0; k < zs_clipboard_parts(); k++)
-            selected_parts.push_back(first + (int64_t)k);
+            pasted.push_back(first + (int64_t)k);
+        SetSelectedParts(pasted);
         PlateEdited();
         if (zs_app_plate_fits(app) != 1)
             ShowToast(L"The parts do not all fit on the bed. Move some to another plate.");
@@ -280,7 +283,7 @@ namespace winrt::ZSlice::implementation
             return ClipSel::Area;
         if (RangeOpen())
             return ClipSel::Range;
-        if (!selected_parts.empty())
+        if (!SelectedParts().empty())
             return ClipSel::Parts;
         return selected_path >= 0 ? ClipSel::Line : ClipSel::None;
     }

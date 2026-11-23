@@ -141,7 +141,7 @@ namespace winrt::ZSlice::implementation
         SupportReload();
         selected_path = selected_segment = -1;
         line_anchored = false;
-        selected_parts.clear();
+        SetSelectedParts({});
         HideCards();
         ApplySelection();
         // The slider of the new plate starts at its top.

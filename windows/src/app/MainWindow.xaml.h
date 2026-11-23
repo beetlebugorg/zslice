@@ -65,7 +65,7 @@ namespace winrt::ZSlice::implementation
         void ClearPlate();
         // The Scale field writes only an edit, and to the part it was for.
         bool scale_edited = false;
-        int64_t scale_part = -1;
+        uint64_t scale_part = 0;
         zs_app *scale_app = nullptr;
         std::wstring scale_shown;
         // A click that lost its pointer capture is no click.
@@ -924,7 +924,18 @@ namespace winrt::ZSlice::implementation
         // The selection: a line, or one or more parts.
         int64_t selected_path = -1;
         int64_t selected_segment = -1;
-        std::vector<int64_t> selected_parts;
+        // The selected parts are stable ids in the selection model of the
+        // core (docs/internals/selection.md). An index is good for one call.
+        struct SelectionFree
+        {
+            void operator()(zs_selection *s) const { zs_sel_free(s); }
+        };
+        std::unique_ptr<zs_selection, SelectionFree> sel;
+        void SelSync(bool scene = false);
+        std::vector<int64_t> SelectedParts() const;
+        int64_t PrimaryPart() const;
+        bool PartSelected(int64_t part) const;
+        void SetSelectedParts(std::vector<int64_t> const &parts);
         bool line_anchored = false;
         double anchor_x = 0, anchor_y = 0, anchor_z = 0;
         int anchor_feature = 0;
