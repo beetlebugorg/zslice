@@ -1,6 +1,6 @@
 # A prompt that could build zslice
 
-Describes: main at commit `1401753a` ("Add the foot of the line page to the prompt"), 2026-11-23.
+Describes: main at commit `43c919e0` ("Keep the other facts of a line at the foot of its Mac page"), 2026-11-23.
 
 ## Read this first
 
