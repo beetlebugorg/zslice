@@ -1881,6 +1881,34 @@ test "plate set: this side on the bed uses the flat side around a sliver face" {
     try testing.expect(@max(@abs(n[0]), @max(@abs(n[1]), @abs(n[2]))) / l > 0.99999);
 }
 
+test "plate set: this side on the bed takes the side that the ray hits" {
+    const gpa = testing.allocator;
+    const cube = try boxStl(gpa, 40, 20, 4);
+    defer gpa.free(cube);
+    const set = try Set.create(gpa, null, null, false);
+    defer set.destroy();
+    const app = set.appOf(0).?;
+    try app.loadStl("plate.stl", cube);
+    const b = app.plate.parts.items[0];
+    const cx = b.x;
+    const cy = b.y;
+    const h = b.height;
+    // A ray at the end wall, 0.1 mm under the top edge: the wall shows,
+    // and the large top face is nearer to a point inside the part.
+    const n = app.plate.sideOnRay(0, .{ cx + 100, cy, h - 0.1 }, .{ -1, 0, 0 }).?;
+    const l = @sqrt(n[0] * n[0] + n[1] * n[1] + n[2] * n[2]);
+    try testing.expect(@abs(n[2]) / l < 1e-6);
+    try testing.expect(@abs(n[0]) / l > 0.999 or @abs(n[1]) / l > 0.999);
+    // A ray that misses leaves the part as it is.
+    try testing.expect(!(try app.putPartDownRay(0, .{ cx + 100, cy + 100, h }, .{ -1, 0, 0 })));
+    try testing.expectApproxEqAbs(h, app.plate.parts.items[0].height, 1e-9);
+    // Down on the end wall: the part is now as tall as the wall is long.
+    try testing.expect(try app.putPartDownRay(0, .{ cx + 100, cy, h - 0.1 }, .{ -1, 0, 0 }));
+    const tall = app.plate.parts.items[0].height;
+    try testing.expect(tall > 19.9);
+    try testing.expect((try firstLayerArea(gpa, app, 0)) > 0);
+}
+
 test "plate set: a part put down on a side comes back the same from a session, a project, and a 3MF file" {
     const gpa = testing.allocator;
     const session = @import("session.zig");

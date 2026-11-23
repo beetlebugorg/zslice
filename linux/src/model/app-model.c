@@ -2421,6 +2421,12 @@ void zg_model_part_turn(ZgModel *self, size_t i, int axis, double degrees) {
     if (zs_app_part_turn(self->core, i, axis, degrees) == ZS_OK) plate_changed(self);
 }
 
+gboolean zg_model_part_put_down_ray(ZgModel *self, size_t i, const float r[6]) {
+    if (zs_app_part_put_down_ray(self->core, i, r[0], r[1], r[2], r[3], r[4], r[5]) != ZS_OK) return FALSE;
+    plate_changed(self);
+    return TRUE;
+}
+
 void zg_model_part_put_down_at(ZgModel *self, size_t i, double x, double y, double z) {
     if (zs_app_part_put_down_at(self->core, i, x, y, z) == ZS_OK) plate_changed(self);
 }

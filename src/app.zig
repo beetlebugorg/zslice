@@ -1744,6 +1744,15 @@ pub const App = struct {
         try app.plateChanged();
     }
 
+    /// Puts the side of part i under a ray of the view on the bed. Returns
+    /// false, with no change, if the ray misses the part.
+    pub fn putPartDownRay(app: *App, i: usize, o: [3]f64, d: [3]f64) Allocator.Error!bool {
+        const n = app.plate.sideOnRay(i, o, d) orelse return false;
+        try app.plate.putDown(app.gpa, i, n);
+        try app.plateChanged();
+        return true;
+    }
+
     pub fn placePart(app: *App, i: usize, mode: zs.plate.PlaceMode, axis: u2) Allocator.Error!void {
         try app.plate.place(app.gpa, i, mode, axis, app.settings.project.support_angle);
         _ = try app.settleNew(i);

@@ -2524,7 +2524,13 @@ static void on_put_down(GSimpleAction *a, GVariant *p, gpointer data) {
     View3d *v = data;
     double x, y, z;
     gint64 part = menu_part(v);
-    if (part >= 0 && mark_place(v, &x, &y, &z)) zg_model_part_put_down_at(v->model, (size_t)part, x, y, z);
+    if (part < 0) return;
+    /* The side under the click. The point of a line is inside the part. */
+    int s = gtk_widget_get_scale_factor(v->area);
+    float r[6];
+    if (v->view && zs_view_ray(v->view, (float)(v->menu_x * s), (float)(v->menu_y * s), r) &&
+        zg_model_part_put_down_ray(v->model, (size_t)part, r)) return;
+    if (mark_place(v, &x, &y, &z)) zg_model_part_put_down_at(v->model, (size_t)part, x, y, z);
 }
 
 static void on_place(GSimpleAction *a, GVariant *p, gpointer data) {

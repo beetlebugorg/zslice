@@ -435,6 +435,8 @@ pub fn sameShape(a: [7]f64, b: [7]f64) bool {
 /// "This side on the bed": faces within this distance (mm) are candidates
 /// for the picked side, and faces this far off its plane are not in it.
 const side_near = 0.01;
+/// A face lower than this over its longest edge (mm) is a sliver.
+const side_sliver = 0.05;
 /// The cosine of 0.5 degrees: faces of one flat side are within this angle.
 const side_cos = 0.99996;
 
@@ -1055,6 +1057,41 @@ pub const Plate = struct {
         try self.repose(gpa, i);
     }
 
+    /// The outward normal of the side of part i that the ray from `o` in
+    /// direction `d` (bed coordinates) hits first, or null. Only a face
+    /// that looks at the ray counts, so the side is the side that shows.
+    pub fn sideOnRay(self: *const Plate, i: usize, o: [3]f64, d: [3]f64) ?[3]f64 {
+        if (i >= self.parts.items.len) return null;
+        const p = &self.parts.items[i];
+        const t = p.transform();
+        const vs = p.mesh.vertices.items;
+        var best: f64 = std.math.inf(f64);
+        for (p.mesh.faces.items) |f| {
+            var w: [3][3]f64 = undefined;
+            for (0..3) |k| {
+                const v = vs[f[k]];
+                const m = [3]f64{ v.x, v.y, v.z };
+                for (0..3) |r| w[k][r] = m[0] * t[r] + m[1] * t[3 + r] + m[2] * t[6 + r] + t[9 + r];
+            }
+            const e1 = [3]f64{ w[1][0] - w[0][0], w[1][1] - w[0][1], w[1][2] - w[0][2] };
+            const e2 = [3]f64{ w[2][0] - w[0][0], w[2][1] - w[0][1], w[2][2] - w[0][2] };
+            const h = [3]f64{ d[1] * e2[2] - d[2] * e2[1], d[2] * e2[0] - d[0] * e2[2], d[0] * e2[1] - d[1] * e2[0] };
+            // A positive determinant: the face looks at the ray.
+            const det = e1[0] * h[0] + e1[1] * h[1] + e1[2] * h[2];
+            if (!(det > 1e-12)) continue;
+            const g = [3]f64{ o[0] - w[0][0], o[1] - w[0][1], o[2] - w[0][2] };
+            const a = (g[0] * h[0] + g[1] * h[1] + g[2] * h[2]) / det;
+            if (a < 0 or a > 1) continue;
+            const q = [3]f64{ g[1] * e1[2] - g[2] * e1[1], g[2] * e1[0] - g[0] * e1[2], g[0] * e1[1] - g[1] * e1[0] };
+            const b = (d[0] * q[0] + d[1] * q[1] + d[2] * q[2]) / det;
+            if (b < 0 or a + b > 1) continue;
+            const r = (e2[0] * q[0] + e2[1] * q[1] + e2[2] * q[2]) / det;
+            if (r > 0 and r < best) best = r;
+        }
+        if (std.math.isInf(best)) return null;
+        return self.sideAt(i, o[0] + best * d[0], o[1] + best * d[1], o[2] + best * d[2]);
+    }
+
     /// The outward normal of the face of part i nearest to the bed point
     /// (x, y, z), in the coordinates of its mesh, or null. For "this side
     /// on the bed" from a picked line.
@@ -1079,6 +1116,18 @@ pub const Plate = struct {
             fn len(n: [3]f64) f64 {
                 return @sqrt(n[0] * n[0] + n[1] * n[1] + n[2] * n[2]);
             }
+            /// The height of a face over its longest edge (mm).
+            fn height(m: *const Mesh, f: [3]u32) f64 {
+                const w = m.vertices.items;
+                var longest: f64 = 0;
+                for (0..3) |k| {
+                    const a = w[f[k]];
+                    const b = w[f[(k + 1) % 3]];
+                    const e = [3]f64{ @as(f64, b.x) - a.x, @as(f64, b.y) - a.y, @as(f64, b.z) - a.z };
+                    longest = @max(longest, len(e));
+                }
+                return if (longest > 0) len(cross(m, f)) / longest else 0;
+            }
             fn dist2(m: *const Mesh, f: [3]u32, at: [3]f64) f64 {
                 const w = m.vertices.items;
                 const a = [3]f64{ w[f[0]].x, w[f[0]].y, w[f[0]].z };
@@ -1088,25 +1137,33 @@ pub const Plate = struct {
             }
         };
         var best_d: f64 = std.math.inf(f64);
+        var nearest: ?[3]u32 = null;
         for (p.mesh.faces.items) |f| {
             if (!(Tri.len(Tri.cross(&p.mesh, f)) > 0)) continue;
-            best_d = @min(best_d, Tri.dist2(&p.mesh, f, q));
+            const d = Tri.dist2(&p.mesh, f, q);
+            if (d < best_d) {
+                best_d = d;
+                nearest = f;
+            }
         }
-        if (std.math.isInf(best_d)) return null;
-        // A point on an edge, or on a sliver, is near several faces. The
-        // largest face within 0.01 mm names the side.
-        const reach = @sqrt(best_d) + side_near;
-        var seed: ?[3]f64 = null;
-        var seed_area: f64 = 0;
-        var seed_at: [3]f64 = undefined;
-        for (p.mesh.faces.items) |f| {
-            const n = Tri.cross(&p.mesh, f);
-            const l = Tri.len(n);
-            if (!(l > seed_area) or Tri.dist2(&p.mesh, f, q) > reach * reach) continue;
-            seed = .{ n[0] / l, n[1] / l, n[2] / l };
-            seed_area = l;
-            seed_at = .{ vs[f[0]].x, vs[f[0]].y, vs[f[0]].z };
+        const near = nearest orelse return null;
+        // The nearest face names the side. Only a sliver has too noisy a
+        // normal, so the largest face within 0.01 mm of it names the side.
+        var seed_face = near;
+        if (Tri.height(&p.mesh, near) < side_sliver) {
+            const reach = @sqrt(best_d) + side_near;
+            var seed_area: f64 = 0;
+            for (p.mesh.faces.items) |f| {
+                const l = Tri.len(Tri.cross(&p.mesh, f));
+                if (!(l > seed_area) or Tri.dist2(&p.mesh, f, q) > reach * reach) continue;
+                seed_face = f;
+                seed_area = l;
+            }
         }
+        const seed_n = Tri.cross(&p.mesh, seed_face);
+        const seed_l = Tri.len(seed_n);
+        const seed: ?[3]f64 = .{ seed_n[0] / seed_l, seed_n[1] / seed_l, seed_n[2] / seed_l };
+        const seed_at = [3]f64{ vs[seed_face[0]].x, vs[seed_face[0]].y, vs[seed_face[0]].z };
         const u = seed orelse return null;
         // The plane of the side: the area-weighted normal of all faces in
         // the plane of the seed face.

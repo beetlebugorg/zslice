@@ -1267,8 +1267,15 @@ const ops = {
   },
 
   // The part of a path: "Put this side on the bed", and its placement.
-  putDown({ path, seg }) {
+  putDown({ path, seg, ray }) {
     const part = core.partOfPath(path);
+    if (part >= 0 && ray) {
+      const [o, d] = ray;
+      if (core.w.x.zs_app_part_put_down_ray(core.app, part, o[0], o[1], o[2], d[0], d[1], d[2]) === 0) {
+        wantSlice();
+        return {};
+      }
+    }
     const pt = core.pathPoint(path, seg);
     if (part < 0 || !pt) return {};
     if (core.w.x.zs_app_part_put_down_at(core.app, part, pt[0], pt[1], pt[2]) === 0) wantSlice();

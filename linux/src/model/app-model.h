@@ -108,6 +108,8 @@ char *zg_model_part_setting(ZgModel *self, size_t i, const char *name);
 void zg_model_part_scale(ZgModel *self, size_t i, double s);
 void zg_model_part_turn(ZgModel *self, size_t i, int axis, double degrees);
 void zg_model_part_put_down_at(ZgModel *self, size_t i, double x, double y, double z);
+/* The side under the view ray r (eye, direction). FALSE: the ray missed. */
+gboolean zg_model_part_put_down_ray(ZgModel *self, size_t i, const float r[6]);
 void zg_model_part_place(ZgModel *self, size_t i, int mode, int axis);
 /* Mirrors part i along the X (axis 0) or Y (axis 1) axis of the bed. */
 void zg_model_part_mirror(ZgModel *self, size_t i, int axis);

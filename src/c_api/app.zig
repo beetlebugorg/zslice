@@ -3098,6 +3098,15 @@ export fn zs_app_is_draft(a: ?*const App) c_int {
     return @intFromBool(app.isDraft());
 }
 
+export fn zs_app_part_put_down_ray(a: ?*App, i: usize, ox: f64, oy: f64, oz: f64, dx: f64, dy: f64, dz: f64) c_int {
+    const app = a orelse return @intFromEnum(Status.invalid_argument);
+    if (i >= app.plate.count()) return @intFromEnum(Status.out_of_range);
+    const hit = app.putPartDownRay(i, .{ ox, oy, oz }, .{ dx, dy, dz }) catch |e| return status(e);
+    if (!hit) return @intFromEnum(Status.out_of_range);
+    noted(app, null, true);
+    return ok;
+}
+
 export fn zs_app_part_put_down_at(a: ?*App, i: usize, x: f64, y: f64, z: f64) c_int {
     const app = a orelse return @intFromEnum(Status.invalid_argument);
     if (i >= app.plate.count()) return @intFromEnum(Status.out_of_range);

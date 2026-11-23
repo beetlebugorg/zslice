@@ -2838,6 +2838,18 @@ async function showContextMenu(x, y) {
   openMenuAt(x, y, items, () => canvas.focus({ preventScroll: true }));
 }
 
+// The ray of the view through the place of the menu, or null.
+function menuRay() {
+  if (!app.menuAt) return null;
+  const r = canvas.getBoundingClientRect();
+  const c = view.w.cell;
+  const px = (app.menuAt[0] - r.left) * dpr();
+  const py = (app.menuAt[1] - r.top) * dpr();
+  if (!view.x.zs_view_ray(view.v, px, py, c)) return null;
+  const f = new Float32Array(view.w.x.memory.buffer, c, 6);
+  return [Array.from(f.subarray(0, 3)), Array.from(f.subarray(3, 6))];
+}
+
 async function runMenu(act, arg) {
   const path = app.sel;
   const seg = app.seg;
@@ -2874,7 +2886,7 @@ async function runMenu(act, arg) {
     case "copyPlate": await clipboard.copyPlate(); break;
     case "duplicatePlate": await clipboard.duplicatePlate(); break;
     case "pastePlate": await clipboard.pasteAsPlate(); break;
-    case "putDown": await client.call("putDown", { path, seg }); break;
+    case "putDown": await client.call("putDown", { path, seg, ray: menuRay() }); break;
     case "place": await client.call("place", { path, code: arg }); break;
     case "plate": await client.call("plate", { action: arg }); break;
     case "addModels": addModels(); break;

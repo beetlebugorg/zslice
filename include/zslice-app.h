@@ -1500,6 +1500,11 @@ int zs_app_part_stands(zs_app *app, size_t i);
 /* "This side on the bed": the side of the part nearest to the bed point
  * (x, y, z), for example a picked line, goes down. */
 int zs_app_part_put_down_at(zs_app *app, size_t i, double x, double y, double z);
+/* "This side on the bed" from a click: the side of part i that the ray of
+ * zs_view_ray hits first goes down. ZS_OUT_OF_RANGE, with no change, if the
+ * ray misses the part. Use this one when the app has the click. */
+int zs_app_part_put_down_ray(zs_app *app, size_t i, double ox, double oy, double oz,
+                             double dx, double dy, double dz);
 /* Turns a part to its best orientation. */
 enum zs_place_mode {
     ZS_PLACE_SMART = 0,        /* less support, more on the bed, low */
