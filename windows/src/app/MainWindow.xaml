@@ -705,9 +705,9 @@
                     </StackPanel>
                 </Border>
 
-                <Border x:Name="MeasureCard" Visibility="Collapsed" Padding="10,6"
+                <Border x:Name="MeasureCard" Visibility="Collapsed" Padding="10,6" IsHitTestVisible="False" MaxWidth="520"
                         Background="{ThemeResource ZsPopover}" BorderBrush="{ThemeResource ZsPopoverBorder}" BorderThickness="1" CornerRadius="8">
-                    <TextBlock x:Name="MeasureText" FontSize="12" />
+                    <TextBlock x:Name="MeasureText" FontSize="12" TextWrapping="WrapWholeWords" />
                 </Border>
             </Canvas>
         </Grid>

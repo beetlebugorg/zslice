@@ -11,6 +11,8 @@
 #include "pch.h"
 #include "MainWindow.xaml.h"
 
+#include "Layer2D.h"
+
 #include <cmath>
 
 using namespace winrt;
@@ -128,8 +130,8 @@ namespace winrt::ZSlice::implementation
 
     void MainWindow::SetTool(Tool next)
     {
-        // The tools work in the 3D view.
-        if (next != Tool::Select)
+        // The tools work in the 3D view. The tape works in both.
+        if (next != Tool::Select && next != Tool::Measure)
             Set2D(false);
         if (next != tool)
         {
@@ -140,6 +142,9 @@ namespace winrt::ZSlice::implementation
                 ClearMeasure();
             Tool was = tool;
             tool = next;
+            // The tape has a hint until its first point.
+            if (view != nullptr)
+                ShowMeasure();
             if (was == Tool::Paint)
                 PaintTool(false);
             if (was == Tool::Label)
@@ -865,58 +870,128 @@ namespace winrt::ZSlice::implementation
         double p[3];
         if (!zs_view_surface_point(view, (float)(x * s), (float)(y * s), shift ? 0 : 1, p))
             return;
-        // A third point starts a new measure.
-        if (measure_count >= 2)
-            measure_count = 0;
-        int i = measure_count;
-        measure[3 * i] = p[0];
-        measure[3 * i + 1] = p[1];
-        measure[3 * i + 2] = p[2];
-        measure_radius[i] = 0;
-        measure_shape[i] = 0;
+        double radius = 0;
+        int shape = 0;
+        double px = p[0], py = p[1];
         // A circle or an arc under the pointer: the point is its center.
         size_t segment = 0;
         size_t path = zs_view_pick_segment(view, (float)(x * s), (float)(y * s), &segment);
         zs_measure m{};
         if (!shift && path != (size_t)-1 && zs_app_measure(model->Active(), path, segment, &m) == ZS_OK && (m.shape == 1 || m.shape == 2))
         {
-            measure[3 * i] = m.center_x;
-            measure[3 * i + 1] = m.center_y;
-            measure_radius[i] = m.radius;
-            measure_shape[i] = m.shape;
+            px = m.center_x;
+            py = m.center_y;
+            radius = m.radius;
+            shape = m.shape;
         }
+        AddMeasure(px, py, p[2], radius, shape);
+    }
+
+    void MainWindow::AddMeasure(double x, double y, double z, double radius, int shape)
+    {
+        // A third point starts a new measure.
+        if (measure_count >= 2)
+            measure_count = 0;
+        int i = measure_count;
+        measure[3 * i] = x;
+        measure[3 * i + 1] = y;
+        measure[3 * i + 2] = z;
+        measure_radius[i] = radius;
+        measure_shape[i] = shape;
         measure_count++;
         ShowMeasure();
     }
 
+    // The readout: the distance, and its parts along x, y, and z. A circle
+    // or an arc at a point gives its size, and the point is its center.
     void MainWindow::ShowMeasure()
     {
         zs_view_set_measure(view, (size_t)measure_count, measure);
         RequestDraw();
-        if (measure_count == 0)
+        if (tool != Tool::Measure)
         {
             MeasureCard().Visibility(Visibility::Collapsed);
             return;
         }
-        wchar_t text[200];
-        if (measure_count == 1)
+        std::wstring shapes[2];
+        wchar_t part[96];
+        for (int i = 0; i < measure_count; i++)
         {
-            if (measure_shape[0] == 1)
-                swprintf_s(text, L"Circle ⌀ %.2f mm. Click a second point.", 2 * measure_radius[0]);
-            else if (measure_shape[0] == 2)
-                swprintf_s(text, L"Arc r %.2f mm. Click a second point.", measure_radius[0]);
+            if (measure_radius[i] <= 0)
+                continue;
+            if (measure_shape[i] == 1)
+                swprintf_s(part, L"circle ⌀ %.2f mm (radius %.2f)", 2 * measure_radius[i], measure_radius[i]);
             else
-                swprintf_s(text, L"Click a second point.");
+                swprintf_s(part, L"arc radius %.2f mm", measure_radius[i]);
+            shapes[i] = part;
+        }
+        wchar_t text[320];
+        if (measure_count == 0)
+        {
+            swprintf_s(text, L"Click a point of the print, or a circle or an arc for its size and center. Shift: no snap.");
+        }
+        else if (measure_count == 1)
+        {
+            if (!shapes[0].empty())
+                swprintf_s(text, L"%s, center %.2f, %.2f mm: click a second point to measure from its center.", shapes[0].c_str(), measure[0], measure[1]);
+            else
+                swprintf_s(text, L"From %.2f, %.2f, %.2f mm: click a second point.", measure[0], measure[1], measure[2]);
         }
         else
         {
             double dx = measure[3] - measure[0], dy = measure[4] - measure[1], dz = measure[5] - measure[2];
-            swprintf_s(text, L"%.2f mm   (x %.2f, y %.2f, z %.2f)", std::sqrt(dx * dx + dy * dy + dz * dz), std::abs(dx), std::abs(dy), std::abs(dz));
+            bool any = !shapes[0].empty() || !shapes[1].empty();
+            std::wstring what = any ? L"\nFirst: " + (shapes[0].empty() ? std::wstring(L"a point") : shapes[0]) + L"   ·   second: " + (shapes[1].empty() ? std::wstring(L"a point") : shapes[1])
+                                    : std::wstring();
+            swprintf_s(text, L"%.2f mm%s   ·   ΔX %.2f   ΔY %.2f   ΔZ %.2f   ·   on the bed %.2f mm%s", std::sqrt(dx * dx + dy * dy + dz * dz), any ? L" between the centers" : L"",
+                       std::abs(dx), std::abs(dy), std::abs(dz), std::sqrt(dx * dx + dy * dy), what.c_str());
         }
         MeasureText().Text(text);
         MeasureCard().Visibility(Visibility::Visible);
-        Canvas::SetLeft(MeasureCard(), 64);
-        Canvas::SetTop(MeasureCard(), 12);
+        measure_box[0] = 1e9;
+        PlaceMeasure();
+    }
+
+    void MainWindow::PlaceMeasure()
+    {
+        if (view == nullptr || MeasureCard().Visibility() != Visibility::Visible)
+            return;
+        if (measure_count == 0)
+        {
+            Canvas::SetLeft(MeasureCard(), 64);
+            Canvas::SetTop(MeasureCard(), 10);
+            return;
+        }
+        double box[4] = { 1e9, 1e9, -1e9, -1e9 };
+        for (int i = 0; i < measure_count; i++)
+        {
+            double x = 0, y = 0;
+            if (show_2d && layer2d != nullptr)
+            {
+                layer2d->ToView(measure[3 * i], measure[3 * i + 1], x, y);
+            }
+            else
+            {
+                float qx, qy;
+                if (!zs_view_pixel_of(view, measure[3 * i], measure[3 * i + 1], measure[3 * i + 2], &qx, &qy))
+                    continue;
+                x = qx / Scale();
+                y = qy / Scale();
+            }
+            box[0] = std::min(box[0], x - 12);
+            box[1] = std::min(box[1], y - 12);
+            box[2] = std::max(box[2], x + 12);
+            box[3] = std::max(box[3], y + 12);
+        }
+        if (box[0] > box[2])
+            return;
+        bool same = true;
+        for (int i = 0; i < 4; i++)
+            same = same && std::abs(box[i] - measure_box[i]) < 0.5;
+        if (same)
+            return;
+        std::copy(box, box + 4, measure_box);
+        PlaceCard(MeasureCard(), box);
     }
 
     void MainWindow::ClearMeasure()

@@ -10,6 +10,7 @@
 
 #include "Layer2D.h"
 
+#include <algorithm>
 #include <cmath>
 
 using namespace winrt;
@@ -52,7 +53,7 @@ namespace winrt::ZSlice::implementation
             Layer2DPanel().ReleasePointerCapture(e.Pointer());
             e.Handled(true);
             if (press_2d_left && std::abs(last_2d_x - press_2d_x) <= 4 && std::abs(last_2d_y - press_2d_y) <= 4)
-                Click2D(last_2d_x, last_2d_y);
+                Click2D(last_2d_x, last_2d_y, (static_cast<uint32_t>(e.KeyModifiers()) & static_cast<uint32_t>(Windows::System::VirtualKeyModifiers::Shift)) != 0);
         };
         panel.PointerReleased(ended);
         panel.PointerCaptureLost(ended);
@@ -169,15 +170,74 @@ namespace winrt::ZSlice::implementation
                 style.selected = selected_path - first;
             style.fade = LineFade().IsChecked() != nullptr && LineFade().IsChecked().Value();
         }
+        if (gaps_on && state == ZS_STATE_DONE && layer_count > 0)
+        {
+            size_t runs = 0;
+            if (zs_app_layer_gaps(app, layer2d_layer, &style.gaps, &style.gap_count, &style.gap_runs, &runs) != ZS_OK)
+                style.gap_count = 0;
+            else if (GapCard().Visibility() == Visibility::Visible && gap_selected_layer == layer2d_layer)
+                style.gap_selected = gap_selected;
+        }
+        style.tape_count = measure_count;
+        std::copy(measure, measure + 6, style.tape);
         double bed_x, bed_y;
         BedSize(bed_x, bed_y);
         layer2d->Draw(bed_x, bed_y, style);
     }
 
-    void MainWindow::Click2D(double x, double y)
+    // A click of the tape: a point on the top layer, or the center of a
+    // circle or an arc there. shift: the point itself.
+    void MainWindow::MeasureClick2D(double x, double y, bool shift)
+    {
+        zs_app *app = model->Active();
+        if (zs_app_state(app) != ZS_STATE_DONE)
+            return;
+        double mx, my;
+        layer2d->ToBed(x, y, mx, my);
+        zs_toolpaths tp{};
+        bool have = zs_app_toolpaths(app, &tp) == ZS_OK && layer2d_layer < tp.layer_count;
+        double z = have ? tp.layer_z[layer2d_layer] : 0, radius = 0;
+        int shape = 0;
+        size_t path = zs_app_pick_layer(app, layer2d_layer, mx, my);
+        if (!shift && have && path != (size_t)-1)
+        {
+            // The segment of the path nearest to the point.
+            uint32_t a = path == 0 ? 0 : tp.path_ends[path - 1], b = tp.path_ends[path];
+            size_t segment = 0;
+            double best = 1e30;
+            for (uint32_t k = a; k + 1 < b; k++)
+            {
+                double ax = tp.points[2 * k], ay = tp.points[2 * k + 1], dx = tp.points[2 * k + 2] - ax, dy = tp.points[2 * k + 3] - ay;
+                double l2 = dx * dx + dy * dy;
+                double u = l2 > 0 ? std::clamp(((mx - ax) * dx + (my - ay) * dy) / l2, 0.0, 1.0) : 0;
+                double d = std::hypot(mx - ax - u * dx, my - ay - u * dy);
+                if (d < best)
+                {
+                    best = d;
+                    segment = k - a;
+                }
+            }
+            zs_measure m{};
+            if (zs_app_measure(app, path, segment, &m) == ZS_OK && (m.shape == 1 || m.shape == 2))
+            {
+                mx = m.center_x;
+                my = m.center_y;
+                radius = m.radius;
+                shape = m.shape;
+            }
+        }
+        AddMeasure(mx, my, z, radius, shape);
+    }
+
+    void MainWindow::Click2D(double x, double y, bool shift)
     {
         if (layer2d == nullptr || !layer2d->HasPaths())
             return;
+        if (tool == Tool::Measure)
+        {
+            MeasureClick2D(x, y, shift);
+            return;
+        }
         // A click elsewhere ends a range of layers.
         RangeClose();
         double bed_x, bed_y;
