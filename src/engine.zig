@@ -3640,6 +3640,17 @@ test "start G-code: zslice heats if it does not, and the first layer sets the fi
     try testing.expect(std.mem.indexOf(u8, b, "; zslice: the start G-code does not heat") == null);
 }
 
+test "a start G-code that ends in G91: the print moves are absolute" {
+    const gpa = testing.allocator;
+    var s: Settings = .{};
+    s.machine.start_gcode = "G28\nG91\nG1 Z5";
+    const out = try demoGcodeWith(gpa, s, &.{});
+    defer gpa.free(out);
+    const relative = std.mem.indexOf(u8, out, "G91\nG1 Z5").?;
+    const absolute = std.mem.indexOfPos(u8, out, relative, "\nG90 ; absolute positions\nM83 ; relative extrusion\n").?;
+    try testing.expect(absolute < std.mem.indexOf(u8, out, ";LAYER:0\n").?);
+}
+
 test "first layer bed temperature and travel speed, as Cura writes them" {
     const gpa = testing.allocator;
     var s: Settings = .{};

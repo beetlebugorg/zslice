@@ -1295,6 +1295,10 @@ pub const Emitter = struct {
         if (got.bed) |t| if (!got.macro_bed) {
             self.bed_temp = t;
         };
+        // The moves of the print are absolute. A start G-code or a macro can
+        // leave the printer in G91. G90 comes before M83: on Marlin, G90
+        // also makes the extruder absolute. The Bambu block has its own G90.
+        if (!self.bambu_blocks) try self.w.writeAll("\nG90 ; absolute positions");
         try self.w.writeAll("\nM83 ; relative extrusion\n");
         try self.w.writeAll(self.fanOff());
         self.fan = 0;
