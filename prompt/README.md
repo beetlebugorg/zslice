@@ -1,6 +1,6 @@
 # A prompt that could build zslice
 
-Describes: main at commit `54094226` ("Test a Mac save with an empty active plate"), 2026-11-23.
+Describes: main at commit `caf0dfd3` ("Add the Mac key prompt and empty plate save to the prompt"), 2026-11-23.
 
 ## Read this first
 
