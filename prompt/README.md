@@ -1,6 +1,6 @@
 # A prompt that could build zslice
 
-Describes: main at commit `86444aca` ("Add the spools of a printer to the Windows prompt"), 2026-11-22.
+Describes: main at commit `f822fa35` ("Give the threaded plate test up to 30 s to slice"), 2026-11-22.
 
 ## Read this first
 
