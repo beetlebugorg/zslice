@@ -27,6 +27,10 @@ namespace zs
     int BambuPort(char const *name, int port);
     // The host of an address that can have a scheme or a port.
     std::string BambuHost(std::string const &address);
+    // The wait before the next connection, after `failures` refused or
+    // dropped connections in a row: 15 s, then twice as long each time, to
+    // 5 minutes. A printer in LAN mode takes few clients.
+    int BambuRetrySeconds(int failures);
 
     class BambuWatch
     {
@@ -51,6 +55,8 @@ namespace zs
         Error error_;
         Trusted trusted_;
         std::atomic<bool> stop_{ false };
+        // The session told a status of the printer.
+        bool reached_ = false;
         std::thread thread_;
     };
 

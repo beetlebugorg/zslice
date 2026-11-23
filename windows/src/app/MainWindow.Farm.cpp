@@ -161,6 +161,7 @@ namespace winrt::ZSlice::implementation
         {
             page_timer.Stop();
             StopTiles();
+            SyncBambuLinks();
         }
     }
 
@@ -173,7 +174,6 @@ namespace winrt::ZSlice::implementation
         {
             tile->alive = false;
             Retire(tile->feed);
-            Retire(tile->bambu);
         }
         tiles.clear();
         if (tile_grid != nullptr)
@@ -347,35 +347,8 @@ namespace winrt::ZSlice::implementation
                     UpdateTile(tile, nullptr, why);
                     continue;
                 }
-                zs::link::Target target = zs::link::TargetOf(printer);
-                Poster post = poster;
-                std::string id = printer.id;
-                tile->bambu = std::make_shared<zs::BambuWatch>(
-                    target, printer.serial,
-                    [post, weak](zs::link::Snapshot const &s) {
-                        post.Post([weak, s](PrintersUi &ui) {
-                            if (auto t = weak.lock(); t != nullptr && t->alive)
-                                ui.UpdateTile(t, &s, {});
-                        });
-                    },
-                    [post, weak](std::string const &e) {
-                        post.Post([weak, e](PrintersUi &ui) {
-                            if (auto t = weak.lock(); t != nullptr && t->alive)
-                                ui.UpdateTile(t, nullptr, e);
-                        });
-                    },
-                    [post, id](std::string const &pin) {
-                        // The first connection: the next ones need this
-                        // certificate.
-                        post.Post([id, pin](PrintersUi &) {
-                            zs::SavedPrinter *p = zs::Printers().Find(id);
-                            if (p != nullptr && p->kind == zs::LinkKind::Bambu && p->tls_pin.empty())
-                            {
-                                p->tls_pin = pin;
-                                zs::Printers().Save();
-                            }
-                        });
-                    });
+                // The status comes from the link of this printer
+                // (SyncBambuLinks), so it has one connection.
                 zs::CameraSource source;
                 source.bambu_host = zs::BambuHost(printer.url);
                 source.bambu_code = printer.api_key;
@@ -391,8 +364,170 @@ namespace winrt::ZSlice::implementation
             }
         }
         empty_panel.Visibility(tiles.empty() ? Visibility::Visible : Visibility::Collapsed);
+        SyncBambuLinks();
         RefreshTiles();
         RefreshQueue();
+    }
+
+    // ---- the link to the current printer ----
+
+    void MainWindow::PrintersUi::StartFollow()
+    {
+        follow_cancel = std::make_shared<zs::http::Cancel>();
+        follow_timer = w.queue.CreateTimer();
+        follow_timer.Interval(std::chrono::seconds(5));
+        follow_timer.Tick([this](auto &&, auto &&) { FollowTick(); });
+        follow_timer.Start();
+        SyncBambuLinks();
+    }
+
+    void MainWindow::PrintersUi::StopFollow()
+    {
+        follow_stopped = true;
+        if (follow_timer != nullptr)
+            follow_timer.Stop();
+        if (follow_cancel != nullptr)
+            follow_cancel->Stop();
+        for (auto &link : bambu_links)
+            Retire(link.second.watch);
+        bambu_links.clear();
+    }
+
+    // Each 5 s. An HTTP printer gets one status request, and none while the
+    // page reads it. After 5 minutes minimized, the app leaves it alone.
+    void MainWindow::PrintersUi::FollowTick()
+    {
+        if (!started || follow_stopped || w.model == nullptr)
+            return;
+        auto presenter = w.AppWindow().Presenter().try_as<Microsoft::UI::Windowing::OverlappedPresenter>();
+        bool minimized = presenter != nullptr && presenter.State() == Microsoft::UI::Windowing::OverlappedPresenterState::Minimized;
+        auto now = std::chrono::steady_clock::now();
+        if (!minimized)
+            minimized_since = {};
+        else if (minimized_since == std::chrono::steady_clock::time_point{})
+            minimized_since = now;
+        follow_asleep = minimized && now - minimized_since >= std::chrono::minutes(5);
+        SyncBambuLinks();
+        zs::SavedPrinter const &printer = zs::Printers().Current();
+        bool page_open = page != nullptr && page.Visibility() == Visibility::Visible;
+        if (follow_asleep || follow_reading || page_open || !HasLink(printer) || printer.kind == zs::LinkKind::Bambu || printer.url.empty())
+            return;
+        follow_reading = true;
+        zs::link::Target target = zs::link::TargetOf(printer);
+        auto cancel = follow_cancel;
+        struct Result
+        {
+            bool ok = false;
+            zs::link::Snapshot status;
+            std::string id, name, error;
+        };
+        Async(
+            [target, cancel] {
+                Result r;
+                r.id = target.id;
+                r.name = target.name;
+                r.ok = zs::link::ReadStatus(target, cancel, r.status, r.error);
+                return r;
+            },
+            [](PrintersUi &ui, Result &r) {
+                ui.follow_reading = false;
+                // The user can pick another printer during the request.
+                if (!r.ok || ui.follow_stopped || r.id != zs::Printers().Current().id)
+                    return;
+                ui.rolls = r.status.rolls;
+                ui.FollowSpools(r.name, r.status);
+            });
+    }
+
+    // Opens and closes the Bambu Lab links, so that a printer never has two.
+    // A new connection waits for the thread of the old one to end.
+    void MainWindow::PrintersUi::SyncBambuLinks()
+    {
+        if (!started || follow_stopped || follow_timer == nullptr)
+            return;
+        zs::PrinterStore &store = zs::Printers();
+        std::map<std::string, size_t> want;
+        auto add = [&want](zs::SavedPrinter const &p) {
+            if (p.kind == zs::LinkKind::Bambu && !p.url.empty() && !p.serial.empty() && !p.api_key.empty())
+                want[p.id] = std::hash<std::string>{}(p.url + "\n" + p.serial + "\n" + p.api_key);
+        };
+        if (!follow_asleep)
+        {
+            add(store.Current());
+            if (page != nullptr && page.Visibility() == Visibility::Visible)
+                for (size_t i = 0; i < store.Count(); i++)
+                    add(store.At(i));
+        }
+        Poster post = poster;
+        for (auto it = bambu_links.begin(); it != bambu_links.end();)
+        {
+            auto wanted = want.find(it->first);
+            if (wanted != want.end() && wanted->second == it->second.details)
+            {
+                ++it;
+                continue;
+            }
+            bambu_closing.insert(it->first);
+            std::thread([held = std::move(it->second.watch), post, id = it->first]() mutable {
+                held.reset();
+                post.Post([id](PrintersUi &ui) {
+                    ui.bambu_closing.erase(id);
+                    ui.SyncBambuLinks();
+                });
+            }).detach();
+            it = bambu_links.erase(it);
+        }
+        for (auto const &[id, details] : want)
+        {
+            if (bambu_links.count(id) != 0 || bambu_closing.count(id) != 0)
+                continue;
+            zs::SavedPrinter *printer = store.Find(id);
+            if (printer == nullptr)
+                continue;
+            std::string key = id;
+            auto watch = std::make_shared<zs::BambuWatch>(
+                zs::link::TargetOf(*printer), printer->serial,
+                [post, key](zs::link::Snapshot const &s) {
+                    post.Post([key, s](PrintersUi &ui) { ui.OnBambuStatus(key, &s, {}); });
+                },
+                [post, key](std::string const &e) {
+                    post.Post([key, e](PrintersUi &ui) { ui.OnBambuStatus(key, nullptr, e); });
+                },
+                [post, key](std::string const &pin) {
+                    // The first connection: the next ones need this
+                    // certificate.
+                    post.Post([key, pin](PrintersUi &) {
+                        zs::SavedPrinter *p = zs::Printers().Find(key);
+                        if (p != nullptr && p->kind == zs::LinkKind::Bambu && p->tls_pin.empty())
+                        {
+                            p->tls_pin = pin;
+                            zs::Printers().Save();
+                        }
+                    });
+                });
+            bambu_links[id] = BambuLink{ std::move(watch), details };
+        }
+    }
+
+    void MainWindow::PrintersUi::OnBambuStatus(std::string const &id, zs::link::Snapshot const *status, std::string const &error)
+    {
+        if (bambu_links.count(id) == 0)
+            return;
+        for (auto const &t : tiles)
+        {
+            if (t->id == id && t->alive)
+            {
+                // The tile follows the spools of the current printer.
+                UpdateTile(t, status, error);
+                return;
+            }
+        }
+        zs::SavedPrinter const &current = zs::Printers().Current();
+        if (status != nullptr && id == current.id)
+        {
+            rolls = status->rolls;
+            FollowSpools(current.name, *status);
+        }
     }
 
     void MainWindow::PrintersUi::RefreshTiles()

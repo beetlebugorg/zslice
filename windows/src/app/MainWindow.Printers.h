@@ -24,6 +24,10 @@
 #include <memory>
 #include <thread>
 
+#include <chrono>
+#include <map>
+#include <set>
+
 #include "zs_bambu.h"
 #include "zs_camera.h"
 #include "zs_deck_filaments.h"
@@ -82,7 +86,6 @@ namespace winrt::ZSlice::implementation
         zs::CameraSource source;
         bool has_source = false;
         std::shared_ptr<zs::CameraFeed> feed;
-        std::shared_ptr<zs::BambuWatch> bambu;
         std::shared_ptr<std::atomic<bool>> decoding = std::make_shared<std::atomic<bool>>(false);
     };
 
@@ -171,6 +174,13 @@ namespace winrt::ZSlice::implementation
         void UpdateTile(std::shared_ptr<PrinterTile> const &tile, zs::link::Snapshot const *status, std::string const &error);
         // The button "Use the filaments of": reads the spools of a printdeck.
         void ReadSpools();
+        // The link to the current printer, also with the Printers page
+        // closed: one status request each 5 s, or one MQTT connection.
+        void StartFollow();
+        void StopFollow();
+        void FollowTick();
+        void SyncBambuLinks();
+        void OnBambuStatus(std::string const &id, zs::link::Snapshot const *status, std::string const &error);
         // A status of the current printer: the filaments follow its spools.
         void FollowSpools(std::string const &name, zs::link::Snapshot const &status);
         void StartCamera(std::shared_ptr<PrinterTile> const &tile);
@@ -213,6 +223,20 @@ namespace winrt::ZSlice::implementation
         Microsoft::UI::Xaml::Controls::MenuFlyout printer_menu{ nullptr }, send_menu{ nullptr };
         Microsoft::UI::Xaml::Controls::Flyout filament_flyout{ nullptr }, quality_flyout{ nullptr };
         Microsoft::UI::Xaml::Controls::StackPanel filament_panel{ nullptr }, quality_panel{ nullptr };
+        // One watch for each Bambu Lab printer that needs one: the current
+        // printer, and each printer while the page shows. A watch that
+        // closes keeps its printer here until its thread ends.
+        struct BambuLink
+        {
+            std::shared_ptr<zs::BambuWatch> watch;
+            size_t details = 0;
+        };
+        std::map<std::string, BambuLink> bambu_links;
+        std::set<std::string> bambu_closing;
+        Microsoft::UI::Dispatching::DispatcherQueueTimer follow_timer{ nullptr };
+        std::shared_ptr<zs::http::Cancel> follow_cancel;
+        bool follow_reading = false, follow_asleep = false, follow_stopped = false;
+        std::chrono::steady_clock::time_point minimized_since{};
         std::wstring filament_note;
         bool reading_filaments = false;
         // The rolls of the current printer, from its last status.

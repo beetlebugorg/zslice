@@ -92,7 +92,7 @@
 // profclear name, profrename text, profdelete, profdone, profmark i, proflog.
 |1, prefsimulate 0|1.
 // A part that does not fit: fitlog, fitexport, fitissue.
-// Spools of the printer: spoolread, spoolfollow file, spoollog.
+// Spools of the printer: spoolread, spoolfollow file, spoollog, followlog.
 // Import: miask [text], migo, mizip path, micheck i 0|1, miok, micancel, milog.
 // Settings for: scopeset n, scopeedit name value, scopereset name, scopelog name.
 // The print order of the part card: orderlog.
@@ -702,6 +702,12 @@ namespace winrt::ZSlice::implementation
                 }
                 zs::Log("dev: spool follow changed %d '%s'\n", changed ? 1 : 0, message.c_str());
             }
+        }
+        else if (verb == L"followlog")
+        {
+            zs::Log("dev: follow links %zu closing %zu reading %d asleep %d timer %d current kind %d\n", printers->bambu_links.size(), printers->bambu_closing.size(),
+                    printers->follow_reading ? 1 : 0, printers->follow_asleep ? 1 : 0, printers->follow_timer != nullptr && printers->follow_timer.IsRunning() ? 1 : 0,
+                    (int)zs::Printers().Current().kind);
         }
         else if (verb == L"spoollog")
         {

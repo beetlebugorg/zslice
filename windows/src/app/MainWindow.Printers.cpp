@@ -161,6 +161,7 @@ namespace winrt::ZSlice::implementation
             ShowPicker(true);
         StartPlatesHook();
         RepairDeckAddresses();
+        StartFollow();
     }
 
     // An older pairing could give the first printer of a deck the address
@@ -231,6 +232,7 @@ namespace winrt::ZSlice::implementation
 
     void MainWindow::PrintersUi::Close()
     {
+        StopFollow();
         save_timer.Stop();
         if (plates_timer != nullptr)
             plates_timer.Stop();
@@ -453,6 +455,8 @@ namespace winrt::ZSlice::implementation
     {
         if (printer_button == nullptr)
             return;
+        // Another printer, or another address: the link follows at once.
+        SyncBambuLinks();
         std::wstring printer = zs::ToWide(zs::Printers().Current().name);
         printer_button.Content(box_value(printer));
         Name(printer_button, L"Printer: " + printer);

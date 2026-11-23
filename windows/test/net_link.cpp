@@ -1239,10 +1239,48 @@ namespace
         CHECK(Has(pin_error, "not the one that zslice trusts"));
         CHECK(broker.BytesAfterHandshake() == before);
 
+        // The wait before the next connection.
+        CHECK(BambuRetrySeconds(0) == 15);
+        CHECK(BambuRetrySeconds(1) == 15);
+        CHECK(BambuRetrySeconds(2) == 30);
+        CHECK(BambuRetrySeconds(3) == 60);
+        CHECK(BambuRetrySeconds(6) == 300);
+        CHECK(BambuRetrySeconds(100) == 300);
+
+        // A printer that is full: the next CONNECT comes 15 s later, and
+        // not sooner.
+        std::vector<std::chrono::steady_clock::time_point> busy_connects;
+        TlsStub busy(cert.Get(), [&](std::string const &in, TlsStub::Write const &write) {
+            if ((unsigned char)in[0] >> 4 != 1)
+                return;
+            {
+                std::lock_guard guard(lock);
+                busy_connects.push_back(std::chrono::steady_clock::now());
+                cv.notify_all();
+            }
+            write(std::string("\x20\x02\x00\x03", 4));
+        });
+        ::SetEnvironmentVariableA("ZSLICE_BAMBU_MQTT_PORT", std::to_string(busy.Port()).c_str());
+        {
+            BambuWatch watch(t, serial, [](link::Snapshot const &) {}, [](std::string const &) {}, nullptr);
+            std::unique_lock wait(lock);
+            cv.wait_for(wait, std::chrono::seconds(20), [&] { return busy_connects.size() >= 2; });
+        }
+        {
+            std::lock_guard guard(lock);
+            CHECK(busy_connects.size() == 2);
+            if (busy_connects.size() >= 2)
+                CHECK(busy_connects[1] - busy_connects[0] >= std::chrono::milliseconds(14900));
+        }
+
         // A wrong access code: the broker refuses, and the watch stops.
-        TlsStub refuse(cert.Get(), [](std::string const &in, TlsStub::Write const &write) {
+        std::atomic<int> refused_connects{ 0 };
+        TlsStub refuse(cert.Get(), [&refused_connects](std::string const &in, TlsStub::Write const &write) {
             if ((unsigned char)in[0] >> 4 == 1)
+            {
+                refused_connects++;
                 write(std::string("\x20\x02\x00\x05", 4));
+            }
         });
         ::SetEnvironmentVariableA("ZSLICE_BAMBU_MQTT_PORT", std::to_string(refuse.Port()).c_str());
         std::string refused;
@@ -1262,6 +1300,7 @@ namespace
         }
         CHECK(Has(refused, "refused the access code"));
         CHECK(!Has(refused, test_code));
+        CHECK(refused_connects.load() == 1);
         ::SetEnvironmentVariableA("ZSLICE_BAMBU_MQTT_PORT", nullptr);
 
         // The JPEG frames of port 6000.
