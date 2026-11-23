@@ -107,9 +107,15 @@ Ctrl and a click selects a part, and Shift and a click adds a part to the select
 
 When the plate prints one part at a time (`project.print_sequence` is `by_object`) and has two parts or more, the card shows the place of the part, for example "Prints 2 of 3". **Print earlier** and **Print later** move the part in the print order.
 
+A part that floats over the bed gets a note on its card. A part from a file with modifier volumes or its own settings lists them under **Its volumes and file settings**.
+
 ## Lines
 
-The card of a line shows its planned speed, its real speed, and its flow, and the settings that matter most for it. **Fade the others** shows the line alone. **Don't print this line** and **±10 % plastic** change this line only, and the change stays through new slices.
+The card of a line shows its planned speed, its real speed, and its flow, and the settings that matter most for it. **Fade the others** shows the line alone. **Don't print this line** and **±10 % plastic** change this line only, and the change stays through new slices. These edits also work while a slice runs.
+
+Shift and a click on a line in the Select tool lights its whole run: one extrusion, from a retraction to the next. A note gives the number of lines.
+
+The page of a setting lists the lines that it changes, with their print time and their share of the print. The view fades the other lines while the page is open. A click on a row lists all settings of those lines.
 
 On a printer with more than one nozzle, the title of the card says **main nozzle**, **2nd nozzle**, or the tool, such as **nozzle T2**. A line of a later nozzle shows its speed limits. The printer settings have a section for each nozzle after the first, such as **Second nozzle (T1)**. The filament list picks the nozzle of each filament.
 
@@ -150,6 +156,8 @@ The theme follows Windows unless you choose another one in **Preferences**. The 
 A right click opens a menu for what is under the pointer. On a touchpad, a two-finger click that does not slide opens it too. The Menu key and Shift+F10 open it at the pointer.
 
 On a part, the menu adds support, blocks support, makes a layer profile, and places the part. On the bed, it arranges, clears, copies, and duplicates the plate.
+
+**Test print: the top layer…** saves a G-code file of the top layer of the view, lowered onto the bed. With some layers cut away, **Test print: the layers shown…** saves those layers. The app only saves the file and starts no print.
 
 Ctrl+C, Ctrl+X, Ctrl+V, and Ctrl+D copy, cut, paste, and duplicate the selected parts. Ctrl+Shift+V pastes them as a new plate. C shows the layers up to the selected line, and Shift+C shows all layers.
 
