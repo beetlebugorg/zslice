@@ -1,6 +1,6 @@
 # A prompt that could build zslice
 
-Describes: main at commit `d108148a` ("Add the clipboard and history to the Windows prompt"), 2026-11-22.
+Describes: main at commit `9614b39a` ("Add the full clipboard to the Windows prompt"), 2026-11-22.
 
 ## Read this first
 
