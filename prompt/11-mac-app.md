@@ -50,6 +50,11 @@ Build the native Mac app in `macos/`: a SwiftUI and AppKit shell around the app 
 
 ## Lessons
 
+- **Keep a printers file that does not read.** The store said nothing and the next save wrote the defaults over it. It now keeps the file, writes nothing, and shows a note.
+- **Allow one MQTT connection for each Bambu address.** `BambuGate` holds it, and keeps the wait after a failure across new reads: 15 s, doubling to 5 minutes. A new access code ends the wait, and Test uses a login of the last 15 s.
+- **Write nothing from an unedited field.** The text of a value need not parse back to the same string, so a field that lost the focus could change a later-nozzle value.
+- **Keep the Selected Line page under a held slider.** A slice that removes the line waits for the release, then finds the line or ends the selection.
+- **Keep a moved card in the view.** The settings pane makes the view narrower, so each card clamps its saved place.
 - **Import from a ZIP file, and call no site API.** A model page shows `zs_import_page_text` and Open the Page. A ZIP file from Open, Add Models, a drop, or Open With goes to the list. Cancel is the default button, so Return does not load. Load adds the checked files, then `zs_set_spill`. A 3MF file is also a ZIP file, so the app tells them apart by the extension.
 - **Write no file for a project with no parts.** A responder after the window handles Save and Save As, and says why when every plate is empty.
 - **Ask before a saved key goes to a new address.** A change of scheme, host, or port asks, with No as the default. No drops the key, Cancel keeps the old address and key, and a new origin drops the old https address. The address field is a draft until the edit ends, and Test the Connection asks first, because each of them can send the key.
