@@ -48,3 +48,4 @@ One line for each update: the date, the commit that the folder describes, and th
 | 2026-11-23 | `d9e1cbfc` | README, CHANGELOG: the Linux install runs each desktop refresh only when its tool exists. |
 | 2026-11-23 | `014aaad6` | README, CHANGELOG: this side on the bed follows the ray of the click (`zs_app_part_put_down_ray`), and a layer range keeps its body across a slice. |
 | 2026-11-23 | `44ec017c` | README, CHANGELOG, 11: the Mac trackpad zoom, search field, file menu, `/` key, and dialogs. |
+| 2026-11-23 | `2c4d95de` | CHANGELOG, 11: the Mac puts down the side under the click. |

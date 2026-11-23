@@ -50,6 +50,7 @@ Build the native Mac app in `macos/`: a SwiftUI and AppKit shell around the app 
 
 ## Lessons
 
+- **Put down the side under the click.** Put This Side on the Bed calls `zs_view_ray` at the menu pixel, then `zs_app_part_put_down_ray`. On ZS_OUT_OF_RANGE, or on the 2D page, it uses `zs_app_part_put_down_at` with the point of the line.
 - **Check the UI on an Xcode build.** `make-app.sh` links with SDK 14, so it has no Liquid Glass. A release from `xcodebuild` links with the current SDK, and its toolbar puts a glass capsule behind each item. A check of the toolbar on the other build missed a box in a box.
 - **Start the animation after each zoom.** `zs_view_zoom_at` sets a goal. Only `zs_view_animate` moves the camera, so a pinch or a scroll that asks for one frame does not zoom.
 - **Keep one shape for the search field.** Hide the shared glass of its toolbar item, and size the field from the room between the window center and the first item at the right.
