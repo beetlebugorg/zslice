@@ -264,6 +264,7 @@ namespace winrt::ZSlice::implementation
         if (show_2d)
         {
             Draw2D();
+            PlaceMeasure();
             return;
         }
         PlaceEmptyOpen();
@@ -276,6 +277,7 @@ namespace winrt::ZSlice::implementation
         // The handle and the card of a label follow the camera.
         LabelPlace();
         RangePlace();
+        PlaceMeasure();
     }
 
     void MainWindow::StartAnimation()

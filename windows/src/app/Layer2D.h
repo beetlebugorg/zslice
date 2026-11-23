@@ -12,6 +12,7 @@
 #include <d3d11.h>
 
 #include <array>
+#include <string>
 
 #include "zslice-app.h"
 
@@ -25,6 +26,14 @@ namespace zs
         bool dark = false;
         // A selected line with "Fade the others".
         bool fade = false;
+        // The gaps of the layer, in red. The core owns them.
+        zs_gap const *gaps = nullptr;
+        size_t gap_count = 0;
+        zs_gap_run const *gap_runs = nullptr;
+        int64_t gap_selected = -1;
+        // The measure tape: 0 to 2 points, in mm.
+        int tape_count = 0;
+        double tape[6] = {};
     };
 
     class Layer2D
@@ -50,6 +59,12 @@ namespace zs
         void Zoom(double factor, double x, double y);
         // A point of the view, in points, to mm on the bed.
         void ToBed(double x, double y, double &bed_x, double &bed_y) const;
+        // A point on the bed, in mm, to points of the view.
+        void ToView(double bed_x, double bed_y, double &x, double &y) const;
+#ifdef ZS_DEV_HOOKS
+        // The next frame goes to this BMP file.
+        std::wstring save_path;
+#endif
 
         bool Draw(double bed_x, double bed_y, Layer2DStyle const &style);
 
@@ -60,6 +75,10 @@ namespace zs
         void ReleaseGeometry();
         winrt::com_ptr<ID2D1PathGeometry> BuildPaths(int feature, int64_t only) const;
         void Realize(float tolerance);
+        void BuildGaps(Layer2DStyle const &style, float tolerance);
+#ifdef ZS_DEV_HOOKS
+        void SaveFrame();
+#endif
 
         winrt::Microsoft::UI::Xaml::Controls::SwapChainPanel panel_{ nullptr };
         winrt::com_ptr<ID2D1Factory2> factory_;
@@ -77,6 +96,13 @@ namespace zs
         winrt::com_ptr<ID2D1PathGeometry> outline_;
         winrt::com_ptr<ID2D1GeometryRealization> outline_realized_;
         double realized_scale_ = 0;
+        // The gaps of the layer, tessellated once: the others and the
+        // selected gap.
+        winrt::com_ptr<ID2D1GeometryRealization> gaps_realized_, gap_chosen_;
+        zs_gap const *gaps_key_ = nullptr;
+        size_t gaps_key_count_ = 0;
+        int64_t gaps_key_selected_ = -2;
+        double gaps_scale_ = 0;
 
         zs_layer_paths paths_{};
         bool have_paths = false;

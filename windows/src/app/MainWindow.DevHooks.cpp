@@ -484,6 +484,27 @@ namespace winrt::ZSlice::implementation
         {
             ToggleSimulated();
         }
+        else if (verb == L"gapscan")
+        {
+            // The layer with the most gaps.
+            size_t best = 0, most = 0, total = 0;
+            for (size_t k = 0; k < layer_count; k++)
+            {
+                zs_gap const *found = nullptr;
+                size_t n = 0;
+                if (zs_app_layer_gaps(model->Active(), k, &found, &n, nullptr, nullptr) != ZS_OK)
+                    continue;
+                total += n;
+                if (n > most)
+                {
+                    most = n;
+                    best = k;
+                }
+            }
+            zs::Log("dev: gapscan %zu gaps in all, most on layer %zu (%zu)\n", total, best + 1, most);
+            if (most > 0)
+                LayerSlider().Value((double)best + 1);
+        }
         else if (verb == L"gaps")
         {
             SetGaps(number(0) != 0);
@@ -573,9 +594,19 @@ namespace winrt::ZSlice::implementation
             ::QueryPerformanceCounter(&t1);
             zs::Log("dev: 2d frame %.2f ms\n", 1000.0 * (t1.QuadPart - t0.QuadPart) / freq.QuadPart / 120);
         }
+        else if (verb == L"shot2d" && layer2d != nullptr && !words.empty())
+        {
+            layer2d->save_path = words[0];
+            RequestDraw();
+        }
+        else if (verb == L"measurelog")
+        {
+            zs::Log("dev: tape %d points, card %d at %.0f,%.0f size %.0fx%.0f '%s'\n", measure_count, MeasureCard().Visibility() == Microsoft::UI::Xaml::Visibility::Visible ? 1 : 0, Microsoft::UI::Xaml::Controls::Canvas::GetLeft(MeasureCard()),
+                    Microsoft::UI::Xaml::Controls::Canvas::GetTop(MeasureCard()), MeasureCard().ActualWidth(), MeasureCard().ActualHeight(), to_string(MeasureText().Text()).c_str());
+        }
         else if (verb == L"click2d")
         {
-            Click2D(number(0), number(1));
+            Click2D(number(0), number(1), number(2) != 0);
         }
         else if (verb == L"theme")
         {

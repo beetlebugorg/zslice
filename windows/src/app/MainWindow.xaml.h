@@ -283,7 +283,10 @@ namespace winrt::ZSlice::implementation
         void FallTick();
         void CheckFall();
         void MeasureClick(double x, double y, bool shift);
+        void AddMeasure(double x, double y, double z, double radius, int shape);
         void ShowMeasure();
+        // The readout goes beside the tape, and covers no part of it.
+        void PlaceMeasure();
         void ClearMeasure();
         void UpdateRings();
         void SelectLine(int64_t path, int64_t segment);
@@ -436,7 +439,8 @@ namespace winrt::ZSlice::implementation
         void Fit2D();
         void Set2D(bool on);
         void Draw2D();
-        void Click2D(double x, double y);
+        void Click2D(double x, double y, bool shift = false);
+        void MeasureClick2D(double x, double y, bool shift);
         void BedSize(double &x, double &y);
         std::shared_ptr<zs::Layer2D> layer2d;
         bool show_2d = false;
@@ -853,6 +857,7 @@ namespace winrt::ZSlice::implementation
         double turn_want = 0, turn_sent = 0, turn_rotation = 0;
         double turn_pivot[3] = {};
         int tape_end = -1;
+        double measure_box[4] = { 1e9, 1e9, -1e9, -1e9 };
         double measure[6] = {};
         double measure_radius[2] = {};
         int measure_shape[2] = {};
@@ -882,6 +887,9 @@ namespace winrt::ZSlice::implementation
         bool simulated = false;
         bool sim_asked = false;
         bool gaps_on = false;
+        // The gap of the gap card, for the 2D view.
+        int64_t gap_selected = -1;
+        size_t gap_selected_layer = 0;
         bool bed_hidden = false;
         bool playing = false;
         bool scrub_quiet = false;

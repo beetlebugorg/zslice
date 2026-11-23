@@ -450,6 +450,8 @@ namespace winrt::ZSlice::implementation
         if (zs_app_layer_gaps(app, layer, &gaps, &n, nullptr, nullptr) != ZS_OK || (size_t)gap >= n)
             return false;
         zs_gap const &g = gaps[gap];
+        gap_selected = gap;
+        gap_selected_layer = layer;
         GapTitle().Text(L"A gap · layer " + std::to_wstring(layer + 1));
         wchar_t facts[96];
         swprintf_s(facts, L"%.3f mm², %.2f mm wide%s", g.area, g.width, g.at_edge ? L", at the edge of the part" : L"");

@@ -56,6 +56,9 @@ namespace zs
         outline_ = nullptr;
         outline_realized_ = nullptr;
         realized_scale_ = 0;
+        gaps_realized_ = nullptr;
+        gap_chosen_ = nullptr;
+        gaps_key_ = nullptr;
     }
 
     void Layer2D::Clear()
@@ -73,6 +76,9 @@ namespace zs
             item = nullptr;
         outline_realized_ = nullptr;
         realized_scale_ = 0;
+        gaps_realized_ = nullptr;
+        gap_chosen_ = nullptr;
+        gaps_key_ = nullptr;
         brush_ = nullptr;
         if (context_)
             context_->SetTarget(nullptr);
@@ -280,6 +286,59 @@ namespace zs
         bed_y = ((height_ - y) - oy_) / scale_;
     }
 
+    void Layer2D::ToView(double bed_x, double bed_y, double &x, double &y) const
+    {
+        x = ox_ + bed_x * scale_;
+        y = height_ - (oy_ + bed_y * scale_);
+    }
+
+#ifdef ZS_DEV_HOOKS
+    // The back buffer, before the present, as a 32-bit BMP.
+    void Layer2D::SaveFrame()
+    {
+        std::wstring path = std::move(save_path);
+        save_path.clear();
+        com_ptr<ID3D11Texture2D> back, copy;
+        com_ptr<ID3D11DeviceContext> device_context;
+        if (FAILED(swapchain_->GetBuffer(0, IID_PPV_ARGS(back.put()))))
+            return;
+        D3D11_TEXTURE2D_DESC desc{};
+        back->GetDesc(&desc);
+        desc.Usage = D3D11_USAGE_STAGING;
+        desc.BindFlags = 0;
+        desc.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+        desc.MiscFlags = 0;
+        if (FAILED(d3d_->CreateTexture2D(&desc, nullptr, copy.put())))
+            return;
+        d3d_->GetImmediateContext(device_context.put());
+        device_context->CopyResource(copy.get(), back.get());
+        D3D11_MAPPED_SUBRESOURCE map{};
+        if (FAILED(device_context->Map(copy.get(), 0, D3D11_MAP_READ, 0, &map)))
+            return;
+        FILE *out = nullptr;
+        if (_wfopen_s(&out, path.c_str(), L"wb") == 0 && out != nullptr)
+        {
+            BITMAPINFOHEADER info{};
+            info.biSize = sizeof info;
+            info.biWidth = (LONG)desc.Width;
+            info.biHeight = -(LONG)desc.Height;
+            info.biPlanes = 1;
+            info.biBitCount = 32;
+            info.biCompression = BI_RGB;
+            BITMAPFILEHEADER head{};
+            head.bfType = 0x4D42;
+            head.bfOffBits = sizeof head + sizeof info;
+            head.bfSize = head.bfOffBits + 4 * desc.Width * desc.Height;
+            fwrite(&head, sizeof head, 1, out);
+            fwrite(&info, sizeof info, 1, out);
+            for (UINT y = 0; y < desc.Height; y++)
+                fwrite(static_cast<uint8_t const *>(map.pData) + y * map.RowPitch, 4, desc.Width, out);
+            fclose(out);
+        }
+        device_context->Unmap(copy.get(), 0);
+    }
+#endif
+
     void Layer2D::Realize(float tolerance)
     {
         for (size_t f = 0; f < feature_count; f++)
@@ -292,6 +351,42 @@ namespace zs
         if (outline_)
             context_->CreateFilledGeometryRealization(outline_.get(), tolerance, outline_realized_.put());
         realized_scale_ = scale_;
+    }
+
+    void Layer2D::BuildGaps(Layer2DStyle const &style, float tolerance)
+    {
+        gaps_key_ = style.gaps;
+        gaps_key_count_ = style.gap_count;
+        gaps_key_selected_ = style.gap_selected;
+        gaps_scale_ = realized_scale_;
+        auto build = [&](bool chosen, com_ptr<ID2D1GeometryRealization> &out) {
+            out = nullptr;
+            com_ptr<ID2D1PathGeometry> geometry;
+            com_ptr<ID2D1GeometrySink> sink;
+            if (FAILED(factory_->CreatePathGeometry(geometry.put())) || FAILED(geometry->Open(sink.put())))
+                return;
+            sink->SetFillMode(D2D1_FILL_MODE_WINDING);
+            bool any = false;
+            for (size_t i = 0; i < style.gap_count; i++)
+            {
+                if ((style.gap_selected == (int64_t)i) != chosen)
+                    continue;
+                for (uint32_t k = 0; k < style.gaps[i].run_len; k++)
+                {
+                    zs_gap_run const &r = style.gap_runs[style.gaps[i].run_start + k];
+                    float x0 = (float)r.x0, x1 = (float)r.x1, y0 = (float)r.y - 0.02f, y1 = (float)r.y + 0.02f;
+                    D2D1_POINT_2F corners[3] = { { x1, y0 }, { x1, y1 }, { x0, y1 } };
+                    sink->BeginFigure({ x0, y0 }, D2D1_FIGURE_BEGIN_FILLED);
+                    sink->AddLines(corners, 3);
+                    sink->EndFigure(D2D1_FIGURE_END_CLOSED);
+                    any = true;
+                }
+            }
+            if (SUCCEEDED(sink->Close()) && any)
+                context_->CreateFilledGeometryRealization(geometry.get(), tolerance, out.put());
+        };
+        build(false, gaps_realized_);
+        build(true, gap_chosen_);
     }
 
     bool Layer2D::Draw(double bed_x, double bed_y, Layer2DStyle const &style)
@@ -320,8 +415,9 @@ namespace zs
         if (have_paths)
         {
             // A new tessellation only when the zoom leaves its range.
+            float tolerance = D2D1::ComputeFlatteningTolerance(world, 96 * (float)scale_x_, 96 * (float)scale_y_, (float)zoom_range);
             if (realized_scale_ <= 0 || scale_ > realized_scale_ * zoom_range || scale_ < realized_scale_ / (zoom_range * zoom_range))
-                Realize(D2D1::ComputeFlatteningTolerance(world, 96 * (float)scale_x_, 96 * (float)scale_y_, (float)zoom_range));
+                Realize(tolerance);
 
             if (outline_realized_)
             {
@@ -358,9 +454,59 @@ namespace zs
                                        round_.get());
                 }
             }
+
+            // The gaps: red cells, the selected gap brighter.
+            if (style.gap_count > 0)
+            {
+                if (style.gaps != gaps_key_ || style.gap_count != gaps_key_count_ || style.gap_selected != gaps_key_selected_ || gaps_scale_ != realized_scale_)
+                    BuildGaps(style, tolerance);
+                if (gaps_realized_)
+                {
+                    color(0.9f, 0.1f, 0.15f, 0.75f);
+                    context_->DrawGeometryRealization(gaps_realized_.get(), brush_.get());
+                }
+                if (gap_chosen_)
+                {
+                    color(1.0f, 0.1f, 0.1f);
+                    context_->DrawGeometryRealization(gap_chosen_.get(), brush_.get());
+                }
+            }
+        }
+
+        // The measure tape, in points of the screen: a gold line between
+        // the points, and a ring at each point.
+        if (style.tape_count > 0)
+        {
+            context_->SetTransform(D2D1::Matrix3x2F::Identity());
+            D2D1_POINT_2F at[2];
+            for (int i = 0; i < style.tape_count && i < 2; i++)
+            {
+                double x, y;
+                ToView(style.tape[3 * i], style.tape[3 * i + 1], x, y);
+                at[i] = D2D1::Point2F((float)x, (float)y);
+            }
+            if (style.tape_count == 2)
+            {
+                color(0, 0, 0, 0.45f);
+                context_->DrawLine(at[0], at[1], brush_.get(), 4, round_.get());
+                color(0.96f, 0.72f, 0.10f);
+                context_->DrawLine(at[0], at[1], brush_.get(), 2, round_.get());
+            }
+            for (int i = 0; i < style.tape_count && i < 2; i++)
+            {
+                auto ring = D2D1::Ellipse(at[i], 5, 5);
+                color(0.96f, 0.72f, 0.10f);
+                context_->FillEllipse(ring, brush_.get());
+                color(0, 0, 0, 0.6f);
+                context_->DrawEllipse(ring, brush_.get(), 1.5f);
+            }
         }
 
         HRESULT hr = context_->EndDraw();
+#ifdef ZS_DEV_HOOKS
+        if (SUCCEEDED(hr) && !save_path.empty())
+            SaveFrame();
+#endif
         if (SUCCEEDED(hr))
             hr = swapchain_->Present(1, 0);
         if (hr == D2DERR_RECREATE_TARGET || hr == DXGI_ERROR_DEVICE_REMOVED || hr == DXGI_ERROR_DEVICE_RESET)
