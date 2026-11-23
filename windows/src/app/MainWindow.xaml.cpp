@@ -458,6 +458,7 @@ namespace winrt::ZSlice::implementation
         picker.FileTypeFilter().Append(L".step");
         picker.FileTypeFilter().Append(L".stp");
         picker.FileTypeFilter().Append(L".obj");
+        picker.FileTypeFilter().Append(L".zip");
         auto file = co_await picker.PickSingleFileAsync();
         if (file != nullptr)
             LoadPath(std::wstring(file.Path()));
@@ -486,6 +487,13 @@ namespace winrt::ZSlice::implementation
         if (!read)
         {
             ShowError(L"Could not read " + name);
+            return;
+        }
+        // A ZIP file of a model: the user chooses its files.
+        if (IsZipName(name))
+        {
+            ShowBusy(L"");
+            ImportZip(name, std::make_shared<std::string>(bytes));
             return;
         }
         // A file from outside the app replaces no work on this plate.
@@ -544,7 +552,7 @@ namespace winrt::ZSlice::implementation
         for (auto const &item : items)
         {
             std::wstring path{ item.Path() };
-            if (item.IsOfType(Storage::StorageItemTypes::File) && zs::openlink::IsModelName(path))
+            if (item.IsOfType(Storage::StorageItemTypes::File) && (zs::openlink::IsModelName(path) || IsZipName(path)))
             {
                 LoadPath(path);
                 break;

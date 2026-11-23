@@ -417,6 +417,7 @@ namespace winrt::ZSlice::implementation
                 PlateEdited();
             });
             add(menu.Items(), L"Add models…", [this] { PickFile(); });
+            add(menu.Items(), L"Import from a model page…", [this] { AskImport({}); });
             add(menu.Items(), L"Clear the plate", [this] {
                 ClearSelection();
                 zs_app_plate_clear(model->Active());

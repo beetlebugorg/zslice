@@ -60,10 +60,10 @@ namespace winrt::ZSlice::implementation
             return;
         if (zs::openlink::IsLink(argument))
             AskOpenLink(argument);
-        else if (zs::openlink::IsModelName(argument))
+        else if (zs::openlink::IsModelName(argument) || IsZipName(argument))
             LoadPath(argument, true);
         else
-            ShowToast(L"zslice opens STL, 3MF, STEP, and OBJ files.");
+            ShowToast(L"zslice opens STL, 3MF, STEP, and OBJ files, and a ZIP file of a model.");
     }
 
     winrt::fire_and_forget MainWindow::AskOpenLink(std::wstring text)
@@ -74,6 +74,13 @@ namespace winrt::ZSlice::implementation
         if (!zs::openlink::Parse(text, link, why))
         {
             ShowError(L"This link did not open. " + zs::ToWide(why));
+            co_return;
+        }
+        // A link to a model page: the dialog says how to get its files.
+        zs_import_page page{};
+        if (zs_import_page_check(link.url.c_str(), &page) == ZS_IMPORT_OK)
+        {
+            AskImport(zs::ToWide(page.url), true);
             co_return;
         }
         if (link_asking || download_cancel != nullptr)

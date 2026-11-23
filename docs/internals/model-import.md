@@ -46,7 +46,7 @@ The result codes 4 and 9 of `enum zs_import_result` are not used. They were the 
 | Linux (GTK) | `linux/src/ui/model-import.c` (the dialog and the steps), `zg_window_add_import` in `ui/window.c`. The action `app.import-page` (the search, and the menu of the plate). A ZIP file from Open or a drop goes to the list. | The page dialog opens the page. A ZIP file from Open or a drop goes to the list. |
 | Web | `web/app/modelimport.js`, and `importZip` and `loadImported` in `web/app/app.js`. The worker call `spill`. | The page dialog opens the page. A ZIP file from Open or a drop goes to the list. |
 | macOS | Not yet. Use the calls in this order. | |
-| Windows | Not yet. Use the calls in this order. | |
+| Windows | `windows/src/app/MainWindow.ModelImport.cpp`. The search and the bed menu open it. A ZIP file from Open, a drop, or Open With goes to the list. | The page dialog opens the page. A ZIP file goes to the list. |
 
 For tests of the GTK app: `ZSLICE_ACTION="app.import-page('<address>')"` opens the dialog with the address after the first slice, and `ZSLICE_IMPORT_LIST=1` presses **Continue** at once. For a ZIP file, `ZSLICE_IMPORT_YES=1` presses **Load** and logs the result.
 
