@@ -363,6 +363,11 @@
                             <Flyout x:Name="SummaryFlyout" Placement="TopEdgeAlignedRight">
                                 <ScrollViewer MaxHeight="520" HorizontalScrollBarVisibility="Disabled">
                                     <StackPanel Width="296" Spacing="6">
+                                        <StackPanel x:Name="SummaryCamera" Spacing="4" Visibility="Collapsed">
+                                            <Border x:Name="SummaryCameraBox" />
+                                            <TextBlock x:Name="SummaryCameraLine" FontSize="12" TextWrapping="WrapWholeWords" Foreground="{ThemeResource ZsDim}" />
+                                            <TextBlock x:Name="SummaryCameraNote" FontSize="12" TextWrapping="WrapWholeWords" Foreground="{ThemeResource ZsDim}" Visibility="Collapsed" />
+                                        </StackPanel>
                                         <StackPanel x:Name="SummaryFacts" Spacing="4" />
                                         <Border x:Name="SummaryFilaments" />
                                         <TextBlock x:Name="SummaryTook" FontSize="12" Foreground="{ThemeResource ZsDim}" />

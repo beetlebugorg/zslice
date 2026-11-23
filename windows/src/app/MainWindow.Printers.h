@@ -183,6 +183,12 @@ namespace winrt::ZSlice::implementation
         void OnBambuStatus(std::string const &id, zs::link::Snapshot const *status, std::string const &error);
         // A status of the current printer: the filaments follow its spools.
         void FollowSpools(std::string const &name, zs::link::Snapshot const &status);
+        // The camera at the top of the details of the print, while the
+        // current printer prints. It plays only while the details show,
+        // and it uses the status of the link: it adds no status request.
+        void DetailsOpen(bool open);
+        void DetailsStatus(std::string const &id, zs::link::Snapshot const *status);
+        void UpdateDetailsCamera();
         void StartCamera(std::shared_ptr<PrinterTile> const &tile);
         void StopCamera(std::shared_ptr<PrinterTile> const &tile);
         void ShowCameraLarge(std::shared_ptr<PrinterTile> const &tile);
@@ -238,6 +244,14 @@ namespace winrt::ZSlice::implementation
         Microsoft::UI::Dispatching::DispatcherQueueTimer follow_timer{ nullptr };
         std::shared_ptr<zs::http::Cancel> follow_cancel;
         bool follow_reading = false, follow_asleep = false, follow_stopped = false;
+        bool details_open = false, details_has_status = false, details_camera_read = false, details_has_source = false;
+        std::string details_status_id, details_camera_id;
+        zs::link::Snapshot details_status;
+        zs::CameraSource details_source;
+        std::shared_ptr<zs::CameraFeed> details_feed;
+        // Made when a camera first shows, so a start pays nothing for it.
+        Microsoft::UI::Xaml::Controls::Image details_image{ nullptr };
+        std::shared_ptr<std::atomic<bool>> details_decoding = std::make_shared<std::atomic<bool>>(false);
         std::chrono::steady_clock::time_point minimized_since{};
         std::wstring filament_note;
         bool reading_filaments = false;

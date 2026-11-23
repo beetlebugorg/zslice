@@ -93,7 +93,9 @@ Under the tools are the line colors, Gaps, and Check.
 - **Gaps**: the areas of the top layer that should be solid and that no line covers, in red. Click a gap for the settings that can close it, and **Try** one.
 - **Check**: the things that can make the print fail. Its button shows the count of problems, and the print card says "N to check". Click a problem to go to its layer and its line.
 
-Click the time in the bottom bar for the details of the print. Each main setting is a button that opens the search on it. The details also have the filaments, the time of the slice, a warning with its usual fix, and the changes that you made in at least two other prints, with **Apply**.
+Click the time in the bottom bar for the details of the print. Each main setting is a button that opens the search on it. The details also have the filaments, the time of the slice, a warning with its usual fix, and the changes that you made in at least two other prints, with **Apply**. While the current printer prints, the details start with its camera, the job, the progress, and the time left. The camera plays only while the details are open.
+
+In the settings pane, a printer or filament setting names its owner, such as **Printer · Creality Ender-3**: each printer and each filament keeps its own value.
 
 The bottom bar has Undo, Redo, and the history button (Ctrl+H). A number on the button counts your changes since the last open or save. The button opens the list of the steps, where ↶ undoes one change and keeps the later ones. Right-click a step to go to it or to clear the history after it. Esc closes the list.
 

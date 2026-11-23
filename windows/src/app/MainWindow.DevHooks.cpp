@@ -924,6 +924,10 @@ namespace winrt::ZSlice::implementation
         {
             SummaryFlyout().ShowAt(SummaryButton());
         }
+        else if (verb == L"sumclose")
+        {
+            SummaryFlyout().Hide();
+        }
         else if (verb == L"sumshot")
         {
             // sumshot path.bmp: the open details of the print.
@@ -1030,6 +1034,12 @@ namespace winrt::ZSlice::implementation
                 return false;
             };
             zs::Log("dev: clip focused a switch %d\n", focus_first(SettingsList()) ? 1 : 0);
+        }
+        else if (verb == L"camlog")
+        {
+            auto image = SummaryCameraBox().Child().try_as<Microsoft::UI::Xaml::Controls::Image>();
+            zs::Log("dev: details camera shown %d picture %d (%.0fx%.0f) note %d line '%s'\n", SummaryCamera().Visibility() == Microsoft::UI::Xaml::Visibility::Visible ? 1 : 0, image != nullptr && image.Source() != nullptr ? 1 : 0, image != nullptr ? image.ActualWidth() : 0.0,
+                    image != nullptr ? image.ActualHeight() : 0.0, SummaryCameraNote().Visibility() == Microsoft::UI::Xaml::Visibility::Visible ? 1 : 0, to_string(SummaryCameraLine().Text()).c_str());
         }
         else if (verb == L"cliplog")
         {

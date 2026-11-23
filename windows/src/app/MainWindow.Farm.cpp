@@ -378,12 +378,162 @@ namespace winrt::ZSlice::implementation
         follow_timer.Interval(std::chrono::seconds(5));
         follow_timer.Tick([this](auto &&, auto &&) { FollowTick(); });
         follow_timer.Start();
+        MainWindow *window = &w;
+        w.SummaryFlyout().Opened([window](auto &&, auto &&) {
+            if (window->printers != nullptr)
+                window->printers->DetailsOpen(true);
+        });
+        w.SummaryFlyout().Closed([window](auto &&, auto &&) {
+            if (window->printers != nullptr)
+                window->printers->DetailsOpen(false);
+        });
         SyncBambuLinks();
+    }
+
+    void MainWindow::PrintersUi::DetailsOpen(bool open)
+    {
+        details_open = open;
+        // Each open reads the camera of the printer again.
+        details_camera_id.clear();
+        UpdateDetailsCamera();
+    }
+
+    void MainWindow::PrintersUi::DetailsStatus(std::string const &id, zs::link::Snapshot const *status)
+    {
+        details_has_status = status != nullptr;
+        details_status_id = id;
+        if (status != nullptr)
+            details_status = *status;
+        if (details_open)
+            UpdateDetailsCamera();
+    }
+
+    void MainWindow::PrintersUi::UpdateDetailsCamera()
+    {
+        auto hide = [this] {
+            Retire(details_feed);
+            w.SummaryCamera().Visibility(Visibility::Collapsed);
+            if (details_image != nullptr)
+                details_image.Source(nullptr);
+            w.SummaryCameraNote().Visibility(Visibility::Collapsed);
+        };
+        zs::SavedPrinter const &printer = zs::Printers().Current();
+        bool page_open = page != nullptr && page.Visibility() == Visibility::Visible;
+        bool printing = details_has_status && details_status_id == printer.id &&
+                        (details_status.farm_state == ZS_FARM_PRINTING || details_status.farm_state == ZS_FARM_PAUSED);
+        if (!details_open || follow_stopped || page_open || !HasLink(printer) || !printing)
+        {
+            hide();
+            return;
+        }
+        std::wstring line = zs::ToWide(printer.name) + L": ";
+        if (!details_status.job.empty())
+            line += zs::ToWide(details_status.job) + L", ";
+        line += std::to_wstring(std::lround(details_status.progress * 100)) + L" %";
+        if (details_status.time_left > 0)
+            line += L", " + zs::ToWide(zs::link::TimeText(details_status.time_left)) + L" left";
+        w.SummaryCameraLine().Text(line);
+
+        if (details_camera_id != printer.id)
+        {
+            Retire(details_feed);
+            details_camera_id = printer.id;
+            details_camera_read = false;
+            details_has_source = false;
+        }
+        if (!details_camera_read)
+        {
+            details_camera_read = true;
+            if (printer.kind == zs::LinkKind::Bambu)
+            {
+                zs::CameraSource source;
+                source.bambu_host = zs::BambuHost(printer.url);
+                source.bambu_code = printer.api_key;
+                source.bambu_pin = printer.tls_pin;
+                char model[128] = "";
+                zs_app_setting_get(w.model->Active(), "machine.model", model, sizeof model, nullptr);
+                source.bambu_kind = zs_bambu_camera_kind(model);
+                details_source = std::move(source);
+                details_has_source = true;
+            }
+            else
+            {
+                struct Result
+                {
+                    bool ok = false;
+                    zs::link::Camera camera;
+                };
+                zs::link::Target target = zs::link::TargetOf(printer);
+                auto cancel = follow_cancel;
+                std::string id = printer.id, key = printer.api_key, url = printer.url;
+                bool deck = printer.kind == zs::LinkKind::Printdeck;
+                Async(
+                    [target, cancel] {
+                        Result r;
+                        std::string ignored;
+                        r.ok = zs::link::ReadCamera(target, cancel, r.camera, ignored);
+                        return r;
+                    },
+                    [id, key, url, deck](PrintersUi &ui, Result &r) {
+                        if (ui.details_camera_id != id)
+                            return;
+                        if (r.ok && (!r.camera.stream.empty() || !r.camera.snapshot.empty()))
+                        {
+                            zs::CameraSource source;
+                            source.stream = r.camera.stream;
+                            source.snapshot = r.camera.snapshot;
+                            source.api_key = key;
+                            source.printer_url = url;
+                            source.printdeck = deck;
+                            ui.details_source = std::move(source);
+                            ui.details_has_source = true;
+                        }
+                        ui.UpdateDetailsCamera();
+                    });
+                return;
+            }
+        }
+        if (!details_has_source)
+        {
+            hide();
+            return;
+        }
+        w.SummaryCamera().Visibility(Visibility::Visible);
+        if (details_feed != nullptr)
+            return;
+        Poster post = poster;
+        if (details_image == nullptr)
+        {
+            details_image = Image();
+            details_image.Stretch(Media::Stretch::Uniform);
+            details_image.MaxHeight(170);
+            Name(details_image, L"The camera of the printer");
+            w.SummaryCameraBox().Child(details_image);
+        }
+        Image image = details_image;
+        details_decoding->store(false);
+        auto to_image = FrameTo(post, image, details_decoding);
+        // A picture ends the note of the camera.
+        auto noted = std::make_shared<std::atomic<bool>>(false);
+        zs::CameraFeed::Frame frame = [post, to_image, noted](std::shared_ptr<std::string> const &jpeg) {
+            if (noted->exchange(false))
+                post.Post([](PrintersUi &ui) { ui.w.SummaryCameraNote().Visibility(Visibility::Collapsed); });
+            to_image(jpeg);
+        };
+        details_feed = std::make_shared<zs::CameraFeed>(details_source, frame, [post, noted](std::string const &note) {
+            noted->store(true);
+            post.Post([note](PrintersUi &ui) {
+                ui.w.SummaryCameraNote().Text(zs::ToWide(note));
+                ui.w.SummaryCameraNote().Visibility(Visibility::Visible);
+            });
+        });
     }
 
     void MainWindow::PrintersUi::StopFollow()
     {
         follow_stopped = true;
+        details_open = false;
+        Retire(details_feed);
         if (follow_timer != nullptr)
             follow_timer.Stop();
         if (follow_cancel != nullptr)
@@ -432,7 +582,10 @@ namespace winrt::ZSlice::implementation
             [](PrintersUi &ui, Result &r) {
                 ui.follow_reading = false;
                 // The user can pick another printer during the request.
-                if (!r.ok || ui.follow_stopped || r.id != zs::Printers().Current().id)
+                if (ui.follow_stopped || r.id != zs::Printers().Current().id)
+                    return;
+                ui.DetailsStatus(r.id, r.ok ? &r.status : nullptr);
+                if (!r.ok)
                     return;
                 ui.rolls = r.status.rolls;
                 ui.FollowSpools(r.name, r.status);
@@ -513,6 +666,8 @@ namespace winrt::ZSlice::implementation
     {
         if (bambu_links.count(id) == 0)
             return;
+        if (id == zs::Printers().Current().id)
+            DetailsStatus(id, status);
         for (auto const &t : tiles)
         {
             if (t->id == id && t->alive)
