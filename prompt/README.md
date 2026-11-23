@@ -1,6 +1,6 @@
 # A prompt that could build zslice
 
-Describes: main at commit `d9e1cbfc` ("Build the Linux app on a host with no desktop update tools"), 2026-11-23.
+Describes: main at commit `f0a5a242` ("Even out the padding and size of the Mac dialogs"), 2026-11-23.
 
 ## Read this first
 
