@@ -237,7 +237,22 @@ namespace winrt::ZSlice::implementation
         void TurnOffForScope(Microsoft::UI::Xaml::FrameworkElement const &editor, zs_setting_info const &info);
         Microsoft::UI::Xaml::FrameworkElement MakeEditor(zs_setting_info const &info, std::shared_ptr<EditorTarget> const &target = nullptr);
         void CommitSetting(std::string const &name, std::string const &value);
-        void CommitSettingText(zs_setting_info const &info, std::wstring const &text, EditorTarget const *target = nullptr);
+        // The state of a field: 0 plain, 1 an unusual value, 2 an error.
+        struct EditorField
+        {
+            Microsoft::UI::Xaml::Controls::TextBox box{ nullptr };
+            Microsoft::UI::Xaml::Controls::Border mark{ nullptr };
+            Microsoft::UI::Dispatching::DispatcherQueueTimer live{ nullptr };
+            // The text that the code put there: its change event is no edit.
+            std::wstring shown, doc;
+            int state = 0;
+        };
+        void SetFieldState(EditorField &field, int state, std::wstring const &tip);
+        void ShowUnusual(EditorField &field, zs_setting_info const &info, std::string const &value);
+        void StepField(EditorField &field, zs_setting_info const &info, double steps, bool fine, int delay_ms);
+        // Sends the text of an editor to the core. quiet: the user is still
+        // typing, so a refused value shows no error. True if the core has it.
+        bool CommitSettingText(zs_setting_info const &info, std::wstring const &text, EditorTarget const *target, EditorField *field = nullptr, bool quiet = false);
         void RefreshSettingValues();
         void NoteChange();
         void RefreshHistoryButtons();

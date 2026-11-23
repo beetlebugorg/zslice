@@ -13,6 +13,11 @@
 
 #include <winrt/Microsoft.UI.Xaml.Documents.h>
 
+#include <algorithm>
+#include <cmath>
+#include <cwchar>
+#include <cwctype>
+
 #include <cmath>
 
 using namespace winrt;
@@ -107,6 +112,44 @@ namespace
         { 255, 141, 110, 99 }, { 255, 173, 181, 189 }, { 255, 73, 80, 87 },   { 255, 12, 166, 174 }, { 255, 130, 201, 30 },
         { 255, 102, 204, 242 }, { 255, 224, 26, 38 },  { 255, 51, 115, 242 }, { 255, 242, 64, 191 },
     };
+
+    // A whole number in the text, with a dot as the decimal mark.
+    bool ParsesAsNumber(std::wstring const &text)
+    {
+        if (text.empty())
+            return false;
+        wchar_t *end = nullptr;
+        wcstod(text.c_str(), &end);
+        return end != nullptr && *end == 0;
+    }
+
+    bool ParsesAsNumber(std::string const &text)
+    {
+        if (text.empty())
+            return false;
+        char *end = nullptr;
+        strtod(text.c_str(), &end);
+        return end != nullptr && *end == 0;
+    }
+
+    // A range in the units that the editors show (a ratio as a percentage).
+    std::wstring RangeText(zs_setting_info const &info, double lo, double hi)
+    {
+        double k = info.unit != nullptr && strcmp(info.unit, "%") == 0 ? 100 : 1;
+        wchar_t text[96];
+        swprintf_s(text, L"%.6g to %.6g %hs", lo * k, hi * k, info.unit != nullptr ? info.unit : "");
+        return text;
+    }
+
+    // A TextBox gives its line breaks as CR. The core and the G-code use LF.
+    std::wstring WithLineFeeds(std::wstring text)
+    {
+        size_t at = 0;
+        while ((at = text.find(L"\r\n", at)) != std::wstring::npos)
+            text.erase(at, 1);
+        std::replace(text.begin(), text.end(), L'\r', L'\n');
+        return text;
+    }
 
     TextBlock Wrapped(std::wstring const &text, double size = 13)
     {
@@ -826,6 +869,7 @@ namespace winrt::ZSlice::implementation
         }
 
         // A number or a text: a field, with its unit after it.
+        bool is_number = info.kind == ZS_SETTING_NUMBER || info.kind == ZS_SETTING_INTEGER;
         TextBox box;
         box.HorizontalAlignment(HorizontalAlignment::Stretch);
         box.MinHeight(30);
@@ -842,57 +886,136 @@ namespace winrt::ZSlice::implementation
             box.FontFamily(Media::FontFamily(L"Cascadia Mono, Consolas"));
             box.FontSize(12);
         }
-        auto fill = [this, box, name, value, kind = info.kind]() mutable {
+        auto field = std::make_shared<EditorField>();
+        field->box = box;
+        field->doc = PlainDoc(info.doc);
+        ToolTipService::SetToolTip(box, box_value(field->doc));
+        if (is_number)
+        {
+            // A ring over the field: its style owns the colors of the field.
+            Border mark;
+            mark.IsHitTestVisible(false);
+            mark.BorderThickness(ThicknessHelper::FromUniformLength(1.5));
+            mark.CornerRadius(CornerRadiusHelper::FromUniformRadius(4));
+            mark.Visibility(Visibility::Collapsed);
+            field->mark = mark;
+        }
+        auto fill = [this, box, name, value, field, copy, kind = info.kind]() mutable {
+            std::string now = value();
+            ShowUnusual(*field, copy, now);
             auto focused = Input::FocusManager::GetFocusedElement(Content().XamlRoot());
             if (focused != nullptr && focused == box.try_as<Windows::Foundation::IInspectable>())
                 return;
+            std::wstring text = kind == ZS_SETTING_TEXT ? zs::ToWide(now) : DisplayValue(name.c_str(), now, false);
+            field->shown = text;
             filling_editor = true;
-            box.Text(kind == ZS_SETTING_TEXT ? zs::ToWide(value()) : DisplayValue(name.c_str(), value(), false));
+            box.Text(text);
             filling_editor = false;
+            if (field->state == 2)
+            {
+                SetFieldState(*field, 0, field->doc);
+                ShowUnusual(*field, copy, now);
+            }
         };
         fill();
         box.GotFocus([this, name](auto &&, auto &&) {
             if (model != nullptr && model->HistoryFocus(name.c_str()))
                 RefreshHistoryButtons();
         });
-        box.LostFocus([this, box, copy, target](auto &&, auto &&) {
-            CommitSettingText(copy, std::wstring(box.Text()), target.get());
+        box.LostFocus([this, box, copy, target, field](auto &&, auto &&) {
+            if (field->live != nullptr)
+                field->live.Stop();
+            CommitSettingText(copy, std::wstring(box.Text()), target.get(), field.get());
             if (model != nullptr && model->HistoryFocus(nullptr))
                 RefreshHistoryButtons();
         });
+        if (is_number)
+        {
+            // A number applies 350 ms after the last key. A half-typed
+            // number ("", "-", "0.") waits for more typing.
+            field->live = queue.CreateTimer();
+            field->live.IsRepeating(false);
+            std::weak_ptr<EditorField> weak = field;
+            field->live.Tick([this, weak, copy, target](auto &&, auto &&) {
+                auto f = weak.lock();
+                if (f == nullptr)
+                    return;
+                f->live.Stop();
+                std::wstring text{ f->box.Text() };
+                if (ParsesAsNumber(text) && text.back() != L'.')
+                    CommitSettingText(copy, text, target.get(), f.get(), true);
+            });
+            box.Unloaded([field](auto &&, auto &&) { field->live.Stop(); });
+            // Up and Down step the last decimal. Shift or Page: ten steps.
+            // Ctrl: one decimal finer.
+            box.PreviewKeyDown([this, field, copy](auto &&, Input::KeyRoutedEventArgs const &e) {
+                auto key = e.Key();
+                bool page = key == VirtualKey::PageUp || key == VirtualKey::PageDown;
+                if (key != VirtualKey::Up && key != VirtualKey::Down && !page)
+                    return;
+                if (!ParsesAsNumber(std::wstring(field->box.Text())))
+                    return;
+                auto held = [](VirtualKey k) {
+                    return (Microsoft::UI::Input::InputKeyboardSource::GetKeyStateForCurrentThread(k) & Windows::UI::Core::CoreVirtualKeyStates::Down) ==
+                           Windows::UI::Core::CoreVirtualKeyStates::Down;
+                };
+                double steps = key == VirtualKey::Up || key == VirtualKey::PageUp ? 1 : -1;
+                if (page || held(VirtualKey::Shift))
+                    steps *= 10;
+                StepField(*field, copy, steps, held(VirtualKey::Control), 150);
+                e.Handled(true);
+            });
+        }
+        box.TextChanged([this, field, is_number](auto &&, auto &&) {
+            std::wstring text{ field->box.Text() };
+            if (text == field->shown)
+                return;
+            if (field->state == 2)
+                SetFieldState(*field, 0, field->doc);
+            if (is_number)
+            {
+                field->live.Stop();
+                field->live.Interval(std::chrono::milliseconds(350));
+                field->live.Start();
+            }
+        });
         if (!multiline)
         {
-            box.KeyDown([this, box, copy, target](auto &&, Input::KeyRoutedEventArgs const &e) {
+            box.KeyDown([this, box, copy, target, field](auto &&, Input::KeyRoutedEventArgs const &e) {
                 if (e.Key() == VirtualKey::Enter)
                 {
-                    CommitSettingText(copy, std::wstring(box.Text()), target.get());
+                    if (field->live != nullptr)
+                        field->live.Stop();
+                    CommitSettingText(copy, std::wstring(box.Text()), target.get(), field.get());
                     e.Handled(true);
                 }
             });
         }
         setting_editors.push_back({ name, fill });
-        if (info.unit == nullptr || info.unit[0] == 0)
+        if (!is_number && (info.unit == nullptr || info.unit[0] == 0))
             return box;
 
         Grid with_unit;
         with_unit.ColumnSpacing(6);
-        ColumnDefinition field, unit_column, hint_column;
-        field.Width(GridLengthHelper::FromValueAndType(1, GridUnitType::Star));
+        ColumnDefinition field_column, unit_column, hint_column;
+        field_column.Width(GridLengthHelper::FromValueAndType(1, GridUnitType::Star));
         unit_column.Width(GridLengthHelper::Auto());
         hint_column.Width(GridLengthHelper::Auto());
-        with_unit.ColumnDefinitions().Append(field);
+        with_unit.ColumnDefinitions().Append(field_column);
         with_unit.ColumnDefinitions().Append(unit_column);
         bool no_hint = target != nullptr && target->no_hint;
         if (!no_hint)
             with_unit.ColumnDefinitions().Append(hint_column);
         with_unit.Children().Append(box);
         TextBlock unit;
-        unit.Text(zs::ToWide(info.unit));
+        unit.Text(zs::ToWide(info.unit != nullptr ? info.unit : ""));
         unit.FontSize(12);
         unit.Foreground(TokenBrush(Root(), L"ZsDim"));
         unit.VerticalAlignment(VerticalAlignment::Center);
         Grid::SetColumn(unit, 1);
         with_unit.Children().Append(unit);
+        if (field->mark != nullptr)
+            with_unit.Children().Append(field->mark);
         if (no_hint)
             return with_unit;
         // A speed ratio: the speed in mm/s that it gives on this printer. A
@@ -1113,40 +1236,126 @@ namespace winrt::ZSlice::implementation
         SetPaneFocus(shown_effect.features != 0 ? shown_effect.features : (1u << ZS_FEATURE_COUNT) - 1, shown_effect.first_layer_only != 0);
     }
 
-    void MainWindow::CommitSettingText(zs_setting_info const &info, std::wstring const &text, EditorTarget const *target)
+    void MainWindow::SetFieldState(EditorField &field, int state, std::wstring const &tip)
+    {
+        field.state = state;
+        if (field.mark != nullptr)
+        {
+            field.mark.Visibility(state == 0 ? Visibility::Collapsed : Visibility::Visible);
+            field.mark.BorderBrush(Media::SolidColorBrush(state == 2 ? Windows::UI::Color{ 255, 0xE0, 0x1B, 0x24 } : Windows::UI::Color{ 255, 0xE5, 0xA5, 0x0A }));
+        }
+        ToolTipService::SetToolTip(field.box, box_value(tip));
+    }
+
+    // A value out of the usual range (the slider range) is valid, but the
+    // field says that it is unusual.
+    void MainWindow::ShowUnusual(EditorField &field, zs_setting_info const &info, std::string const &value)
+    {
+        if (field.mark == nullptr || field.state == 2 || !(info.slider_max > info.slider_min))
+            return;
+        double v = ParsesAsNumber(value) ? strtod(value.c_str(), nullptr) : info.slider_min;
+        bool unusual = v < info.slider_min - 1e-9 || v > info.slider_max + 1e-9;
+        if (unusual == (field.state == 1))
+            return;
+        SetFieldState(field, unusual ? 1 : 0, unusual ? L"An unusual value: most prints use " + RangeText(info, info.slider_min, info.slider_max) + L".\n\n" + field.doc : field.doc);
+    }
+
+    // Adds steps to the shown value. A step is one unit of its last decimal
+    // place (0.44 steps by 0.01, 150 by 1), and 1 for an integer.
+    void MainWindow::StepField(EditorField &field, zs_setting_info const &info, double steps, bool fine, int delay_ms)
+    {
+        std::wstring base{ field.box.Text() };
+        bool integer = info.kind == ZS_SETTING_INTEGER;
+        size_t dot = base.find(L'.');
+        int decimals = 0;
+        if (!integer && dot != std::wstring::npos)
+            for (size_t i = dot + 1; i < base.size() && iswdigit(base[i]); i++)
+                decimals++;
+        if (!integer && fine)
+            decimals++;
+        double v = wcstod(base.c_str(), nullptr) + steps * std::pow(10.0, -decimals);
+        if (integer)
+            v = std::max(0.0, std::round(v));
+        wchar_t text[64];
+        swprintf_s(text, L"%.*f", decimals, v);
+        field.shown = text;
+        field.box.Text(text);
+        field.box.SelectionStart((int32_t)wcslen(text));
+        if (field.state == 2)
+            SetFieldState(field, 0, field.doc);
+        field.live.Stop();
+        field.live.Interval(std::chrono::milliseconds(delay_ms));
+        field.live.Start();
+    }
+
+    bool MainWindow::CommitSettingText(zs_setting_info const &info, std::wstring const &text, EditorTarget const *target, EditorField *field, bool quiet)
     {
         if (model == nullptr || filling_editor)
-            return;
-        std::string utf8 = zs::ToUtf8(text);
-        std::string value = utf8;
+            return false;
+        bool is_number = (info.kind == ZS_SETTING_NUMBER || info.kind == ZS_SETTING_INTEGER) && !IsFilamentSetting(info.name);
+        std::wstring typed = info.kind == ZS_SETTING_TEXT ? WithLineFeeds(text) : text;
         std::string now = target != nullptr ? target->get(info.name) : model->GetSetting(info.name);
-        if (info.kind != ZS_SETTING_TEXT)
-        {
-            size_t len = 0;
-            int rc = zs_setting_parse(info.name, utf8.c_str(), nullptr, 0, &len);
-            if (rc == ZS_OK)
+        auto fine = [&] {
+            if (field != nullptr && field->state == 2)
             {
-                value.assign(len + 1, '\0');
-                rc = zs_setting_parse(info.name, utf8.c_str(), value.data(), value.size(), &len);
-                value.resize(len);
+                SetFieldState(*field, 0, field->doc);
+                ShowUnusual(*field, info, target != nullptr ? target->get(info.name) : model->GetSetting(info.name));
             }
-            if (rc != ZS_OK)
-            {
-                ShowToast(zs::ToWide(info.label) + L": " + zs::ToWide(zs_status_message(rc)));
-                return;
-            }
-            // The text of the value now: no change, no step in the history.
-            if (DisplayValue(info.name, now, false) == text)
-                return;
-        }
-        else if (now == value)
+            return true;
+        };
+        // The text that the field shows for the value now, such as "auto"
+        // or "no limit": no change, and no step in the history.
+        if (is_number && DisplayValue(info.name, now, false) == typed)
+            return fine();
+        // The core rules. A text that is not a number, such as a formula,
+        // goes as it is, and the core takes it or says why.
+        std::string utf8 = zs::ToUtf8(typed), value = utf8;
+        size_t len = 0;
+        if (zs_setting_parse(info.name, utf8.c_str(), nullptr, 0, &len) == ZS_OK)
         {
-            return;
+            value.assign(len + 1, '\0');
+            zs_setting_parse(info.name, utf8.c_str(), value.data(), value.size(), &len);
+            value.resize(len);
         }
+        auto refuse = [&](std::wstring const &why) {
+            if (quiet)
+                return false;
+            if (field != nullptr && field->mark != nullptr)
+                SetFieldState(*field, 2, why);
+            else
+                ShowToast(zs::ToWide(info.label) + L": " + why);
+            return false;
+        };
+        // Out of the hard limits: say what the limits are.
+        if (is_number && info.limit_max > info.limit_min && ParsesAsNumber(value))
+        {
+            double v = strtod(value.c_str(), nullptr);
+            if (v < info.limit_min - 1e-12 || v > info.limit_max + 1e-12)
+                return refuse(L"Out of the limits: use " + RangeText(info, info.limit_min, info.limit_max) + L".");
+        }
+        bool same = now == value;
+        if (!same && is_number && ParsesAsNumber(now) && ParsesAsNumber(value))
+            same = strtod(now.c_str(), nullptr) == strtod(value.c_str(), nullptr);
+        if (same)
+            return fine();
         if (target != nullptr)
+        {
             target->set(info.name, value);
+        }
         else
-            CommitSetting(info.name, value);
+        {
+            std::string error;
+            if (!model->SetSetting(info.name, value, error))
+                return refuse(zs::ToWide(error));
+            KeepEnginePref(info.name);
+            NoteChange();
+            // A formula can change other settings.
+            RefreshSettingValues();
+        }
+        fine();
+        if (field != nullptr)
+            ShowUnusual(*field, info, target != nullptr ? target->get(info.name) : model->GetSetting(info.name));
+        return true;
     }
 
     void MainWindow::CommitSetting(std::string const &name, std::string const &value)

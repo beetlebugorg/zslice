@@ -982,7 +982,12 @@ namespace winrt::ZSlice::implementation
             if (copy.kind == ZS_SETTING_NUMBER || copy.kind == ZS_SETTING_INTEGER)
             {
                 double by = step > 0 ? step : copy.kind == ZS_SETTING_INTEGER ? 1 : ratio ? 0.01 : 0.1;
-                write(name, Shortest(strtod(now.c_str(), nullptr) + dir * by));
+                double v = strtod(now.c_str(), nullptr) + dir * by;
+                if (copy.kind == ZS_SETTING_INTEGER)
+                    v = std::round(v);
+                if (copy.limit_max > copy.limit_min)
+                    v = std::clamp(v, copy.limit_min, copy.limit_max);
+                write(name, Shortest(v));
             }
             else if (copy.kind == ZS_SETTING_CHOICE)
             {

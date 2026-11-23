@@ -97,6 +97,8 @@ Click the time in the bottom bar for the details of the print. Each main setting
 
 In the settings pane, a printer or filament setting names its owner, such as **Printer · Creality Ender-3**: each printer and each filament keeps its own value.
 
+A number applies a moment after you stop typing. Up and Down change its last decimal, Shift or Page Up and Page Down change it ten times as much, and Ctrl uses one decimal more. A red ring means the value is out of its limits, and its tooltip gives them. An amber ring means the value is valid but unusual. You can also type a formula in the field, such as `= {line_width} * 2`.
+
 The bottom bar has Undo, Redo, and the history button (Ctrl+H). A number on the button counts your changes since the last open or save. The button opens the list of the steps, where ↶ undoes one change and keeps the later ones. Right-click a step to go to it or to clear the history after it. Esc closes the list.
 
 A change shows as a fast draft first, and the exact slice follows 300 ms after your last change or at the end of a drag. A thin bar at the top of the view shows the work, and small text says what runs and how long it took. Export and upload wait for the exact slice.
