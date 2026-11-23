@@ -291,7 +291,34 @@ namespace winrt::ZSlice::implementation
         }
         else
         {
-            int rc = zs_app_override_set(model->Active(), SelectedLow(), SelectedHigh(), name.c_str(), value.c_str());
+            // A multiple selection: the scope covers the layers of all its
+            // lines. This layer is each of their layers. And up, and down,
+            // go from the lowest or to the highest of them.
+            zs_app *app = model->Active();
+            double lo = SelectedLow(), hi = SelectedHigh();
+            bool up = hi > 1e5, down = lo < -1e5;
+            int rc = ZS_OK;
+            if (line_more.empty() || (up && down))
+            {
+                rc = zs_app_override_set(app, lo, hi, name.c_str(), value.c_str());
+            }
+            else if (up || down)
+            {
+                double zmin = selected_page->z, zmax = selected_page->z;
+                for (MoreLine const &line : line_more)
+                {
+                    zmin = std::min(zmin, line.z);
+                    zmax = std::max(zmax, line.z);
+                }
+                rc = zs_app_override_set(app, up ? zmin - 1e-3 : lo, down ? zmax + 1e-3 : hi, name.c_str(), value.c_str());
+            }
+            else
+            {
+                rc = zs_app_override_set(app, lo, hi, name.c_str(), value.c_str());
+                for (MoreLine const &line : line_more)
+                    if (rc == ZS_OK)
+                        rc = zs_app_override_set(app, line.z - 1e-3, line.z + 1e-3, name.c_str(), value.c_str());
+            }
             if (rc != ZS_OK)
             {
                 ShowToast(zs::ToWide(zs_status_message(rc)));
@@ -888,7 +915,11 @@ namespace winrt::ZSlice::implementation
         if (zs_app_inspect(app, (size_t)SelectedPath(), &info) != ZS_OK)
             return;
         page.z = info.z;
-        page.title.Text(zs::ToWide(info.title) + L" · layer " + std::to_wstring(info.layer + 1));
+        // A multiple selection: the first line, and how many more.
+        std::wstring more_text;
+        if (!line_more.empty())
+            more_text = L", and " + std::to_wstring(line_more.size()) + (line_more.size() == 1 ? L" more line" : L" more lines");
+        page.title.Text(zs::ToWide(info.title) + L" · layer " + std::to_wstring(info.layer + 1) + more_text);
         wchar_t text[48];
         swprintf_s(text, L"%.0f mm/s", info.planned_speed);
         page.stats[0].Text(text);

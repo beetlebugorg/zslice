@@ -672,6 +672,59 @@ namespace winrt::ZSlice::implementation
             RunDialogStep(L"gizdrag", { words[0], words[1] });
             RunDialogStep(L"baselog", {});
         }
+        else if (verb == L"moretoggle" && !words.empty())
+        {
+            ToggleMoreLine(_wtoi(words[0].c_str()));
+        }
+        else if (verb == L"morelog")
+        {
+            std::string list;
+            for (MoreLine const &line : line_more)
+                list += std::to_string(line.path) + "@" + std::to_string(line.z).substr(0, 5) + " ";
+            zs::Log("dev: more first %lld seg %lld others [%s] 2d %d tool %d\n", (long long)SelectedPath(), (long long)SelectedSegment(), list.c_str(), show_2d ? 1 : 0, (int)tool);
+        }
+        else if ((verb == L"shift2d" || verb == L"circle2d") && layer2d != nullptr)
+        {
+            // Scans the 2D view for a line. shift2d: the nth line found gets
+            // a Shift+click. circle2d: the first circle or arc gets a click
+            // of the tape.
+            int want = words.empty() ? 0 : _wtoi(words[0].c_str()), seen = 0;
+            int64_t last = -1;
+            bool done = false;
+            double w2 = Layer2DPanel().ActualWidth(), h2 = Layer2DPanel().ActualHeight();
+            for (double y = 8; y < h2 && !done; y += 3)
+                for (double x = 8; x < w2 && !done; x += 3)
+                {
+                    double bx, by;
+                    layer2d->ToBed(x, y, bx, by);
+                    size_t segment = 0;
+                    size_t path = zs_view_pick_layer(view, layer2d_layer, bx, by, &segment);
+                    if (path == (size_t)-1 || (int64_t)path == last)
+                        continue;
+                    last = (int64_t)path;
+                    if (verb == L"shift2d")
+                    {
+                        if (seen++ == want)
+                        {
+                            Click2D(x, y, true);
+                            zs::Log("dev: shift2d path %zu\n", path);
+                            done = true;
+                        }
+                        continue;
+                    }
+                    zs_measure m{};
+                    if (zs_app_measure(model->Active(), path, segment, &m) == ZS_OK && (m.shape == 1 || m.shape == 2))
+                    {
+                        SetTool(Tool::Measure);
+                        Click2D(x, y, false);
+                        zs::Log("dev: circle2d path %zu segment %zu shape %d radius %.2f -> selected %lld seg %lld tape %d\n", path, segment, m.shape, m.radius, (long long)SelectedPath(),
+                                (long long)SelectedSegment(), measure_count);
+                        done = true;
+                    }
+                }
+            if (!done)
+                zs::Log("dev: %s found no line\n", zs::ToUtf8(verb).c_str());
+        }
         else if (verb == L"manageopen")
         {
             printers->ShowManage();

@@ -439,6 +439,15 @@ namespace zs
                 color(feature_rgb[f][0], feature_rgb[f][1], feature_rgb[f][2], style.fade ? 0.12f : 0.9f);
                 context_->DrawGeometryRealization(realized_[f].get(), brush_.get());
             }
+            // The other lines of a multiple selection.
+            for (int64_t other : style.more)
+            {
+                if (auto geometry = BuildPaths(0, other))
+                {
+                    color(1.0f, 0.78f, 0.05f);
+                    context_->DrawGeometry(geometry.get(), brush_.get(), paths_.width, round_.get());
+                }
+            }
             if (line)
             {
                 // The selected line on top, and its segment in orange.

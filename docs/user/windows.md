@@ -173,7 +173,7 @@ With the Support tool, the keys work on the selected area. A paste needs the poi
 
 ## The 2D view
 
-Press 2, or choose **2D view** in the main menu, to see the top layer from above. Press 2 again or 3 to go back. A drag pans the layer, the wheel or a pinch zooms it, and a double click fits it. A click selects a line. The tape (T) works here too, and shows its distance beside the tape. The gaps view shows the gaps of the layer in red. Another tool goes back to the 3D view.
+Press 2, or choose **2D view** in the main menu, to see the top layer from above. Press 2 again or 3 to go back. A drag pans the layer, the wheel or a pinch zooms it, and a double click fits it. A click selects a line. The tape (T) works here too, and shows its distance beside the tape. The gaps view shows the gaps of the layer in red. Another tool goes back to the 3D view. A click selects a line. Shift and a click adds a line to the selection or takes it out, and the Selected page edits the layers of all of them. A tool keeps the 2D view. With the tape, a click on a circle or an arc selects its segment.
 
 ## Set up a printer
 

@@ -129,9 +129,6 @@ namespace winrt::ZSlice::implementation
         SelSync();
         if (sel != nullptr)
             zs_sel_tool_set(sel.get(), (int)next);
-        // The tools work in the 3D view. The tape works in both.
-        if (next != Tool::Select && next != Tool::Measure)
-            Set2D(false);
         if (next != tool)
         {
             RangeClose();
@@ -603,6 +600,12 @@ namespace winrt::ZSlice::implementation
                 TogglePart(part);
                 return;
             }
+            // No part there: the line is added, or taken out.
+            size_t other = 0;
+            size_t line = zs_view_pick_segment(view, (float)(x * s), (float)(y * s), &other);
+            if (line != (size_t)-1)
+                ToggleMoreLine((int64_t)line);
+            return;
         }
         if (ctrl || tool == Tool::Move)
         {
@@ -769,6 +772,7 @@ namespace winrt::ZSlice::implementation
             py = m.center_y;
             radius = m.radius;
             shape = m.shape;
+            SelectLine((int64_t)path, (int64_t)segment);
         }
         AddMeasure(px, py, p[2], radius, shape);
     }
@@ -996,8 +1000,112 @@ namespace winrt::ZSlice::implementation
             line_placed = false;
     }
 
+    // The key and the place of a line, to find it again after a slice.
+    bool MainWindow::MoreLineOf(int64_t path, MoreLine &out)
+    {
+        zs_app *app = model->Active();
+        zs_toolpaths tp{};
+        if (path < 0 || zs_app_toolpaths(app, &tp) != ZS_OK || (size_t)path >= tp.path_count)
+            return false;
+        uint32_t start = path == 0 ? 0 : tp.path_ends[path - 1], end = tp.path_ends[path];
+        if (end <= start)
+            return false;
+        size_t layer = 0;
+        while (layer < tp.layer_count && tp.layer_ends[layer] <= (uint32_t)path)
+            layer++;
+        out.path = path;
+        out.key = zs_app_path_key(app, (size_t)path);
+        out.x = tp.points[2 * start];
+        out.y = tp.points[2 * start + 1];
+        out.z = layer < tp.layer_count ? tp.layer_z[layer] : 0;
+        out.feature = tp.path_features[path];
+        return true;
+    }
+
+    // Shift and a click: the line joins the selection, or leaves it.
+    void MainWindow::ToggleMoreLine(int64_t path)
+    {
+        if (path < 0)
+            return;
+        int64_t first = SelectedPath();
+        if (first < 0)
+        {
+            SelectLine(path, -1);
+            GoToSelected();
+            return;
+        }
+        // The first line again: the next line becomes the first.
+        if (path == first)
+        {
+            if (line_more.empty())
+                return;
+            std::vector<MoreLine> rest(line_more.begin() + 1, line_more.end());
+            int64_t next = line_more.front().path;
+            SelectLine(next, -1);
+            line_more = std::move(rest);
+            ApplySelection();
+            return;
+        }
+        auto at = std::find_if(line_more.begin(), line_more.end(), [path](MoreLine const &m) { return m.path == path; });
+        if (at != line_more.end())
+        {
+            line_more.erase(at);
+        }
+        else
+        {
+            MoreLine line;
+            if (!MoreLineOf(path, line))
+                return;
+            line_more.push_back(line);
+        }
+        ApplySelection();
+    }
+
+    void MainWindow::ClearMoreLines()
+    {
+        line_more.clear();
+    }
+
+    // After a slice: each line by its key, then by its place.
+    void MainWindow::FindMoreLines()
+    {
+        zs_app *app = model->Active();
+        zs_toolpaths tp{};
+        if (line_more.empty() || zs_app_state(app) != ZS_STATE_DONE || zs_app_toolpaths(app, &tp) != ZS_OK || tp.layer_count == 0)
+            return;
+        for (MoreLine &line : line_more)
+        {
+            ptrdiff_t found = line.key != 0 ? zs_app_path_of_key(app, line.key) : -1;
+            if (found < 0)
+            {
+                size_t layer = 0;
+                for (size_t l = 1; l < tp.layer_count; l++)
+                    if (std::abs(tp.layer_z[l] - line.z) < std::abs(tp.layer_z[layer] - line.z))
+                        layer = l;
+                size_t closest = zs_app_pick_layer(app, layer, line.x, line.y);
+                if (closest == (size_t)-1 || tp.path_features[closest] != line.feature)
+                    closest = zs_app_pick_feature(app, layer, line.feature, line.x, line.y);
+                found = closest == (size_t)-1 ? -1 : (ptrdiff_t)closest;
+            }
+            line.path = found;
+        }
+    }
+
+    void MainWindow::ShowMoreLines()
+    {
+        if (line_more.empty() && !more_lit)
+            return;
+        std::vector<size_t> list;
+        for (MoreLine const &line : line_more)
+            if (line.path >= 0)
+                list.push_back((size_t)line.path);
+        zs_view_highlight_more(view, list.data(), list.size());
+        more_lit = !list.empty();
+    }
+
     void MainWindow::SelectLine(int64_t path, int64_t segment)
     {
+        ClearMoreLines();
         page_gap = false;
         SetSelectedParts({});
         SetSelectedLine(path, segment);
@@ -1012,6 +1120,7 @@ namespace winrt::ZSlice::implementation
 
     void MainWindow::SelectPart(int64_t part)
     {
+        ClearMoreLines();
         page_gap = false;
         SetSelectedLine(-1, -1);
         SetSelectedParts(part >= 0 ? std::vector<int64_t>{ part } : std::vector<int64_t>{});
@@ -1038,6 +1147,7 @@ namespace winrt::ZSlice::implementation
 
     void MainWindow::ClearSelection()
     {
+        ClearMoreLines();
         page_gap = false;
         SetSelectedLine(-1, -1);
         SetSelectedParts({});
@@ -1060,6 +1170,7 @@ namespace winrt::ZSlice::implementation
         zs_view_highlight(view, SelectedPath() < 0 ? (size_t)-1 : (size_t)SelectedPath());
         if (SelectedPath() >= 0)
             zs_view_highlight_segment(view, (size_t)SelectedPath(), (ptrdiff_t)SelectedSegment());
+        ShowMoreLines();
         zs_app *app = model->Active();
         std::vector<double> boxes;
         for (int64_t i : SelectedParts())
@@ -1178,6 +1289,7 @@ namespace winrt::ZSlice::implementation
         ptrdiff_t segment = (ptrdiff_t)SelectedSegment();
         if (!zs_view_step(view, &path, &segment, direction, whole ? 1 : 0))
             return;
+        ClearMoreLines();
         SetSelectedLine((int64_t)path, (int64_t)segment);
         SaveLinePlace();
         ApplySelection();
@@ -1197,6 +1309,7 @@ namespace winrt::ZSlice::implementation
             size_t found = zs_view_nearest_on_layer(view, (size_t)SelectedPath(), (size_t)next - 1);
             if (found != (size_t)-1)
             {
+                ClearMoreLines();
                 SetSelectedLine((int64_t)found, -1);
                 SaveLinePlace();
                 ApplySelection();
