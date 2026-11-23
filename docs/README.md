@@ -55,6 +55,7 @@ zslice runs in your browser at [zslice.beetlebug.org](https://zslice.beetlebug.o
 
 - [How a slicer works](internals/how-slicing-works.md): the stages from mesh to G-code.
 - [Architecture](internals/architecture.md): the modules, the data types, the memory model, and the threads.
+- [Selection and focus](internals/selection.md): the one model of the selected parts, the line, and the plate, with stable ids.
 - [Settings for some layers](internals/layer-settings.md): which settings can change per layer, and which code reads them.
 - [G-code reference](internals/gcode.md): each command that zslice writes, and the firmware that reads it.
 - [Arachne walls](internals/arachne.md): walls with a variable line width, ported from CuraEngine.

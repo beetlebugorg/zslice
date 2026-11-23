@@ -76,6 +76,7 @@ SOURCES = [
     ("docs/embedding/labels.md", "embedding/labels/", "Embedding", "Labels"),
     ("docs/internals/architecture.md", "internals/architecture/", "Internals", "Architecture"),
     ("docs/internals/one-view.md", "internals/one-view/", "Internals", "Plan: one view"),
+    ("docs/internals/selection.md", "internals/selection/", "Internals", "Selection and focus"),
     ("docs/internals/how-slicing-works.md", "internals/how-slicing-works/", "Internals", "How slicing works"),
     ("docs/internals/layer-settings.md", "internals/layer-settings/", "Internals", "Settings for some layers"),
     ("docs/internals/gcode.md", "internals/gcode/", "Internals", "G-code reference"),
