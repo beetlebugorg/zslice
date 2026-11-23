@@ -1,6 +1,6 @@
 # A prompt that could build zslice
 
-Describes: main at commit `02a74e7d` ("Add the panel modes and search to the prompt"), 2026-11-23.
+Describes: main at commit `c8485312` ("Keep a whole line selected after a new slice"), 2026-11-23.
 
 ## Read this first
 
