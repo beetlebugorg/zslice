@@ -44,3 +44,4 @@ One line for each update: the date, the commit that the folder describes, and th
 | 2026-11-23 | `d89af928` | README, CHANGELOG, 11: the Mac printers file, the Bambu gate, unedited fields, a held slider on the line page, and moved cards. |
 | 2026-11-23 | `9484b12b` | README, CHANGELOG, 05, 07: a filament pick of some layers is a region of those layers, and it changes only the lines of the body on them (#30). |
 | 2026-11-23 | `fefa8b98` | README, CHANGELOG, 07, 09, 10, 13: GTK on the selection model, a held slider keeps a lost line, one Bambu Lab connection per address, a prompt before a key goes to a new address, and save from an empty plate. |
+| 2026-11-23 | `b47a610c` | README, CHANGELOG: this side on the bed uses the whole flat side, and a filament pick stays on its layer when one bead is taller. |

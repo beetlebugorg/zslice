@@ -1,6 +1,6 @@
 # A prompt that could build zslice
 
-Describes: main at commit `fefa8b98` ("Keep a lost line's page open while a slider is held"), 2026-11-23.
+Describes: main at commit `b47a610c` ("Keep a filament pick on its layer when one bead is taller"), 2026-11-23.
 
 ## Read this first
 
