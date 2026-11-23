@@ -1,6 +1,6 @@
 # A prompt that could build zslice
 
-Describes: main at commit `daa32e76` ("Add the Mac put down by ray to the prompt"), 2026-11-23.
+Describes: main at commit `902aa472` ("Add the ray of the side on the bed to the Windows prompt"), 2026-11-23.
 
 ## Read this first
 
