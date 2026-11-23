@@ -139,8 +139,11 @@
 <h2 id="parts">Parts</h2>
 <p>Ctrl and a click selects a part, and Shift and a click adds a part to the selection. The card of a part has its size, its filament, its scale, Duplicate, Split, Cut, Best orientation, Less support, Reset, Make N in all, To a new plate, and Remove. It also lists the labels and the paint of the part. Delete removes the selected parts.</p>
 <p>When the plate prints one part at a time (<code>project.print_sequence</code> is <code>by_object</code>) and has two parts or more, the card shows the place of the part, for example "Prints 2 of 3". <strong>Print earlier</strong> and <strong>Print later</strong> move the part in the print order.</p>
+<p>A part that floats over the bed gets a note on its card. A part from a file with modifier volumes or its own settings lists them under <strong>Its volumes and file settings</strong>.</p>
 <h2 id="lines">Lines</h2>
-<p>The card of a line shows its planned speed, its real speed, and its flow, and the settings that matter most for it. <strong>Fade the others</strong> shows the line alone. <strong>Don't print this line</strong> and <strong>±10 % plastic</strong> change this line only, and the change stays through new slices.</p>
+<p>The card of a line shows its planned speed, its real speed, and its flow, and the settings that matter most for it. <strong>Fade the others</strong> shows the line alone. <strong>Don't print this line</strong> and <strong>±10 % plastic</strong> change this line only, and the change stays through new slices. These edits also work while a slice runs.</p>
+<p>Shift and a click on a line in the Select tool lights its whole run: one extrusion, from a retraction to the next. A note gives the number of lines.</p>
+<p>The page of a setting lists the lines that it changes, with their print time and their share of the print. The view fades the other lines while the page is open. A click on a row lists all settings of those lines.</p>
 <p>On a printer with more than one nozzle, the title of the card says <strong>main nozzle</strong>, <strong>2nd nozzle</strong>, or the tool, such as <strong>nozzle T2</strong>. A line of a later nozzle shows its speed limits. The printer settings have a section for each nozzle after the first, such as <strong>Second nozzle (T1)</strong>. The filament list picks the nozzle of each filament.</p>
 <h2 id="layers">Layers</h2>
 <p>With the Select tool, press on a line and drag up or down. The body of that line turns yellow, from its layer to the layer under the pointer. Shift+K and Shift+J grow a range of layers up or down from the selected line, or from the top layer. Shift+Up and Shift+Down move the bottom of the layers that show.</p>
@@ -161,6 +164,7 @@
 <h2 id="the-menu-of-the-view">The menu of the view</h2>
 <p>A right click opens a menu for what is under the pointer. On a touchpad, a two-finger click that does not slide opens it too. The Menu key and Shift+F10 open it at the pointer.</p>
 <p>On a part, the menu adds support, blocks support, makes a layer profile, and places the part. On the bed, it arranges, clears, copies, and duplicates the plate.</p>
+<p><strong>Test print: the top layer…</strong> saves a G-code file of the top layer of the view, lowered onto the bed. With some layers cut away, <strong>Test print: the layers shown…</strong> saves those layers. The app only saves the file and starts no print.</p>
 <p>Ctrl+C, Ctrl+X, Ctrl+V, and Ctrl+D copy, cut, paste, and duplicate the selected parts. Ctrl+Shift+V pastes them as a new plate. C shows the layers up to the selected line, and Shift+C shows all layers.</p>
 <h2 id="the-2d-view">The 2D view</h2>
 <p>Press 2, or choose <strong>2D view</strong> in the main menu, to see the top layer from above. Press 2 again or 3 to go back. A drag pans the layer, the wheel or a pinch zooms it, and a double click fits it. A click selects a line. A tool other than Select goes back to the 3D view.</p>
