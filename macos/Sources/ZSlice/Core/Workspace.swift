@@ -18,6 +18,7 @@ import AppKit
 import ImageIO
 import UniformTypeIdentifiers
 import CZslice
+import QuartzCore
 import Observation
 
 @MainActor
@@ -725,6 +726,11 @@ final class Workspace {
             }.map(\.name)
             NSLog("zslice zero: %ld numbers; unusual at 0: %@; changed by text: %@", on.count, odd.joined(separator: " "), moved.joined(separator: " "))
         }
+        // ZSLICE_GESTURE_TEST=1: pinches and two-finger scrolls through the
+        // event path of the window, at points over the view, at rest and
+        // during slices. It logs how many reached the view and moved the
+        // camera.
+        if env["ZSLICE_GESTURE_TEST"] != nil { Task { @MainActor in await self.gestureTest() } }
         // ZSLICE_KEY_ADDRESS=1 logs when a saved key needs a yes, and what
         // each answer does to the printer (issue #41).
         if env["ZSLICE_KEY_ADDRESS"] != nil {
@@ -2990,3 +2996,67 @@ extension Workspace {
     }
 }
 
+extension Workspace {
+    /// A trackpad event of the kind that the window gets. phase: 1 began,
+    /// 2 changed, 4 ended.
+    private func trackpadEvent(pinch: Double?, scroll: Int32, at p: CGPoint, phase: Int64) -> NSEvent? {
+        guard canvas.window != nil else { return nil }
+        let inWindow = canvas.convert(p, to: nil)
+        // An event with no window has its location in the window's place.
+        let top = NSScreen.screens.first?.frame.maxY ?? 0
+        let at = CGPoint(x: inWindow.x, y: top - inWindow.y)
+        let e: CGEvent?
+        if let pinch {
+            e = CGEvent(source: nil)
+            e?.type = CGEventType(rawValue: 29)!
+            e?.setIntegerValueField(CGEventField(rawValue: 110)!, value: 8)
+            e?.setDoubleValueField(CGEventField(rawValue: 113)!, value: pinch)
+            e?.setIntegerValueField(CGEventField(rawValue: 132)!, value: phase)
+        } else {
+            e = CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 1, wheel1: scroll, wheel2: 0, wheel3: 0)
+            e?.setIntegerValueField(.scrollWheelEventIsContinuous, value: 1)
+            e?.setIntegerValueField(.scrollWheelEventScrollPhase, value: phase)
+        }
+        e?.location = at
+        return e.flatMap { NSEvent(cgEvent: $0) }
+    }
+
+    func gestureTest() async {
+        try? await Task.sleep(for: .seconds(2))
+        guard let w = canvas.window, let v = canvas.view else { return }
+        let size = canvas.bounds.size
+        var points: [CGPoint] = []
+        for ix in 1 ... 5 { for iy in 1 ... 4 {
+            points.append(CGPoint(x: size.width * Double(ix) / 6, y: size.height * Double(iy) / 5))
+        } }
+        func camera() -> [Float] {
+            var c = [Float](repeating: 0, count: 8)
+            zs_view_get_camera(v, &c)
+            return c
+        }
+        for slicing in [false, true] {
+            for pinch in [true, false] {
+                var sent = 0, reached = 0, moved = 0, worst = 0.0
+                for (k, p) in points.enumerated() {
+                    if slicing, k % 2 == 0 { model.set("project.infill_density", k % 4 == 0 ? "0.3" : "0.2") }
+                    let before = camera(), got = canvas.gestureEvents
+                    for step in 0 ..< 8 {
+                        let phase: Int64 = step == 0 ? 1 : step == 7 ? 4 : 2
+                        let sign = k % 2 == 0 ? 1.0 : -1.0
+                        guard let e = trackpadEvent(pinch: pinch ? 0.02 * sign : nil, scroll: pinch ? 0 : Int32(6 * sign), at: p, phase: phase) else { continue }
+                        let t = CACurrentMediaTime()
+                        w.sendEvent(e)
+                        worst = max(worst, CACurrentMediaTime() - t)
+                        sent += 1
+                        try? await Task.sleep(for: .milliseconds(8))
+                    }
+                    // The camera moves to its goal on the next frames.
+                    try? await Task.sleep(for: .milliseconds(120))
+                    reached += canvas.gestureEvents - got
+                    if camera() != before { moved += 1 }
+                }
+                NSLog("zslice gestures: %@ %@: sent %ld, reached the view %ld, gestures that moved the camera %ld of %ld, longest event %.1f ms", pinch ? "pinch" : "scroll", slicing ? "during slices" : "at rest", sent, reached, moved, points.count, worst * 1000)
+            }
+        }
+    }
+}
