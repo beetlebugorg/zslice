@@ -43,14 +43,10 @@ namespace
     ToolInfo const tools[] = {
         { L"Select", L"V", L"Select (V): click a line to see what it is, its measurements, and its settings",
           L"<Path Data='M5 2v13l3.2-3 2.3 4.5 2.1-1-2.3-4.5h4.2z' Fill='{ThemeResource TextFillColorPrimaryBrush}'/>", true },
-        { L"Move", L"M", L"Move (M): drag a part to move it",
+        { L"Move", L"M", L"Move (M, also R and G): click a part for its gizmo. Drag the part to carry it on the bed (it snaps to the other parts and the center; Shift: no snap). Drag an arrow to move along X or Y, or the blue arrow to lift the part (down: it sinks into the bed). Drag a ring to turn the part in steps of 15° (Shift: 1°). Keys: the arrows move 1 mm (Shift: 10), Page Up and Page Down lift, [ and ] turn about Z, Ctrl and the arrows turn about X and Y. Tab: the next part.",
           L"<Path Data='M2 9h14M9 2v14M13.7 6.8 16 9l-2.3 2.2M4.3 6.8 2 9l2.3 2.2M6.8 4.3 9 2l2.2 2.3M6.8 13.7 9 16l2.2-2.3' " ZS_STROKE L"/>", true },
-        { L"Turn", L"R", L"Turn (R): click a part, then drag one of its rings to turn it",
-          L"<Path Data='M14.5 9a5.5 5.5 0 1 1-1.6-3.9M13.6 2.2v3.3h-3.3' " ZS_STROKE L"/>", true },
         { L"Support", L"S", L"Support (S): point at an overhang to add support",
           L"<Path Data='M2 4.5h14l-2 3H4zM5 7.5v8M9 7.5v8M13 7.5v8M3.5 15.5h11' " ZS_STROKE L"/>", true },
-        { L"Grab", L"G", L"Grab (G): click a part to pick it up, move the pointer to carry it, and click to let go. Alt and a move turn it.",
-          L"<Path Data='M6 9V4.2a1.2 1.2 0 0 1 2.4 0V8M8.4 7.5V3.2a1.2 1.2 0 0 1 2.4 0V8M10.8 7.6V4.2a1.2 1.2 0 0 1 2.4 0v6.3c0 3-2 5-4.8 5-2 0-3-.9-4.2-2.6L2.6 10a1.2 1.2 0 0 1 2-1.3L6 10.4' " ZS_STROKE L"/>", true },
         { L"Measure", L"T", L"Measure (T): click two points of the print. The ends of the lines snap. Shift: no snap.",
           L"<Path Data='M1 6H17V12H1ZM4 6v2.5M6.5 6v1.5M9 6v2.5M11.5 6v1.5M14 6v2.5' " ZS_STROKE L"><Path.RenderTransform><RotateTransform Angle='-45' CenterX='9' CenterY='9'/></Path.RenderTransform></Path>", true },
         { L"Paint", L"P", L"Paint (P): paint filaments on the surface of a part. Smart select: click a raised letter, a logo, or a face; Shift adds more. Brush: drag over the surface.",
@@ -138,9 +134,9 @@ namespace winrt::ZSlice::implementation
             Set2D(false);
         if (next != tool)
         {
-            // The hand lets go when the tool changes.
-            HandRelease();
             RangeClose();
+            if (tool == Tool::Move)
+                SetViewCursor(-1);
             if (tool == Tool::Measure)
                 ClearMeasure();
             Tool was = tool;
@@ -192,10 +188,6 @@ namespace winrt::ZSlice::implementation
             tool_drag = true;
             drag = Drag::Orbit;
         }
-        else if (hand_click)
-        {
-            drag = Drag::None;
-        }
         // A left drag orbits. A right drag orbits with a mouse, and pans
         // with a two-finger click on a touchpad. The middle button and
         // Shift pan.
@@ -218,14 +210,10 @@ namespace winrt::ZSlice::implementation
         auto mods = e.KeyModifiers();
         pointer_x = position.X;
         pointer_y = position.Y;
-        if (hand)
-        {
-            HandMove(position.X, position.Y, Has(mods, VirtualKeyModifiers::Menu), Has(mods, VirtualKeyModifiers::Shift));
-            e.Handled(true);
-            return;
-        }
         if (drag == Drag::None)
         {
+            if (tool == Tool::Move)
+                GizmoHover(position.X, position.Y);
             if (tool == Tool::Paint)
                 PaintHover(position.X, position.Y);
             if (tool == Tool::Label)
@@ -261,9 +249,7 @@ namespace winrt::ZSlice::implementation
 
     void MainWindow::OnPointerEnded(Input::PointerRoutedEventArgs const &e)
     {
-        bool had_click = hand_click;
-        hand_click = false;
-        if (drag == Drag::None && !had_click)
+        if (drag == Drag::None)
             return;
         bool was_tool = tool_drag;
         // A drag over layers that came back to its start is no click.
@@ -274,7 +260,7 @@ namespace winrt::ZSlice::implementation
         e.Handled(true);
         if (was_tool)
             ToolRelease();
-        if (view == nullptr || had_click)
+        if (view == nullptr)
             return;
         pointer_alt = Has(e.KeyModifiers(), VirtualKeyModifiers::Menu);
         // A right click, or a two-finger click that does not slide, opens
@@ -297,7 +283,7 @@ namespace winrt::ZSlice::implementation
             auto mods = e.KeyModifiers();
             ToolClick(last_x, last_y, Has(mods, VirtualKeyModifiers::Shift), Has(mods, VirtualKeyModifiers::Control));
         }
-        else if (was_tool && !range_lit && std::abs(last_x - press_x) <= 4 && std::abs(last_y - press_y) <= 4 && tool != Tool::Grab)
+        else if (was_tool && !range_lit && std::abs(last_x - press_x) <= 4 && std::abs(last_y - press_y) <= 4)
         {
             auto mods = e.KeyModifiers();
             ToolClick(last_x, last_y, Has(mods, VirtualKeyModifiers::Shift), Has(mods, VirtualKeyModifiers::Control));
@@ -357,28 +343,14 @@ namespace winrt::ZSlice::implementation
         // layers. A release at the same place is a click.
         if (tool == Tool::Select && !ctrl && !pointer_shift && !pointer_alt && RangePress(x, y))
             return true;
-        // The Turn tool: a press on a ring.
-        if (tool == Tool::Turn && !SelectedParts().empty())
+        // The transform tool: a handle of the gizmo. The drag starts when
+        // the pointer moves, so a click there goes to the part under it.
+        if (tool == Tool::Move && !falling)
         {
-            UpdateRings();
-            int axis = zs_view_ring_at(view, (float)(x * s), (float)(y * s), (float)(8 * s));
-            if (axis >= 0 && zs_view_ring_press(view, axis, (float)(x * s), (float)(y * s)))
+            int handle = HandleAt(x, y);
+            if (handle >= 0)
             {
-                turn_axis = axis;
-                turn_want = turn_sent = 0;
-                turn_part = PrimaryPart();
-                zs_part p{};
-                if (zs_app_part_get(app, (size_t)turn_part, &p) != ZS_OK)
-                {
-                    zs_view_ring_release(view);
-                    turn_axis = -1;
-                    return false;
-                }
-                turn_pivot[0] = p.x;
-                turn_pivot[1] = p.y;
-                turn_pivot[2] = p.size_z / 2;
-                turn_rotation = p.rotation;
-                model->Hold(true);
+                pending_handle = handle;
                 return true;
             }
         }
@@ -402,35 +374,6 @@ namespace winrt::ZSlice::implementation
             if (tape_end >= 0)
                 return true;
         }
-        // The Grab tool: a click takes a part, and the next click lets go.
-        if (tool == Tool::Grab)
-        {
-            if (HandRelease())
-            {
-                hand_click = true;
-                return false;
-            }
-            if (!falling)
-            {
-                int64_t part = PartAt(x, y, nullptr, nullptr);
-                double p[3];
-                if (part >= 0 && zs_view_surface_point(view, (float)(x * s), (float)(y * s), 0, p) &&
-                    zs_app_grab_start(app, (size_t)part, p[0], p[1], p[2]) == 1)
-                {
-                    falling = true;
-                    fall_app = app;
-                    hand = true;
-                    hand_click = true;
-                    hand_turning = false;
-                    hand_height = p[2] + 15;
-                    hand_yaw = hand_tilt = hand_yaw_sent = hand_tilt_sent = 0;
-                    HandMove(x, y, false, false);
-                    fall_part = part;
-                    RunFall();
-                    return false;
-                }
-            }
-        }
         // The Move tool, or Ctrl: a drag of a part.
         if (tool == Tool::Move || ctrl)
         {
@@ -439,16 +382,17 @@ namespace winrt::ZSlice::implementation
             zs_part p{};
             if (part >= 0 && zs_app_part_get(app, (size_t)part, &p) == ZS_OK)
             {
-                BeginMove(part, bx, by);
+                BeginMove(part, x, y, bx, by);
                 return true;
             }
         }
         return false;
     }
 
-    void MainWindow::BeginMove(int64_t part, double bed_x, double bed_y)
+    void MainWindow::BeginMove(int64_t part, double x, double y, double bed_x, double bed_y)
     {
         zs_app *app = model->Active();
+        double s = Scale();
         move_group.clear();
         move_group_xy.clear();
         std::vector<int64_t> group = SelectedParts();
@@ -459,7 +403,7 @@ namespace winrt::ZSlice::implementation
                 zs_part q{};
                 if (zs_app_part_get(app, (size_t)i, &q) != ZS_OK)
                     continue;
-                move_group.push_back(i);
+                move_group.push_back(zs_app_part_id(app, (size_t)i));
                 move_group_xy.push_back(q.x);
                 move_group_xy.push_back(q.y);
             }
@@ -467,16 +411,17 @@ namespace winrt::ZSlice::implementation
         else
         {
             SelectPart(part);
+            // The point of the press stays under the pointer, on its level.
+            double sp[3];
+            live_hz = zs_view_surface_point(view, (float)(x * s), (float)(y * s), 0, sp) ? std::max(sp[2], 0.0) : 0;
+            if (!zs_view_plane_point(view, (float)(x * s), (float)(y * s), live_hz, &bed_x, &bed_y))
+                live_hz = 0;
         }
-        zs_part p{};
-        zs_app_part_get(app, (size_t)part, &p);
-        moving_part = part;
-        move_x0 = p.x;
-        move_y0 = p.y;
+        moving_part = zs_app_part_id(app, (size_t)part);
+        move_started = false;
         bed_x0 = bed_x;
         bed_y0 = bed_y;
         moved_x = moved_y = 0;
-        model->Hold(true);
     }
 
     void MainWindow::ToolDrag(double x, double y, bool shift)
@@ -503,49 +448,23 @@ namespace winrt::ZSlice::implementation
             SupportDrag(x, y, shift);
             return;
         }
+        // A drag of a handle starts past 4 points from the press.
+        if (pending_handle >= 0)
+        {
+            if (std::abs(x - press_x) <= 4 && std::abs(y - press_y) <= 4)
+                return;
+            int handle = pending_handle;
+            pending_handle = -1;
+            GizmoStart(handle, press_x, press_y);
+        }
         if (turn_axis >= 0)
         {
-            turn_want = std::round(zs_view_ring_drag(view, (float)(x * s), (float)(y * s), shift ? 5.0f : 15.0f));
-            double step = turn_want - turn_sent;
-            if (step != 0)
-            {
-                turn_sent = turn_want;
-                if (turn_axis == 2)
-                {
-                    zs_part p{};
-                    if (zs_app_part_get(app, (size_t)turn_part, &p) == ZS_OK)
-                        zs_app_part_rotate(app, (size_t)turn_part, p.rotation + step);
-                }
-                else
-                {
-                    zs_app_part_turn(app, (size_t)turn_part, turn_axis, step);
-                }
-                model->RequestSlice();
-                UpdateRings();
-            }
-            // The beads turn in the view at once.
-            double t = turn_want * pi / 180 / 2, r = turn_rotation * pi / 180;
-            double ax[3] = { 0, 0, 1 };
-            if (turn_axis == 0)
-            {
-                ax[0] = std::cos(r);
-                ax[1] = std::sin(r);
-                ax[2] = 0;
-            }
-            else if (turn_axis == 1)
-            {
-                ax[0] = -std::sin(r);
-                ax[1] = std::cos(r);
-                ax[2] = 0;
-            }
-            double sn = std::sin(t);
-            zs_part p{};
-            if (turn_want != 0 && zs_app_part_get(app, (size_t)turn_part, &p) == ZS_OK)
-                zs_view_part_preview(view, (int)turn_part, (float)(ax[0] * sn), (float)(ax[1] * sn), (float)(ax[2] * sn), (float)std::cos(t),
-                                     (float)turn_pivot[0], (float)turn_pivot[1], (float)turn_pivot[2], (float)p.x, (float)p.y, 0,
-                                     ZS_PREVIEW_ON_BED | ZS_PREVIEW_CENTERED);
-            else
-                zs_view_part_preview(view, -1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0);
+            TurnMove(x, y, shift);
+            return;
+        }
+        if (live_on && !live_done && moving_part == 0)
+        {
+            ArrowMove(x, y, shift);
             return;
         }
         if (tape_end >= 0)
@@ -562,34 +481,42 @@ namespace winrt::ZSlice::implementation
             }
             return;
         }
-        if (moving_part >= 0)
+        if (moving_part != 0)
         {
-            double bx, by;
-            if (!zs_view_bed_point(view, (float)(x * s), (float)(y * s), &bx, &by))
-                return;
-            moved_x = bx - bed_x0;
-            moved_y = by - bed_y0;
+            if (!move_started)
+            {
+                if (std::abs(x - press_x) <= 4 && std::abs(y - press_y) <= 4)
+                    return;
+                move_started = true;
+                if (move_group.size() > 1)
+                    model->Hold(true);
+                else if (!falling)
+                    LiveBegin(moving_part, -1);
+            }
             if (move_group.size() > 1)
             {
+                double bx, by;
+                if (!zs_view_bed_point(view, (float)(x * s), (float)(y * s), &bx, &by))
+                    return;
+                moved_x = bx - bed_x0;
+                moved_y = by - bed_y0;
                 for (size_t i = 0; i < move_group.size(); i++)
-                    zs_app_part_move(app, (size_t)move_group[i], move_group_xy[2 * i] + moved_x, move_group_xy[2 * i + 1] + moved_y);
+                {
+                    ptrdiff_t index = zs_app_part_index(app, move_group[i]);
+                    if (index >= 0)
+                        {
+                            double to_x = move_group_xy[2 * i] + moved_x, to_y = move_group_xy[2 * i + 1] + moved_y;
+                            zs_part q{};
+                            zs_app_part_move(app, (size_t)index, to_x, to_y);
+                            if (sel != nullptr && zs_app_part_get(app, (size_t)index, &q) == ZS_OK)
+                                zs_sel_place(sel.get(), move_group[i], to_x, to_y, q.z);
+                        }
+                }
                 model->RequestSlice();
             }
-            else
+            else if (live_on && !live_done)
             {
-                // The beads move in the view at once. The core moves the
-                // part at the release.
-                zs_view_part_preview(view, (int)moving_part, 0, 0, 0, 1, 0, 0, 0, (float)moved_x, (float)moved_y, 0, 0);
-                double box[4];
-                zs_part p{};
-                if (zs_app_part_get(app, (size_t)moving_part, &p) == ZS_OK)
-                {
-                    box[0] = p.x + moved_x - p.size_x / 2;
-                    box[1] = p.y + moved_y - p.size_y / 2;
-                    box[2] = p.x + moved_x + p.size_x / 2;
-                    box[3] = p.y + moved_y + p.size_y / 2;
-                    zs_view_part_boxes(view, box, 1);
-                }
+                BodyMove(x, y, shift);
             }
         }
     }
@@ -603,37 +530,30 @@ namespace winrt::ZSlice::implementation
         PaintRelease();
         LabelRelease();
         SupportRelease();
+        // A press on a handle with no drag is a click.
+        pending_handle = -1;
         if (turn_axis >= 0)
-        {
-            turn_axis = -1;
-            zs_view_ring_release(view);
-            model->Hold(false);
-            NoteChange();
-            turn_part = -1;
-            UpdateRings();
-            FillPartCard();
-            CheckFall();
-            RequestDraw();
-        }
+            TurnEnd();
         tape_end = -1;
-        if (moving_part >= 0)
+        if (moving_part != 0)
         {
-            int64_t part = moving_part;
-            moving_part = -1;
-            if (move_group.size() <= 1 && (moved_x != 0 || moved_y != 0))
-                zs_app_part_move(app, (size_t)part, move_x0 + moved_x, move_y0 + moved_y);
-            bool changed = moved_x != 0 || moved_y != 0;
-            if (changed)
-                model->RequestSlice();
-            model->Hold(false);
-            if (changed)
-                NoteChange();
+            bool group_moved = move_started && move_group.size() > 1;
+            moving_part = 0;
+            move_started = false;
+            if (group_moved)
+            {
+                model->Hold(false);
+                if (moved_x != 0 || moved_y != 0)
+                    NoteChange();
+                ApplySelection();
+                FillPartCard();
+                RequestDraw();
+            }
             move_group.clear();
             move_group_xy.clear();
-            ApplySelection();
-            FillPartCard();
-            RequestDraw();
         }
+        if (live_on && !live_done)
+            LiveEnd();
     }
 
     void MainWindow::ToolClick(double x, double y, bool shift, bool ctrl)
@@ -662,8 +582,6 @@ namespace winrt::ZSlice::implementation
             SupportClick(x, y, shift, pointer_alt);
             return;
         }
-        if (tool == Tool::Grab)
-            return;
         // The Label tool: a label, or a new label on the face there. A click
         // of another button does nothing here.
         if (tool == Tool::Label && !ctrl)
@@ -686,7 +604,7 @@ namespace winrt::ZSlice::implementation
                 return;
             }
         }
-        if (ctrl || tool == Tool::Move || tool == Tool::Turn)
+        if (ctrl || tool == Tool::Move)
         {
             SelectPart(PartAt(x, y, nullptr, nullptr));
             return;
@@ -739,57 +657,7 @@ namespace winrt::ZSlice::implementation
         return key != 0 ? zs_app_edit_add_key(app, key, line_key_layer, kind, value) : zs_app_edit_add(app, (size_t)path, kind, value);
     }
 
-    // ---- the hand and the fall ----
-
-    void MainWindow::HandMove(double x, double y, bool alt, bool shift)
-    {
-        zs_app *app = model->Active();
-        double s = Scale();
-        if (alt)
-        {
-            if (!hand_turning)
-            {
-                hand_turning = true;
-                hand_yaw = hand_tilt = hand_yaw_sent = hand_tilt_sent = 0;
-                hand_turn_x = x;
-                hand_turn_y = y;
-            }
-            // Half a degree for each pixel. Shift: steps of 15 degrees.
-            hand_yaw += (x - hand_turn_x) * 0.5;
-            hand_tilt += (y - hand_turn_y) * 0.5;
-            hand_turn_x = x;
-            hand_turn_y = y;
-            double yaw = (shift ? std::round(hand_yaw / 15) * 15 : hand_yaw) - hand_yaw_sent;
-            double tilt = (shift ? std::round(hand_tilt / 15) * 15 : hand_tilt) - hand_tilt_sent;
-            if (yaw != 0)
-                zs_app_grab_turn(app, 0, 0, 1, yaw);
-            if (tilt != 0)
-            {
-                double ax, ay, bx, by;
-                float px = (float)(hand_x * s), py = (float)(hand_y * s);
-                if (zs_view_plane_point(view, px, py, hand_height, &ax, &ay) && zs_view_plane_point(view, px + 50, py, hand_height, &bx, &by))
-                    zs_app_grab_turn(app, bx - ax, by - ay, 0, tilt);
-            }
-            hand_yaw_sent += yaw;
-            hand_tilt_sent += tilt;
-            return;
-        }
-        hand_turning = false;
-        hand_x = x;
-        hand_y = y;
-        double bx, by;
-        if (zs_view_plane_point(view, (float)(x * s), (float)(y * s), hand_height, &bx, &by))
-            zs_app_grab_move(app, bx, by, hand_height);
-    }
-
-    bool MainWindow::HandRelease()
-    {
-        if (!hand)
-            return false;
-        zs_app_grab_end(model->Active());
-        hand = false;
-        return true;
-    }
+    // ---- the fall ----
 
     void MainWindow::RunFall()
     {
@@ -812,14 +680,20 @@ namespace winrt::ZSlice::implementation
         int rc = zs_app_fall_step(model->Active(), dt, f);
         if (rc == 1)
         {
+            // The beads are at fall_off from the start of the fall, when the
+            // slice of a live move came before its end.
+            double qx = f[0], qy = f[1], qz = f[2], qw = f[3];
+            double const *o = fall_off;
+            double mx = f[7] + (1 - 2 * (qy * qy + qz * qz)) * o[0] + 2 * (qx * qy - qz * qw) * o[1] + 2 * (qx * qz + qy * qw) * o[2];
+            double my = f[8] + 2 * (qx * qy + qz * qw) * o[0] + (1 - 2 * (qx * qx + qz * qz)) * o[1] + 2 * (qy * qz - qx * qw) * o[2];
+            double mz = f[9] + 2 * (qx * qz - qy * qw) * o[0] + 2 * (qy * qz + qx * qw) * o[1] + (1 - 2 * (qx * qx + qy * qy)) * o[2];
             zs_view_part_preview(view, (int)fall_part, (float)f[0], (float)f[1], (float)f[2], (float)f[3], (float)f[4], (float)f[5],
-                                 (float)f[6], (float)f[7], (float)f[8], (float)f[9], 0);
+                                 (float)f[6], (float)mx, (float)my, (float)mz, 0);
             RequestDraw();
             return;
         }
         fall_timer.Stop();
         falling = false;
-        hand = false;
         if (rc == 0)
         {
             // At rest: the new place, and one step of the history.
@@ -845,7 +719,6 @@ namespace winrt::ZSlice::implementation
             zs_app_fall_cancel(fall_app);
         fall_app = nullptr;
         falling = false;
-        hand = false;
         if (view != nullptr)
         {
             zs_view_part_preview(view, -1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0);
@@ -864,6 +737,13 @@ namespace winrt::ZSlice::implementation
         falling = true;
         fall_app = model->Active();
         fall_part = part;
+        fall_off[0] = fall_off[1] = fall_off[2] = 0;
+        if (live_on && live_part == zs_app_part_id(model->Active(), (size_t)part))
+        {
+            for (int k = 0; k < 3; k++)
+                fall_off[k] = live_target[k] - live_shown[k];
+            live_on = false;
+        }
         RunFall();
     }
 
@@ -1005,18 +885,6 @@ namespace winrt::ZSlice::implementation
         tape_end = -1;
         if (view != nullptr)
             ShowMeasure();
-    }
-
-    void MainWindow::UpdateRings()
-    {
-        if (view == nullptr || model == nullptr)
-            return;
-        zs_part p{};
-        if (tool == Tool::Turn && !SelectedParts().empty() && zs_app_part_get(model->Active(), (size_t)PrimaryPart(), &p) == ZS_OK)
-            zs_view_set_rings(view, p.x, p.y, p.size_z / 2, 0.62 * std::max({ p.size_x, p.size_y, p.size_z }) + 4);
-        else
-            zs_view_set_rings(view, 0, 0, 0, 0);
-        RequestDraw();
     }
 
     // ---- the selection ----
@@ -1348,8 +1216,9 @@ namespace winrt::ZSlice::implementation
 
     bool MainWindow::OnToolKey(VirtualKey key, bool shift, bool ctrl)
     {
+        // Ctrl and an arrow turn the selected part.
         if (ctrl)
-            return false;
+            return PartTurnKey(key, shift);
         // Delete, Backspace, and Esc act on the selected label first.
         if (tool == Tool::Label && LabelKey(key))
             return true;
@@ -1389,24 +1258,23 @@ namespace winrt::ZSlice::implementation
             }
             int mx = key == VirtualKey::Left ? -1 : key == VirtualKey::Right ? 1 : 0;
             int my = key == VirtualKey::Down ? -1 : key == VirtualKey::Up ? 1 : 0;
-            // The Turn tool: the arrows and Page Up and Down turn the part.
-            if (tool == Tool::Turn && (mx != 0 || my != 0 || key == VirtualKey::PageUp || key == VirtualKey::PageDown))
+            // Page Up and Page Down lift the part 1 mm (Shift: 10 mm).
+            if (key == VirtualKey::PageUp || key == VirtualKey::PageDown)
             {
                 size_t part = (size_t)PrimaryPart();
-                double degrees = shift ? 5 : 15;
                 zs_part p{};
-                if (key == VirtualKey::PageUp || key == VirtualKey::PageDown)
-                    zs_app_part_turn(app, part, 1, key == VirtualKey::PageUp ? degrees : -degrees);
-                else if (my != 0)
-                    zs_app_part_turn(app, part, 0, my * degrees);
-                else if (zs_app_part_get(app, part, &p) == ZS_OK)
-                    zs_app_part_rotate(app, part, p.rotation - mx * degrees);
-                PlateEdited();
-                UpdateRings();
+                if (zs_app_part_get(app, part, &p) == ZS_OK)
+                {
+                    HoldForKeys();
+                    double lift = shift ? 10 : 1;
+                    zs_app_part_lift(app, part, std::round((p.z + (key == VirtualKey::PageUp ? lift : -lift)) * 100) / 100);
+                    PlateEdited();
+                }
                 return true;
             }
             if (mx != 0 || my != 0)
             {
+                HoldForKeys();
                 double step = shift ? 10 : 1;
                 for (int64_t i : SelectedParts())
                 {
@@ -1433,9 +1301,9 @@ namespace winrt::ZSlice::implementation
         {
         case VirtualKey::V: SetTool(Tool::Select); return true;
         case VirtualKey::M: SetTool(Tool::Move); return true;
-        case VirtualKey::R: SetTool(Tool::Turn); return true;
+        case VirtualKey::R: SetTool(Tool::Move); return true;
         case VirtualKey::S: SetTool(Tool::Support); return true;
-        case VirtualKey::G: SetTool(Tool::Grab); return true;
+        case VirtualKey::G: SetTool(Tool::Move); return true;
         case VirtualKey::T: SetTool(Tool::Measure); return true;
         case VirtualKey::B: ToggleBed(); return true;
         // P and E close their tool when it is open.
@@ -1454,8 +1322,6 @@ namespace winrt::ZSlice::implementation
         case VirtualKey::Up: if (shift) StepLayerLo(1); else StepLayer(1); return true;
         case VirtualKey::Down: if (shift) StepLayerLo(-1); else StepLayer(-1); return true;
         case VirtualKey::Escape:
-            if (HandRelease())
-                return true;
             if (tool == Tool::Measure && measure_count > 0)
             {
                 ClearMeasure();
@@ -1485,7 +1351,7 @@ namespace winrt::ZSlice::implementation
         int64_t count = (int64_t)zs_app_part_count(model->Active());
         int64_t now = SelectedParts().empty() ? -1 : PrimaryPart();
         int64_t next = now < 0 ? (direction > 0 ? 0 : count - 1) : ((now + direction) % count + count) % count;
-        if (tool != Tool::Move && tool != Tool::Turn)
+        if (tool != Tool::Move)
             SetTool(Tool::Move);
         SelectPart(next);
         RequestDraw();
@@ -1557,7 +1423,10 @@ namespace winrt::ZSlice::implementation
         }
         // [ and ] are the plate before and the next plate.
         else if (key == bracket_left || key == bracket_right)
-            StepPlate(key == bracket_left ? -1 : 1);
+        {
+            if (!PartBracket(key == bracket_right, shift))
+                StepPlate(key == bracket_left ? -1 : 1);
+        }
         else if (key == VirtualKey::Home && model->PlateCount() > 1)
             FramePlate((size_t)-1);
         else if (key == VirtualKey::F || key == VirtualKey::Home)

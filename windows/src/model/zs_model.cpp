@@ -573,6 +573,7 @@ namespace zs
 
     void Model::NoteSliced()
     {
+        shown_gen_ = slice_gen_;
         double ms = slice_timing_ ? std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - slice_start_).count() : 0;
         slice_timing_ = false;
         if (zs_app_is_draft(Active()) != 0)
@@ -617,8 +618,19 @@ namespace zs
             // The end of a drag: the exact slice, with no draft before it.
             Settle();
             MarkSliceStart();
+            slice_gen_ = edit_gen_;
             zs_set_release(set_);
         }
+    }
+
+    void Model::SliceNow()
+    {
+        if (!held_)
+            return;
+        LiveChange();
+        MarkSliceStart();
+        slice_gen_ = edit_gen_;
+        zs_set_release(set_);
     }
 
     bool Model::TakeSlicePending()

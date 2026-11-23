@@ -125,7 +125,7 @@ namespace winrt::ZSlice::implementation
             // The copy holds the UI thread for a few ms: it waits for a
             // pause in the input and in the moves of the view.
             auto now = std::chrono::steady_clock::now();
-            if (now < session_due || now - last_input < std::chrono::seconds(2) || drag != Drag::None || hand || falling ||
+            if (now < session_due || now - last_input < std::chrono::seconds(2) || drag != Drag::None || live_on || falling ||
                 playing || animation_timer.IsRunning())
                 return;
             session_timer.Stop();

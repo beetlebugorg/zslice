@@ -92,6 +92,11 @@ namespace zs
         bool SlicesDraft() const;
         void NoteSliceProgress();
         void NoteSliced();
+        // A held drag: a draft of the place now. The counts tell which
+        // place of the drag the slice in the view has.
+        void SliceNow();
+        int64_t NoteEdit() { return ++edit_gen_; }
+        int64_t ShownGen() const { return shown_gen_; }
         double DraftMs() const { return draft_ms_; }
         double ExactMs() const { return exact_ms_; }
         // True once after a slice if a change came during it.
@@ -127,6 +132,7 @@ namespace zs
         zs_view *bed_view_ = nullptr;
         ptrdiff_t bed_shown_ = -2;
         void MarkSliceStart();
+        int64_t edit_gen_ = 0, slice_gen_ = 0, shown_gen_ = 0;
         void DropGoneDraft();
 
         bool slice_pending_ = false;

@@ -413,6 +413,7 @@ namespace winrt::ZSlice::implementation
             FillEffect(effect_box, effect_key);
         RefreshPlates();
         FindSelectedLine();
+        LiveLoaded();
         ApplySelection();
         FillPartCard();
         RefreshFilamentTools();
@@ -631,6 +632,14 @@ namespace winrt::ZSlice::implementation
         auto wheel_mods = e.KeyModifiers();
         if (tool == Tool::Label && (wheel_mods & Windows::System::VirtualKeyModifiers::Control) == Windows::System::VirtualKeyModifiers::None &&
             LabelWheel(point.Position().X, point.Position().Y, delta, (wheel_mods & Windows::System::VirtualKeyModifiers::Shift) != Windows::System::VirtualKeyModifiers::None))
+        {
+            e.Handled(true);
+            return;
+        }
+        // Ctrl and the wheel, or the wheel with the Move tool: the selected
+        // part turns on the bed.
+        if ((tool == Tool::Move || (wheel_mods & Windows::System::VirtualKeyModifiers::Control) != Windows::System::VirtualKeyModifiers::None) &&
+            PartWheel(delta))
         {
             e.Handled(true);
             return;

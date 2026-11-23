@@ -400,8 +400,8 @@ namespace winrt::ZSlice::implementation
             zs_part p{};
             if (zs_app_part_get(model->Active(), (size_t)i, &p) != ZS_OK)
                 continue;
-            // The rings of the Turn tool count too.
-            double ring = 0.62 * std::max({ p.size_x, p.size_y, p.size_z }) + 4;
+            // The gizmo counts too: the arrows end at 1.5 radii.
+            double ring = 1.5 * (0.62 * std::max({ p.size_x, p.size_y, p.size_z }) + 4);
             double hx = std::max(p.size_x / 2, ring), hy = std::max(p.size_y / 2, ring);
             double top = std::max(p.size_z, p.size_z / 2 + ring);
             for (int k = 0; k < 8; k++)
