@@ -109,6 +109,12 @@ final class Workspace {
     /// (Calibration.swift).
     var calibration: CalibrationInfo?
     var importReport: ImportReport?
+    /// The import of a model (ModelImport.swift): the files of a ZIP file,
+    /// and the sheet for the address of a model page.
+    var importChoice: ImportChoice?
+    var importPageOpen = false
+    @ObservationIgnored var importPageText = ""
+    @ObservationIgnored var saveGuard: SaveGuard?
     /// The printer of the sheet is only the address of a deck (Connect a
     /// Printdeck): it goes, and the printers that the user picks come.
     var pairingFresh = false
@@ -646,6 +652,28 @@ final class Workspace {
             NSLog("zslice nozzle test: nozzles %ld; sections %@; search %@; choices %@", k,
                   SettingInfo.sections("machine", nozzles: k).joined(separator: ", "), found.joined(separator: ","),
                   FilamentSlot.nozzleChoices(k, current: 0).map(\.label).joined(separator: ","))
+        }
+        // ZSLICE_IMPORT_ZIP=path opens the list of a ZIP file, and with
+        // ZSLICE_IMPORT_YES=1 presses Load. ZSLICE_IMPORT_PAGE=text logs the
+        // answer for an address.
+        if let path = env["ZSLICE_IMPORT_ZIP"] {
+            openZip(URL(fileURLWithPath: path))
+            if let c = importChoice {
+                NSLog("zslice import list: %@; checked %@; %@", c.rows.map(\.name).joined(separator: " "), c.rows.filter(\.checked).map(\.name).joined(separator: " "), c.sum)
+                if env["ZSLICE_IMPORT_YES"] != nil { loadImport(c) }
+            }
+        }
+        if let text = env["ZSLICE_IMPORT_PAGE"] {
+            var p = zs_import_page()
+            let rc = zs_import_page_check(text, &p)
+            NSLog("zslice import page: rc %d, site %d, %@", rc, p.site, rc == 0 ? coreText(zs_import_page_text(p.site)) : coreText(zs_import_message(rc)))
+        }
+        // ZSLICE_SAVE_GUARD=1: Save with each plate empty writes nothing.
+        if env["ZSLICE_SAVE_GUARD"] != nil, let w = canvas.window {
+            zs_app_plate_clear(model.core)
+            model.settingsChanged()
+            model.readPlates()
+            NSLog("zslice save guard: handled %d", w.tryToPerform(#selector(NSDocument.save(_:)), with: nil) ? 1 : 0)
         }
         // ZSLICE_KEY_ADDRESS=1 logs when a saved key needs a yes, and what
         // each answer does to the printer (issue #41).
@@ -1907,12 +1935,16 @@ final class Workspace {
     /// Adds models to the active plate with an open panel.
     func addModels() {
         let panel = NSOpenPanel()
-        panel.allowedContentTypes = UTType.models
+        panel.allowedContentTypes = UTType.models + [.zip]
         panel.allowsMultipleSelection = true
-        panel.message = "Choose the models to add to the plate."
+        panel.message = "Choose the models to add to the plate, or the ZIP file of a model."
         let add = { [weak self] (r: NSApplication.ModalResponse) in
             guard let self, r == .OK else { return }
-            for url in panel.urls {
+            // A ZIP file goes to the list of its files.
+            if let zip = panel.urls.first(where: { $0.pathExtension.lowercased() == "zip" }) {
+                DispatchQueue.main.async { self.openZip(zip) }
+            }
+            for url in panel.urls where url.pathExtension.lowercased() != "zip" {
                 do {
                     try model.add(name: url.lastPathComponent, data: Data(contentsOf: url))
                 } catch {

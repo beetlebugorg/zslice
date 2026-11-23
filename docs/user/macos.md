@@ -142,6 +142,12 @@ The keys of the other apps work in the 3D view. A key with Ctrl in the other app
 | Select layers: the range grows up or down, and its card opens | Shift-K, Shift-J |
 | The line before or after | Shift-H, Shift-L |
 
+### Import a model from a model page
+
+Choose **File > Import from a Model Page**, and paste the address of a Printables or Thingiverse model. zslice calls no API of these sites. **Open the Page** opens the model in your browser, where you download all its files as one ZIP file.
+
+Open that ZIP file in zslice, add it with Add Models, or drop it on the window. A sheet lists its files by kind, with their sizes and folders, and how many plates a 3MF file has. The model files are checked first. **Load** adds the checked files, on a new plate if this plate has parts, and puts the parts that do not fit the bed on more plates. It never starts a print.
+
 ### The search
 
 The search field is always in the toolbar; a small `/` in it shows its key. Type `/`, or click in it: the results show under it at once (× closes them), and the words of a setting or an action fill them. The fields of the results line up in one column. Up and Down go through the results. Return runs an action or turns a switch on or off. Esc, or `/` again, hides the results.

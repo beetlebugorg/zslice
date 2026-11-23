@@ -50,6 +50,8 @@ struct DocumentWindow: View {
 
     private func open() async {
         document.model = workspace.model
+        // A ZIP file opens an empty window with the list of its files.
+        let zip = url?.pathExtension.lowercased() == "zip" ? document.data : nil
         // A session of the last run: the window comes back as it was.
         let session = document.data.isEmpty ? SessionStore.shared.takePending() : nil
         // After the restore, or if the window never comes: the session
@@ -57,7 +59,7 @@ struct DocumentWindow: View {
         defer { if session != nil { SessionStore.shared.restoreDone() } }
         let timing = ProcessInfo.processInfo.environment["ZSLICE_TIMING"] != nil
         if timing { NSLog("zslice session: open at %.0f ms", (CACurrentMediaTime() - SessionStore.launch) * 1000) }
-        if !document.data.isEmpty {
+        if !document.data.isEmpty, zip == nil {
             do {
                 try workspace.model.load(name: name, data: document.data)
                 // The open is a step of the history, at once.
@@ -80,6 +82,7 @@ struct DocumentWindow: View {
             w.setFrame(f, display: true)
         }
         workspace.model.document = doc
+        workspace.saveGuard = SaveGuard.install(in: w, workspace: workspace, document: doc)
         let ws = workspace
         NotificationCenter.default.addObserver(forName: NSWindow.willCloseNotification, object: w, queue: .main) { _ in
             MainActor.assumeIsolated { SessionStore.shared.closed(ws) }
@@ -106,7 +109,7 @@ struct DocumentWindow: View {
         if document.isProject, let t = doc.fileType.flatMap({ UTType($0) }), t != .threeMF, t.isThreeMF {
             doc.fileType = UTType.threeMF.identifier
         }
-        if document.data.isEmpty {
+        if document.data.isEmpty || zip != nil {
             EmptyWindows.note(doc, workspace)
         } else {
             EmptyWindows.replace(with: w, keeping: doc)
@@ -114,7 +117,14 @@ struct DocumentWindow: View {
         // A model file: the window imports it, as an untitled project
         // with the name of the model, so a save asks where to save and
         // never writes over the model.
-        if !document.data.isEmpty, !document.isProject {
+        if let zip {
+            doc.fileURL = nil
+            doc.fileType = UTType.threeMF.identifier
+            doc.displayName = ((url?.lastPathComponent ?? name) as NSString).deletingPathExtension
+            for c in doc.windowControllers { c.synchronizeWindowTitleWithDocumentName() }
+            w.title = doc.displayName
+            workspace.openZip(name: url?.lastPathComponent ?? name, data: zip)
+        } else if !document.data.isEmpty, !document.isProject {
             doc.fileURL = nil
             doc.fileType = UTType.threeMF.identifier
             doc.displayName = ((url?.lastPathComponent ?? name) as NSString).deletingPathExtension
@@ -332,6 +342,9 @@ struct DocumentWindow: View {
         .dropDestination(for: URL.self) { urls, _ in
             let models = urls.filter { ["stl", "3mf", "step", "stp", "obj"].contains($0.pathExtension.lowercased()) }
             for url in models { workspace.addModel(url) }
+            // A ZIP file goes to the list of its files.
+            let zip = urls.first { $0.pathExtension.lowercased() == "zip" }
+            if let zip { workspace.openZip(zip) }
             let svgs = urls.filter { $0.pathExtension.lowercased() == "svg" }
             if let url = svgs.first, let p = workspace.pointerInView {
                 if let d = try? Data(contentsOf: url), d.count <= 512 * 1024, let text = String(data: d, encoding: .utf8) {
@@ -340,7 +353,7 @@ struct DocumentWindow: View {
                     workspace.showNote("The SVG did not read: a text file of at most 512 KiB.")
                 }
             }
-            return !models.isEmpty || !svgs.isEmpty
+            return !models.isEmpty || !svgs.isEmpty || zip != nil
         } isTargeted: { dropping = $0 }
         .overlay {
             if dropping {
@@ -388,6 +401,8 @@ struct DocumentWindow: View {
             .frame(minWidth: 560, minHeight: 520)
         }
         .sheet(isPresented: Bindable(workspace).shortcutsOpen) { ShortcutSheet() }
+        .sheet(isPresented: Bindable(workspace).importPageOpen) { ModelPageSheet(workspace: workspace) }
+        .sheet(item: Bindable(workspace).importChoice) { ImportSheet(workspace: workspace, choice: $0) }
         .sheet(isPresented: Bindable(workspace).pickerOpen) { PrinterPicker(workspace: workspace) }
         .sheet(isPresented: Bindable(workspace).connectDeckOpen) { ConnectDeckSheet(workspace: workspace) }
         .sheet(item: Binding(get: { workspace.calibration }, set: { workspace.calibration = $0 })) { c in
@@ -1074,6 +1089,7 @@ struct FileButton: View {
             Button("Open…") { NSDocumentController.shared.openDocument(nil) }
             Divider()
             Button("Add Models to the Plate…") { workspace.addModels() }
+            Button("Import from a Model Page…") { workspace.askModelPage() }
             Button("Open Project Folder…") { workspace.openProject() }
             Button("Open Project from GitHub…") { workspace.askGitHub() }
             Divider()
