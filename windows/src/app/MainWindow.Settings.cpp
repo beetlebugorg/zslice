@@ -675,6 +675,14 @@ namespace winrt::ZSlice::implementation
             else
                 CommitSetting(key, text);
         };
+        // A switch or a list with the focus: Ctrl+C and Ctrl+V take its
+        // value. A text field keeps its own copy and paste.
+        auto watch_focus = [this, name, value, commit](Control const &control) {
+            control.GotFocus([this, control, name, value, commit](auto &&, auto &&) {
+                focused_editor = ClipEditor{ control, name, value, [name, commit](std::string const &text) { commit(name, text); } };
+            });
+            control.LostFocus([this](auto &&, auto &&) { focused_editor.reset(); });
+        };
 
         if (info.kind == ZS_SETTING_BOOLEAN)
         {
@@ -694,6 +702,7 @@ namespace winrt::ZSlice::implementation
                     commit(name, toggle.IsOn() ? "true" : "false");
             });
             setting_editors.push_back({ name, fill });
+            watch_focus(toggle);
             return toggle;
         }
 
@@ -718,6 +727,7 @@ namespace winrt::ZSlice::implementation
                     commit(name, (*choices)[(size_t)i]);
             });
             setting_editors.push_back({ name, fill });
+            watch_focus(combo);
             return combo;
         }
 

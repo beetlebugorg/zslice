@@ -453,7 +453,7 @@ namespace winrt::ZSlice::implementation
         bool MenuPlace(double &x, double &y, double &z);
         void SupportEdited();
         void RemoveSupportHere();
-        void CopyForAi();
+        void CopyForAi(wchar_t const *done = L"Copied a report of this line.");
         void NewProfile(int direction);
         void PreviewToLine();
         void ShowAllLayers();
@@ -464,12 +464,39 @@ namespace winrt::ZSlice::implementation
         void PasteParts(bool here, double x, double y);
         bool NewPlateFrom(zs_app *from);
         // The last copy, of one kind, for Ctrl+V. The core keeps the parts.
-        enum class ClipKind { Empty, Parts, Label, Range };
+        enum class ClipKind { Empty, Parts, Label, Area, Range, Value };
+        // What a copy takes now: the first that applies.
+        enum class ClipSel { None, Value, Label, Area, Range, Parts, Line };
+        // A support area, with the part under it.
+        struct ClipArea
+        {
+            int kind = 0;
+            double z_lo = 0, z_hi = 0;
+            std::vector<double> pts;
+            int64_t part = -1;
+            double part_x = 0, part_y = 0, part_rot = 0;
+        };
+        // The switch or list of a setting that has the focus.
+        struct ClipEditor
+        {
+            Windows::Foundation::IInspectable element{ nullptr };
+            std::string name;
+            std::function<std::string()> get;
+            std::function<void(std::string const &)> set;
+        };
         ClipKind clip_kind = ClipKind::Empty;
         std::string clip_label;
         std::vector<std::pair<std::string, std::string>> clip_range;
+        ClipArea clip_area;
+        std::string clip_value;
+        std::optional<ClipEditor> focused_editor;
+        // The test build keeps its copies out of the system clipboard.
+        bool clip_private = false;
         ClipKind ClipNow() const;
-        void ClipCopy();
+        ClipSel ClipSelection();
+        bool FocusedEditor();
+        bool ClipCopy(ClipSel sel);
+        winrt::fire_and_forget PasteValue();
         void ClipCut();
         void ClipDuplicate();
         void ClipPaste(bool at, double x, double y, bool here, bool as_plate);
@@ -541,6 +568,11 @@ namespace winrt::ZSlice::implementation
         void SupportPointer(double x, double y);
         bool SupportKey(Windows::System::VirtualKey key);
         bool SupportPicked();
+        // Copy and paste of the selected support area.
+        bool SupportHasArea();
+        bool SupportCopyArea(ClipArea &out);
+        bool SupportPasteArea(ClipArea const &area, double x, double y);
+        void SupportRemoveArea();
         void SupportClearPick();
         bool SupportSelectLine(size_t path, size_t segment);
         bool SupportMenu(double x, double y);
@@ -629,6 +661,7 @@ namespace winrt::ZSlice::implementation
         void LabelOpen(int64_t part, uint32_t id);
         void LabelFilamentsChanged();
         // Copy and paste of the selected label, as its JSON.
+        bool LabelHasSelection();
         std::string LabelCopyJson();
         bool LabelPaste(std::string const &json, bool at_point, double x, double y);
         void LabelRemoveSelected();

@@ -163,6 +163,8 @@ Ctrl+C, Ctrl+X, Ctrl+V, and Ctrl+D copy, cut, paste, and duplicate the selected 
 
 With the Label tool, the same keys work on the selected label. A paste puts it on the face under the pointer, or under the first label. With the card of some layers open, Ctrl+C and Ctrl+X take the changes of those layers. Select other layers and press Ctrl+V to give them the same changes.
 
+With the Support tool, the keys work on the selected area. A paste needs the pointer over a part. On a switch or a list of a setting, Ctrl+C copies its value and Ctrl+V pastes a value into it. With only a line selected, Ctrl+C puts the report of the line on the clipboard.
+
 ## The 2D view
 
 Press 2, or choose **2D view** in the main menu, to see the top layer from above. Press 2 again or 3 to go back. A drag pans the layer, the wheel or a pinch zooms it, and a double click fits it. A click selects a line. A tool other than Select goes back to the 3D view.

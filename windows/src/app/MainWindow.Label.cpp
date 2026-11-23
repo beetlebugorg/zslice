@@ -2585,6 +2585,11 @@ namespace winrt::ZSlice::implementation
             label->DropSvg(svg, path, x, y, label->OverView(x, y));
     }
 
+    bool MainWindow::LabelHasSelection()
+    {
+        return label->Selected() != nullptr;
+    }
+
     std::string MainWindow::LabelCopyJson()
     {
         return label->CopyJson();

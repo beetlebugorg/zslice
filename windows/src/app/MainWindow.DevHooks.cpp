@@ -955,6 +955,30 @@ namespace winrt::ZSlice::implementation
         {
             ClipKey(verb == L"copy" ? VirtualKey::C : verb == L"cut" ? VirtualKey::X : verb == L"paste" ? VirtualKey::V : VirtualKey::D, has(L"shift"));
         }
+        else if (verb == L"clipprivate")
+        {
+            clip_private = true;
+        }
+        else if (verb == L"pointer")
+        {
+            pointer_x = number(0);
+            pointer_y = number(1);
+        }
+        else if (verb == L"focusedit")
+        {
+            // The first switch of the settings list gets the focus.
+            using Node = Microsoft::UI::Xaml::DependencyObject;
+            using Tree = Microsoft::UI::Xaml::Media::VisualTreeHelper;
+            std::function<bool(Node const &)> focus_first = [&](Node const &at) -> bool {
+                if (auto toggle = at.try_as<Microsoft::UI::Xaml::Controls::ToggleSwitch>())
+                    return toggle.Focus(Microsoft::UI::Xaml::FocusState::Programmatic);
+                for (int32_t i = 0, n = Tree::GetChildrenCount(at); i < n; i++)
+                    if (focus_first(Tree::GetChild(at, i)))
+                        return true;
+                return false;
+            };
+            zs::Log("dev: clip focused a switch %d\n", focus_first(SettingsList()) ? 1 : 0);
+        }
         else if (verb == L"cliplog")
         {
             zs_app *clip_app = model->Active();
@@ -968,7 +992,8 @@ namespace winrt::ZSlice::implementation
             size_t labels = 0;
             for (size_t at = label_json.find("\"origin\""); at != std::string::npos; at = label_json.find("\"origin\"", at + 1))
                 labels++;
-            zs::Log("dev: clip kind %d range %zu label chars %zu | labels of part 0 %zu overrides %zu parts %zu\n", (int)ClipNow(), clip_range.size(), clip_label.size(), labels, zs_app_override_count(clip_app), zs_app_part_count(clip_app));
+            zs::Log("dev: clip kind %d sel %d range %zu label chars %zu value '%s' editor '%s' now '%s' | areas %zu labels %zu overrides %zu parts %zu\n", (int)ClipNow(), (int)ClipSelection(), clip_range.size(), clip_label.size(), clip_value.c_str(),
+                    FocusedEditor() ? focused_editor->name.c_str() : "", FocusedEditor() ? focused_editor->get().c_str() : "", zs_app_support_area_count(clip_app), labels, zs_app_override_count(clip_app), zs_app_part_count(clip_app));
         }
         else if (verb == L"bed")
         {
