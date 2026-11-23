@@ -1416,7 +1416,8 @@ static void on_low_answer(GObject *source, GAsyncResult *res, gpointer data) {
  * printer has left. */
 static void send_checked(Window *w) {
     zs_stats st;
-    if (w->spool && w->spool_left >= 0 && zs_app_stats(zg_model_core(w->model), &st) == ZS_OK && st.filament_g > w->spool_left) {
+    /* The core gives 0 for a roll with no known weight. */
+    if (w->spool && w->spool_left > 0 && zs_app_stats(zg_model_core(w->model), &st) == ZS_OK && st.filament_g > w->spool_left) {
         char *msg = g_strdup_printf("This print needs %.0f g of filament. The roll in the printer (%s) has %.0f g left.",
                                     st.filament_g, w->spool, w->spool_left);
         GtkAlertDialog *d = gtk_alert_dialog_new("Not enough filament on the roll");
@@ -1730,8 +1731,11 @@ static void on_poll_info(ZgPrinterInfo *info, const char *error, gpointer data) 
     /* The label is short (the status bar is full): the state and the
      * roll. The tooltip has all of it, with the printer name. */
     const char *state_only = strchr(text, ':') ? strchr(text, ':') + 2 : text;
-    char *label = w->spool ? g_strdup_printf("%s · %s, %.0f g left", state_only, w->spool, w->spool_left) : g_strdup(state_only);
-    char *tip = error ? g_strdup_printf("%s\n%s", text, error) : w->spool ? g_strdup_printf("%s\nIn the printer: %s, %.0f g left", text, w->spool, w->spool_left) : g_strdup(text);
+    /* The core gives 0 for a roll with no known weight. */
+    char *roll = !w->spool ? NULL : w->spool_left > 0 ? g_strdup_printf("%s, %.0f g left", w->spool, w->spool_left) : g_strdup(w->spool);
+    char *label = roll ? g_strdup_printf("%s · %s", state_only, roll) : g_strdup(state_only);
+    char *tip = error ? g_strdup_printf("%s\n%s", text, error) : roll ? g_strdup_printf("%s\nIn the printer: %s", text, roll) : g_strdup(text);
+    g_free(roll);
     gtk_label_set_text(GTK_LABEL(w->printer_state), label);
     gtk_widget_set_visible(w->printer_state, TRUE);
     gtk_widget_set_tooltip_text(w->printer_state, tip);
