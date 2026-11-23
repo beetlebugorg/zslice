@@ -592,6 +592,9 @@ struct ValueField: View {
 
     private func send() {
         typing?.cancel()
+        // An unedited field writes nothing: the text of a value such as
+        // "no limit" need not parse back to the same string.
+        if text == ValueText.display(info, entry.value) { return }
         let v = ValueText.toCore(info, text)
         if v == entry.value { return }
         error = model.set(info.name, v)

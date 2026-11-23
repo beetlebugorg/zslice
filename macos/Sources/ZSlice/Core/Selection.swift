@@ -145,6 +145,8 @@ extension Workspace {
         lineInfo = nil
         refindKey = nil
         draftLine = nil
+        releaseTimer?.invalidate()
+        releaseTimer = nil
         zs_sel_line_set(model.sel, 0, -1, -1)
         cardOpen = false
         cardMoved = nil
@@ -258,14 +260,12 @@ extension Workspace {
         }
         // A miss: the nearest line of the same feature at the saved place.
         guard let r = refindKey else {
-            zs_sel_line_found(model.sel, -1, 0)
-            clearSelection()
+            lineGone()
             return
         }
         let path = zs_app_pick_feature(model.core, r.layer, r.feature, r.x, r.y)
         guard path != noPath else {
-            zs_sel_line_found(model.sel, -1, 0)
-            clearSelection()
+            lineGone()
             return
         }
         let segs = zs_view_path_segments(v, path)
@@ -273,6 +273,37 @@ extension Workspace {
         select(path: path, seg: min(max(wanted.seg, 0), max(0, segs - 1)), openCard: false)
         // The exact slice looks for the first line again.
         if model.draft { draftLine = wanted }
+    }
+
+    /// The slice has no such line. While a held slider of the Selected Line
+    /// page makes the slice, the page stays under the pointer, and the
+    /// release finds the line again or ends the selection.
+    private func lineGone() {
+        if lineInPane, mouseHeld {
+            waitForRelease()
+            return
+        }
+        zs_sel_line_found(model.sel, -1, 0)
+        clearSelection()
+    }
+
+    /// ZSLICE_HELD_TEST holds the button in a test.
+    private var mouseHeld: Bool { heldForTest ?? (NSEvent.pressedMouseButtons != 0) }
+
+    /// A timer in the common modes, so it runs during the tracking of a
+    /// slider. A slice that still runs at the release finds the line itself.
+    private func waitForRelease() {
+        guard releaseTimer == nil else { return }
+        let t = Timer(timeInterval: 0.1, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self, !self.mouseHeld else { return }
+                self.releaseTimer?.invalidate()
+                self.releaseTimer = nil
+                if self.model.state == .done { self.refindSelection() }
+            }
+        }
+        releaseTimer = t
+        RunLoop.main.add(t, forMode: .common)
     }
 
     /// ZSLICE_LINE_LOG=1: how a new slice found the selected line.

@@ -447,7 +447,7 @@ All of these are in `~/Library/Application Support/zslice`:
 - `machine.toml`, `filament.toml`, and `project.toml`: your settings, as in the other apps.
 - `global.toml`: your settings for all prints.
 - `profiles/filament` and `profiles/project`: your filament and quality profiles.
-- `printers.json`: your printers (their keys are in the Keychain).
+- `printers.json`: your printers (their keys are in the Keychain). If this file does not read, zslice keeps it as it is, says so, and does not save changes to the printers.
 - `refine.txt`: your usual refinements.
 
 **Your usual refinements.** zslice notes how you refine each print after its first slice. When you made the same change in two or more other prints with the same material and nozzle, the details offer it. Click Apply (one undo step), Apply All, or × to never see it again. The records stay on your Mac.

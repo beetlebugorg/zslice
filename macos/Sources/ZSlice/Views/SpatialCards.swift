@@ -22,6 +22,16 @@
 import Observation
 import SwiftUI
 
+/// The center of a card that the user moved, inside the view now. The
+/// settings pane makes the view narrower, so a card at the right edge
+/// goes back into it and never lies under the pane.
+func keptInView(_ c: CGPoint, size: CGSize, area: CGSize, bottom: CGFloat) -> CGPoint {
+    let left: CGFloat = 64, top: CGFloat = 60, right = area.width - 84, foot = area.height - max(bottom, 8)
+    let x = max(left, min(c.x - size.width / 2, right - size.width))
+    let y = max(top, min(c.y - size.height / 2, foot - (size.height <= foot - top ? size.height : 80)))
+    return CGPoint(x: x + size.width / 2, y: y + size.height / 2)
+}
+
 @MainActor
 @Observable
 final class SpatialStore {

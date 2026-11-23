@@ -60,7 +60,7 @@ struct LabelCard: View {
     }
 
     private var place: CGPoint {
-        if let moved { return moved }
+        if let moved { return keptInView(moved, size: cardSize, area: area, bottom: workspace.dockHeight + 12) }
         let box = st.box
         if let c = SpatialStore.shared.center("label", size: cardSize, area: area, bottom: workspace.dockHeight + 12, avoiding: box) { return c }
         return cardPlace(avoiding: box, near: CGPoint(x: area.width - 92 - cardSize.width / 2, y: 236), size: cardSize, in: area,

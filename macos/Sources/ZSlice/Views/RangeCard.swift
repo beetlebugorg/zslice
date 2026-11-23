@@ -19,7 +19,7 @@ struct RangeCard: View {
     /// A place that the user gave the card (a drag now, or kept), when it
     /// is clear of the lit layers; else beside them.
     private var place: CGPoint {
-        if let moved { return moved }
+        if let moved { return keptInView(moved, size: cardSize, area: area, bottom: workspace.dockHeight + 12) }
         let box = workspace.rangeRect()
         if let c = SpatialStore.shared.center("range", size: cardSize, area: area, bottom: workspace.dockHeight + 12, avoiding: box) { return c }
         return cardPlace(avoiding: box, near: CGPoint(x: area.width / 2, y: area.height / 2), size: cardSize, in: area, bottom: workspace.dockHeight + 12,
