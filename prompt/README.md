@@ -1,6 +1,6 @@
 # A prompt that could build zslice
 
-Describes: main at commit `60308c2e` ("Update the prompt for the selection model"), 2026-11-23.
+Describes: main at commit `02a74e7d` ("Add the panel modes and search to the prompt"), 2026-11-23.
 
 ## Read this first
 
