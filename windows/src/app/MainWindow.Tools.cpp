@@ -1233,8 +1233,8 @@ namespace winrt::ZSlice::implementation
         if (sel == nullptr)
             return;
         uint64_t key = 0;
-        ptrdiff_t path = -1, segment = -1;
-        zs_sel_line_get(sel.get(), &key, &path, &segment);
+        ptrdiff_t path = -1;
+        zs_sel_line_get(sel.get(), &key, &path, nullptr);
         if (path < 0)
             return;
         zs_app *app = model->Active();
@@ -1268,10 +1268,9 @@ namespace winrt::ZSlice::implementation
             FillLineCard();
             return;
         }
-        // Zero segments keeps a selection of the whole line.
         ptrdiff_t segments = 0;
         zs_toolpaths tp{};
-        if (segment >= 0 && zs_app_toolpaths(app, &tp) == ZS_OK && (size_t)found < tp.path_count)
+        if (zs_app_toolpaths(app, &tp) == ZS_OK && (size_t)found < tp.path_count)
         {
             uint32_t start = found == 0 ? 0 : tp.path_ends[found - 1], end = tp.path_ends[found];
             segments = end > start + 1 ? (ptrdiff_t)(end - start - 1) : 1;
