@@ -563,12 +563,17 @@ namespace zs
     {
         slice_timing_ = true;
         slice_start_ = std::chrono::steady_clock::now();
+        slice_gen_ = edit_gen_;
     }
 
+    // A slice that is under way: its clock starts, and it keeps the change
+    // that it slices.
     void Model::NoteSliceProgress()
     {
-        if (!slice_timing_)
-            MarkSliceStart();
+        if (slice_timing_)
+            return;
+        slice_timing_ = true;
+        slice_start_ = std::chrono::steady_clock::now();
     }
 
     void Model::NoteSliced()
@@ -618,7 +623,6 @@ namespace zs
             // The end of a drag: the exact slice, with no draft before it.
             Settle();
             MarkSliceStart();
-            slice_gen_ = edit_gen_;
             zs_set_release(set_);
         }
     }
@@ -629,7 +633,6 @@ namespace zs
             return;
         LiveChange();
         MarkSliceStart();
-        slice_gen_ = edit_gen_;
         zs_set_release(set_);
     }
 

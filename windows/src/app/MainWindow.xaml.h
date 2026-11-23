@@ -368,6 +368,22 @@ namespace winrt::ZSlice::implementation
         void GizmoStart(int handle, double x, double y);
         void TurnMove(double x, double y, bool fine);
         void TurnEnd();
+        void TurnPreview();
+        void ShowPartPreview();
+        void BaseLoaded();
+        // The slices wait for the end of a ring drag, so the beads show the
+        // part before the turn until the slice of its new place comes. The
+        // base is the turn that puts them where the part is now: a unit
+        // quaternion about base_c, then the move base_m. The press values
+        // are the base at the press of a drag.
+        bool base_on = false, press_on = false;
+        uint64_t base_part = 0;
+        double base_q[4] = { 0, 0, 0, 1 }, base_c[3] = {}, base_m[3] = {};
+        double press_q[4] = { 0, 0, 0, 1 }, press_c[3] = {}, press_m[3] = {};
+        int64_t base_gen = 0, press_gen = 0, fall_gen = 0;
+        // The last frame of a fall shows until the slice of the new place.
+        bool fall_shown = false;
+        double fall_f[10] = {};
         void LiveBegin(uint64_t part, int axis);
         void LivePreview();
         void LivePush();

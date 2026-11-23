@@ -42,6 +42,31 @@ namespace
     {
         return std::round(v * 100) / 100;
     }
+
+    // The turn q1 about c1 and the move m1 after the turn q0 about c0 and
+    // the move m0: as one turn q about c0 and a move m.
+    void TurnCompose(double const q1[4], double const c1[3], double const m1[3], double const q0[4], double const c0[3], double const m0[3],
+                     double q[4], double m[3])
+    {
+        double const t[4] = {
+            q1[3] * q0[0] + q1[0] * q0[3] + q1[1] * q0[2] - q1[2] * q0[1],
+            q1[3] * q0[1] - q1[0] * q0[2] + q1[1] * q0[3] + q1[2] * q0[0],
+            q1[3] * q0[2] + q1[0] * q0[1] - q1[1] * q0[0] + q1[2] * q0[3],
+            q1[3] * q0[3] - q1[0] * q0[0] - q1[1] * q0[1] - q1[2] * q0[2],
+        };
+        // The point c0 + m0 - c1 turned by q1.
+        double const d[3] = { c0[0] + m0[0] - c1[0], c0[1] + m0[1] - c1[1], c0[2] + m0[2] - c1[2] };
+        double const x = q1[0], y = q1[1], z = q1[2], w = q1[3];
+        double const r[3] = {
+            (1 - 2 * (y * y + z * z)) * d[0] + 2 * (x * y - z * w) * d[1] + 2 * (x * z + y * w) * d[2],
+            2 * (x * y + z * w) * d[0] + (1 - 2 * (x * x + z * z)) * d[1] + 2 * (y * z - x * w) * d[2],
+            2 * (x * z - y * w) * d[0] + 2 * (y * z + x * w) * d[1] + (1 - 2 * (x * x + y * y)) * d[2],
+        };
+        for (int k = 0; k < 3; k++)
+            m[k] = r[k] + c1[k] + m1[k] - c0[k];
+        for (int k = 0; k < 4; k++)
+            q[k] = t[k];
+    }
 }
 
 namespace winrt::ZSlice::implementation
@@ -151,6 +176,13 @@ namespace winrt::ZSlice::implementation
         turn_pivot[0] = p.x;
         turn_pivot[1] = p.y;
         turn_pivot[2] = std::max(p.z, 0.0) + p.size_z / 2;
+        // A turn that waits for its slice: this drag goes on from it.
+        press_on = base_on && base_part == turn_part;
+        press_gen = base_gen;
+        std::copy(base_q, base_q + 4, press_q);
+        std::copy(base_c, base_c + 3, press_c);
+        std::copy(base_m, base_m + 3, press_m);
+        base_part = turn_part;
         model->Hold(true);
         SetViewCursor((int)InputSystemCursorShape::Hand);
     }
@@ -186,24 +218,115 @@ namespace winrt::ZSlice::implementation
             {
                 zs_app_part_turn(app, (size_t)index, turn_axis, step);
             }
+            model->NoteEdit();
             model->RequestSlice();
             PlaceGizmo();
         }
-        // The beads turn in the view at once, about the axis of the bed.
-        if (turn_want != 0 && zs_app_part_get(app, (size_t)index, &p) == ZS_OK)
+        TurnPreview();
+        RequestDraw();
+    }
+
+    // The beads turn in the view at once, about the axis of the bed, after
+    // the base at the press if the slice of an earlier turn has not come.
+    void MainWindow::TurnPreview()
+    {
+        zs_app *app = model->Active();
+        double t = turn_want * pi / 360, sn = std::sin(t);
+        double q1[4] = { 0, 0, 0, std::cos(t) };
+        q1[turn_axis] = sn;
+        double const zero[3] = { 0, 0, 0 };
+        if (press_on)
         {
-            double t = turn_want * pi / 360, sn = std::sin(t);
-            double q[3] = {};
-            q[turn_axis] = sn;
-            zs_view_part_preview(view, (int)index, (float)q[0], (float)q[1], (float)q[2], (float)std::cos(t), (float)turn_pivot[0],
-                                 (float)turn_pivot[1], (float)turn_pivot[2], (float)p.x, (float)p.y, (float)std::max(p.z, 0.0),
-                                 ZS_PREVIEW_ON_BED | ZS_PREVIEW_CENTERED);
+            TurnCompose(q1, turn_pivot, zero, press_q, press_c, press_m, base_q, base_m);
+            std::copy(press_c, press_c + 3, base_c);
         }
         else
         {
-            zs_view_part_preview(view, -1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0);
+            std::copy(q1, q1 + 4, base_q);
+            std::copy(turn_pivot, turn_pivot + 3, base_c);
         }
-        RequestDraw();
+        base_on = press_on || turn_want != 0;
+        base_gen = model->EditGen();
+        ptrdiff_t index = zs_app_part_index(app, base_part);
+        zs_part p{};
+        if (!base_on || index < 0 || zs_app_part_get(app, (size_t)index, &p) != ZS_OK)
+        {
+            base_on = false;
+            ShowPartPreview();
+            return;
+        }
+        // The view places the turned beads as the core places the part. The
+        // base keeps the move that the view found.
+        zs_view_part_preview(view, (int)index, (float)base_q[0], (float)base_q[1], (float)base_q[2], (float)base_q[3], (float)base_c[0],
+                             (float)base_c[1], (float)base_c[2], (float)p.x, (float)p.y, (float)std::max(p.z, 0.0),
+                             ZS_PREVIEW_ON_BED | ZS_PREVIEW_CENTERED);
+        float moved[3];
+        if (zs_view_part_preview_move(view, moved))
+            for (int k = 0; k < 3; k++)
+                base_m[k] = moved[k];
+    }
+
+    // The part in the view: the beads of the last slice turned by the base,
+    // and by the fall on top of it, or moved by a live drag.
+    void MainWindow::ShowPartPreview()
+    {
+        if (view == nullptr || model == nullptr)
+            return;
+        zs_app *app = model->Active();
+        ptrdiff_t base_index = base_on ? zs_app_part_index(app, base_part) : -1;
+        if (fall_shown)
+        {
+            double const *f = fall_f;
+            if (base_index < 0 || base_index != fall_part)
+            {
+                // The beads are at fall_off from the start of the fall (the
+                // slice of a live move came before its end).
+                double const x = f[0], y = f[1], z = f[2], w = f[3];
+                double const *o = fall_off;
+                double mx = f[7] + (1 - 2 * (y * y + z * z)) * o[0] + 2 * (x * y - z * w) * o[1] + 2 * (x * z + y * w) * o[2];
+                double my = f[8] + 2 * (x * y + z * w) * o[0] + (1 - 2 * (x * x + z * z)) * o[1] + 2 * (y * z - x * w) * o[2];
+                double mz = f[9] + 2 * (x * z - y * w) * o[0] + 2 * (y * z + x * w) * o[1] + (1 - 2 * (x * x + y * y)) * o[2];
+                zs_view_part_preview(view, (int)fall_part, (float)f[0], (float)f[1], (float)f[2], (float)f[3], (float)f[4], (float)f[5], (float)f[6],
+                                     (float)mx, (float)my, (float)mz, 0);
+                return;
+            }
+            double q[4], m[3];
+            TurnCompose(f, f + 4, f + 7, base_q, base_c, base_m, q, m);
+            zs_view_part_preview(view, (int)fall_part, (float)q[0], (float)q[1], (float)q[2], (float)q[3], (float)base_c[0], (float)base_c[1],
+                                 (float)base_c[2], (float)m[0], (float)m[1], (float)m[2], 0);
+            return;
+        }
+        if (base_index >= 0)
+        {
+            zs_view_part_preview(view, (int)base_index, (float)base_q[0], (float)base_q[1], (float)base_q[2], (float)base_q[3], (float)base_c[0],
+                                 (float)base_c[1], (float)base_c[2], (float)base_m[0], (float)base_m[1], (float)base_m[2], 0);
+            return;
+        }
+        if (live_on)
+        {
+            LivePreview();
+            return;
+        }
+        zs_view_part_preview(view, -1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0);
+    }
+
+    // A load ends the preview of a part. The beads of the slice of the part
+    // as it is now end the turn and the fall.
+    void MainWindow::BaseLoaded()
+    {
+        int64_t shown = model->ShownGen();
+        if (shown >= base_gen)
+            base_on = false;
+        if (shown >= fall_gen)
+            fall_shown = false;
+        // The turn of the press is in these beads now: a drag goes on from
+        // them alone, and does not turn them twice.
+        if (press_on && shown >= press_gen)
+        {
+            press_on = false;
+            if (turn_axis >= 0)
+                TurnPreview();
+        }
     }
 
     void MainWindow::TurnEnd()
@@ -214,7 +337,7 @@ namespace winrt::ZSlice::implementation
         HideDragLabel();
         zs_view_ring_release(view);
         if (!turned)
-            zs_view_part_preview(view, -1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0);
+            ShowPartPreview();
         model->Hold(false);
         if (turned)
             NoteChange();
@@ -315,19 +438,18 @@ namespace winrt::ZSlice::implementation
             if (shown >= live_gen && live_done)
             {
                 live_on = false;
-                zs_view_part_preview(view, -1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0);
                 PlaceGizmo();
                 return;
             }
             LivePush();
         }
-        LivePreview();
     }
 
     // A plate change ends a move.
     void MainWindow::LiveCancel()
     {
         live_on = live_done = false;
+        base_on = press_on = fall_shown = false;
         arrow_axis = -1;
         moving_part = 0;
         pending_handle = -1;
@@ -493,7 +615,7 @@ namespace winrt::ZSlice::implementation
         else
         {
             live_on = false;
-            zs_view_part_preview(view, -1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0);
+            ShowPartPreview();
         }
         ApplySelection();
         FillPartCard();
