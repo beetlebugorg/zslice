@@ -9,6 +9,7 @@
 
 #include "pch.h"
 #include "MainWindow.xaml.h"
+#include "MainWindow.Printers.h"
 
 #include <algorithm>
 #include <cstdio>
@@ -452,6 +453,15 @@ namespace winrt::ZSlice::implementation
             });
         if (cut)
             add(menu.Items(), L"Show all layers", [this] { ShowAllLayers(); }, L"Shift+C");
+        add(menu.Items(), L"Test print: the top layer…", [this] {
+            if (printers != nullptr)
+                printers->ExportTestPrint(true);
+        });
+        if (cut)
+            add(menu.Items(), L"Test print: the layers shown…", [this] {
+                if (printers != nullptr)
+                    printers->ExportTestPrint(false);
+            });
         add(menu.Items(), L"Reset the view", [this] {
             zs_view_reset_smooth(view);
             StartAnimation();
