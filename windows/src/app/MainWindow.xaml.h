@@ -538,6 +538,8 @@ namespace winrt::ZSlice::implementation
         void FillLineCard();
         // The filament of a body of a line (MainWindow.Range.cpp).
         void FillLineFilament();
+        // Ends a fall of a part, on the plate where it started.
+        void CancelFall();
         // The support mark of the user at the selected line.
         void WireLineMark();
         void FillLineMark();
@@ -748,6 +750,7 @@ namespace winrt::ZSlice::implementation
         int anchor_feature = 0;
         double click_x = 0, click_y = 0;
         bool line_card_moved = false;
+        zs_app *fall_app = nullptr;
         int64_t line_mark = -1;
         bool line_mark_filling = false;
         // The body of the last filament pick: the beads above and below,

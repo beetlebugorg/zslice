@@ -64,6 +64,7 @@ namespace winrt::ZSlice::implementation
     {
         if (model == nullptr || view == nullptr)
             return;
+        CancelFall();
         zs_app *app = model->Active();
         int state = zs_app_state(app);
         ShowPlateChrome();
