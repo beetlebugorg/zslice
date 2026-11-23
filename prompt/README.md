@@ -1,6 +1,6 @@
 # A prompt that could build zslice
 
-Describes: main at commit `aa0b10b1` ("Add the last API items to the Windows prompt"), 2026-11-22.
+Describes: main at commit `d108148a` ("Add the clipboard and history to the Windows prompt"), 2026-11-22.
 
 ## Read this first
 

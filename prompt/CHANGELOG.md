@@ -14,3 +14,4 @@ One line for each update: the date, the commit that the folder describes, and th
 | 2026-11-22 | `86444aca` | README, CHANGELOG, 12, 13: Windows reads the filaments of the printer through zs_app_filaments_from_printer and follows the spools of the current printer (by the Windows session). |
 | 2026-11-22 | `f822fa35` | README, CHANGELOG, 12, 13: Windows watches the current printer in the background (HTTP each 5 s, one Bambu Lab MQTT link, backoff to 300 s, stop after 5 min minimized), by the Windows session; a longer wait in a threaded core test. |
 | 2026-11-22 | `aa0b10b1` | README, CHANGELOG, 12: Windows parity 4 (User-Agent on file links, the printer picker counts, fall cancel, Shift+click runs, the part card notes, the test print, the lines a setting changes), by the Windows session. |
+| 2026-11-22 | `d108148a` | README, CHANGELOG, 12: Windows history rows open their scope, and copy and paste of labels and layer changes (by the Windows session). |
