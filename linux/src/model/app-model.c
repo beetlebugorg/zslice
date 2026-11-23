@@ -427,7 +427,7 @@ static gboolean load_group(ZgModel *self, int g) {
 
 G_DEFINE_FINAL_TYPE(ZgModel, zg_model, G_TYPE_OBJECT)
 
-enum { SIGNAL_PLATES_CHANGED, SIGNAL_PROJECT_CHANGED, SIGNAL_PROJECT_SENT, SIGNAL_CORE_EVENT, SIGNAL_SELECTION_CHANGED, SIGNAL_PICKED, SIGNAL_SETTING_CHANGED, SIGNAL_FOCUS_CHANGED, SIGNAL_SCOPE_CHANGED, SIGNAL_PRINTER_CHANGED, SIGNAL_PRINTERS_EDITED, SIGNAL_PART_SELECTED, SIGNAL_PLATE_CHANGED, SIGNAL_SEGMENT_CHANGED, SIGNAL_PROFILES_CHANGED, SIGNAL_OPEN_PROFILE, SIGNAL_GAPS_CHANGED, SIGNAL_UNDO_CHANGED, SIGNAL_PART_SCOPE_CHANGED, SIGNAL_TOOL_CHANGED, SIGNAL_MEASURE_CHANGED, SIGNAL_FALL, SIGNAL_FILAMENTS_CHANGED, N_SIGNALS };
+enum { SIGNAL_PLATES_CHANGED, SIGNAL_PROJECT_CHANGED, SIGNAL_PROJECT_SENT, SIGNAL_CORE_EVENT, SIGNAL_SELECTION_CHANGED, SIGNAL_PICKED, SIGNAL_SETTING_CHANGED, SIGNAL_FOCUS_CHANGED, SIGNAL_SCOPE_CHANGED, SIGNAL_PRINTER_CHANGED, SIGNAL_PRINTERS_EDITED, SIGNAL_PART_SELECTED, SIGNAL_PLATE_CHANGED, SIGNAL_SEGMENT_CHANGED, SIGNAL_PROFILES_CHANGED, SIGNAL_OPEN_PROFILE, SIGNAL_CLOSE_PROFILE, SIGNAL_GAPS_CHANGED, SIGNAL_UNDO_CHANGED, SIGNAL_PART_SCOPE_CHANGED, SIGNAL_TOOL_CHANGED, SIGNAL_MEASURE_CHANGED, SIGNAL_FALL, SIGNAL_FILAMENTS_CHANGED, N_SIGNALS };
 static guint signals[N_SIGNALS];
 
 /* "setting-changed" with the key as its detail. */
@@ -702,6 +702,8 @@ static void zg_model_class_init(ZgModelClass *klass) {
     signals[SIGNAL_OPEN_PROFILE] = g_signal_new("open-profile", G_TYPE_FROM_CLASS(klass),
         G_SIGNAL_RUN_LAST, 0, NULL, NULL, NULL, G_TYPE_NONE, 2, G_TYPE_DOUBLE, G_TYPE_DOUBLE);
     /* project-changed(): project mode went on or off. */
+    signals[SIGNAL_CLOSE_PROFILE] = g_signal_new("close-profile", G_TYPE_FROM_CLASS(klass),
+        G_SIGNAL_RUN_LAST, 0, NULL, NULL, NULL, G_TYPE_NONE, 0);
     signals[SIGNAL_PROJECT_CHANGED] = g_signal_new("project-changed", G_TYPE_FROM_CLASS(klass),
         G_SIGNAL_RUN_LAST, 0, NULL, NULL, NULL, G_TYPE_NONE, 0);
     /* project-sent(): the plate of a project went to a printer to print. */
@@ -917,6 +919,10 @@ void zg_model_clear_override(ZgModel *self, const char *key) {
 void zg_model_profile_set(ZgModel *self, double z_min, double z_max, const char *name) {
     if (zs_app_profile_set(self->core, z_min, z_max, name) != ZS_OK) return;
     g_signal_emit(self, signals[SIGNAL_PROFILES_CHANGED], 0);
+}
+
+void zg_model_close_profile(ZgModel *self) {
+    g_signal_emit(self, signals[SIGNAL_CLOSE_PROFILE], 0);
 }
 
 void zg_model_open_profile(ZgModel *self, double z_min, double z_max) {
@@ -2401,6 +2407,8 @@ void zg_model_part_reset(ZgModel *self, size_t i) {
 /* Plates: each plate has its own app (zs_set). After a switch, the
  * editors show the settings of the new plate, and the view its slice. */
 static void plate_switched(ZgModel *self) {
+    /* An open layer profile is of the plate before. */
+    g_signal_emit(self, signals[SIGNAL_CLOSE_PROFILE], 0);
     sync_core(self);
     /* The first step of the undo list of a new plate. */
     if (zs_app_history_count(self->core) == 0) zs_app_history_commit(self->core, now_ms());

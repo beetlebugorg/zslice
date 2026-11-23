@@ -397,6 +397,9 @@ static void edit_change(EditTarget *e) {
     }
     const char *scope = f[0], *key = f[1];
     zs_app *core = zg_model_core(model);
+    /* A row outside some layers leaves an open layer profile, so the next
+     * edit goes to the whole print. */
+    if (!g_str_has_prefix(scope, "layers:")) zg_model_close_profile(model);
     if (g_str_has_prefix(scope, "part:")) {
         const char *name = scope + strlen("part:");
         gint64 idx = -1;

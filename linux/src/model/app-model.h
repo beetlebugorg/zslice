@@ -312,6 +312,8 @@ void zg_model_profile_remove(ZgModel *self, double z_min, double z_max);
 /* Asks the settings browser to edit the profile of the range
  * ("open-profile"). */
 void zg_model_open_profile(ZgModel *self, double z_min, double z_max);
+/* Leaves an open layer profile ("close-profile"). */
+void zg_model_close_profile(ZgModel *self);
 
 /* Makes printer `id` the current printer: saves the machine settings and
  * the filament of the printer before, and loads the machine profile of the

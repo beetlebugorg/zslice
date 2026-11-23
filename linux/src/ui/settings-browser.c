@@ -1685,6 +1685,7 @@ GtkWidget *zg_settings_browser_new(ZgModel *model, GtkWidget *panel_stack) {
     g_signal_connect(model, "printer-changed", G_CALLBACK(on_printer_nozzles), b);
     update_nozzle_rows(b);
     g_signal_connect(model, "open-profile", G_CALLBACK(on_open_profile), b);
+    g_signal_connect_swapped(model, "close-profile", G_CALLBACK(leave_profile), b);
     fill_profiles(b);
     /* For development and screenshots: ZSLICE_SETTING=project.layer_height
      * opens the browser at that setting. */
