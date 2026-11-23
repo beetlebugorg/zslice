@@ -242,6 +242,27 @@ namespace winrt::ZSlice::implementation
         // The rows of a search come in batches, so typing stays smooth.
         void AppendSearchRows(std::shared_ptr<std::vector<uint32_t>> const &hits, size_t from, uint64_t fill);
         uint64_t pane_fill = 0;
+        // A place of the pane, for Alt+Left and the back button of the mouse.
+        struct PanePlace
+        {
+            SettingsPage page = SettingsPage::Sections;
+            char const *group = nullptr, *section = nullptr;
+            int feature = -1;
+            std::wstring query;
+            std::string detail;
+            SettingsPage detail_from = SettingsPage::Sections;
+            double scroll = 0;
+        };
+        static bool SamePlace(PanePlace const &a, PanePlace const &b);
+        void NotePanePlace();
+        void RestorePanePlace(PanePlace const &place);
+        void PaneHistoryBack();
+        void UpdateCrumbs();
+        void ApplyPaneScroll();
+        std::vector<PanePlace> pane_history;
+        PanePlace pane_now;
+        bool pane_restoring = false;
+        double pane_leaving = 0, pane_list_scroll = 0, pane_scroll_wanted = -1;
         void TurnOffForScope(Microsoft::UI::Xaml::FrameworkElement const &editor, zs_setting_info const &info);
         Microsoft::UI::Xaml::FrameworkElement MakeEditor(zs_setting_info const &info, std::shared_ptr<EditorTarget> const &target = nullptr);
         void CommitSetting(std::string const &name, std::string const &value);

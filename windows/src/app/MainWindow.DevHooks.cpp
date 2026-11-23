@@ -831,6 +831,21 @@ namespace winrt::ZSlice::implementation
             else
                 zs::Log("dev: textround found no field\n");
         }
+        else if (verb == L"panehistory")
+        {
+            PaneHistoryBack();
+        }
+        else if (verb == L"panescroll")
+        {
+            if (!words.empty())
+                SettingsScroll().ChangeView(nullptr, box_value(number(0)).as<winrt::Windows::Foundation::IReference<double>>(), nullptr, true);
+        }
+        else if (verb == L"panelog")
+        {
+            std::wstring path{ SettingsCrumbs().Text() };
+            zs::Log("dev: pane path '%s' page %d back %d scroll %.0f history %zu rows %u\n", zs::ToUtf8(path).c_str(), (int)settings_page, SettingsBack().Visibility() == Microsoft::UI::Xaml::Visibility::Visible ? 1 : 0,
+                    SettingsScroll().VerticalOffset(), pane_history.size(), SettingsList().Children().Size());
+        }
         else if (verb == L"paneback")
         {
             SettingsGoBack();
