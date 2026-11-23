@@ -304,18 +304,27 @@ extension Workspace {
     /// The selected line goes to the nearest line `dl` layers up (down for
     /// less than 0), within the print.
     func lineLayer(_ dl: Int) {
-        guard let s = selection, let v = canvas.view else { return }
-        let l = min(max(zs_view_path_layer(v, s.path) + dl, 0), layerCount - 1)
-        guard l != zs_view_path_layer(v, s.path) else { return }
-        let path = zs_view_nearest_on_layer(v, s.path, l)
-        if path != noPath { follow(path, 0) }
+        guard let s = selection, let v = canvas.view, dl != 0 else { return }
+        let layer = zs_view_path_layer(v, s.path)
+        let dir = dl > 0 ? 1 : -1
+        // The nearest line, dl layers away. A layer with no lines is passed.
+        var l = min(max(layer + dl, 0), layerCount - 1)
+        while l != layer, l >= 0, l < layerCount {
+            let path = zs_view_nearest_on_layer(v, s.path, l)
+            if path != noPath {
+                follow(path, 0)
+                return
+            }
+            l += dir
+        }
     }
 
-    /// Selects a line from a key, and the layer slider follows it.
+    /// Selects a line from a key. The top of the layers goes to its layer,
+    /// so the layers over it do not hide it (as the web and GTK apps).
     private func follow(_ path: Int, _ seg: Int) {
         guard let v = canvas.view else { return }
         let l = zs_view_path_layer(v, path)
-        if l > hi || l < lo { setRange(lo: min(lo, l), hi: max(l, lo)) }
+        if l != hi { setRange(lo: min(lo, l), hi: l) }
         select(path: path, seg: seg, openCard: false)
     }
 }
