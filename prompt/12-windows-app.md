@@ -46,6 +46,8 @@ Build the native Windows app in `windows/`: a WinUI 3 shell in C++/WinRT around 
    - Add models adds a part to a plate with parts, and the picker and a drop take several files. A ZIP file comes last, one at a time.
    - Window keys work from a text field and stop while a dialog is open: Ctrl+S saves the project, Ctrl+E exports, Ctrl+Q quits, and F10 opens the main menu. The main menu has the items and order of GTK, with "Save project…" as its only save. A project with parts on any plate saves from an empty plate too.
    - The shortcuts sheet has the GTK filter and "No shortcut matches.". The printer picker has Skip on the first start, "Build volume" with its note, whole mm from 10 to 2000 for an edit, and Esc back to the list in its second step.
+   - The settings pane is hidden, over the view (460 points or less), or pinned beside it with a splitter (default 560, at least 300, and 240 left for the view). The prefs `panel`, `panel_pinned`, and `panel_width` keep the choice, and `colors` keeps the line colors. Colors, replay, scrub, and simulation go to the 3D view. A new scene keeps the bottom layer knob.
+   - The search has the GTK actions in the GTK order. Its Print action stays out: the Windows app only uploads.
    - A double click on a history change goes to its step and opens the change on its part, in its layers, or for the print. A change outside some layers leaves an open profile, so a new edit cannot go to those layers.
    - Windows calls `zs_set_project_load` for a project, so it needs no separate `zs_project_profiles` or `zs_app_project_load`. It has no islands button: the Check lists the islands.
 
