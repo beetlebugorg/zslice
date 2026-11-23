@@ -104,6 +104,8 @@ namespace winrt::ZSlice::implementation
         {
             std::function<std::string(std::string const &)> get;
             std::function<void(std::string const &, std::string const &)> set;
+            // The range card has no speed hint beside its units.
+            bool no_hint = false;
         };
         // The search of settings and actions (MainWindow.Search.cpp).
         enum class SearchPlace
@@ -120,6 +122,8 @@ namespace winrt::ZSlice::implementation
             std::function<bool(zs_setting_info const &)> only;
             std::function<std::wstring(std::string const &)> source;
             std::shared_ptr<EditorTarget> target;
+            // More lines under the name of a row.
+            std::function<void(zs_setting_info const &, Microsoft::UI::Xaml::Controls::StackPanel const &)> decorate;
         };
         struct SearchRow
         {
@@ -635,7 +639,11 @@ namespace winrt::ZSlice::implementation
         // One chip for each filament of the plate, and "+". The panel stays
         // as it is while its filaments and its value stay.
         void FillFilamentChips(Microsoft::UI::Xaml::Controls::VariableSizedWrapGrid const &panel, std::string &key_store, int value, std::wstring const &what,
-                               std::function<void(int)> const &pick);
+                               std::function<void(int)> const &pick, wchar_t const *zero = nullptr);
+        // The settings with a chip for each filament, and the word on the
+        // chip of value 0 (nullptr: no such chip).
+        static bool IsFilamentSetting(char const *name);
+        static wchar_t const *ZeroChip(char const *name);
         void FilamentsChanged();
         void RefreshFilamentTools();
         void FillPartExtras();

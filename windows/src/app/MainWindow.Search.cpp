@@ -815,6 +815,8 @@ namespace winrt::ZSlice::implementation
         tag.Foreground(TokenBrush(Root(), L"ZsDim"));
         label.Children().Append(title);
         label.Children().Append(tag);
+        if (scope != nullptr && scope->decorate)
+            scope->decorate(info, label);
         ToolTipService::SetToolTip(label, box_value(PlainDoc(info.doc)));
         grid.Children().Append(label);
 
@@ -856,7 +858,7 @@ namespace winrt::ZSlice::implementation
             Grid::SetColumn(controls, 2);
         }
 
-        bool number = info.kind == ZS_SETTING_NUMBER || info.kind == ZS_SETTING_INTEGER;
+        bool number = (info.kind == ZS_SETTING_NUMBER || info.kind == ZS_SETTING_INTEGER) && !IsFilamentSetting(info.name);
         bool ratio = info.unit != nullptr && strcmp(info.unit, "%") == 0;
         double k = ratio ? 100 : 1;
         if (number && info.slider_max > info.slider_min)

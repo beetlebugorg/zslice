@@ -811,8 +811,22 @@ namespace winrt::ZSlice::implementation
         return b;
     }
 
+    wchar_t const *MainWindow::ZeroChip(char const *name)
+    {
+        if (strcmp(name, "project.support_filament") == 0)
+            return L"Part";
+        if (strcmp(name, "project.support_interface_filament") == 0)
+            return L"Support";
+        return nullptr;
+    }
+
+    bool MainWindow::IsFilamentSetting(char const *name)
+    {
+        return strcmp(name, "project.filament") == 0 || ZeroChip(name) != nullptr;
+    }
+
     void MainWindow::FillFilamentChips(VariableSizedWrapGrid const &panel, std::string &key_store, int value, std::wstring const &what,
-                                       std::function<void(int)> const &pick)
+                                       std::function<void(int)> const &pick, wchar_t const *zero)
     {
         // The most filaments of a plate (src/app/filament_slots.zig).
         constexpr size_t most = 16;
@@ -825,6 +839,30 @@ namespace winrt::ZSlice::implementation
         key_store = key;
         panel.Children().Clear();
         std::wstring name = what.empty() ? std::wstring(L"Filament ") : what + L": filament ";
+        if (zero != nullptr)
+        {
+            // A word: it takes two cells of the grid, so it is not cut off.
+            Button word;
+            word.Content(box_value(zero));
+            word.FontSize(11);
+            word.Width(56);
+            word.Height(26);
+            word.MinWidth(0);
+            word.MinHeight(0);
+            word.Padding(ThicknessHelper::FromLengths(2, 0, 2, 0));
+            word.AllowFocusOnInteraction(false);
+            if (value == 0)
+            {
+                word.BorderBrush(SolidColorBrush(Windows::UI::Color{ 255, 0x1a, 0x6f, 0xdc }));
+                word.BorderThickness(ThicknessHelper::FromUniformLength(2));
+            }
+            std::wstring tip = wcscmp(zero, L"Part") == 0 ? L"The filament of the part" : L"The support filament";
+            ToolTipService::SetToolTip(word, box_value(tip));
+            Microsoft::UI::Xaml::Automation::AutomationProperties::SetName(word, tip);
+            word.Click([this, pick](auto &&, auto &&) { queue.TryEnqueue([pick] { pick(0); }); });
+            VariableSizedWrapGrid::SetColumnSpan(word, 2);
+            panel.Children().Append(word);
+        }
         for (size_t i = 0; i < n; i++)
         {
             int k = (int)i + 1;

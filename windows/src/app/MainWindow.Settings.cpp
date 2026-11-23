@@ -608,6 +608,11 @@ namespace winrt::ZSlice::implementation
         auto control = (grid != nullptr ? grid.Children().GetAt(0) : editor).try_as<Control>();
         if (control != nullptr)
             control.IsEnabled(false);
+        if (auto chips = editor.try_as<VariableSizedWrapGrid>())
+        {
+            chips.IsHitTestVisible(false);
+            chips.Opacity(0.5);
+        }
         ToolTipService::SetToolTip(editor, box_value(ScopeOffTip()));
     }
 
@@ -683,6 +688,28 @@ namespace winrt::ZSlice::implementation
             });
             control.LostFocus([this](auto &&, auto &&) { focused_editor.reset(); });
         };
+
+        // A filament: a chip for each filament of the plate.
+        if (IsFilamentSetting(info.name))
+        {
+            VariableSizedWrapGrid chips;
+            chips.Orientation(Orientation::Horizontal);
+            chips.ItemWidth(30);
+            chips.ItemHeight(30);
+            chips.MaximumRowsOrColumns(5);
+            chips.HorizontalAlignment(HorizontalAlignment::Right);
+            auto key = std::make_shared<std::string>();
+            wchar_t const *zero = ZeroChip(info.name);
+            auto fill = [this, chips, key, value, commit, name, zero]() mutable {
+                int now = atoi(value().c_str());
+                if (now < 0 || (zero == nullptr && now < 1))
+                    now = zero != nullptr ? 0 : 1;
+                FillFilamentChips(chips, *key, now, L"", [commit, name](int k) { commit(name, std::to_string(k)); }, zero);
+            };
+            fill();
+            setting_editors.push_back({ name, fill });
+            return chips;
+        }
 
         if (info.kind == ZS_SETTING_BOOLEAN)
         {
@@ -788,7 +815,9 @@ namespace winrt::ZSlice::implementation
         hint_column.Width(GridLengthHelper::Auto());
         with_unit.ColumnDefinitions().Append(field);
         with_unit.ColumnDefinitions().Append(unit_column);
-        with_unit.ColumnDefinitions().Append(hint_column);
+        bool no_hint = target != nullptr && target->no_hint;
+        if (!no_hint)
+            with_unit.ColumnDefinitions().Append(hint_column);
         with_unit.Children().Append(box);
         TextBlock unit;
         unit.Text(zs::ToWide(info.unit));
@@ -797,7 +826,11 @@ namespace winrt::ZSlice::implementation
         unit.VerticalAlignment(VerticalAlignment::Center);
         Grid::SetColumn(unit, 1);
         with_unit.Children().Append(unit);
-        // A speed ratio: the speed in mm/s that it gives on this printer.
+        if (no_hint)
+            return with_unit;
+        // A speed ratio: the speed in mm/s that it gives on this printer. A
+        // thickness: the layers that cover it, rounded up as the slicer
+        // counts them.
         TextBlock hint;
         hint.FontSize(12);
         hint.Foreground(TokenBrush(Root(), L"ZsDim"));
@@ -806,7 +839,26 @@ namespace winrt::ZSlice::implementation
         ToolTipService::SetToolTip(hint, box_value(L"The speed of this ratio on this printer, for a line of the line width at the layer height (the flow limit can make it lower)."));
         Grid::SetColumn(hint, 2);
         with_unit.Children().Append(hint);
-        auto fill_hint = [this, hint, name, value]() mutable {
+        bool thickness = name == "project.top_thickness" || name == "project.bottom_thickness";
+        auto fill_hint = [this, hint, name, value, target, thickness]() mutable {
+            if (thickness && model != nullptr)
+            {
+                std::string height = target != nullptr ? target->get("project.layer_height") : model->GetSetting("project.layer_height");
+                double h = strtod(height.c_str(), nullptr), t = strtod(value().c_str(), nullptr);
+                hint.Visibility(h > 0 ? Visibility::Visible : Visibility::Collapsed);
+                if (h <= 0)
+                    return;
+                long n = t <= 0 ? 0 : (long)std::ceil(t / h - 1e-6);
+                bool exact = std::abs(n * h - t) < 1e-6;
+                hint.Text((exact ? L"= " : L"→ ") + std::to_wstring(n) + (n == 1 ? L" layer" : L" layers"));
+                wchar_t tip[120];
+                if (exact)
+                    swprintf_s(tip, L"%ld layers of %.2f mm.", n, h);
+                else
+                    swprintf_s(tip, L"Not a multiple of the layer height (%.2f mm): it prints %ld layers, %.2f mm.", h, n, n * h);
+                ToolTipService::SetToolTip(hint, box_value(tip));
+                return;
+            }
             double mm_s = 0;
             bool shown = model != nullptr && zs_app_ratio_speed(model->Active(), name.c_str(), value().c_str(), &mm_s) == ZS_OK && mm_s > 0;
             hint.Visibility(shown ? Visibility::Visible : Visibility::Collapsed);
