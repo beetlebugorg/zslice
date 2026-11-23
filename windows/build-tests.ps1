@@ -62,7 +62,7 @@ $quoted = ($sources | ForEach-Object { "`"$_`"" }) -join ' '
 $exe = Join-Path $out 'net_link.exe'
 $compile = "cl /nologo /W3 /O2 /MD /EHsc /std:c++20 /utf-8 /I`"$include`" /I`"$src\net`" /I`"$src\prefs`" /I`"$src\model`" " +
     "/Fo`"$netOut\\`" /Fe`"$exe`" $quoted /link `"$lib`" ntdll.lib ws2_32.lib advapi32.lib bcrypt.lib userenv.lib " +
-    "winhttp.lib crypt32.lib secur32.lib ncrypt.lib shell32.lib ole32.lib user32.lib"
+    "winhttp.lib crypt32.lib secur32.lib ncrypt.lib shell32.lib ole32.lib user32.lib mfuuid.lib"
 & cmd /c "`"$vcvars`" $arch >nul && $compile"
 if ($LASTEXITCODE -ne 0) { throw "net_link failed to build ($LASTEXITCODE)" }
 if ($hostArch -ne $targetArch) {

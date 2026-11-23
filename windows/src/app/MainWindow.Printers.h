@@ -195,6 +195,7 @@ namespace winrt::ZSlice::implementation
         void StartCamera(std::shared_ptr<PrinterTile> const &tile);
         void StopCamera(std::shared_ptr<PrinterTile> const &tile);
         void ShowCameraLarge(std::shared_ptr<PrinterTile> const &tile);
+        void OpenCameraPanel(std::wstring const &title, zs::CameraSource source, std::function<void()> closed);
         void ShowManage();
         void StopTiles();
 

@@ -550,7 +550,7 @@ kind: format
 source: IETF, ITU-T
 license: Public standards
 link: https://www.rfc-editor.org/rfc/rfc2326
-files: src/rtsp.zig, macos/Sources/ZSlice/Core/Camera.swift, macos/Sources/ZSlice/Core/H264Decoder.swift
+files: src/rtsp.zig, macos/Sources/ZSlice/Core/Camera.swift, macos/Sources/ZSlice/Core/H264Decoder.swift, windows/src/net/zs_camera.cpp, windows/src/net/zs_h264.cpp
 area: network
 summary: The RTSP camera session of a Bambu Lab printer and its H.264 frames.
 ```

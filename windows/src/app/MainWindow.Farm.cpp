@@ -52,10 +52,41 @@ namespace winrt::ZSlice::implementation
             return text;
         }
 
+        // A decoded picture of an H.264 camera, in one bitmap that stays
+        // while the size stays.
+        void ShowBgra(Image const &image, zs::CameraPicture const &picture)
+        {
+            auto bitmap = image.Source().try_as<Imaging::WriteableBitmap>();
+            if (bitmap == nullptr || bitmap.PixelWidth() != picture.width || bitmap.PixelHeight() != picture.height)
+            {
+                bitmap = Imaging::WriteableBitmap(picture.width, picture.height);
+                image.Source(bitmap);
+            }
+            auto pixels = bitmap.PixelBuffer();
+            if (pixels.Capacity() < picture.bytes.size())
+                return;
+            memcpy(pixels.data(), picture.bytes.data(), picture.bytes.size());
+            bitmap.Invalidate();
+        }
+
         // Decodes a JPEG, and shows it. A frame that comes during a decode
         // is dropped by the caller.
-        winrt::fire_and_forget ShowJpeg(Image image, std::shared_ptr<std::string> jpeg, std::shared_ptr<std::atomic<bool>> busy)
+        winrt::fire_and_forget ShowJpeg(Image image, std::shared_ptr<zs::CameraPicture const> picture, std::shared_ptr<std::atomic<bool>> busy)
         {
+            if (picture->width > 0)
+            {
+                try
+                {
+                    ShowBgra(image, *picture);
+                }
+                catch (hresult_error const &)
+                {
+                    // A frame that does not show is skipped.
+                }
+                busy->store(false);
+                co_return;
+            }
+            std::string const *jpeg = &picture->bytes;
             try
             {
                 Streams::InMemoryRandomAccessStream stream;
@@ -78,7 +109,7 @@ namespace winrt::ZSlice::implementation
 
         zs::CameraFeed::Frame FrameTo(MainWindow::PrintersUi::Poster const &post, Image image, std::shared_ptr<std::atomic<bool>> busy)
         {
-            return [post, image, busy](std::shared_ptr<std::string> const &jpeg) {
+            return [post, image, busy](std::shared_ptr<zs::CameraPicture const> const &jpeg) {
                 if (busy->exchange(true))
                     return;
                 post.Post([image, jpeg, busy](MainWindow::PrintersUi &) { ShowJpeg(image, jpeg, busy); });
@@ -515,7 +546,7 @@ namespace winrt::ZSlice::implementation
         auto to_image = FrameTo(post, image, details_decoding);
         // A picture ends the note of the camera.
         auto noted = std::make_shared<std::atomic<bool>>(false);
-        zs::CameraFeed::Frame frame = [post, to_image, noted](std::shared_ptr<std::string> const &jpeg) {
+        zs::CameraFeed::Frame frame = [post, to_image, noted](std::shared_ptr<zs::CameraPicture const> const &jpeg) {
             if (noted->exchange(false))
                 post.Post([](PrintersUi &ui) { ui.w.SummaryCameraNote().Visibility(Visibility::Collapsed); });
             to_image(jpeg);
@@ -968,7 +999,16 @@ namespace winrt::ZSlice::implementation
             return;
         Poster post = poster;
         Image image = t->camera;
-        t->feed = std::make_shared<zs::CameraFeed>(t->source, FrameTo(post, image, t->decoding), [post, image](std::string const &note) {
+        auto to_image = FrameTo(post, image, t->decoding);
+        // A picture ends the note of the camera.
+        auto noted = std::make_shared<std::atomic<bool>>(false);
+        zs::CameraFeed::Frame frame = [post, image, to_image, noted](std::shared_ptr<zs::CameraPicture const> const &picture) {
+            if (noted->exchange(false))
+                post.Post([image](PrintersUi &) { ToolTipService::SetToolTip(image, nullptr); });
+            to_image(picture);
+        };
+        t->feed = std::make_shared<zs::CameraFeed>(t->source, frame, [post, image, noted](std::string const &note) {
+            noted->store(true);
             post.Post([image, note](PrintersUi &) {
                 ToolTipService::SetToolTip(image, box_value(zs::ToWide(note)));
             });
@@ -988,6 +1028,18 @@ namespace winrt::ZSlice::implementation
             Note(L"This printer shows no camera.");
             return;
         }
+        std::wstring title = zs::ToWide(printer->name) + L" · " + std::wstring(t->badge.Text());
+        // The small camera rests while the large one plays.
+        StopCamera(t);
+        std::weak_ptr<PrinterTile> weak = t;
+        OpenCameraPanel(title, t->source, [this, weak] {
+            if (auto tile = weak.lock(); tile != nullptr && tile->alive && tile->in_view)
+                StartCamera(tile);
+        });
+    }
+
+    void MainWindow::PrintersUi::OpenCameraPanel(std::wstring const &title, zs::CameraSource source, std::function<void()> closed)
+    {
         Grid body;
         body.Padding(ThicknessHelper::FromLengths(12, 0, 12, 12));
         Image image;
@@ -997,21 +1049,25 @@ namespace winrt::ZSlice::implementation
         TextBlock note = Label(L"", 12, false, true);
         note.VerticalAlignment(VerticalAlignment::Bottom);
         body.Children().Append(note);
-        std::wstring title = zs::ToWide(printer->name) + L" · " + std::wstring(t->badge.Text());
         auto panel = OpenPanel(title, 960, 620, body);
-        // The small camera rests while the large one plays.
-        StopCamera(t);
-        zs::CameraSource source = t->source;
         source.large = true;
         Poster post = poster;
-        auto feed = std::make_shared<zs::CameraFeed>(source, FrameTo(post, image, std::make_shared<std::atomic<bool>>(false)), [post, note](std::string const &text) {
+        auto to_image = FrameTo(post, image, std::make_shared<std::atomic<bool>>(false));
+        // A picture ends the note of the camera.
+        auto noted = std::make_shared<std::atomic<bool>>(false);
+        zs::CameraFeed::Frame frame = [post, note, to_image, noted](std::shared_ptr<zs::CameraPicture const> const &picture) {
+            if (noted->exchange(false))
+                post.Post([note](PrintersUi &) { note.Text(L""); });
+            to_image(picture);
+        };
+        auto feed = std::make_shared<zs::CameraFeed>(source, frame, [post, note, noted](std::string const &text) {
+            noted->store(true);
             post.Post([note, text](PrintersUi &) { note.Text(zs::ToWide(text)); });
         });
-        std::weak_ptr<PrinterTile> weak = t;
-        panel->closed = [this, feed, weak]() mutable {
+        panel->closed = [feed, closed]() mutable {
             Retire(feed);
-            if (auto tile = weak.lock(); tile != nullptr && tile->alive && tile->in_view)
-                StartCamera(tile);
+            if (closed)
+                closed();
         };
     }
 

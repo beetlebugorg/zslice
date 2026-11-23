@@ -131,6 +131,7 @@ Test hooks are `importmenu`, `importrun`, `importfile`, `importlog`, `calmenu`, 
 - **No print starts.** `zs::link::Upload` always sends `print=false`, and it has no parameter for it. The Bambu Lab link sends no PUBLISH.
 - **Secrets.** `src/prefs/zs_state` encrypts API keys, access codes, and the signing key with DPAPI (`CryptProtectData`) for the Windows user. `app.ini` has no secret.
 - **Redirects and proxies.** A request follows no redirect and uses no proxy, so a key cannot go to another host. A camera at another origin gets no key.
+- **H.264 cameras.** The core runs the RTSP session (`zs_rtsp_*`). `zs_camera.cpp` moves its bytes over Schannel with the pin of the printer, and `zs_h264.cpp` decodes each frame with the H.264 Video Decoder MFT of Media Foundation, in software and low latency mode. The app loads `mfplat.dll` when a camera starts, so a Windows N edition still opens. A card converts at most 4 pictures a second to BGRA, and halves a picture of 1280 pixels or wider. A lease allows one stream to a Bambu Lab address. A second feed waits, and says so after 2 seconds. The access code goes only to the core session, and Digest keeps it off the connection.
 - **Certificates.** An https printer is pinned as in the GTK shell. A Bambu Lab printer is pinned at the first connection: on another certificate, the TLS client closes before it sends the access code.
 - **Threads.** Network calls block on worker threads. A worker posts its result to the UI thread through `PrintersUi::Poster`.
 

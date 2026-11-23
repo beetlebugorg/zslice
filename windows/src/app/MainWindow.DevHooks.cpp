@@ -265,6 +265,18 @@ namespace winrt::ZSlice::implementation
     // compiler for one chain of else-if.
     bool MainWindow::RunDialogStep(std::wstring const &verb, std::vector<std::wstring> const &words)
     {
+        if (verb == L"camrtsp" && printers != nullptr)
+        {
+            // The large camera, on the stub of net_link --rtsp-stub. It has
+            // a test code, for 127.0.0.1 only.
+            zs::CameraSource source;
+            source.bambu_host = "127.0.0.1";
+            source.bambu_code = "87654321";
+            source.bambu_kind = 1;
+            printers->OpenCameraPanel(L"Test camera", std::move(source), nullptr);
+            zs::Log("dev: camera panel open\n");
+            return true;
+        }
         if (verb == L"pressbutton" && !words.empty())
         {
             // pressbutton Some_text: the first button with this text, in the

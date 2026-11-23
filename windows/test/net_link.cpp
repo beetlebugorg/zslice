@@ -38,6 +38,7 @@
 
 #include "zslice.h"
 #include "zslice-app.h"
+#include "zs_h264.h"
 
 #include "zs_app_shell.h"
 #include "zs_bambu.h"
@@ -1381,9 +1382,9 @@ namespace
         {
             CameraFeed feed(
                 source,
-                [&](std::shared_ptr<std::string> const &j) {
+                [&](std::shared_ptr<CameraPicture const> const &j) {
                     std::lock_guard guard(lock);
-                    shown = *j;
+                    shown = j->bytes;
                     has_frame = true;
                     cv.notify_all();
                 },
@@ -1395,6 +1396,574 @@ namespace
         CHECK(shown == jpeg);
         CHECK(auth >= 80);
         ::SetEnvironmentVariableA("ZSLICE_BAMBU_JPEG_PORT", nullptr);
+    }
+
+    // ---- H.264 pictures for the tests: exact colors, with no encoder ----
+
+    class Bits
+    {
+    public:
+        void Bit(int b)
+        {
+            cur_ = (cur_ << 1) | (b & 1);
+            if (++used_ == 8)
+            {
+                out_.push_back((char)cur_);
+                cur_ = used_ = 0;
+            }
+        }
+        void U(unsigned value, int count)
+        {
+            for (int i = count - 1; i >= 0; i--)
+                Bit((value >> i) & 1);
+        }
+        void Ue(unsigned value)
+        {
+            value++;
+            int top = 0;
+            for (unsigned x = value; x > 1; x >>= 1)
+                top++;
+            U(0, top);
+            U(value, top + 1);
+        }
+        void Align()
+        {
+            while (used_ != 0)
+                Bit(0);
+        }
+        void Raw(uint8_t value, size_t count) { out_.append(count, (char)value); }
+        std::string Trail()
+        {
+            Bit(1);
+            Align();
+            return out_;
+        }
+
+    private:
+        std::string out_;
+        unsigned cur_ = 0;
+        int used_ = 0;
+    };
+
+    // A NAL unit after its start code, with the emulation prevention bytes.
+    std::string NalUnit(uint8_t header, std::string const &rbsp)
+    {
+        std::string out("\0\0\0\1", 4);
+        out.push_back((char)header);
+        int zeros = 0;
+        for (char c : rbsp)
+        {
+            if (zeros >= 2 && (uint8_t)c <= 3)
+            {
+                out.push_back(3);
+                zeros = 0;
+            }
+            out.push_back(c);
+            zeros = c == 0 ? zeros + 1 : 0;
+        }
+        return out;
+    }
+
+    struct Yuv
+    {
+        uint8_t y, u, v;
+    };
+    constexpr Yuv yuv_red{ 81, 90, 240 }, yuv_green{ 145, 54, 34 }, yuv_blue{ 41, 240, 110 };
+
+    // A key frame: its SPS and PPS, and an IDR slice of I_PCM macroblocks,
+    // the left half in one color and the right half in another.
+    std::string H264Key(int mb_width, int mb_height, int crop_lines, Yuv left, Yuv right, unsigned idr)
+    {
+        Bits sps;
+        sps.U(66, 8);
+        sps.U(0xC0, 8);
+        sps.U(40, 8);
+        sps.Ue(0);
+        sps.Ue(0); // frame_num of 4 bits
+        sps.Ue(2); // output in decoding order
+        sps.Ue(1);
+        sps.Bit(0);
+        sps.Ue(mb_width - 1);
+        sps.Ue(mb_height - 1);
+        sps.Bit(1);
+        sps.Bit(1);
+        sps.Bit(crop_lines > 0);
+        if (crop_lines > 0)
+        {
+            sps.Ue(0);
+            sps.Ue(0);
+            sps.Ue(0);
+            sps.Ue(crop_lines / 2);
+        }
+        sps.Bit(0);
+        Bits pps;
+        pps.Ue(0);
+        pps.Ue(0);
+        pps.Bit(0);
+        pps.Bit(0);
+        pps.Ue(0);
+        pps.Ue(0);
+        pps.Ue(0);
+        pps.Bit(0);
+        pps.U(0, 2);
+        pps.Ue(0);
+        pps.Ue(0);
+        pps.Ue(0);
+        pps.Bit(1);
+        pps.Bit(0);
+        pps.Bit(0);
+        Bits slice;
+        slice.Ue(0);
+        slice.Ue(7);
+        slice.Ue(0);
+        slice.U(0, 4);
+        slice.Ue(idr);
+        slice.Bit(0);
+        slice.Bit(0);
+        slice.Ue(0);
+        slice.Ue(1); // no deblocking
+        for (int y = 0; y < mb_height; y++)
+            for (int x = 0; x < mb_width; x++)
+            {
+                Yuv c = x < mb_width / 2 ? left : right;
+                slice.Ue(25); // I_PCM
+                slice.Align();
+                slice.Raw(c.y, 256);
+                slice.Raw(c.u, 64);
+                slice.Raw(c.v, 64);
+            }
+        return NalUnit(0x67, sps.Trail()) + NalUnit(0x68, pps.Trail()) + NalUnit(0x65, slice.Trail());
+    }
+
+    // A P frame where each macroblock repeats the last picture.
+    std::string H264Skip(int mb_width, int mb_height, unsigned frame_num)
+    {
+        Bits slice;
+        slice.Ue(0);
+        slice.Ue(5);
+        slice.Ue(0);
+        slice.U(frame_num, 4);
+        slice.Bit(0);
+        slice.Bit(0);
+        slice.Bit(0);
+        slice.Ue(0);
+        slice.Ue(1);
+        slice.Ue(mb_width * mb_height);
+        return NalUnit(0x41, slice.Trail());
+    }
+
+    bool PixelIs(CameraPicture const &p, int x, int y, char channel)
+    {
+        if (p.width <= 0 || x >= p.width || y >= p.height || p.bytes.size() < (size_t)p.width * p.height * 4)
+            return false;
+        auto const *at = reinterpret_cast<uint8_t const *>(p.bytes.data()) + ((size_t)y * p.width + x) * 4;
+        int b = at[0], g = at[1], r = at[2];
+        if (at[3] != 255)
+            return false;
+        int high = channel == 'r' ? r : channel == 'g' ? g : b;
+        int rest = channel == 'r' ? std::max(g, b) : channel == 'g' ? std::max(r, b) : std::max(r, g);
+        return high >= 200 && rest <= 60;
+    }
+
+    void TestH264()
+    {
+        H264Decoder decoder;
+        if (!decoder.Ready())
+        {
+            printf("h264: this Windows has no decoder, skipped\n");
+            return;
+        }
+        std::vector<CameraPicture> shown;
+        auto keep = [&](std::string &&bgra, int w, int h) {
+            CameraPicture p;
+            p.bytes = std::move(bgra);
+            p.width = w;
+            p.height = h;
+            shown.push_back(std::move(p));
+        };
+        auto yes = [] { return true; };
+        auto decode = [&](std::string const &au, bool tile = false) {
+            decoder.Decode(reinterpret_cast<uint8_t const *>(au.data()), au.size(), tile, yes, keep);
+        };
+        // 320 x 192 rows, cropped to 180.
+        decode(H264Key(20, 12, 12, yuv_red, yuv_blue, 0));
+        decode(H264Skip(20, 12, 1));
+        decode(H264Skip(20, 12, 2));
+        decode(H264Key(20, 12, 12, yuv_green, yuv_red, 1));
+        CHECK(decoder.Errors() == 0);
+        CHECK(shown.size() == 4);
+        if (shown.size() == 4)
+        {
+            CHECK(shown[0].width == 320);
+            CHECK(shown[0].height == 180);
+            CHECK(PixelIs(shown[0], 40, 90, 'r'));
+            CHECK(PixelIs(shown[0], 280, 90, 'b'));
+            CHECK(PixelIs(shown[0], 280, 179, 'b'));
+            CHECK(PixelIs(shown[2], 40, 90, 'r'));
+            CHECK(PixelIs(shown[2], 280, 90, 'b'));
+            CHECK(PixelIs(shown[3], 40, 90, 'g'));
+            CHECK(PixelIs(shown[3], 280, 90, 'r'));
+        }
+        // `want` says no: the frame still decodes, and no picture comes.
+        size_t before = shown.size();
+        std::string skip = H264Skip(20, 12, 1);
+        decoder.Decode(reinterpret_cast<uint8_t const *>(skip.data()), skip.size(), false, [] { return false; }, keep);
+        CHECK(shown.size() == before);
+        CHECK(decoder.Errors() == 0);
+        // A new size in the stream, and a card that halves a wide picture.
+        shown.clear();
+        decode(H264Key(80, 45, 0, yuv_blue, yuv_green, 2), true);
+        CHECK(shown.size() == 1);
+        if (shown.size() == 1)
+        {
+            CHECK(shown[0].width == 640);
+            CHECK(shown[0].height == 360);
+            CHECK(PixelIs(shown[0], 80, 180, 'b'));
+            CHECK(PixelIs(shown[0], 560, 180, 'g'));
+        }
+        // Bytes that are no video do not stop the decoder.
+        std::string junk(64, '\x55');
+        decoder.Decode(reinterpret_cast<uint8_t const *>(junk.data()), junk.size(), false, yes, keep);
+        shown.clear();
+        decode(H264Key(20, 12, 12, yuv_red, yuv_red, 3));
+        CHECK(!shown.empty());
+        if (!shown.empty())
+        {
+            CHECK(shown.back().width == 320);
+            CHECK(PixelIs(shown.back(), 160, 90, 'r'));
+        }
+    }
+
+    // ---- a stub of the RTSP camera, with a Digest login ----
+
+    struct RtspStub
+    {
+        std::mutex lock;
+        std::string code, in, seen;
+        std::vector<std::string> frames;
+        int logins = 0, bad_logins = 0, plays = 0, teardowns = 0;
+        // Seconds of frames after PLAY, at 10 a second. 0: each frame once.
+        int play_seconds = 0;
+    };
+
+    std::string Md5Hex(std::string const &text)
+    {
+        char out[33] = "";
+        zs_bambu_md5(reinterpret_cast<uint8_t const *>(text.data()), text.size(), out);
+        // The core gives upper case for Bambu Lab. Digest has lower case.
+        std::string hex = out;
+        for (char &c : hex)
+            c = (char)tolower((unsigned char)c);
+        return hex;
+    }
+
+    std::string DigestField(std::string const &head, std::string const &name)
+    {
+        std::string key = " " + name + "=\"";
+        size_t at = head.find(key);
+        if (at == std::string::npos)
+            return {};
+        at += key.size();
+        size_t end = head.find('"', at);
+        return end == std::string::npos ? std::string() : head.substr(at, end - at);
+    }
+
+    // The packets of a frame, interleaved on channel 0 (RFC 6184: a single
+    // NAL unit, or FU-A fragments).
+    std::string RtpFrame(std::string const &au, uint32_t stamp, uint16_t &sequence)
+    {
+        std::string out;
+        auto packet = [&](std::string const &payload, bool marker) {
+            sequence++;
+            size_t size = payload.size() + 12;
+            out += '$';
+            out += '\0';
+            out += (char)(size >> 8);
+            out += (char)size;
+            out += (char)0x80;
+            out += (char)(96 | (marker ? 0x80 : 0));
+            out += (char)(sequence >> 8);
+            out += (char)sequence;
+            for (int s = 24; s >= 0; s -= 8)
+                out += (char)(stamp >> s);
+            out.append("\xBA\x5E\x00\x01", 4);
+            out += payload;
+        };
+        std::string const start("\0\0\0\1", 4);
+        std::vector<std::string> units;
+        for (size_t at = au.find(start); at != std::string::npos;)
+        {
+            size_t next = au.find(start, at + 4);
+            units.push_back(au.substr(at + 4, next == std::string::npos ? std::string::npos : next - at - 4));
+            at = next;
+        }
+        for (size_t i = 0; i < units.size(); i++)
+        {
+            std::string const &unit = units[i];
+            bool last = i + 1 == units.size();
+            if (unit.size() <= 1400)
+            {
+                packet(unit, last);
+                continue;
+            }
+            uint8_t head = (uint8_t)unit[0];
+            for (size_t off = 1; off < unit.size(); off += 1400)
+            {
+                bool first = off == 1, end = off + 1400 >= unit.size();
+                std::string part;
+                part += (char)((head & 0xE0) | 28);
+                part += (char)((first ? 0x80 : 0) | (end ? 0x40 : 0) | (head & 31));
+                part += unit.substr(off, 1400);
+                packet(part, last && end);
+            }
+        }
+        return out;
+    }
+
+    TlsStub::Serve ServeRtsp(std::shared_ptr<RtspStub> stub)
+    {
+        return [stub](std::string const &chunk, TlsStub::Write const &write) {
+            bool play = false;
+            {
+                std::lock_guard guard(stub->lock);
+                stub->seen += chunk;
+                stub->in += chunk;
+                for (;;)
+                {
+                    size_t end = stub->in.find("\r\n\r\n");
+                    if (end == std::string::npos)
+                        break;
+                    std::string head = stub->in.substr(0, end + 4);
+                    stub->in.erase(0, end + 4);
+                    std::string method = head.substr(0, head.find(' '));
+                    size_t c = head.find("CSeq: ");
+                    std::string cseq = c == std::string::npos ? "0" : head.substr(c + 6, head.find("\r\n", c) - c - 6);
+                    std::string uri = DigestField(head, "uri");
+                    std::string expect = Md5Hex(Md5Hex("bblp:zslice:" + stub->code) + ":f00d:" + Md5Hex(method + ":" + uri));
+                    bool login = head.find("Authorization: Digest") != std::string::npos && DigestField(head, "response") == expect;
+                    if (!login)
+                    {
+                        if (head.find("Authorization:") != std::string::npos)
+                            stub->bad_logins++;
+                        write("RTSP/1.0 401 Unauthorized\r\nCSeq: " + cseq + "\r\nWWW-Authenticate: Digest realm=\"zslice\", nonce=\"f00d\"\r\n\r\n");
+                        continue;
+                    }
+                    stub->logins++;
+                    if (method == "DESCRIBE")
+                    {
+                        std::string sdp = "v=0\r\no=- 1 1 IN IP4 127.0.0.1\r\ns=test\r\nt=0 0\r\na=control:*\r\nm=video 0 RTP/AVP 96\r\n"
+                                          "a=rtpmap:96 H264/90000\r\na=fmtp:96 packetization-mode=1\r\na=control:track1\r\n";
+                        write("RTSP/1.0 200 OK\r\nCSeq: " + cseq + "\r\nContent-Base: rtsps://127.0.0.1/streaming/live/1/\r\nContent-Type: application/sdp\r\nContent-Length: " +
+                              std::to_string(sdp.size()) + "\r\n\r\n" + sdp);
+                    }
+                    else if (method == "SETUP")
+                        write("RTSP/1.0 200 OK\r\nCSeq: " + cseq + "\r\nTransport: RTP/AVP/TCP;unicast;interleaved=0-1\r\nSession: 4F2A;timeout=65\r\n\r\n");
+                    else if (method == "PLAY")
+                    {
+                        write("RTSP/1.0 200 OK\r\nCSeq: " + cseq + "\r\nSession: 4F2A\r\n\r\n");
+                        stub->plays++;
+                        play = true;
+                    }
+                    else
+                    {
+                        if (method == "TEARDOWN")
+                            stub->teardowns++;
+                        write("RTSP/1.0 200 OK\r\nCSeq: " + cseq + "\r\nSession: 4F2A\r\n\r\n");
+                    }
+                }
+            }
+            if (!play)
+                return;
+            uint16_t sequence = 0;
+            int count = stub->play_seconds > 0 ? stub->play_seconds * 10 : (int)stub->frames.size();
+            for (int i = 0; i < count; i++)
+            {
+                write(RtpFrame(stub->frames[i % stub->frames.size()], (uint32_t)i * 9000, sequence));
+                if (stub->play_seconds > 0)
+                    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+            }
+        };
+    }
+
+    struct FeedLog
+    {
+        std::mutex lock;
+        std::condition_variable cv;
+        int pictures = 0;
+        std::shared_ptr<CameraPicture const> last;
+        std::vector<std::string> notes;
+
+        CameraFeed::Frame Frame()
+        {
+            return [this](std::shared_ptr<CameraPicture const> const &p) {
+                std::lock_guard guard(lock);
+                pictures++;
+                last = p;
+                cv.notify_all();
+            };
+        }
+        CameraFeed::Note Note()
+        {
+            return [this](std::string const &text) {
+                std::lock_guard guard(lock);
+                notes.push_back(text);
+                cv.notify_all();
+            };
+        }
+        bool WaitPicture(int seconds)
+        {
+            std::unique_lock wait(lock);
+            return cv.wait_for(wait, std::chrono::seconds(seconds), [&] { return pictures > 0; });
+        }
+        bool WaitNote(int seconds)
+        {
+            std::unique_lock wait(lock);
+            return cv.wait_for(wait, std::chrono::seconds(seconds), [&] { return !notes.empty(); });
+        }
+    };
+
+    void TestRtsp()
+    {
+        {
+            H264Decoder probe;
+            if (!probe.Ready())
+            {
+                printf("rtsp: this Windows has no decoder, skipped\n");
+                return;
+            }
+        }
+        TestCert cert;
+        CHECK(cert.Get() != nullptr);
+        if (cert.Get() == nullptr)
+            return;
+        std::string const code = "87654321";
+        auto stub = std::make_shared<RtspStub>();
+        stub->code = code;
+        stub->frames = { H264Key(20, 12, 12, yuv_red, yuv_blue, 0), H264Skip(20, 12, 1), H264Skip(20, 12, 2) };
+        TlsStub server(cert.Get(), ServeRtsp(stub));
+        ::SetEnvironmentVariableA("ZSLICE_BAMBU_RTSPS_PORT", std::to_string(server.Port()).c_str());
+        CameraSource source;
+        source.bambu_host = "127.0.0.1";
+        source.bambu_code = code;
+        source.bambu_kind = 1;
+        source.large = true;
+
+        // A whole session: the login, the frames, and the teardown.
+        {
+            FeedLog log;
+            {
+                CameraFeed feed(source, log.Frame(), log.Note());
+                CHECK(log.WaitPicture(10));
+            }
+            CHECK(log.last != nullptr && log.last->width == 320 && log.last->height == 180);
+            if (log.last != nullptr)
+            {
+                CHECK(PixelIs(*log.last, 40, 90, 'r'));
+                CHECK(PixelIs(*log.last, 280, 90, 'b'));
+            }
+            for (auto const &note : log.notes)
+                CHECK(note.find(code) == std::string::npos);
+        }
+        for (int i = 0; i < 40; i++)
+        {
+            {
+                std::lock_guard guard(stub->lock);
+                if (stub->teardowns > 0)
+                    break;
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        }
+        {
+            std::lock_guard guard(stub->lock);
+            CHECK(stub->plays == 1);
+            CHECK(stub->teardowns == 1);
+            CHECK(stub->logins >= 3);
+            CHECK(stub->bad_logins == 0);
+            // Digest: the code never crosses the connection.
+            CHECK(stub->seen.find(code) == std::string::npos);
+        }
+
+        // A wrong code: a note with no code in it, and no picture.
+        {
+            CameraSource wrong = source;
+            wrong.bambu_code = "11112222";
+            FeedLog log;
+            {
+                CameraFeed feed(wrong, log.Frame(), log.Note());
+                CHECK(log.WaitNote(10));
+            }
+            CHECK(log.pictures == 0);
+            CHECK(!log.notes.empty() && log.notes[0].find("11112222") == std::string::npos);
+        }
+
+        // One stream to a printer: a second feed waits for the first.
+        {
+            int before = server.Handshakes();
+            FeedLog first_log, second_log;
+            auto first = std::make_unique<CameraFeed>(source, first_log.Frame(), first_log.Note());
+            CHECK(first_log.WaitPicture(10));
+            CameraFeed second(source, second_log.Frame(), second_log.Note());
+            CHECK(second_log.WaitNote(5));
+            CHECK(server.Handshakes() == before + 1);
+            CHECK(second_log.pictures == 0);
+            first.reset();
+            CHECK(second_log.WaitPicture(10));
+            CHECK(server.Handshakes() == before + 2);
+        }
+
+        // A model that is not known, with no RTSP port: the JPEG port.
+        {
+            SOCKET closed = ::socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+            sockaddr_in addr{};
+            addr.sin_family = AF_INET;
+            addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+            ::bind(closed, reinterpret_cast<sockaddr *>(&addr), sizeof addr);
+            int size = sizeof addr;
+            ::getsockname(closed, reinterpret_cast<sockaddr *>(&addr), &size);
+            int free_port = ntohs(addr.sin_port);
+            ::closesocket(closed);
+            ::SetEnvironmentVariableA("ZSLICE_BAMBU_RTSPS_PORT", std::to_string(free_port).c_str());
+            std::string jpeg = "\xFF\xD8picture\xFF\xD9";
+            std::string frame(16, '\0');
+            frame[0] = (char)jpeg.size();
+            frame[8] = 1;
+            frame += jpeg;
+            TlsStub port6000(cert.Get(), [&](std::string const &, TlsStub::Write const &write) { write(frame); });
+            ::SetEnvironmentVariableA("ZSLICE_BAMBU_JPEG_PORT", std::to_string(port6000.Port()).c_str());
+            CameraSource unknown = source;
+            unknown.bambu_kind = 0;
+            FeedLog log;
+            {
+                CameraFeed feed(unknown, log.Frame(), log.Note());
+                CHECK(log.WaitPicture(10));
+            }
+            CHECK(log.last != nullptr && log.last->width == 0 && log.last->bytes == jpeg);
+            ::SetEnvironmentVariableA("ZSLICE_BAMBU_JPEG_PORT", nullptr);
+        }
+        ::SetEnvironmentVariableA("ZSLICE_BAMBU_RTSPS_PORT", nullptr);
+    }
+
+    // For a look at the app: a camera on 127.0.0.1 for 40 seconds. It writes
+    // its port to `path`, and it has only a test code.
+    int RunRtspStub(char const *path)
+    {
+        TestCert cert;
+        if (cert.Get() == nullptr)
+            return 1;
+        auto stub = std::make_shared<RtspStub>();
+        stub->code = "87654321";
+        stub->play_seconds = 30;
+        stub->frames.push_back(H264Key(40, 23, 4, yuv_red, yuv_blue, 0));
+        for (unsigned i = 1; i < 10; i++)
+            stub->frames.push_back(H264Skip(40, 23, i));
+        TlsStub server(cert.Get(), ServeRtsp(stub));
+        FILE *f = nullptr;
+        if (fopen_s(&f, path, "w") != 0 || f == nullptr)
+            return 1;
+        fprintf(f, "%d\n", server.Port());
+        fclose(f);
+        std::this_thread::sleep_for(std::chrono::seconds(40));
+        return 0;
     }
 
     void TestCamera()
@@ -1432,7 +2001,7 @@ namespace
             {
                 CameraFeed feed(
                     source,
-                    [&](std::shared_ptr<std::string> const &) {
+                    [&](std::shared_ptr<CameraPicture const> const &) {
                         std::lock_guard guard(lock);
                         frames++;
                         cv.notify_all();
@@ -1892,10 +2461,12 @@ namespace
     }
 }
 
-int main()
+int main(int argc, char **argv)
 {
     WSADATA wsa{};
     ::WSAStartup(MAKEWORD(2, 2), &wsa);
+    if (argc == 3 && strcmp(argv[1], "--rtsp-stub") == 0)
+        return RunRtspStub(argv[2]);
     std::wstring dir = ScratchDir();
     ::SetEnvironmentVariableW(L"ZSLICE_STATE_DIR", dir.c_str());
     state::EnsureDir(dir);
@@ -1910,7 +2481,7 @@ int main()
         { "status", TestStatus }, { "key flow", TestKeyFlow }, { "deck", TestDeck }, { "upload", TestUpload },
         { "detect", TestDetect }, { "filaments", TestFilaments }, { "mjpeg", TestMjpeg }, { "camera", TestCamera },
         { "discovery", TestDiscovery }, { "bambu", TestBambu }, { "setup", TestSetup },
-        { "open link", TestOpenLink }, { "project", TestProjectSource }, { "file types", TestRegisterApp }, { "hand off", TestHandOff }, { "state move", TestStateMove },
+        { "h264", TestH264 }, { "rtsp", TestRtsp }, { "open link", TestOpenLink }, { "project", TestProjectSource }, { "file types", TestRegisterApp }, { "hand off", TestHandOff }, { "state move", TestStateMove },
     };
     for (auto const &step : steps)
     {
