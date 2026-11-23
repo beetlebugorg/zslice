@@ -42,6 +42,8 @@ Build the native Windows app in `windows/`: a WinUI 3 shell in C++/WinRT around 
    - The camera in the print details: it shows while the current printer prints or is paused, and plays only while the details are open. It reads the status of the 5 s link, so it adds no status request. It stays off while the Printers page shows, so a printer never streams twice.
    - Number fields follow `setting-editor.c`: a value applies 350 ms after the last key, Up and Down step the last decimal, a value out of the hard limits gets a red ring and says the limits, a value out of the slider range gets an amber ring, and the same number in another form is no change. A text that is not a number goes to the core, so a formula works in the field.
    - The settings pane follows `settings-browser.c`: rows with their source and an arrow, a text setting as a value in its row, a page with the path, slider, formula, source, help, and lines, and a search by a part of the name, help, or key. The search has no limit: its rows come in batches of 30, so typing stays smooth. The path is one wrapping text of links. Back keeps the scroll and marks the row. Alt+Left and the mouse back button use a history of 50 places. An explicit Global scope wins over an open layer profile.
+   - Questions before a loss: removing a plate with parts, a switch of filament with unsaved changes ("Save the changes first?"), and a new host, port, or scheme for a printer with a key ("Send the saved key to this new address?", No by default, Cancel keeps the old address and the key).
+   - Add models adds a part to a plate with parts, and the picker and a drop take several files. A ZIP file comes last, one at a time.
    - A double click on a history change goes to its step and opens the change on its part, in its layers, or for the print. A change outside some layers leaves an open profile, so a new edit cannot go to those layers.
    - Windows calls `zs_set_project_load` for a project, so it needs no separate `zs_project_profiles` or `zs_app_project_load`. It has no islands button: the Check lists the islands.
 
@@ -78,6 +80,8 @@ Build the native Windows app in `windows/`: a WinUI 3 shell in C++/WinRT around 
 - **Say where a default value comes from.** The page wrote "From:" with no source for a default. It now has the wording of the GTK app, and Reset shows only for a change.
 - **Turn CR into LF in a multi-line field.** A WinUI TextBox gives its line breaks as CR. A click in the start G-code and a click away wrote the whole text back with CR, and the core splits G-code at LF. The commit now converts them, and text that is the same is no change.
 - **An empty key in memory deletes nothing.** A save removed the key file of each printer with an empty key, so a failed read at the start lost the key for good. Only `ForgetKey` deletes a key now. An `app.ini` that does not read is kept, and the app saves no printer until the next start.
+- **Each way to forget a key calls `ForgetKey`.** After the change above, the button "Forget the key" still only cleared the key in memory, so the key came back at the next start. A change to who deletes a secret needs a search for every caller.
+- **Write a card field only if the user edited it, to the part it was for.** A click on another part selected it before the Scale field lost the focus, and the field wrote the first part's value to the second.
 
 ## Acceptance checks
 
