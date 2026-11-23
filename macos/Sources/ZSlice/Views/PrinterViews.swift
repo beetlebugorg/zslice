@@ -268,6 +268,10 @@ struct ConnectionSection: View {
     @Binding var url: String
     @Binding var key: String
     @Binding var serial: String
+    /// A saved printer: asks before its key goes to a new address. False:
+    /// the address went back, and nothing is sent.
+    var confirmAddress: (() -> Bool)? = nil
+    @FocusState private var addressFocus: Bool
     @State private var result: String?
     @State private var busy = false
 
@@ -281,7 +285,7 @@ struct ConnectionSection: View {
                     .font(.callout)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
-                TextField("Address", text: $url, prompt: Text("192.168.1.42"))
+                addressField("192.168.1.42")
                 TextField("Serial number", text: $serial, prompt: Text("01P00A123456789"))
                 SecureField("Access code", text: $key)
                 let host = BambuLink.host(probe)
@@ -295,7 +299,7 @@ struct ConnectionSection: View {
                     }
                 }
             } else if kind != .none {
-                TextField("Address", text: $url, prompt: Text("http://printer.local"))
+                addressField("http://printer.local")
                 if kind != .moonraker {
                     SecureField("API key", text: $key)
                 }
@@ -324,6 +328,17 @@ struct ConnectionSection: View {
         }
     }
 
+    /// The address. Return or leaving the field ends the edit.
+    private func addressField(_ prompt: String) -> some View {
+        TextField("Address", text: $url, prompt: Text(prompt))
+            .focused($addressFocus)
+            .onSubmit { _ = confirmAddress?() }
+            .onChange(of: addressFocus) {
+                guard !addressFocus, let confirmAddress else { return }
+                DispatchQueue.main.async { _ = confirmAddress() }
+            }
+    }
+
     /// A printer with this connection, for a test.
     private var probe: Printer {
         var p = Printer(name: "test", kind: kind, url: url)
@@ -333,6 +348,7 @@ struct ConnectionSection: View {
     }
 
     private func run(_ op: @escaping @MainActor () async -> LinkResult) {
+        guard confirmAddress?() ?? true else { return }
         busy = true
         result = nil
         Task { @MainActor in
@@ -413,6 +429,8 @@ struct PrintersSettings: View {
 private struct PrinterEditor: View {
     @State var printer: Printer
     @State private var key = ""
+    /// The address in the field. The printer takes it when the edit ends.
+    @State private var address = ""
 
     var body: some View {
         Form {
@@ -423,16 +441,57 @@ private struct PrinterEditor: View {
                     LabeledContent("Secure address", value: printer.https)
                 }
             }
-            ConnectionSection(kind: $printer.kind, url: $printer.url, key: $key, serial: $printer.serial)
+            ConnectionSection(kind: $printer.kind, url: $address, key: $key, serial: $printer.serial, confirmAddress: endAddressEdit)
             HStack {
                 Spacer()
                 Button("Remove Printer", role: .destructive) { PrinterStore.shared.remove(printer.id) }
             }
         }
         .formStyle(.grouped)
-        .onAppear { key = printer.apiKey }
+        .onAppear {
+            key = printer.apiKey
+            address = printer.url
+        }
         .onChange(of: printer) { PrinterStore.shared.update(printer) }
         .onChange(of: key) { printer.apiKey = key }
+        // An edit that needs no answer is kept. One that needs an answer
+        // stays out of the store, so the key goes nowhere.
+        .onDisappear {
+            if !PrinterLink.addressAsks(from: printer.url, to: address, hasKey: !key.isEmpty) { _ = endAddressEdit() }
+        }
+    }
+
+    /// The end of an edit of the address. False: Cancel, and the old
+    /// address and key stay.
+    private func endAddressEdit() -> Bool {
+        let to = address.trimmingCharacters(in: .whitespaces)
+        guard to != printer.url else { return true }
+        var answer = PrinterLink.KeyAnswer.yes
+        if PrinterLink.addressAsks(from: printer.url, to: to, hasKey: !key.isEmpty) { answer = askKey(to) }
+        guard let r = PrinterLink.changeAddress(printer, key: key, to: to, answer: answer) else {
+            address = printer.url
+            return false
+        }
+        printer = r.printer
+        key = r.key
+        address = to
+        return true
+    }
+
+    /// No is the default button, and Esc is Cancel.
+    private func askKey(_ to: String) -> PrinterLink.KeyAnswer {
+        let a = NSAlert()
+        a.alertStyle = .warning
+        a.messageText = "Send the saved key to this new address?"
+        a.informativeText = "The saved key of this printer is for \(printer.url). The new address is \(to). Send the key there only if you trust that address. With No, the printer asks for a key."
+        a.addButton(withTitle: "No")
+        a.addButton(withTitle: "Yes, Send It")
+        a.addButton(withTitle: "Cancel")
+        switch a.runModal() {
+        case .alertFirstButtonReturn: return .no
+        case .alertSecondButtonReturn: return .yes
+        default: return .cancel
+        }
     }
 }
 
