@@ -971,7 +971,7 @@ namespace winrt::ZSlice::implementation
 
         // The ids of the refinements belong to the plates that went.
         refine_ids.clear();
-        frame_next = false;
+        RequestFrame(ZS_SEL_FRAME_NONE);
         ShowPlate();
         FramePlate((size_t)-1);
         NoteChange();

@@ -484,7 +484,8 @@ namespace winrt::ZSlice::implementation
             std::string table;
             for (size_t i = 0, n = zs_app_part_count(app); i < n; i++)
                 table += std::to_string(zs_app_part_id(app, i)) + " ";
-            zs::Log("dev: sel ids [%s] indices [%s] primary %lld | parts [%s] plate %zu\n", ids.c_str(), indices.c_str(), (long long)PrimaryPart(), table.c_str(), model->ActivePlate());
+            zs::Log("dev: sel ids [%s] indices [%s] primary %lld | parts [%s] plate %zu sel plate %zu tool %d\n", ids.c_str(), indices.c_str(), (long long)PrimaryPart(), table.c_str(),
+                    model->ActivePlate(), sel != nullptr ? zs_sel_plate(sel.get()) : 0, sel != nullptr ? zs_sel_tool(sel.get()) : -1);
         }
         else if (verb == L"partremove" && !words.empty())
         {

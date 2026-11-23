@@ -130,6 +130,9 @@ namespace winrt::ZSlice::implementation
 
     void MainWindow::SetTool(Tool next)
     {
+        SelSync();
+        if (sel != nullptr)
+            zs_sel_tool_set(sel.get(), (int)next);
         // The tools work in the 3D view. The tape works in both.
         if (next != Tool::Select && next != Tool::Measure)
             Set2D(false);
@@ -1070,6 +1073,14 @@ namespace winrt::ZSlice::implementation
         for (int64_t part : parts)
             if (part >= 0)
                 zs_sel_select(sel.get(), zs_app_part_id(app, (size_t)part), ZS_SEL_ADD);
+    }
+
+    // The camera goes to this plate when its slice shows.
+    void MainWindow::RequestFrame(ptrdiff_t target)
+    {
+        SelSync();
+        if (sel != nullptr)
+            zs_sel_frame_request(sel.get(), target);
     }
 
     void MainWindow::SelectLine(int64_t path, int64_t segment)
