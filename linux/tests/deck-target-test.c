@@ -217,6 +217,13 @@ int main(void) {
         usb_stop_turns_off_heat(2, "", two, "M104 S0\n");
         /* The machine says one nozzle, and the file selects T1. */
         usb_stop_turns_off_heat(1, "T1\n", two, "M104 S0\n");
+        /* A tool past nine, and a nozzle heated by number with no T line. */
+        const char *const eleven[] = {"M104 T0 S0\n", "M104 T11 S0\n", NULL};
+        usb_stop_turns_off_heat(1, "T11\n", eleven, "M104 T12");
+        usb_stop_turns_off_heat(1, "M109 T1 S200\n", two, "M104 S0\n");
+        usb_stop_turns_off_heat(1, "M104 S200 T1\n", two, "M104 S0\n");
+        /* A word that only looks like a tool line. */
+        usb_stop_turns_off_heat(1, "TEST\n", one, "M104 T");
     }
     char *dir = g_dir_make_tmp("zslice-deck-XXXXXX", NULL);
     g_setenv("XDG_CONFIG_HOME", dir, TRUE);

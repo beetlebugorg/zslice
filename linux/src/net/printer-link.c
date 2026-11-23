@@ -1162,6 +1162,33 @@ static char *cool_down(int fd, int pending, int nozzles) {
     return g_strdup("Stopped. The heaters and the fan are off.");
 }
 
+/* The digits at `w` as a tool number, up to the end of the word, or -1. */
+static int tool_number(const char *w, size_t n) {
+    if (n == 0 || n > 2) return -1;
+    int v = 0;
+    for (size_t i = 0; i < n; i++) {
+        if (!g_ascii_isdigit(w[i])) return -1;
+        v = v * 10 + (w[i] - '0');
+    }
+    return v;
+}
+
+/* The tool that a line selects (T<n>) or heats (M104 or M109 with T<n>),
+ * or -1. */
+static int tool_of_line(const char *line, size_t len) {
+    if (len >= 2 && line[0] == 'T') return tool_number(line + 1, len - 1);
+    if (len < 5 || line[0] != 'M' || line[1] != '1' || line[2] != '0' || (line[3] != '4' && line[3] != '9') || line[4] != ' ')
+        return -1;
+    for (size_t i = 5; i < len;) {
+        while (i < len && line[i] == ' ') i++;
+        size_t end = i;
+        while (end < len && line[end] != ' ') end++;
+        if (end > i && line[i] == 'T') return tool_number(line + i + 1, end - i - 1);
+        i = end;
+    }
+    return -1;
+}
+
 static gpointer serial_thread(gpointer data) {
     Serial *s = data;
     int fd = open(s->device, O_RDWR | O_NOCTTY | O_NONBLOCK);
@@ -1208,8 +1235,8 @@ static gpointer serial_thread(gpointer data) {
         pos = end + 1;
         if (cut <= start) continue;
         /* A tool that the file selects must cool on Stop too. */
-        if (text[start] == 'T' && cut - start == 2 && g_ascii_isdigit(text[start + 1]))
-            nozzles = MAX(nozzles, text[start + 1] - '0' + 1);
+        int tool = tool_of_line(text + start, cut - start);
+        if (tool >= 0) nozzles = MAX(nozzles, MIN(tool + 1, 16));
         if (write(fd, text + start, cut - start) < 0 || write(fd, "\n", 1) < 0) {
             error = g_strdup_printf("The port stopped: %s. The heaters may still be on.", g_strerror(errno));
             break;
