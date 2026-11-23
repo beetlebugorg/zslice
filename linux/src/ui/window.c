@@ -1320,11 +1320,21 @@ static void on_save_plate_chosen(GObject *source, GAsyncResult *res, gpointer da
  * places of the parts, and their changes. */
 void zg_window_save_plate_dialog(GtkWindow *window) {
     Window *w = get(window);
-    if (zs_app_part_count(zg_model_core(w->model)) == 0) return;
+    /* A project with a part on any plate saves, also from an empty plate.
+     * Its name comes from the active plate, else the first with parts. */
+    zs_set *set = zg_model_plate_set(w->model);
+    size_t active = zs_set_active(set);
+    char *base = NULL;
+    for (size_t i = 0; i < zs_set_count(set); i++) {
+        zs_plate_info plate;
+        if (zs_set_plate_info(set, i, &plate) != ZS_OK || plate.part_count == 0) continue;
+        if (base && i != active) continue;
+        g_free(base);
+        base = g_strdup(plate.name && *plate.name ? plate.name : "plate");
+    }
+    if (!base) return;
     GtkFileDialog *dialog = gtk_file_dialog_new();
     gtk_file_dialog_set_title(dialog, "Save the project: all plates in one 3MF file");
-    const char *name = zg_model_name(w->model);
-    char *base = g_strdup(name && *name ? name : "plate");
     char *dot = strrchr(base, '.');
     if (dot) *dot = 0;
     char *initial = g_strconcat(base, ".3mf", NULL);

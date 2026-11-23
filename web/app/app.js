@@ -4446,8 +4446,15 @@ function loadUi() {
 // Saves all plates as one project file (zs_set_project_save): a 3MF file
 // that zslice opens with its plates, and other slicers as its first plate.
 async function saveProject() {
+  // A project with a part on any plate saves, also from an empty plate.
+  // Its name comes from the active plate, else the first with parts.
+  const named = app.plates[app.activePlate]?.parts > 0 ? app.plates[app.activePlate] : app.plates.find((p) => p.parts > 0);
+  if (!named) {
+    toast("Add a model first. Every plate is empty.");
+    return;
+  }
   try {
-    const name = (app.plates[0]?.name || app.modelName || "project").replace(/.(stl|3mf|obj|step|stp)$/i, "");
+    const name = (named.name || app.modelName || "project").replace(/\.(stl|3mf|obj|step|stp)$/i, "");
     const r = await client.call("projectSave", { name });
     download(new Uint8Array(r.bytes), `${name}.3mf`, "model/3mf");
     history.markSaved();
@@ -4570,7 +4577,7 @@ function addModels() {
 $("open").onclick = () => openMenu($("open"), [
   { label: "Open a model…", action: () => $("file").click() },
   { label: "Add models to this plate…", disabled: app.state === "empty", action: () => addModels() },
-  { label: "Save project…", disabled: app.state === "empty", action: () => saveProject() },
+  { label: "Save project…", disabled: !app.plates.some((p) => p.parts > 0), action: () => saveProject() },
   { label: "Import from a model page…", detail: "Printables or Thingiverse", action: () => askImportPage(new ImportRules(wasm)) },
   { label: "Open links from model sites here", detail: "web+zslice:// links", action: () => toast(registerLinks(), 9000) },
   ...projectItems(),
