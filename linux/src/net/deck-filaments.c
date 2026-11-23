@@ -153,3 +153,14 @@ char *zg_deck_filaments_message(const ZgDeckFilaments *d, gboolean two_nozzles, 
     }
     return g_string_free(s, FALSE);
 }
+
+gboolean zg_material_is_plain(const char *material) {
+    if (!material) return FALSE;
+    size_t n = strlen(material);
+    if (n == 0 || n > 32) return FALSE;
+    for (size_t i = 0; i < n; i++) {
+        char c = material[i];
+        if (!g_ascii_isalnum(c) && c != '+' && c != '-' && c != '_' && c != ' ') return FALSE;
+    }
+    return TRUE;
+}

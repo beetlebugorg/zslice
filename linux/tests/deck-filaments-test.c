@@ -99,11 +99,23 @@ static void test_errors(void) {
     g_string_free(many, TRUE);
 }
 
+static void test_material_names(void) {
+    g_assert_true(zg_material_is_plain("PLA"));
+    g_assert_true(zg_material_is_plain("PETG-CF 20_a+"));
+    g_assert_false(zg_material_is_plain(NULL));
+    g_assert_false(zg_material_is_plain(""));
+    g_assert_false(zg_material_is_plain("PLA\"\nnozzle_temperature = 300"));
+    g_assert_false(zg_material_is_plain("PLA\n"));
+    g_assert_false(zg_material_is_plain("a/b"));
+    g_assert_false(zg_material_is_plain("123456789012345678901234567890123"));
+}
+
 int main(int argc, char **argv) {
     g_test_init(&argc, &argv, NULL);
     g_test_add_func("/deck-filaments/codes", test_codes);
     g_test_add_func("/deck-filaments/one-nozzle", test_one_nozzle);
     g_test_add_func("/deck-filaments/two-nozzles", test_two_nozzles);
     g_test_add_func("/deck-filaments/errors", test_errors);
+    g_test_add_func("/deck-filaments/material-names", test_material_names);
     return g_test_run();
 }

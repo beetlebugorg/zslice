@@ -52,4 +52,9 @@ char *zg_deck_filaments_message(const ZgDeckFilaments *d, gboolean two_nozzles, 
  * S standard). FALSE for another code. */
 gboolean zg_nozzle_of_code(const char *code, const char **type, const char **flow);
 
+/* TRUE if the material name of a printer is plain text: letters, digits,
+ * '+', '-', '_', and spaces, 1 to 32 bytes. Only such a name may go into a
+ * filament profile: a quote or a newline can add lines to it. */
+gboolean zg_material_is_plain(const char *material);
+
 G_END_DECLS

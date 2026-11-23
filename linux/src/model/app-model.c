@@ -32,6 +32,7 @@
  *
  * SPDX-License-Identifier: AGPL-3.0-or-later
  */
+#include "../net/deck-filaments.h"
 #include "app-model.h"
 
 #include <math.h>
@@ -1030,8 +1031,9 @@ void zg_model_filament_from_printer(ZgModel *self, const char *material, const c
         diameter = now ? g_ascii_strtod(now, NULL) : 0;
         g_free(now);
     }
-    /* The material picks the built-in base profile, if there is one. */
-    if (material) {
+    /* The material picks the built-in base profile, if there is one. The
+     * printer names it, so only plain text goes into the profile. */
+    if (zg_material_is_plain(material)) {
         char *lower = g_ascii_strdown(material, -1);
         char *profile = g_strconcat("extends = \"generic-", lower, "\"\n", NULL);
         char message[200] = "";
@@ -2891,6 +2893,9 @@ const char *zg_status_text(int status) {
 static void project_off(ZgModel *self) {
     if (!self->project) return;
     self->project = FALSE;
+    /* The filament settings are the project's now: they must not go to the
+     * file of a roll. The next status of the printer links its roll. */
+    g_clear_pointer(&self->roll, g_free);
     g_clear_pointer(&self->project_title, g_free);
     update_name(self);
     g_signal_emit(self, signals[SIGNAL_PROJECT_CHANGED], 0);
