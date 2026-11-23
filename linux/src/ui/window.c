@@ -2108,6 +2108,7 @@ static void on_clear_action(GSimpleAction *a, GVariant *v, gpointer data) {
  * settings (panel, panel_pinned). */
 
 static void set_panel_mode(Window *w, int mode) {
+    g_object_set_data(G_OBJECT(w->window), "zg-drawer", w->panel);
     GtkWidget *parent = gtk_widget_get_parent(w->panel);
     gboolean in_paned = parent == w->paned;
     if (mode == PANEL_PINNED && !in_paned) {

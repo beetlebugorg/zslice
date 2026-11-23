@@ -227,4 +227,11 @@ void zg_free_area(GtkWidget *host, double area[4]) {
     area[1] = 8;
     area[2] = gtk_widget_get_width(host) - 60;
     area[3] = gtk_widget_get_height(host) - 82;
+    /* The panel over the right of the view: a card stays clear of it. */
+    GtkRoot *root = gtk_widget_get_root(host);
+    GtkWidget *drawer = root ? g_object_get_data(G_OBJECT(root), "zg-drawer") : NULL;
+    if (drawer && gtk_widget_get_visible(drawer) && gtk_widget_has_css_class(drawer, "zg-drawer")) {
+        graphene_point_t from = GRAPHENE_POINT_INIT(0, 0), to;
+        if (gtk_widget_compute_point(drawer, host, &from, &to)) area[2] = MIN(area[2], to.x - 8);
+    }
 }
