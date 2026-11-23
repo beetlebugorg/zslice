@@ -296,6 +296,21 @@ namespace winrt::ZSlice::implementation
         if (model == nullptr)
             return;
         zs_app *app = model->Active();
+        // The settings from the file of the part: read only.
+        {
+            size_t file_len = 0;
+            std::string file_text;
+            if (zs_app_part_settings(app, (size_t)part, nullptr, 0, &file_len) == ZS_OK && file_len > 0)
+            {
+                file_text.assign(file_len + 1, '\0');
+                if (zs_app_part_settings(app, (size_t)part, file_text.data(), file_text.size(), &file_len) == ZS_OK)
+                    file_text.resize(file_len);
+                else
+                    file_text.clear();
+            }
+            PartFileText().Text(zs::ToWide(file_text));
+            PartFileBox().Visibility(file_text.empty() ? Visibility::Collapsed : Visibility::Visible);
+        }
         std::vector<zs_setting_info> own;
         std::string key = std::to_string(part) + ":";
         for (size_t i = 0, n = zs_setting_count(); i < n; i++)

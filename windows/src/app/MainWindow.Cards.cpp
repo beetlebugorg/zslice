@@ -636,6 +636,12 @@ namespace winrt::ZSlice::implementation
                 swprintf_s(scale, L"%.4g", p.scale_x * 100);
                 PartScale().Text(scale);
             }
+            // Why the part floats over the bed.
+            char float_note[256] = "";
+            size_t float_len = 0;
+            bool floats = zs_app_part_float_note(app, (size_t)selected_parts[0], float_note, sizeof float_note, &float_len) == ZS_OK;
+            PartFloatNote().Text(floats ? zs::ToWide(float_note) : std::wstring());
+            PartFloatNote().Visibility(floats ? Visibility::Visible : Visibility::Collapsed);
             FillPartOrder();
             FillPartExtras();
         }
