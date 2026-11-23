@@ -220,6 +220,8 @@ The app reads the state of the current printer each 5 seconds. **zslice holds on
 
 The app reads a Bambu Lab printer and sends it nothing. It shows the JPEG camera of a P1 or an A1. It does not show the H.264 camera of an X1, H2, P2S, or X2D yet.
 
+When you change the host, port, or scheme of a printer that has a saved key, the app asks **Send the saved key to this new address?** **No** is the default: the printer keeps the new address and asks for a key. **Cancel** keeps the old address and the key.
+
 ## Send and export
 
 The button at the right of the bottom bar is **Export G-code…**. With a printer that takes files, it is **Upload to** that printer, and its arrow has the other ways to send.

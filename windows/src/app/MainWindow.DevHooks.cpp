@@ -261,6 +261,69 @@ namespace winrt::ZSlice::implementation
             zs::Log("dev: measure: %s\n", to_string(MeasureText().Text()).c_str());
     }
 
+    // The steps of the printer dialogs. RunDevStep is at the limit of the
+    // compiler for one chain of else-if.
+    bool MainWindow::RunDialogStep(std::wstring const &verb, std::vector<std::wstring> const &words)
+    {
+        if (verb == L"pressbutton" && !words.empty())
+        {
+            // pressbutton Some_text: the first button with this text, in the
+            // window or an open dialog, through its automation peer.
+            std::wstring want = words[0];
+            std::replace(want.begin(), want.end(), L'_', L' ');
+            using Node = Microsoft::UI::Xaml::DependencyObject;
+            using Tree = Microsoft::UI::Xaml::Media::VisualTreeHelper;
+            Microsoft::UI::Xaml::Controls::Button found{ nullptr };
+            std::function<void(Node const &)> walk = [&](Node const &at) {
+                if (found != nullptr)
+                    return;
+                if (auto b = at.try_as<Microsoft::UI::Xaml::Controls::Button>())
+                {
+                    auto text = b.Content().try_as<winrt::Windows::Foundation::IPropertyValue>();
+                    if (text != nullptr && text.Type() == winrt::Windows::Foundation::PropertyType::String && std::wstring(text.GetString()) == want)
+                        found = b;
+                }
+                for (int32_t i = 0, n = Tree::GetChildrenCount(at); i < n; i++)
+                    walk(Tree::GetChild(at, i));
+            };
+            for (auto const &popup : Tree::GetOpenPopupsForXamlRoot(Content().XamlRoot()))
+                if (popup.Child() != nullptr)
+                    walk(popup.Child());
+            walk(Root());
+            if (found != nullptr)
+                Microsoft::UI::Xaml::Automation::Peers::ButtonAutomationPeer(found).Invoke();
+            zs::Log("dev: press '%s' %s\n", zs::ToUtf8(want).c_str(), found != nullptr ? "done" : "not found");
+        }
+        else if (verb == L"manageopen")
+        {
+            printers->ShowManage();
+        }
+        else if (verb == L"filswitch" && !words.empty())
+        {
+            std::string material = zs::ToUtf8(words[0]);
+            printers->AskSwitch(ZS_GROUP_FILAMENT, words[0], [this, material] {
+                std::string message;
+                printers->setup.UseMaterial(material, message);
+                RefreshSettingValues();
+                printers->RefreshBar();
+            });
+        }
+        else if (verb == L"keylog")
+        {
+            // Whether a key is there. Its text never goes to a log.
+            zs::SavedPrinter const &p = zs::Printers().Current();
+            std::wstring file = zs::PrinterStore::SecretPath(p);
+            zs::Log("dev: key kind %d url '%s' in memory %d on disk %d | material %s temp %s changed %d\n", (int)p.kind, p.url.c_str(), p.api_key.empty() ? 0 : 1,
+                    !file.empty() && ::GetFileAttributesW(file.c_str()) != INVALID_FILE_ATTRIBUTES ? 1 : 0, model->GetSetting("filament.material").c_str(), model->GetSetting("filament.nozzle_temp").c_str(),
+                    printers->setup.GroupChanged(ZS_GROUP_FILAMENT) ? 1 : 0);
+        }
+        else
+        {
+            return false;
+        }
+        return true;
+    }
+
     void MainWindow::RunDevStep(std::wstring const &step)
     {
         std::wstringstream in{ step };
@@ -1343,7 +1406,7 @@ namespace winrt::ZSlice::implementation
         {
             SelectPlate((size_t)number(0));
         }
-        else if (!RunPaintStep(verb, words) && !RunLabelStep(verb, words) && !RunFilamentStep(verb, words) &&
+        else if (!RunDialogStep(verb, words) && !RunPaintStep(verb, words) && !RunLabelStep(verb, words) && !RunFilamentStep(verb, words) &&
                  !RunPreferencesStep(verb, words) && !RunProjectStep(verb, words) && !RunRangeStep(verb, words) && !RunProfileStep(verb, words) && !RunScopeStep(verb, words) && !RunModelImportStep(verb, words) && verb != L"log")
         {
             zs::Log("dev: a bad step: %s\n", StepForLog(step).c_str());

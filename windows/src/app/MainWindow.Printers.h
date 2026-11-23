@@ -145,7 +145,7 @@ namespace winrt::ZSlice::implementation
         void FillPrinterMenu();
         void FillQuality();
         void FillFilament();
-        void AskProfileName(int group);
+        void AskProfileName(int group, std::function<void()> then = nullptr);
         void Note(std::wstring const &text);
         void SavePin(zs::link::Target const &target);
         std::shared_ptr<OverlayPanel> OpenPanel(std::wstring const &title, double width, double height,
@@ -251,6 +251,12 @@ namespace winrt::ZSlice::implementation
         std::map<std::string, BambuKnown> bambu_known;
         // The id of the link to this printer (the same serial), or "".
         std::string BambuLinkOf(zs::SavedPrinter const &printer) const;
+        // A new address of a printer with a key.
+        static bool AddressAsks(zs::SavedPrinter const &printer, std::string const &to);
+        winrt::fire_and_forget ChangeAddress(std::string id, std::string to, std::function<void(bool)> done);
+        bool address_asking = false;
+        // Before a switch of profile: its changes can be saved first.
+        winrt::fire_and_forget AskSwitch(int group, std::wstring name, std::function<void()> load);
         // A test in Preferences that waits for this link gets its answer.
         void PrefsLinkReport(std::string const &id, zs::link::Snapshot const *status, std::string const &error);
         Microsoft::UI::Dispatching::DispatcherQueueTimer follow_timer{ nullptr };
