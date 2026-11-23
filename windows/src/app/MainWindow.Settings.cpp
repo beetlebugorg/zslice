@@ -889,10 +889,38 @@ namespace winrt::ZSlice::implementation
                     return;
                 }
             }
-            std::wstring text = L"From: " + zs::ToWide(model->SourceTag(key.c_str()));
-            text += L"\nDefault: " + DisplayValue(key.c_str(), default_value, true);
+            // Where the value comes from, and what a reset gives. A formula
+            // of this print counts as a change of this print.
+            ptrdiff_t part = settings_scope >= 0 ? (ptrdiff_t)settings_scope : -1;
+            int level = ZS_LEVEL_DEFAULT;
+            char profile[256] = "";
+            if (part < 0 && !model->Formula(key.c_str()).empty())
+                level = ZS_LEVEL_PRINT;
+            else if (zs_app_setting_source(model->Active(), part, key.c_str(), &level, profile, sizeof profile) != ZS_OK)
+                level = ZS_LEVEL_DEFAULT;
+            std::wstring def = DisplayValue(key.c_str(), default_value, true);
+            std::wstring from = zs::ToWide(profile);
+            std::wstring text;
+            switch (level)
+            {
+            case ZS_LEVEL_PRINT:
+            {
+                char const *quality = zs_app_quality_name(model->Active());
+                text = L"Changed for this print. Reset gives " + DisplayValue(key.c_str(), model->BaseValue(key.c_str()), true) + L" (from " +
+                       (quality != nullptr && quality[0] != 0 ? zs::ToWide(quality) : std::wstring(L"the default")) + L").";
+                break;
+            }
+            case ZS_LEVEL_GLOBAL: text = L"From Global. Default: " + def; break;
+            case ZS_LEVEL_MACHINE: text = L"From " + (from.empty() ? std::wstring(L"Printer") : from) + L". Default: " + def; break;
+            case ZS_LEVEL_FILAMENT: text = L"From " + (from.empty() ? std::wstring(L"Filament") : from) + L". Default: " + def; break;
+            case ZS_LEVEL_QUALITY: text = L"From " + (from.empty() ? std::wstring(L"Quality") : from) + L". Default: " + def; break;
+            default: text = L"The default (" + def + L")"; break;
+            }
             source.Text(text);
-            reset.IsEnabled(model->GetSetting(key.c_str()) != model->BaseValue(key.c_str()) || !model->Formula(key.c_str()).empty());
+            // The button keeps its space, so the help text does not move.
+            bool changed = level == ZS_LEVEL_PRINT || level == ZS_LEVEL_PART;
+            reset.IsEnabled(changed);
+            reset.Opacity(changed ? 1 : 0);
         };
         fill_source();
         setting_editors.push_back({ key, fill_source });
