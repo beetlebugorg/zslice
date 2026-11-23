@@ -172,6 +172,10 @@ final class SliceModel {
         let rc = zs_app_plate_printable(core, &buf, buf.count, &len)
         let why = rc == Int32(ZS_PART_TOO_LARGE.rawValue) ? String(cString: buf) : nil
         if why != unprintable { unprintable = why }
+        // ZSLICE_FIT_LOG=1: the reason, and whether Export is on.
+        if ProcessInfo.processInfo.environment["ZSLICE_FIT_LOG"] != nil {
+            NSLog("zslice fit: export %d, gcode %d, %@", canExport ? 1 : 0, gcode() == nil ? 0 : 1, why ?? "fits")
+        }
     }
 
     /// The project file of the plates for a save (ProjectFile.swift).
