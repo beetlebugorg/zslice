@@ -1,6 +1,6 @@
 # A prompt that could build zslice
 
-Describes: main at commit `077bde34` ("Add the Selected page to the Windows prompt"), 2026-11-23.
+Describes: main at commit `1401753a` ("Add the foot of the line page to the prompt"), 2026-11-23.
 
 ## Read this first
 
