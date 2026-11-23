@@ -772,6 +772,34 @@ namespace winrt::ZSlice::implementation
                         zs_app_history_count(model->Active()), zs::ToUtf8(text.substr(0, 62)).c_str());
             }
         }
+        else if (verb == L"fieldstep" && words.size() >= 2 && made_field != nullptr)
+        {
+            // fieldstep name steps [fine]: as the arrow keys do.
+            zs_setting_info info{};
+            bool known = false;
+            for (size_t i = 0, n = zs_setting_count(); i < n && !known; i++)
+                known = zs_setting_get_info(i, &info) == ZS_OK && zs::ToUtf8(words[0]) == info.name;
+            if (known)
+                StepField(*made_field, info, std::wstring(made_field->box.Text()), _wtof(words[1].c_str()), words.size() > 2, 150);
+        }
+        else if (verb == L"fieldslide" && !words.empty())
+        {
+            // fieldslide v: the slider of the page moves to v.
+            using Node = Microsoft::UI::Xaml::DependencyObject;
+            using Tree = Microsoft::UI::Xaml::Media::VisualTreeHelper;
+            Microsoft::UI::Xaml::Controls::Slider found{ nullptr };
+            std::function<void(Node const &)> walk = [&](Node const &at) {
+                if (auto slider = at.try_as<Microsoft::UI::Xaml::Controls::Slider>(); slider != nullptr && found == nullptr)
+                    found = slider;
+                for (int32_t i = 0, n = Tree::GetChildrenCount(at); i < n && found == nullptr; i++)
+                    walk(Tree::GetChild(at, i));
+            };
+            walk(SettingsList());
+            if (found != nullptr)
+                found.Value(_wtof(words[0].c_str()));
+            zs::Log("dev: field slider %d value %.3f of %.3f to %.3f step %.3f\n", found != nullptr ? 1 : 0, found != nullptr ? found.Value() : 0.0, found != nullptr ? found.Minimum() : 0.0, found != nullptr ? found.Maximum() : 0.0,
+                    found != nullptr ? found.StepFrequency() : 0.0);
+        }
         else if (verb == L"textround")
         {
             // A multi-line field goes back to the core with no edit.

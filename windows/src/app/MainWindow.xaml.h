@@ -246,10 +246,19 @@ namespace winrt::ZSlice::implementation
             // The text that the code put there: its change event is no edit.
             std::wstring shown, doc;
             int state = 0;
+            // The slider of the field follows the value of the core.
+            std::function<void(std::string const &)> follow;
         };
+        // The field of the last editor that MakeEditor made, or null.
+        std::shared_ptr<EditorField> made_field;
+        Microsoft::UI::Xaml::FrameworkElement MakeFieldSlider(std::shared_ptr<EditorField> const &field, zs_setting_info const &info,
+                                                              std::shared_ptr<EditorTarget> const &target, std::string const &now);
+        // A drag on the name changes the number: 6 points for each step.
+        void AddScrub(Microsoft::UI::Xaml::FrameworkElement const &label, std::shared_ptr<EditorField> const &field, zs_setting_info const &info,
+                      std::shared_ptr<EditorTarget> const &target);
         void SetFieldState(EditorField &field, int state, std::wstring const &tip);
         void ShowUnusual(EditorField &field, zs_setting_info const &info, std::string const &value);
-        void StepField(EditorField &field, zs_setting_info const &info, double steps, bool fine, int delay_ms);
+        void StepField(EditorField &field, zs_setting_info const &info, std::wstring const &base, double steps, bool fine, int delay_ms);
         // Sends the text of an editor to the core. quiet: the user is still
         // typing, so a refused value shows no error. True if the core has it.
         bool CommitSettingText(zs_setting_info const &info, std::wstring const &text, EditorTarget const *target, EditorField *field = nullptr, bool quiet = false);
