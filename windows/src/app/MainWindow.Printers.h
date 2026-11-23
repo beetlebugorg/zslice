@@ -187,6 +187,9 @@ namespace winrt::ZSlice::implementation
         void OnBambuStatus(std::string const &id, zs::link::Snapshot const *status, std::string const &error);
         // A status of the current printer: the filaments follow its spools.
         void FollowSpools(std::string const &name, zs::link::Snapshot const &status);
+        // A status of the current printer: its rolls, its spools, and the
+        // filament settings of the roll in it.
+        void FollowPrinter(std::string const &name, zs::link::Snapshot const &status);
         // The camera at the top of the details of the print, while the
         // current printer prints. It plays only while the details show,
         // and it uses the status of the link: it adds no status request.
@@ -290,6 +293,7 @@ namespace winrt::ZSlice::implementation
         bool reading_filaments = false;
         // The rolls of the current printer, from its last status.
         std::vector<zs::link::Roll> rolls;
+        std::string rolls_printer;
 
         std::vector<std::shared_ptr<OverlayPanel>> panels;
 

@@ -258,7 +258,7 @@ A click on a line, a part, or a gap opens its **Selected** page in the pane. **A
 
 The **Speed** section at the top of the settings pane lists the options that change the time of a slice, with the gain and the cost of each. **Faster slicing** sets all of them to their faster values. It reads **Custom** when one option has another value.
 
-The Windows app does not keep filament settings for each roll in the printer.
+**Keep filament settings for each roll in the printer** is in Preferences, on the Printers page, and it is on by default. printdeck tells which roll is in the printer. Each roll keeps its own filament settings, and a change of the roll loads them. A new roll starts from the settings before, or from the built-in profile of another material. A project keeps its own filament settings.
 
 ## Where your settings are
 

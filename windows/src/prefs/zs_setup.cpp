@@ -36,6 +36,33 @@ namespace zs
             return text;
         }
 
+        // A material name goes into the text of a profile, so a printer
+        // must not be able to add a line to it.
+        bool PlainMaterial(std::string const &text)
+        {
+            if (text.empty() || text.size() > 32)
+                return false;
+            for (unsigned char c : text)
+                if (c >= 0x80 || (!isalnum(c) && c != '+' && c != '-' && c != '_' && c != ' '))
+                    return false;
+            return true;
+        }
+
+        // A name of a printer with no control characters.
+        std::string NoControls(std::string text)
+        {
+            text.erase(std::remove_if(text.begin(), text.end(), [](unsigned char c) { return c < 0x20 || c == 0x7f; }), text.end());
+            return text;
+        }
+
+        bool IsBuiltinFilament(std::string const &name)
+        {
+            for (size_t i = 0; i < zs_builtin_profile_count(ZS_GROUP_FILAMENT); i++)
+                if (name == zs_builtin_profile_name(ZS_GROUP_FILAMENT, i))
+                    return true;
+            return false;
+        }
+
         bool IsBuiltinQuality(std::string const &name)
         {
             if (name == "custom")
@@ -217,7 +244,11 @@ namespace zs
             // The filament also goes with the printer: it gets it back after
             // a switch to it.
             if (g == ZS_GROUP_FILAMENT && !project_)
+            {
                 ok = state::WriteBytes(PrinterStore::FilamentPath(Printers().Current()), text) && ok;
+                if (!roll_.empty())
+                    ok = state::WriteBytes(RollPath(roll_), text) && ok;
+            }
             if (ok)
                 written_[g] = std::move(text);
             else
@@ -307,6 +338,10 @@ namespace zs
         }
         project_ = KeepProject();
         store.SetCurrent(id);
+        // The roll was in the printer before. The next status of this
+        // printer names its own roll.
+        roll_.clear();
+        printer_roll_.clear();
         zs_app *app = model_.Active();
         zs_app_group_reset(app, ZS_GROUP_MACHINE);
         LoadGroup(ZS_GROUP_MACHINE);
@@ -445,6 +480,8 @@ namespace zs
 
     bool PrinterSetup::UseMaterial(std::string const &material, std::string &message)
     {
+        // A material that the user picks ends the settings of the roll.
+        SetRoll({});
         std::string base = "generic-" + Lower(material);
         // The diameter is a property of the printer. The built-in profiles
         // are for 1.75 mm.
@@ -539,6 +576,141 @@ namespace zs
     std::string PrinterSetup::GroupProfile(int group) const
     {
         return profile_[group];
+    }
+
+    std::string PrinterSetup::RollKey(std::string const &printer, std::string const &roll_id)
+    {
+        std::string key;
+        auto add = [&key](std::string const &text) {
+            for (unsigned char c : text)
+                key += c < 0x80 && isalnum(c) ? (char)c : '-';
+        };
+        add(printer);
+        key += '-';
+        add(roll_id);
+        return key;
+    }
+
+    std::wstring PrinterSetup::RollPath(std::string const &key)
+    {
+        return state::PathOf(L"rolls\\" + ToWide(key) + L".toml");
+    }
+
+    void PrinterSetup::SaveRoll()
+    {
+        if (!project_ && !roll_.empty() && !state::WriteBytes(RollPath(roll_), GroupText(ZS_GROUP_FILAMENT)))
+            Log("shell: the settings of the roll were not saved\n");
+    }
+
+    bool PrinterSetup::LoadRoll(std::string const &key)
+    {
+        std::string text;
+        if (!state::ReadBytes(RollPath(key), text))
+            return false;
+        std::string why;
+        if (!ApplyText(ZS_GROUP_FILAMENT, text, why))
+        {
+            Log("shell: the settings of a roll were not loaded (%s)\n", why.c_str());
+            return false;
+        }
+        Touch(ZS_GROUP_FILAMENT);
+        model_.RequestSlice();
+        SaveState();
+        return true;
+    }
+
+    bool PrinterSetup::SetRoll(std::string const &key)
+    {
+        if (key == roll_)
+            return true;
+        if (project_)
+            return !key.empty() && LoadRoll(key);
+        SaveRoll();
+        roll_ = key;
+        return !key.empty() && LoadRoll(key);
+    }
+
+    void PrinterSetup::FilamentFromPrinter(std::string const &raw_material, std::string const &raw_name, double diameter, std::string const &raw_color)
+    {
+        zs_app *app = model_.Active();
+        std::string material = PlainMaterial(raw_material) ? raw_material : std::string();
+        std::string name = NoControls(raw_name), color = NoControls(raw_color);
+        // The diameter is a property of the printer. A switch of the
+        // material keeps it, unless the printer tells another one.
+        if (diameter <= 0)
+            diameter = atof(model_.GetSetting("filament.diameter").c_str());
+        if (!material.empty())
+        {
+            std::string base = "generic-" + Lower(material);
+            if (IsBuiltinFilament(base))
+            {
+                std::string text = "extends = \"" + base + "\"\n";
+                char error[256] = "";
+                if (zs_app_profile_apply(app, ZS_GROUP_FILAMENT, text.data(), text.size(), error, sizeof error) != ZS_OK)
+                    Log("shell: the profile of the material was not loaded (%s)\n", error);
+            }
+        }
+        if (name.empty())
+            name = material;
+        if (!name.empty())
+            zs_app_setting_set(app, "filament.name", name.c_str());
+        if (!material.empty())
+        {
+            std::string upper = material;
+            std::transform(upper.begin(), upper.end(), upper.begin(), [](unsigned char c) { return (char)toupper(c); });
+            zs_app_setting_set(app, "filament.material", upper.c_str());
+        }
+        if (diameter > 0)
+            zs_app_setting_set(app, "filament.diameter", Number(diameter).c_str());
+        if (!color.empty())
+            zs_app_setting_set(app, "filament.color", color.c_str());
+        Touch(ZS_GROUP_FILAMENT);
+        model_.RequestSlice();
+        SaveState();
+    }
+
+    bool PrinterSetup::FollowRoll(std::string const &printer, RollFacts const &in, bool follow, std::string &note)
+    {
+        note.clear();
+        bool changed = false;
+        if (follow && !in.id.empty() && !project_)
+        {
+            std::string key = RollKey(printer, in.id);
+            // Only a change of the roll in the printer. A roll that the
+            // user picks stays until the printer has another roll.
+            bool moved = printer_roll_ != key;
+            printer_roll_ = key;
+            if (moved && roll_ != key)
+            {
+                // The first roll after a start: the settings now are the
+                // ones of this roll, unless it has a file.
+                bool first = roll_.empty();
+                if (SetRoll(key))
+                    changed = true;
+                else if (first)
+                    SaveRoll();
+                else
+                {
+                    bool same = !in.material.empty() && Lower(in.material) == Lower(spool_material_);
+                    FilamentFromPrinter(same ? std::string() : in.material, in.name.empty() ? in.material : in.name, in.diameter, in.color);
+                    changed = true;
+                }
+                if (!first && !in.name.empty())
+                    note = "Filament settings for " + NoControls(in.name);
+            }
+        }
+        if (!in.material.empty())
+            spool_material_ = in.material;
+        return changed;
+    }
+
+    void PrinterSetup::UseRoll(std::string const &printer, RollFacts const &roll)
+    {
+        std::string before = model_.GetSetting("filament.material");
+        if (SetRoll(RollKey(printer, roll.id)))
+            return;
+        bool same = !roll.material.empty() && Lower(roll.material) == Lower(before);
+        FilamentFromPrinter(same ? std::string() : roll.material, roll.name, 0, roll.color);
     }
 
     bool PrinterSetup::FilamentsFromPrinter(std::string const &printer, std::string const &json, int flags, std::string &message)

@@ -117,7 +117,7 @@ namespace winrt::ZSlice::implementation
         <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
         <Grid.RowDefinitions>
           <RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" />
-          <RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" />
+          <RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
         <TextBlock Text="Name" Style="{StaticResource FormLabel}" />
         <TextBox x:Name="FormName" Grid.Column="1" FontSize="13" AutomationProperties.Name="Name" />
@@ -153,7 +153,11 @@ namespace winrt::ZSlice::implementation
           <Button x:Name="UseFilament" FontSize="13" Content="Use the filament in the printer" Visibility="Collapsed"
                   ToolTipService.ToolTip="Sets the filament settings from the filament in the printer: the built-in profile of its material, its name, diameter, and color." />
         </StackPanel>
-        <TextBlock Grid.Row="9" Grid.Column="1" Margin="0,12,0,0" TextWrapping="Wrap" Foreground="{ThemeResource ZsDim}"
+        <CheckBox x:Name="FollowRoll" Grid.Row="9" Grid.Column="1" FontSize="13" AutomationProperties.Name="Keep filament settings for each roll in the printer"
+                  ToolTipService.ToolTip="printdeck tells which roll is in the printer. Each roll keeps its own filament settings (its tuning too), and a change of the roll loads them. A new roll starts from the settings before, or from the built-in profile of another material.">
+          <TextBlock TextWrapping="Wrap" Text="Keep filament settings for each roll in the printer" />
+        </CheckBox>
+        <TextBlock Grid.Row="10" Grid.Column="1" Margin="0,12,0,0" TextWrapping="Wrap" Foreground="{ThemeResource ZsDim}"
                    Text="The machine settings of the current printer (bed, nozzle, speeds, start and end G-code) are in the Settings page, under Printer, and in the printer list of the header bar (Printer settings and G-code). Each printer keeps its own." />
       </Grid>
     </ScrollViewer>
@@ -295,6 +299,7 @@ namespace winrt::ZSlice::implementation
         TextBlock usb_port_label{ nullptr }, usb_baud_label{ nullptr };
         NumberBox threads{ nullptr };
         ToggleSwitch draft{ nullptr }, simulate{ nullptr };
+        CheckBox follow_roll{ nullptr };
         TextBlock trust{ nullptr }, url_label{ nullptr }, serial_label{ nullptr }, key_label{ nullptr }, result{ nullptr }, folder{ nullptr };
         FrameworkElement serial_box{ nullptr };
         Grid key_box{ nullptr };
@@ -371,6 +376,7 @@ namespace winrt::ZSlice::implementation
         threads = Get<NumberBox>(root, L"GeneralThreads");
         draft = Get<ToggleSwitch>(root, L"GeneralDraft");
         simulate = Get<ToggleSwitch>(root, L"GeneralSimulate");
+        follow_roll = Get<CheckBox>(root, L"FollowRoll");
         folder = Get<TextBlock>(root, L"GeneralFolder");
         open = Get<Button>(root, L"GeneralOpen");
 
@@ -392,6 +398,7 @@ namespace winrt::ZSlice::implementation
         threads.Value(atof(ui.w.model->GetSetting("engine.threads").c_str()));
         draft.IsOn(ui.w.model->GetSetting("engine.draft_slices") != "false");
         simulate.IsOn(ui.w.model->GetSetting("engine.auto_simulate") != "false");
+        follow_roll.IsChecked(store.Pref("follow_roll", "1") == "1");
         folder.Text(zs::StateDir());
     }
 
@@ -545,6 +552,13 @@ namespace winrt::ZSlice::implementation
         };
         draft.Toggled(engine_switch(&PrefsPage::draft, "engine.draft_slices"));
         simulate.Toggled(engine_switch(&PrefsPage::simulate, "engine.auto_simulate"));
+        auto keep_roll = [weak](auto &&, auto &&) {
+            auto s = weak.lock();
+            if (s != nullptr && !s->filling)
+                zs::Printers().SetPref("follow_roll", s->follow_roll.IsChecked().Value() ? "1" : "0");
+        };
+        follow_roll.Checked(keep_roll);
+        follow_roll.Unchecked(keep_roll);
         open.Click([](auto &&, auto &&) {
             std::wstring dir = zs::StateDir();
             ::ShellExecuteW(nullptr, L"open", dir.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
@@ -1503,6 +1517,11 @@ namespace winrt::ZSlice::implementation
             page->draft.IsOn(number != 0);
         else if (verb == L"prefsimulate")
             page->simulate.IsOn(number != 0);
+        else if (verb == L"prefroll")
+        {
+            page->follow_roll.IsChecked(number != 0);
+            zs::Log("dev: follow_roll %s\n", zs::Printers().Pref("follow_roll", "1").c_str());
+        }
         else if (verb == L"prefset" && words.size() >= 2)
         {
             std::wstring value = words[1];

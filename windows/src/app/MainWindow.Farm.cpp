@@ -631,8 +631,7 @@ namespace winrt::ZSlice::implementation
                 ui.DetailsStatus(r.id, r.ok ? &r.status : nullptr);
                 if (!r.ok)
                     return;
-                ui.rolls = r.status.rolls;
-                ui.FollowSpools(r.name, r.status);
+                ui.FollowPrinter(r.name, r.status);
             });
     }
 
@@ -820,8 +819,7 @@ namespace winrt::ZSlice::implementation
         zs::SavedPrinter const &current = zs::Printers().Current();
         if (status != nullptr && id == current.id)
         {
-            rolls = status->rolls;
-            FollowSpools(current.name, *status);
+            FollowPrinter(current.name, *status);
         }
     }
 
@@ -1013,13 +1011,11 @@ namespace winrt::ZSlice::implementation
         show(t->roll, !roll.empty());
         bool current = t->id == zs::Printers().Current().id;
         std::string current_name = printer->name;
-        if (current)
-            rolls = st->rolls;
         action();
         counts_now();
         // Last: a change of the filaments can rebuild the page.
         if (current)
-            FollowSpools(current_name, *st);
+            FollowPrinter(current_name, *st);
     }
 
     void MainWindow::PrintersUi::StartCamera(std::shared_ptr<PrinterTile> const &t)

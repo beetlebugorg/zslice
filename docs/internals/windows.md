@@ -158,7 +158,7 @@ At the start, the app reads `/slicer/printer.json` of each deck with saved print
 - The theme is `RequestedTheme` of the root element. `ThemeDialog` gives it to a dialog, with the background token. With a chosen theme, `ui::ThemeBrush` returns the color token of that theme. A change of the theme builds the Printers page again.
 - A profile has no engine settings, and a new plate does not copy them. `ApplyThreadsPref` gives the thread count to each plate. A plate that waits for a slice or slices gets it at its next status event.
 - `zs_app_setting_set` records no pending history edit for `engine.threads`, because a history step has no engine options.
-- The panel has no "Keep filament settings for each roll" row. The Windows shell has no such feature.
+- `PrinterSetup::FollowRoll` keeps the filament settings of each roll in `rolls/<key>.toml`, as the GTK app does. A material name from a printer must be plain text before it goes into a profile. A project ends the link to a roll, so its settings never go to a roll file.
 
 ## The icon
 

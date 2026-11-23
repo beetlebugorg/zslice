@@ -945,6 +945,8 @@ namespace winrt::ZSlice::implementation
             ProjectFail(zs::ToWide(message));
             return;
         }
+        if (printers != nullptr)
+            printers->setup.ForgetRoll();
         p.loaded = p.plan_key;
         p.is_loaded = true;
         p.set_loaded = true;

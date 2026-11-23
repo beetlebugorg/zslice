@@ -33,6 +33,13 @@ namespace zs
         std::string url, api_key, serial, tls_pin, deck_name;
     };
 
+    // What a printer tells of a roll of filament.
+    struct RollFacts
+    {
+        std::string id, name, material, color;
+        double diameter = 0;
+    };
+
     class PrinterSetup
     {
     public:
@@ -98,6 +105,28 @@ namespace zs
         // `message` gets the words of the core for the user.
         bool FilamentsFromPrinter(std::string const &printer, std::string const &json, int flags, std::string &message);
 
+        // The key of a roll: the printer ID and the roll ID, with letters,
+        // digits, and dashes. It names the file rolls/<key>.toml.
+        static std::string RollKey(std::string const &printer, std::string const &roll_id);
+        // The roll that the filament settings belong to, or an empty text.
+        std::string const &Roll() const { return roll_; }
+        // Makes `key` the roll, or no roll with an empty key. The settings
+        // of the roll before go to its file, and a roll with a file loads
+        // it. True if the roll had a file. A plate of a project keeps no
+        // roll, so there this only loads the file.
+        bool SetRoll(std::string const &key);
+        // A project replaces the settings on the plate, so they stop
+        // belonging to a roll.
+        void ForgetRoll() { roll_.clear(); }
+        // The status of the current printer names its roll. A change of the
+        // roll brings back the settings of a known roll. A new roll keeps
+        // the settings before, or starts from the built-in profile of
+        // another material. True if the settings changed. `note` gets the
+        // words for the user.
+        bool FollowRoll(std::string const &printer, RollFacts const &roll, bool follow, std::string &note);
+        // A pick of a roll in the Filament menu.
+        void UseRoll(std::string const &printer, RollFacts const &roll);
+
         bool TwoNozzles() const;
         int NozzleCount() const;
         // A file name: letters, digits, dashes, and underscores.
@@ -116,6 +145,10 @@ namespace zs
         bool LoadGroup(int group);
         std::wstring StatePath(int group);
         void Touch(int group);
+        static std::wstring RollPath(std::string const &key);
+        bool LoadRoll(std::string const &key);
+        void SaveRoll();
+        void FilamentFromPrinter(std::string const &material, std::string const &name, double diameter, std::string const &color);
 
         Model &model_;
         std::string written_[3];
@@ -124,5 +157,8 @@ namespace zs
         std::string profile_[3];
         std::string loaded_[3];
         bool project_ = false;
+        // The roll of the settings, the last roll that the printer named,
+        // and the material of that roll.
+        std::string roll_, printer_roll_, spool_material_;
     };
 }

@@ -2329,6 +2329,146 @@ namespace
             CHECK(s.key.empty());
     }
 
+    // The filament settings of each roll in the printer.
+    void TestRolls()
+    {
+        Model model([](Event const &) {});
+        CHECK(model.Start() == ZS_OK);
+        PrinterSetup setup(model);
+        setup.Start();
+        std::string const original = Printers().Current().id;
+        std::string message, note, printer, other;
+        NewPrinter added;
+        added.name = "Roll printer";
+        added.model = zs_printers_find(model.Printers(), "creality-ender-3-v2");
+        added.nozzle = 0.4;
+        added.bed_x = 220;
+        added.bed_y = 220;
+        added.height = 250;
+        CHECK(setup.AddNewPrinter(added, false, other, message));
+        added.name = "Roll printer two";
+        CHECK(setup.AddNewPrinter(added, false, printer, message));
+        auto temp = [&model] { return atoi(model.GetSetting("filament.nozzle_temp").c_str()); };
+        auto set_temp = [&model](char const *value) { CHECK(zs_app_setting_set(model.Active(), "filament.nozzle_temp", value) == ZS_OK); };
+        auto key = [&printer](RollFacts const &r) { return PrinterSetup::RollKey(printer, r.id); };
+
+        CHECK(PrinterSetup::RollKey("a b", "c/d..") == "a-b-c-d--");
+        CHECK(setup.UseMaterial("PLA", message));
+        set_temp("211");
+        RollFacts one{ "r1", "Roll one", "PLA", "#ff0000", 1.75 };
+        RollFacts two{ "r2", "Roll two", "PLA", "#00ff00", 1.75 };
+        RollFacts three{ "r3", "Roll three", "PETG", "#0000ff", 0 };
+
+        // The preference off: the settings stay.
+        CHECK(!setup.FollowRoll(printer, one, false, note));
+        CHECK(setup.Roll().empty());
+        // A roll with no id: the settings stay.
+        CHECK(!setup.FollowRoll(printer, RollFacts{ "", "No id", "PETG", "", 0 }, true, note));
+        CHECK(setup.Roll().empty());
+        // The first roll: the settings now become its settings.
+        CHECK(!setup.FollowRoll(printer, one, true, note));
+        CHECK(setup.Roll() == key(one));
+        CHECK(temp() == 211);
+        CHECK(note.empty());
+        // The same roll again changes nothing.
+        set_temp("212");
+        CHECK(!setup.FollowRoll(printer, one, true, note));
+        CHECK(temp() == 212);
+        setup.SaveState();
+        // A new roll of the material: the tuning stays, with its name and color.
+        CHECK(setup.FollowRoll(printer, two, true, note));
+        CHECK(setup.Roll() == key(two));
+        CHECK(temp() == 212);
+        CHECK(model.GetSetting("filament.name") == "Roll two");
+        CHECK(Has(model.GetSetting("filament.color"), "00ff00"));
+        CHECK(Has(note, "Roll two"));
+        set_temp("222");
+        setup.SaveState();
+        // A known roll gets its own settings back.
+        CHECK(setup.FollowRoll(printer, one, true, note));
+        CHECK(temp() == 212);
+        CHECK(setup.FollowRoll(printer, two, true, note));
+        CHECK(temp() == 222);
+        CHECK(model.GetSetting("filament.name") == "Roll two");
+        // Another material starts from its built-in profile. The diameter stays.
+        CHECK(zs_app_setting_set(model.Active(), "filament.diameter", "2.85") == ZS_OK);
+        setup.SaveState();
+        CHECK(setup.FollowRoll(printer, three, true, note));
+        CHECK(model.GetSetting("filament.material") == "PETG");
+        CHECK(model.GetSetting("filament.name") == "Roll three");
+        CHECK(temp() != 222);
+        CHECK(atof(model.GetSetting("filament.diameter").c_str()) == 2.85);
+        CHECK(zs_app_setting_set(model.Active(), "filament.diameter", "1.75") == ZS_OK);
+        setup.SaveState();
+
+        // The text of a printer cannot add a line to a profile.
+        set_temp("233");
+        RollFacts bad{ "r4", "Bad\nG28", "PLA\"\nnozzle_temp = 123\nx = \"", "", 0 };
+        CHECK(setup.FollowRoll(printer, bad, true, note));
+        CHECK(temp() == 233);
+        CHECK(!Has(model.GetSetting("filament.material"), "123"));
+        CHECK(!Has(model.GetSetting("filament.name"), "\n"));
+        CHECK(!Has(note, "\n"));
+
+        // A project: its settings go to no roll, and no roll loads over them.
+        CHECK(setup.FollowRoll(printer, two, true, note));
+        setup.SetProjectPlates(true);
+        setup.ForgetRoll();
+        set_temp("199");
+        setup.SaveState();
+        CHECK(!setup.FollowRoll(printer, one, true, note));
+        CHECK(temp() == 199);
+        setup.EndProject();
+        CHECK(setup.Roll().empty());
+        setup.SaveState();
+        CHECK(setup.FollowRoll(printer, one, true, note));
+        CHECK(temp() == 212);
+        CHECK(setup.FollowRoll(printer, two, true, note));
+        CHECK(temp() == 222);
+
+        // A material that the user picks ends the roll, and the same roll
+        // in the printer does not take the settings back.
+        CHECK(setup.UseMaterial("PLA", message));
+        CHECK(setup.Roll().empty());
+        set_temp("205");
+        CHECK(!setup.FollowRoll(printer, two, true, note));
+        CHECK(setup.Roll().empty());
+        CHECK(temp() == 205);
+        // A pick of a roll in the menu.
+        setup.UseRoll(printer, one);
+        CHECK(setup.Roll() == key(one));
+        CHECK(temp() == 212);
+        // A pick of a roll with no file: its name and color.
+        RollFacts fresh{ "r5", "Roll five", "PLA", "#112233", 0 };
+        setup.UseRoll(printer, fresh);
+        CHECK(setup.Roll() == key(fresh));
+        CHECK(temp() == 212);
+        CHECK(model.GetSetting("filament.name") == "Roll five");
+
+        // Another printer ends the roll. Back on this printer, its roll wins.
+        CHECK(setup.UsePrinter(other, message));
+        CHECK(setup.Roll().empty());
+        CHECK(setup.UsePrinter(printer, message));
+        CHECK(setup.Roll().empty());
+        CHECK(setup.FollowRoll(printer, two, true, note));
+        CHECK(setup.Roll() == key(two));
+        CHECK(temp() == 222);
+        CHECK(note.empty());
+
+        // The settings of a roll stay after a restart.
+        setup.SaveState();
+        {
+            Model again([](Event const &) {});
+            CHECK(again.Start() == ZS_OK);
+            PrinterSetup next(again);
+            next.Start();
+            CHECK(next.Roll().empty());
+            CHECK(next.FollowRoll(printer, one, true, note));
+            CHECK(atoi(again.GetSetting("filament.nozzle_temp").c_str()) == 212);
+        }
+        CHECK(setup.UsePrinter(original, message));
+    }
+
     // The printer, filament, and quality of a plate, with no window.
     void TestSetup()
     {
@@ -2789,7 +2929,7 @@ int main(int argc, char **argv)
         { "json", TestJson }, { "store", TestStore }, { "addresses", TestAddresses }, { "signing", TestSigning },
         { "status", TestStatus }, { "key flow", TestKeyFlow }, { "deck", TestDeck }, { "upload", TestUpload },
         { "detect", TestDetect }, { "filaments", TestFilaments }, { "mjpeg", TestMjpeg }, { "camera", TestCamera },
-        { "discovery", TestDiscovery }, { "bambu", TestBambu }, { "setup", TestSetup },
+        { "discovery", TestDiscovery }, { "bambu", TestBambu }, { "setup", TestSetup }, { "rolls", TestRolls },
         { "usb", TestUsb }, { "h264", TestH264 }, { "rtsp", TestRtsp }, { "open link", TestOpenLink }, { "project", TestProjectSource }, { "file types", TestRegisterApp }, { "hand off", TestHandOff }, { "state move", TestStateMove },
     };
     for (auto const &step : steps)

@@ -465,6 +465,28 @@ namespace winrt::ZSlice::implementation
         Note(zs::ToWide(message));
     }
 
+    void MainWindow::PrintersUi::FollowPrinter(std::string const &name, zs::link::Snapshot const &status)
+    {
+        std::string id = zs::Printers().Current().id;
+        rolls = status.rolls;
+        rolls_printer = id;
+        // A change of the filaments can rebuild the page and end `status`.
+        zs::RollFacts roll{ status.spool_id, status.spool_name, status.material, status.spool_color, status.diameter };
+        FollowSpools(name, status);
+        // A send keeps its settings. The next status after it has the roll.
+        if (sending || batch.on)
+            return;
+        std::string note;
+        if (!setup.FollowRoll(id, roll, zs::Printers().Pref("follow_roll", "1") == "1", note))
+            return;
+        w.FilamentsChanged();
+        w.PlateEdited();
+        w.RefreshSettingValues();
+        RefreshBar();
+        if (!note.empty())
+            Note(zs::ToWide(note));
+    }
+
     void MainWindow::PrintersUi::RefreshBar()
     {
         if (printer_button == nullptr)
@@ -835,7 +857,8 @@ namespace winrt::ZSlice::implementation
         // The rolls that the printer told in its last status.
         std::string material_now = w.model->GetSetting("filament.material");
         bool any_roll = false;
-        for (auto const &roll : rolls)
+        std::vector<zs::link::Roll> const no_rolls;
+        for (auto const &roll : rolls_printer == printer.id ? rolls : no_rolls)
         {
             if (roll.id.empty() || (!roll.material.empty() && _stricmp(roll.material.c_str(), material_now.c_str()) != 0))
                 continue;
@@ -845,13 +868,12 @@ namespace winrt::ZSlice::implementation
             std::wstring label = zs::ToWide(roll.name.empty() ? "?" : roll.name);
             if (roll.left > 0)
                 label += L" · " + std::to_wstring((int)std::lround(roll.left)) + L" g";
-            Button b = TextButton(label);
-            std::string name = roll.name, color = roll.color;
-            b.Click([this, app, name, color, changed](auto &&, auto &&) {
-                if (!name.empty())
-                    zs_app_setting_set(app, "filament.name", name.c_str());
-                if (!color.empty())
-                    zs_app_setting_set(app, "filament.color", color.c_str());
+            bool in_use = setup.Roll() == zs::PrinterSetup::RollKey(printer.id, roll.id);
+            Button b = TextButton((in_use ? L"✓ " : L"") + label);
+            zs::RollFacts picked{ roll.id, roll.name, roll.material, roll.color, 0 };
+            b.Click([this, picked, printer_id = printer.id, changed](auto &&, auto &&) {
+                setup.UseRoll(printer_id, picked);
+                w.FilamentsChanged();
                 changed();
                 filament_flyout.Hide();
             });
