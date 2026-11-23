@@ -354,7 +354,7 @@ Add the printer again from the deck to fix its address.
 ### Keys, signatures, and certificates
 
 - **Signatures**: each print that zslice exports or sends is signed. Its last line is a signature of the app, made with a key that zslice keeps in the Keychain ("zslice signing key"). Get a Key gives the printer the public key of the app. A printdeck that does not trust the key rejects the print, and the app says so. OctoPrint, Moonraker, and Bambu printers do not check signatures: the app says "not verified".
-- **API keys**: the API keys of your printers are in the Keychain of macOS (Keychain Access, "zslice printer API key"), never in a file. A key goes when its printer goes. zslice sends a key only to the address of its printer, also after a redirect. The list of your printers is in `~/Library/Application Support/zslice/printers.json`.
+- **API keys**: the API keys of your printers are in the Keychain of macOS (Keychain Access, "zslice printer API key"), never in a file. When you change the scheme, host, or port of a printer, zslice asks before it sends the saved key to the new address. No is the default and drops the key. Cancel keeps the old address and key. A key goes when its printer goes. zslice sends a key only to the address of its printer, also after a redirect. The list of your printers is in `~/Library/Application Support/zslice/printers.json`.
 - **Certificates of a printdeck**: zslice trusts the certificate of a printdeck with an https address on the first connection, and a newer certificate after that (the deck renews it every 60 days). An older or another certificate stops the send with a warning. Get a Key trusts the printer again.
 
 ### Bambu Lab printers
