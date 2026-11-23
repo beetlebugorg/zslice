@@ -897,6 +897,7 @@ namespace winrt::ZSlice::implementation
     // After an undo, a redo, or a jump: the editors, and a new slice.
     void MainWindow::AfterRestore(int bits)
     {
+        CancelFall();
         if (model != nullptr && (bits & ZS_HISTORY_MOVED) != 0)
         {
             SupportReload();

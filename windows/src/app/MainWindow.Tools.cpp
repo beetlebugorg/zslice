@@ -410,6 +410,7 @@ namespace winrt::ZSlice::implementation
                     zs_app_grab_start(app, (size_t)part, p[0], p[1], p[2]) == 1)
                 {
                     falling = true;
+                    fall_app = app;
                     hand = true;
                     hand_click = true;
                     hand_turning = false;
@@ -793,6 +794,24 @@ namespace winrt::ZSlice::implementation
         RequestDraw();
     }
 
+    // The plate changes under a fall: the part stays where it was.
+    void MainWindow::CancelFall()
+    {
+        if (!falling)
+            return;
+        fall_timer.Stop();
+        if (fall_app != nullptr)
+            zs_app_fall_cancel(fall_app);
+        fall_app = nullptr;
+        falling = false;
+        hand = false;
+        if (view != nullptr)
+        {
+            zs_view_part_preview(view, -1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0);
+            RequestDraw();
+        }
+    }
+
     // A part that cannot stand as it is falls.
     void MainWindow::CheckFall()
     {
@@ -802,6 +821,7 @@ namespace winrt::ZSlice::implementation
         if (part < 0 || zs_app_fall_start(model->Active(), (size_t)part) != 1)
             return;
         falling = true;
+        fall_app = model->Active();
         fall_part = part;
         RunFall();
     }
@@ -1060,6 +1080,7 @@ namespace winrt::ZSlice::implementation
     {
         if (model == nullptr)
             return;
+        CancelFall();
         zs_app *app = model->Active();
         size_t count = zs_app_part_count(app);
         selected_parts.erase(std::remove_if(selected_parts.begin(), selected_parts.end(),

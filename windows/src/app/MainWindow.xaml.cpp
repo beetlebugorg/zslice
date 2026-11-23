@@ -489,6 +489,7 @@ namespace winrt::ZSlice::implementation
             ShowError(L"Could not read " + name);
             return;
         }
+        CancelFall();
         // A ZIP file of a model: the user chooses its files.
         if (IsZipName(name))
         {
