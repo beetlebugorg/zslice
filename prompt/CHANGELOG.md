@@ -11,3 +11,4 @@ One line for each update: the date, the commit that the folder describes, and th
 | 2026-11-22 | `58f58ca0` | README, CHANGELOG, 12: the part settings on the Windows part card, and Export off after a failed slice (the Windows session wrote part 12). |
 | 2026-11-22 | `c0a7de63` | README, CHANGELOG, 07, 12: support marks are lines of the plate 3MF, so they are steps of the history and stay in the session (a lesson in 07); the Windows line card edits a support mark (12, by the Windows session). |
 | 2026-11-22 | `8674769f` | README, CHANGELOG, 12: the import of a model page and a ZIP file on Windows (12, by the Windows session). |
+| 2026-11-22 | `86444aca` | README, CHANGELOG, 12, 13: Windows reads the filaments of the printer through zs_app_filaments_from_printer and follows the spools of the current printer (by the Windows session). |

@@ -1,6 +1,6 @@
 # A prompt that could build zslice
 
-Describes: main at commit `8674769f` ("Add the model import to the Windows prompt"), 2026-11-22.
+Describes: main at commit `86444aca` ("Add the spools of a printer to the Windows prompt"), 2026-11-22.
 
 ## Read this first
 
