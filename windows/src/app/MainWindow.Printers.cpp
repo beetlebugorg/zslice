@@ -162,6 +162,11 @@ namespace winrt::ZSlice::implementation
         StartPlatesHook();
         RepairDeckAddresses();
         StartFollow();
+        if (zs::Printers().ReadFailed())
+        {
+            zs::Log("shell: app.ini did not read. The app keeps it, and saves no printer until the next start.\n");
+            w.ShowToast(L"The list of printers did not read. Restart zslice before you change a printer.");
+        }
     }
 
     // An older pairing could give the first printer of a deck the address
@@ -1181,7 +1186,9 @@ namespace winrt::ZSlice::implementation
                     }
                 }
             }
-            if (!profile.empty() && !(entry->id == store.Current().id))
+            // A printer that has its machine settings keeps them.
+            bool has_profile = ::GetFileAttributesW(zs::PrinterStore::ProfilePath(*entry).c_str()) != INVALID_FILE_ATTRIBUTES;
+            if (!profile.empty() && !has_profile && !(entry->id == store.Current().id))
                 zs::state::WriteBytes(zs::PrinterStore::ProfilePath(*entry), profile);
         }
         store.Save();

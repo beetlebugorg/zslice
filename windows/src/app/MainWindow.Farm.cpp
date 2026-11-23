@@ -600,7 +600,11 @@ namespace winrt::ZSlice::implementation
             return;
         zs::PrinterStore &store = zs::Printers();
         std::map<std::string, size_t> want;
-        auto add = [&want](zs::SavedPrinter const &p) {
+        auto add = [&want, &store](zs::SavedPrinter const &p) {
+            // Two entries of one printer share one connection.
+            for (auto const &[other, hash] : want)
+                if (auto const *o = store.Find(other); o != nullptr && other != p.id && o->serial == p.serial)
+                    return;
             if (p.kind == zs::LinkKind::Bambu && !p.url.empty() && !p.serial.empty() && !p.api_key.empty())
                 want[p.id] = std::hash<std::string>{}(p.url + "\n" + p.serial + "\n" + p.api_key);
         };
@@ -638,6 +642,7 @@ namespace winrt::ZSlice::implementation
             if (printer == nullptr)
                 continue;
             std::string key = id;
+            bambu_known.erase(id);
             auto watch = std::make_shared<zs::BambuWatch>(
                 zs::link::TargetOf(*printer), printer->serial,
                 [post, key](zs::link::Snapshot const &s) {
@@ -662,21 +667,49 @@ namespace winrt::ZSlice::implementation
         }
     }
 
+    std::string MainWindow::PrintersUi::BambuLinkOf(zs::SavedPrinter const &printer) const
+    {
+        zs::PrinterStore &store = zs::Printers();
+        auto same = [&](std::string const &id) {
+            zs::SavedPrinter const *p = store.Find(id);
+            return p != nullptr && p->kind == zs::LinkKind::Bambu && p->serial == printer.serial;
+        };
+        for (auto const &[id, link] : bambu_links)
+            if (same(id))
+                return id;
+        for (auto const &id : bambu_closing)
+            if (same(id))
+                return id;
+        return {};
+    }
+
     void MainWindow::PrintersUi::OnBambuStatus(std::string const &id, zs::link::Snapshot const *status, std::string const &error)
     {
         if (bambu_links.count(id) == 0)
             return;
+        BambuKnown &known = bambu_known[id];
+        known.has_status = status != nullptr;
+        if (status != nullptr)
+            known.status = *status;
+        known.error = error;
+        PrefsLinkReport(id, status, error);
         if (id == zs::Printers().Current().id)
             DetailsStatus(id, status);
+        // Each entry of this printer shows the report of its one link.
+        zs::SavedPrinter const *from = zs::Printers().Find(id);
+        bool shown = false;
         for (auto const &t : tiles)
         {
-            if (t->id == id && t->alive)
+            zs::SavedPrinter const *entry = zs::Printers().Find(t->id);
+            if (t->alive && entry != nullptr && from != nullptr && entry->kind == zs::LinkKind::Bambu && entry->serial == from->serial)
             {
                 // The tile follows the spools of the current printer.
                 UpdateTile(t, status, error);
-                return;
+                shown = true;
             }
         }
+        if (shown)
+            return;
         zs::SavedPrinter const &current = zs::Printers().Current();
         if (status != nullptr && id == current.id)
         {
@@ -1129,7 +1162,7 @@ namespace winrt::ZSlice::implementation
                     // a key does not go to the other kind of device.
                     if ((p->kind == zs::LinkKind::Bambu) != ((zs::LinkKind)at == zs::LinkKind::Bambu))
                     {
-                        zs::state::Wipe(p->api_key);
+                        zs::Printers().ForgetKey(*p);
                         zs::Printers().Save();
                     }
                     p->kind = (zs::LinkKind)at;

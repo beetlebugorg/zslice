@@ -241,6 +241,18 @@ namespace winrt::ZSlice::implementation
         };
         std::map<std::string, BambuLink> bambu_links;
         std::set<std::string> bambu_closing;
+        // What each link told last.
+        struct BambuKnown
+        {
+            bool has_status = false;
+            zs::link::Snapshot status;
+            std::string error;
+        };
+        std::map<std::string, BambuKnown> bambu_known;
+        // The id of the link to this printer (the same serial), or "".
+        std::string BambuLinkOf(zs::SavedPrinter const &printer) const;
+        // A test in Preferences that waits for this link gets its answer.
+        void PrefsLinkReport(std::string const &id, zs::link::Snapshot const *status, std::string const &error);
         Microsoft::UI::Dispatching::DispatcherQueueTimer follow_timer{ nullptr };
         std::shared_ptr<zs::http::Cancel> follow_cancel;
         bool follow_reading = false, follow_asleep = false, follow_stopped = false;

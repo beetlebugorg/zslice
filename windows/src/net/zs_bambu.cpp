@@ -14,6 +14,8 @@
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
+#include <map>
+#include <mutex>
 
 namespace zs
 {
@@ -63,6 +65,54 @@ namespace zs
         return std::min(wait, 300);
     }
 
+    namespace
+    {
+        // One connection to a printer at a time, and the wait after a
+        // refusal or a drop. It is for the printer: a new watch keeps it.
+        struct Gate
+        {
+            bool held = false;
+            int failures = 0;
+            std::chrono::steady_clock::time_point not_before{};
+        };
+        std::mutex gate_lock;
+        std::map<std::string, Gate> gates;
+
+        bool EnterGate(std::string const &key, std::atomic<bool> const &stop)
+        {
+            while (!stop.load())
+            {
+                {
+                    std::lock_guard guard(gate_lock);
+                    Gate &g = gates[key];
+                    if (!g.held && std::chrono::steady_clock::now() >= g.not_before)
+                    {
+                        g.held = true;
+                        return true;
+                    }
+                }
+                std::this_thread::sleep_for(std::chrono::milliseconds(100));
+            }
+            return false;
+        }
+
+        void LeaveGate(std::string const &key, bool reached, bool stopped)
+        {
+            std::lock_guard guard(gate_lock);
+            Gate &g = gates[key];
+            g.held = false;
+            // A link that worked and that we closed asks for no wait.
+            if (reached && stopped)
+            {
+                g.failures = 0;
+                return;
+            }
+            // A session that worked starts the count again.
+            g.failures = reached ? 1 : g.failures + 1;
+            g.not_before = std::chrono::steady_clock::now() + std::chrono::seconds(BambuRetrySeconds(g.failures));
+        }
+    }
+
     BambuWatch::BambuWatch(link::Target const &target, std::string serial, Report report, Error error, Trusted trusted)
         : host_(BambuHost(target.url)), serial_(std::move(serial)), code_(target.api_key), pin_(target.tls_pin),
           report_(std::move(report)), error_(std::move(error)), trusted_(std::move(trusted))
@@ -80,18 +130,15 @@ namespace zs
 
     void BambuWatch::Run()
     {
-        int failures = 0;
-        while (!stop_.load())
+        std::string key = host_ + ":" + std::to_string(BambuPort("MQTT", 8883));
+        while (EnterGate(key, stop_))
         {
             reached_ = false;
+            bool again = Session();
+            LeaveGate(key, reached_, stop_.load());
             // False: a wrong code stays wrong, so it does not try again.
-            if (!Session())
+            if (!again)
                 return;
-            // A session that worked starts the count again.
-            failures = reached_ ? 1 : failures + 1;
-            int wait = BambuRetrySeconds(failures);
-            for (int i = 0; i < wait * 10 && !stop_.load(); i++)
-                std::this_thread::sleep_for(std::chrono::milliseconds(100));
         }
     }
 

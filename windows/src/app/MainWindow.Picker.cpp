@@ -636,7 +636,10 @@ namespace winrt::ZSlice::implementation
         p->panel = OpenPanel(welcome ? L"Welcome to zslice: set up your printer" : L"Add a printer", 1040, 680, body);
         std::weak_ptr<PickerState> weak = p;
         auto panel = p->panel;
-        panel->closed = [p] {
+        panel->closed = [p, welcome] {
+            // The welcome that ends, by Esc or ×, is no first start any more.
+            if (welcome)
+                zs::Printers().SetFirstStart(false);
             if (p->test_cancel != nullptr)
                 p->test_cancel->Stop();
             // The search joins its threads, so it ends off the UI thread.

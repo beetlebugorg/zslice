@@ -76,8 +76,13 @@ namespace zs
         // Removes a printer, its profile files, and its secret. The last
         // printer stays.
         void Remove(std::string const &id);
+        // Deletes the key or the access code of a printer, in memory and on
+        // the disk. A code that another printer shares stays on the disk.
+        void ForgetKey(SavedPrinter &p);
 
         bool FirstStart() const { return first_start_; }
+        // app.ini is there and did not read: no save until the next start.
+        bool ReadFailed() const { return read_failed_; }
         void SetFirstStart(bool on) { first_start_ = on; }
 
         std::string Pref(std::string const &key, std::string const &fallback = {}) const;
@@ -94,6 +99,8 @@ namespace zs
         std::map<std::string, std::string> general_;
         std::string current_;
         bool first_start_ = false;
+        // app.ini is there and did not read: a save would replace it.
+        bool read_failed_ = false;
     };
 
     // The one store of the app, for the UI thread.
