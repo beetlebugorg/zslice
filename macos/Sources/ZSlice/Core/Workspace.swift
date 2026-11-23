@@ -116,6 +116,8 @@ final class Workspace {
     var importPageOpen = false
     @ObservationIgnored var importPageText = ""
     @ObservationIgnored var saveGuard: SaveGuard?
+    /// The monitor of the `/` key of this window.
+    @ObservationIgnored var slashMonitor: Any?
     /// The printer of the sheet is only the address of a deck (Connect a
     /// Printdeck): it goes, and the printers that the user picks come.
     var pairingFresh = false
@@ -731,6 +733,8 @@ final class Workspace {
         // during slices. It logs how many reached the view and moved the
         // camera.
         if env["ZSLICE_GESTURE_TEST"] != nil { Task { @MainActor in await self.gestureTest() } }
+        // ZSLICE_SLASH_TEST=1: `/` with the focus in each place of the window.
+        if env["ZSLICE_SLASH_TEST"] != nil { Task { @MainActor in await self.slashTest() } }
         // ZSLICE_KEY_ADDRESS=1 logs when a saved key needs a yes, and what
         // each answer does to the printer (issue #41).
         if env["ZSLICE_KEY_ADDRESS"] != nil {
@@ -3058,5 +3062,67 @@ extension Workspace {
                 NSLog("zslice gestures: %@ %@: sent %ld, reached the view %ld, gestures that moved the camera %ld of %ld, longest event %.1f ms", pinch ? "pinch" : "scroll", slicing ? "during slices" : "at rest", sent, reached, moved, points.count, worst * 1000)
             }
         }
+    }
+}
+
+extension Workspace {
+    /// `/` opens the search with the focus anywhere in the window. Only the
+    /// 3D view read the key before, so it did nothing after a click on the
+    /// settings or the toolbar. A text field keeps the key as text, and a
+    /// sheet keeps it too.
+    func watchSlashKey() {
+        guard slashMonitor == nil else { return }
+        slashMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] e in
+            guard let self, let w = self.canvas.window, e.window === w, w.attachedSheet == nil,
+                  e.characters == "/", e.modifierFlags.intersection([.command, .control, .option]).isEmpty,
+                  w.firstResponder !== self.canvas, !(w.firstResponder is NSText) else { return e }
+            if self.searchOpen { self.closeSearch() } else { self.openSearch() }
+            return nil
+        }
+    }
+
+    func stopSlashKey() {
+        if let m = slashMonitor { NSEvent.removeMonitor(m) }
+        slashMonitor = nil
+    }
+
+    /// True when the search field of the toolbar has the keys.
+    var searchHasKeys: Bool {
+        guard let t = canvas.window?.firstResponder as? NSTextView, let f = t.delegate as? NSTextField else { return false }
+        return f.placeholderString == "Search settings and actions"
+    }
+
+    func slashTest() async {
+        for _ in 0 ..< 200 where canvas.window?.isKeyWindow != true { try? await Task.sleep(for: .milliseconds(50)) }
+        guard let w = canvas.window, w.isKeyWindow else {
+            NSLog("zslice slash: the window is not key")
+            return
+        }
+        func table(_ v: NSView) -> NSView? {
+            if v is NSTableView { return v }
+            for c in v.subviews { if let f = table(c) { return f } }
+            return nil
+        }
+        showSettings = true
+        try? await Task.sleep(for: .milliseconds(500))
+        var out: [String] = []
+        for place in ["view", "window", "settings list"] {
+            switch place {
+            case "view": w.makeFirstResponder(canvas)
+            case "window": w.makeFirstResponder(nil)
+            default: if let t = w.contentView.flatMap(table) { w.makeFirstResponder(t) }
+            }
+            try? await Task.sleep(for: .milliseconds(100))
+            let from = String(describing: type(of: w.firstResponder as Any))
+            if let e = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: w.windowNumber, context: nil, characters: "/", charactersIgnoringModifiers: "/", isARepeat: false, keyCode: 44) {
+                NSApp.sendEvent(e)
+            }
+            try? await Task.sleep(for: .milliseconds(250))
+            out.append("\(place) (\(from)): \(searchHasKeys ? "focused" : "no focus"), text '\(search.query)'")
+            search.query = ""
+            closeSearch()
+            try? await Task.sleep(for: .milliseconds(150))
+        }
+        NSLog("zslice slash: %@", out.joined(separator: " | "))
     }
 }

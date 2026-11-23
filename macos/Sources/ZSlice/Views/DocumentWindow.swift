@@ -87,9 +87,13 @@ struct DocumentWindow: View {
         }
         workspace.model.document = doc
         workspace.saveGuard = SaveGuard.install(in: w, workspace: workspace, document: doc)
+        workspace.watchSlashKey()
         let ws = workspace
         NotificationCenter.default.addObserver(forName: NSWindow.willCloseNotification, object: w, queue: .main) { _ in
-            MainActor.assumeIsolated { SessionStore.shared.closed(ws) }
+            MainActor.assumeIsolated {
+                ws.stopSlashKey()
+                SessionStore.shared.closed(ws)
+            }
         }
         if let session {
             // ZSLICE_RESTORE_DELAY=s: a slow window, for the test of the
