@@ -1106,17 +1106,17 @@ namespace winrt::ZSlice::implementation
             };
         };
         std::vector<SearchAction> out;
-        out.push_back({ L"Open a model…", L"Ctrl+O", L"", [this] { PickFile(); } });
-        out.push_back({ L"Add models to the plate…", L"", L"", [this] { PickFile(); } });
+        out.push_back({ L"Open a model…", L"Ctrl+O", L"add models to the plate", [this] { PickFile(); } });
         out.push_back({ L"Import from a model page…", L"", L"Printables or Thingiverse: choose the files to load", [this] { AskImport({}); } });
         out.push_back({ L"Export G-code…", L"Ctrl+E", L"", with_printers([](PrintersUi &p) { p.ExportGcode(); }) });
-        out.push_back({ L"Save the project…", L"Ctrl+S", L"all plates in one 3MF file", with_printers([](PrintersUi &p) { p.SaveProject(); }) });
+        out.push_back({ L"The print as it forms", L"", L"simulated plastic: it sags and droops where nothing holds it", [this] { ToggleSimulated(); } });
         out.push_back({ L"Upload to the printer", L"", L"send the G-code to the printer, and do not start it", with_printers([](PrintersUi &p) { p.PrimaryAction(); }) });
         out.push_back({ L"Arrange the plate", L"", L"pack the parts on the bed", place([](zs_app *a) { return zs_app_plate_arrange(a) != 0; }) });
-        out.push_back({ L"Smart placement", L"", L"turn and arrange the parts", place([](zs_app *a) { return zs_app_plate_smart_place(a) != 0; }) });
         out.push_back({ L"Remove this plate", L"", L"the plate and its parts", [this] { AskRemovePlate(); } });
+        AddCalibrateActions(out);
+        out.push_back({ L"Smart placement", L"", L"turn and arrange the parts", place([](zs_app *a) { return zs_app_plate_smart_place(a) != 0; }) });
         out.push_back({ L"Check the print", L"", L"problems and advice", [this] { check_flyout.ShowAt(ToolStrip()); } });
-        out.push_back({ L"Label tool", L"E", L"text and marks on the surface of a part, in another filament", [this] { SetTool(Tool::Label); } });
+        out.push_back({ L"Save the project…", L"Ctrl+S", L"all plates in one 3MF file", with_printers([](PrintersUi &p) { p.SaveProject(); }) });
         out.push_back({ L"Undo", L"Ctrl+Z", L"", [this] {
                            if (model != nullptr)
                            {
@@ -1133,8 +1133,10 @@ namespace winrt::ZSlice::implementation
                        } });
         out.push_back({ L"2D layer view", L"2", L"", [this] { Set2D(true); } });
         out.push_back({ L"3D view", L"3", L"", [this] { Set2D(false); } });
+        out.push_back({ L"Support tool", L"S", L"draw an area on the part: support under it, or none", [this] { SetTool(Tool::Support); } });
+        out.push_back({ L"Measure tool", L"T", L"measure between two points of the print", [this] { SetTool(Tool::Measure); } });
+        out.push_back({ L"Label tool", L"E", L"text and marks on the surface of a part, in another filament", [this] { SetTool(Tool::Label); } });
         out.push_back({ L"Import a profile…", L"", L"PrusaSlicer, OrcaSlicer, Bambu Studio, or Cura settings", [this] { PickProfile(); } });
-        AddCalibrateActions(out);
         out.push_back({ L"Manage printers…", L"Ctrl+,", L"preferences, connections, API keys", [this] { ShowPreferences(); } });
         out.push_back({ L"Compare with Cura…", L"", L"", [this] { ShowCuraCompare(); } });
         std::wstring project_name = ProjectName();
@@ -1145,6 +1147,13 @@ namespace winrt::ZSlice::implementation
         out.push_back({ L"History", L"Ctrl+H", L"the changes, undo one change", [this] { HistoryFlyout().ShowAt(HistoryButton()); } });
         out.push_back({ L"Keyboard shortcuts", L"?", L"", [this] { ShowShortcuts(); } });
         out.push_back({ L"All settings", L"N", L"the panel of the settings", [this] { ShowSettingsPane(true); } });
+        out.push_back({ L"Speed settings", L"", L"faster slicing, fast offsets, resolution, gap fill: the print settings that change the time of a slice", [this] {
+                           if (printers != nullptr)
+                               printers->ShowPage(false);
+                           ShowSettingsPane(true);
+                           ShowSpeedSection();
+                       } });
+        out.push_back({ L"Faster slicing on or off", L"", L"speed, performance: faster offsets and outline tolerance 0.01 mm", [this] { ToggleFasterSlicing(); } });
         out.push_back({ L"Printers", L"", L"your printers, their jobs, and the plates to print", with_printers([](PrintersUi &p) { p.ShowPage(true); }) });
         return out;
     }

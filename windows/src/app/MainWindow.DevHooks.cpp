@@ -416,6 +416,43 @@ namespace winrt::ZSlice::implementation
                 found.SelectedIndex(row);
             zs::Log("dev: list '%s' %s, %u rows\n", zs::ToUtf8(want).c_str(), found != nullptr ? "found" : "not found", found != nullptr ? found.Items().Size() : 0);
         }
+        else if (verb == L"lostep" && !words.empty())
+        {
+            int n = _wtoi(words[0].c_str());
+            for (int i = 0; i < std::abs(n); i++)
+                StepLayerLo(n > 0 ? 1 : -1);
+            zs::Log("dev: layer lo %zu of %zu\n", layer_lo, layer_count);
+        }
+        else if (verb == L"actionrun" && !words.empty())
+        {
+            std::wstring want = words[0];
+            std::replace(want.begin(), want.end(), L'_', L' ');
+            bool done = false;
+            for (auto const &a : SearchActions())
+                if (a.label == want)
+                {
+                    a.run();
+                    done = true;
+                    break;
+                }
+            zs::Log("dev: action '%s' %s\n", zs::ToUtf8(want).c_str(), done ? "ran" : "not found");
+        }
+        else if (verb == L"actionlog")
+        {
+            std::string all;
+            for (auto const &a : SearchActions())
+                all += zs::ToUtf8(a.label) + " | ";
+            zs::Log("dev: actions %s\n", all.c_str());
+        }
+        else if (verb == L"viewlog")
+        {
+            zs::Log("dev: view 2d %d colors %d simulated %d item '%s' tool %d pref '%s'\n", show_2d ? 1 : 0, color_mode, simulated ? 1 : 0,
+                    zs::ToUtf8(std::wstring(sim_item.Text())).c_str(), (int)tool, zs::Printers().Pref("colors", "-").c_str());
+        }
+        else if (verb == L"colorchoose" && !words.empty())
+        {
+            ChooseColorMode(_wtoi(words[0].c_str()));
+        }
         else if (verb == L"manageopen")
         {
             printers->ShowManage();

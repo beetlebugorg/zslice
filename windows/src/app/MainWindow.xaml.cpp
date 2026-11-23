@@ -337,7 +337,7 @@ namespace winrt::ZSlice::implementation
                 }
                 // A new slice shows the plan again.
                 simulated = false;
-                sim_item.IsChecked(false);
+                ShowSimItem();
                 StopReplay();
                 replay_time = 0;
                 ShowSlice();
@@ -427,8 +427,10 @@ namespace winrt::ZSlice::implementation
         LayerText().Text(to_hstring(shown));
         LayerCard().Visibility(count > 0 ? Visibility::Visible : Visibility::Collapsed);
         UpdateLayerRail();
+        // A new scene keeps the bottom knob.
         if (count > 0)
-            zs_view_set_layer(view, shown - 1);
+            ApplyLayerRange();
+        ShowLegend();
         if (frame_next)
         {
             frame_next = false;

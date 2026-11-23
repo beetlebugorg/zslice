@@ -601,6 +601,10 @@ namespace winrt::ZSlice::implementation
         // (MainWindow.View.cpp).
         void WireView();
         void SetColorMode(int mode);
+        void ChooseColorMode(int mode);
+        void ShowSimItem();
+        void ShowSimNote();
+        void ToggleFasterSlicing();
         void ShowLegend();
         void OnSimulated();
         void ToggleSimulated();
@@ -987,6 +991,7 @@ namespace winrt::ZSlice::implementation
         Microsoft::UI::Dispatching::DispatcherQueueTimer replay_timer{ nullptr };
         std::vector<Microsoft::UI::Xaml::Controls::RadioMenuFlyoutItem> color_items;
         Microsoft::UI::Xaml::Controls::ToggleMenuFlyoutItem sim_item{ nullptr };
+        Microsoft::UI::Xaml::Controls::Button colors_button{ nullptr };
         Microsoft::UI::Xaml::Controls::Primitives::ToggleButton gaps_button{ nullptr };
         Microsoft::UI::Xaml::Controls::Flyout check_flyout{ nullptr };
         Microsoft::UI::Xaml::Controls::Button check_button{ nullptr };

@@ -1241,6 +1241,10 @@ namespace winrt::ZSlice::implementation
 
     void MainWindow::ApplyFirstViewPref()
     {
+        // The colors of the last session.
+        int saved_colors = atoi(zs::Printers().Pref("colors", "0").c_str());
+        if (saved_colors > 0 && saved_colors < 6)
+            SetColorMode(saved_colors);
         if (zs::Printers().Pref("view", "3d") == "2d")
             Set2D(true);
     }

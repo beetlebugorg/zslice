@@ -494,6 +494,20 @@ namespace winrt::ZSlice::implementation
         NotePanePlace();
     }
 
+    // Custom goes to on: the faster values of all options.
+    void MainWindow::ToggleFasterSlicing()
+    {
+        if (model == nullptr)
+            return;
+        zs_app *app = model->Active();
+        if (zs_app_speed_set(app, zs_app_speed_state(app) != 1 ? 1 : 0) == ZS_OK)
+        {
+            model->RequestSlice();
+            NoteChange();
+        }
+        RefreshSettingValues();
+    }
+
     int MainWindow::NozzleCount()
     {
         return model != nullptr ? std::max(1, atoi(model->GetSetting("machine.nozzles").c_str())) : 1;
@@ -554,16 +568,8 @@ namespace winrt::ZSlice::implementation
         };
         fill();
         toggle.Toggled([this](auto &&, auto &&) {
-            if (filling_editor || model == nullptr)
-                return;
-            zs_app *app = model->Active();
-            // Custom goes to on: the faster values of all options.
-            if (zs_app_speed_set(app, zs_app_speed_state(app) != 1 ? 1 : 0) == ZS_OK)
-            {
-                model->RequestSlice();
-                NoteChange();
-            }
-            RefreshSettingValues();
+            if (!filling_editor)
+                ToggleFasterSlicing();
         });
         setting_editors.push_back({ "speed.switch", fill });
 
