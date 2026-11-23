@@ -169,8 +169,18 @@ namespace zs
         general_.clear();
         current_.clear();
         first_start_ = false;
+        read_failed_ = false;
         std::string text;
-        if (state::ReadBytes(state::PathOf(L"app.ini"), text))
+        std::wstring ini = state::PathOf(L"app.ini");
+        bool have_ini = state::ReadBytes(ini, text);
+        // Another program can hold the file for a moment.
+        for (int k = 0; !have_ini && k < 5 && ::GetFileAttributesW(ini.c_str()) != INVALID_FILE_ATTRIBUTES; k++)
+        {
+            ::Sleep(40);
+            have_ini = state::ReadBytes(ini, text);
+        }
+        read_failed_ = !have_ini && ::GetFileAttributesW(ini.c_str()) != INVALID_FILE_ATTRIBUTES;
+        if (have_ini)
         {
             for (auto const &[name, group] : ParseIni(text))
             {
@@ -210,7 +220,7 @@ namespace zs
             p.name = "My printer";
             printers_.push_back(p);
             current_ = p.id;
-            first_start_ = true;
+            first_start_ = !read_failed_;
             Save();
         }
         if (Find(current_) == nullptr)
@@ -219,6 +229,8 @@ namespace zs
 
     bool PrinterStore::Save()
     {
+        if (read_failed_)
+            return false;
         std::string out = "# zslice: the printers and the app settings. The machine settings of each\n"
                           "# printer are in printers\\<id>.toml. Keys are in encrypted files.\n[general]\n";
         general_["printer"] = current_;
@@ -236,10 +248,11 @@ namespace zs
             Put(out, "tls_pin", p.tls_pin);
             if (p.tls_since != 0)
                 Put(out, "tls_since", std::to_string(p.tls_since));
-            // A printer with no key keeps no file, so a key that the user
-            // cleared is gone from the disk too.
+            // An empty key in memory says nothing about the file: a read
+            // can have failed, or another entry can share the code. Only
+            // ForgetKey deletes it.
             std::wstring secret = SecretPath(p);
-            if (!secret.empty() && !state::WriteSecret(secret, p.api_key))
+            if (!secret.empty() && !p.api_key.empty() && !state::WriteSecret(secret, p.api_key))
                 ok = false;
             // A printer that changed to Bambu Lab leaves no old key.
             if (p.kind == LinkKind::Bambu && SafeName(p.id))
@@ -283,6 +296,17 @@ namespace zs
         printers_.push_back(std::move(p));
         Save();
         return printers_.back();
+    }
+
+    void PrinterStore::ForgetKey(SavedPrinter &p)
+    {
+        std::wstring secret = SecretPath(p);
+        bool shared = false;
+        for (auto const &other : printers_)
+            shared = shared || (other.id != p.id && p.kind == LinkKind::Bambu && other.kind == LinkKind::Bambu && other.serial == p.serial);
+        if (!secret.empty() && !shared)
+            state::Remove(secret);
+        state::Wipe(p.api_key);
     }
 
     void PrinterStore::Remove(std::string const &id)

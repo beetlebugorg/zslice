@@ -313,6 +313,8 @@ namespace winrt::ZSlice::implementation
         void SetResult(std::wstring const &text, bool error);
         void Test();
         void BambuDone(zs::link::Snapshot const *status, std::string const &error);
+        // The link of this id gives the answer of a test.
+        std::string bambu_wait;
         void ShowInfo(zs::link::Snapshot const &status);
         void Apply(int what);
         void ReadSerial();
@@ -673,19 +675,26 @@ namespace winrt::ZSlice::implementation
             p->url = to;
             changed = true;
         }
-        to = Utf8(serial.Text());
+        // A space from a paste is no part of a serial number or a code.
+        auto trimmed = [](std::string text) {
+            size_t a = text.find_first_not_of(" \t\r\n");
+            if (a == std::string::npos)
+                return std::string();
+            return text.substr(a, text.find_last_not_of(" \t\r\n") - a + 1);
+        };
+        to = trimmed(Utf8(serial.Text()));
         if (to != p->serial)
         {
-            // The code file has the serial number in its name.
+            // The code file has the serial number in its name: the code
+            // moves to the file of the new number.
             std::string code = p->api_key;
-            p->api_key.clear();
-            store.Save();
+            store.ForgetKey(*p);
             p->serial = to;
             p->api_key = code;
             zs::state::Wipe(code);
             changed = true;
         }
-        std::string typed = Utf8(key.Password());
+        std::string typed = trimmed(Utf8(key.Password()));
         if (!typed.empty())
         {
             p->api_key = typed;
@@ -732,7 +741,7 @@ namespace winrt::ZSlice::implementation
         // not go to the other kind of device.
         if ((p->kind == zs::LinkKind::Bambu) != (next == zs::LinkKind::Bambu))
         {
-            zs::state::Wipe(p->api_key);
+            zs::Printers().ForgetKey(*p);
             zs::Printers().Save();
         }
         p->kind = next;
@@ -822,6 +831,21 @@ namespace winrt::ZSlice::implementation
                 BambuDone(nullptr, why);
                 return;
             }
+            // A printer with a link gets no second connection: the test
+            // reads what the link knows, or waits for its first report.
+            ui.SyncBambuLinks();
+            std::string holder = ui.BambuLinkOf(*p);
+            if (!holder.empty())
+            {
+                auto known = ui.bambu_known.find(holder);
+                if (known != ui.bambu_known.end() && known->second.has_status)
+                    BambuDone(&known->second.status, {});
+                else if (known != ui.bambu_known.end() && !known->second.error.empty())
+                    BambuDone(nullptr, known->second.error);
+                else
+                    bambu_wait = holder;
+                return;
+            }
             Poster post = ui.poster;
             std::string printer_id = p->id;
             bambu = std::make_shared<zs::BambuWatch>(
@@ -876,8 +900,15 @@ namespace winrt::ZSlice::implementation
             });
     }
 
+    void MainWindow::PrintersUi::PrefsLinkReport(std::string const &id, zs::link::Snapshot const *status, std::string const &error)
+    {
+        if (prefs != nullptr && prefs->bambu_wait == id)
+            prefs->BambuDone(status, error);
+    }
+
     void MainWindow::PrintersUi::PrefsPage::BambuDone(zs::link::Snapshot const *status, std::string const &error)
     {
+        bambu_wait.clear();
         if (cancel != nullptr)
             cancel->Stop();
         cancel = nullptr;

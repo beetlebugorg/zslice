@@ -265,12 +265,36 @@ namespace
         CHECK(again.Find(id_a) != nullptr && again.Find(id_a)->api_key == test_key);
         CHECK(again.Find(id_b) != nullptr && again.Find(id_b)->api_key == test_code);
 
-        // A cleared key leaves no file.
+        // An empty key in memory keeps the file: a read can have failed.
         again.Find(id_a)->api_key.clear();
-        again.Save();
+        CHECK(again.Save());
+        CHECK(state::Exists(state::PathOf(L"secrets\\printer-2.key")));
+        PrinterStore kept;
+        kept.Load();
+        CHECK(kept.Find(id_a) != nullptr && kept.Find(id_a)->api_key == test_key);
+        // Only ForgetKey deletes it.
+        again.ForgetKey(*again.Find(id_a));
         CHECK(!state::Exists(state::PathOf(L"secrets\\printer-2.key")));
+        CHECK(again.Find(id_a)->api_key.empty());
         again.Remove(id_b);
         CHECK(!state::Exists(state::PathOf(L"bambu\\01S00A000000001.code")));
+
+        // An app.ini that does not read is not replaced by the default.
+        std::wstring ini_path = state::PathOf(L"app.ini");
+        HANDLE held = ::CreateFileW(ini_path.c_str(), GENERIC_READ, 0, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+        CHECK(held != INVALID_HANDLE_VALUE);
+        {
+            PrinterStore locked;
+            locked.Load();
+            CHECK(locked.ReadFailed());
+            CHECK(!locked.FirstStart());
+            CHECK(!locked.Save());
+        }
+        ::CloseHandle(held);
+        PrinterStore after;
+        after.Load();
+        CHECK(!after.ReadFailed());
+        CHECK(after.Find(id_a) != nullptr);
 
         // A secret from another blob does not read.
         std::string plain;
@@ -1271,6 +1295,37 @@ namespace
             CHECK(busy_connects.size() == 2);
             if (busy_connects.size() >= 2)
                 CHECK(busy_connects[1] - busy_connects[0] >= std::chrono::milliseconds(14900));
+        }
+        // A new watch of that printer keeps the wait: no CONNECT comes now.
+        size_t busy_before = 0;
+        {
+            std::lock_guard guard(lock);
+            busy_before = busy_connects.size();
+        }
+        {
+            BambuWatch again(t, serial, [](link::Snapshot const &) {}, [](std::string const &) {}, nullptr);
+            std::this_thread::sleep_for(std::chrono::seconds(2));
+        }
+        {
+            std::lock_guard guard(lock);
+            CHECK(busy_connects.size() == busy_before);
+        }
+
+        // Two watches of one printer: it gets one connection.
+        std::atomic<int> single_connects{ 0 };
+        TlsStub single(cert.Get(), [&single_connects](std::string const &in, TlsStub::Write const &write) {
+            if ((unsigned char)in[0] >> 4 == 1)
+            {
+                single_connects++;
+                write(std::string("\x20\x02\x00\x00", 4));
+            }
+        });
+        ::SetEnvironmentVariableA("ZSLICE_BAMBU_MQTT_PORT", std::to_string(single.Port()).c_str());
+        {
+            BambuWatch first(t, serial, [](link::Snapshot const &) {}, [](std::string const &) {}, nullptr);
+            BambuWatch second(t, serial, [](link::Snapshot const &) {}, [](std::string const &) {}, nullptr);
+            std::this_thread::sleep_for(std::chrono::seconds(2));
+            CHECK(single_connects.load() == 1);
         }
 
         // A wrong access code: the broker refuses, and the watch stops.
