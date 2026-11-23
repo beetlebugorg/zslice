@@ -26,3 +26,4 @@ One line for each update: the date, the commit that the folder describes, and th
 | 2026-11-23 | `60308c2e` | README, CHANGELOG, 07, 08, 09, 10: one selection and focus model in the core (`zs_sel_*`), stable part ids, the generation rule, the pick in the core, and the web app on the model. |
 | 2026-11-23 | `02a74e7d` | README, CHANGELOG, 12: Windows view state, search actions, and the settings panel modes (by the Windows session). |
 | 2026-11-23 | `c8485312` | README, CHANGELOG, 12: Windows selection on the core model (by the Windows session); a whole line stays whole after a new slice. |
+| 2026-11-23 | `2c7e774f` | README, CHANGELOG, 11: the Mac search field is one plain shape. |
