@@ -694,8 +694,39 @@ namespace winrt::ZSlice::implementation
         SupportClearPick();
         if (path == (size_t)-1)
             ClearSelection();
+        else if (shift && select_tool)
+            SelectRun(path, segment);
         else
             SelectLine((int64_t)path, (int64_t)segment);
+    }
+
+    // The line and its run, from the retraction before it to the next one:
+    // one extrusion, lit together. A note gives the count.
+    void MainWindow::SelectRun(size_t path, size_t segment)
+    {
+        SelectLine((int64_t)path, (int64_t)segment);
+        size_t first = 0, last = 0;
+        if (zs_app_path_run(model->Active(), path, &first, &last) != ZS_OK || last < first)
+            return;
+        constexpr size_t run_max = 20000;
+        std::vector<size_t> others;
+        others.reserve(std::min(last - first + 1, run_max));
+        for (size_t i = first; i <= last && others.size() < run_max; i++)
+            if (i != path)
+                others.push_back(i);
+        zs_view_highlight_more(view, others.data(), others.size());
+        run_lit = true;
+        run_others = others.size();
+        RequestDraw();
+        ShowToast(last > first ? L"A run of " + std::to_wstring(last - first + 1) + L" lines: one extrusion, from a retraction to the next."
+                               : std::wstring(L"A run of one line: it has a retraction before and after it."));
+    }
+
+    int MainWindow::EditSelectedLine(int kind, double value)
+    {
+        zs_app *app = model->Active();
+        return line_key != 0 && line_key_path == selected_path ? zs_app_edit_add_key(app, line_key, line_key_layer, kind, value)
+                                                               : zs_app_edit_add(app, (size_t)selected_path, kind, value);
     }
 
     // ---- the hand and the fall ----
@@ -967,6 +998,22 @@ namespace winrt::ZSlice::implementation
     {
         if (view == nullptr || model == nullptr)
             return;
+        // During a slice the key reads 0: the same line keeps its key.
+        uint64_t key = selected_path >= 0 ? zs_app_path_key(model->Active(), (size_t)selected_path) : 0;
+        if (key != 0 || selected_path != line_key_path)
+        {
+            line_key = key;
+            line_key_path = selected_path;
+            ptrdiff_t key_layer = selected_path >= 0 ? zs_app_path_layer(model->Active(), (size_t)selected_path) : -1;
+            line_key_layer = key_layer > 0 ? (size_t)key_layer : 0;
+        }
+        // The lines of a run go with the next selection.
+        if (run_lit)
+        {
+            run_lit = false;
+            run_others = 0;
+            zs_view_highlight_more(view, nullptr, 0);
+        }
         zs_view_highlight(view, selected_path < 0 ? (size_t)-1 : (size_t)selected_path);
         if (selected_path >= 0)
             zs_view_highlight_segment(view, (size_t)selected_path, (ptrdiff_t)selected_segment);
@@ -1173,7 +1220,7 @@ namespace winrt::ZSlice::implementation
         }
         if (key == VirtualKey::Delete && selected_path >= 0)
         {
-            if (zs_app_edit_add(model->Active(), (size_t)selected_path, 0, 1) == ZS_OK)
+            if (EditSelectedLine(0, 1) == ZS_OK)
             {
                 model->RequestSlice();
                 NoteChange();
