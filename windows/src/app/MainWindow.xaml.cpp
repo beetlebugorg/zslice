@@ -401,6 +401,9 @@ namespace winrt::ZSlice::implementation
         zs_set_view_sync(model->Set(), view);
         SupportLoaded();
         ApplySearchEye();
+        ApplyPaneFocus();
+        if (effect_box != nullptr)
+            FillEffect(effect_box, effect_key);
         RefreshPlates();
         FindLineAnchor();
         ApplySelection();

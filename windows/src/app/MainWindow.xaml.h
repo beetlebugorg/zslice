@@ -168,6 +168,11 @@ namespace winrt::ZSlice::implementation
         int NozzleCount();
         void ShowSection(char const *group, char const *section);
         void ShowSpeedSection();
+        // The lines that a setting changes, and the settings of some lines.
+        void FillEffect(Microsoft::UI::Xaml::Controls::StackPanel const &box, std::string const &key);
+        void ShowFeature(int feature);
+        void SetPaneFocus(uint32_t mask, bool first_layer);
+        void ApplyPaneFocus();
         // The layer profiles (MainWindow.Profiles.cpp).
         // Import from a model page or a ZIP file (MainWindow.ModelImport.cpp).
         struct ImportState;
@@ -672,6 +677,13 @@ namespace winrt::ZSlice::implementation
         std::vector<std::wstring> scope_items;
         std::shared_ptr<EditorTarget> scope_target;
         std::string settings_detail;
+        int settings_feature = -1;
+        // The lines that the open setting changes, on its page.
+        Microsoft::UI::Xaml::Controls::StackPanel effect_box{ nullptr };
+        std::string effect_key;
+        // The lines that the pane shows in the view. 0: none.
+        uint32_t pane_focus = 0;
+        bool pane_focus_first = false, pane_focus_on = false;
         std::string part_settings_key;
         std::vector<SettingEditor> part_editors;
         // The layer profile in edit, and the marks of the layer rail.
