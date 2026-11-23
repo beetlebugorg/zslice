@@ -50,6 +50,12 @@ Build the native Mac app in `macos/`: a SwiftUI and AppKit shell around the app 
 
 ## Lessons
 
+- **Check the UI on an Xcode build.** `make-app.sh` links with SDK 14, so it has no Liquid Glass. A release from `xcodebuild` links with the current SDK, and its toolbar puts a glass capsule behind each item. A check of the toolbar on the other build missed a box in a box.
+- **Start the animation after each zoom.** `zs_view_zoom_at` sets a goal. Only `zs_view_animate` moves the camera, so a pinch or a scroll that asks for one frame does not zoom.
+- **Keep one shape for the search field.** Hide the shared glass of its toolbar item, and size the field from the room between the window center and the first item at the right.
+- **Read the file name from the document.** SwiftUI can open a window before it gives the file URL, and an empty name left the file menu with only its chevron.
+- **Watch `/` at the window.** The 3D view has the key only while it has the focus. A text field and a sheet keep the key.
+- **Do not use HSplitView in a sheet.** It left the top of its columns empty. Keep a sheet inside its parent window, with a 24-point margin.
 - **Keep a printers file that does not read.** The store said nothing and the next save wrote the defaults over it. It now keeps the file, writes nothing, and shows a note.
 - **Allow one MQTT connection for each Bambu address.** `BambuGate` holds it, and keeps the wait after a failure across new reads: 15 s, doubling to 5 minutes. A new access code ends the wait, and Test uses a login of the last 15 s.
 - **Write nothing from an unedited field.** The text of a value need not parse back to the same string, so a field that lost the focus could change a later-nozzle value.
