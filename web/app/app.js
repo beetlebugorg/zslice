@@ -2222,6 +2222,7 @@ $("view-sign").hidden = app.page !== "2d";
 // Selects segment `seg` of path `path` (-1: none). `picked`: a click on
 // the line, so the Selected page shows (inspector.c, on_picked).
 function select(path, seg, picked) {
+  heldLine = null;
   app.sel = path;
   app.seg = path >= 0 ? seg : -1;
   view.highlight(path, app.seg, app.isolate);
@@ -2251,15 +2252,45 @@ function select(path, seg, picked) {
 // Asks the worker for the Selected page of the selection. Only the last
 // answer counts.
 let inspectId = 0;
+
+// A held slider can make a slice with no selected line. The page and the
+// card then stay under the pointer. `heldLine` is the place of the line.
+// The release finds the line again, or ends the selection. A draft keeps
+// it too: the exact slice after the draft decides.
+let sliderHeld = false;
+let heldLine = null;
+window.addEventListener("pointerdown", (e) => {
+  if (e.button === 0 && e.target instanceof HTMLInputElement && e.target.type === "range") sliderHeld = true;
+}, true);
+function sliderReleased() {
+  if (!sliderHeld) return;
+  sliderHeld = false;
+  // The last value of the slider goes to the worker after a short wait.
+  setTimeout(() => {
+    if (!sliderHeld && heldLine && app.sel < 0 && app.state === "done" && !app.slicing && !app.draft) inspect(heldLine);
+  }, 400);
+}
+window.addEventListener("pointerup", sliderReleased, true);
+window.addEventListener("pointercancel", sliderReleased, true);
+
 async function inspect(refind) {
   const id = ++inspectId;
   if (app.sel < 0 && !refind) {
+    if (heldLine) return;
     app.info = null;
     inspector.show(null);
     return;
   }
   const r = await client.call("inspect", { path: app.sel, seg: app.seg, refind });
   if (id !== inspectId) return;
+  if (refind && !r.info && (sliderHeld || (heldLine && app.draft))) {
+    heldLine = refind;
+    selection.setLine(0n, -1, -1);
+    view.highlight(-1, -1, app.isolate);
+    requestFrame();
+    return;
+  }
+  if (refind) heldLine = null;
   lineCard.show(r.info);
   app.info = r.info;
   if (refind) {
@@ -2281,7 +2312,8 @@ async function inspect(refind) {
 // The place of the selection, to find it again after a new slice.
 function refindKey() {
   const info = app.info;
-  if (app.sel < 0 || !info) return null;
+  if (app.sel < 0) return heldLine;
+  if (!info) return null;
   view.pathBeads(app.sel, rangeTmp);
   const b = rangeTmp[1] > rangeTmp[0] ? rangeTmp[0] + ((rangeTmp[1] - rangeTmp[0]) >> 1) : -1;
   if (b < 0) return null;

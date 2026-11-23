@@ -467,6 +467,47 @@ const tests = {
     await ctx.close();
     return `path ${line.path} is path ${after} now`;
   },
+
+  async "a held slider keeps a lost line until the release"() {
+    const { page, ctx, errors } = await newPage("test-cube.stl", 1);
+    // An infill line: the slider of the infill density at 0 removes it.
+    const path = await page.evaluate(async () => {
+      const z = window.zslice;
+      for (let p = 0; p < 4000; p += 3) {
+        const r = await z.client.call("inspect", { path: p, seg: -1 });
+        if (r.info?.feature === 3) return p;
+      }
+      return -1;
+    });
+    check(path >= 0, "no infill line");
+    await page.evaluate(async (p) => {
+      const z = window.zslice;
+      z.app.pickPoint = [120, 120];
+      z.select(p, 0, true);
+      for (let i = 0; i < 200 && z.app.info?.path !== p; i++) await new Promise((r) => setTimeout(r, 20));
+      z.showTab("settings");
+      z.browser.openSetting("project.infill_density");
+    }, path);
+    const slider = page.locator('input.slider[data-setting="project.infill_density"]:visible').first();
+    await slider.waitFor({ timeout: 10000 });
+    const b = await slider.boundingBox();
+    await page.mouse.move(b.x + b.width * 0.2, b.y + b.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(b.x - 20, b.y + b.height / 2, { steps: 6 });
+    // The slices of the held slider end with no infill line.
+    await page.waitForFunction(() => window.zslice.app.sel < 0, null, { timeout: 60000 });
+    await page.waitForTimeout(300);
+    await idle(page);
+    await page.waitForTimeout(600);
+    const held = await page.evaluate(() => ({ info: !!window.zslice.app.info, card: !!document.querySelector(".lc-notes") }));
+    check(held.info, "the line page left while the slider is held");
+    check(held.card, "the line card left while the slider is held");
+    await page.mouse.up();
+    await page.waitForFunction(() => !window.zslice.app.info && !document.querySelector(".lc-notes"), null, { timeout: 30000 });
+    check(errors.length === 0, errors.join("; "));
+    await ctx.close();
+    return "the page stayed while held, and the selection ended at the release";
+  },
 };
 
 let failed = 0;

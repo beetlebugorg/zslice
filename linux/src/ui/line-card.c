@@ -343,7 +343,9 @@ static void on_picked(ZgModel *model, gint64 path, gpointer data) {
 static void on_selection(ZgModel *model, gint64 path, gpointer data) {
     LineCard *c = data;
     if (path < 0) {
-        close_card(c);
+        /* The line is gone for this slice only: the card stays until the
+         * selection ends (zg_model_slider_hold, the exact slice). */
+        if (!zg_model_selection_lost(model)) close_card(c);
         return;
     }
     if (c->want && gtk_widget_get_visible(c->card)) show(c, path);

@@ -445,6 +445,23 @@ void zg_setting_editor_slider_throttle(GtkWidget *slider, guint ms) {
     g_signal_connect(slider, "destroy", G_CALLBACK(on_slider_destroy), NULL);
 }
 
+/* The model knows while a slider is held: a slice that removes the
+ * selected line then keeps the page under the pointer. */
+static gboolean on_slider_event(GtkEventControllerLegacy *c, GdkEvent *event, gpointer data) {
+    GdkEventType type = gdk_event_get_event_type(event);
+    if (type != GDK_BUTTON_PRESS && type != GDK_BUTTON_RELEASE) return FALSE;
+    if (gdk_button_event_get_button(event) != GDK_BUTTON_PRIMARY) return FALSE;
+    GtkWidget *slider = gtk_event_controller_get_widget(GTK_EVENT_CONTROLLER(c));
+    gboolean on = type == GDK_BUTTON_PRESS;
+    g_object_set_data(G_OBJECT(slider), "zg-held", GINT_TO_POINTER(on));
+    zg_model_slider_hold(data, on);
+    return FALSE;
+}
+
+static void on_held_slider_destroy(GtkWidget *slider, gpointer data) {
+    if (g_object_get_data(G_OBJECT(slider), "zg-held")) zg_model_slider_hold(data, FALSE);
+}
+
 GtkWidget *zg_setting_editor_slider_new(GtkWidget *entry) {
     const zs_setting_info *info = info_of(entry);
     double scale = strcmp(info->unit, "%") == 0 ? 100 : 1;
@@ -468,6 +485,11 @@ GtkWidget *zg_setting_editor_slider_new(GtkWidget *entry) {
     sync_slider(entry);
     g_object_set_data(G_OBJECT(slider), "zg-entry", entry);
     g_signal_connect(slider, "value-changed", G_CALLBACK(on_slider), entry);
+    GtkEventController *held = gtk_event_controller_legacy_new();
+    gtk_event_controller_set_propagation_phase(held, GTK_PHASE_CAPTURE);
+    g_signal_connect(held, "event", G_CALLBACK(on_slider_event), model_of(entry));
+    gtk_widget_add_controller(slider, held);
+    g_signal_connect(slider, "destroy", G_CALLBACK(on_held_slider_destroy), model_of(entry));
     return slider;
 }
 

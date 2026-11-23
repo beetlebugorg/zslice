@@ -121,6 +121,7 @@
 <p>The pick returns 0 while a plate request is open, because the table is still of the plate before.</p>
 <h2 id="a-selected-line">A selected line</h2>
 <p>A new slice can renumber the paths. The model keeps the key of the line. After a slice, a shell finds the path of that key (<code>zs_app_path_of_key</code>) and calls <code>zs_sel_line_found</code>. A draft slice can miss the key of a line that the exact slice makes again. So on a miss, a shell looks at the saved place: the same layer and feature, and the nearest line (<code>zs_app_pick_feature</code>). It selects that line with its own key, and the exact slice after the draft goes back to the first key and segment. With no line at that place, the line selection ends. GTK keeps the page through a draft with no line there, and ends the selection at the exact slice.</p>
+<p>While a slider is held, GTK and the web app keep the page and the line card of a line that a slice removed. The release finds the line again, or ends the selection.</p>
 <h2 id="a-click-on-a-gizmo-handle">A click on a gizmo handle</h2>
 <p>A handle of the gizmo can lie over another part. A press and a release at one place is a click, so the click goes to the part under the pointer. A drag starts only after the pointer moves more than 4 CSS pixels.</p>
 <h2 id="the-c-calls-in-order">The C calls in order</h2>

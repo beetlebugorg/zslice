@@ -82,6 +82,9 @@ struct _ZgModel {
      * miss the key, and the exact slice finds the line again. */
     uint64_t anchor_key;
     gint64 anchor_seg;
+    /* A slider is held, and the timer after its release. */
+    gboolean slider_held;
+    guint slider_timer;
     /* With a selected line: the other lines fade (see zg_model_set_isolate). */
     gboolean isolate;
     /* The gaps view (see zg_model_set_gaps), and the selected gap: its
@@ -567,7 +570,7 @@ static gboolean deliver(gpointer data) {
              * thickness): the anchor stays, so the exact slice can find
              * the line again, and the inspector keeps its page. With no
              * line in the exact slice, the selection ends. */
-            if (next < 0 && !zs_app_is_draft(model->core)) {
+            if (next < 0 && !zs_app_is_draft(model->core) && !model->slider_held) {
                 model->anchored = FALSE;
                 model->anchor_key = 0;
                 model->anchor_seg = -1;
@@ -610,6 +613,8 @@ static void zg_model_dispose(GObject *object) {
     ZgModel *self = ZG_MODEL(object);
     if (self->settle_timer) g_source_remove(self->settle_timer);
     self->settle_timer = 0;
+    if (self->slider_timer) g_source_remove(self->slider_timer);
+    self->slider_timer = 0;
     if (self->more) g_array_free(self->more, TRUE);
     if (self->more_anchor) g_array_free(self->more_anchor, TRUE);
     self->more = self->more_anchor = NULL;
@@ -1505,6 +1510,28 @@ const gint64 *zg_model_more(ZgModel *self, guint *n) {
 
 gboolean zg_model_selection_lost(ZgModel *self) {
     return line_path(self) < 0 && self->anchored;
+}
+
+/* After a release: the last value of a throttled slider has gone to the
+ * core. A slice that still runs or follows ends a lost line itself. */
+static gboolean on_slider_settled(gpointer data) {
+    ZgModel *self = data;
+    self->slider_timer = 0;
+    if (self->slider_held || !zg_model_selection_lost(self)) return G_SOURCE_REMOVE;
+    if (zs_app_state(self->core) == ZS_STATE_SLICING || self->slice_pending || self->settle_timer || self->draft_core || zs_app_is_draft(self->core))
+        return G_SOURCE_REMOVE;
+    self->anchored = FALSE;
+    self->anchor_key = 0;
+    self->anchor_seg = -1;
+    g_signal_emit(self, signals[SIGNAL_SELECTION_CHANGED], 0, (gint64)-1);
+    return G_SOURCE_REMOVE;
+}
+
+void zg_model_slider_hold(ZgModel *self, gboolean on) {
+    if (self->slider_held == on) return;
+    self->slider_held = on;
+    if (self->slider_timer) g_source_remove(self->slider_timer);
+    self->slider_timer = on ? 0 : g_timeout_add(400, on_slider_settled, self);
 }
 
 gint64 zg_model_selected(ZgModel *self) {

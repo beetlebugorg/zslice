@@ -213,6 +213,9 @@ gint64 zg_model_selected(ZgModel *self);
 /* TRUE if the user selected a line, and the last slice has no line of that
  * kind at its place (the next slice can bring it back). */
 gboolean zg_model_selection_lost(ZgModel *self);
+/* A slider is held (on) or released. While it is held, a slice with no
+ * selected line keeps the page of the line. The release resolves it. */
+void zg_model_slider_hold(ZgModel *self, gboolean on);
 /* A multiple selection (Shift+click): adds the line, or removes it if it
  * is in the selection. The first line stays the line of the inspector.
  * A plain zg_model_select clears the other lines. */
