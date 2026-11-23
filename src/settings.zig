@@ -2444,6 +2444,8 @@ pub fn regionNote(old_name: []const u8) ?[:0]const u8 {
     if (!isLayerSetting(name)) return "This setting is for the whole print only.";
     if (has(name, &.{ "layer_height", "xy_offset" })) return "The plate has one layer height and one outline at each layer.";
     if (has(name, &.{ "fan", "cooling", "min_layer_time", "min_speed" })) return "The fan runs at one speed for the whole layer.";
+    if (has(name, &.{"bed_temp"})) return "The bed has one temperature for the whole layer.";
+    if (has(name, &.{"chamber_temp"})) return "The chamber has one temperature for the whole layer.";
     if (has(name, &.{ "temp", "pressure_advance", "flow_ratio", "max_flow" })) return "The nozzle has one value of this for the whole layer.";
     if (has(name, &.{ "retract", "z_hop", "combing", "travel", "coasting", "wipe" })) return "The travel moves and the retractions are for the whole layer.";
     if (has(name, &.{ "support" })) return "The support is for the whole layer.";
@@ -2456,6 +2458,8 @@ test "a region of some layers: its infill only, with no walls, fan, or layer hei
     try std.testing.expect(regionNote("project.filament") == null);
     try std.testing.expect(regionNote("project.infill_accel") == null);
     for ([_][]const u8{ "project.layer_height", "filament.fan_speed", "project.wall_count", "filament.nozzle_temp", "project.top_thickness", "machine.z_hop", "project.first_layer_height" }) |n| try std.testing.expect(regionNote(n) != null);
+    try std.testing.expectEqualStrings("The bed has one temperature for the whole layer.", regionNote("filament.bed_temp").?);
+    try std.testing.expectEqualStrings("The nozzle has one value of this for the whole layer.", regionNote("filament.nozzle_temp").?);
     // Each region setting can change for some layers.
     for (region_settings) |n| try std.testing.expect(isLayerSetting(n));
 }
