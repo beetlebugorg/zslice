@@ -93,6 +93,19 @@ namespace
         return Media::SolidColorBrush(Windows::UI::Color{ 255, r, g, b });
     }
 
+    // The features, then the marks (seams, travel, retractions), in the
+    // order of the bits of zs_setting_effect, with the colors of the views.
+    constexpr int effect_count = ZS_FEATURE_COUNT + 3;
+    wchar_t const *const feature_titles[effect_count] = {
+        L"Outer wall", L"Inner wall", L"Skin", L"Sparse infill", L"Ironing", L"Skirt or brim", L"Support", L"Support interface",
+        L"Slope smoothing", L"Slope ironing", L"Bridge", L"Seams", L"Travel moves", L"Retractions",
+    };
+    Windows::UI::Color const feature_colors[effect_count] = {
+        { 255, 217, 72, 15 },  { 255, 245, 159, 0 },  { 255, 28, 126, 214 },  { 255, 43, 138, 62 },  { 255, 174, 62, 201 },
+        { 255, 141, 110, 99 }, { 255, 173, 181, 189 }, { 255, 73, 80, 87 },   { 255, 12, 166, 174 }, { 255, 130, 201, 30 },
+        { 255, 102, 204, 242 }, { 255, 224, 26, 38 },  { 255, 51, 115, 242 }, { 255, 242, 64, 191 },
+    };
+
     TextBlock Wrapped(std::wstring const &text, double size = 13)
     {
         TextBlock t;
@@ -173,12 +186,152 @@ namespace winrt::ZSlice::implementation
         SettingsPane().Visibility(show ? Visibility::Visible : Visibility::Collapsed);
         if (show)
             RefreshSettingValues();
+        ApplyPaneFocus();
+    }
+
+    // The view shows the lines that the open setting changes, while the
+    // pane shows it.
+    void MainWindow::SetPaneFocus(uint32_t mask, bool first_layer)
+    {
+        pane_focus = mask;
+        pane_focus_first = first_layer;
+        ApplyPaneFocus();
+    }
+
+    void MainWindow::ApplyPaneFocus()
+    {
+        if (view == nullptr || model == nullptr || search_eye_set || tool == Tool::Support)
+            return;
+        bool on = pane_focus != 0 && SettingsPane().Visibility() == Visibility::Visible;
+        if (!on)
+        {
+            if (pane_focus_on)
+            {
+                pane_focus_on = false;
+                zs_view_focus(view, 0, -1);
+                RequestDraw();
+            }
+            return;
+        }
+        double zmax = -1;
+        zs_toolpaths paths{};
+        if (pane_focus_first && zs_app_toolpaths(model->Active(), &paths) == ZS_OK && paths.layer_count > 0)
+            zmax = paths.layer_z[0];
+        zs_view_focus(view, pane_focus, zmax);
+        pane_focus_on = true;
+        RequestDraw();
+    }
+
+    // What a setting changes: its lines, with their share of the print
+    // time. A click on a row lists the settings of those lines.
+    void MainWindow::FillEffect(StackPanel const &box, std::string const &key)
+    {
+        box.Children().Clear();
+        zs_setting_effect effect{};
+        zs_setting_get_effect(key.c_str(), &effect);
+        auto dim = [this](std::wstring const &text) {
+            TextBlock line = Wrapped(text, 12);
+            line.Foreground(TokenBrush(Root(), L"ZsDim"));
+            return line;
+        };
+        if (effect.features == 0)
+        {
+            std::wstring note = effect.note != nullptr && effect.note[0] != 0 ? zs::ToWide(effect.note) : L"It changes no line.";
+            box.Children().Append(dim(note + L" The preview shows all lines, in their feature colors."));
+            return;
+        }
+        zs_feature_stats stats[ZS_FEATURE_COUNT]{};
+        bool have = model != nullptr && zs_app_feature_stats(model->Active(), stats) == ZS_OK;
+        double total = 0;
+        if (have)
+            for (auto const &s : stats)
+                total += s.time_s;
+        box.Children().Append(Wrapped(effect.first_layer_only != 0 ? L"It changes these lines on the first layer:" : L"It changes these lines:", 13));
+        int shown = 0;
+        for (int f = 0; f < effect_count; f++)
+        {
+            if (((effect.features >> f) & 1) == 0 || (f < ZS_FEATURE_COUNT && have && stats[f].paths == 0))
+                continue;
+            Grid line;
+            line.ColumnSpacing(8);
+            ColumnDefinition dot_column, name_column, time_column;
+            dot_column.Width(GridLengthHelper::Auto());
+            name_column.Width(GridLengthHelper::FromValueAndType(1, GridUnitType::Star));
+            time_column.Width(GridLengthHelper::Auto());
+            line.ColumnDefinitions().Append(dot_column);
+            line.ColumnDefinitions().Append(name_column);
+            line.ColumnDefinitions().Append(time_column);
+            Microsoft::UI::Xaml::Shapes::Ellipse dot;
+            dot.Width(9);
+            dot.Height(9);
+            dot.VerticalAlignment(VerticalAlignment::Center);
+            dot.Fill(Media::SolidColorBrush(feature_colors[f]));
+            line.Children().Append(dot);
+            TextBlock name = Wrapped(feature_titles[f]);
+            Grid::SetColumn(name, 1);
+            line.Children().Append(name);
+            if (f < ZS_FEATURE_COUNT && have && total > 0 && effect.first_layer_only == 0)
+            {
+                wchar_t share[48];
+                swprintf_s(share, L"%.0f min · %.0f %%", stats[f].time_s / 60, 100 * stats[f].time_s / total);
+                TextBlock time = dim(share);
+                time.TextWrapping(TextWrapping::NoWrap);
+                time.VerticalAlignment(VerticalAlignment::Center);
+                Grid::SetColumn(time, 2);
+                line.Children().Append(time);
+            }
+            Button row;
+            row.HorizontalAlignment(HorizontalAlignment::Stretch);
+            row.HorizontalContentAlignment(HorizontalAlignment::Stretch);
+            row.Background(Media::SolidColorBrush(Microsoft::UI::Colors::Transparent()));
+            row.BorderThickness(ThicknessHelper::FromUniformLength(0));
+            row.Padding(ThicknessHelper::FromLengths(4, 3, 4, 3));
+            row.Content(line);
+            std::wstring tip = std::wstring(L"Show all settings that change the ") + feature_titles[f] + L" lines";
+            ToolTipService::SetToolTip(row, box_value(tip));
+            Microsoft::UI::Xaml::Automation::AutomationProperties::SetName(row, tip);
+            row.Click([this, f](auto &&, auto &&) {
+                // After the click: the row goes away with the page.
+                queue.TryEnqueue([this, f] { ShowFeature(f); });
+            });
+            box.Children().Append(row);
+            shown++;
+        }
+        box.Children().Append(dim(shown == 0 ? L"This part has none of these lines now." : L"The preview shows these lines, and the other lines fade."));
+    }
+
+    // The settings that change the lines of one feature.
+    void MainWindow::ShowFeature(int feature)
+    {
+        if (feature < 0 || feature >= effect_count)
+            return;
+        ClearSettingsList();
+        settings_page = SettingsPage::Section;
+        settings_group = "feature";
+        settings_section = "";
+        settings_feature = feature;
+        SettingsBack().Visibility(Visibility::Visible);
+        SettingsCrumb().Text(std::wstring(feature_titles[feature]) + L" lines");
+        uint32_t all = (1u << ZS_FEATURE_COUNT) - 1;
+        for (size_t i = 0, n = zs_setting_count(); i < n; i++)
+        {
+            zs_setting_info info{};
+            zs_setting_effect effect{};
+            if (zs_setting_get_info(i, &info) != ZS_OK || zs_setting_get_effect(info.name, &effect) != ZS_OK)
+                continue;
+            if (((effect.features >> feature) & 1) == 0 || (effect.features & all) == all)
+                continue;
+            SettingsList().Children().Append(MakeSettingRow(info));
+        }
+        SetPaneFocus(1u << feature, false);
     }
 
     void MainWindow::ClearSettingsList()
     {
         setting_editors.clear();
         speed_toggle = nullptr;
+        effect_box = nullptr;
+        SetPaneFocus(0, false);
         SettingsList().Children().Clear();
         SettingsScroll().ChangeView(nullptr, box_value(0.0).as<Windows::Foundation::IReference<double>>(), nullptr, true);
     }
@@ -365,6 +518,11 @@ namespace winrt::ZSlice::implementation
         if (strcmp(group, "profiles") == 0)
         {
             ShowProfileChanges();
+            return;
+        }
+        if (strcmp(group, "feature") == 0)
+        {
+            ShowFeature(settings_feature);
             return;
         }
         ClearSettingsList();
@@ -780,7 +938,16 @@ namespace winrt::ZSlice::implementation
         }
 
         page.Children().Append(Wrapped(PlainDoc(info.doc)));
+        // The times of its lines come again with each slice (AfterScene).
+        effect_box = StackPanel{};
+        effect_box.Spacing(2);
+        effect_key = key;
+        FillEffect(effect_box, key);
+        page.Children().Append(effect_box);
         SettingsList().Children().Append(page);
+        zs_setting_effect shown_effect{};
+        zs_setting_get_effect(info.name, &shown_effect);
+        SetPaneFocus(shown_effect.features != 0 ? shown_effect.features : (1u << ZS_FEATURE_COUNT) - 1, shown_effect.first_layer_only != 0);
     }
 
     void MainWindow::CommitSettingText(zs_setting_info const &info, std::wstring const &text, EditorTarget const *target)
