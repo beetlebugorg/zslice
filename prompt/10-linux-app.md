@@ -40,7 +40,14 @@ Build the native Linux app in `linux/`: a GTK 4 shell in C around the app core, 
 - The tool keys of the web app: Move M (also R and G), Label E, and h and l step along the line. Gaps has no key.
 - The search gives S as the key of the Support tool, and has "Import a profile…". The main menu item that saves all plates is "Save project…".
 - The Linux app shows the active plate only. It has layer profiles, Compare with Cura, USB printers, Send all plates, and Export all plates.
-- The GTK app still keeps its own selection on the older calls. The port to the `zs_sel_*` calls is open: see [Selection and focus](../docs/internals/selection.md).
+- The GTK model keeps one `zs_selection`: the parts by stable id, and the line by its key. The index getters read the index from the id just before a call. See [Selection and focus](../docs/internals/selection.md).
+- A click uses `zs_sel_pick`. A press on a gizmo handle starts a drag after 4 points, so a click on a handle selects the part under the pointer.
+- After a slice, a selected line follows its key, then its place (same layer, same feature, nearest line). A draft keeps the page with no line there. The exact slice ends the selection with no line there.
+- The line card has the numbers, the editors, the nozzle, Holds up, and the check warnings. The reasons are at the foot of the Selected page, with the core `explain` text as the last block.
+- One Bambu Lab connection for each address. The gate keeps the 15 s wait across new watches, and the Test button reads the open link.
+- An edit of a printer address to a new scheme, host, or port asks before the saved key goes there. The default is No. Cancel keeps the old address and the key.
+- An `app.ini` that exists and does not read stays as it is.
+- Save project works from an empty plate when another plate has parts.
 
 ## Lessons
 
@@ -52,6 +59,9 @@ Build the native Linux app in `linux/`: a GTK 4 shell in C around the app core, 
 - Count an upload as sent only when the printer stored the file.
 - The 3D view needs Wayland. X11 is open in the roadmap.
 - **Show the qualities as widgets.** The popover menu showed each name and its points as one plain block of two lines, with no mark on the quality in use.
+- **Keep the beads when a scene lands during a slice.** `poll_scene` loaded the view after a GPU upload. With a newer slice running, the app had no toolpaths, and the print vanished until that slice ended.
+- **Keep the cards clear of the panel.** The free area of the cards ignored the panel over the view, so the panel covered part of a card.
+- **Count the shown text as no change.** A later-nozzle field at 0 shows "no limit". Leaving it sent the words to the number parse, and the field turned red.
 - **Name the right keys in the search.** The search gave U as the key of the Support tool. The docs said that G shows the gaps.
 
 ## Acceptance checks
@@ -63,3 +73,4 @@ Build the native Linux app in `linux/`: a GTK 4 shell in C around the app core, 
 5. On Hyprland, the 3D view shows the scene with no menu open.
 6. A quit and a start bring back the plates, the camera, and the last frame before the first slice.
 7. `meson test -C linux/build` runs `model-download-test`: a name that resolves to a private, loopback, or unique local address gets no connection.
+8. `meson test -C linux/build` runs `bambu-gate-test`: a second watch of an address waits, a drop keeps the wait for a new watch, and an `app.ini` that does not read stays as it is.
