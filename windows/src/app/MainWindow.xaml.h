@@ -538,6 +538,10 @@ namespace winrt::ZSlice::implementation
         void FillLineCard();
         // The filament of a body of a line (MainWindow.Range.cpp).
         void FillLineFilament();
+        // An edit of the selected line. Its key works while a slice runs.
+        int EditSelectedLine(int kind, double value);
+        // Shift+click in the Select tool: the line and its whole run.
+        void SelectRun(size_t path, size_t segment);
         // Ends a fall of a part, on the plate where it started.
         void CancelFall();
         // The support mark of the user at the selected line.
@@ -750,6 +754,11 @@ namespace winrt::ZSlice::implementation
         int anchor_feature = 0;
         double click_x = 0, click_y = 0;
         bool line_card_moved = false;
+        uint64_t line_key = 0;
+        size_t line_key_layer = 0;
+        int64_t line_key_path = -1;
+        bool run_lit = false;
+        size_t run_others = 0;
         zs_app *fall_app = nullptr;
         int64_t line_mark = -1;
         bool line_mark_filling = false;

@@ -67,7 +67,7 @@ namespace winrt::ZSlice::implementation
         auto edit = [this](int kind, double value) {
             if (model == nullptr || selected_path < 0)
                 return;
-            if (zs_app_edit_add(model->Active(), (size_t)selected_path, kind, value) == ZS_OK)
+            if (EditSelectedLine(kind, value) == ZS_OK)
             {
                 ClearSelection();
                 model->RequestSlice();
