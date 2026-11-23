@@ -1,6 +1,6 @@
 # A prompt that could build zslice
 
-Describes: main at commit `1d3dafbe` ("Turn CR and CRLF into LF in G-code templates"), 2026-11-22.
+Describes: main at commit `8a128eb1` ("Add the settings pane to the Windows prompt"), 2026-11-23.
 
 ## Read this first
 
