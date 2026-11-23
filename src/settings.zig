@@ -1698,6 +1698,38 @@ test "infill angles: a list, with or without brackets" {
     try std.testing.expectError(error.InvalidValue, s.resolve());
 }
 
+/// True for a setting that holds a G-code template. Only these settings
+/// take `unixLines`: an LF in a name goes into the settings comments of the
+/// G-code, and a firmware reads it as a new command.
+pub fn isGcodeTemplate(name: []const u8) bool {
+    return std.mem.endsWith(u8, name, "_gcode");
+}
+
+/// Turns CRLF and CR into LF in place, and returns the shorter text. A
+/// text box of WinUI gives CR, and the G-code templates split at LF.
+pub fn unixLines(text: []u8) []u8 {
+    var out: usize = 0;
+    var i: usize = 0;
+    while (i < text.len) : (i += 1) {
+        if (text[i] == '\r') {
+            text[out] = '\n';
+            if (i + 1 < text.len and text[i + 1] == '\n') i += 1;
+        } else text[out] = text[i];
+        out += 1;
+    }
+    return text[0..out];
+}
+
+test "unixLines: CR and CRLF become LF" {
+    var a = "G28\rG1 Z5\r\nM84\n\r".*;
+    try std.testing.expectEqualStrings("G28\nG1 Z5\nM84\n\n", unixLines(&a));
+    var b = "G28\nM84".*;
+    try std.testing.expectEqualStrings("G28\nM84", unixLines(&b));
+    try std.testing.expect(isGcodeTemplate("machine.start_gcode"));
+    try std.testing.expect(isGcodeTemplate("filament.end_gcode"));
+    try std.testing.expect(!isGcodeTemplate("machine.name"));
+}
+
 fn setField(target: anytype, name: []const u8, value: []const u8) Settings.SetError!void {
     const T = @typeInfo(@TypeOf(target)).pointer.child;
     inline for (@typeInfo(T).@"struct".fields) |f| {

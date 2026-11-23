@@ -1745,7 +1745,8 @@ pub const App = struct {
             app.setFormula(name, trimmed[1..]) catch return error.InvalidValue;
             return;
         }
-        const copy = app.strings.allocator().dupe(u8, value) catch return error.InvalidValue;
+        var copy = app.strings.allocator().dupe(u8, value) catch return error.InvalidValue;
+        if (zs.settings.isGcodeTemplate(name)) copy = zs.settings.unixLines(copy);
         var s = app.settings;
         try s.set(name, copy);
         app.settings = s;

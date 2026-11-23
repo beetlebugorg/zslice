@@ -119,7 +119,9 @@ fn applyDepth(arena: Allocator, settings: *Settings, group: Group, name: []const
             return error.UnknownSetting;
         }
         const full = try std.fmt.allocPrint(arena, "{s}.{s}", .{ target, e.key });
-        settings.set(full, e.value) catch |err| {
+        // A G-code template that an older Windows build saved can hold CR.
+        const value = if (settings_mod.isGcodeTemplate(full) and std.mem.indexOfScalar(u8, e.value, '\r') != null) settings_mod.unixLines(try arena.dupe(u8, e.value)) else e.value;
+        settings.set(full, value) catch |err| {
             diag.* = .{
                 .profile = name,
                 .line = e.line,

@@ -2134,7 +2134,11 @@ const Matcher = struct {
 
 /// Writes `text` with the values of its variables (see the header
 /// comment). The memory of `gpa` is free again at the return.
-pub fn render(gpa: Allocator, w: *Writer, text: []const u8, ctx: *const Context) (Writer.Error || Allocator.Error)!Result {
+pub fn render(gpa: Allocator, w: *Writer, text_in: []const u8, ctx: *const Context) (Writer.Error || Allocator.Error)!Result {
+    // A template with CR (an old saved value) reads as lines of LF.
+    const unix: ?[]u8 = if (std.mem.indexOfScalar(u8, text_in, '\r') != null) try gpa.dupe(u8, text_in) else null;
+    defer if (unix) |u| gpa.free(u);
+    const text: []const u8 = if (unix) |u| settings_mod.unixLines(u) else text_in;
     var arena: std.heap.ArenaAllocator = .init(gpa);
     defer arena.deinit();
     var r: Renderer = .{ .arena = arena.allocator(), .ctx = ctx, .w = w };
@@ -2477,4 +2481,15 @@ test "each G-code of the printer library renders with no variable left" {
             }
         }
     }
+}
+
+test "render: a template with CR or CRLF gives the lines of LF" {
+    var a: Writer.Allocating = .init(std.testing.allocator);
+    defer a.deinit();
+    var b: Writer.Allocating = .init(std.testing.allocator);
+    defer b.deinit();
+    const r = try (settings_mod.Settings{}).resolve();
+    _ = try render(std.testing.allocator, &a.writer, "G28\nG1 Z5\nM84\n", &.{ .r = &r, .layer_count = 1 });
+    _ = try render(std.testing.allocator, &b.writer, "G28\rG1 Z5\r\nM84\r", &.{ .r = &r, .layer_count = 1 });
+    try std.testing.expectEqualStrings(a.written(), b.written());
 }
