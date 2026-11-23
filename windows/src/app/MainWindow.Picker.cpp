@@ -120,7 +120,10 @@ namespace winrt::ZSlice::implementation
             zs_printers *lib = nullptr;
             // -1: none yet. -2: "My printer is not in the list".
             ptrdiff_t current = -1;
+            // -2: the popular printers, -1: all brands.
             ptrdiff_t brand = -1;
+            // The row of brand 0 in the list.
+            int brand_offset = 1;
             std::vector<ptrdiff_t> shown;
             std::vector<zs::FoundPrinter> found;
             int link = -1;
@@ -187,7 +190,7 @@ namespace winrt::ZSlice::implementation
                 if (lib != nullptr)
                 {
                     size_t total = 0;
-                    if (q.empty() && brand < 0)
+                    if (q.empty() && brand == -2)
                     {
                         found.resize(64);
                         total = zs_printers_popular(lib, found.data(), found.size());
@@ -195,10 +198,11 @@ namespace winrt::ZSlice::implementation
                     }
                     else
                     {
-                        total = zs_printers_search(lib, q.c_str(), brand, nullptr, 0);
+                        ptrdiff_t in_brand = std::max<ptrdiff_t>(brand, -1);
+                        total = zs_printers_search(lib, q.c_str(), in_brand, nullptr, 0);
                         found.resize(total);
                         if (total > 0)
-                            total = zs_printers_search(lib, q.c_str(), brand, found.data(), found.size());
+                            total = zs_printers_search(lib, q.c_str(), in_brand, found.data(), found.size());
                         found.resize(std::min(total, found.size()));
                     }
                 }
@@ -233,7 +237,7 @@ namespace winrt::ZSlice::implementation
                 brand = (ptrdiff_t)m.brand_index;
                 filling = true;
                 query.Text(L"");
-                brands.SelectedIndex((int)brand + 1);
+                brands.SelectedIndex((int)brand + brand_offset);
                 filling = false;
                 FillModels();
                 UpdateCard();
@@ -447,14 +451,47 @@ namespace winrt::ZSlice::implementation
         p->brands = ListView();
         Name(p->brands, L"Brands");
         auto brand_items = single_threaded_vector<IInspectable>();
-        brand_items.Append(box_value(L"All brands"));
+        // A row: the name, and how many printers it has.
+        auto brand_row = [this](std::wstring const &text, size_t count) {
+            Grid row;
+            row.ColumnSpacing(8);
+            ColumnDefinition name_column, count_column;
+            name_column.Width(GridLengthHelper::FromValueAndType(1, GridUnitType::Star));
+            count_column.Width(GridLengthHelper::Auto());
+            row.ColumnDefinitions().Append(name_column);
+            row.ColumnDefinitions().Append(count_column);
+            TextBlock name;
+            name.Text(text);
+            name.TextWrapping(TextWrapping::WrapWholeWords);
+            name.VerticalAlignment(VerticalAlignment::Center);
+            TextBlock number;
+            number.Text(std::to_wstring(count));
+            number.FontSize(12);
+            number.Opacity(0.65);
+            number.VerticalAlignment(VerticalAlignment::Center);
+            Grid::SetColumn(number, 1);
+            row.Children().Append(name);
+            row.Children().Append(number);
+            Microsoft::UI::Xaml::Automation::AutomationProperties::SetName(row, text);
+            return row;
+        };
+        p->brands.ItemContainerStyle(Markup::XamlReader::Load(L"<Style xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation' TargetType='ListViewItem'><Setter Property='HorizontalContentAlignment' Value='Stretch'/></Style>").as<Style>());
+        uint32_t popular[64];
+        size_t popular_count = p->lib != nullptr ? zs_printers_popular(p->lib, popular, ARRAYSIZE(popular)) : 0;
+        if (popular_count > 0)
+        {
+            brand_items.Append(brand_row(L"Popular", popular_count));
+            p->brand = -2;
+            p->brand_offset = 2;
+        }
+        brand_items.Append(brand_row(L"All brands", p->lib != nullptr ? zs_printers_model_count(p->lib) : 0));
         size_t brand_count = p->lib != nullptr ? zs_printers_brand_count(p->lib) : 0;
         for (size_t i = 0; i < brand_count; i++)
         {
             char const *name = nullptr;
             size_t first = 0, end = 0;
             if (zs_printers_brand_get(p->lib, i, &name, &first, &end) == ZS_OK)
-                brand_items.Append(box_value(zs::ToWide(name)));
+                brand_items.Append(brand_row(zs::ToWide(name), end - first));
         }
         p->brands.ItemsSource(brand_items);
         p->brands.SelectedIndex(0);
@@ -618,7 +655,7 @@ namespace winrt::ZSlice::implementation
             auto s = weak.lock();
             if (s == nullptr || s->filling)
                 return;
-            s->brand = s->brands.SelectedIndex() - 1;
+            s->brand = s->brands.SelectedIndex() - s->brand_offset;
             s->FillModels();
         });
         p->models.SelectionChanged([weak](auto &&, auto &&) {
