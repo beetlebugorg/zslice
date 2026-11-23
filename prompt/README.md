@@ -1,6 +1,6 @@
 # A prompt that could build zslice
 
-Describes: main at commit `43c919e0` ("Keep the other facts of a line at the foot of its Mac page"), 2026-11-23.
+Describes: main at commit `473b94b1` ("Add the Mac selection port and line foot to the prompt"), 2026-11-23.
 
 ## Read this first
 
