@@ -164,7 +164,7 @@ At the first start, the app asks for your printer. Type a part of its name, or p
 The top bar has the setup of the plate:
 
 - **The printer menu** switches the printer. It also has **Printer settings and G-code…**, **Manage printers…**, **Connect a printdeck…**, **Import a profile…**, and **Add a printer…**.
-- **The filament menu** has a color and a material for each filament. For a printdeck printer, **Use the filaments of** reads the spools that the printer has loaded and makes them the filaments of the plate. While the **Printers** page is open, a printer that changes the filament by itself keeps the filaments of the plate up to date with its spools. A filament that you set by hand stays.
+- **The filament menu** has a color and a material for each filament. For a printdeck printer, **Use the filaments of** reads the spools that the printer has loaded and makes them the filaments of the plate. A printer that changes the filament by itself keeps the filaments of the plate up to date with its spools. A filament that you set by hand stays.
 - **The quality menu** lists each quality with its main points. It also has **Save as profile…** and **Import a profile…**.
 
 ## Import a profile
@@ -195,6 +195,8 @@ After the print, open **Calibrate**, then **Use a value of this test…**, and c
 | Bambu Lab (LAN mode) | The IP address, the serial number, and the access code. |
 
 The picker finds printers on your network. **Printers** in the top bar shows a card for each printer: its state, its job, its temperatures, its roll, and its camera.
+
+The app reads the state of the current printer each 5 seconds. **zslice holds one connection to the current Bambu Lab printer** while it is the current printer, and closes it when you pick another printer. With the **Printers** page open, it holds one connection to each Bambu Lab printer on the page. After a refused or dropped connection, it waits at least 15 seconds, and longer after each new failure. After 5 minutes minimized, it stops reading the printer until you restore the window.
 
 The app reads a Bambu Lab printer and sends it nothing. It shows the JPEG camera of a P1 or an A1. It does not show the H.264 camera of an X1, H2, P2S, or X2D yet.
 

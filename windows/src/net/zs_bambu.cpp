@@ -21,7 +21,6 @@ namespace zs
     {
         constexpr int keepalive_s = 60;
         constexpr int ping_s = 30;
-        constexpr int retry_s = 15;
 
         std::string ConnackText(int code)
         {
@@ -56,6 +55,14 @@ namespace zs
         return a.substr(0, a.find_first_of("/:"));
     }
 
+    int BambuRetrySeconds(int failures)
+    {
+        int wait = 15;
+        for (int k = 1; k < failures && wait < 300; k++)
+            wait *= 2;
+        return std::min(wait, 300);
+    }
+
     BambuWatch::BambuWatch(link::Target const &target, std::string serial, Report report, Error error, Trusted trusted)
         : host_(BambuHost(target.url)), serial_(std::move(serial)), code_(target.api_key), pin_(target.tls_pin),
           report_(std::move(report)), error_(std::move(error)), trusted_(std::move(trusted))
@@ -73,12 +80,17 @@ namespace zs
 
     void BambuWatch::Run()
     {
+        int failures = 0;
         while (!stop_.load())
         {
+            reached_ = false;
             // False: a wrong code stays wrong, so it does not try again.
             if (!Session())
                 return;
-            for (int i = 0; i < retry_s * 10 && !stop_.load(); i++)
+            // A session that worked starts the count again.
+            failures = reached_ ? 1 : failures + 1;
+            int wait = BambuRetrySeconds(failures);
+            for (int i = 0; i < wait * 10 && !stop_.load(); i++)
                 std::this_thread::sleep_for(std::chrono::milliseconds(100));
         }
     }
@@ -130,7 +142,9 @@ namespace zs
                     if (pk.return_code != 0)
                     {
                         error_(ConnackText(pk.return_code));
-                        return false;
+                        // A wrong code stays wrong. A full or busy printer
+                        // can take the client later.
+                        return pk.return_code != 4 && pk.return_code != 5;
                     }
                     std::string topic = "device/" + serial_ + "/report";
                     if (zs_mqtt_subscribe_packet(topic.c_str(), 1, &packet, &len) != ZS_OK || !WritePacket(tls, packet, len))
@@ -158,6 +172,7 @@ namespace zs
                 dirty = false;
                 shown = true;
                 last_show = now;
+                reached_ = true;
                 report_(link::SnapshotOf(status.get()));
             }
             if (subscribed && now - last_ping > std::chrono::seconds(ping_s))
