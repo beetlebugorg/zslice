@@ -58,6 +58,9 @@ char *zg_config_dir(void);
 /* Loads app.ini. With no printers, it makes one ("My printer"), and moves
  * an old machine.toml to its profile. */
 void zg_printers_load(void);
+/* TRUE if app.ini exists and did not read. The file then stays as it is:
+ * zg_printers_save writes nothing. */
+gboolean zg_printers_read_failed(void);
 /* Writes app.ini. */
 void zg_printers_save(void);
 

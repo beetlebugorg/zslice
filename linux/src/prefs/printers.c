@@ -120,6 +120,12 @@ static char *new_id(void) {
     }
 }
 
+static gboolean read_failed;
+
+gboolean zg_printers_read_failed(void) {
+    return read_failed;
+}
+
 void zg_printers_load(void) {
     if (!printers) printers = g_ptr_array_new_with_free_func(printer_free);
     g_ptr_array_set_size(printers, 0);
@@ -127,7 +133,12 @@ void zg_printers_load(void) {
     general = g_key_file_new();
     char *path = ini_path();
     GKeyFile *kf = g_key_file_new();
-    if (g_key_file_load_from_file(kf, path, G_KEY_FILE_KEEP_COMMENTS, NULL)) {
+    GError *load_error = NULL;
+    gboolean loaded = g_key_file_load_from_file(kf, path, G_KEY_FILE_KEEP_COMMENTS, &load_error);
+    read_failed = !loaded && !g_error_matches(load_error, G_FILE_ERROR, G_FILE_ERROR_NOENT);
+    if (read_failed) g_warning("zslice: %s did not read, and stays as it is: %s", path, load_error->message);
+    g_clear_error(&load_error);
+    if (loaded) {
         gsize n = 0;
         char **groups = g_key_file_get_groups(kf, &n);
         for (gsize i = 0; i < n; i++) {
@@ -175,6 +186,11 @@ void zg_printers_load(void) {
          * older version (machine.toml), if there are any. */
         ZgPrinter *p = printer_new("printer-1", "My printer");
         g_ptr_array_add(printers, p);
+        if (read_failed) {
+            g_free(current_id);
+            current_id = g_strdup(p->id);
+            return;
+        }
         char *dir = zg_config_dir();
         char *old = g_build_filename(dir, "machine.toml", NULL);
         char *profile = zg_printer_profile_path(p);
@@ -197,6 +213,7 @@ void zg_printers_load(void) {
 }
 
 void zg_printers_save(void) {
+    if (read_failed) return;
     GKeyFile *kf = g_key_file_new();
     g_key_file_set_comment(kf, NULL, NULL, " zslice: the printers and the app settings. The machine settings of each\n printer are in printers/<id>.toml.", NULL);
     gsize nk = 0;

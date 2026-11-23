@@ -25,6 +25,8 @@ struct ZgBambuWatch {
     ZgBambuFn fn;
     gpointer data;
     gboolean stopped;
+    /* The key of the gate: "address:port". */
+    char *gate;
     /* The main thread only. */
     zs_printer_status *status;
     guint timer;
@@ -35,6 +37,7 @@ struct ZgBambuWatch {
 static void watch_unref(ZgBambuWatch *w) {
     if (!g_atomic_int_dec_and_test(&w->refs)) return;
     g_object_unref(w->cancel);
+    g_free(w->gate);
     g_free(w->address);
     g_free(w->serial);
     g_free(w->code);
@@ -43,6 +46,45 @@ static void watch_unref(ZgBambuWatch *w) {
     zs_printer_status_free(w->status);
     g_free(w->error);
     g_free(w);
+}
+
+/* ---- one connection for each address ----
+ *
+ * A printer in LAN mode can have a small limit on clients. A gate lets one
+ * watch connect to an address. The wait after a refusal or a drop is in
+ * the gate, so a new watch keeps it. */
+enum { RETRY_S = 15 };
+
+typedef struct {
+    gboolean busy;
+    gint64 next; /* monotonic time of the next try, us */
+    char *report; /* the words of the last report of the open link */
+} Gate;
+
+static GMutex gate_lock;
+static GHashTable *gates;
+
+static void gate_free(gpointer data) {
+    Gate *g = data;
+    g_free(g->report);
+    g_free(g);
+}
+
+/* With gate_lock. */
+static Gate *gate_of(const char *key) {
+    if (!gates) gates = g_hash_table_new_full(g_str_hash, g_str_equal, g_free, gate_free);
+    Gate *g = g_hash_table_lookup(gates, key);
+    if (!g) {
+        g = g_new0(Gate, 1);
+        g_hash_table_insert(gates, g_strdup(key), g);
+    }
+    return g;
+}
+
+static char *host_of(const char *url) {
+    const char *a = url;
+    if (strstr(a, "://")) a = strstr(a, "://") + 3;
+    return g_strndup(a, strcspn(a, "/:"));
 }
 
 int zg_bambu_port(const char *name, int port) {
@@ -161,6 +203,16 @@ static gboolean on_post(gpointer data) {
             const char *text = g_bytes_get_data(p->payload, &len);
             zs_printer_status_feed(w->status, 4, "report", text, len);
             w->dirty = TRUE;
+            zs_printer_info in;
+            if (zs_printer_status_get(w->status, &in) == ZS_OK) {
+                g_mutex_lock(&gate_lock);
+                Gate *g = gate_of(w->gate);
+                if (g->busy) {
+                    g_free(g->report);
+                    g->report = g_strdup_printf("Connected. The printer reports%s%s%s%s.", in.state[0] ? ": " : "", in.state, in.job[0] ? ", " : "", in.job);
+                }
+                g_mutex_unlock(&gate_lock);
+            }
             g_clear_pointer(&w->error, g_free);
         } else {
             g_free(w->error);
@@ -232,13 +284,61 @@ static const char *connack_text(guint8 rc) {
     }
 }
 
+/* Waits for the gate of the address. FALSE: the watch stopped. */
+static gboolean gate_enter(ZgBambuWatch *w) {
+    gboolean told = FALSE;
+    while (!g_cancellable_is_cancelled(w->cancel)) {
+        g_mutex_lock(&gate_lock);
+        Gate *g = gate_of(w->gate);
+        gboolean free_now = !g->busy && g_get_monotonic_time() >= g->next;
+        gboolean other = g->busy;
+        if (free_now) g->busy = TRUE;
+        g_mutex_unlock(&gate_lock);
+        if (free_now) return TRUE;
+        if (other && !told) {
+            told = TRUE;
+            post(w, NULL, "Another connection to this address is open. This entry waits for it to end.");
+        }
+        g_usleep(100000);
+    }
+    return FALSE;
+}
+
+/* `failed`: a refusal or a drop, so the next try waits. */
+static void gate_leave(ZgBambuWatch *w, gboolean failed) {
+    g_mutex_lock(&gate_lock);
+    Gate *g = gate_of(w->gate);
+    g->busy = FALSE;
+    g_clear_pointer(&g->report, g_free);
+    if (failed) g->next = g_get_monotonic_time() + RETRY_S * G_USEC_PER_SEC;
+    g_mutex_unlock(&gate_lock);
+}
+
+char *zg_bambu_link_report(const ZgPrinter *p) {
+    char *host = host_of(p->url);
+    char *key = g_strdup_printf("%s:%d", host, zg_bambu_port("MQTT", 8883));
+    char *text = NULL;
+    g_mutex_lock(&gate_lock);
+    Gate *g = gates ? g_hash_table_lookup(gates, key) : NULL;
+    gint64 left = g ? g->next - g_get_monotonic_time() : 0;
+    if (g && g->busy) text = g_strdup(g->report ? g->report : "A connection to this printer is starting. Try again in a moment.");
+    else if (left > 0) text = g_strdup_printf("The printer refused or dropped the last connection. The next try is in %d s.", (int)(left / G_USEC_PER_SEC) + 1);
+    g_mutex_unlock(&gate_lock);
+    g_free(key);
+    g_free(host);
+    return text;
+}
+
 static gpointer run(gpointer data) {
     ZgBambuWatch *w = data;
     GError *error = NULL;
     int port = zg_bambu_port("MQTT", 8883);
+    gboolean holding = FALSE;
     GIOStream *io = NULL;
     zs_mqtt_reader *r = NULL;
     while (!g_cancellable_is_cancelled(w->cancel)) {
+        if (!gate_enter(w)) break;
+        holding = TRUE;
         g_clear_error(&error);
         g_clear_pointer(&r, zs_mqtt_reader_free);
         r = zs_mqtt_reader_new();
@@ -308,9 +408,13 @@ static gpointer run(gpointer data) {
             g_output_stream_write_all(out, bye, 2, NULL, NULL, NULL);
         }
         g_clear_object(&io);
+        gate_leave(w, FALSE);
+        holding = FALSE;
         break;
     retry:
         g_clear_object(&io);
+        gate_leave(w, !g_cancellable_is_cancelled(w->cancel));
+        holding = FALSE;
         if (g_cancellable_is_cancelled(w->cancel)) break;
         {
             char *m = g_strdup_printf("The printer did not answer (%s). Check that it is on, in LAN mode, and at this address.",
@@ -318,10 +422,10 @@ static gpointer run(gpointer data) {
             post(w, NULL, m);
             g_free(m);
         }
-        /* Try again in 15 s. */
-        for (int i = 0; i < 150 && !g_cancellable_is_cancelled(w->cancel); i++) g_usleep(100000);
+        /* The gate holds the next try for RETRY_S. */
     }
 done:
+    if (holding) gate_leave(w, TRUE);
     g_clear_pointer(&r, zs_mqtt_reader_free);
     g_clear_error(&error);
     watch_unref(w);
@@ -341,9 +445,8 @@ ZgBambuWatch *zg_bambu_watch(const ZgPrinter *p, ZgBambuFn fn, gpointer data) {
     w->refs = 2; /* the caller and the thread */
     w->cancel = g_cancellable_new();
     /* An address with a scheme or a port: the host only. */
-    const char *a = p->url;
-    if (strstr(a, "://")) a = strstr(a, "://") + 3;
-    w->address = g_strndup(a, strcspn(a, "/:"));
+    w->address = host_of(p->url);
+    w->gate = g_strdup_printf("%s:%d", w->address, zg_bambu_port("MQTT", 8883));
     w->serial = g_strstrip(g_strdup(p->serial));
     w->code = g_strstrip(g_strdup(p->api_key));
     w->id = g_strdup(p->id);

@@ -150,6 +150,9 @@ test('model download', executable('model-download-test', 'tests/model-download-t
 test('bambu pin', executable('bambu-pin-test', 'tests/bambu-pin-test.c', 'src/net/bambu-link.c', 'src/prefs/printers.c',
                              core[1], core[2], link_with: core[0],
                              dependencies: [gtk_dep, thread_dep, m_dep]))
+test('bambu gate', executable('bambu-gate-test', 'tests/bambu-gate-test.c', 'src/net/bambu-link.c', 'src/prefs/printers.c',
+                              core[1], core[2], link_with: core[0],
+                              dependencies: [gtk_dep, thread_dep, m_dep]))
 
 # The bed models of the printers (src/printers/beds, made by
 # tools/printer_library.py). The 3D view loads the file of the current

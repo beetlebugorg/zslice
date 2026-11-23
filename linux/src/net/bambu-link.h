@@ -43,6 +43,10 @@ ZgBambuWatch *zg_bambu_watch(const ZgPrinter *p, ZgBambuFn fn, gpointer data);
 
 /* Disconnects. `fn` gets no more calls. */
 void zg_bambu_watch_stop(ZgBambuWatch *w);
+/* One connection for each address. The words for the Test button when a
+ * link to the address of `p` runs or waits for its next try, else NULL.
+ * Free with g_free. */
+char *zg_bambu_link_report(const ZgPrinter *p);
 
 /* The port `name` ("MQTT", "JPEG", "RTSPS"), or the variable
  * ZSLICE_BAMBU_<name>_PORT. */

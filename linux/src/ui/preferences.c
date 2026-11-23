@@ -358,6 +358,17 @@ static void on_test(GtkButton *b, gpointer data) {
     Prefs *p = data;
     if (!p->printer) return;
     clear_info(p);
+    /* One connection for each Bambu Lab address: read the link that runs,
+     * and keep the wait after a refusal. */
+    if (p->printer->kind == ZG_LINK_BAMBU) {
+        char *report = zg_bambu_link_report(p->printer);
+        if (report) {
+            gtk_label_set_text(GTK_LABEL(p->result), report);
+            gtk_widget_remove_css_class(p->result, "error");
+            g_free(report);
+            return;
+        }
+    }
     p->cancel = g_cancellable_new();
     gtk_label_set_text(GTK_LABEL(p->result), "Connecting…");
     gtk_widget_remove_css_class(p->result, "error");
