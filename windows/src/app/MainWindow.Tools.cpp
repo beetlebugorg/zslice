@@ -733,8 +733,10 @@ namespace winrt::ZSlice::implementation
     int MainWindow::EditSelectedLine(int kind, double value)
     {
         zs_app *app = model->Active();
-        return line_key != 0 && line_key_path == selected_path ? zs_app_edit_add_key(app, line_key, line_key_layer, kind, value)
-                                                               : zs_app_edit_add(app, (size_t)selected_path, kind, value);
+        uint64_t key = 0;
+        ptrdiff_t path = -1;
+        zs_sel_line_get(sel.get(), &key, &path, nullptr);
+        return key != 0 ? zs_app_edit_add_key(app, key, line_key_layer, kind, value) : zs_app_edit_add(app, (size_t)path, kind, value);
     }
 
     // ---- the hand and the fall ----
@@ -1083,15 +1085,55 @@ namespace winrt::ZSlice::implementation
             zs_sel_frame_request(sel.get(), target);
     }
 
+    int64_t MainWindow::SelectedPath() const
+    {
+        ptrdiff_t path = -1;
+        if (sel != nullptr)
+            zs_sel_line_get(sel.get(), nullptr, &path, nullptr);
+        return path;
+    }
+
+    int64_t MainWindow::SelectedSegment() const
+    {
+        ptrdiff_t segment = -1;
+        if (sel != nullptr)
+            zs_sel_line_get(sel.get(), nullptr, nullptr, &segment);
+        return segment;
+    }
+
+    // The line by its key. During a slice the key reads 0, so the same line
+    // keeps the key that it has.
+    void MainWindow::SetSelectedLine(int64_t path, int64_t segment)
+    {
+        if (sel == nullptr)
+            SelSync();
+        if (sel == nullptr)
+            return;
+        uint64_t old_key = 0;
+        ptrdiff_t old_path = -1;
+        zs_sel_line_get(sel.get(), &old_key, &old_path, nullptr);
+        zs_app *app = model->Active();
+        uint64_t key = path >= 0 ? zs_app_path_key(app, (size_t)path) : 0;
+        if (key != 0 || path != old_path)
+        {
+            ptrdiff_t layer = path >= 0 ? zs_app_path_layer(app, (size_t)path) : -1;
+            line_key_layer = layer > 0 ? (size_t)layer : 0;
+        }
+        else
+            key = old_key;
+        zs_sel_line_set(sel.get(), key, path, segment);
+        if (path < 0)
+            line_placed = false;
+    }
+
     void MainWindow::SelectLine(int64_t path, int64_t segment)
     {
         SetSelectedParts({});
-        selected_path = path;
-        selected_segment = segment;
+        SetSelectedLine(path, segment);
+        SaveLinePlace();
         line_card_moved = false;
         // Another line: no buttons of the body of the line before.
         ClearLineExtend();
-        SaveLineAnchor();
         ApplySelection();
         FillPartCard();
         FillLineCard();
@@ -1099,8 +1141,7 @@ namespace winrt::ZSlice::implementation
 
     void MainWindow::SelectPart(int64_t part)
     {
-        selected_path = selected_segment = -1;
-        line_anchored = false;
+        SetSelectedLine(-1, -1);
         SetSelectedParts(part >= 0 ? std::vector<int64_t>{ part } : std::vector<int64_t>{});
         part_card_moved = false;
         ApplySelection();
@@ -1112,8 +1153,7 @@ namespace winrt::ZSlice::implementation
 
     void MainWindow::TogglePart(int64_t part)
     {
-        selected_path = selected_segment = -1;
-        line_anchored = false;
+        SetSelectedLine(-1, -1);
         SelSync();
         if (sel != nullptr && part >= 0)
             zs_sel_select(sel.get(), zs_app_part_id(model->Active(), (size_t)part), ZS_SEL_TOGGLE);
@@ -1124,8 +1164,7 @@ namespace winrt::ZSlice::implementation
 
     void MainWindow::ClearSelection()
     {
-        selected_path = selected_segment = -1;
-        line_anchored = false;
+        SetSelectedLine(-1, -1);
         SetSelectedParts({});
         ApplySelection();
         HideCards();
@@ -1136,15 +1175,6 @@ namespace winrt::ZSlice::implementation
     {
         if (view == nullptr || model == nullptr)
             return;
-        // During a slice the key reads 0: the same line keeps its key.
-        uint64_t key = selected_path >= 0 ? zs_app_path_key(model->Active(), (size_t)selected_path) : 0;
-        if (key != 0 || selected_path != line_key_path)
-        {
-            line_key = key;
-            line_key_path = selected_path;
-            ptrdiff_t key_layer = selected_path >= 0 ? zs_app_path_layer(model->Active(), (size_t)selected_path) : -1;
-            line_key_layer = key_layer > 0 ? (size_t)key_layer : 0;
-        }
         // The lines of a run go with the next selection.
         if (run_lit)
         {
@@ -1152,9 +1182,9 @@ namespace winrt::ZSlice::implementation
             run_others = 0;
             zs_view_highlight_more(view, nullptr, 0);
         }
-        zs_view_highlight(view, selected_path < 0 ? (size_t)-1 : (size_t)selected_path);
-        if (selected_path >= 0)
-            zs_view_highlight_segment(view, (size_t)selected_path, (ptrdiff_t)selected_segment);
+        zs_view_highlight(view, SelectedPath() < 0 ? (size_t)-1 : (size_t)SelectedPath());
+        if (SelectedPath() >= 0)
+            zs_view_highlight_segment(view, (size_t)SelectedPath(), (ptrdiff_t)SelectedSegment());
         zs_app *app = model->Active();
         std::vector<double> boxes;
         for (int64_t i : SelectedParts())
@@ -1172,68 +1202,104 @@ namespace winrt::ZSlice::implementation
         RequestDraw();
     }
 
-    // A new slice has new paths: the place of the line finds it again.
-    void MainWindow::SaveLineAnchor()
+    void MainWindow::SaveLinePlace()
     {
-        line_anchored = false;
+        line_placed = false;
+        int64_t selected = SelectedPath(), segment = SelectedSegment();
         zs_toolpaths tp{};
-        if (selected_path < 0 || zs_app_toolpaths(model->Active(), &tp) != ZS_OK || (size_t)selected_path >= tp.path_count)
+        if (selected < 0 || zs_app_toolpaths(model->Active(), &tp) != ZS_OK || (size_t)selected >= tp.path_count)
             return;
-        size_t path = (size_t)selected_path;
+        size_t path = (size_t)selected;
         uint32_t start = path == 0 ? 0 : tp.path_ends[path - 1], end = tp.path_ends[path];
         if (end <= start)
             return;
-        uint32_t at = selected_segment >= 0 && start + (uint32_t)selected_segment < end ? start + (uint32_t)selected_segment : start;
+        uint32_t at = segment >= 0 && start + (uint32_t)segment < end ? start + (uint32_t)segment : start;
         size_t layer = 0;
         while (layer < tp.layer_count && tp.layer_ends[layer] <= (uint32_t)path)
             layer++;
-        anchor_x = tp.points[2 * at];
-        anchor_y = tp.points[2 * at + 1];
-        anchor_z = layer < tp.layer_count ? tp.layer_z[layer] : 0;
-        anchor_feature = tp.path_features[path];
-        line_anchored = true;
+        line_place_x = tp.points[2 * at];
+        line_place_y = tp.points[2 * at + 1];
+        line_place_z = layer < tp.layer_count ? tp.layer_z[layer] : 0;
+        line_place_feature = tp.path_features[path];
+        zs_sel_line_get(sel.get(), &line_place_key, nullptr, nullptr);
+        line_place_segment = segment;
+        line_placed = true;
     }
 
-    void MainWindow::FindLineAnchor()
+    // A new slice can renumber the paths: the key of the line finds it, and
+    // then its place. With neither, the line selection ends.
+    void MainWindow::FindSelectedLine()
     {
-        if (!line_anchored)
+        if (sel == nullptr)
+            return;
+        uint64_t key = 0;
+        ptrdiff_t path = -1, segment = -1;
+        zs_sel_line_get(sel.get(), &key, &path, &segment);
+        if (path < 0)
             return;
         zs_app *app = model->Active();
-        zs_toolpaths tp{};
-        if (zs_app_toolpaths(app, &tp) != ZS_OK || tp.layer_count == 0)
+        if (zs_app_state(app) != ZS_STATE_DONE)
             return;
-        size_t layer = 0;
-        for (size_t l = 1; l < tp.layer_count; l++)
-            if (std::abs(tp.layer_z[l] - anchor_z) < std::abs(tp.layer_z[layer] - anchor_z))
-                layer = l;
-        size_t path = zs_app_pick_layer(app, layer, anchor_x, anchor_y);
-        if (path == (size_t)-1 || tp.path_features[path] != anchor_feature)
-            path = zs_app_pick_feature(app, layer, anchor_feature, anchor_x, anchor_y);
-        if (path == (size_t)-1)
+        ptrdiff_t found = key != 0 ? zs_app_path_of_key(app, key) : -1;
+        if (found < 0)
         {
-            // No line of that kind there now. The anchor stays for the next
-            // slice.
-            selected_path = selected_segment = -1;
-            HideCards();
+            zs_toolpaths places{};
+            size_t closest = (size_t)-1;
+            if (line_placed && zs_app_toolpaths(app, &places) == ZS_OK && places.layer_count > 0)
+            {
+                size_t layer = 0;
+                for (size_t l = 1; l < places.layer_count; l++)
+                    if (std::abs(places.layer_z[l] - line_place_z) < std::abs(places.layer_z[layer] - line_place_z))
+                        layer = l;
+                closest = zs_app_pick_layer(app, layer, line_place_x, line_place_y);
+                if (closest == (size_t)-1 || places.path_features[closest] != line_place_feature)
+                    closest = zs_app_pick_feature(app, layer, line_place_feature, line_place_x, line_place_y);
+            }
+            if (closest == (size_t)-1)
+            {
+                SetSelectedLine(-1, -1);
+                HideCards();
+                return;
+            }
+            // Another key: the line closest the old place. The place stays, so
+            // a line does not drift from slice to slice.
+            SetSelectedLine((int64_t)closest, -1);
+            RestoreLineSegment((int64_t)closest);
+            FillLineCard();
             return;
         }
-        if ((int64_t)path != selected_path)
-            selected_segment = -1;
-        selected_path = (int64_t)path;
+        // Zero segments keeps a selection of the whole line.
+        ptrdiff_t segments = 0;
+        zs_toolpaths tp{};
+        if (segment >= 0 && zs_app_toolpaths(app, &tp) == ZS_OK && (size_t)found < tp.path_count)
+        {
+            uint32_t start = found == 0 ? 0 : tp.path_ends[found - 1], end = tp.path_ends[found];
+            segments = end > start + 1 ? (ptrdiff_t)(end - start - 1) : 1;
+        }
+        zs_sel_line_found(sel.get(), found, segments);
+        RestoreLineSegment(found);
         FillLineCard();
+    }
+
+    // A draft can miss the key of the line. When the exact slice makes the
+    // same line again, it gets its segment back.
+    void MainWindow::RestoreLineSegment(int64_t path)
+    {
+        if (line_placed && line_place_segment >= 0 && SelectedSegment() < 0 && line_place_key != 0 &&
+            zs_app_path_key(model->Active(), (size_t)path) == line_place_key)
+            SetSelectedLine(path, line_place_segment);
     }
 
     void MainWindow::StepLine(int direction, bool whole)
     {
-        if (view == nullptr || selected_path < 0)
+        if (view == nullptr || SelectedPath() < 0)
             return;
-        size_t path = (size_t)selected_path;
-        ptrdiff_t segment = (ptrdiff_t)selected_segment;
+        size_t path = (size_t)SelectedPath();
+        ptrdiff_t segment = (ptrdiff_t)SelectedSegment();
         if (!zs_view_step(view, &path, &segment, direction, whole ? 1 : 0))
             return;
-        selected_path = (int64_t)path;
-        selected_segment = (int64_t)segment;
-        SaveLineAnchor();
+        SetSelectedLine((int64_t)path, (int64_t)segment);
+        SaveLinePlace();
         ApplySelection();
         FillLineCard();
     }
@@ -1246,14 +1312,13 @@ namespace winrt::ZSlice::implementation
             return;
         double next = std::clamp(LayerSlider().Value() + direction, 1.0, (double)layer_count);
         LayerSlider().Value(next);
-        if (selected_path >= 0)
+        if (SelectedPath() >= 0)
         {
-            size_t found = zs_view_nearest_on_layer(view, (size_t)selected_path, (size_t)next - 1);
+            size_t found = zs_view_nearest_on_layer(view, (size_t)SelectedPath(), (size_t)next - 1);
             if (found != (size_t)-1)
             {
-                selected_path = (int64_t)found;
-                selected_segment = -1;
-                SaveLineAnchor();
+                SetSelectedLine((int64_t)found, -1);
+                SaveLinePlace();
                 ApplySelection();
                 FillLineCard();
             }
@@ -1354,7 +1419,7 @@ namespace winrt::ZSlice::implementation
                 return true;
             }
         }
-        if (key == VirtualKey::Delete && selected_path >= 0)
+        if (key == VirtualKey::Delete && SelectedPath() >= 0)
         {
             if (EditSelectedLine(0, 1) == ZS_OK)
             {
@@ -1397,7 +1462,7 @@ namespace winrt::ZSlice::implementation
                 ClearMeasure();
                 return true;
             }
-            if (selected_path >= 0 || !SelectedParts().empty())
+            if (SelectedPath() >= 0 || !SelectedParts().empty())
             {
                 ClearSelection();
                 return true;
@@ -1465,7 +1530,7 @@ namespace winrt::ZSlice::implementation
         {
             ShowAllLayers();
         }
-        else if (key == VirtualKey::C && !ctrl && selected_path >= 0)
+        else if (key == VirtualKey::C && !ctrl && SelectedPath() >= 0)
         {
             PreviewToLine();
         }

@@ -506,7 +506,7 @@ namespace winrt::ZSlice::implementation
                 int kind = -1;
                 if (line_mark >= 0)
                     zs_app_mark_get(model->Active(), (size_t)line_mark, nullptr, nullptr, nullptr, &r, &kind);
-                zs::Log("dev: mark count %zu, path %lld, row %d, index %lld, core kind %d radius %.1f, combo %d box %.1f\n", zs_app_mark_count(model->Active()), (long long)selected_path,
+                zs::Log("dev: mark count %zu, path %lld, row %d, index %lld, core kind %d radius %.1f, combo %d box %.1f\n", zs_app_mark_count(model->Active()), (long long)SelectedPath(),
                         LineMark().Visibility() == Visibility::Visible ? 1 : 0, (long long)line_mark, kind, r, LineMarkKind().SelectedIndex(), LineMarkRadius().Value());            }
         }
         else if (verb == L"scopepartpick" && !words.empty())

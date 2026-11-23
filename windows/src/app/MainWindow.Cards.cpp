@@ -50,22 +50,22 @@ namespace winrt::ZSlice::implementation
             RequestDraw();
         });
         LineAll().Click([this](auto &&, auto &&) {
-            if (selected_path < 0)
+            if (SelectedPath() < 0)
                 return;
             zs_inspect info{};
-            if (zs_app_inspect(model->Active(), (size_t)selected_path, &info) != ZS_OK)
+            if (zs_app_inspect(model->Active(), (size_t)SelectedPath(), &info) != ZS_OK)
                 return;
             ShowSettingsPane(true);
             zs_pick picks[1];
             size_t n = 0;
-            if (zs_app_inspect_picks(model->Active(), (size_t)selected_path, picks, 1, &n) == ZS_OK && n > 0)
+            if (zs_app_inspect_picks(model->Active(), (size_t)SelectedPath(), picks, 1, &n) == ZS_OK && n > 0)
             {
                 detail_from = SettingsPage::Sections;
                 ShowDetail(picks[0].name);
             }
         });
         auto edit = [this](int kind, double value) {
-            if (model == nullptr || selected_path < 0)
+            if (model == nullptr || SelectedPath() < 0)
                 return;
             if (EditSelectedLine(kind, value) == ZS_OK)
             {
@@ -374,11 +374,11 @@ namespace winrt::ZSlice::implementation
 
     void MainWindow::PlaceLineCard()
     {
-        if (LineCard().Visibility() != Visibility::Visible || line_card_moved || view == nullptr || selected_path < 0)
+        if (LineCard().Visibility() != Visibility::Visible || line_card_moved || view == nullptr || SelectedPath() < 0)
             return;
         double box[4] = { click_x - 12, click_y - 12, click_x + 12, click_y + 12 };
         float r[4];
-        if (zs_view_path_rect(view, (size_t)selected_path, r))
+        if (zs_view_path_rect(view, (size_t)SelectedPath(), r))
         {
             double s = Scale();
             box[0] = std::min(box[0], r[0] / s - 12);
@@ -434,15 +434,15 @@ namespace winrt::ZSlice::implementation
         zs_toolpaths tp{};
         if (zs_app_toolpaths(app, &tp) != ZS_OK)
             return -1;
-        int feature = tp.path_features[selected_path];
+        int feature = tp.path_features[SelectedPath()];
         bool support = feature == ZS_FEATURE_SUPPORT || feature == ZS_FEATURE_SUPPORT_INTERFACE;
         auto at = [&](double px, double py) { return support ? zs_app_mark_at(app, px, py, z + 500, 500) : zs_app_mark_at(app, px, py, z, 0.05); };
         ptrdiff_t mark = at(x, y);
         // A slice can renumber the lines, and the selection then has no
         // segment: any point of the line finds its mark.
-        if (mark < 0 && selected_segment < 0)
+        if (mark < 0 && SelectedSegment() < 0)
         {
-            uint32_t first = selected_path == 0 ? 0 : tp.path_ends[selected_path - 1], end = tp.path_ends[selected_path];
+            uint32_t first = SelectedPath() == 0 ? 0 : tp.path_ends[SelectedPath() - 1], end = tp.path_ends[SelectedPath()];
             for (uint32_t i = first; i < end && mark < 0; i++)
                 mark = at(tp.points[2 * i], tp.points[2 * i + 1]);
         }
@@ -511,7 +511,7 @@ namespace winrt::ZSlice::implementation
 
     void MainWindow::FillLineCard()
     {
-        if (model == nullptr || selected_path < 0)
+        if (model == nullptr || SelectedPath() < 0)
         {
             LineCard().Visibility(Visibility::Collapsed);
             line_editors.clear();
@@ -519,7 +519,7 @@ namespace winrt::ZSlice::implementation
         }
         zs_app *app = model->Active();
         zs_inspect info{};
-        if (zs_app_inspect(app, (size_t)selected_path, &info) != ZS_OK)
+        if (zs_app_inspect(app, (size_t)SelectedPath(), &info) != ZS_OK)
         {
             LineCard().Visibility(Visibility::Collapsed);
             return;
@@ -546,8 +546,8 @@ namespace winrt::ZSlice::implementation
         LineNozzle().Visibility(limits.empty() ? Visibility::Collapsed : Visibility::Visible);
 
         zs_measure m{};
-        size_t segment = selected_segment < 0 ? 0 : (size_t)selected_segment;
-        if (zs_app_measure(app, (size_t)selected_path, segment, &m) == ZS_OK)
+        size_t segment = SelectedSegment() < 0 ? 0 : (size_t)SelectedSegment();
+        if (zs_app_measure(app, (size_t)SelectedPath(), segment, &m) == ZS_OK)
         {
             wchar_t size[128] = L"";
             if (m.shape == 1)
@@ -570,7 +570,7 @@ namespace winrt::ZSlice::implementation
         kept.swap(setting_editors);
         zs_pick picks[4];
         size_t n = 0;
-        if (zs_app_inspect_picks(app, (size_t)selected_path, picks, 4, &n) != ZS_OK)
+        if (zs_app_inspect_picks(app, (size_t)SelectedPath(), picks, 4, &n) != ZS_OK)
             n = 0;
         for (size_t i = 0; i < n; i++)
         {

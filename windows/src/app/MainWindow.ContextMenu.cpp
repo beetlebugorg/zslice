@@ -25,19 +25,19 @@ namespace winrt::ZSlice::implementation
     bool MainWindow::MenuPlace(double &x, double &y, double &z)
     {
         zs_toolpaths tp{};
-        if (selected_path < 0 || zs_app_toolpaths(model->Active(), &tp) != ZS_OK || (size_t)selected_path >= tp.path_count)
+        if (SelectedPath() < 0 || zs_app_toolpaths(model->Active(), &tp) != ZS_OK || (size_t)SelectedPath() >= tp.path_count)
             return false;
-        uint32_t a = selected_path == 0 ? 0 : tp.path_ends[selected_path - 1], b = tp.path_ends[selected_path];
+        uint32_t a = SelectedPath() == 0 ? 0 : tp.path_ends[SelectedPath() - 1], b = tp.path_ends[SelectedPath()];
         if (b <= a)
             return false;
-        uint32_t i = selected_segment >= 0 && a + (uint32_t)selected_segment + 1 < b
-                         ? a + (uint32_t)selected_segment
+        uint32_t i = SelectedSegment() >= 0 && a + (uint32_t)SelectedSegment() + 1 < b
+                         ? a + (uint32_t)SelectedSegment()
                          : a + (b - a) / 2 - ((b - a) > 1 ? 1 : 0);
         uint32_t j = i + 1 < b ? i + 1 : i;
         x = (tp.points[2 * i] + tp.points[2 * j]) / 2;
         y = (tp.points[2 * i + 1] + tp.points[2 * j + 1]) / 2;
         size_t layer = 0;
-        while (layer < tp.layer_count && tp.layer_ends[layer] <= (uint32_t)selected_path)
+        while (layer < tp.layer_count && tp.layer_ends[layer] <= (uint32_t)SelectedPath())
             layer++;
         z = layer < tp.layer_count ? tp.layer_z[layer] : 0;
         return true;
@@ -88,12 +88,12 @@ namespace winrt::ZSlice::implementation
         zs_app *app = model->Active();
         uint8_t const *gcode = nullptr;
         size_t gcode_len = 0;
-        if (selected_path >= 0 && model->IsDraft())
+        if (SelectedPath() >= 0 && model->IsDraft())
         {
             ShowToast(L"The exact slice runs. Try again when it is done.");
             return;
         }
-        if (selected_path < 0)
+        if (SelectedPath() < 0)
             return;
         if (zs_app_gcode(app, &gcode, &gcode_len) != ZS_OK)
         {
@@ -112,7 +112,7 @@ namespace winrt::ZSlice::implementation
         }
         char const *report = nullptr;
         size_t report_len = 0;
-        if (zs_app_line_report(app, (size_t)selected_path, zs::ToUtf8(file).c_str(), &report, &report_len) != ZS_OK)
+        if (zs_app_line_report(app, (size_t)SelectedPath(), zs::ToUtf8(file).c_str(), &report, &report_len) != ZS_OK)
             return;
         Windows::ApplicationModel::DataTransfer::DataPackage package;
         package.SetText(zs::ToWide(std::string(report, report_len)));
@@ -124,7 +124,7 @@ namespace winrt::ZSlice::implementation
     void MainWindow::NewProfile(int direction)
     {
         zs_inspect info{};
-        if (selected_path < 0 || zs_app_inspect(model->Active(), (size_t)selected_path, &info) != ZS_OK)
+        if (SelectedPath() < 0 || zs_app_inspect(model->Active(), (size_t)SelectedPath(), &info) != ZS_OK)
             return;
         double z_min = direction > 0 ? info.z : -1e6, z_max = direction > 0 ? 1e6 : info.z;
         char name[64];
@@ -141,9 +141,9 @@ namespace winrt::ZSlice::implementation
     // The part of the selected line becomes the selection.
     bool MainWindow::SelectLinePart()
     {
-        if (selected_path < 0)
+        if (SelectedPath() < 0)
             return !SelectedParts().empty();
-        ptrdiff_t part = zs_app_part_of_path(model->Active(), (size_t)selected_path);
+        ptrdiff_t part = zs_app_part_of_path(model->Active(), (size_t)SelectedPath());
         if (part < 0)
             return false;
         SelectPart(part);
@@ -206,7 +206,7 @@ namespace winrt::ZSlice::implementation
         }
         if (copies.empty())
             return;
-        selected_path = selected_segment = -1;
+        SetSelectedLine(-1, -1);
         SetSelectedParts(copies);
         PlateEdited();
     }
@@ -228,7 +228,7 @@ namespace winrt::ZSlice::implementation
             ShowToast(L"The parts did not paste.");
             return;
         }
-        selected_path = selected_segment = -1;
+        SetSelectedLine(-1, -1);
         std::vector<int64_t> pasted;
         for (size_t k = 0; k < zs_clipboard_parts(); k++)
             pasted.push_back(first + (int64_t)k);
@@ -285,7 +285,7 @@ namespace winrt::ZSlice::implementation
             return ClipSel::Range;
         if (!SelectedParts().empty())
             return ClipSel::Parts;
-        return selected_path >= 0 ? ClipSel::Line : ClipSel::None;
+        return SelectedPath() >= 0 ? ClipSel::Line : ClipSel::None;
     }
 
     bool MainWindow::ClipCopy(ClipSel sel)
@@ -567,7 +567,7 @@ namespace winrt::ZSlice::implementation
                 SupportEdited();
         };
         auto line_part = [this]() -> ptrdiff_t {
-            return selected_path >= 0 ? zs_app_part_of_path(model->Active(), (size_t)selected_path) : -1;
+            return SelectedPath() >= 0 ? zs_app_part_of_path(model->Active(), (size_t)SelectedPath()) : -1;
         };
         auto place = [this, line_part](int mode, int axis) {
             ptrdiff_t part = line_part();
@@ -605,7 +605,7 @@ namespace winrt::ZSlice::implementation
             add(menu.Items(), L"Add a drop of plastic here", [this, x, y] {
                 double point[3];
                 zs_app *now = model->Active();
-                ptrdiff_t layer = selected_path >= 0 ? zs_app_path_layer(now, (size_t)selected_path) : -1;
+                ptrdiff_t layer = SelectedPath() >= 0 ? zs_app_path_layer(now, (size_t)SelectedPath()) : -1;
                 if (layer < 0 || !zs_view_surface_point(view, (float)(x * Scale()), (float)(y * Scale()), 0, point))
                     return;
                 if (zs_app_edit_add_dot(now, (size_t)layer, point[0], point[1], 1.0) == ZS_OK)
@@ -712,9 +712,9 @@ namespace winrt::ZSlice::implementation
     // C: the view stops at the layer of the selected line.
     void MainWindow::PreviewToLine()
     {
-        if (selected_path < 0)
+        if (SelectedPath() < 0)
             return;
-        ptrdiff_t layer = zs_app_path_layer(model->Active(), (size_t)selected_path);
+        ptrdiff_t layer = zs_app_path_layer(model->Active(), (size_t)SelectedPath());
         if (layer >= 0)
             LayerSlider().Value((double)layer + 1);
     }
