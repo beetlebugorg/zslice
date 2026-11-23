@@ -17,3 +17,8 @@
 /* Adds the header X-Api-Key with `key` to `msg`, for the origin of its
  * URI only. Does nothing for a NULL or empty key. */
 void zg_soup_add_key(SoupMessage *msg, const char *key);
+
+/* TRUE if two printer addresses have one origin: the same scheme, host,
+ * and port. An address with no scheme is http. An address that does not
+ * parse has no origin. */
+gboolean zg_same_origin(const char *a, const char *b);

@@ -61,6 +61,9 @@ void zg_printers_load(void);
 /* TRUE if app.ini exists and did not read. The file then stays as it is:
  * zg_printers_save writes nothing. */
 gboolean zg_printers_read_failed(void);
+/* Removes the saved key of a printer. A Bambu Lab code file stays while
+ * another entry has the same serial number. */
+void zg_printers_forget_key(ZgPrinter *p);
 /* Writes app.ini. */
 void zg_printers_save(void);
 

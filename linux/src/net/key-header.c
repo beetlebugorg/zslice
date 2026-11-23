@@ -21,6 +21,25 @@ static char *origin_of(GUri *u) {
     return o;
 }
 
+static char *origin_of_text(const char *text) {
+    char *clean = g_strstrip(g_strdup(text ? text : ""));
+    char *full = strstr(clean, "://") ? g_strdup(clean) : g_strconcat("http://", clean, NULL);
+    GUri *u = clean[0] ? g_uri_parse(full, G_URI_FLAGS_NONE, NULL) : NULL;
+    char *o = u && g_uri_get_host(u) && g_uri_get_host(u)[0] ? origin_of(u) : NULL;
+    if (u) g_uri_unref(u);
+    g_free(full);
+    g_free(clean);
+    return o;
+}
+
+gboolean zg_same_origin(const char *a, const char *b) {
+    char *x = origin_of_text(a), *y = origin_of_text(b);
+    gboolean same = x && y && strcmp(x, y) == 0;
+    g_free(x);
+    g_free(y);
+    return same;
+}
+
 /* A redirect: the request goes out again, to its new URI. */
 static void on_restarted(SoupMessage *msg, gpointer data) {
     const char *origin = data;

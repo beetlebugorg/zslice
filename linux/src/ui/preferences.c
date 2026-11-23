@@ -18,6 +18,7 @@
 #include <string.h>
 
 #include "../net/bambu-link.h"
+#include "../net/key-header.h"
 #include "../net/printer-link.h"
 #include "../net/signing.h"
 #include "../prefs/printers.h"
@@ -32,6 +33,9 @@ typedef struct {
     gboolean filling;
     GtkWidget *name, *kind, *url, *api_key, *device, *baud;
     GtkWidget *url_row[2], *key_row[2], *usb_row[4];
+    /* The address field has a new origin that waits for the answer about
+     * the saved key. The printer keeps its old address until then. */
+    gboolean url_pending, address_asking;
     /* Bambu Lab: the serial number, and its read from the printer. */
     GtkWidget *serial, *serial_row[2], *find_serial;
     ZgBambuWatch *bambu_test;
@@ -187,6 +191,7 @@ static void clear_info(Prefs *p) {
 static void fill_form(Prefs *p) {
     if (!p->printer) return;
     p->filling = TRUE;
+    p->url_pending = FALSE;
     stop_key(p);
     clear_info(p);
     gtk_editable_set_text(GTK_EDITABLE(p->name), p->printer->name);
@@ -227,6 +232,15 @@ static void on_text(GtkEditable *e, gpointer data) {
     Prefs *p = data;
     if (p->filling || !p->printer) return;
     gpointer f = g_object_get_data(G_OBJECT(e), "zg-field");
+    /* A saved key never goes to a new origin with no clear yes. */
+    if (f == (gpointer)1) {
+        const char *to = gtk_editable_get_text(e);
+        p->url_pending = p->printer->api_key[0] && p->printer->url[0] && !zg_same_origin(p->printer->url, to);
+        if (p->url_pending) {
+            clear_info(p);
+            return;
+        }
+    }
     char **field = f == (gpointer)1 ? &p->printer->url
                  : f == (gpointer)2 ? &p->printer->api_key
                  : f == (gpointer)4 ? &p->printer->serial
@@ -235,6 +249,85 @@ static void on_text(GtkEditable *e, gpointer data) {
     *field = g_strdup(gtk_editable_get_text(e));
     clear_info(p);
     store(p);
+}
+
+static void on_test(GtkButton *b, gpointer data);
+
+typedef struct {
+    Prefs *p;
+    char *id, *to;
+    gboolean test;
+} AddressAsk;
+
+/* The buttons: 0 Cancel, 1 No, 2 Yes. Cancel keeps the old address and the
+ * key. No drops the key, and the printer asks for a key. */
+static void on_address_answer(GObject *source, GAsyncResult *res, gpointer data) {
+    AddressAsk *a = data;
+    Prefs *p = a->p;
+    int answer = gtk_alert_dialog_choose_finish(GTK_ALERT_DIALOG(source), res, NULL);
+    p->address_asking = FALSE;
+    ZgPrinter *pr = zg_printers_find(a->id);
+    if (pr && answer >= 1) {
+        if (answer == 1) zg_printers_forget_key(pr);
+        g_free(pr->url);
+        pr->url = g_strdup(a->to);
+        zg_printers_save();
+        zg_model_printers_edited(p->model);
+    }
+    if (p->window && pr && p->printer == pr) {
+        p->filling = TRUE;
+        p->url_pending = FALSE;
+        gtk_editable_set_text(GTK_EDITABLE(p->url), pr->url);
+        gtk_editable_set_text(GTK_EDITABLE(p->api_key), pr->api_key);
+        p->filling = FALSE;
+        clear_info(p);
+        if (a->test && answer >= 1) on_test(NULL, p);
+    }
+    g_free(a->id);
+    g_free(a->to);
+    g_free(a);
+}
+
+/* Ends an edit of the address. TRUE: a question is open, and the caller
+ * stops. `test`: the Test button runs after the answer. */
+static gboolean commit_address(Prefs *p, gboolean test) {
+    if (p->address_asking) return TRUE;
+    if (!p->url_pending || !p->printer) return FALSE;
+    char *to = g_strstrip(g_strdup(gtk_editable_get_text(GTK_EDITABLE(p->url))));
+    /* An empty field is no new address. */
+    if (!to[0]) {
+        g_free(to);
+        p->filling = TRUE;
+        p->url_pending = FALSE;
+        gtk_editable_set_text(GTK_EDITABLE(p->url), p->printer->url);
+        p->filling = FALSE;
+        return FALSE;
+    }
+    AddressAsk *a = g_new0(AddressAsk, 1);
+    a->p = p;
+    a->id = g_strdup(p->printer->id);
+    a->to = to;
+    a->test = test;
+    p->address_asking = TRUE;
+    GtkAlertDialog *d = gtk_alert_dialog_new("Send the saved key to this new address?");
+    char *detail = g_strdup_printf("The saved key of this printer is for %s. The new address is %s. Send the key there only if you trust that address. With No, the printer asks for a key.", p->printer->url, to);
+    gtk_alert_dialog_set_detail(d, detail);
+    g_free(detail);
+    const char *buttons[] = {"Cancel", "No", "Yes, send it", NULL};
+    gtk_alert_dialog_set_buttons(d, buttons);
+    gtk_alert_dialog_set_cancel_button(d, 0);
+    gtk_alert_dialog_set_default_button(d, 1);
+    gtk_alert_dialog_choose(d, p->window, NULL, on_address_answer, a);
+    g_object_unref(d);
+    return TRUE;
+}
+
+static void on_url_activate(GtkEntry *e, gpointer data) {
+    commit_address(data, FALSE);
+}
+
+static void on_url_leave(GtkEventControllerFocus *c, gpointer data) {
+    commit_address(data, FALSE);
 }
 
 static void on_kind(GObject *dd, GParamSpec *pspec, gpointer data) {
@@ -357,6 +450,7 @@ static void on_bambu_test(const zs_printer_status *st, const char *error, gpoint
 static void on_test(GtkButton *b, gpointer data) {
     Prefs *p = data;
     if (!p->printer) return;
+    if (commit_address(p, TRUE)) return;
     clear_info(p);
     /* One connection for each Bambu Lab address: read the link that runs,
      * and keep the wait after a refusal. */
@@ -622,6 +716,10 @@ static GtkWidget *printers_page(Prefs *p) {
     gtk_entry_set_placeholder_text(GTK_ENTRY(p->url), "http://printdeck.local or http://192.168.1.20:5000");
     g_object_set_data(G_OBJECT(p->url), "zg-field", (gpointer)1);
     g_signal_connect(p->url, "changed", G_CALLBACK(on_text), p);
+    g_signal_connect(p->url, "activate", G_CALLBACK(on_url_activate), p);
+    GtkEventController *url_focus = gtk_event_controller_focus_new();
+    g_signal_connect(url_focus, "leave", G_CALLBACK(on_url_leave), p);
+    gtk_widget_add_controller(p->url, url_focus);
     p->url_row[0] = form_label("Address");
     p->url_row[1] = p->url;
     gtk_grid_attach(GTK_GRID(g), p->url_row[0], 0, row, 1, 1);

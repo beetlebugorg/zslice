@@ -126,6 +126,21 @@ gboolean zg_printers_read_failed(void) {
     return read_failed;
 }
 
+void zg_printers_forget_key(ZgPrinter *p) {
+    gboolean shared = FALSE;
+    for (guint i = 0; p->kind == ZG_LINK_BAMBU && i < zg_printers_count(); i++) {
+        ZgPrinter *q = zg_printers_get(i);
+        shared = shared || (q != p && q->kind == ZG_LINK_BAMBU && strcmp(q->serial, p->serial) == 0);
+    }
+    if (p->kind == ZG_LINK_BAMBU && !shared) {
+        char *path = code_path(p->serial);
+        if (path) g_unlink(path);
+        g_free(path);
+    }
+    g_free(p->api_key);
+    p->api_key = g_strdup("");
+}
+
 void zg_printers_load(void) {
     if (!printers) printers = g_ptr_array_new_with_free_func(printer_free);
     g_ptr_array_set_size(printers, 0);

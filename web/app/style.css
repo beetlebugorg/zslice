@@ -783,6 +783,7 @@ button.destructive { background: var(--destructive); color: #fff; }
 .printers-dialog h3 { margin: 0 0 10px; }
 /* The App Keys step (pairPrinter): one clear step, a countdown, Cancel. */
 .pair-dialog { width: min(460px, calc(100vw - 32px)); }
+.send-key-row { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; }
 .pair-text { margin: 0 0 6px; font-size: 1.05em; overflow-wrap: anywhere; }
 .pair-text.error { color: var(--error); }
 .pair-count { margin: 0 0 10px; overflow-wrap: anywhere; }

@@ -1475,8 +1475,23 @@ function managePrinters(focus) {
         updateMenus();
         fill();
       };
-      url.onchange = () => {
-        p.url = url.value.trim();
+      url.onchange = async () => {
+        const to = url.value.trim();
+        // A saved key never goes to a new origin with no clear yes.
+        if (p.apiKey && p.url && !sameOrigin(p.url, to)) {
+          const answer = to ? await askSendKey(p.url, to) : "cancel";
+          if (answer === "cancel") {
+            url.value = p.url;
+            return;
+          }
+          if (answer === "no") {
+            p.apiKey = "";
+            key.value = "";
+          }
+          // The https address belongs to the old host.
+          p.https = "";
+        }
+        p.url = to;
         saveStore();
         updateSummary();
       };
@@ -1494,7 +1509,8 @@ function managePrinters(focus) {
         result.classList.remove("error");
         // A printdeck shows the key id of the request: the user checks it.
         const id = p.kind === "printdeck" ? await signingKeyId() : "";
-        const r = await requestKey({ ...p, url: url.value.trim() || p.url, name: n }, (sec) => {
+        const typed = url.value.trim() || p.url;
+        const r = await requestKey({ ...p, url: typed, apiKey: sameOrigin(p.url, typed) ? p.apiKey : "", name: n }, (sec) => {
           result.textContent = id ? `Allow zslice on the printer, and check that it shows the key ${id} (${120 - sec} s)…` : `Allow zslice on the printer (${120 - sec} s)…`;
         });
         getKey.disabled = false;
@@ -1513,8 +1529,8 @@ function managePrinters(focus) {
       };
       showTrust();
       const urlChanged = url.onchange;
-      url.onchange = () => {
-        urlChanged();
+      url.onchange = async () => {
+        await urlChanged();
         showTrust();
       };
       const kindChanged = kind.onchange;
@@ -4442,6 +4458,55 @@ function loadUi() {
 }
 
 // ---- open a model ----
+
+// The origin of a printer address. An address with no scheme is http.
+function originOf(address) {
+  try {
+    const u = new URL(/^[a-z][a-z0-9+.-]*:\/\//i.test(address) ? address : `http://${address}`);
+    return `${u.protocol}//${u.hostname.toLowerCase()}:${u.port || (u.protocol === "https:" ? "443" : "80")}`;
+  } catch {
+    return null;
+  }
+}
+
+function sameOrigin(a, b) {
+  const x = originOf(a);
+  return x !== null && x === originOf(b);
+}
+
+// Asks before a saved key goes to a new address: "yes", "no", or "cancel".
+// The default is No. Esc is Cancel.
+function askSendKey(from, to) {
+  return new Promise((done) => {
+    const d = document.createElement("dialog");
+    d.className = "printers-dialog pair-dialog";
+    const title = Object.assign(document.createElement("h3"), { textContent: "Send the saved key to this new address?" });
+    const text = Object.assign(document.createElement("p"), { textContent: `The saved key of this printer is for ${from}. The new address is ${to}. Send the key there only if you trust that address. With No, the printer asks for a key.` });
+    const row = document.createElement("div");
+    row.className = "send-key-row";
+    let answer = "cancel";
+    const button = (label, value) => {
+      const b = Object.assign(document.createElement("button"), { textContent: label, type: "button" });
+      b.onclick = () => {
+        answer = value;
+        d.close();
+      };
+      row.append(b);
+      return b;
+    };
+    button("Cancel", "cancel");
+    const no = button("No", "no");
+    button("Yes, send it", "yes");
+    d.append(title, text, row);
+    d.onclose = () => {
+      d.remove();
+      done(answer);
+    };
+    document.body.append(d);
+    d.showModal();
+    no.focus();
+  });
+}
 
 // Saves all plates as one project file (zs_set_project_save): a 3MF file
 // that zslice opens with its plates, and other slicers as its first plate.

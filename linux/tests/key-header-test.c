@@ -82,7 +82,18 @@ static gpointer serve(gpointer data) {
     return NULL;
 }
 
+static void test_origins(void) {
+    g_assert_true(zg_same_origin("192.168.1.5", "http://192.168.1.5/"));
+    g_assert_true(zg_same_origin("http://Printer.local:80", "printer.local"));
+    g_assert_true(zg_same_origin("https://a.local", "https://a.local:443/x"));
+    g_assert_false(zg_same_origin("http://a.local", "http://b.local"));
+    g_assert_false(zg_same_origin("http://a.local", "https://a.local"));
+    g_assert_false(zg_same_origin("http://a.local:5000", "http://a.local:5001"));
+    g_assert_false(zg_same_origin("http://a.local", ""));
+}
+
 int main(void) {
+    test_origins();
     g_thread_new("servers", serve, NULL);
     g_mutex_lock(&lock);
     while (!up) g_cond_wait(&ready, &lock);
