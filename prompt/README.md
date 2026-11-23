@@ -1,6 +1,6 @@
 # A prompt that could build zslice
 
-Describes: main at commit `014aaad6` ("Keep a layer range on its body while a slice lands"), 2026-11-23.
+Describes: main at commit `daa32e76` ("Add the Mac put down by ray to the prompt"), 2026-11-23.
 
 ## Read this first
 
