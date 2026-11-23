@@ -433,6 +433,7 @@ struct DocumentWindow: View {
             SearchToolbarContent(workspace: workspace)
             ToolbarItemGroup(placement: .primaryAction) {
                 PrinterMenu(workspace: workspace)
+                    .onGeometryChange(for: CGFloat.self) { $0.frame(in: .global).minX } action: { workspace.search.rightItemsX = $0 }
                 FilamentMenu(workspace: workspace)
                 QualityMenu(workspace: workspace)
             }
