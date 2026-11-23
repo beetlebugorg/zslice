@@ -20,7 +20,13 @@ CONFIG=${CONFIG:-release}
 if [ -z "${DEVELOPER_DIR:-}" ] && [ -d /Applications/Xcode.app ]; then
     export DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer
 fi
-swift build -c "$CONFIG" --arch arm64 --arch x86_64 2>/dev/null || swift build -c "$CONFIG"
+# SwiftPM links with the SDK of the lowest system (14), and macOS then draws
+# the old controls. The link names the current SDK, as an Xcode build does,
+# so this app has the Liquid Glass toolbar of a release.
+sdk=$(xcrun --sdk macosx --show-sdk-version)
+link="-Xlinker -platform_version -Xlinker macos -Xlinker 14.0 -Xlinker $sdk"
+# shellcheck disable=SC2086
+swift build -c "$CONFIG" --arch arm64 --arch x86_64 $link 2>/dev/null || swift build -c "$CONFIG" $link
 bin=$(swift build -c "$CONFIG" --show-bin-path)
 app=build/zslice.app
 rm -rf "$app"
