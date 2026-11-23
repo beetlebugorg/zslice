@@ -35,6 +35,8 @@ Build the native Windows app in `windows/`: a WinUI 3 shell in C++/WinRT around 
    - The spools of a printer: `zs_app_filaments_from_printer`, with flag 1 for **Use the filaments of** and flag 2 for each status of the current printer.
    - The link to the current printer, also with the Printers page closed: one status read each 5 s for an HTTP printer, and one MQTT connection for a Bambu Lab printer. A printer never has two connections.
    - The rest of the core API: the User-Agent of the core on file links (`zs_import_user_agent`), Popular and the counts in the printer picker, `zs_app_fall_cancel` before each change of the plate, the key of a line for edits during a slice (`zs_app_path_key`, `zs_app_edit_add_key`), Shift+click for a run (`zs_app_path_run`, `zs_view_highlight_more`), the float note and the file settings on the part card, the test print in the view menu (`zs_app_debug_gcode`, a saved file only), the lines of a setting with their times (`zs_app_feature_stats`), and the empty-plate button that hides under another plate (`zs_view_plate_at`).
+   - The clipboard has one kind at a time: parts (in the core), a label (its JSON), or the changes of some layers. A copy takes the selected label, then the layers of the open range card, then the parts. Support areas and setting values do not copy yet.
+   - A double click on a history change goes to its step and opens the change on its part, in its layers, or for the print. A change outside some layers leaves an open profile, so a new edit cannot go to those layers.
    - Windows calls `zs_set_project_load` for a project, so it needs no separate `zs_project_profiles` or `zs_app_project_load`. It has no islands button: the Check lists the islands.
 
 ## Rules that matter
