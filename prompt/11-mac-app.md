@@ -50,6 +50,8 @@ Build the native Mac app in `macos/`: a SwiftUI and AppKit shell around the app 
 
 ## Lessons
 
+- A selected part was an index, so a delete or an undo could move the selection to another part. The Mac app now keeps stable ids in `zs_selection`, and reads each index from its id at the moment of use.
+
 - **Write no session until the restore at launch is done.** A window gets its session, then waits for its NSWindow. A write in that time listed the new, empty window and removed the files of the last run, so a quit or a crash then lost the session. Count the sessions that windows took and did not restore yet. A change in that time writes once after the last restore.
 - **`snapshot` must never wait for the main thread.** That was a deadlock ("Fix a save that locked the macOS app").
 - A model file (an STL, or a 3MF that `zs_project_file_is` does not know) becomes an untitled document, so a save never writes over the model.
