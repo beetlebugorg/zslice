@@ -1,6 +1,6 @@
 # A prompt that could build zslice
 
-Describes: main at commit `d89af928` ("Keep the Mac printers file and limit Bambu connections"), 2026-11-23.
+Describes: main at commit `14b78de8` ("Add the Mac parity fixes to the prompt"), 2026-11-23.
 
 ## Read this first
 
