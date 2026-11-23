@@ -88,7 +88,11 @@ namespace winrt::ZSlice::implementation
         ViewPanel().PointerPressed([this](auto &&, Input::PointerRoutedEventArgs const &e) { OnPointerPressed(e); });
         ViewPanel().PointerMoved([this](auto &&, Input::PointerRoutedEventArgs const &e) { OnPointerMoved(e); });
         ViewPanel().PointerReleased([this](auto &&, Input::PointerRoutedEventArgs const &e) { OnPointerEnded(e); });
-        ViewPanel().PointerCaptureLost([this](auto &&, Input::PointerRoutedEventArgs const &e) { OnPointerEnded(e); });
+        ViewPanel().PointerCaptureLost([this](auto &&, Input::PointerRoutedEventArgs const &e) {
+            pointer_cancelled = true;
+            OnPointerEnded(e);
+            pointer_cancelled = false;
+        });
         ViewPanel().PointerWheelChanged([this](auto &&, Input::PointerRoutedEventArgs const &e) { OnPointerWheel(e); });
 
         Root().DragOver([this](auto &&, DragEventArgs const &e) { OnDragOver(e); });
@@ -464,9 +468,34 @@ namespace winrt::ZSlice::implementation
         picker.FileTypeFilter().Append(L".stp");
         picker.FileTypeFilter().Append(L".obj");
         picker.FileTypeFilter().Append(L".zip");
-        auto file = co_await picker.PickSingleFileAsync();
-        if (file != nullptr)
-            LoadPath(std::wstring(file.Path()));
+        auto picked = co_await picker.PickMultipleFilesAsync();
+        std::vector<std::wstring> paths;
+        for (auto const &file : picked)
+            paths.emplace_back(file.Path());
+        LoadPaths(std::move(paths));
+    }
+
+    void MainWindow::LoadPaths(std::vector<std::wstring> paths)
+    {
+        // A ZIP file opens a list of its files: one, after the models.
+        std::vector<std::wstring> models, zips;
+        for (auto &path : paths)
+            (IsZipName(FileNameOf(path)) ? zips : models).push_back(std::move(path));
+        if (zips.size() > 1)
+            ShowToast(L"Open one ZIP file at a time. The first one opens.");
+        if (!zips.empty())
+            models.push_back(std::move(zips.front()));
+        load_queue.insert(load_queue.end(), models.begin(), models.end());
+        LoadNextPath();
+    }
+
+    void MainWindow::LoadNextPath()
+    {
+        if (load_queue.empty())
+            return;
+        std::wstring path = std::move(load_queue.front());
+        load_queue.erase(load_queue.begin());
+        LoadPath(std::move(path));
     }
 
     void MainWindow::LoadPath(std::wstring path, bool new_plate)
@@ -488,6 +517,12 @@ namespace winrt::ZSlice::implementation
     {
         if (model == nullptr)
             return;
+        // The next file of a list comes after this one, with or without an error.
+        struct Next
+        {
+            MainWindow &window;
+            ~Next() { window.LoadNextPath(); }
+        } next{ *this };
         std::wstring name = FileNameOf(path);
         if (!read)
         {
@@ -508,7 +543,10 @@ namespace winrt::ZSlice::implementation
             ShowPlate();
         ProjectFileOpening(zs_project_file_is(reinterpret_cast<uint8_t const *>(bytes.data()), bytes.size()) != 0, new_plate);
         std::string message;
-        frame_next = true;
+        // A model onto a plate with parts is one more part: the plate keeps
+        // its name, its view, and its history mark.
+        bool adding = zs_app_part_count(model->Active()) > 0 && !zs_project_file_is(reinterpret_cast<uint8_t const *>(bytes.data()), bytes.size());
+        frame_next = !adding;
         // A new model has no layers of the old range.
         RangeClose();
         int rc = model->Load(name, bytes, message);
@@ -516,6 +554,14 @@ namespace winrt::ZSlice::implementation
         {
             frame_next = false;
             ShowError(name + L": " + zs::ToWide(message));
+            return;
+        }
+        if (adding)
+        {
+            ShowBusy(L"");
+            ClearSelection();
+            ShowPlate();
+            NoteChange();
             return;
         }
         FileName().Text(name);
@@ -555,15 +601,14 @@ namespace winrt::ZSlice::implementation
             LabelDropSvg(svg, drop_at.X, drop_at.Y);
             co_return;
         }
+        std::vector<std::wstring> paths;
         for (auto const &item : items)
         {
             std::wstring path{ item.Path() };
             if (item.IsOfType(Storage::StorageItemTypes::File) && (zs::openlink::IsModelName(path) || IsZipName(path)))
-            {
-                LoadPath(path);
-                break;
-            }
+                paths.push_back(std::move(path));
         }
+        LoadPaths(std::move(paths));
     }
 
     // ---- input ----

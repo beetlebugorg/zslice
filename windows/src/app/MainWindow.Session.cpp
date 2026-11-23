@@ -12,6 +12,8 @@
 #include "pch.h"
 #include "MainWindow.xaml.h"
 
+#include <mutex>
+
 #include <atomic>
 #include <thread>
 
@@ -23,6 +25,8 @@ namespace
 {
     // A later save stops an older one from writing the file.
     std::atomic<uint32_t> session_serial{ 0 };
+    // One write at a time: the save at the close waits for a background save.
+    std::mutex session_lock;
 
     std::wstring SessionPath()
     {
@@ -64,6 +68,7 @@ namespace
         }
         else
         {
+            std::lock_guard guard(session_lock);
             if (serial == session_serial.load() && !WriteAtomic(path, out, len))
                 zs::Log("shell: the session did not save (error %lu)\n", ::GetLastError());
             zs_buffer_free(out, len);
@@ -216,7 +221,11 @@ namespace winrt::ZSlice::implementation
             int width = JsonInt(text, "\"width\":"), height = JsonInt(text, "\"height\":");
             auto window = AppWindow();
             if (width > 200 && height > 200)
+            {
                 window.Resize({ width, height });
+                // A window that opens maximized keeps its normal size.
+                restore_size = { width, height };
+            }
             if (text.find("\"maximized\":true") != std::string::npos)
                 if (auto presenter = window.Presenter().try_as<OverlappedPresenter>())
                     presenter.Maximize();

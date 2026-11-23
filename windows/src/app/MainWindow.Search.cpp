@@ -1114,10 +1114,7 @@ namespace winrt::ZSlice::implementation
         out.push_back({ L"Upload to the printer", L"", L"send the G-code to the printer, and do not start it", with_printers([](PrintersUi &p) { p.PrimaryAction(); }) });
         out.push_back({ L"Arrange the plate", L"", L"pack the parts on the bed", place([](zs_app *a) { return zs_app_plate_arrange(a) != 0; }) });
         out.push_back({ L"Smart placement", L"", L"turn and arrange the parts", place([](zs_app *a) { return zs_app_plate_smart_place(a) != 0; }) });
-        out.push_back({ L"Remove this plate", L"", L"the plate and its parts", [this] {
-                           if (model != nullptr && model->RemovePlate(model->ActivePlate()))
-                               ShowPlate();
-                       } });
+        out.push_back({ L"Remove this plate", L"", L"the plate and its parts", [this] { AskRemovePlate(); } });
         out.push_back({ L"Check the print", L"", L"problems and advice", [this] { check_flyout.ShowAt(ToolStrip()); } });
         out.push_back({ L"Label tool", L"E", L"text and marks on the surface of a part, in another filament", [this] { SetTool(Tool::Label); } });
         out.push_back({ L"Undo", L"Ctrl+Z", L"", [this] {

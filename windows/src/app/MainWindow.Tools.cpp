@@ -285,6 +285,9 @@ namespace winrt::ZSlice::implementation
                 ShowContextMenu(last_x, last_y);
             return;
         }
+        // Only the primary button clicks, and a lost capture is no release.
+        if (!press_left || pointer_cancelled)
+            return;
         // A press and a release at one place is a click.
         if (std::abs(last_x - press_x) <= 4 && std::abs(last_y - press_y) <= 4 && !was_tool)
         {
@@ -1297,6 +1300,8 @@ namespace winrt::ZSlice::implementation
         {
             if (EditSelectedLine(0, 1) == ZS_OK)
             {
+                // A second Delete must not take the line that comes next.
+                ClearSelection();
                 model->RequestSlice();
                 NoteChange();
             }

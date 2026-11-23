@@ -1160,9 +1160,11 @@ namespace winrt::ZSlice::implementation
             return true;
         }
 
-        int64_t AddArea(int area_kind, double const *pts, size_t n, double lo, double hi)
+        // flush false: the caller made its edit of this step already.
+        int64_t AddArea(int area_kind, double const *pts, size_t n, double lo, double hi, bool flush = true)
         {
-            Flush();
+            if (flush)
+                Flush();
             ptrdiff_t i = zs_app_support_area_add(App(), area_kind, pts, n, lo, hi);
             if (i < 0)
                 return -1;
@@ -1901,7 +1903,7 @@ namespace winrt::ZSlice::implementation
             bool changed = zs_app_mark_remove_near(app, lite_pt[0], lite_pt[1], lite_pt[2], 3) > 0;
             if (changed)
                 w.model->RequestSlice();
-            if (lite_pts.size() >= 9 && AddArea(kind_block, lite_pts.data(), lite_pts.size() / 3, lite_lo, lite_hi) >= 0)
+            if (lite_pts.size() >= 9 && AddArea(kind_block, lite_pts.data(), lite_pts.size() / 3, lite_lo, lite_hi, false) >= 0)
                 changed = true;
             else if (changed)
                 Commit();

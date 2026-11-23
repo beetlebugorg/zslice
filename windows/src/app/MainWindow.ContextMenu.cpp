@@ -653,15 +653,8 @@ namespace winrt::ZSlice::implementation
             });
             add(menu.Items(), L"Add models…", [this] { PickFile(); });
             add(menu.Items(), L"Import from a model page…", [this] { AskImport({}); });
-            add(menu.Items(), L"Clear the plate", [this] {
-                ClearSelection();
-                zs_app_plate_clear(model->Active());
-                PlateEdited();
-            });
-            add(menu.Items(), L"Remove this plate", [this] {
-                if (model->RemovePlate(model->ActivePlate()))
-                    ShowPlate();
-            });
+            add(menu.Items(), L"Clear the plate", [this] { ClearPlate(); });
+            add(menu.Items(), L"Remove this plate", [this] { AskRemovePlate(); });
             section();
             add(menu.Items(), L"Copy the plate", [this] {
                 if (zs_app_part_count(model->Active()) == 0)

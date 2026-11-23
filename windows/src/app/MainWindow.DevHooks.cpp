@@ -846,6 +846,70 @@ namespace winrt::ZSlice::implementation
             zs::Log("dev: pane path '%s' page %d back %d scroll %.0f history %zu rows %u\n", zs::ToUtf8(path).c_str(), (int)settings_page, SettingsBack().Visibility() == Microsoft::UI::Xaml::Visibility::Visible ? 1 : 0,
                     SettingsScroll().VerticalOffset(), pane_history.size(), SettingsList().Children().Size());
         }
+        else if (verb == L"partsel")
+        {
+            // partsel i j: these parts are the selection.
+            selected_path = selected_segment = -1;
+            selected_parts.clear();
+            for (size_t k = 0; k < words.size(); k++)
+                selected_parts.push_back(_wtoi(words[k].c_str()));
+            FillPartCard();
+        }
+        else if (verb == L"scalefocus")
+        {
+            PartScale().Focus(Microsoft::UI::Xaml::FocusState::Programmatic);
+        }
+        else if (verb == L"scaletype" && !words.empty())
+        {
+            PartScale().Text(words[0]);
+        }
+        else if (verb == L"scaleleave")
+        {
+            ViewPanel().Focus(Microsoft::UI::Xaml::FocusState::Programmatic);
+        }
+        else if (verb == L"partslog")
+        {
+            std::string text;
+            for (size_t i = 0, n = zs_app_part_count(model->Active()); i < n; i++)
+            {
+                zs_part p{};
+                if (zs_app_part_get(model->Active(), i, &p) == ZS_OK)
+                {
+                    char one[64];
+                    snprintf(one, sizeof one, " %zu:%.3f", i, p.scale_x);
+                    text += one;
+                }
+            }
+            zs::Log("dev: parts plates %zu active %zu scales%s | shown '%s' edits %zu marks %zu areas %zu history %zu\n", model->PlateCount(), model->ActivePlate(), text.c_str(), to_string(PartScale().Text()).c_str(),
+                    zs_app_edit_count(model->Active()), zs_app_mark_count(model->Active()), zs_app_support_area_count(model->Active()), zs_app_history_count(model->Active()));
+        }
+        else if (verb == L"plateask")
+        {
+            AskRemovePlate();
+        }
+        else if (verb == L"plategone")
+        {
+            RemovePlateAt(model->ActivePlate());
+        }
+        else if (verb == L"plateclear")
+        {
+            ClearPlate();
+        }
+        else if (verb == L"addfiles" && !words.empty())
+        {
+            // addfiles a;b is not possible in a step: each word is a path.
+            LoadPaths(std::vector<std::wstring>(words.begin(), words.end()));
+        }
+        else if (verb == L"platelog")
+        {
+            std::string ids;
+            for (auto const &id : refine_ids)
+                ids += (ids.empty() ? "" : ",") + (id.empty() ? std::string("-") : id.substr(0, 4));
+            zs_plate_info info{};
+            zs_set_plate_info(model->Set(), model->ActivePlate(), &info);
+            zs::Log("dev: plates %zu active %zu parts %zu name '%s' title '%s' refine [%s] history %zu of %zu\n", model->PlateCount(), model->ActivePlate(), zs_app_part_count(model->Active()), info.name != nullptr ? info.name : "",
+                    to_string(FileName().Text()).c_str(), ids.c_str(), zs_app_history_current(model->Active()), zs_app_history_count(model->Active()));
+        }
         else if (verb == L"paneback")
         {
             SettingsGoBack();
