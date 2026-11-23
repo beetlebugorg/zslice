@@ -5,13 +5,17 @@
 #include "zs_camera.h"
 
 #include "zs_bambu.h"
+#include "zs_h264.h"
 #include "zs_tls.h"
+#include "zslice-app.h"
 
 #define NOMINMAX
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 
 #include <chrono>
+#include <mutex>
+#include <set>
 
 namespace zs
 {
@@ -22,6 +26,70 @@ namespace zs
         constexpr int snap_tile_s = 5;
         constexpr int snap_large_s = 1;
         constexpr int retry_s = 20;
+        // With no frame for this long, the camera has stopped.
+        constexpr int rtsp_quiet_s = 12;
+        constexpr int rtsp_keepalive_s = 30;
+        // A card shows at most 4 pictures a second.
+        constexpr int tile_picture_ms = 250;
+        // A wait this long for another view gets a note.
+        constexpr int lease_note_ms = 2000;
+
+        // One stream to each Bambu Lab printer. A feed that ends frees its
+        // address for the next one.
+        class StreamLease
+        {
+        public:
+            StreamLease(std::string host, std::atomic<bool> const &stop, std::function<void()> const &waiting) : host_(std::move(host))
+            {
+                auto started = std::chrono::steady_clock::now();
+                bool told = false;
+                while (!stop.load())
+                {
+                    {
+                        std::lock_guard guard(Lock());
+                        if (Busy().insert(host_).second)
+                        {
+                            held_ = true;
+                            return;
+                        }
+                    }
+                    if (!told && std::chrono::steady_clock::now() - started >= std::chrono::milliseconds(lease_note_ms))
+                    {
+                        told = true;
+                        waiting();
+                    }
+                    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+                }
+            }
+
+            ~StreamLease()
+            {
+                if (!held_)
+                    return;
+                std::lock_guard guard(Lock());
+                Busy().erase(host_);
+            }
+
+            StreamLease(StreamLease const &) = delete;
+            StreamLease &operator=(StreamLease const &) = delete;
+            bool Held() const { return held_; }
+
+        private:
+            static std::mutex &Lock()
+            {
+                static std::mutex lock;
+                return lock;
+            }
+
+            static std::set<std::string> &Busy()
+            {
+                static std::set<std::string> busy;
+                return busy;
+            }
+
+            std::string host_;
+            bool held_ = false;
+        };
 
         std::string KeyFor(CameraSource const &s, std::string const &url)
         {
@@ -166,7 +234,7 @@ namespace zs
             while (parser->Next(jpeg))
             {
                 any = true;
-                frame_(std::make_shared<std::string>(std::move(jpeg)));
+                SendJpeg(std::move(jpeg));
                 jpeg.clear();
             }
             return !parser->Broken() && !stop_.load();
@@ -196,20 +264,145 @@ namespace zs
                 note_("The camera gave no picture.");
                 return true;
             }
-            frame_(std::make_shared<std::string>(std::move(r.body)));
+            SendJpeg(std::move(r.body));
             Rest(every);
         }
         return false;
     }
 
+    void CameraFeed::SendJpeg(std::string jpeg)
+    {
+        auto picture = std::make_shared<CameraPicture>();
+        picture->bytes = std::move(jpeg);
+        frame_(picture);
+    }
+
     bool CameraFeed::RunBambu()
     {
-        if (source_.bambu_kind == 1)
+        StreamLease lease(source_.bambu_host, stop_, [this] { note_("This camera plays in another view."); });
+        if (!lease.Held())
+            return false;
+        if (source_.bambu_kind == 2)
+            return RunBambuJpeg();
+        H264Decoder decoder;
+        if (!decoder.Ready())
         {
-            // RTSP needs an H.264 decoder.
-            note_("The Windows app cannot show the camera of this printer yet (H.264 over RTSP).");
+            if (source_.bambu_kind == 0)
+                return RunBambuJpeg();
+            note_("This Windows has no H.264 decoder. Add the Media Feature Pack in Settings, under Optional features.");
             return false;
         }
+        bool any = false;
+        std::string why;
+        RunRtsp(decoder, any, why);
+        if (stop_.load())
+            return false;
+        // A model that is not known: RTSP first, then the JPEG frames.
+        if (source_.bambu_kind == 0 && !any)
+            return RunBambuJpeg();
+        if (!why.empty())
+            note_(why);
+        return true;
+    }
+
+    // The loop of zslice-app.h: write the output, read, feed, write again,
+    // and take each frame. The access code goes only to the session.
+    void CameraFeed::RunRtsp(H264Decoder &decoder, bool &any, std::string &why)
+    {
+        using Clock = std::chrono::steady_clock;
+        TlsClient tls;
+        std::string seen, common_name, error;
+        int port = BambuPort("RTSPS", 322);
+        if (!tls.Connect(source_.bambu_host, port, source_.bambu_pin, seen, common_name, &stop_, error))
+        {
+            why = "The camera did not answer.";
+            return;
+        }
+        std::string url = "rtsps://" + source_.bambu_host + ":" + std::to_string(port) + "/streaming/live/1";
+        std::unique_ptr<zs_rtsp, decltype(&zs_rtsp_free)> session(zs_rtsp_new(url.c_str(), "bblp", source_.bambu_code.c_str()), zs_rtsp_free);
+        if (session == nullptr)
+        {
+            why = "The camera could not start.";
+            return;
+        }
+        auto flush = [&] {
+            uint8_t const *bytes = nullptr;
+            size_t len = 0;
+            zs_rtsp_output(session.get(), &bytes, &len);
+            return len == 0 || tls.Write(bytes, len);
+        };
+        if (!flush())
+        {
+            why = "The camera closed the connection.";
+            return;
+        }
+        Clock::time_point next_picture{};
+        auto want = [&] {
+            if (source_.large)
+                return true;
+            auto now = Clock::now();
+            if (now < next_picture)
+                return false;
+            next_picture = now + std::chrono::milliseconds(tile_picture_ms);
+            return true;
+        };
+        auto picture = [&](std::string &&bgra, int width, int height) {
+            any = true;
+            auto shown = std::make_shared<CameraPicture>();
+            shown->bytes = std::move(bgra);
+            shown->width = width;
+            shown->height = height;
+            frame_(shown);
+        };
+        std::string buffer(64 * 1024, '\0');
+        auto heard = Clock::now(), alive = Clock::now();
+        while (!stop_.load())
+        {
+            int n = tls.Read(buffer.data(), buffer.size(), 500);
+            if (n < 0)
+            {
+                why = "The camera closed the connection.";
+                return;
+            }
+            if (n > 0)
+                zs_rtsp_feed(session.get(), reinterpret_cast<uint8_t const *>(buffer.data()), (size_t)n);
+            int state = zs_rtsp_state(session.get());
+            if (state < 0)
+            {
+                why = zs_rtsp_message(session.get());
+                return;
+            }
+            auto now = Clock::now();
+            if (state == 1 && now - alive >= std::chrono::seconds(rtsp_keepalive_s))
+            {
+                zs_rtsp_keepalive(session.get());
+                alive = now;
+            }
+            if (!flush())
+            {
+                why = "The camera closed the connection.";
+                return;
+            }
+            uint8_t const *frame = nullptr;
+            size_t len = 0;
+            int key = 0;
+            while (zs_rtsp_next_frame(session.get(), &frame, &len, &key) == 1)
+            {
+                heard = Clock::now();
+                decoder.Decode(frame, len, !source_.large, want, picture);
+            }
+            if (Clock::now() - heard >= std::chrono::seconds(rtsp_quiet_s))
+            {
+                why = "No picture came from the camera. The camera can be off, or out of reach.";
+                return;
+            }
+        }
+        zs_rtsp_teardown(session.get());
+        flush();
+    }
+
+    bool CameraFeed::RunBambuJpeg()
+    {
         TlsClient tls;
         std::string seen, common_name, why;
         if (!tls.Connect(source_.bambu_host, BambuPort("JPEG", 6000), source_.bambu_pin, seen, common_name, &stop_, why))
@@ -249,7 +442,7 @@ namespace zs
             size_t len = 0;
             int got;
             while ((got = zs_bambu_jpeg_reader_next(reader.get(), &jpeg, &len)) == 1)
-                frame_(std::make_shared<std::string>(reinterpret_cast<char const *>(jpeg), len));
+                SendJpeg(std::string(reinterpret_cast<char const *>(jpeg), len));
             if (got < 0)
             {
                 note_("The camera did not send frames.");

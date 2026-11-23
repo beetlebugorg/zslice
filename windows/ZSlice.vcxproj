@@ -93,7 +93,7 @@
       <AdditionalLibraryDirectories>$(ZsCoreDir)\lib;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
       <!-- MinimalCoreWin trims the default libraries, so each Win32 library
            is named here. The core loads Direct3D at run time. -->
-      <AdditionalDependencies>zslice.lib;ntdll.lib;ws2_32.lib;advapi32.lib;bcrypt.lib;userenv.lib;shell32.lib;user32.lib;ole32.lib;gdiplus.lib;d2d1.lib;d3d11.lib;CoreMessaging.lib;winhttp.lib;crypt32.lib;secur32.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>zslice.lib;ntdll.lib;ws2_32.lib;advapi32.lib;bcrypt.lib;userenv.lib;shell32.lib;user32.lib;ole32.lib;gdiplus.lib;d2d1.lib;d3d11.lib;CoreMessaging.lib;winhttp.lib;crypt32.lib;secur32.lib;mfuuid.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
 
