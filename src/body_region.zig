@@ -244,6 +244,10 @@ fn stack(gpa: Allocator, beads: []const f32, part: ?*const Mesh) (Allocator.Erro
     defer ccw.deinit(gpa);
     var faces: std.ArrayList(u32) = .empty;
     defer faces.deinit(gpa);
+    var tops: std.ArrayList(f32) = .empty;
+    defer tops.deinit(gpa);
+    var heights: std.ArrayList(f32) = .empty;
+    defer heights.deinit(gpa);
     var start: usize = 0;
     // The top of the layer before: the bottom of the next layer starts
     // there, with the same float, so no cut plane falls between them.
@@ -251,13 +255,19 @@ fn stack(gpa: Allocator, beads: []const f32, part: ?*const Mesh) (Allocator.Erro
     while (start < n) {
         const layer = beads[order[start] * stride + 1];
         var end = start;
-        var top: f32 = 0;
-        var h: f32 = 0;
+        tops.clearRetainingCapacity();
+        heights.clearRetainingCapacity();
         while (end < n and beads[order[end] * stride + 1] == layer) : (end += 1) {
-            top = @max(top, beads[order[end] * stride + 2]);
-            h = @max(h, beads[order[end] * stride + 3]);
+            try tops.append(gpa, beads[order[end] * stride + 2]);
+            try heights.append(gpa, beads[order[end] * stride + 3]);
         }
         defer start = end;
+        // The bounds of the layer: the lower median of its beads. One bead
+        // can be taller than the layer, and its top is on another cut plane.
+        std.mem.sort(f32, tops.items, {}, std.sort.asc(f32));
+        std.mem.sort(f32, heights.items, {}, std.sort.asc(f32));
+        const top = tops.items[(tops.items.len - 1) / 2];
+        const h = heights.items[(heights.items.len - 1) / 2];
         var foot = if (part) |m| blk: {
             // The faces of the part that reach the middle of the layer.
             const zm = top - 0.5 * h;
@@ -354,6 +364,22 @@ test "body region: a prism on each layer, from its bottom to its top" {
     var none = try volume(gpa, &.{});
     defer none.deinit(gpa);
     try testing.expectEqual(@as(usize, 0), none.faces.items.len);
+}
+
+test "body region: one bead taller than its layer does not reach the next layer" {
+    const gpa = testing.allocator;
+    var beads = try squareBeads(gpa, 10, 10, 6, 5, 5);
+    defer beads.deinit(gpa);
+    var plain = try volume(gpa, beads.items);
+    defer plain.deinit(gpa);
+    const want = plain.bounds();
+    beads.items[2] += 0.2;
+    beads.items[3] += 0.2;
+    var m = try volume(gpa, beads.items);
+    defer m.deinit(gpa);
+    const got = m.bounds();
+    try testing.expectApproxEqAbs(want.min[2], got.min[2], 1e-6);
+    try testing.expectApproxEqAbs(want.max[2], got.max[2], 1e-6);
 }
 
 test "body region: the slice of the volume at the middle of a layer is the footprint" {
