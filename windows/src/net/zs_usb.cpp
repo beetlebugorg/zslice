@@ -246,19 +246,45 @@ namespace zs::usb
 
     namespace
     {
-        // The tool of a line `T<n>`, or -1. A machine has at most 16 tools.
+        bool IsDigit(char c)
+        {
+            return c >= '0' && c <= '9';
+        }
+
+        bool IsLetter(char c)
+        {
+            return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z');
+        }
+
+        // The tool that a line uses, or -1: a line `T<n>`, or the T word of
+        // M104 or M109, which heats a nozzle with no tool change. Firmware
+        // also reads words with no space between them, as in M104S200T1. A
+        // T word past the last tool counts as the last tool.
         int ToolOfLine(char const *text, size_t len)
         {
-            if (len < 2 || len > 3 || text[0] != 'T')
-                return -1;
-            int tool = 0;
-            for (size_t i = 1; i < len; i++)
+            if (len >= 2 && len <= 3 && text[0] == 'T')
             {
-                if (text[i] < '0' || text[i] > '9')
-                    return -1;
-                tool = tool * 10 + (text[i] - '0');
+                int tool = 0;
+                for (size_t i = 1; i < len; i++)
+                {
+                    if (!IsDigit(text[i]))
+                        return -1;
+                    tool = tool * 10 + (text[i] - '0');
+                }
+                return tool < max_nozzles ? tool : -1;
             }
-            return tool < max_nozzles ? tool : -1;
+            if (len < 6 || (strncmp(text, "M104", 4) != 0 && strncmp(text, "M109", 4) != 0) || IsDigit(text[4]))
+                return -1;
+            for (size_t i = 4; i + 1 < len; i++)
+            {
+                if (text[i] != 'T' || IsLetter(text[i - 1]) || !IsDigit(text[i + 1]))
+                    continue;
+                int tool = 0;
+                for (size_t k = i + 1; k < len && IsDigit(text[k]); k++)
+                    tool = std::min(tool * 10 + (text[k] - '0'), max_nozzles - 1);
+                return tool;
+            }
+            return -1;
         }
 
         // The end of a stopped print: the heaters and the fan go off. It
@@ -347,7 +373,7 @@ namespace zs::usb
             pos = end + 1;
             if (cut <= start)
                 continue;
-            // A tool that the file selects cools on a stop too.
+            // A tool that the file selects or heats cools on a stop too.
             nozzles = std::max(nozzles, ToolOfLine(gcode.data() + start, cut - start) + 1);
             std::string line = gcode.substr(start, cut - start);
             line.push_back('\n');

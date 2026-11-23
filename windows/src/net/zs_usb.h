@@ -81,7 +81,8 @@ namespace zs::usb
     //
     // On Marlin, M104 with no T acts on the active nozzle only. One nozzle
     // gets M104 S0, and more get M104 T<n> S0 each. The count is `nozzles`
-    // (1 to 16), raised by each tool that a T<n> line of the G-code selected
-    // before the stop, so a wrong setting cannot leave a used nozzle hot.
+    // (1 to 16), raised before the stop by each T<n> line of the G-code and
+    // each T word of M104 or M109, so a wrong setting cannot leave a used
+    // nozzle hot.
     Result Stream(Port &port, std::string const &gcode, std::atomic<bool> const &stop, std::function<void(double)> const &progress, Timing timing = {}, int nozzles = 1);
 }

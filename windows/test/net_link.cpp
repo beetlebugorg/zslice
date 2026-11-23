@@ -2149,7 +2149,25 @@ namespace
             // A tool line that the print did not reach does not count.
             CHECK((stopped("G1 X1\nG1 X2\nT3\n", 1, 1) == Lines{ "M104 S0", "M140 S0", "M107" }));
             // Words that are no tool line.
-            CHECK((stopped("T\nTX\nT1 S2\nT16\nT123\nM104 T1\nG1 X1\nG1 X2\n", 7, 1) == Lines{ "M104 S0", "M140 S0", "M107" }));
+            CHECK((stopped("T\nTX\nT1 S2\nT16\nT123\nM117 T1\nG1 X1\nG1 X2\n", 7, 1) == Lines{ "M104 S0", "M140 S0", "M107" }));
+            // The T word of a heater command, in any place on the line.
+            Lines const two{ "M104 T0 S0", "M104 T1 S0", "M140 S0", "M107" };
+            for (char const *line : { "M109 T1 S200", "M104 S200 T1", "M104 T1", "M109 R180 T1", "M104T1S200", "M104 S200T1", "M109 T01 S200" })
+                CHECK((stopped(std::string(line) + "\nG1 X1\nG1 X2\n", 2, 1) == two));
+            // It raises the count and never lowers it.
+            CHECK(stopped("M104 T2 S200\nM104 T0 S200\nG1 X1\nG1 X2\n", 3, 1).size() == 3 + 2);
+            CHECK(stopped("M104 T0 S200\nG1 X1\nG1 X2\n", 2, 3).size() == 3 + 2);
+            // T0 on one nozzle stays the plain command.
+            CHECK((stopped("M104 T0 S200\nG1 X1\nG1 X2\n", 2, 1) == Lines{ "M104 S0", "M140 S0", "M107" }));
+            // It stays in 16 nozzles.
+            CHECK(stopped("M104 T15 S200\nG1 X1\nG1 X2\n", 2, 1).size() == 16 + 2);
+            CHECK(stopped("M109 T99 S200\nG1 X1\nG1 X2\n", 2, 1).size() == 16 + 2);
+            CHECK(stopped("M104 T999999999999 S200\nG1 X1\nG1 X2\n", 2, 1).size() == 16 + 2);
+            // A heater line that the print did not reach does not count.
+            CHECK((stopped("G1 X1\nG1 X2\nM104 T3 S200\n", 1, 1) == Lines{ "M104 S0", "M140 S0", "M107" }));
+            // Words that only look like a tool.
+            for (char const *line : { "TEST", "TEST1", "M104 TEST S200", "M104 TEST1", "M104 XT1 S200", "M104 T S200", "M104 S200", "M117 T1 ready", "M140 T1 S60", "M1040 T1", "M1090 T1", "G1 T1", "M104 S200 ; T3", "; M104 T3" })
+                CHECK((stopped(std::string(line) + "\nG1 X1\nG1 X2\nG1 X3\n", 2, 1) == Lines{ "M104 S0", "M140 S0", "M107" }));
             // The count stays in 1 to 16.
             CHECK((stopped(plain, 1, 0) == Lines{ "M104 S0", "M140 S0", "M107" }));
             CHECK(stopped(plain, 1, 99).size() == 16 + 2);
