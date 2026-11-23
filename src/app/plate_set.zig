@@ -1841,6 +1841,46 @@ fn firstLayerArea(gpa: Allocator, app: *App, i: usize) !f64 {
     return area;
 }
 
+test "plate set: this side on the bed uses the flat side around a sliver face" {
+    const gpa = testing.allocator;
+    var b: zs.mesh.Builder = .init(gpa);
+    errdefer b.deinit();
+    try zs.mesh.shapes.addBox(&b, 0, 0, 0, 20, 20, 10);
+    // A sliver on the top edge, with a normal far from the top face.
+    try b.addTriangle(.{ .x = 0, .y = 0, .z = 10 }, .{ .x = 20, .y = 0, .z = 10 }, .{ .x = 10, .y = 0.001, .z = 10.02 });
+    var mesh = try b.finish();
+    var stl: std.Io.Writer.Allocating = .init(gpa);
+    defer stl.deinit();
+    try mesh.writeStl(&stl.writer);
+    mesh.deinit(gpa);
+    const set = try Set.create(gpa, null, null, false);
+    defer set.destroy();
+    const app = set.appOf(0).?;
+    try app.loadStl("sliver.stl", stl.written());
+    const p = &app.plate.parts.items[0];
+    const vs = p.mesh.vertices.items;
+    var least: f64 = std.math.inf(f64);
+    var m: [3]f64 = undefined;
+    for (p.mesh.faces.items) |f| {
+        const x = vs[f[0]];
+        const y = vs[f[1]];
+        const z = vs[f[2]];
+        const u = [3]f64{ @as(f64, y.x) - x.x, @as(f64, y.y) - x.y, @as(f64, y.z) - x.z };
+        const w = [3]f64{ @as(f64, z.x) - x.x, @as(f64, z.y) - x.y, @as(f64, z.z) - x.z };
+        const c = [3]f64{ u[1] * w[2] - u[2] * w[1], u[2] * w[0] - u[0] * w[2], u[0] * w[1] - u[1] * w[0] };
+        const l = @sqrt(c[0] * c[0] + c[1] * c[1] + c[2] * c[2]);
+        if (l > 0 and l < least) {
+            least = l;
+            m = .{ (@as(f64, x.x) + y.x + z.x) / 3, (@as(f64, x.y) + y.y + z.y) / 3, (@as(f64, x.z) + y.z + z.z) / 3 };
+        }
+    }
+    const t = p.transform();
+    const n = app.plate.sideAt(0, m[0] * t[0] + m[1] * t[3] + m[2] * t[6] + t[9], m[0] * t[1] + m[1] * t[4] + m[2] * t[7] + t[10], m[0] * t[2] + m[1] * t[5] + m[2] * t[8] + t[11]).?;
+    const l = @sqrt(n[0] * n[0] + n[1] * n[1] + n[2] * n[2]);
+    // The normal of a face of the box: along one axis.
+    try testing.expect(@max(@abs(n[0]), @max(@abs(n[1]), @abs(n[2]))) / l > 0.99999);
+}
+
 test "plate set: a part put down on a side comes back the same from a session, a project, and a 3MF file" {
     const gpa = testing.allocator;
     const session = @import("session.zig");

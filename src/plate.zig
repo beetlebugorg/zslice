@@ -432,6 +432,12 @@ pub fn sameShape(a: [7]f64, b: [7]f64) bool {
     return true;
 }
 
+/// "This side on the bed": faces within this distance (mm) are candidates
+/// for the picked side, and faces this far off its plane are not in it.
+const side_near = 0.01;
+/// The cosine of 0.5 degrees: faces of one flat side are within this angle.
+const side_cos = 0.99996;
+
 pub const Plate = struct {
     parts: std.ArrayList(Part) = .empty,
 
@@ -1061,22 +1067,61 @@ pub const Plate = struct {
         const dx = x - t[9];
         const dy = y - t[10];
         const q = [3]f64{ dx * t[0] + dy * t[1], dx * t[3] + dy * t[4], z - t[11] };
-        var best: ?[3]f64 = null;
-        var best_d: f64 = std.math.inf(f64);
         const vs = p.mesh.vertices.items;
-        for (p.mesh.faces.items) |f| {
-            const a = [3]f64{ vs[f[0]].x, vs[f[0]].y, vs[f[0]].z };
-            const b = [3]f64{ vs[f[1]].x, vs[f[1]].y, vs[f[1]].z };
-            const c = [3]f64{ vs[f[2]].x, vs[f[2]].y, vs[f[2]].z };
-            const d = pointTriangle2(q, a, b, c);
-            if (d < best_d) {
-                best_d = d;
-                const u = [3]f64{ b[0] - a[0], b[1] - a[1], b[2] - a[2] };
-                const v = [3]f64{ c[0] - a[0], c[1] - a[1], c[2] - a[2] };
-                best = .{ u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0] };
+        const Tri = struct {
+            /// The area vector of a face: its normal, as long as twice its area.
+            fn cross(m: *const Mesh, f: [3]u32) [3]f64 {
+                const w = m.vertices.items;
+                const u = [3]f64{ @as(f64, w[f[1]].x) - w[f[0]].x, @as(f64, w[f[1]].y) - w[f[0]].y, @as(f64, w[f[1]].z) - w[f[0]].z };
+                const v = [3]f64{ @as(f64, w[f[2]].x) - w[f[0]].x, @as(f64, w[f[2]].y) - w[f[0]].y, @as(f64, w[f[2]].z) - w[f[0]].z };
+                return .{ u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0] };
             }
+            fn len(n: [3]f64) f64 {
+                return @sqrt(n[0] * n[0] + n[1] * n[1] + n[2] * n[2]);
+            }
+            fn dist2(m: *const Mesh, f: [3]u32, at: [3]f64) f64 {
+                const w = m.vertices.items;
+                const a = [3]f64{ w[f[0]].x, w[f[0]].y, w[f[0]].z };
+                const b = [3]f64{ w[f[1]].x, w[f[1]].y, w[f[1]].z };
+                const c = [3]f64{ w[f[2]].x, w[f[2]].y, w[f[2]].z };
+                return pointTriangle2(at, a, b, c);
+            }
+        };
+        var best_d: f64 = std.math.inf(f64);
+        for (p.mesh.faces.items) |f| {
+            if (!(Tri.len(Tri.cross(&p.mesh, f)) > 0)) continue;
+            best_d = @min(best_d, Tri.dist2(&p.mesh, f, q));
         }
-        return best;
+        if (std.math.isInf(best_d)) return null;
+        // A point on an edge, or on a sliver, is near several faces. The
+        // largest face within 0.01 mm names the side.
+        const reach = @sqrt(best_d) + side_near;
+        var seed: ?[3]f64 = null;
+        var seed_area: f64 = 0;
+        var seed_at: [3]f64 = undefined;
+        for (p.mesh.faces.items) |f| {
+            const n = Tri.cross(&p.mesh, f);
+            const l = Tri.len(n);
+            if (!(l > seed_area) or Tri.dist2(&p.mesh, f, q) > reach * reach) continue;
+            seed = .{ n[0] / l, n[1] / l, n[2] / l };
+            seed_area = l;
+            seed_at = .{ vs[f[0]].x, vs[f[0]].y, vs[f[0]].z };
+        }
+        const u = seed orelse return null;
+        // The plane of the side: the area-weighted normal of all faces in
+        // the plane of the seed face.
+        var sum = [3]f64{ 0, 0, 0 };
+        for (p.mesh.faces.items) |f| {
+            const n = Tri.cross(&p.mesh, f);
+            const l = Tri.len(n);
+            if (!(l > 0)) continue;
+            if ((n[0] * u[0] + n[1] * u[1] + n[2] * u[2]) / l < side_cos) continue;
+            const v = vs[f[0]];
+            const off = (@as(f64, v.x) - seed_at[0]) * u[0] + (@as(f64, v.y) - seed_at[1]) * u[1] + (@as(f64, v.z) - seed_at[2]) * u[2];
+            if (@abs(off) > side_near) continue;
+            for (0..3) |k| sum[k] += n[k];
+        }
+        return sum;
     }
 
     /// Gives part i, whose mesh already has a pose and a scale (a part
