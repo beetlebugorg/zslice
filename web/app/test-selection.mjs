@@ -158,6 +158,83 @@ const check = (ok, text) => {
 };
 
 const tests = {
+  "a layer range keeps its body across a slice, with two parts": async () => {
+    const { page, ctx, errors } = await newPage("test-cube.stl", 2);
+    await page.evaluate(() => window.zslice.browser.ctx.addFilament());
+    await idle(page);
+    const start = await page.evaluate(() => {
+      const z = window.zslice;
+      const id = z.tools.sel.idAt(1);
+      const b = z.tools.sel.box(id);
+      const L = Math.floor(z.layers.count / 2);
+      if (!z.view.pickLayer(L, b.x0 + 0.2, (b.y0 + b.y1) / 2)) return null;
+      z.app.pickPoint = [b.x0 + 0.2, (b.y0 + b.y1) / 2];
+      z.select(z.view.hit[0], 0, true);
+      return { L, box: b, other: z.tools.sel.box(z.tools.sel.idAt(0)) };
+    });
+    check(start, "no line on the second part");
+    await page.waitForTimeout(150);
+    await page.locator("#gl").focus().catch(() => {});
+    await page.keyboard.press("Shift+K");
+    check((await page.evaluate(() => window.zslice.rangeCard.paintBody(2))) === null, "the first filament gave an error");
+    await page.waitForTimeout(200);
+    await idle(page);
+    await page.keyboard.press("Shift+K");
+    check((await page.evaluate(() => window.zslice.rangeCard.paintBody(2))) === null, "the second filament gave an error");
+    await page.waitForTimeout(200);
+    await idle(page);
+    const fil = (L, b) => page.evaluate(async ([layer, box]) => {
+      const z = window.zslice;
+      if (!z.view.pickLayer(layer, box.x0 + 0.2, (box.y0 + box.y1) / 2)) return -1;
+      const r = await z.client.call("inspect", { path: z.view.hit[0], seg: 0 });
+      return r?.info?.filament ?? -1;
+    }, [L, b]);
+    const L = start.L;
+    const mine = [await fil(L, start.box), await fil(L + 1, start.box), await fil(L + 2, start.box)];
+    const other = [await fil(L, start.other), await fil(L + 1, start.other), await fil(L + 2, start.other)];
+    check(mine.every((f) => f === 2), `the picked part lost a layer: ${mine}`);
+    check(other.every((f) => f !== 2), `the other part changed: ${other}`);
+    check(errors.length === 0, errors.join("; "));
+    await ctx.close();
+    return `picked part ${mine}, other part ${other}`;
+  },
+  "two nearby layer filament picks both stay, on the right layers": async () => {
+    const { page, ctx, errors } = await newPage("test-cube.stl", 1);
+    await page.evaluate(() => window.zslice.browser.ctx.addFilament());
+    await idle(page);
+    // Lights one layer of the body at a wall, and gives it filament 2.
+    const pick = (L) => page.evaluate(async (layer) => {
+      const z = window.zslice;
+      const b = z.tools.sel.box(z.tools.sel.idAt(0));
+      const pt = [b.x0 + 0.2, (b.y0 + b.y1) / 2];
+      if (!z.view.pickLayer(layer, pt[0], pt[1])) return "no line";
+      z.app.rangeLight = { path: z.view.hit[0], layer, lo: layer, hi: layer, pt };
+      z.rangeCard.show(layer, layer);
+      return await z.rangeCard.paintBody(2);
+    }, L);
+    // The filament of the wall line of a layer, from the worker.
+    const fil = (L) => page.evaluate(async (layer) => {
+      const z = window.zslice;
+      const b = z.tools.sel.box(z.tools.sel.idAt(0));
+      if (!z.view.pickLayer(layer, b.x0 + 0.2, (b.y0 + b.y1) / 2)) return -1;
+      const r = await z.client.call("inspect", { path: z.view.hit[0], seg: 0 });
+      return r?.info?.filament ?? -1;
+    }, L);
+    const L = await page.evaluate(() => Math.floor(window.zslice.layers.count / 2));
+    check((await pick(L)) === null, "the first pick gave an error");
+    await page.waitForTimeout(200);
+    await idle(page);
+    // A pick while the page has a stale number must find its body again.
+    check((await pick(L + 2)) === null, "the second pick gave an error");
+    await page.waitForTimeout(200);
+    await idle(page);
+    const got = [await fil(L - 1), await fil(L), await fil(L + 1), await fil(L + 2), await fil(L + 3)];
+    check(got[1] === 2 && got[3] === 2, `a pick is gone: ${got}`);
+    check(got[0] !== 2 && got[2] !== 2 && got[4] !== 2, `a pick leaked: ${got}`);
+    check(errors.length === 0, errors.join("; "));
+    await ctx.close();
+    return `layers L-1..L+3 have filaments ${got}`;
+  },
   async "select a part after a move of another part, 100 times"() {
     const { page, ctx, errors } = await newPage("test-cube.stl", 2);
     await movePartTo(page, 0, 165, 165);

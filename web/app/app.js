@@ -2546,11 +2546,14 @@ function onPreviewKey(e) {
     const lo = Math.min(keyRange.a, keyRange.b);
     const hi = Math.max(keyRange.a, keyRange.b);
     // From the selected line: its body of its part; else all the layers.
-    if (keyRange.path === undefined) keyRange.path = app.sel;
+    keyRange.path = app.sel;
     if (keyRange.path >= 0) {
       view.lightColor(null);
       view.lightConnected(keyRange.path, lo, hi);
-      app.rangeLight = { path: keyRange.path, layer: view.pathLayer(keyRange.path), lo, hi };
+      const layer = view.pathLayer(keyRange.path);
+      // A point of the body: the next slice numbers the lines again.
+      const at = view.connectedBeads(keyRange.path, layer, layer);
+      app.rangeLight = { path: keyRange.path, layer, lo, hi, pt: at ? [at[4], at[5]] : null };
     } else view.lightLayers(lo, hi);
     rangeCard.show(lo, hi);
     requestFrame();
@@ -2999,7 +3002,7 @@ var rangeCard = new RangeCard({ // var: drawFrame can run before this line
   // shows in the color of the filament at once.
   paintBody: async (f) => {
     const r = app.rangeLight;
-    const beads = r && r.path >= 0 ? view.connectedBeads(r.path, r.lo, r.hi) : null;
+    const beads = litBeads(r);
     if (!beads) return "No body is lit.";
     r.color = filaments()[f - 1]?.color ?? null;
     view.lightColor(r.color);
@@ -3010,7 +3013,7 @@ var rangeCard = new RangeCard({ // var: drawFrame can run before this line
   // The region of the lit body (zs_app_region_find): { id, values }.
   regionOf: async () => {
     const r = app.rangeLight;
-    const beads = r && r.path >= 0 ? view.connectedBeads(r.path, r.lo, r.hi) : null;
+    const beads = litBeads(r);
     if (!beads) return { id: 0, values: {} };
     return client.call("regionOf", { beads });
   },
@@ -3018,7 +3021,7 @@ var rangeCard = new RangeCard({ // var: drawFrame can run before this line
   // modifier volume of the part, then a slice.
   regionSet: async (id, name, value) => {
     const r = app.rangeLight;
-    const beads = r && r.path >= 0 ? view.connectedBeads(r.path, r.lo, r.hi) : null;
+    const beads = litBeads(r);
     if (!beads && !id) return { error: "No part of the layers is lit." };
     const res = await client.call("regionSet", { beads, region: id, name, value });
     if (res.error) toast(res.error);
@@ -3068,6 +3071,12 @@ function layerUnder(d, px, py) {
 // press, if the range has one.
 // The body of a line that the Filament row of the line card colors: lit
 // in the color of the filament until the slice comes back.
+// The beads of the lit body of a layer range, or null.
+function litBeads(r) {
+  if (!r || r.path < 0 || view.pathLayer(r.path) !== r.layer) return null;
+  return view.connectedBeads(r.path, r.lo, r.hi);
+}
+
 function lightLine(path, lo, hi, f) {
   if (app.rangeLight) return;
   app.lineLight = true;
@@ -3084,8 +3093,11 @@ view.onLoad = () => {
     view.lightColor(null);
   }
   const r = app.rangeLight;
-  if (!r || !rangeCard.open) return;
-  if (r.path >= 0 && r.pt && view.pickLayer(r.layer, r.pt[0], r.pt[1])) r.path = view.hit[0];
+  if (!r) return;
+  // The slice numbers the lines again. Find the body at its point, or
+  // drop the line, so that no edit goes to another body.
+  if (r.path >= 0) r.path = r.pt && view.pickLayer(r.layer, r.pt[0], r.pt[1]) ? view.hit[0] : -1;
+  if (!rangeCard.open) return;
   view.lightColor(r.color ?? null);
   if (r.path >= 0 && view.pathLayer(r.path) === r.layer) view.lightConnected(r.path, r.lo, r.hi);
   else view.lightLayers(r.lo, r.hi);
