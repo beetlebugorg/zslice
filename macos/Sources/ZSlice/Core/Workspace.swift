@@ -647,6 +647,21 @@ final class Workspace {
                   SettingInfo.sections("machine", nozzles: k).joined(separator: ", "), found.joined(separator: ","),
                   FilamentSlot.nozzleChoices(k, current: 0).map(\.label).joined(separator: ","))
         }
+        // ZSLICE_KEY_ADDRESS=1 logs when a saved key needs a yes, and what
+        // each answer does to the printer (issue #41).
+        if env["ZSLICE_KEY_ADDRESS"] != nil {
+            let from = "http://deck.local:8080/printers/a"
+            let asks = ["http://deck.local:8080/printers/b", "HTTP://DECK.local:8080", "http://other.local:8080", "http://deck.local:8081", "https://deck.local:8080", "not a url"]
+                .map { PrinterLink.addressAsks(from: from, to: $0, hasKey: true) ? "1" : "0" }.joined()
+            var p = Printer(name: "t", kind: .printdeck, url: from)
+            p.https = "https://deck.local:8443"
+            let to = "http://other.local:8080"
+            let yes = PrinterLink.changeAddress(p, key: "k", to: to, answer: .yes)
+            let no = PrinterLink.changeAddress(p, key: "k", to: to, answer: .no)
+            let cancel = PrinterLink.changeAddress(p, key: "k", to: to, answer: .cancel)
+            NSLog("zslice key address: asks %@, nokey %d, yes key %@ https '%@', no key '%@', cancel %d", asks,
+                  PrinterLink.addressAsks(from: from, to: to, hasKey: false) ? 1 : 0, yes?.key ?? "-", yes?.printer.https ?? "-", no?.key ?? "-", cancel == nil ? 1 : 0)
+        }
         // ZSLICE_HISTORY_BADGE=1 logs the count of the history button, 4 s
         // after the start (after ZSLICE_SET makes the steps), then an undo,
         // then a mark of a save.

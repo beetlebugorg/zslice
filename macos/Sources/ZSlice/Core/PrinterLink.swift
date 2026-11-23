@@ -288,6 +288,42 @@ enum PrinterLink {
         }
     }
 
+    /// The answer to "Send the saved key to this new address?".
+    enum KeyAnswer { case yes, no, cancel }
+
+    /// The scheme, host, and port of an address. An address with no scheme
+    /// is http.
+    nonisolated private static func origin(_ u: String) -> String? {
+        let t = u.trimmingCharacters(in: .whitespaces)
+        guard let c = URLComponents(string: t.contains("://") ? t : "http://" + t), let host = c.host?.lowercased(), !host.isEmpty else { return nil }
+        let scheme = (c.scheme ?? "http").lowercased()
+        let port = c.port ?? ["http": 80, "https": 443, "ftps": 990][scheme] ?? 0
+        return "\(scheme)://\(host):\(port)"
+    }
+
+    /// The same scheme, host, and port. An address that does not read is
+    /// never the same.
+    nonisolated static func sameOrigin(_ a: String, _ b: String) -> Bool {
+        guard let x = origin(a), let y = origin(b) else { return false }
+        return x == y
+    }
+
+    /// A saved key goes to another scheme, host, or port only after a yes.
+    nonisolated static func addressAsks(from: String, to: String, hasKey: Bool) -> Bool {
+        hasKey && !from.isEmpty && !to.isEmpty && !sameOrigin(from, to)
+    }
+
+    /// The printer and the key after a change of its address, or nil to
+    /// keep both (Cancel). No drops the key. The secure address belongs to
+    /// the old host, so it goes with a new origin.
+    nonisolated static func changeAddress(_ p: Printer, key: String, to: String, answer: KeyAnswer) -> (printer: Printer, key: String)? {
+        guard answer != .cancel else { return nil }
+        var q = p
+        if !sameOrigin(p.url, to) { q.https = "" }
+        q.url = to
+        return (q, answer == .no ? "" : key)
+    }
+
     /// The root of a deck address, and the path of a printer of the deck:
     /// "http://deck/printers/p1" is ("http://deck", "/printers/p1").
     nonisolated static func deckSplit(_ u: String) -> (root: String, path: String) {
