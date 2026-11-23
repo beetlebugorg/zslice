@@ -16,6 +16,7 @@
 import { el } from "./settings.js";
 import { openPopover, closeMenu } from "./menus.js";
 import { displayValue, sourceText } from "./format.js";
+import { contextSettings, flowNote, slowNote } from "./linecard.js";
 
 const STATS = ["planned speed", "real speed", "flow"];
 const SCOPES = ["This print (all layers)", "This layer", "This layer and up", "This layer and down"];
@@ -162,9 +163,11 @@ export class Inspector {
     }
 
     const more = el("details", "insp-section insp-more");
+    more.open = true;
     more.append(el("summary", "", "How these values come about"));
+    this.whyRows = el("div", "insp-why");
     this.explain = el("div", "insp-explain");
-    more.append(this.explain);
+    more.append(this.whyRows, this.explain);
     page.append(more);
     root.append(page);
     this.update();
@@ -205,6 +208,7 @@ export class Inspector {
     this.note.textContent = SLOW_NOTES[info.slowReason] ?? "";
     this.note.hidden = info.slowReason === 0;
     this.showMeasure(info.measure);
+    this.fillWhy();
     this.explain.textContent = info.explain;
     for (const r of this.rows) {
       const entry = info.values[r.info.name];
@@ -216,6 +220,29 @@ export class Inspector {
       r.reset.style.visibility = mine ? "visible" : "hidden";
     }
     this.fillMark();
+  }
+
+  // The foot: the numbers with their reasons, the slow-down, the flow
+  // limit, and the reason of each setting of the line card.
+  fillWhy() {
+    const info = this.info;
+    const byName = this.ctx.browser.byName;
+    const picks = info.picks?.length ? info.picks : contextSettings(info, byName);
+    const rows = [
+      [`Planned speed ${info.plannedSpeed.toFixed(0)} mm/s`, info.whyPlanned],
+      [`Real speed ${info.speed.toFixed(0)} mm/s`, info.whyReal],
+      [`Flow ${info.flow.toFixed(1)} mm³/s`, info.whyFlow],
+      ["Slower than planned", slowNote(info)],
+      ["Flow limit", flowNote(info)],
+      ...picks.map((p) => [byName.get(p.name)?.label ?? p.name, p.why]),
+    ];
+    this.whyRows.replaceChildren(
+      ...rows.filter(([, text]) => text).map(([name, text]) => {
+        const row = el("div", "insp-why-row");
+        row.append(el("div", "insp-why-name", name), el("div", "insp-why-text", text));
+        return row;
+      }),
+    );
   }
 
   fillMark() {

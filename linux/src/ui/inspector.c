@@ -40,6 +40,7 @@ typedef struct {
      * of its button. */
     char *why[3];
     GtkWidget *explain;
+    GtkWidget *why_foot;
     /* The scope of the edits: 0 all layers, 1 this layer, 2 this layer
      * and up, 3 this layer and down. It stays for the next selection. */
     int scope_mode;
@@ -287,6 +288,42 @@ static void on_segment_measure(ZgModel *model, gint64 segment, gpointer data) {
     show_measure(data);
 }
 
+static void why_line(GString *out, const char *name, const char *text) {
+    if (!text || !text[0]) return;
+    g_string_append_printf(out, "%s%s\n%s", out->len ? "\n\n" : "", name, text);
+}
+
+/* The foot: the numbers with their reasons, the slow-down, the flow limit,
+ * and the reason of each setting of the line card. */
+static void show_why(Inspector *ins, const zs_inspect *info) {
+    if (!ins->why_foot) return;
+    GString *out = g_string_new(NULL);
+    char head[64];
+    g_snprintf(head, sizeof head, "Planned speed %.0f mm/s", info->planned_speed);
+    why_line(out, head, info->why_planned);
+    g_snprintf(head, sizeof head, "Real speed %.0f mm/s", info->speed);
+    why_line(out, head, info->why_real);
+    g_snprintf(head, sizeof head, "Flow %.1f mm³/s", info->flow);
+    why_line(out, head, info->why_flow);
+    why_line(out, "Slower than planned", info->slow_text);
+    if (info->flow_limited && info->max_flow > 0) {
+        char *limit = g_strdup_printf("The flow limit (%.0f mm³/s) sets the speed of this line, not the printer.", info->max_flow);
+        why_line(out, "Flow limit", limit);
+        g_free(limit);
+    }
+    zs_pick picks[8];
+    size_t n = 0;
+    if (zs_app_inspect_picks(zg_model_core(ins->model), info->path, picks, G_N_ELEMENTS(picks), &n) == ZS_OK) {
+        for (size_t i = 0; i < n; i++) {
+            zs_setting_info s;
+            why_line(out, zg_setting_find(picks[i].name, &s) ? s.label : picks[i].name, picks[i].why);
+        }
+    }
+    gtk_label_set_text(GTK_LABEL(ins->why_foot), out->str);
+    gtk_widget_set_visible(ins->why_foot, out->len > 0);
+    g_string_free(out, TRUE);
+}
+
 static void show_text(Inspector *ins, const zs_inspect *info) {
     ins->scope_z = info->z;
     apply_scope(ins);
@@ -297,6 +334,7 @@ static void show_text(Inspector *ins, const zs_inspect *info) {
                              : g_strdup_printf("%s · layer %zu", info->title, info->layer + 1);
     gtk_label_set_text(GTK_LABEL(ins->title), title);
     g_free(title);
+    show_why(ins, info);
     gtk_label_set_text(GTK_LABEL(ins->explain), info->explain);
     show_stats(ins, info);
     show_measure(ins);
@@ -498,13 +536,19 @@ static GtkWidget *build_inspector(Inspector *ins, const zs_inspect *info) {
     g_strfreev(names);
 
     GtkWidget *more = gtk_expander_new("How these values come about");
+    gtk_expander_set_expanded(GTK_EXPANDER(more), TRUE);
     gtk_widget_set_margin_top(more, 12);
+    GtkWidget *foot = gtk_box_new(GTK_ORIENTATION_VERTICAL, 8);
+    ins->why_foot = zg_wrapped_label_new("");
+    gtk_widget_add_css_class(ins->why_foot, "zg-explain");
+    gtk_widget_set_margin_top(ins->why_foot, 6);
+    gtk_box_append(GTK_BOX(foot), ins->why_foot);
     /* Not selectable: a selectable label can take the focus, and GTK then
      * selects all of its text. */
     ins->explain = zg_wrapped_label_new("");
     gtk_widget_add_css_class(ins->explain, "zg-explain");
-    gtk_widget_set_margin_top(ins->explain, 6);
-    gtk_expander_set_child(GTK_EXPANDER(more), ins->explain);
+    gtk_box_append(GTK_BOX(foot), ins->explain);
+    gtk_expander_set_child(GTK_EXPANDER(more), foot);
     gtk_grid_attach(GTK_GRID(grid), more, 0, row++, 3, 1);
     show_text(ins, info);
     return grid;

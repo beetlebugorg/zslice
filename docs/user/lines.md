@@ -1,6 +1,6 @@
 # Click a line
 
-Click any line of the print. A card says what the line is, how fast it really prints, and why.
+Click any line of the print. A card says what the line is and how fast it really prints. **All settings…** says why.
 
 ![A click on the edge of the cabin roof: the card says Outer wall, layer 201, 76 mm/s planned, 17 mm/s real, and why: the layer is short, so it prints slower to cool](../img/line-card.webp "The card of a line: the speeds, the reason, and the settings that change the line.")
 
@@ -12,7 +12,6 @@ Use the Select tool (V), and click a line in the 2D or the 3D view. The line tur
 - the speed, and the planned speed when the line is slower;
 - the flow, and how much of the flow limit of the filament it uses;
 - the line width and height, the time of the layer, and the fan;
-- why the line is slow, in plain words: a short layer, short segments, or the flow limit;
 - a warning of the check at the line, for example a bridge or an overhang, after the check has run;
 - for a support line: the part line that it holds up, and how many layers up;
 - the **Filament** row: a chip gives this part of the layer its own filament (see [Give a line a filament](#give-a-line-a-filament));
@@ -21,7 +20,7 @@ Use the Select tool (V), and click a line in the 2D or the 3D view. The line tur
 | Button | What it does |
 |---|---|
 | **Fade the others** | Shows the line solid and the other lines as faint ghosts. |
-| **All settings…** | Opens the long form of the line in the panel: each number, and how it comes about. |
+| **All settings…** | Opens the long form of the line in the panel. **How these values come about**, at its foot, gives the reason for each number, why the line is slow (a short layer, short segments, or the flow limit), and why each setting of the card matters. |
 | **Don't print** | Takes the line out of the print. Delete does the same. |
 | **−10 % plastic**, **+10 % plastic** | Gives the line less or more plastic. |
 

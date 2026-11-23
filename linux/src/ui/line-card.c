@@ -91,8 +91,7 @@ static void stat_box(GtkWidget *grid, int col, const char *value, const char *ca
     gtk_grid_attach(GTK_GRID(grid), box, col, 0, 1, 1);
 }
 
-/* The numbers of the line: its title, the three numbers, why it is slow,
- * and its size. */
+/* The numbers of the line: its title, the three numbers, and its size. */
 static void update_numbers(LineCard *c, const zs_inspect *info, size_t path) {
     /* A printer with more than one nozzle: the nozzle of the line (from
      * 1: the main nozzle, then T1 and on). */
@@ -112,13 +111,11 @@ static void update_numbers(LineCard *c, const zs_inspect *info, size_t path) {
     stat_box(c->stats, 0, a, "planned", FALSE);
     stat_box(c->stats, 1, b, "real", info->slow_reason != 0);
     stat_box(c->stats, 2, f, "flow", FALSE);
-    /* Why it is slow, and the speed limits of a nozzle after the first. */
-    const char *slow = info->slow_text ? info->slow_text : "";
+    /* The speed limits of a nozzle after the first. Why the line is slow
+     * is at the foot of the Selected page. */
     const char *limits = info->nozzle >= 2 && info->nozzle_text ? info->nozzle_text : "";
-    char *note = g_strdup_printf("%s%s%s", slow, slow[0] && limits[0] ? "\n" : "", limits);
-    gtk_label_set_text(GTK_LABEL(c->note), note);
-    gtk_widget_set_visible(c->note, note[0] != 0);
-    g_free(note);
+    gtk_label_set_text(GTK_LABEL(c->note), limits);
+    gtk_widget_set_visible(c->note, limits[0] != 0);
     /* The size: a circle or an arc, the segment, and the path. */
     gint64 seg = zg_model_segment(c->model);
     zs_measure m;
@@ -152,12 +149,6 @@ static void fill_settings(LineCard *c, const zs_inspect *info) {
         gtk_label_set_wrap_mode(GTK_LABEL(name), PANGO_WRAP_WORD);
         gtk_widget_set_tooltip_text(name, zg_doc_plain(s.doc));
         gtk_box_append(GTK_BOX(labels), name);
-        if (p->why[0]) {
-            GtkWidget *why = gtk_label_new(p->why);
-            gtk_label_set_xalign(GTK_LABEL(why), 0);
-            gtk_widget_add_css_class(why, "zg-lc-why");
-            gtk_box_append(GTK_BOX(labels), why);
-        }
         GtkWidget *editor = zg_setting_editor_new(c->model, &s, FALSE);
         gtk_grid_attach(GTK_GRID(c->settings), labels, 0, (int)i, 1, 1);
         gtk_grid_attach(GTK_GRID(c->settings), editor, 1, (int)i, 1, 1);

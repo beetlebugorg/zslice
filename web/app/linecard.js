@@ -111,15 +111,14 @@ export function layerTimeText(s) {
   return `${Math.floor(r / 60)} min ${String(r % 60).padStart(2, "0")} s`;
 }
 
-// The notes of a line: why it is slow, and the flow limit. [text].
-export function lineNotes(info) {
-  const out = [];
-  const slow = info.slowText || SLOW[info.slowReason] || "";
-  if (slow) out.push(slow);
-  if (info.flowLimited && info.maxFlow > 0) {
-    out.push(`The flow limit (${info.maxFlow.toFixed(0)} mm³/s) sets the speed of this line, not the printer.`);
-  }
-  return out;
+// Why a line is slow, or "". The foot of the Selected page shows it.
+export function slowNote(info) {
+  return info.slowText || SLOW[info.slowReason] || "";
+}
+
+// The flow limit of a line, or "". The foot of the Selected page shows it.
+export function flowNote(info) {
+  return info.flowLimited && info.maxFlow > 0 ? `The flow limit (${info.maxFlow.toFixed(0)} mm³/s) sets the speed of this line, not the printer.` : "";
 }
 
 export class LineCard {
@@ -244,21 +243,17 @@ export class LineCard {
       card.append(box);
     }
 
-    // The settings that matter for this line, with the reason of each.
-    // The picks of the core (zs_app_inspect_picks), else the rules here.
+    // The settings that matter for this line. The picks of the core
+    // (zs_app_inspect_picks), else the rules here. Their reasons are at
+    // the foot of the Selected page.
     const picks = this.picks(info);
-    this.whys = new Map();
     if (picks.length > 0) {
       const box = el("div", "lc-settings");
-      for (const { name, why } of picks) {
+      for (const { name } of picks) {
         const s = this.ctx.browser.byName.get(name);
         const row = el("div", "lc-row");
         const label = el("button", "flat lc-label");
         label.append(el("span", "lc-name", s.label));
-        const whyNode = el("span", "lc-why", why ?? "");
-        whyNode.hidden = !why;
-        label.append(whyNode);
-        this.whys.set(name, whyNode);
         label.title = `${s.doc}\n\nClick to show this setting in the panel.`;
         label.onclick = () => this.ctx.openSetting?.(name);
         const ed = this.ctx.browser.makeEditor(s, "card");
@@ -351,12 +346,6 @@ export class LineCard {
   update(info) {
     this.title.textContent = info.title;
     if (this.filEditor && info.filament > 0) this.filEditor.update({ value: info.filament });
-    for (const { name, why } of this.picks(info)) {
-      const n = this.whys?.get(name);
-      if (!n) continue;
-      n.textContent = why ?? "";
-      n.hidden = !why;
-    }
     this.where.textContent = `Layer ${info.layer + 1} · z ${info.z.toFixed(2)} mm`;
     const slow = info.slowReason !== 0;
     const flowUse = info.maxFlow > 0 ? Math.round((info.flow / info.maxFlow) * 100) : 0;
@@ -376,7 +365,7 @@ export class LineCard {
     line2.append(part(`${info.lineWidth.toFixed(2)} × ${info.height.toFixed(2)} mm`, false), dot(), part(`layer ${layerTimeText(info.layerTime)}`, info.slowReason === 1), dot(), part(`fan ${Math.round((info.fan ?? 0) * 100)} %`, false));
     line2.title = "The width and the height of the line, the time of its layer, and the fan";
     this.stats.replaceChildren(line1, line2);
-    const notes = lineNotes(info).map((t) => el("div", "lc-note", t));
+    const notes = [];
     // A nozzle after the first: its speed limits.
     if (info.nozzle >= 2 && info.nozzleText) notes.push(el("div", "lc-info", info.nozzleText));
     // What a support line holds up.
