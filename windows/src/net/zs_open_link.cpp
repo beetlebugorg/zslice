@@ -193,7 +193,7 @@ namespace zs::openlink
 
             // No proxy: the check of the address needs the real peer.
             Handle session, connection;
-            session.h = ::WinHttpOpen(L"zslice", WINHTTP_ACCESS_TYPE_NO_PROXY, WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
+            session.h = ::WinHttpOpen(Wide(zs_import_user_agent()).c_str(), WINHTTP_ACCESS_TYPE_NO_PROXY, WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
             if (session.h == nullptr)
             {
                 out.error = ErrorText(::GetLastError());
