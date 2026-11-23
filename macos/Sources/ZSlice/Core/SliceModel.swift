@@ -98,6 +98,8 @@ final class SliceModel {
     /// After a change of a setting or of the plates: the window checks
     /// for a part that cannot stand now (zs_app_fall_pending).
     @ObservationIgnored var onChanged: (() -> Void)?
+    /// The selection and focus model of the core, next to the set.
+    @ObservationIgnored let sel: OpaquePointer
 
     init() {
         let b = EventBridge()
@@ -106,6 +108,9 @@ final class SliceModel {
         let rc = zs_set_new(onSetEvent, bridge.toOpaque(), &s)
         guard rc == 0, let s else { fatalError("zslice: zs_set_new failed: \(statusName(rc))") }
         set = s
+        var m: OpaquePointer?
+        guard zs_sel_new(&m) == 0, let m else { fatalError("zslice: zs_sel_new failed") }
+        sel = m
         b.model = self
         readPlates()
         // The settings of the last session (SavedSettings.swift); a test
@@ -122,7 +127,14 @@ final class SliceModel {
         zs_app_set_auto_simulate(core, ProcessInfo.processInfo.environment["ZSLICE_NO_SIM"] == nil ? 1 : 0)
     }
 
+    /// After a change of the set. scene: the view has loaded this slice
+    /// (docs/internals/selection.md).
+    func syncSelection(scene: Bool = false) {
+        zs_sel_sync(sel, set, scene ? 1 : 0)
+    }
+
     isolated deinit {
+        zs_sel_free(sel)
         zs_set_free(set)
         bridge.release()
     }
@@ -194,6 +206,7 @@ final class SliceModel {
     func readPlates() {
         scheduleSaveBytes()
         active = zs_set_active(set)
+        syncSelection()
         plates = (0 ..< zs_set_count(set)).compactMap { i in
             var p = zs_plate_info()
             guard zs_set_plate_info(set, i, &p) == 0 else { return nil }

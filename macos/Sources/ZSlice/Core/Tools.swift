@@ -134,20 +134,18 @@ extension Workspace {
 
     // MARK: - parts
 
-    /// The part under a point of the view: the part of the line there, or
-    /// the part on the bed there. nil if none.
+    /// The part under a point of the view (zs_sel_pick), at its current
+    /// place. nil if none.
     func partAt(_ p: CGPoint) -> Int? {
         guard let v = canvas.view, page == .threeD else { return nil }
-        let px = Float(p.x * pixelScale), py = Float(p.y * pixelScale)
-        let path = zs_view_pick(v, px, py)
-        if path != noPath {
-            let part = zs_app_part_of_path(model.core, path)
-            if part >= 0 { return part }
-        }
-        var x = 0.0, y = 0.0
-        guard zs_view_bed_point(v, px, py, &x, &y) != 0 else { return nil }
-        let part = zs_app_part_at(model.core, x, y)
-        return part >= 0 ? part : nil
+        model.syncSelection()
+        return partIndex(zs_sel_pick(model.sel, v, Float(p.x * pixelScale), Float(p.y * pixelScale)))
+    }
+
+    /// The index of a part on the plate now, from its stable id.
+    func partIndex(_ id: UInt64) -> Int? {
+        let i = zs_app_part_index(model.core, id)
+        return i >= 0 ? i : nil
     }
 
     func part(_ i: Int) -> zs_part? {
@@ -160,46 +158,42 @@ extension Workspace {
     /// Another part, or none, ends a selection of several parts; the same
     /// part again keeps it (the frames show again).
     func selectPart(_ i: Int?) {
-        if i == nil || i != selectedPart { moreParts = [] }
-        selectedPart = i
-        let n = zs_app_part_count(model.core)
-        moreParts.removeAll { $0 >= n || $0 == i }
-        showPartBoxes()
-        showRings()
+        model.syncSelection()
+        if let i {
+            let id = zs_app_part_id(model.core, i)
+            if id != zs_sel_primary(model.sel) { zs_sel_select(model.sel, id, Int32(ZS_SEL_REPLACE.rawValue)) }
+        } else {
+            zs_sel_clear(model.sel)
+        }
+        readSelectedParts()
     }
 
     /// One part only: a click on a part with no Shift.
     func selectOnlyPart(_ i: Int?) {
-        moreParts = []
-        selectPart(i)
+        model.syncSelection()
+        zs_sel_select(model.sel, i.map { zs_app_part_id(model.core, $0) } ?? 0, Int32(ZS_SEL_REPLACE.rawValue))
+        readSelectedParts()
     }
 
     /// Shift and a click: the part goes into the selection of parts, or
     /// out of it (web/app/tools.js togglePart). The last one added is
     /// `selectedPart`, the part of the card and of the Turn tool.
     func togglePart(_ i: Int) {
-        guard let cur = selectedPart else {
-            selectPart(i)
-            return
-        }
-        if i == cur {
-            // The last of the others takes its place.
-            let next = moreParts.popLast()
-            let rest = moreParts
-            selectPart(next)
-            moreParts = rest
-        } else if let k = moreParts.firstIndex(of: i) {
-            moreParts.remove(at: k)
-        } else {
-            moreParts.append(cur)
-            selectedPart = i
-        }
+        model.syncSelection()
+        zs_sel_select(model.sel, zs_app_part_id(model.core, i), Int32(ZS_SEL_TOGGLE.rawValue))
+        readSelectedParts()
+    }
+
+    /// Reads the selected ids from the core, and draws their marks.
+    func readSelectedParts() {
+        let ids = (0 ..< zs_sel_count(model.sel)).map { zs_sel_get(model.sel, $0) }
+        if ids != selectedIDs { selectedIDs = ids }
         showPartBoxes()
         showRings()
     }
 
     /// All selected parts; the last is `selectedPart`.
-    var selectedParts: [Int] { moreParts + (selectedPart.map { [$0] } ?? []) }
+    var selectedParts: [Int] { selectedIDs.compactMap(partIndex) }
 
     /// A frame on the bed around each selected part (zs_view_part_boxes).
     /// places: the places of parts in a drag, which the core has not yet.
@@ -273,6 +267,7 @@ extension Workspace {
             let axis = zs_view_ring_at(v, px, py, Float(8 * pixelScale))
             if axis >= 0, zs_view_ring_press(v, axis, px, py) != 0 {
                 ringDrag = (Int(axis), 0)
+                ringPress = p
                 canvas.requestFrame()
                 return true
             }
@@ -350,6 +345,11 @@ extension Workspace {
             return
         }
         if let r = ringDrag, let i = selectedPart, let v = canvas.view, let info = part(i) {
+            // A drag starts after 4 points. Until then it can be a click.
+            if let at = ringPress {
+                guard hypot(p.x - at.x, p.y - at.y) > 4 else { return }
+                ringPress = nil
+            }
             let total = zs_view_ring_drag(v, Float(p.x * pixelScale), Float(p.y * pixelScale), flags.contains(.shift) ? 5 : 15)
             let step = total - r.sent
             if step != 0 {
@@ -412,6 +412,10 @@ extension Workspace {
             zs_view_ring_release(v)
             ringDrag = nil
             ringLabel = nil
+            // A press and a release at one place on a handle is a click on
+            // the part under the pointer.
+            if ringPress != nil, let k = partAt(p) { selectOnlyPart(k) }
+            ringPress = nil
             // The turn slices once, at the end of the drag, after the part
             // fell over if it cannot stand like that.
             if r.sent != 0 {
