@@ -310,9 +310,11 @@ final class MetalSliceView: NSView {
         requestFrame()
     }
 
+    /// A step of a gesture while the camera moves keeps the frame clock,
+    /// so a pinch does not speed up the motion.
     func startAnimation() {
+        if !animating { lastTick = 0 }
         animating = true
-        lastTick = 0
         requestFrame()
     }
 
@@ -680,7 +682,11 @@ final class MetalSliceView: NSView {
         requestFrame()
     }
 
+    /// The scroll and pinch events that reached this view, for a test.
+    var gestureEvents = 0
+
     override func scrollWheel(with event: NSEvent) {
+        gestureEvents += 1
         guard let view else { return }
         let (px, py) = pixel(event)
         if event.scrollingDeltaY != 0, delegate?.sliceViewHandWheel(event.scrollingDeltaY) == true { return }
@@ -702,8 +708,9 @@ final class MetalSliceView: NSView {
         // zooms in, as a GTK scroll with a negative dy does.
         if event.hasPreciseScrollingDeltas {
             // A trackpad: 40 points are one wheel step.
+            // The zoom sets a goal, and only the animation moves the camera.
             zs_view_zoom_at(view, powf(1.15, Float(-event.scrollingDeltaY / 40)), px, py)
-            requestFrame()
+            startAnimation()
         } else if event.scrollingDeltaY != 0 {
             zs_view_zoom_at(view, powf(1.15, event.scrollingDeltaY > 0 ? -1 : 1), px, py)
             startAnimation()
@@ -711,6 +718,7 @@ final class MetalSliceView: NSView {
     }
 
     override func magnify(with event: NSEvent) {
+        gestureEvents += 1
         guard let view else { return }
         let (px, py) = pixel(event)
         if page == .twoD {
@@ -718,7 +726,7 @@ final class MetalSliceView: NSView {
             return
         }
         zs_view_zoom_at(view, Float(1 / (1 + event.magnification)), px, py)
-        requestFrame()
+        startAnimation()
     }
 }
 
