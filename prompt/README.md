@@ -1,6 +1,6 @@
 # A prompt that could build zslice
 
-Describes: main at commit `6fb43210` ("Add the plain Mac search field to the prompt"), 2026-11-23.
+Describes: main at commit `f1893695` ("Keep the selected parts of the Mac app in the core model"), 2026-11-23.
 
 ## Read this first
 
