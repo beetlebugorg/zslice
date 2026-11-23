@@ -135,12 +135,23 @@
                         <ComboBox x:Name="SettingsScope" Grid.Column="1" HorizontalAlignment="Stretch" AutomationProperties.Name="Settings for"
                                   ToolTipService.ToolTip="What a change here is for: this print (all parts on the plate), your global settings (all prints, under the quality profile), or one part (the values of the print, and its own changes on top)." />
                     </Grid>
-                    <TextBox x:Name="SettingsSearch" AutomationProperties.Name="Search settings" ToolTipService.ToolTip="The defaults for all prints. Changes for one part are in the Selected page." Grid.Row="0" PlaceholderText="Search settings" />
-                    <Grid Grid.Row="2" ColumnSpacing="6">
+                    <TextBox x:Name="SettingsSearch" AutomationProperties.Name="Search settings" ToolTipService.ToolTip="The defaults for all prints. Changes for one part are in the Selected page." Grid.Row="2" PlaceholderText="Search settings" />
+                    <Grid Grid.Row="0" ColumnSpacing="6">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="Auto" />
                             <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
                         </Grid.ColumnDefinitions>
+                        <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="2" VerticalAlignment="Top">
+                            <ToggleButton x:Name="SettingsPin" Background="Transparent" BorderThickness="0" Padding="7"
+                                          AutomationProperties.Name="Pin the panel" ToolTipService.ToolTip="Pin: the panel beside the view, with a splitter. Off: the panel slides over the view.">
+                                <FontIcon Glyph="&#xE718;" FontSize="13" />
+                            </ToggleButton>
+                            <Button x:Name="SettingsClose" Background="Transparent" BorderThickness="0" Padding="7"
+                                    AutomationProperties.Name="Hide the panel" ToolTipService.ToolTip="Hide the panel (N)">
+                                <FontIcon Glyph="&#xE711;" FontSize="12" />
+                            </Button>
+                        </StackPanel>
                         <Button x:Name="SettingsBack" AutomationProperties.Name="Back" Background="Transparent" BorderThickness="0"
                                 Visibility="Collapsed" ToolTipService.ToolTip="Back to the column before">
                             <FontIcon Glyph="&#xE72B;" FontSize="12" />
@@ -184,6 +195,10 @@
                     </ScrollViewer>
                 </Grid>
             </Border>
+
+            <!-- The splitter of the pinned panel. -->
+            <Border x:Name="PaneSplitter" Grid.Column="1" Width="6" HorizontalAlignment="Left" Background="Transparent"
+                    Canvas.ZIndex="5" Visibility="Collapsed" />
 
             <SwapChainPanel x:Name="ViewPanel" IsTabStop="True" />
             <SwapChainPanel x:Name="Layer2DPanel" IsTabStop="True" Visibility="Collapsed" />

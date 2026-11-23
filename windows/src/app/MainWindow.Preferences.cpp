@@ -1241,6 +1241,7 @@ namespace winrt::ZSlice::implementation
 
     void MainWindow::ApplyFirstViewPref()
     {
+        ApplySavedPanel();
         // The colors of the last session.
         int saved_colors = atoi(zs::Printers().Pref("colors", "0").c_str());
         if (saved_colors > 0 && saved_colors < 6)

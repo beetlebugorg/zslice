@@ -10,6 +10,7 @@
 
 #include "pch.h"
 #include "MainWindow.xaml.h"
+#include "MainWindow.Printers.h"
 
 #include <winrt/Microsoft.UI.Xaml.Documents.h>
 #include <winrt/Microsoft.UI.Xaml.Automation.Peers.h>
@@ -198,6 +199,7 @@ namespace winrt::ZSlice::implementation
             ShowSettingsPane(SettingsToggle().IsChecked().GetBoolean());
         });
         SettingsBack().Click([this](auto &&, auto &&) { SettingsGoBack(); });
+        WirePanelModes();
         // Alt+Left and the back button of the mouse: the place before.
         Input::KeyboardAccelerator back_key;
         back_key.Key(VirtualKey::Left);
@@ -267,13 +269,132 @@ namespace winrt::ZSlice::implementation
         ShowSections();
     }
 
+    // N and the button of the header bar. The panel comes back over the
+    // view, or pinned if the user pinned it last.
     void MainWindow::ShowSettingsPane(bool show)
     {
-        SettingsToggle().IsChecked(show);
-        SettingsPane().Visibility(show ? Visibility::Visible : Visibility::Collapsed);
-        if (show)
+        if (!show)
+            SetPanelMode(PanelMode::Hidden);
+        else if (panel_mode == PanelMode::Hidden)
+            SetPanelMode(zs::Printers().Pref("panel_pinned", "0") == "1" ? PanelMode::Pinned : PanelMode::Over);
+        else
+        {
+            SettingsToggle().IsChecked(true);
+            RefreshSettingValues();
+            ApplyPaneFocus();
+        }
+    }
+
+    // Hidden, over the right of the view, or pinned beside it with a
+    // splitter. The choice stays for the next start, as in the GTK app.
+    void MainWindow::SetPanelMode(PanelMode mode)
+    {
+        panel_mode = mode;
+        bool shown = mode != PanelMode::Hidden, pinned = mode == PanelMode::Pinned;
+        auto pane = SettingsPane();
+        Grid::SetColumn(pane, pinned ? 1 : 0);
+        Grid::SetColumnSpan(pane, pinned ? 1 : 2);
+        pane.HorizontalAlignment(pinned ? HorizontalAlignment::Stretch : HorizontalAlignment::Right);
+        Canvas::SetZIndex(pane, pinned ? 0 : 70);
+        FitPanel();
+        pane.Visibility(shown ? Visibility::Visible : Visibility::Collapsed);
+        PaneSplitter().Visibility(pinned ? Visibility::Visible : Visibility::Collapsed);
+        if (shown)
+            zs::Printers().SetPref("panel_pinned", pinned ? "1" : "0");
+        zs::Printers().SetPref("panel", pinned ? "pinned" : shown ? "overlay" : "hidden");
+        SettingsToggle().IsChecked(shown);
+        SettingsPin().IsChecked(pinned);
+        if (shown)
             RefreshSettingValues();
         ApplyPaneFocus();
+    }
+
+    // Over the view: 460 points, or less in a narrow window. Pinned: the
+    // saved width, with at least 240 points left for the view.
+    void MainWindow::FitPanel()
+    {
+        double room = Root().ActualWidth();
+        double width;
+        if (panel_mode == PanelMode::Pinned)
+        {
+            width = std::clamp(atof(zs::Printers().Pref("panel_width", "560").c_str()), 300.0, 2000.0);
+            if (room > 0)
+                width = std::min(width, std::max(300.0, room - 240));
+        }
+        else
+            width = room > 0 ? std::min(460.0, room * 0.92) : 460.0;
+        SettingsPane().Width(width);
+    }
+
+    void MainWindow::PanelDragTo(double x)
+    {
+        double room = Root().ActualWidth();
+        SettingsPane().Width(std::clamp(room - x, 300.0, std::max(300.0, room - 240)));
+    }
+
+    void MainWindow::PanelDragEnd()
+    {
+        zs::Printers().SetPref("panel_width", std::to_string((int)std::lround(SettingsPane().Width())));
+    }
+
+    // Esc in the panel over the view hides it. A text field keeps its Esc.
+    bool MainWindow::PanelEscape()
+    {
+        if (panel_mode != PanelMode::Over)
+            return false;
+        auto focused = Input::FocusManager::GetFocusedElement(Content().XamlRoot());
+        if (focused.try_as<TextBox>() != nullptr || focused.try_as<NumberBox>() != nullptr || focused.try_as<PasswordBox>() != nullptr ||
+            focused.try_as<ComboBox>() != nullptr)
+            return false;
+        SetPanelMode(PanelMode::Hidden);
+        return true;
+    }
+
+    void MainWindow::WirePanelModes()
+    {
+        SettingsPin().Click([this](auto &&, auto &&) {
+            if (panel_mode != PanelMode::Hidden)
+                SetPanelMode(SettingsPin().IsChecked().GetBoolean() ? PanelMode::Pinned : PanelMode::Over);
+        });
+        SettingsClose().Click([this](auto &&, auto &&) { SetPanelMode(PanelMode::Hidden); });
+        SettingsPane().KeyDown([this](auto &&, Input::KeyRoutedEventArgs const &e) {
+            if (e.Key() == VirtualKey::Escape && PanelEscape())
+                e.Handled(true);
+        });
+        auto bar = PaneSplitter();
+        if (auto cursor_owner = bar.try_as<IUIElementProtected>())
+            cursor_owner.ProtectedCursor(Microsoft::UI::Input::InputSystemCursor::Create(Microsoft::UI::Input::InputSystemCursorShape::SizeWestEast));
+        bar.PointerPressed([this](auto &&, Input::PointerRoutedEventArgs const &e) {
+            if (!e.GetCurrentPoint(PaneSplitter()).Properties().IsLeftButtonPressed())
+                return;
+            pane_dragging = PaneSplitter().CapturePointer(e.Pointer());
+            e.Handled(true);
+        });
+        bar.PointerMoved([this](auto &&, Input::PointerRoutedEventArgs const &e) {
+            if (pane_dragging)
+                PanelDragTo(e.GetCurrentPoint(Root()).Position().X);
+        });
+        auto finish = [this](auto &&, auto &&) {
+            if (!pane_dragging)
+                return;
+            pane_dragging = false;
+            PanelDragEnd();
+        };
+        bar.PointerReleased([this, finish](auto &&sender, Input::PointerRoutedEventArgs const &e) {
+            PaneSplitter().ReleasePointerCapture(e.Pointer());
+            finish(sender, e);
+        });
+        bar.PointerCaptureLost(finish);
+    }
+
+    // The mode of the last session; hidden at the first start.
+    void MainWindow::ApplySavedPanel()
+    {
+        std::string mode = zs::Printers().Pref("panel", "hidden");
+        if (mode == "pinned")
+            SetPanelMode(PanelMode::Pinned);
+        else if (mode == "overlay")
+            SetPanelMode(PanelMode::Over);
     }
 
     // The view shows the lines that the open setting changes, while the
