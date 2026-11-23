@@ -1,6 +1,6 @@
 # A prompt that could build zslice
 
-Describes: main at commit `5cc0fec8` ("Add the card and line page rules to the Windows prompt"), 2026-11-23.
+Describes: main at commit `fefa8b98` ("Keep a lost line's page open while a slider is held"), 2026-11-23.
 
 ## Read this first
 
