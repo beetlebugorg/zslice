@@ -2,7 +2,7 @@
 
 ## Goal
 
-Find printers on the network, pair with them, read their state and their spools, play their cameras, and send each plate to them, signed. Support Printdeck (one deck drives many printers), OctoPrint, Moonraker, PrusaLink, USB serial (Linux), and Bambu Lab printers in LAN mode, with the `.gcode.3mf` file of Bambu Studio. Add the Printers page and the farm. The core makes every packet and parses every reply. Each shell owns its sockets.
+Find printers on the network, pair with them, read their state and their spools, play their cameras, and send each plate to them, signed. Support Printdeck (one deck drives many printers), OctoPrint, Moonraker, PrusaLink, USB serial (Linux and Windows), and Bambu Lab printers in LAN mode, with the `.gcode.3mf` file of Bambu Studio. Add the Printers page and the farm. The core makes every packet and parses every reply. Each shell owns its sockets.
 
 ## Read first
 
