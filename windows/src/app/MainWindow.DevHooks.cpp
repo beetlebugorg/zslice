@@ -319,6 +319,42 @@ namespace winrt::ZSlice::implementation
                     zs::Log("dev: menu ---\n");
             }
         }
+        else if ((verb == L"dialogtype" || verb == L"dialoglog"))
+        {
+            // dialogtype text: into the first text box of the open dialog.
+            // dialoglog: how many text blocks it shows, and one word to find.
+            using Node = Microsoft::UI::Xaml::DependencyObject;
+            using Tree = Microsoft::UI::Xaml::Media::VisualTreeHelper;
+            Microsoft::UI::Xaml::Controls::TextBox box{ nullptr };
+            size_t blocks = 0;
+            bool none = false;
+            std::function<void(Node const &)> walk = [&](Node const &at) {
+                if (box == nullptr)
+                    box = at.try_as<Microsoft::UI::Xaml::Controls::TextBox>();
+                if (auto text = at.try_as<Microsoft::UI::Xaml::Controls::TextBlock>())
+                {
+                    blocks++;
+                    none = none || std::wstring(text.Text()) == L"No shortcut matches.";
+                }
+                for (int32_t i = 0, n = Tree::GetChildrenCount(at); i < n; i++)
+                    walk(Tree::GetChild(at, i));
+            };
+            for (auto const &popup : Tree::GetOpenPopupsForXamlRoot(Content().XamlRoot()))
+                if (popup.Child() != nullptr)
+                    walk(popup.Child());
+            if (verb == L"dialoglog")
+                zs::Log("dev: dialog blocks %zu no-match %d filter '%s'\n", blocks, none ? 1 : 0, box != nullptr ? zs::ToUtf8(std::wstring(box.Text())).c_str() : "-");
+            else if (box != nullptr)
+            {
+                std::wstring value = words.empty() ? std::wstring{} : words[0];
+                std::replace(value.begin(), value.end(), L'_', L' ');
+                box.Text(value);
+            }
+        }
+        else if (verb == L"keysheet")
+        {
+            ShowShortcuts();
+        }
         else if (verb == L"manageopen")
         {
             printers->ShowManage();

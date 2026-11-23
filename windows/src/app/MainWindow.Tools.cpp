@@ -1413,6 +1413,8 @@ namespace winrt::ZSlice::implementation
         }
         else if (key == slash && shift)
         {
+            if (search_open)
+                CloseSearch();
             ShowShortcuts();
         }
         else if (key == slash)

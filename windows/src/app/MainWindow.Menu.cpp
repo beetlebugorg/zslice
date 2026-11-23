@@ -37,6 +37,93 @@ namespace
             t.FontWeight(Microsoft::UI::Text::FontWeights::SemiBold());
         return t;
     }
+
+    std::wstring LowerText(std::wstring text)
+    {
+        if (!text.empty())
+            ::CharLowerBuffW(text.data(), (DWORD)text.size());
+        return text;
+    }
+
+    bool KeyMatches(std::wstring const &q, Group const &group, Key const &k)
+    {
+        if (q.empty())
+            return true;
+        for (char const *text : { k.keys, k.what, group.group })
+            if (LowerText(std::wstring(to_hstring(text))).find(q) != std::wstring::npos)
+                return true;
+        return false;
+    }
+
+    // Two columns of groups: the first has the groups up to half of the rows.
+    void FillShortcuts(StackPanel const &body, std::wstring query)
+    {
+        body.Children().Clear();
+        size_t from = query.find_first_not_of(L" \t");
+        query = from == std::wstring::npos ? std::wstring{} : LowerText(query.substr(from, query.find_last_not_of(L" \t") - from + 1));
+        size_t total = 0;
+        for (auto const &group : shortcuts)
+        {
+            total += 2;
+            for (Key const *k = group.keys; k->keys != nullptr; k++)
+                total += KeyMatches(query, group, *k) ? 1 : 0;
+        }
+        Grid columns;
+        columns.ColumnSpacing(28);
+        ColumnDefinition left, right;
+        left.Width(GridLengthHelper::FromValueAndType(430, GridUnitType::Pixel));
+        right.Width(GridLengthHelper::FromValueAndType(430, GridUnitType::Pixel));
+        columns.ColumnDefinitions().Append(left);
+        columns.ColumnDefinitions().Append(right);
+        StackPanel column_a, column_b;
+        column_a.Spacing(3);
+        column_b.Spacing(3);
+        size_t done = 0;
+        bool any = false;
+        for (auto const &group : shortcuts)
+        {
+            size_t rows = 0;
+            for (Key const *k = group.keys; k->keys != nullptr; k++)
+                rows += KeyMatches(query, group, *k) ? 1 : 0;
+            if (rows == 0)
+                continue;
+            StackPanel &target = done < total / 2 ? column_a : column_b;
+            done += rows + 2;
+            auto heading = Line(to_hstring(group.group), 14, true);
+            heading.Margin(ThicknessHelper::FromLengths(0, 10, 0, 3));
+            target.Children().Append(heading);
+            for (Key const *k = group.keys; k->keys != nullptr; k++)
+            {
+                if (!KeyMatches(query, group, *k))
+                    continue;
+                any = true;
+                Grid row;
+                row.ColumnSpacing(8);
+                ColumnDefinition keys, what;
+                keys.Width(GridLengthHelper::FromValueAndType(170, GridUnitType::Pixel));
+                what.Width(GridLengthHelper::FromValueAndType(1, GridUnitType::Star));
+                row.ColumnDefinitions().Append(keys);
+                row.ColumnDefinitions().Append(what);
+                auto key_text = Line(to_hstring(k->keys), 12, true);
+                row.Children().Append(key_text);
+                auto what_text = Line(to_hstring(k->what), 12);
+                Grid::SetColumn(what_text, 1);
+                row.Children().Append(what_text);
+                target.Children().Append(row);
+            }
+        }
+        if (!any)
+        {
+            auto none = Line(L"No shortcut matches.", 13);
+            none.Opacity(0.7);
+            body.Children().Append(none);
+            return;
+        }
+        columns.Children().Append(column_a);
+        Grid::SetColumn(column_b, 1);
+        columns.Children().Append(column_b);
+        body.Children().Append(columns);
+    }
 }
 
 namespace winrt::ZSlice::implementation
@@ -268,53 +355,36 @@ namespace winrt::ZSlice::implementation
 
     void MainWindow::ShowShortcuts()
     {
-        // Two columns, the keys in 170 px.
-        Grid columns;
-        columns.ColumnSpacing(28);
-        ColumnDefinition left, right;
-        left.Width(GridLengthHelper::FromValueAndType(430, GridUnitType::Pixel));
-        right.Width(GridLengthHelper::FromValueAndType(430, GridUnitType::Pixel));
-        columns.ColumnDefinitions().Append(left);
-        columns.ColumnDefinitions().Append(right);
-        StackPanel column_a, column_b;
-        column_a.Spacing(3);
-        column_b.Spacing(3);
-        size_t total = 0;
-        for (auto const &group : shortcuts)
-        {
-            total += 2;
-            for (Key const *k = group.keys; k->keys != nullptr; k++)
-                total++;
-        }
-        size_t done = 0;
-        for (auto const &group : shortcuts)
-        {
-            StackPanel &target = done < total / 2 ? column_a : column_b;
-            auto heading = Line(to_hstring(group.group), 14, true);
-            heading.Margin(ThicknessHelper::FromLengths(0, 10, 0, 3));
-            target.Children().Append(heading);
-            done += 2;
-            for (Key const *k = group.keys; k->keys != nullptr; k++, done++)
-            {
-                Grid row;
-                row.ColumnSpacing(8);
-                ColumnDefinition keys, what;
-                keys.Width(GridLengthHelper::FromValueAndType(170, GridUnitType::Pixel));
-                what.Width(GridLengthHelper::FromValueAndType(1, GridUnitType::Star));
-                row.ColumnDefinitions().Append(keys);
-                row.ColumnDefinitions().Append(what);
-                auto key_text = Line(to_hstring(k->keys), 12, true);
-                row.Children().Append(key_text);
-                auto what_text = Line(to_hstring(k->what), 12);
-                Grid::SetColumn(what_text, 1);
-                row.Children().Append(what_text);
-                target.Children().Append(row);
-            }
-        }
-        columns.Children().Append(column_a);
-        Grid::SetColumn(column_b, 1);
-        columns.Children().Append(column_b);
-        ShowDialog(L"Keyboard shortcuts", columns);
+        if (DialogOpen())
+            return;
+        // The filter in the title, as in the header of the GTK sheet.
+        Grid title;
+        title.Width(888);
+        TextBlock name;
+        name.Text(L"Keyboard shortcuts");
+        name.VerticalAlignment(VerticalAlignment::Center);
+        title.Children().Append(name);
+        TextBox filter;
+        filter.PlaceholderText(L"Filter");
+        filter.Width(260);
+        filter.FontSize(13);
+        filter.HorizontalAlignment(HorizontalAlignment::Center);
+        title.Children().Append(filter);
+        StackPanel body;
+        FillShortcuts(body, L"");
+        filter.TextChanged([body, filter](auto &&, auto &&) { FillShortcuts(body, std::wstring(filter.Text())); });
+        ScrollViewer scroll;
+        scroll.Height(560);
+        scroll.Content(body);
+        ContentDialog dialog;
+        dialog.XamlRoot(Content().XamlRoot());
+        ThemeDialog(dialog);
+        dialog.Title(title);
+        dialog.Content(scroll);
+        dialog.CloseButtonText(L"Close");
+        dialog.Resources().Insert(box_value(L"ContentDialogMaxWidth"), box_value(980.0));
+        dialog.Opened([filter](auto &&, auto &&) { filter.Focus(FocusState::Programmatic); });
+        dialog.ShowAsync();
     }
 
     void MainWindow::ShowLicenses()
