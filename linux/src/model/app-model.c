@@ -563,9 +563,15 @@ static gboolean deliver(gpointer data) {
                 ptrdiff_t sl = zs_app_path_layer(model->core, (size_t)next);
                 model->selected_layer = sl > 0 ? (size_t)sl : 0;
             }
-            /* No line of that kind there now (for example no skin at
-             * this top thickness): the anchor stays, so the next slice
-             * can find the line again, and the inspector keeps its page. */
+            /* No line there in a draft (for example no skin at this top
+             * thickness): the anchor stays, so the exact slice can find
+             * the line again, and the inspector keeps its page. With no
+             * line in the exact slice, the selection ends. */
+            if (next < 0 && !zs_app_is_draft(model->core)) {
+                model->anchored = FALSE;
+                model->anchor_key = 0;
+                model->anchor_seg = -1;
+            }
             /* The other lines of a multiple selection, the same way. */
             if (model->more) {
                 for (guint k = 0; k < model->more->len; k++) {

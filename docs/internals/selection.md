@@ -64,7 +64,7 @@ The pick returns 0 while a plate request is open, because the table is still of 
 
 ## A selected line
 
-A new slice can renumber the paths. The model keeps the key of the line. After a slice, a shell finds the path of that key (`zs_app_path_of_key`) and calls `zs_sel_line_found`. A draft slice can miss the key of a line that the exact slice makes again. So on a miss, a shell looks at the saved place: the same layer and feature, and the nearest line (`zs_app_pick_feature`). It selects that line with its own key, and the exact slice after the draft goes back to the first key and segment. With no line at that place, the line selection ends.
+A new slice can renumber the paths. The model keeps the key of the line. After a slice, a shell finds the path of that key (`zs_app_path_of_key`) and calls `zs_sel_line_found`. A draft slice can miss the key of a line that the exact slice makes again. So on a miss, a shell looks at the saved place: the same layer and feature, and the nearest line (`zs_app_pick_feature`). It selects that line with its own key, and the exact slice after the draft goes back to the first key and segment. With no line at that place, the line selection ends. GTK keeps the page through a draft with no line there, and ends the selection at the exact slice.
 
 ## A click on a gizmo handle
 
