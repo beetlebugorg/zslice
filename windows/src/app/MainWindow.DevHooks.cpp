@@ -831,6 +831,33 @@ namespace winrt::ZSlice::implementation
             else
                 zs::Log("dev: textround found no field\n");
         }
+        else if (verb == L"paneback")
+        {
+            SettingsGoBack();
+        }
+        else if (verb == L"panetext" && !words.empty())
+        {
+            // As typing in the search of the pane.
+            SettingsSearch().Text(words[0]);
+        }
+        else if (verb == L"rowmore" && !words.empty())
+        {
+            // A press on the arrow of row i, through its automation peer.
+            int want = _wtoi(words[0].c_str()), seen = 0;
+            using Node = Microsoft::UI::Xaml::DependencyObject;
+            using Tree = Microsoft::UI::Xaml::Media::VisualTreeHelper;
+            Microsoft::UI::Xaml::Controls::Button found{ nullptr };
+            std::function<void(Node const &)> walk = [&](Node const &at) {
+                if (auto b = at.try_as<Microsoft::UI::Xaml::Controls::Button>(); b != nullptr && b.Content().try_as<Microsoft::UI::Xaml::Controls::FontIcon>() != nullptr && seen++ == want)
+                    found = b;
+                for (int32_t i = 0, n = Tree::GetChildrenCount(at); i < n && found == nullptr; i++)
+                    walk(Tree::GetChild(at, i));
+            };
+            walk(SettingsList());
+            if (found != nullptr)
+                Microsoft::UI::Xaml::Automation::Peers::ButtonAutomationPeer(found).Invoke();
+            zs::Log("dev: rowmore %d\n", found != nullptr ? 1 : 0);
+        }
         else if (verb == L"panesection" && !words.empty())
         {
             // The first section of a group, in the settings pane.

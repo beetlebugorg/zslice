@@ -135,7 +135,7 @@
                         <ComboBox x:Name="SettingsScope" Grid.Column="1" HorizontalAlignment="Stretch" AutomationProperties.Name="Settings for"
                                   ToolTipService.ToolTip="What a change here is for: this print (all parts on the plate), your global settings (all prints, under the quality profile), or one part (the values of the print, and its own changes on top)." />
                     </Grid>
-                    <TextBox x:Name="SettingsSearch" AutomationProperties.Name="Search the settings" Grid.Row="0" PlaceholderText="Search the settings" />
+                    <TextBox x:Name="SettingsSearch" AutomationProperties.Name="Search settings" ToolTipService.ToolTip="The defaults for all prints. Changes for one part are in the Selected page." Grid.Row="0" PlaceholderText="Search settings" />
                     <StackPanel Grid.Row="2" Orientation="Horizontal" Spacing="6">
                         <Button x:Name="SettingsBack" AutomationProperties.Name="Back" Background="Transparent" BorderThickness="0"
                                 Visibility="Collapsed" ToolTipService.ToolTip="Back">
