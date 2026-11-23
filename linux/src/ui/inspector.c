@@ -290,7 +290,11 @@ static void on_segment_measure(ZgModel *model, gint64 segment, gpointer data) {
 
 static void why_line(GString *out, const char *name, const char *text) {
     if (!text || !text[0]) return;
-    g_string_append_printf(out, "%s%s\n%s", out->len ? "\n\n" : "", name, text);
+    char *head = g_markup_escape_text(name, -1);
+    char *body = why_markup(text);
+    g_string_append_printf(out, "%s<b>%s</b>\n%s", out->len ? "\n\n" : "", head, body);
+    g_free(body);
+    g_free(head);
 }
 
 /* The foot: the numbers with their reasons, the slow-down, the flow limit,
@@ -319,7 +323,7 @@ static void show_why(Inspector *ins, const zs_inspect *info) {
             why_line(out, zg_setting_find(picks[i].name, &s) ? s.label : picks[i].name, picks[i].why);
         }
     }
-    gtk_label_set_text(GTK_LABEL(ins->why_foot), out->str);
+    gtk_label_set_markup(GTK_LABEL(ins->why_foot), out->str);
     gtk_widget_set_visible(ins->why_foot, out->len > 0);
     g_string_free(out, TRUE);
 }
@@ -541,6 +545,7 @@ static GtkWidget *build_inspector(Inspector *ins, const zs_inspect *info) {
     GtkWidget *foot = gtk_box_new(GTK_ORIENTATION_VERTICAL, 8);
     ins->why_foot = zg_wrapped_label_new("");
     gtk_widget_add_css_class(ins->why_foot, "zg-explain");
+    g_signal_connect(ins->why_foot, "activate-link", G_CALLBACK(on_why_link), ins);
     gtk_widget_set_margin_top(ins->why_foot, 6);
     gtk_box_append(GTK_BOX(foot), ins->why_foot);
     /* Not selectable: a selectable label can take the focus, and GTK then

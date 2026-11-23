@@ -239,7 +239,9 @@ export class Inspector {
     this.whyRows.replaceChildren(
       ...rows.filter(([, text]) => text).map(([name, text]) => {
         const row = el("div", "insp-why-row");
-        row.append(el("div", "insp-why-name", name), el("div", "insp-why-text", text));
+        const body = el("div", "insp-why-text");
+        this.appendLinked(body, text);
+        row.append(el("div", "insp-why-name", name), body);
         return row;
       }),
     );
@@ -285,6 +287,12 @@ export class Inspector {
     const text = [info.whyPlanned, info.whyReal, info.whyFlow][i];
     if (!text) return;
     const box = el("div", "why");
+    this.appendLinked(box, text);
+    openPopover(anchor, box);
+  }
+
+  // Appends a "why" text to box, with a link for each {{setting}}.
+  appendLinked(box, text) {
     const byName = this.ctx.browser.byName;
     let at = 0;
     for (const m of text.matchAll(/\{\{([^}]*)\}\}/g)) {
@@ -301,7 +309,6 @@ export class Inspector {
       at = m.index + m[0].length;
     }
     box.append(document.createTextNode(text.slice(at)));
-    openPopover(anchor, box);
   }
 
   // A link of a "why" text: the editor of that setting on this page, or
