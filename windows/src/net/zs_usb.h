@@ -75,8 +75,13 @@ namespace zs::usb
 
     // Sends each command of the G-code and waits for its "ok". `stop` ends
     // the print. If a command is in flight, Stream reads its "ok" first. It
-    // then sends M104 S0, M140 S0, and M107, reads each "ok", and sends no
-    // move. If no command went out, a stop sends nothing. `cooled` is true
-    // only when the printer confirmed all three.
-    Result Stream(Port &port, std::string const &gcode, std::atomic<bool> const &stop, std::function<void(double)> const &progress, Timing timing = {});
+    // then turns off each nozzle, sends M140 S0 and M107, reads each "ok",
+    // and sends no move or tool change. If no command went out, a stop sends
+    // nothing. `cooled` is true only when the printer confirmed each one.
+    //
+    // On Marlin, M104 with no T acts on the active nozzle only. One nozzle
+    // gets M104 S0, and more get M104 T<n> S0 each. The count is `nozzles`
+    // (1 to 16), raised by each tool that a T<n> line of the G-code selected
+    // before the stop, so a wrong setting cannot leave a used nozzle hot.
+    Result Stream(Port &port, std::string const &gcode, std::atomic<bool> const &stop, std::function<void(double)> const &progress, Timing timing = {}, int nozzles = 1);
 }

@@ -38,7 +38,7 @@ namespace winrt::ZSlice::implementation
                 std::string line(data, len);
                 while (!line.empty() && line.back() == '\n')
                     line.pop_back();
-                if (count_++ < 3 || line.rfind("M104 S0", 0) == 0 || line.rfind("M140 S0", 0) == 0 || line == "M107")
+                if (count_++ < 3 || line.rfind("M104 S0", 0) == 0 || line.rfind("M104 T", 0) == 0 || line.rfind("M140 S0", 0) == 0 || line == "M107")
                     zs::Log("dev: usb stub line: %s\n", line.c_str());
                 ready_ = true;
                 return true;
@@ -171,6 +171,11 @@ namespace winrt::ZSlice::implementation
             Note(L"No G-code: the plate has no slice yet.");
             co_return;
         }
+        // A stop turns off each nozzle of the machine.
+        char nozzle_text[32] = "";
+        int nozzles = 1;
+        if (zs_app_setting_get(app, "machine.nozzles", nozzle_text, sizeof nozzle_text, nullptr) == ZS_OK)
+            nozzles = std::clamp(atoi(nozzle_text), 1, 16);
         std::string id = printer.id, device = printer.device;
         int baud = printer.baud;
         std::wstring name = zs::ToWide(printer.name);
@@ -211,7 +216,7 @@ namespace winrt::ZSlice::implementation
         Note(L"Printing on " + name + L" over USB…");
         Poster post = poster;
         Async(
-            [device, baud, gcode = std::move(gcode), stop, post, name] {
+            [device, baud, nozzles, gcode = std::move(gcode), stop, post, name] {
                 UsbRun run;
                 // The computer stays awake while the print streams.
                 ::SetThreadExecutionState(ES_CONTINUOUS | ES_SYSTEM_REQUIRED);
@@ -232,7 +237,7 @@ namespace winrt::ZSlice::implementation
                             if (ui.usb_stop != nullptr && !ui.usb_stop->load())
                                 ui.Note(L"Printing on " + name + L" over USB: " + std::to_wstring(percent) + L" %");
                         });
-                    });
+                    }, {}, nozzles);
                 }
                 port.reset();
                 ::SetThreadExecutionState(ES_CONTINUOUS);

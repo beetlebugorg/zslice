@@ -2115,6 +2115,58 @@ namespace
             CHECK(r.cooled);
             CHECK((p.lines == std::vector<std::string>{ "G1 X1", "G1 X2", "G1 X3", "M104 S0", "M140 S0", "M107" }));
         }
+        // The nozzles that a stop turns off. Each case stops at line `at`.
+        {
+            auto stopped = [&](std::string const &gcode, size_t at, int nozzles) {
+                StubPrinter p;
+                std::atomic<bool> halt{ false };
+                p.on_line = [&halt, at](size_t n) {
+                    if (n >= at)
+                        halt.store(true);
+                };
+                usb::Result r = usb::Stream(p, gcode, halt, nullptr, fast, nozzles);
+                CHECK(r.cancelled);
+                CHECK(r.cooled);
+                return std::vector<std::string>(p.lines.begin() + (std::ptrdiff_t)std::min(at, p.lines.size()), p.lines.end());
+            };
+            using Lines = std::vector<std::string>;
+            std::string const plain = "G1 X1\nG1 X2\nG1 X3\n";
+            // One nozzle.
+            CHECK((stopped(plain, 1, 1) == Lines{ "M104 S0", "M140 S0", "M107" }));
+            // Two nozzles: each one by its number, with no tool change.
+            CHECK((stopped(plain, 1, 2) == Lines{ "M104 T0 S0", "M104 T1 S0", "M140 S0", "M107" }));
+            // A file that selects T1 on a machine set to one nozzle.
+            CHECK((stopped("G1 X1\nT1\nG1 X2\nG1 X3\n", 3, 1) == Lines{ "M104 T0 S0", "M104 T1 S0", "M140 S0", "M107" }));
+            // The tool line in flight counts, also with a comment.
+            CHECK((stopped("G1 X1\n  T1 ; the second nozzle\nG1 X2\n", 2, 1) == Lines{ "M104 T0 S0", "M104 T1 S0", "M140 S0", "M107" }));
+            // T0 is the one nozzle.
+            CHECK((stopped("T0\nG1 X1\nG1 X2\n", 2, 1) == Lines{ "M104 S0", "M140 S0", "M107" }));
+            // A tool past the setting raises the count, and a lower one does not.
+            CHECK((stopped("T2\nT0\nG1 X1\nG1 X2\n", 3, 2) == Lines{ "M104 T0 S0", "M104 T1 S0", "M104 T2 S0", "M140 S0", "M107" }));
+            CHECK((stopped("T1\nG1 X1\nG1 X2\n", 2, 3) == Lines{ "M104 T0 S0", "M104 T1 S0", "M104 T2 S0", "M140 S0", "M107" }));
+            // A tool with two digits.
+            CHECK(stopped("T11\nG1 X1\nG1 X2\n", 2, 1).size() == 12 + 2);
+            // A tool line that the print did not reach does not count.
+            CHECK((stopped("G1 X1\nG1 X2\nT3\n", 1, 1) == Lines{ "M104 S0", "M140 S0", "M107" }));
+            // Words that are no tool line.
+            CHECK((stopped("T\nTX\nT1 S2\nT16\nT123\nM104 T1\nG1 X1\nG1 X2\n", 7, 1) == Lines{ "M104 S0", "M140 S0", "M107" }));
+            // The count stays in 1 to 16.
+            CHECK((stopped(plain, 1, 0) == Lines{ "M104 S0", "M140 S0", "M107" }));
+            CHECK(stopped(plain, 1, 99).size() == 16 + 2);
+        }
+        // A nozzle with no answer ends the stop, and it is no success.
+        {
+            StubPrinter p;
+            std::atomic<bool> halt{ false };
+            p.answer = [&halt](std::string const &text, size_t) {
+                halt.store(true);
+                return text == "M104 T1 S0" ? std::string() : std::string("ok\n");
+            };
+            usb::Result r = usb::Stream(p, "G1 X1\nG1 X2\n", halt, nullptr, usb::Timing{ 1, 300, 60 }, 3);
+            CHECK(r.cancelled);
+            CHECK(!r.cooled);
+            CHECK((p.lines == std::vector<std::string>{ "G1 X1", "M104 T0 S0", "M104 T1 S0" }));
+        }
         // A stop between two commands: the cooling commands follow.
         {
             StubPrinter p;

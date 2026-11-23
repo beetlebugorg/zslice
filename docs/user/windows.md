@@ -232,7 +232,7 @@ F10 opens the main menu. It has **Save project…** (Ctrl+S), **Send all plates*
 
 **On a USB printer, Print over USB starts the print at once.** A serial port has no upload, so the app sends each command while the printer runs it. Set **USB (serial port)**, the port, and the speed in Preferences. The app asks before each print, and **Cancel** is the default. Clear the bed first. Keep the computer on and the cable in until the print ends. The computer stays awake during the print, and closing the app asks first.
 
-**Stop the USB print** ends the print and turns off the nozzle heater, the bed heater, and the fan. It sends no move, so the nozzle stays where it is. The app shows what the printer confirmed. If the printer does not confirm or the port is gone, the message says that the heaters may still be on, so turn them off on the printer. The list of ports opens no port. **Test the connection** asks first, because most boards restart when their port opens, and a print from the card of the printer then ends. On the **Printers** page, a USB printer has a card that says **USB: no live status**.
+**Stop the USB print** ends the print and turns off each nozzle heater, the bed heater, and the fan. It sends no move or tool change, so the nozzle stays where it is. The app shows what the printer confirmed. If the printer does not confirm or the port is gone, the message says that the heaters may still be on, so turn them off on the printer. The list of ports opens no port. **Test the connection** asks first, because most boards restart when their port opens, and a print from the card of the printer then ends. On the **Printers** page, a USB printer has a card that says **USB: no live status**.
 
 ## Compare with Cura
 

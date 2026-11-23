@@ -23,6 +23,7 @@ namespace zs::usb
         constexpr int read_ms = 100;
         constexpr int write_ms = 5000;
         constexpr int progress_ms = 250;
+        constexpr int max_nozzles = 16;
 
         int PortNumber(std::string const &name)
         {
@@ -245,9 +246,24 @@ namespace zs::usb
 
     namespace
     {
+        // The tool of a line `T<n>`, or -1. A machine has at most 16 tools.
+        int ToolOfLine(char const *text, size_t len)
+        {
+            if (len < 2 || len > 3 || text[0] != 'T')
+                return -1;
+            int tool = 0;
+            for (size_t i = 1; i < len; i++)
+            {
+                if (text[i] < '0' || text[i] > '9')
+                    return -1;
+                tool = tool * 10 + (text[i] - '0');
+            }
+            return tool < max_nozzles ? tool : -1;
+        }
+
         // The end of a stopped print: the heaters and the fan go off. It
         // sends no move.
-        void CoolDown(Port &port, Answers &answers, bool in_flight, Timing const &timing, Result &result)
+        void CoolDown(Port &port, Answers &answers, bool in_flight, Timing const &timing, int nozzles, Result &result)
         {
             result.cancelled = true;
             std::atomic<bool> no_stop{ false };
@@ -257,9 +273,17 @@ namespace zs::usb
                 result.message = error;
                 return;
             }
-            for (char const *command : { "M104 S0\n", "M140 S0\n", "M107\n" })
+            std::vector<std::string> commands;
+            if (nozzles <= 1)
+                commands.push_back("M104 S0\n");
+            else
+                for (int n = 0; n < nozzles; n++)
+                    commands.push_back("M104 T" + std::to_string(n) + " S0\n");
+            commands.push_back("M140 S0\n");
+            commands.push_back("M107\n");
+            for (std::string const &command : commands)
             {
-                if (!port.Write(command, strlen(command)))
+                if (!port.Write(command.data(), command.size()))
                 {
                     result.message = "The port stopped.";
                     return;
@@ -275,8 +299,9 @@ namespace zs::usb
         }
     }
 
-    Result Stream(Port &port, std::string const &gcode, std::atomic<bool> const &stop, std::function<void(double)> const &progress, Timing timing)
+    Result Stream(Port &port, std::string const &gcode, std::atomic<bool> const &stop, std::function<void(double)> const &progress, Timing timing, int nozzles)
     {
+        nozzles = std::clamp(nozzles, 1, max_nozzles);
         Result result;
         // Most boards restart when the port opens: wait, and drop their
         // start text.
@@ -300,7 +325,7 @@ namespace zs::usb
             if (stop.load())
             {
                 if (result.sent)
-                    CoolDown(port, answers, false, timing, result);
+                    CoolDown(port, answers, false, timing, nozzles, result);
                 else
                 {
                     result.cancelled = true;
@@ -322,6 +347,8 @@ namespace zs::usb
             pos = end + 1;
             if (cut <= start)
                 continue;
+            // A tool that the file selects cools on a stop too.
+            nozzles = std::max(nozzles, ToolOfLine(gcode.data() + start, cut - start) + 1);
             std::string line = gcode.substr(start, cut - start);
             line.push_back('\n');
             if (!port.Write(line.data(), line.size()))
@@ -334,7 +361,7 @@ namespace zs::usb
             if (!answers.WaitOk(stop, timing.answer_ms, error))
             {
                 if (error.empty())
-                    CoolDown(port, answers, true, timing, result);
+                    CoolDown(port, answers, true, timing, nozzles, result);
                 else
                     result.message = error;
                 return result;
