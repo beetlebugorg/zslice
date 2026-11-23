@@ -318,7 +318,8 @@ pub const Selection = struct {
             s.setLine(0, -1, -1);
             return;
         }
-        const seg = if (segments > 0) std.math.clamp(s.line_seg, 0, segments - 1) else s.line_seg;
+        // Segment -1 is the whole line, and it stays the whole line.
+        const seg = if (segments > 0 and s.line_seg >= 0) std.math.clamp(s.line_seg, 0, segments - 1) else s.line_seg;
         if (path == s.line_path and seg == s.line_seg) return;
         s.line_path = path;
         s.line_seg = seg;
@@ -573,4 +574,16 @@ test "selection: the camera target waits for its plate" {
     try testing.expectEqual(@as(?i64, null), s.takeFrame());
     s.requestFrame(frame_all);
     try testing.expectEqual(@as(?i64, frame_all), s.takeFrame());
+}
+
+test "selection: a whole line stays whole after a new slice" {
+    var s: Selection = .{ .gpa = testing.allocator };
+    defer s.deinit();
+    s.setLine(0xabc, 25, -1);
+    s.lineFound(30, 4);
+    try testing.expectEqual(@as(i64, 30), s.line_path);
+    try testing.expectEqual(@as(i64, -1), s.line_seg);
+    s.setLine(0xabc, 30, 9);
+    s.lineFound(31, 4);
+    try testing.expectEqual(@as(i64, 3), s.line_seg);
 }
