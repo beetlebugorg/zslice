@@ -56,6 +56,7 @@ static Group const shortcuts[] = {
         {"Wheel over a label (Label tool)", "Turn the label 1° (with Shift: 15°)"},
         {"Delete (Label tool)", "Delete the selected label"},
         {"Esc (Label tool)", "Close the card of the label, then the tool"},
+        {"Gaps button", "Show the gaps of the top layer (no key)"},
         {"Ctrl+click, Ctrl+drag, Ctrl+wheel", "Select, move, and turn a part with any tool"},
         {"Tab, Shift+Tab", "Select the next part, or the part before"},
         {"Left, Right, Up, Down (a part)", "Move the selected parts 1 mm (with Shift: 10 mm)"},
