@@ -124,7 +124,11 @@ executable('zslice-gtk',
 install_data('data/org.beetlebug.Zslice.desktop', install_dir: get_option('datadir') / 'applications')
 # The icon of the app, in the hicolor theme (tools/icons.sh makes it).
 install_subdir('data/icons/hicolor', install_dir: get_option('datadir') / 'icons')
-gnome.post_install(update_desktop_database: true, gtk_update_icon_cache: true)
+# A build host can lack these tools. The install then skips the refresh.
+gnome.post_install(
+  update_desktop_database: find_program('update-desktop-database', required: false).found(),
+  gtk_update_icon_cache: find_program('gtk4-update-icon-cache', required: false).found(),
+)
 
 # Tests of the network code with local servers only: `meson test -C
 # linux/build`. They need no core and no display.
