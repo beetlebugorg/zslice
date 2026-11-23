@@ -289,8 +289,8 @@ namespace winrt::ZSlice::implementation
         // The part to paint: the selected part, or else the first part.
         int64_t WantedPart()
         {
-            if (!w.selected_parts.empty())
-                return w.selected_parts[0];
+            if (!w.SelectedParts().empty())
+                return w.PrimaryPart();
             return w.model != nullptr && zs_app_part_count(w.model->Active()) >= 1 ? 0 : -1;
         }
 

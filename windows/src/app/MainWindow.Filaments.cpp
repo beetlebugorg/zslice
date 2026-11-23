@@ -940,9 +940,9 @@ namespace winrt::ZSlice::implementation
 
     void MainWindow::FillPartExtras()
     {
-        if (model == nullptr || filaments == nullptr || selected_parts.size() != 1)
+        if (model == nullptr || filaments == nullptr || SelectedParts().size() != 1)
             return;
-        int64_t part = selected_parts[0];
+        int64_t part = PrimaryPart();
         filaments->FillChips(part);
         filaments->FillLabels(part);
         filaments->FillPaint(part);
@@ -975,8 +975,8 @@ namespace winrt::ZSlice::implementation
         zs::Log("dev: filaments: %zu, list open %d, rows %zu:", n, SummaryFlyout().IsOpen() ? 1 : 0, f.rows.size());
         for (size_t k = 0; k < n; k++)
             zs::Log(" [%zu %s %s]", k + 1, FilamentValue(k, "filament.color").c_str(), FilamentValue(k, "filament.material").c_str());
-        if (!selected_parts.empty())
-            zs::Log(" part filament %d", PartFilament(selected_parts[0]));
+        if (!SelectedParts().empty())
+            zs::Log(" part filament %d", PartFilament(PrimaryPart()));
         zs::Log("\n");
         return true;
     }

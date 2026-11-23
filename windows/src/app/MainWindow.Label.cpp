@@ -2589,8 +2589,8 @@ namespace winrt::ZSlice::implementation
         l.on = true;
         l.SetCursor((int)InputSystemCursorShape::Cross);
         l.core = model != nullptr ? model->Active() : nullptr;
-        if (model != nullptr && !selected_parts.empty())
-            l.Load(selected_parts[0], -1);
+        if (model != nullptr && !SelectedParts().empty())
+            l.Load(PrimaryPart(), -1);
         ShowToast(L"Click a face of a part to put a label there. Drag a label to move it; the wheel turns it.");
         ViewPanel().Focus(FocusState::Programmatic);
     }

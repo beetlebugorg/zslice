@@ -431,9 +431,9 @@ namespace winrt::ZSlice::implementation
     // The search of the settings that a part can have, for the selection.
     void MainWindow::OpenPartSearch()
     {
-        if (model == nullptr || selected_parts.empty())
+        if (model == nullptr || SelectedParts().empty())
             return;
-        std::vector<int64_t> parts = selected_parts;
+        std::vector<int64_t> parts = SelectedParts();
         auto scope = std::make_shared<SearchScope>();
         if (parts.size() > 1)
         {
@@ -472,10 +472,10 @@ namespace winrt::ZSlice::implementation
         else if (verb == L"scopereset" && !words.empty())
             ScopeReset(zs::ToUtf8(words[0]));
         else if (verb == L"scopepart" && words.size() >= 2)
-            PartTarget(selected_parts)->set(zs::ToUtf8(words[0]), zs::ToUtf8(words[1]));
-        else if (verb == L"scopepartclear" && !words.empty() && !selected_parts.empty())
+            PartTarget(SelectedParts())->set(zs::ToUtf8(words[0]), zs::ToUtf8(words[1]));
+        else if (verb == L"scopepartclear" && !words.empty() && !SelectedParts().empty())
         {
-            for (int64_t part : selected_parts)
+            for (int64_t part : SelectedParts())
                 zs_app_part_setting_set(model->Active(), (size_t)part, zs::ToUtf8(words[0]).c_str(), nullptr);
             PlateEdited();
             RefreshSettingValues();
@@ -513,29 +513,29 @@ namespace winrt::ZSlice::implementation
             SelectPart(_wtoi(words[0].c_str()));
         else if (verb == L"scopeparttoggle" && !words.empty())
             TogglePart(_wtoi(words[0].c_str()));
-        else if (verb == L"scopepartscale" && !words.empty() && !selected_parts.empty())
+        else if (verb == L"scopepartscale" && !words.empty() && !SelectedParts().empty())
         {
             // A percent, for a part that does not fit or is too thin.
             double k = _wtof(words[0].c_str()) / 100;
-            for (int64_t part : selected_parts)
+            for (int64_t part : SelectedParts())
                 zs_app_part_scale(model->Active(), (size_t)part, k, k, k);
             PlateEdited();
             zs_part_fit fit{};
             size_t len = 0;
             std::string words_of_fit;
-            if (zs_app_part_fit_text(model->Active(), (size_t)selected_parts[0], nullptr, 0, &len) == ZS_OK)
+            if (zs_app_part_fit_text(model->Active(), (size_t)PrimaryPart(), nullptr, 0, &len) == ZS_OK)
             {
                 words_of_fit.assign(len + 1, '\0');
-                zs_app_part_fit_text(model->Active(), (size_t)selected_parts[0], words_of_fit.data(), words_of_fit.size(), &len);
+                zs_app_part_fit_text(model->Active(), (size_t)PrimaryPart(), words_of_fit.data(), words_of_fit.size(), &len);
                 words_of_fit.resize(len);
             }
-            zs_app_part_fit(model->Active(), (size_t)selected_parts[0], &fit);
+            zs_app_part_fit(model->Active(), (size_t)PrimaryPart(), &fit);
             zs::Log("dev: part fit cause %d '%s'\n", fit.cause, words_of_fit.c_str());
         }
         else if (verb == L"scopepartlog")
         {
             std::string own;
-            for (int64_t part : selected_parts)
+            for (int64_t part : SelectedParts())
             {
                 own += "[" + std::to_string(part) + ":";
                 for (size_t i = 0, n = zs_setting_count(); i < n; i++)
@@ -548,7 +548,7 @@ namespace winrt::ZSlice::implementation
                 }
                 own += "]";
             }
-            zs::Log("dev: part settings selected %zu rows %u editors %zu add '%s' search %d | %s\n", selected_parts.size(), PartOwnSettings().Children().Size(), part_editors.size(),
+            zs::Log("dev: part settings selected %zu rows %u editors %zu add '%s' search %d | %s\n", SelectedParts().size(), PartOwnSettings().Children().Size(), part_editors.size(),
                     to_string(unbox_value<hstring>(PartAddSetting().Content())).c_str(), search_scope != nullptr ? 1 : 0, own.c_str());
         }
         else if (verb == L"scopelog" && !words.empty())

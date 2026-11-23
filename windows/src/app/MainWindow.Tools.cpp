@@ -324,14 +324,11 @@ namespace winrt::ZSlice::implementation
             *bed_x = bx;
         if (bed_y != nullptr)
             *bed_y = by;
-        size_t path = zs_view_pick(view, px, py);
-        if (path != (size_t)-1)
-        {
-            ptrdiff_t part = zs_app_part_of_path(app, path);
-            if (part >= 0)
-                return part;
-        }
-        return on_bed ? zs_app_part_at(app, bx, by) : -1;
+        (void)on_bed;
+        // The model picks at the current places, also before a new slice.
+        SelSync();
+        uint64_t id = zs_sel_pick(sel.get(), view, px, py);
+        return id != 0 ? zs_app_part_index(app, id) : -1;
     }
 
     // A left press. True when a tool takes the drag.
@@ -358,7 +355,7 @@ namespace winrt::ZSlice::implementation
         if (tool == Tool::Select && !ctrl && !pointer_shift && !pointer_alt && RangePress(x, y))
             return true;
         // The Turn tool: a press on a ring.
-        if (tool == Tool::Turn && !selected_parts.empty())
+        if (tool == Tool::Turn && !SelectedParts().empty())
         {
             UpdateRings();
             int axis = zs_view_ring_at(view, (float)(x * s), (float)(y * s), (float)(8 * s));
@@ -366,7 +363,7 @@ namespace winrt::ZSlice::implementation
             {
                 turn_axis = axis;
                 turn_want = turn_sent = 0;
-                turn_part = selected_parts[0];
+                turn_part = PrimaryPart();
                 zs_part p{};
                 if (zs_app_part_get(app, (size_t)turn_part, &p) != ZS_OK)
                 {
@@ -451,10 +448,10 @@ namespace winrt::ZSlice::implementation
         zs_app *app = model->Active();
         move_group.clear();
         move_group_xy.clear();
-        bool in = std::find(selected_parts.begin(), selected_parts.end(), part) != selected_parts.end();
-        if (in && selected_parts.size() > 1)
+        std::vector<int64_t> group = SelectedParts();
+        if (PartSelected(part) && group.size() > 1)
         {
-            for (int64_t i : selected_parts)
+            for (int64_t i : group)
             {
                 zs_part q{};
                 if (zs_app_part_get(app, (size_t)i, &q) != ZS_OK)
@@ -1010,7 +1007,7 @@ namespace winrt::ZSlice::implementation
         if (view == nullptr || model == nullptr)
             return;
         zs_part p{};
-        if (tool == Tool::Turn && !selected_parts.empty() && zs_app_part_get(model->Active(), (size_t)selected_parts[0], &p) == ZS_OK)
+        if (tool == Tool::Turn && !SelectedParts().empty() && zs_app_part_get(model->Active(), (size_t)PrimaryPart(), &p) == ZS_OK)
             zs_view_set_rings(view, p.x, p.y, p.size_z / 2, 0.62 * std::max({ p.size_x, p.size_y, p.size_z }) + 4);
         else
             zs_view_set_rings(view, 0, 0, 0, 0);
@@ -1019,9 +1016,65 @@ namespace winrt::ZSlice::implementation
 
     // ---- the selection ----
 
+    // After each change of the set. With `scene`, the view has this slice.
+    void MainWindow::SelSync(bool scene)
+    {
+        if (model == nullptr)
+            return;
+        if (sel == nullptr)
+        {
+            zs_selection *made = nullptr;
+            if (zs_sel_new(&made) != ZS_OK)
+                return;
+            sel.reset(made);
+        }
+        zs_sel_sync(sel.get(), model->Set(), scene ? 1 : 0);
+    }
+
+    // The indices of the selected parts now. The last one is the primary.
+    std::vector<int64_t> MainWindow::SelectedParts() const
+    {
+        std::vector<int64_t> out;
+        if (sel == nullptr || model == nullptr)
+            return out;
+        zs_app *app = model->Active();
+        for (size_t k = 0, n = zs_sel_count(sel.get()); k < n; k++)
+        {
+            ptrdiff_t index = zs_app_part_index(app, zs_sel_get(sel.get(), k));
+            if (index >= 0)
+                out.push_back(index);
+        }
+        return out;
+    }
+
+    int64_t MainWindow::PrimaryPart() const
+    {
+        std::vector<int64_t> parts = SelectedParts();
+        return parts.empty() ? -1 : parts.back();
+    }
+
+    bool MainWindow::PartSelected(int64_t part) const
+    {
+        if (sel == nullptr || model == nullptr || part < 0)
+            return false;
+        return zs_sel_has(sel.get(), zs_app_part_id(model->Active(), (size_t)part)) != 0;
+    }
+
+    void MainWindow::SetSelectedParts(std::vector<int64_t> const &parts)
+    {
+        SelSync();
+        if (sel == nullptr)
+            return;
+        zs_sel_clear(sel.get());
+        zs_app *app = model->Active();
+        for (int64_t part : parts)
+            if (part >= 0)
+                zs_sel_select(sel.get(), zs_app_part_id(app, (size_t)part), ZS_SEL_ADD);
+    }
+
     void MainWindow::SelectLine(int64_t path, int64_t segment)
     {
-        selected_parts.clear();
+        SetSelectedParts({});
         selected_path = path;
         selected_segment = segment;
         line_card_moved = false;
@@ -1037,9 +1090,7 @@ namespace winrt::ZSlice::implementation
     {
         selected_path = selected_segment = -1;
         line_anchored = false;
-        selected_parts.clear();
-        if (part >= 0)
-            selected_parts.push_back(part);
+        SetSelectedParts(part >= 0 ? std::vector<int64_t>{ part } : std::vector<int64_t>{});
         part_card_moved = false;
         ApplySelection();
         FillLineCard();
@@ -1052,11 +1103,9 @@ namespace winrt::ZSlice::implementation
     {
         selected_path = selected_segment = -1;
         line_anchored = false;
-        auto at = std::find(selected_parts.begin(), selected_parts.end(), part);
-        if (at == selected_parts.end())
-            selected_parts.push_back(part);
-        else
-            selected_parts.erase(at);
+        SelSync();
+        if (sel != nullptr && part >= 0)
+            zs_sel_select(sel.get(), zs_app_part_id(model->Active(), (size_t)part), ZS_SEL_TOGGLE);
         ApplySelection();
         FillLineCard();
         FillPartCard();
@@ -1066,7 +1115,7 @@ namespace winrt::ZSlice::implementation
     {
         selected_path = selected_segment = -1;
         line_anchored = false;
-        selected_parts.clear();
+        SetSelectedParts({});
         ApplySelection();
         HideCards();
     }
@@ -1097,7 +1146,7 @@ namespace winrt::ZSlice::implementation
             zs_view_highlight_segment(view, (size_t)selected_path, (ptrdiff_t)selected_segment);
         zs_app *app = model->Active();
         std::vector<double> boxes;
-        for (int64_t i : selected_parts)
+        for (int64_t i : SelectedParts())
         {
             zs_part p{};
             if (zs_app_part_get(app, (size_t)i, &p) != ZS_OK)
@@ -1208,9 +1257,7 @@ namespace winrt::ZSlice::implementation
         CancelFall();
         zs_app *app = model->Active();
         size_t count = zs_app_part_count(app);
-        selected_parts.erase(std::remove_if(selected_parts.begin(), selected_parts.end(),
-                                            [count](int64_t i) { return (size_t)i >= count; }),
-                             selected_parts.end());
+        SelSync();
         NoteChange();
         if (count > 0)
             model->RequestSlice();
@@ -1246,16 +1293,16 @@ namespace winrt::ZSlice::implementation
             return true;
         }
         // The arrows and Delete act on the selected parts first.
-        if (!selected_parts.empty())
+        if (!SelectedParts().empty())
         {
             zs_app *app = model->Active();
             if (key == VirtualKey::Delete)
             {
-                std::vector<int64_t> list = selected_parts;
+                std::vector<int64_t> list = SelectedParts();
                 std::sort(list.rbegin(), list.rend());
                 for (int64_t i : list)
                     zs_app_part_remove(app, (size_t)i);
-                selected_parts.clear();
+                SetSelectedParts({});
                 HideCards();
                 PlateEdited();
                 return true;
@@ -1270,7 +1317,7 @@ namespace winrt::ZSlice::implementation
             // The Turn tool: the arrows and Page Up and Down turn the part.
             if (tool == Tool::Turn && (mx != 0 || my != 0 || key == VirtualKey::PageUp || key == VirtualKey::PageDown))
             {
-                size_t part = (size_t)selected_parts[0];
+                size_t part = (size_t)PrimaryPart();
                 double degrees = shift ? 5 : 15;
                 zs_part p{};
                 if (key == VirtualKey::PageUp || key == VirtualKey::PageDown)
@@ -1286,7 +1333,7 @@ namespace winrt::ZSlice::implementation
             if (mx != 0 || my != 0)
             {
                 double step = shift ? 10 : 1;
-                for (int64_t i : selected_parts)
+                for (int64_t i : SelectedParts())
                 {
                     zs_part p{};
                     if (zs_app_part_get(app, (size_t)i, &p) == ZS_OK)
@@ -1339,7 +1386,7 @@ namespace winrt::ZSlice::implementation
                 ClearMeasure();
                 return true;
             }
-            if (selected_path >= 0 || !selected_parts.empty())
+            if (selected_path >= 0 || !SelectedParts().empty())
             {
                 ClearSelection();
                 return true;
@@ -1361,7 +1408,7 @@ namespace winrt::ZSlice::implementation
     void MainWindow::StepPart(int direction)
     {
         int64_t count = (int64_t)zs_app_part_count(model->Active());
-        int64_t now = selected_parts.empty() ? -1 : selected_parts[0];
+        int64_t now = SelectedParts().empty() ? -1 : PrimaryPart();
         int64_t next = now < 0 ? (direction > 0 ? 0 : count - 1) : ((now + direction) % count + count) % count;
         if (tool != Tool::Move && tool != Tool::Turn)
             SetTool(Tool::Move);
