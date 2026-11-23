@@ -171,6 +171,8 @@ namespace zs
 
     bool Model::AddPlate()
     {
+        // The pending edit ends on the plate that it belongs to.
+        HistoryCommit();
         if (zs_set_add(set_) < 0)
             return false;
         SyncActive();
@@ -179,7 +181,10 @@ namespace zs
 
     bool Model::SelectPlate(size_t i)
     {
-        if (i == zs_set_active(set_) || i >= zs_set_count(set_) || zs_set_select(set_, i) != ZS_OK)
+        if (i == zs_set_active(set_) || i >= zs_set_count(set_))
+            return false;
+        HistoryCommit();
+        if (zs_set_select(set_, i) != ZS_OK)
             return false;
         SyncActive();
         return true;
@@ -187,6 +192,7 @@ namespace zs
 
     bool Model::RemovePlate(size_t i)
     {
+        HistoryCommit();
         if (zs_set_remove(set_, i) != ZS_OK)
             return false;
         SyncActive();
@@ -371,6 +377,22 @@ namespace zs
             return ZS_OK;
         }
         std::string utf8 = ToUtf8(name);
+        // A plate with parts gets one more. Its parts and edits stay.
+        if (zs_app_part_count(zs_set_app(set_, active)) > 0)
+        {
+            ptrdiff_t part = zs_app_add_stl(zs_set_app(set_, active), utf8.c_str(), data, bytes.size());
+            if (part < 0)
+            {
+                message = zs_status_message((int)-part);
+                return (int)-part;
+            }
+            LiveChange();
+            MarkSliceStart();
+            int changed = zs_set_changed(set_, active);
+            if (changed != ZS_OK)
+                message = zs_status_message(changed);
+            return changed;
+        }
         int rc = zs_app_load_stl(zs_set_app(set_, active), utf8.c_str(), data, bytes.size());
         if (rc == ZS_OK)
         {

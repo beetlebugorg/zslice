@@ -2078,6 +2078,10 @@ namespace winrt::ZSlice::implementation
         CancelFall();
         if (model != nullptr && (bits & ZS_HISTORY_MOVED) != 0)
         {
+            // The marks moved: the row of a mark must not keep its index.
+            line_mark = -1;
+            LineMark().Visibility(Visibility::Collapsed);
+            ShowPlateName();
             SupportReload();
             RefreshSettingValues();
             if (zs_app_part_count(model->Active()) > 0)

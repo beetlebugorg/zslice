@@ -28,10 +28,66 @@ namespace winrt::ZSlice::implementation
             if (model != nullptr && model->AddPlate())
                 ShowPlate();
         });
-        PlateRemove().Click([this](auto &&, auto &&) {
-            if (model != nullptr && model->RemovePlate(model->ActivePlate()))
-                ShowPlate();
-        });
+        PlateRemove().Click([this](auto &&, auto &&) { AskRemovePlate(); });
+    }
+
+    // A plate with parts asks first: its removal has no undo.
+    winrt::fire_and_forget MainWindow::AskRemovePlate()
+    {
+        if (model == nullptr)
+            co_return;
+        auto keep = get_strong();
+        size_t plate = model->ActivePlate();
+        zs_plate_info info{};
+        if (zs_set_plate_info(model->Set(), plate, &info) == ZS_OK && info.part_count > 0)
+        {
+            ContentDialog dialog;
+            dialog.XamlRoot(Content().XamlRoot());
+            ThemeDialog(dialog);
+            std::wstring number = std::to_wstring(plate + 1);
+            dialog.Title(box_value(info.part_count == 1 ? L"Remove plate " + number + L" and its part?"
+                                                        : L"Remove plate " + number + L" and its " + std::to_wstring(info.part_count) + L" parts?"));
+            dialog.Content(box_value(L"This cannot be undone."));
+            dialog.PrimaryButtonText(L"Remove");
+            dialog.CloseButtonText(L"Cancel");
+            dialog.DefaultButton(ContentDialogButton::Close);
+            ContentDialogResult answer = ContentDialogResult::None;
+            try
+            {
+                answer = co_await dialog.ShowAsync();
+            }
+            catch (winrt::hresult_error const &)
+            {
+                co_return;
+            }
+            if (answer != ContentDialogResult::Primary || model == nullptr)
+                co_return;
+        }
+        RemovePlateAt(plate);
+    }
+
+    void MainWindow::RemovePlateAt(size_t plate)
+    {
+        CancelFall();
+        if (!model->RemovePlate(plate))
+            return;
+        // The refinement history of each later plate moves with it.
+        if (plate < refine_ids.size())
+            refine_ids.erase(refine_ids.begin() + (ptrdiff_t)plate);
+        ShowPlate();
+    }
+
+    // No parts: the plate has no name, and the set drops its slice.
+    void MainWindow::ClearPlate()
+    {
+        if (model == nullptr)
+            return;
+        ClearSelection();
+        zs_app_plate_clear(model->Active());
+        zs_set_name(model->Set(), model->ActivePlate(), nullptr);
+        zs_set_changed(model->Set(), model->ActivePlate());
+        PlateEdited();
+        ShowPlate();
     }
 
     void MainWindow::StepPlate(int direction)
@@ -105,18 +161,22 @@ namespace winrt::ZSlice::implementation
         RequestDraw();
     }
 
-    // The name, the hint, the settings, and the history of the active plate.
-    void MainWindow::ShowPlateChrome()
+    void MainWindow::ShowPlateName()
     {
-        layer2d_dirty = true;
-        ApplyEnginePrefs();
-        zs_app *app = model->Active();
         zs_plate_info info{};
         std::wstring name;
         if (zs_set_plate_info(model->Set(), model->ActivePlate(), &info) == ZS_OK && info.name != nullptr)
             name = zs::ToWide(info.name);
         FileName().Text(name);
         Title(name.empty() ? L"zslice" : name + L" - zslice");
+    }
+
+    // The name, the hint, the settings, and the history of the active plate.
+    void MainWindow::ShowPlateChrome()
+    {
+        layer2d_dirty = true;
+        ApplyEnginePrefs();
+        ShowPlateName();
         // With more plates the hint would cover their beds.
         PlaceEmptyOpen();
         RefreshSettingValues();

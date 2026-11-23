@@ -125,24 +125,35 @@ namespace winrt::ZSlice::implementation
         });
         PartEarlier().Click([this](auto &&, auto &&) { MovePartInOrder(-1); });
         PartLater().Click([this](auto &&, auto &&) { MovePartInOrder(1); });
-        auto commit_scale = [this, one]() {
-            one([this](zs_app *app, size_t i) {
-                std::wstring text{ PartScale().Text() };
-                wchar_t *end = nullptr;
-                double percent = wcstod(text.c_str(), &end);
-                zs_part p{};
-                if (end == text.c_str() || percent <= 0 || zs_app_part_get(app, i, &p) != ZS_OK)
-                {
-                    FillPartCard();
-                    return;
-                }
-                double scale = percent / 100;
-                if (std::abs(scale - p.scale_x) < 1e-4 && std::abs(scale - p.scale_y) < 1e-4 && std::abs(scale - p.scale_z) < 1e-4)
-                    return;
-                if (zs_app_part_scale(app, i, scale, scale, scale) == ZS_OK)
-                    PlateEdited();
-            });
+        auto commit_scale = [this]() {
+            if (!scale_edited || model == nullptr)
+                return;
+            scale_edited = false;
+            zs_app *app = model->Active();
+            if (app != scale_app || scale_part < 0 || (size_t)scale_part >= zs_app_part_count(app))
+                return;
+            std::wstring text{ PartScale().Text() };
+            wchar_t *end = nullptr;
+            double percent = wcstod(text.c_str(), &end);
+            zs_part p{};
+            if (end == text.c_str() || !(percent > 0) || zs_app_part_get(app, (size_t)scale_part, &p) != ZS_OK)
+                return;
+            double scale = std::clamp(percent, 1.0, 100000.0) / 100;
+            if (std::abs(scale - p.scale_x) < 1e-6)
+                return;
+            if (zs_app_part_scale(app, (size_t)scale_part, scale, scale, scale) == ZS_OK)
+                PlateEdited();
         };
+        // The part that the field shows when the typing starts.
+        PartScale().GotFocus([this](auto &&, auto &&) {
+            scale_edited = false;
+            scale_app = model != nullptr ? model->Active() : nullptr;
+            scale_part = selected_parts.size() == 1 ? selected_parts[0] : -1;
+        });
+        PartScale().TextChanged([this](auto &&, auto &&) {
+            if (std::wstring(PartScale().Text()) != scale_shown)
+                scale_edited = true;
+        });
         PartScale().KeyDown([commit_scale](auto &&, Input::KeyRoutedEventArgs const &e) {
             if (e.Key() == Windows::System::VirtualKey::Enter)
             {
@@ -150,12 +161,17 @@ namespace winrt::ZSlice::implementation
                 e.Handled(true);
             }
         });
-        PartScale().LostFocus([commit_scale](auto &&, auto &&) { commit_scale(); });
+        PartScale().LostFocus([this, commit_scale](auto &&, auto &&) {
+            commit_scale();
+            scale_part = -1;
+            // The card can show another part now.
+            FillPartCard();
+        });
         PartMake().Click([this](auto &&, auto &&) {
             if (model == nullptr || selected_parts.size() != 1)
                 return;
-            size_t want = (size_t)std::max(1.0, PartMakeCount().Value());
-            size_t plates = 0;
+            size_t want = (size_t)std::max(2.0, PartMakeCount().Value());
+            size_t plates = 0, plates_before = model->PlateCount(), make_plate = model->ActivePlate();
             ptrdiff_t made = zs_set_fill(model->Set(), model->ActivePlate(), (size_t)selected_parts[0], want, &plates);
             if (made < 0)
                 ShowToast(L"No copies were made.");
@@ -164,7 +180,8 @@ namespace winrt::ZSlice::implementation
             else
                 ShowToast(to_hstring(made) + L" in all, on " + to_hstring(plates) + L" plates.");
             ClearSelection();
-            for (size_t i = 0; i < model->PlateCount(); i++)
+            zs_set_changed(model->Set(), make_plate);
+            for (size_t i = plates_before; i < model->PlateCount(); i++)
                 zs_set_changed(model->Set(), i);
             NoteChange();
             ShowPlate();
@@ -175,8 +192,15 @@ namespace winrt::ZSlice::implementation
             std::vector<int64_t> list = selected_parts;
             std::sort(list.rbegin(), list.rend());
             ClearSelection();
+            // All of them go to one new plate.
+            ptrdiff_t to = -1;
             for (int64_t i : list)
-                zs_set_part_move(model->Set(), model->ActivePlate(), (size_t)i, -1);
+            {
+                ptrdiff_t moved = zs_set_part_move(model->Set(), model->ActivePlate(), (size_t)i, to);
+                if (moved < 0)
+                    break;
+                to = moved;
+            }
             PlateEdited();
         });
         PartRemove().Click([this](auto &&, auto &&) {
@@ -634,6 +658,8 @@ namespace winrt::ZSlice::implementation
             {
                 wchar_t scale[32];
                 swprintf_s(scale, L"%.4g", p.scale_x * 100);
+                scale_shown = scale;
+                scale_edited = false;
                 PartScale().Text(scale);
             }
             // Why the part floats over the bed.

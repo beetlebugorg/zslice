@@ -99,18 +99,8 @@ namespace winrt::ZSlice::implementation
                 PlateEdited();
             }
         });
-        add(L"Clear the plate", [this] {
-            if (model != nullptr)
-            {
-                ClearSelection();
-                zs_app_plate_clear(model->Active());
-                PlateEdited();
-            }
-        });
-        add(L"Remove this plate", [this] {
-            if (model != nullptr && model->RemovePlate(model->ActivePlate()))
-                ShowPlate();
-        });
+        add(L"Clear the plate", [this] { ClearPlate(); });
+        add(L"Remove this plate", [this] { AskRemovePlate(); });
         AddCalibrateMenu();
         add(L"Compare with Cura…", [this] { ShowCuraCompare(); });
         line();

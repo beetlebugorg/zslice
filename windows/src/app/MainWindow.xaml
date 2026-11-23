@@ -627,9 +627,10 @@
                                             <StackPanel Spacing="8" Width="240">
                                                 <Slider x:Name="CutHeight" Header="Height (mm)" StepFrequency="0.1" />
                                                 <CheckBox x:Name="CutFlip" Content="Flip the top part onto the bed" IsChecked="True" />
-                                                <NumberBox x:Name="CutPegs" Header="Pegs" Minimum="0" Maximum="8" Value="0"
+                                                <NumberBox x:Name="CutPegs" Header="Pegs to line up the parts (0: none)" Minimum="0" Maximum="4" Value="2"
+                                                           ToolTipService.ToolTip="Holes in both cut faces, and pegs that print as parts of the plate."
                                                            SpinButtonPlacementMode="Inline" />
-                                                <NumberBox x:Name="CutPegSize" Header="Peg diameter (mm)" Minimum="1" Maximum="20"
+                                                <NumberBox x:Name="CutPegSize" Header="Peg diameter (mm)" Minimum="2" Maximum="20" SmallChange="0.5"
                                                            Value="5" SpinButtonPlacementMode="Inline" />
                                                 <Button x:Name="CutGo" Content="Cut" HorizontalAlignment="Right" />
                                             </StackPanel>
@@ -661,7 +662,7 @@
                                     <ColumnDefinition Width="Auto" />
                                 </Grid.ColumnDefinitions>
                                 <TextBlock Text="Make" VerticalAlignment="Center" />
-                                <NumberBox x:Name="PartMakeCount" Grid.Column="1" Minimum="1" Maximum="999" Value="2"
+                                <NumberBox x:Name="PartMakeCount" Grid.Column="1" Minimum="2" Maximum="10000" Value="10"
                                            SpinButtonPlacementMode="Compact" AutomationProperties.Name="How many in all" />
                                 <Button x:Name="PartMake" Grid.Column="2" Content="in all" />
                             </Grid>

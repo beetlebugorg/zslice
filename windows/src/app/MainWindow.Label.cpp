@@ -341,6 +341,8 @@ namespace
         box.Maximum(max);
         box.SmallChange(step);
         box.SpinButtonPlacementMode(NumberBoxSpinButtonPlacementMode::Compact);
+        // A value out of range is refused, and not clamped and saved.
+        box.ValidationMode(NumberBoxValidationMode::Disabled);
         Formatting::IncrementNumberRounder rounder;
         rounder.Increment(step >= 1 ? 0.1 : step >= 0.1 ? 0.01 : 0.001);
         Formatting::DecimalFormatter formatter;
@@ -2015,6 +2017,46 @@ namespace winrt::ZSlice::implementation
                 EditNumber((size_t)item, field.c_str(), v);
         }
 
+        // A typed number that leaves its field after another label was
+        // picked is for the label that it was typed for.
+        int64_t edit_label = -1;
+
+        void WatchEdit(NumberBox const &box)
+        {
+            box.GotFocus([this](auto &&, auto &&) {
+                zs::Label *now = Selected();
+                edit_label = now != nullptr ? (int64_t)now->id : -1;
+            });
+            // After the commit that the field makes when it loses the focus.
+            box.LostFocus([this](auto &&, auto &&) {
+                auto weak = w.get_weak();
+                w.queue.TryEnqueue([weak, this] {
+                    if (auto self = weak.get())
+                        edit_label = -1;
+                });
+            });
+        }
+
+        void OnNumberBox(NumberBox const &box, int item, std::string const &field, double v, double tolerance)
+        {
+            if (updating)
+                return;
+            zs::Label *current = Selected();
+            if (current == nullptr || (edit_label >= 0 && (int64_t)current->id != edit_label))
+                return;
+            if (std::isnan(v) || v < box.Minimum() || v > box.Maximum())
+            {
+                if (!std::isnan(v))
+                    w.ShowToast(L"Use " + Format(L"%g", box.Minimum()) + L" to " + Format(L"%g", box.Maximum()) + L".");
+                // The field shows the value of the label again.
+                updating = true;
+                box.Value(InputValue(*current, item, field));
+                updating = false;
+                return;
+            }
+            OnNumber(item, field, v, tolerance);
+        }
+
         NumberBox NumberField(double value, double min, double max, double step, int item, std::string const &field, std::wstring const &tip)
         {
             NumberBox box = MakeNumber(value, min, max, step);
@@ -2022,8 +2064,9 @@ namespace winrt::ZSlice::implementation
                 ToolTipService::SetToolTip(box, box_value(tip));
             AddInput(box, item, field);
             double tolerance = (step >= 1 ? 0.1 : step >= 0.1 ? 0.01 : 0.001) / 2;
-            box.ValueChanged([this, item, field, tolerance](NumberBox const &, NumberBoxValueChangedEventArgs const &e) {
-                OnNumber(item, field, e.NewValue(), tolerance);
+            WatchEdit(box);
+            box.ValueChanged([this, item, field, tolerance](NumberBox const &sender, NumberBoxValueChangedEventArgs const &e) {
+                OnNumberBox(sender, item, field, e.NewValue(), tolerance);
             });
             return box;
         }
@@ -2131,9 +2174,13 @@ namespace winrt::ZSlice::implementation
                 AddInput(t, (int)i, "text");
                 // TextChanged comes after the turn that set the text, so the
                 // text of the label tells whether this is an edit.
-                t.TextChanged([this, i](IInspectable const &sender, auto &&) {
+                auto shown = std::make_shared<std::wstring>(t.Text());
+                t.TextChanged([this, i, shown](IInspectable const &sender, auto &&) {
                     zs::Label *now = Selected();
                     std::wstring value{ sender.as<TextBox>().Text() };
+                    if (value == *shown)
+                        return;
+                    *shown = value;
                     if (!updating && now != nullptr && zs::LabelItemText(zs::LabelItem(*now, i)) != value)
                         EditText(i, value);
                 });
@@ -2451,9 +2498,15 @@ namespace winrt::ZSlice::implementation
         l.AddInput(l.turn, -1, "turn");
         l.AddInput(l.relief, -1, "relief");
         l.AddInput(l.depth_mm, -1, "depth");
-        l.turn.ValueChanged([this](NumberBox const &, NumberBoxValueChangedEventArgs const &e) { label->OnNumber(-1, "turn", e.NewValue(), 0.05); });
-        l.relief.ValueChanged([this](NumberBox const &, NumberBoxValueChangedEventArgs const &e) { label->OnNumber(-1, "relief", e.NewValue(), 0.005); });
-        l.depth_mm.ValueChanged([this](NumberBox const &, NumberBoxValueChangedEventArgs const &e) { label->OnNumber(-1, "depth", e.NewValue(), 0.0005); });
+        l.turn.ValidationMode(NumberBoxValidationMode::Disabled);
+        l.WatchEdit(l.turn);
+        l.turn.ValueChanged([this](NumberBox const &sender, NumberBoxValueChangedEventArgs const &e) { label->OnNumberBox(sender, -1, "turn", e.NewValue(), 0.05); });
+        l.relief.ValidationMode(NumberBoxValidationMode::Disabled);
+        l.WatchEdit(l.relief);
+        l.relief.ValueChanged([this](NumberBox const &sender, NumberBoxValueChangedEventArgs const &e) { label->OnNumberBox(sender, -1, "relief", e.NewValue(), 0.005); });
+        l.depth_mm.ValidationMode(NumberBoxValidationMode::Disabled);
+        l.WatchEdit(l.depth_mm);
+        l.depth_mm.ValueChanged([this](NumberBox const &sender, NumberBoxValueChangedEventArgs const &e) { label->OnNumberBox(sender, -1, "depth", e.NewValue(), 0.0005); });
 
         // The modes act as a radio group: the button of the mode stays on.
         for (int k = 0; k < zs::label_mode_count; k++)
@@ -2668,6 +2721,25 @@ namespace winrt::ZSlice::implementation
             // As after a click on the view: the field shows the text.
             ViewPanel().Focus(FocusState::Programmatic);
             l.EditText(0, text);
+        }
+        else if (verb == L"lfield" && words.size() >= 2)
+        {
+            // lfield name v: the number field of this name gets a value.
+            bool found = false;
+            for (auto const &in : l.inputs)
+            {
+                auto box = in.widget.try_as<NumberBox>();
+                if (box != nullptr && in.field == narrow(0))
+                {
+                    box.Value(number(1));
+                    zs::Log("dev: label field %s: asked %.2f, shows %.2f, range %.2f to %.2f, core %.2f\n", in.field.c_str(), number(1), box.Value(), box.Minimum(), box.Maximum(),
+                            l.Selected() != nullptr ? l.InputValue(*l.Selected(), in.item, in.field) : -1.0);
+                    found = true;
+                    break;
+                }
+            }
+            if (!found)
+                zs::Log("dev: label field not found\n");
         }
         else if (verb == L"lset")
             l.EditNumber((size_t)number(0), narrow(1).c_str(), number(2));

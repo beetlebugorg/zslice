@@ -55,6 +55,22 @@ namespace winrt::ZSlice::implementation
         winrt::fire_and_forget PickFile();
         // new_plate: the file goes on a new plate if this plate has parts.
         void LoadPath(std::wstring path, bool new_plate = false);
+        // Several files, one after the other, onto the plate.
+        void LoadPaths(std::vector<std::wstring> paths);
+        void LoadNextPath();
+        std::vector<std::wstring> load_queue;
+        // The plate, after a question if it has parts.
+        winrt::fire_and_forget AskRemovePlate();
+        void RemovePlateAt(size_t plate);
+        void ClearPlate();
+        // The Scale field writes only an edit, and to the part it was for.
+        bool scale_edited = false;
+        int64_t scale_part = -1;
+        zs_app *scale_app = nullptr;
+        std::wstring scale_shown;
+        // A click that lost its pointer capture is no click.
+        bool pointer_cancelled = false;
+        void ShowPlateName();
         void FinishLoad(std::wstring const &path, std::string const &bytes, bool read, bool new_plate = false);
 
         // A file or a link from outside the app (MainWindow.Open.cpp).
