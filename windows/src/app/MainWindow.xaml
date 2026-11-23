@@ -587,6 +587,7 @@
                             </Button>
                         </Grid>
                         <TextBlock x:Name="PartFacts" FontSize="12" Foreground="{ThemeResource ZsDim}" TextWrapping="WrapWholeWords" />
+                        <TextBlock x:Name="PartFloatNote" FontSize="12" Foreground="#B45309" TextWrapping="WrapWholeWords" Visibility="Collapsed" />
                         <StackPanel x:Name="PartSingle" Spacing="6">
                             <Grid ColumnSpacing="6">
                                 <Grid.ColumnDefinitions>
@@ -656,6 +657,14 @@
                             </Grid>
                             <!-- The settings that the part has of its own. -->
                             <StackPanel x:Name="PartOwnSettings" Spacing="4" Visibility="Collapsed" />
+                            <!-- The settings of a Cura project and the modifier volumes. -->
+                            <StackPanel x:Name="PartFileBox" Spacing="2" Visibility="Collapsed">
+                                <TextBlock Text="Its volumes and file settings" FontWeight="SemiBold" FontSize="12" />
+                                <ScrollViewer MaxHeight="120" HorizontalScrollBarVisibility="Disabled">
+                                    <TextBlock x:Name="PartFileText" FontFamily="Cascadia Mono, Consolas" FontSize="11" TextWrapping="Wrap"
+                                               IsTextSelectionEnabled="True" Foreground="{ThemeResource ZsDim}" />
+                                </ScrollViewer>
+                            </StackPanel>
                         </StackPanel>
                         <Button x:Name="PartAddSetting" Content="+ Add a setting for this part" Background="Transparent" BorderThickness="0"
                                 Foreground="{ThemeResource ZsAccentText}" FontSize="12" Padding="0,2" MinHeight="24"
