@@ -586,7 +586,35 @@ OVERRIDES = [
     # The MMU3 of the MK4 HF preset of OrcaSlicer (no PrusaSlicer preset):
     # its preset has no single_extruder_multi_material of its own.
     ("Prusa", r"MK4 MMU3 HF$", "mmu", True),
+    # The kinematics in the printer.cfg of K1_Series_Klipper and
+    # K2_Series_Klipper, and COREXY in the Marlin configurations of the
+    # Ender-4 and the Ender-6. OrcaSlicer has no value for these models.
+    ("Creality", r"K1", "kinematics", "corexy"),
+    ("Creality", r"K2( Plus| Pro)?$", "kinematics", "corexy"),
+    ("Creality", r"Ender-[46]$", "kinematics", "corexy"),
+    # The Ender-5 S1 moves 280 mm in Z (Z_MAX_POS of its Marlin
+    # configuration, and position_max of the Klipper configuration).
+    ("Creality", r"Ender-5 S1$", "height", 280.0),
+    # The chamber heater: the printer.cfg of the K2 Pro has a
+    # heater_generic chamber_heater. The printer.cfg of the CR-10 SE and
+    # of the Hi have none.
+    ("Creality", r"K2 Pro$", "heated_chamber", True),
+    ("Creality", r"(CR-10 SE|Hi)$", "heated_chamber", False),
 ]
+
+# Text changes in the start G-code of a model: the brand, a pattern of the
+# model name, and the pairs of old and new text. The CR-100 has the prime
+# line of the Cura base definition of Creality, to Y 200 on a bed of
+# 100 mm. The new line ends at Y 90, with the same filament for each mm.
+START_EDITS = [
+    ("Creality", r"CR-100$", (("Y200.0", "Y90.0"), (" E15 ", " E6 "), (" E30 ", " E12 "))),
+]
+
+# The brands whose start G-code gets a G90 at its end if it leaves the
+# printer in relative positions (G91). OrcaSlicer writes G90 after the
+# start G-code, and zslice writes none. The other brands are not checked
+# yet.
+ABSOLUTE_AFTER_START_BRANDS = {"Creality"}
 
 # The brands whose MMU models get a tool change in the library (the "t"
 # field). The MMU flag of the other brands is not checked yet.
@@ -597,6 +625,22 @@ def apply_overrides(m):
     for brand, pattern, field, value in OVERRIDES:
         if m["brand"] == brand and re.match(pattern, m["name"]):
             m[field] = value
+    for brand, pattern, pairs in START_EDITS:
+        if m["brand"] == brand and re.match(pattern, m["name"]) and m.get("start"):
+            for old, new in pairs:
+                m["start"] = m["start"].replace(old, new)
+    if m["brand"] in ABSOLUTE_AFTER_START_BRANDS and m.get("start") and leaves_relative(m["start"]):
+        m["start"] = m["start"].rstrip("\n") + "\nG90"
+
+
+def leaves_relative(text):
+    """True if the last G90 or G91 of a G-code text is G91."""
+    last = None
+    for line in text.split("\n"):
+        words = line.split(";", 1)[0].split()
+        if words and words[0] in ("G90", "G91"):
+            last = words[0]
+    return last == "G91"
 
 
 def heats(text):
