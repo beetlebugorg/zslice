@@ -29,6 +29,10 @@ const HINT = "Click a point of the print, or a circle or an arc for its size and
 
 export const TOOLS = ["select", "move", "measure", "support"];
 
+// zs_sel_mode.
+const SEL_ADD = 1;
+const SEL_TOGGLE = 2;
+
 export class Tools {
   // ctx: { client, view (View3D), canvas, buttons {select, move, measure},
   //        readout (element), page() ("2d" or "3d"), layer() (the top
@@ -37,10 +41,15 @@ export class Tools {
   //        toolChanged(tool) }
   constructor(ctx) {
     this.ctx = ctx;
-    this.tool = "select";
+    this.sel = ctx.sel; // the selection model (selection.js)
+    // The last facts of each part from the worker (zs_part), by stable
+    // id: the name, the turn, and the scale. The model has the place.
+    this.facts = new Map();
+    // Grows with each change of the selection by the user. A reply that
+    // selects parts checks it, so a late reply never undoes a newer click.
+    this.stamp = 0;
+    this.shownKey = "";
     this.pts = []; // { x, y, z, r, shape }
-    this.part = null; // the selected part (zs_part of the worker)
-    this.parts = []; // all selected parts; `part` is the last of them
     this.moving = null; // a drag of parts: { list: [{ index, x0, y0, x, y }], bx0, by0 }
     this.moveSent = 0;
     // A click on the button of the tool that is on: the tool's own action
@@ -62,6 +71,47 @@ export class Tools {
     this.label.hidden = true;
     ctx.canvas.parentElement.append(this.overlay, this.label);
     this.set("select");
+  }
+
+  // The tool is in the selection model.
+  get tool() { return TOOLS[this.sel.tool] ?? "select"; }
+  set tool(t) { this.sel.tool = Math.max(0, TOOLS.indexOf(t)); }
+
+  // The selected parts, from the model: the facts of the worker with the
+  // current index and place. `part` is the last of them (the card and the
+  // tools of one part use it).
+  get parts() { return this.sel.ids().map((id) => this.factsOf(id)).filter(Boolean); }
+  get part() {
+    const id = this.sel.primary;
+    return id ? this.factsOf(id) : null;
+  }
+
+  // Part `id` as a zs_part of the worker, or null if it is not on the
+  // plate.
+  factsOf(id) {
+    const b = this.sel.box(id);
+    if (!b) return null;
+    return {
+      ...this.facts.get(id),
+      id,
+      index: this.sel.indexOf(id),
+      x: (b.x0 + b.x1) / 2,
+      y: (b.y0 + b.y1) / 2,
+      z: b.z0,
+      sizeX: b.x1 - b.x0,
+      sizeY: b.y1 - b.y0,
+      sizeZ: b.z1 - b.z0,
+    };
+  }
+
+  // The parts of the plate that are not selected.
+  otherParts() {
+    const out = [];
+    for (let i = 0; ; i++) {
+      const id = this.sel.idAt(i);
+      if (!id) return out;
+      if (!this.sel.has(id)) out.push(this.factsOf(id));
+    }
   }
 
   set(tool) {
@@ -290,13 +340,24 @@ export class Tools {
     return [view.w.f64(c), view.w.f64(c + 8)];
   }
 
-  // The part under a device pixel (its line, or its footprint), or null.
-  async partAt(px, py) {
-    const { view } = this.ctx;
-    const path = view.x.zs_view_pick(view.v, px, py);
-    const bed = this.bedPoint(px, py);
-    const r = await this.ctx.client.call("partAt", { path: path >= 0 ? path : -1, bed: !!bed, x: bed?.[0] ?? 0, y: bed?.[1] ?? 0 });
-    return r.part;
+  // The part under a device pixel, at its current place, or null. The
+  // core picks it (zs_sel_pick), with no reply of the worker, so a pick
+  // works while a slice runs.
+  partAt(px, py) {
+    const id = this.sel.pick(this.ctx.view, px, py);
+    if (!id) return null;
+    this.fetchFacts([id]);
+    return this.factsOf(id);
+  }
+
+  // Asks the worker for the facts of parts that the page does not have.
+  fetchFacts(ids) {
+    for (const id of ids) {
+      if (this.facts.has(id)) continue;
+      const index = this.sel.indexOf(id);
+      if (index < 0) continue;
+      this.ctx.client.call("partGet", { index }).then((r) => r.part && this.updatePart(r.part));
+    }
   }
 
   // Selects one part, or none (null). The selection of several parts
@@ -305,30 +366,86 @@ export class Tools {
     this.setParts(part ? [part] : []);
   }
 
-  // The selected parts: a list of zs_part. `part` is the last one (the
-  // card and the tools of one part use it).
+  // The selected parts: a list of zs_part. The model keeps their ids.
   setParts(list) {
-    this.parts = list;
-    this.part = list.length > 0 ? list[list.length - 1] : null;
-    this.ctx.partSelected?.(this.part, this.parts);
-    const { view } = this.ctx;
-    view.partBoxes(list.map((p) => [p.x - p.sizeX / 2, p.y - p.sizeY / 2, p.x + p.sizeX / 2, p.y + p.sizeY / 2]));
+    this.stamp++;
+    this.keepFacts(list);
+    this.sel.clear();
+    for (const p of list) this.sel.select(this.idOf(p), SEL_ADD);
+    this.fetchFacts(this.sel.ids());
+    this.show(true);
+  }
+
+  // The stable id of a zs_part.
+  idOf(p) { return p.id || this.sel.idAt(p.index); }
+
+  keepFacts(list) {
+    for (const p of list) {
+      if (!p) continue;
+      const id = this.idOf(p);
+      if (id) this.facts.set(id, { ...this.facts.get(id), ...p, id });
+    }
+  }
+
+  // Selects parts from the reply of a call, if the user changed nothing
+  // since `stamp`.
+  selectReply(list, stamp) {
+    this.keepFacts(list);
+    if (stamp === this.stamp) this.setParts(list);
+    else this.show();
+  }
+
+  // The card and the frame show the model. The card opens again only for
+  // a change (force: the user selected).
+  show(force = false) {
+    const list = this.parts;
+    const key = list.map((p) => `${p.id}:${p.index}:${p.x}:${p.y}:${p.z}:${p.sizeX}:${p.sizeY}:${p.sizeZ}:${p.rotation}:${p.name}`).join("|");
+    if (!force && key === this.shownKey) return;
+    this.shownKey = key;
+    this.ctx.partSelected?.(list.length ? list[list.length - 1] : null, list);
+    this.ctx.view.partBoxes(list.map((p) => [p.x - p.sizeX / 2, p.y - p.sizeY / 2, p.x + p.sizeX / 2, p.y + p.sizeY / 2]));
     this.ctx.requestFrame();
+  }
+
+  // The table of the parts changed (the "parts" event): a selected part
+  // that is gone left the model. Its facts come again from the worker.
+  tableChanged() {
+    const ids = new Set(this.sel.ids());
+    for (const id of this.facts.keys()) if (this.sel.indexOf(id) < 0) this.facts.delete(id);
+    if (!this.moving && !this.ctx.gizmo?.()?.drag) {
+      for (const id of ids) {
+        const index = this.sel.indexOf(id);
+        this.ctx.client.call("partGet", { index }).then((r) => r.part && this.updatePart(r.part));
+      }
+    }
+    this.show();
   }
 
   // Shift and a click: the part goes into the selection, or out of it if
   // it is in it. A click on no part keeps the selection.
   togglePart(part) {
     if (!part) return;
-    const i = this.parts.findIndex((p) => p.index === part.index);
-    if (i >= 0) this.setParts(this.parts.filter((_, k) => k !== i));
-    else this.setParts([...this.parts, part]);
+    this.stamp++;
+    this.keepFacts([part]);
+    this.sel.select(this.idOf(part), SEL_TOGGLE);
+    this.show(true);
   }
 
-  // New facts of selected parts (after a move): the same selection.
+  // New facts of a part from a reply. The selection stays as it is.
+  updatePart(part) {
+    this.keepFacts([part]);
+    this.show();
+  }
+
   updateParts(list) {
-    const by = new Map(list.filter(Boolean).map((p) => [p.index, p]));
-    this.setParts(this.parts.map((p) => by.get(p.index) ?? p));
+    this.keepFacts(list.filter(Boolean));
+    this.show();
+  }
+
+  // A local change of the place of a part: the model has it at once.
+  placePart(id, x, y, z) {
+    this.sel.place(id, x, y, z);
+    this.show();
   }
 
   // A press of a drag that can move a part: true if a part is there (the
@@ -337,7 +454,7 @@ export class Tools {
   // One part: the gizmo carries it (gizmo.js: the snap, the preview, and
   // the live slice).
   async moveStart(px, py) {
-    const part = await this.partAt(px, py);
+    const part = this.partAt(px, py);
     if (!part) return false;
     // The level plane of the point that the pointer took: that point
     // stays under the pointer (also for a part that floats).
@@ -349,7 +466,7 @@ export class Tools {
     const group = this.parts.length > 1 && this.parts.some((p) => p.index === part.index);
     if (!group) this.selectPart(part);
     const list = group ? this.parts : [part];
-    this.moving = { list: list.map((p) => ({ index: p.index, x0: p.x, y0: p.y, x: p.x, y: p.y })), bx0: bed[0], by0: bed[1], hz, one: !group && this.ctx.gizmo?.() };
+    this.moving = { list: list.map((p) => ({ id: p.id, index: p.index, z: p.z ?? 0, x0: p.x, y0: p.y, x: p.x, y: p.y })), bx0: bed[0], by0: bed[1], hz, one: !group && this.ctx.gizmo?.() };
     if (this.moving.one) this.moving.one.beginLive(part);
     this.ctx.canvas.style.cursor = "move";
     return true;
@@ -378,8 +495,6 @@ export class Tools {
       if (t) {
         m.list[0].x = t.x;
         m.list[0].y = t.y;
-        // The card and the frame follow.
-        if (this.part?.index === m.list[0].index) this.setParts([{ ...this.part, x: t.x, y: t.y }]);
       }
       return;
     }
@@ -387,8 +502,7 @@ export class Tools {
       q.x = q.x0 + dx;
       q.y = q.y0 + dy;
     }
-    const at = new Map(m.list.map((q) => [q.index, q]));
-    this.setParts(this.parts.map((p) => (at.has(p.index) ? { ...p, x: at.get(p.index).x, y: at.get(p.index).y } : p)));
+    for (const q of m.list) this.placePart(q.id, q.x, q.y, q.z);
     const now = performance.now();
     if (now - this.moveSent > 60) {
       this.moveSent = now;
@@ -420,13 +534,13 @@ export class Tools {
 
   // A click with the move tool (or Ctrl): select the part there, or none.
   async pickPart(px, py) {
-    this.selectPart(await this.partAt(px, py));
+    this.selectPart(this.partAt(px, py));
   }
 
   // Shift and a click: add the part there to the selection, or take it
   // out.
   async addPart(px, py) {
-    this.togglePart(await this.partAt(px, py));
+    this.togglePart(this.partAt(px, py));
   }
 
   // The wheel with the move tool (or Ctrl): turn the selected part 15° a
@@ -434,7 +548,7 @@ export class Tools {
   async turn(dir) {
     if (!this.part) return false;
     const r = await this.ctx.client.call("partRotate", { index: this.part.index, step: dir > 0 ? -15 : 15 });
-    if (r.part) this.selectPart(r.part);
+    if (r.part) this.updatePart(r.part);
     return true;
   }
 }

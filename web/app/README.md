@@ -77,6 +77,8 @@ The rule of `docs/app/README.md` holds: the app logic is in the core, and the we
 | `printers.js` | The printer picker: the printer library of the core (`printers.txt`, loaded when the picker opens), the search, the brands, the drawing of the build volume (with the bed texture on the plate), and the second step. Also the files of the bed model of the current printer (`bedFiles`) |
 | `thread.js` | One thread of the slice, for the module with threads |
 | `serve.py` | The dev server. It sends the headers for cross-origin isolation |
+| `selection.js` | The page side of the selection model of the core |
+| `test-selection.mjs` | The browser test of the selection and the focus (Playwright) |
 | `test-node.mjs` | The Node test |
 | `signing.js` | The signing key of this browser (a WebCrypto Ed25519 key in IndexedDB that no script can read), and the signature of each exported or sent G-code file |
 | `test-signing.mjs` | The Node test of the signatures |

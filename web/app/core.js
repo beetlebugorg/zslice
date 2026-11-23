@@ -1159,6 +1159,8 @@ export class Core {
       if (w.x.zs_app_part_get(this.app, i, p) !== 0) return null;
       return {
         index: i,
+        // The stable id of the part (zs_app_part_id).
+        id: Number(w.x.zs_app_part_id(this.app, i)),
         name: w.cstr(w.u32(p)),
         x: w.f64(p + 8),
         y: w.f64(p + 16),

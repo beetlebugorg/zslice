@@ -30,7 +30,7 @@
 import { el } from "./settings.js";
 import { movable } from "./drag.js";
 import { spatial, savedPlace, remember } from "./spatial.js";
-import { placeBeside, freeArea } from "./place.js";
+import { placeBeside, freeArea, overlaps } from "./place.js";
 import { filaments, followFilaments } from "./filaments.js";
 import { labelName } from "./label.js";
 
@@ -73,7 +73,7 @@ export class PartCard {
     if (this.many) this.close();
     this.parts = [part];
     // The same part again (a drag moves it): only its facts and place.
-    const same = this.part && this.part.index === part.index && this.node;
+    const same = this.part && this.part.id === part.id && this.node;
     this.part = part;
     if (!same) this.build();
     this.updateFacts();
@@ -89,7 +89,7 @@ export class PartCard {
     const part = this.part;
     if (!part || !this.labelBox) return;
     const r = await this.ctx.client.call("labelsGet", { index: part.index });
-    if (this.part !== part || !this.labelBox) return;
+    if (this.part?.id !== part.id || !this.labelBox) return;
     const box = this.labelBox;
     const list = r.labels ?? [];
     box.replaceChildren();
@@ -118,7 +118,7 @@ export class PartCard {
   // ---- several parts ----
 
   showMany(parts) {
-    const sameSet = this.many && this.node && this.parts.length === parts.length && this.parts.every((p, i) => p.index === parts[i].index);
+    const sameSet = this.many && this.node && this.parts.length === parts.length && this.parts.every((p, i) => p.id === parts[i].id);
     this.parts = parts;
     this.part = parts[parts.length - 1];
     if (!sameSet) this.buildMany();
@@ -389,6 +389,7 @@ export class PartCard {
     };
     cancel.onclick = () => this.endCut();
     go.onclick = async () => {
+      const stamp = this.ctx.stamp();
       const r = await this.ctx.client.call("partCut", { index: p.index, z: Number(num.value), flip: flip.checked, pegs: pegOn.checked ? Number(pegN.value) : 0, pegD: Number(pegD.value) || 5 });
       this.endCut();
       if (!r.ok) {
@@ -400,7 +401,7 @@ export class PartCard {
       else if (r.pegs > 0) text = `Cut into two parts, with ${r.pegs} ${r.pegs === 1 ? "peg" : "pegs"}. Glue the pegs into the holes to join the parts.`;
       if (!r.fits) text += " The parts do not all fit on this bed: they overlap now. Select a part, and click To a new plate.";
       this.ctx.toast(text);
-      this.ctx.select(r.part);
+      this.ctx.selectReply(r.part ? [r.part] : [], stamp);
     };
     show();
     this.place();
@@ -480,7 +481,7 @@ export class PartCard {
       a[{ ax: 0, ay: 1, az: 2 }[key]] = v;
       r = await this.ctx.client.call("partAngles", { index: p.index, angles: a });
     }
-    if (r?.part) this.ctx.select(r.part);
+    if (r?.part) this.ctx.update(r.part);
     // A part in the air with no support falls (the toast says why), and a
     // part on an edge tips over.
     if (key !== "x" && key !== "y") this.ctx.settle?.(p.index);
@@ -575,6 +576,7 @@ export class PartCard {
   async act(action) {
     if (!this.part) return;
     if (this.many) {
+      const stamp = this.ctx.stamp();
       const r = await this.ctx.client.call("partsAction", { indices: this.parts.map((p) => p.index), action });
       if (!r.ok) {
         this.ctx.toast("The parts did not change.");
@@ -582,16 +584,17 @@ export class PartCard {
       }
       // The copies are the new selection; after Remove, none.
       if (action === "arrange") this.ctx.select(null);
-      else this.ctx.selectMany?.(r.parts);
+      else this.ctx.selectReply(r.parts ?? [], stamp);
       return;
     }
+    const stamp = this.ctx.stamp();
     const r = await this.ctx.client.call("partAction", { index: this.part.index, action });
     if (!r.ok) {
       this.ctx.toast(r.message ?? "The part did not change.");
       return;
     }
     if (action === "split") this.ctx.toast(`Split into ${r.count} parts.`);
-    this.ctx.select(r.part);
+    this.ctx.selectReply(r.part ? [r.part] : [], stamp);
   }
 
   // Next to the part (or the parts), over the right of its top, inside
@@ -608,16 +611,37 @@ export class PartCard {
     for (const p of this.parts.length > 0 ? this.parts : [this.part]) this.addBox(p, box, dpr);
     // The place where the user put the card before, if it is clear of
     // what the card is about.
+    const avoid = this.otherBoxes(dpr);
     const kept = savedPlace("part-card", card, this.ctx.host, box[0] <= box[2] ? box : null);
-    if (kept) {
+    if (kept && !avoid.some((b) => overlaps([kept[0], kept[1], kept[0] + card.offsetWidth, kept[1] + card.offsetHeight], b))) {
       card.style.left = `${kept[0]}px`;
       card.style.top = `${kept[1]}px`;
       return;
     }
     const area = freeArea(this.ctx.host);
-    const [x, y] = box[0] <= box[2] ? placeBeside(box, area, card.offsetWidth, card.offsetHeight) : [area[2] - card.offsetWidth, area[1] + 52];
+    const [x, y] = box[0] <= box[2] ? placeBeside(box, area, card.offsetWidth, card.offsetHeight, avoid) : [area[2] - card.offsetWidth, area[1] + 52];
     card.style.left = `${x}px`;
     card.style.top = `${y}px`;
+  }
+
+  // The boxes on the screen of the parts that are not selected, so that
+  // the card leaves them free for a click. At most 32 parts: this runs on
+  // each frame.
+  otherBoxes(dpr) {
+    const out = [];
+    for (const p of (this.ctx.otherParts?.() ?? []).slice(0, 32)) {
+      const box = [Infinity, Infinity, -Infinity, -Infinity];
+      for (const sx of [-1, 1]) for (const sy of [-1, 1]) for (const z of [p.z, p.z + p.sizeZ]) {
+        const q = this.ctx.pixelOf({ x: p.x + (sx * p.sizeX) / 2, y: p.y + (sy * p.sizeY) / 2, z });
+        if (!q) continue;
+        box[0] = Math.min(box[0], q[0] / dpr);
+        box[1] = Math.min(box[1], q[1] / dpr);
+        box[2] = Math.max(box[2], q[0] / dpr);
+        box[3] = Math.max(box[3], q[1] / dpr);
+      }
+      if (box[0] <= box[2]) out.push(box);
+    }
+    return out;
   }
 
   // Grows box (CSS pixels) by the box of part p on the screen.

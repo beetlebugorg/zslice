@@ -76,6 +76,7 @@ import { PaintTool } from "./paint.js";
 import { LabelTool } from "./label.js";
 import { LabelCard } from "./labelcard.js";
 import { Gizmo } from "./gizmo.js";
+import { SelectionModel, FRAME_ALL } from "./selection.js";
 import { attachViewInput } from "./input.js";
 import { FarmPage } from "./farm.js";
 import { Tools } from "./tools.js";
@@ -178,10 +179,8 @@ const app = {
   // The page of the preview: "3d" or "2d".
   // Preferences: the first view ("2d", "3d"), or the last view ("last").
   page: (store.firstView === "2d" || store.firstView === "3d") ? store.firstView : store.view === "2d" ? "2d" : "3d",
-  // The selected line: its path and segment (-1: none), and its info
-  // from the worker (the Selected page).
-  sel: -1,
-  seg: -1,
+  // The info of the selected line from the worker (the Selected page).
+  // The line itself is in the selection model (app.sel, app.seg below).
   info: null,
   isolate: store.isolate ?? false,
   marks: 0,
@@ -190,16 +189,38 @@ const app = {
   // of h and l), or 0 for whole layers.
   time: 0,
   // The plate set (zs_set in the worker): the list from the worker ({ id,
-  // name, status, bed, model, printer, parts, message }), the active
-  // plate, the plate that the page asked to make active (-1: none), and
-  // the plate that the camera goes to when it is active (-1: none).
+  // name, status, bed, model, printer, parts, message }), and the plate
+  // that the worker reported last. The selection model has the active
+  // plate (app.activePlate below).
   plates: [],
-  activePlate: 0,
-  wantPlate: -1,
-  framePlate: -1,
+  shownPlate: 0,
+  // The next new plate gets the camera.
+  frameAdded: false,
 };
 
 const client = new Client(onWorkerEvent);
+
+// The one record of the selection and the focus (selection.js). These
+// properties read it, so no other copy exists.
+const selection = new SelectionModel(wasm);
+client.sel = selection;
+Object.defineProperties(app, {
+  activePlate: { get: () => selection.plate },
+  sel: {
+    get: () => selection.line().path,
+    set: (path) => {
+      const l = selection.line();
+      selection.setLine(path === l.path ? l.key : 0n, path, path < 0 ? -1 : l.seg);
+    },
+  },
+  seg: {
+    get: () => selection.line().seg,
+    set: (seg) => {
+      const l = selection.line();
+      if (l.path >= 0) selection.setLine(l.key, l.path, seg);
+    },
+  },
+});
 
 // ---- the 3D view ----
 
@@ -749,6 +770,15 @@ var gizmo = new Gizmo({
   part: () => (app.page === "3d" ? tools.part : null),
   active: () => tools.tool === "move",
   select: (part) => tools.selectPart(part),
+  update: (part) => tools.updatePart(part),
+  place: (id, x, y, z) => tools.placePart(id, x, y, z),
+  // A click on a handle: the part under the pointer, if it is another.
+  clickThrough: (px, py, shift) => {
+    const hit = tools.partAt(px, py);
+    if (!hit) return;
+    if (shift) tools.togglePart(hit);
+    else if (hit.id !== selection.primary) tools.selectPart(hit);
+  },
   settle: (index, why) => settleSelected(index, why),
   toast: (t) => toast(t),
 });
@@ -788,7 +818,7 @@ async function fall(index, why = "") {
   if (await runFall(index, gizmo.takeLive(index))) {
     toast(why || "The part could not stand like that, and fell over. Turn on support to hold it in place.");
     // The card shows the part where it rests.
-    if (tools.part?.index === index) client.call("partGet", { index }).then((q) => q.part && tools.part?.index === index && tools.selectPart(q.part));
+    client.call("partGet", { index }).then((q) => q.part && tools.updatePart(q.part));
   }
 }
 
@@ -912,7 +942,10 @@ var partCard = new PartCard({
   host: $("preview"),
   pixelOf: (p) => tools.pixelOf(p),
   select: (part) => tools.selectPart(part),
-  selectMany: (list) => tools.setParts(list ?? []),
+  update: (part) => tools.updatePart(part),
+  otherParts: () => tools.otherParts(),
+  stamp: () => tools.stamp,
+  selectReply: (list, stamp) => tools.selectReply(list, stamp),
   search: (text, scope) => search.show(text, scope),
   toast: (t) => toast(t),
   // Moves the part to another plate (-1: a new plate).
@@ -1838,8 +1871,9 @@ function calibrateItems() {
 
 // A calibration print on a new plate, then its card.
 async function calibrate(kind) {
-  app.framePlate = app.plates.length;
+  app.frameAdded = true;
   const r = await client.call("calibrate", { kind });
+  app.frameAdded = false;
   if (!r.ok) {
     toast(r.error || "The test did not load.");
     return;
@@ -2215,12 +2249,16 @@ async function inspect(refind) {
   if (refind) {
     // The same line in the new slice, or none.
     const path = r.info ? r.info.path : -1;
-    app.sel = path;
-    if (path < 0) app.seg = -1;
-    else app.seg = Math.min(app.seg, view.pathSegments(path) - 1);
+    selection.lineFound(path, path >= 0 ? view.pathSegments(path) : 0);
+    if (path >= 0 && app.sel !== path) {
+      // The line has another key now (a line near the old place).
+      selection.setLine(BigInt(r.info.key ?? 0), path, Math.min(Math.max(app.seg, 0), view.pathSegments(path) - 1));
+    }
     view.highlight(app.sel, app.seg, app.isolate);
     requestFrame();
   }
+  // The key of the line: the next slice finds it by this key.
+  if (r.info?.key && r.info.path === app.sel) selection.setLine(BigInt(r.info.key), app.sel, app.seg);
   inspector.show(r.info);
 }
 
@@ -2231,7 +2269,7 @@ function refindKey() {
   view.pathBeads(app.sel, rangeTmp);
   const b = rangeTmp[1] > rangeTmp[0] ? rangeTmp[0] + ((rangeTmp[1] - rangeTmp[0]) >> 1) : -1;
   if (b < 0) return null;
-  return { layer: info.layer, feature: info.feature, ...view.beadPoint(b) };
+  return { key: String(selection.line().key), layer: info.layer, feature: info.feature, ...view.beadPoint(b) };
 }
 const rangeTmp = new Uint32Array(2);
 
@@ -2347,8 +2385,9 @@ function partKey(e) {
     if (!view.loaded && app.state === "empty") return false;
     e.preventDefault();
     const index = tools.part ? tools.part.index : -1;
+    const stamp = tools.stamp;
     client.call("partStep", { index, dir: e.shiftKey ? -1 : 1 }).then((r) => {
-      if (!r.part) return;
+      if (!r.part || stamp !== tools.stamp) return;
       if (tools.tool !== "move") tools.set("move");
       tools.selectPart(r.part);
     });
@@ -2375,7 +2414,7 @@ function partKey(e) {
     if (!d) return false;
     const axis = d[0] !== 0 ? 1 : 0;
     const sign = d[0] !== 0 ? d[0] : -d[1];
-    client.call("partTurn", { index: part.index, axis, degrees: sign * turnStep, hold: true }).then((r) => r.part && tools.selectPart(r.part));
+    client.call("partTurn", { index: part.index, axis, degrees: sign * turnStep, hold: true }).then((r) => r.part && tools.updatePart(r.part));
     sliceAfterKeys(part.index);
     return done();
   }
@@ -2383,7 +2422,7 @@ function partKey(e) {
   if (e.code === "BracketLeft" || e.code === "BracketRight" || e.key === "[" || e.key === "]" || e.key === "{" || e.key === "}") {
     // As the GTK app: [ turns clockwise (seen from above), ] the other way.
     const sign = e.code === "BracketLeft" || e.key === "[" || e.key === "{" ? -1 : 1;
-    client.call("partTurn", { index: part.index, axis: 2, degrees: sign * turnStep, hold: true }).then((r) => r.part && tools.selectPart(r.part));
+    client.call("partTurn", { index: part.index, axis: 2, degrees: sign * turnStep, hold: true }).then((r) => r.part && tools.updatePart(r.part));
     sliceAfterKeys(part.index);
     return done();
   }
@@ -2391,8 +2430,8 @@ function partKey(e) {
   // Page Up and Page Down: the lift.
   if (e.key === "PageUp" || e.key === "PageDown") {
     const z = Math.round(((part.z ?? 0) + (e.key === "PageUp" ? step : -step)) * 100) / 100;
-    tools.selectPart({ ...part, z });
-    client.call("partLift", { index: part.index, z, hold: true }).then((r) => r.part && tools.selectPart(r.part));
+    tools.placePart(part.id, part.x, part.y, z);
+    client.call("partLift", { index: part.index, z, hold: true }).then((r) => r.part && tools.updatePart(r.part));
     sliceAfterKeys(part.index);
     return done();
   }
@@ -2400,15 +2439,15 @@ function partKey(e) {
   // A selection of several parts: all of them move, in one call.
   if (tools.parts.length > 1) {
     const moved = tools.parts.map((p) => ({ ...p, x: p.x + d[0] * step, y: p.y + d[1] * step }));
-    tools.updateParts(moved);
+    for (const p of moved) tools.placePart(p.id, p.x, p.y, p.z ?? 0);
     client.call("partsMove", { moves: moved.map((p) => ({ index: p.index, x: p.x, y: p.y })), hold: true }).then((r) => r.parts && tools.updateParts(r.parts));
     sliceAfterKeys();
     return done();
   }
   const x = part.x + d[0] * step;
   const y = part.y + d[1] * step;
-  tools.selectPart({ ...part, x, y });
-  client.call("partMove", { index: part.index, x, y, hold: true }).then((r) => r.part && tools.selectPart(r.part));
+  tools.placePart(part.id, x, y, part.z ?? 0);
+  client.call("partMove", { index: part.index, x, y, hold: true }).then((r) => r.part && tools.updatePart(r.part));
   sliceAfterKeys();
   return done();
 }
@@ -2775,8 +2814,9 @@ async function runMenu(act, arg) {
       if (act === "copyPart") await clipboard.copy(sel);
       else if (act === "cutPart") await clipboard.cut(sel);
       else {
+        const stamp = tools.stamp;
         const d = await client.call("partsAction", { indices: sel.indices, action: "duplicate" });
-        if (d.ok) tools.setParts(d.parts);
+        if (d.ok) tools.selectReply(d.parts ?? [], stamp);
       }
       break;
     }
@@ -2848,6 +2888,7 @@ const inspector = new Inspector($("page-selected"), {
 var tools = new Tools({ // var: drawFrame can run before this line
   // The card of the part goes beside the part and its gizmo.
   partSelected: (part, parts) => partCard?.show(part, parts),
+  sel: selection,
   client, view, canvas, view2d,
   buttons: { select: $("tool-select"), move: $("tool-move"), measure: $("tool-measure"), support: $("tool-support") },
   gizmo: () => gizmo,
@@ -3101,7 +3142,7 @@ var project = new ProjectPage( // var: the plate signs can ask before this line
   loading: () => {
     projectActive = true;
     // A new set of plates: the camera shows them all.
-    app.frameAll = true;
+    selection.frame(FRAME_ALL);
   },
   opened: (name) => {
     stopReplay();
@@ -3741,12 +3782,18 @@ function stageWork(s, all) {
 
 function onWorkerEvent(m) {
   // The slices of the other plates of the set show only on their signs.
-  if ((m.event === "slicing" || m.event === "progress" || m.event === "failed") && m.plate !== undefined && m.plate !== app.activePlate) return;
+  if ((m.event === "slicing" || m.event === "progress" || m.event === "failed") && m.plate !== undefined && m.plate !== app.shownPlate) return;
+  // The table of the parts: the model drops a selected part that is gone.
+  if (m.event === "parts") {
+    selection.setParts(m.table);
+    tools.tableChanged();
+    return;
+  }
   // A scene in steps comes first, so the events keep their order. The
   // history, and the plates with the same active plate, leave the view
   // of the active plate as it is: they come after each slice, and they
   // do not wait.
-  const passes = m.event === "history" || (m.event === "plates" && m.active === app.activePlate);
+  const passes = m.event === "history" || (m.event === "plates" && m.active === app.shownPlate);
   if (staged && staged.m !== m && !passes) stageStep(true);
   switch (m.event) {
     case "plates":
@@ -3756,6 +3803,7 @@ function onWorkerEvent(m) {
       // A new active plate that slices again: its old slice until then.
       if (m.scene) {
         view.readScene(m.scene);
+        if (m.sceneParts) selection.setScene(m.sceneParts);
         gl.setOutlines(view.outlines());
       }
       $("empty").hidden = true;
@@ -3834,6 +3882,7 @@ function onWorkerEvent(m) {
           view.commitScene();
           gl.stageEnd(view.instancesGen(), view.lightGen());
         } else view.readScene(m.scene);
+        if (m.sceneParts) selection.setScene(m.sceneParts);
         gl.setOutlines(view.outlines());
         // A live turn or move: the preview goes on from the pose of this
         // slice.
@@ -3877,6 +3926,7 @@ function onWorkerEvent(m) {
       }
       if (m.scene) {
         view.readScene(m.scene);
+        selection.setScene(new ArrayBuffer(0));
         gl.setOutlines(view.outlines());
       }
       app.state = "empty";
@@ -3918,15 +3968,20 @@ const STATUS_TEXT = { empty: "empty", stale: "to slice", slicing: "slicing", don
 // (m.sync: the beds, the clears, the flags, the footprints, and the beads
 // of the other plates; see zs_set_view_sync).
 function onPlates(m) {
-  const before = app.activePlate;
+  const before = app.shownPlate;
   // A plate added or removed: the session keeps the new list. A slice
   // keeps it too, but an empty plate has no slice.
   const ids = (p) => p.map((q) => q?.id).join(",");
   const listChanged = ids(app.plates ?? []) !== ids(m.plates);
+  const grew = m.plates.length > (app.plates?.length ?? 0);
   app.plates = m.plates;
-  app.activePlate = m.active;
+  app.shownPlate = m.active;
+  selection.reportPlate(m.active, m.plates.length);
   showProjectTotals();
-  if (app.wantPlate === m.active) app.wantPlate = -1;
+  if (grew && app.frameAdded) {
+    selection.frame(m.active);
+    app.frameAdded = false;
+  }
   if (m.sync) {
     try {
       view.syncPlates(m.sync);
@@ -3936,22 +3991,9 @@ function onPlates(m) {
   }
   if (m.active !== before) {
     // The selection and the tools are of the plate that was active.
-    stopReplay();
-    select(-1, -1, false);
-    tools.clear?.();
-    // The selected part is of the plate before: its index means another
-    // part here (Delete or a turn key would act on that part).
-    tools.selectPart(null);
-    view2d.fitted = false;
+    focusEnds();
   }
-  if (app.framePlate === m.active) {
-    view.framePlate(m.active);
-    app.framePlate = -1;
-  }
-  if (app.frameAll) {
-    view.framePlate(-1);
-    app.frameAll = false;
-  }
+  applyFrame();
   project.showActive(m.active);
   updatePlateBar();
   requestFrame();
@@ -3961,23 +4003,41 @@ function onPlates(m) {
   else if (m.active !== before) keepSoon();
 }
 
+// The selection and the tools are of the plate before.
+function focusEnds() {
+  stopReplay();
+  select(-1, -1, false);
+  tools.clear?.();
+  tools.selectPart(null);
+  view2d.fitted = false;
+}
+
+// The camera goes to the target of the model when it is due.
+function applyFrame() {
+  const t = selection.takeFrame();
+  if (t === null) return;
+  view.framePlate(t);
+  requestFrame();
+}
+
 // Makes plate i the active plate; with `frame`, the camera goes to it.
+// The model has the new plate at once. Only the reply of the last request
+// changes the page.
 async function activatePlate(i, frame) {
   if (i < 0 || i >= app.plates.length) return;
-  if (frame) app.framePlate = i;
-  if (i === app.activePlate) {
-    if (frame) {
-      view.framePlate(i);
-      app.framePlate = -1;
-      requestFrame();
-    }
+  if (frame) selection.frame(i);
+  if (i === selection.plate) {
+    applyFrame();
     return;
   }
-  if (i === app.wantPlate) return;
-  app.wantPlate = i;
+  selection.requestPlate(i);
+  focusEnds();
+  updatePlateBar();
   // The labels of the Label tool are on a part of this plate.
   labelTool?.close();
   const r = await client.call("plateActivate", { index: i });
+  applyFrame();
+  if (selection.plate !== r.index) return;
   applySettings(r);
   const p = app.plates[r.index];
   const name = p?.name || "zslice";
@@ -3988,8 +4048,9 @@ async function activatePlate(i, frame) {
 }
 
 async function addPlate() {
-  app.framePlate = app.plates.length;
+  app.frameAdded = true;
   const r = await client.call("plateAdd");
+  app.frameAdded = false;
   applySettings(r);
   $("title").textContent = app.plates[r.index]?.name ?? "zslice";
   history.refresh();

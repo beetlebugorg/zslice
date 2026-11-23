@@ -368,13 +368,14 @@ export class Clipboard {
         // With parts selected: free places, next to them. Else at the
         // pointer, on the bed.
         const bed = (here || tools.parts.length === 0) && at && in3d ? tools.bedPoint(at[0] * dpr, at[1] * dpr) : null;
+        const stamp = tools.stamp;
         const r = await client.call("partsPaste", { at: bed });
         if (!r.ok) {
           toast(r.empty ? "The clipboard is empty: copy a part first." : "The parts did not paste.");
           return false;
         }
         this.ctx.pasted?.(r);
-        tools.setParts(r.parts);
+        tools.selectReply(r.parts ?? [], stamp);
         if (r.fits === false) toast("The parts do not all fit on the bed. Move some, or paste on another plate.");
         return true;
       }
@@ -440,8 +441,9 @@ export class Clipboard {
       this.ctx.toast("Copy parts or a plate first.");
       return false;
     }
-    this.ctx.app.framePlate = this.ctx.app.plates?.length ?? -1;
+    this.ctx.app.frameAdded = true;
     const r = await this.ctx.client.call("platePaste");
+    this.ctx.app.frameAdded = false;
     if (!r.ok) {
       this.ctx.toast("The plate did not paste.");
       return false;
@@ -451,8 +453,9 @@ export class Clipboard {
   }
 
   async duplicatePlate() {
-    this.ctx.app.framePlate = this.ctx.app.plates?.length ?? -1;
+    this.ctx.app.frameAdded = true;
     const r = await this.ctx.client.call("plateDuplicate");
+    this.ctx.app.frameAdded = false;
     if (!r.ok) {
       this.ctx.toast("The plate has no parts to duplicate.");
       return false;

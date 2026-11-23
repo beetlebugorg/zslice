@@ -43,6 +43,8 @@ const SNAP_PX = 8;
 // The longest wait for the slice of a live change, ms: then the next
 // change goes anyway.
 const LIVE_WAIT_MS = 700;
+// A press that moves at most this far is a click, CSS pixels.
+const CLICK_PX = 4;
 
 // The radius of the rings around part p, mm (the same in each shell).
 export function gizmoRadius(p) {
@@ -138,6 +140,11 @@ export class Gizmo {
     }
     this.ctx.host.style.cursor = h < 3 ? "grabbing" : "move";
     const target = e.target;
+    // A press and a release at one place is a click, not a drag. The click
+    // goes to the part under the pointer (`up`).
+    const x0 = e.clientX;
+    const y0 = e.clientY;
+    let moved = false;
     try {
       target.setPointerCapture(e.pointerId);
     } catch {
@@ -147,6 +154,8 @@ export class Gizmo {
       const d = this.drag;
       if (!d) return;
       ev.stopPropagation();
+      if (!moved && Math.hypot(ev.clientX - x0, ev.clientY - y0) <= CLICK_PX) return;
+      moved = true;
       const [mx, my] = this.at(ev);
       if (d.kind === "turn") {
         d.want = Math.round(x.zs_view_ring_drag(v, mx, my, ev.shiftKey ? 1 : 15));
@@ -179,6 +188,7 @@ export class Gizmo {
       } else {
         this.endLive();
       }
+      if (!moved && ev.type === "pointerup") this.ctx.clickThrough?.(...this.at(ev), ev.shiftKey);
     };
     target.addEventListener("pointermove", move, true);
     target.addEventListener("pointerup", up, true);
@@ -212,7 +222,7 @@ export class Gizmo {
     const step = d.want - d.sent;
     d.sent = d.want;
     d.flight = this.ctx.client.call("partTurn", { index: d.index, axis: d.axis, degrees: step, hold: true, total: d.sent }).then((r) => {
-      if (r.part && this.ctx.part()?.index === r.part.index) this.ctx.select(r.part);
+      if (r.part) this.ctx.update(r.part);
       this.ctx.frame();
     });
     await d.flight;
@@ -379,6 +389,8 @@ export class Gizmo {
     const t = l.target;
     const s = l.shown;
     const flags = t.z < 0 ? 4 : 0;
+    // The model has the place at once, so a pick finds the part there.
+    if (l.part.id) this.ctx.place?.(l.part.id, t.x, t.y, t.z);
     this.ctx.view.x.zs_view_part_preview(this.ctx.view.v, l.index, 0, 0, 0, 1, 0, 0, 0, t.x - s.x, t.y - s.y, t.z - s.z, flags);
     this.ctx.frame();
   }
@@ -392,7 +404,8 @@ export class Gizmo {
     l.sent = { ...t };
     l.wait = performance.now() + LIVE_WAIT_MS;
     this.ctx.client.call("partPlace", { index: l.index, x: t.x, y: t.y, z: t.z, hold: true, live: true }).then((r) => {
-      if (r.part && this.ctx.part()?.index === r.part.index && this.live === l) this.ctx.select({ ...r.part, ...l.target });
+      // The facts only: the model has the place of the drag.
+      if (r.part && this.live === l) this.ctx.update(r.part);
     });
     // No slice in time: the next change goes anyway.
     clearTimeout(l.timer);
@@ -466,7 +479,7 @@ export class Gizmo {
     l.wait = Infinity;
     const r = await this.ctx.client.call("partPlace", { index: l.index, x: t.x, y: t.y, z: t.z, hold: true });
     l.sent = { ...t };
-    if (r.part && this.ctx.part()?.index === r.part.index) this.ctx.select(r.part);
+    if (r.part) this.ctx.update(r.part);
     // A part in the air with no support falls, and the toast says why.
     const why = r.part?.note?.startsWith("Support is off") ? r.part.note : "";
     await this.ctx.settle?.(l.index, why);

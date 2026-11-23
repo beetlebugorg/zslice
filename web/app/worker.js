@@ -168,6 +168,71 @@ function livePose(c, index) {
   return p ? { index, x: p.x, y: p.y, z: p.z } : undefined;
 }
 
+// ---- the table of the parts (the selection model of the page) ----
+
+// The table of the parts of core c (zs_sel_part), as an ArrayBuffer.
+function partTable(c) {
+  const w = c.w;
+  if (w.x.zs_app_sel_parts(c.app, 0, 0, w.cell) !== 0) return new ArrayBuffer(0);
+  const n = w.u32(w.cell);
+  if (n === 0) return new ArrayBuffer(0);
+  const bytes = n * 56;
+  const p = w.alloc(bytes);
+  try {
+    w.x.zs_app_sel_parts(c.app, p, n, w.cell);
+    return w.u8.slice(p, p + bytes).buffer;
+  } finally {
+    w.free(p, bytes);
+  }
+}
+
+// The table of the slice that the view of each plate shows, by app.
+const sceneTables = new Map();
+function sceneTable(c) {
+  return sceneTables.get(c.app) ?? new ArrayBuffer(0);
+}
+
+// Sends the table of the active plate if it changed. It goes before the
+// reply of a call, so the reply finds the page up to date.
+let lastTable = null;
+let lastTablePlate = -1;
+function postParts() {
+  if (!core?.app) return;
+  const table = partTable(core);
+  const plate = activeIndex();
+  const a = new Uint8Array(table);
+  if (lastTable && plate === lastTablePlate && a.length === lastTable.length && a.every((v, i) => v === lastTable[i])) return;
+  lastTable = a;
+  lastTablePlate = plate;
+  post({ event: "parts", table: table.slice(0), active: plate, count: wasm.x.zs_set_count(set) });
+}
+
+// A call that names parts by id: the index of each id now. Returns false
+// if the part of the call is gone.
+function resolveParts(args) {
+  const x = core?.app ? core.w.x : null;
+  if (!x) return true;
+  const at = (id) => x.zs_app_part_index(core.app, BigInt(id));
+  if (args.exceptId) {
+    args.except = at(args.exceptId);
+    delete args.exceptId;
+  }
+  if (args.partIds) {
+    args.indices = args.partIds.map(at).filter((i) => i >= 0);
+    delete args.partIds;
+  }
+  if (Array.isArray(args.moves)) {
+    args.moves = args.moves.map((m) => (m.id ? { ...m, index: at(m.id) } : m)).filter((m) => m.index >= 0);
+  }
+  if (args.partId) {
+    const i = at(args.partId);
+    delete args.partId;
+    if (i < 0) return false;
+    args.index = i;
+  }
+  return true;
+}
+
 function sendResult(i, ms, turn) {
   if (i !== activeIndex()) return;
   const c = coreAt(i);
@@ -184,8 +249,12 @@ function sendResult(i, ms, turn) {
   }
   const scene = sceneOf(i);
   const layers = c.layers();
+  // The parts at the places of this slice, for the pick of the page.
+  const sceneParts = partTable(c);
+  sceneTables.set(c.app, sceneParts);
   const msg = {
     event: "sliced",
+    sceneParts: sceneParts.slice(0),
     plate: i,
     ms,
     // A draft (zs_app_set_draft): the exact slice follows.
@@ -316,7 +385,7 @@ function sliceOrHold(hold) {
 function postSimScene(c, on) {
   const scene = c.scene(mode);
   const layers = c.layers();
-  post({ event: "sliced", plate: activeIndex(), ms: 0, draft: c.w.x.zs_app_is_draft(c.app) === 1, stats: c.stats(), featureStats: c.featureStats(), layers, scene, mode, marks: c.markCount(), areas: c.supportAreas(), parts: c.w.x.zs_app_part_count(c.app), fits: c.w.x.zs_app_plate_fits(c.app) === 1, tiny: [], simulated: on, sim: c.simStats() }, scene ? [scene] : []);
+  post({ event: "sliced", sceneParts: sceneTable(c).slice(0), plate: activeIndex(), ms: 0, draft: c.w.x.zs_app_is_draft(c.app) === 1, stats: c.stats(), featureStats: c.featureStats(), layers, scene, mode, marks: c.markCount(), areas: c.supportAreas(), parts: c.w.x.zs_app_part_count(c.app), fits: c.w.x.zs_app_plate_fits(c.app) === 1, tiny: [], simulated: on, sim: c.simStats() }, scene ? [scene] : []);
 }
 
 // The simulated print after each slice of the active plate
@@ -467,6 +536,8 @@ function postPlates(slicingPlate = -1) {
     sync = w.u8.slice(ptr, ptr + len).buffer;
     w.x.zs_buffer_free(ptr, len);
   }
+  // The table first: the page finds the parts of a new active plate.
+  postParts();
   post({ event: "plates", active: activeIndex(), plates, sync }, sync ? [sync] : []);
 }
 
@@ -488,7 +559,7 @@ function showActive() {
   } else {
     // Its last slice, or an empty scene (no slice yet).
     const scene = sceneOf(i) ?? core.scene(mode);
-    post({ event: "stale", scene, plate: i }, scene ? [scene] : []);
+    post({ event: "stale", scene, sceneParts: sceneTable(core).slice(0), plate: i }, scene ? [scene] : []);
   }
   schedule();
 }
@@ -963,7 +1034,7 @@ const ops = {
 
   // The part of a line (path >= 0), or else the part at x, y on the bed
   // (bed: false for no bed point), or null.
-  partAt({ path, bed, x, y }) {
+  partAt({ path, bed, x, y }) { // The menu of a line; a pick uses zs_sel_pick.
     let i = path >= 0 ? core.partOfPath(path) : -1;
     if (i < 0 && bed) i = core.w.x.zs_app_part_at(core.app, x, y);
     return { part: i >= 0 ? core.part(i) : null };
@@ -2126,7 +2197,9 @@ self.onmessage = async (e) => {
     // The first op of a drag ends the step of the changes before it.
     if (args.hold) lastHold = performance.now();
     if (args.hold && !histHolding) commitPending();
-    const result = await ops[op](args);
+    // A call for a part that is gone does nothing.
+    const found = resolveParts(args);
+    const result = found ? await ops[op](args) : { part: null, gone: true };
     // The first step of a plate: its state at the start. The core notes
     // each change; a change starts or extends a step. During a drag, the
     // step waits for its end.
@@ -2149,6 +2222,7 @@ self.onmessage = async (e) => {
       if (k >= 0) post({ event: "fall", index: k });
     }
     if (platesDirty) postPlates();
+    postParts();
     let transfer = result?.bytes ? [result.bytes] : [];
     if (result?.transfer) {
       transfer = result.transfer;
