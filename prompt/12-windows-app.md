@@ -40,6 +40,7 @@ Build the native Windows app in `windows/`: a WinUI 3 shell in C++/WinRT around 
    - A filament setting has chips in each editor: `project.filament`, and the support filaments with a word chip for value 0. With a lit body, the search of a range says what each row changes, and its Filament row has chips for this part of the layers. The range card shows no speed hint, as in GTK. A top or bottom thickness shows its layers.
    - Owner labels in the settings pane: a banner on a printer or filament section, a note on its detail page, and a badge on each search result. The pane takes its colors from the theme and redraws when the theme changes.
    - The camera in the print details: it shows while the current printer prints or is paused, and plays only while the details are open. It reads the status of the 5 s link, so it adds no status request. It stays off while the Printers page shows, so a printer never streams twice.
+   - Number fields follow `setting-editor.c`: a value applies 350 ms after the last key, Up and Down step the last decimal, a value out of the hard limits gets a red ring and says the limits, a value out of the slider range gets an amber ring, and the same number in another form is no change. A text that is not a number goes to the core, so a formula works in the field.
    - A double click on a history change goes to its step and opens the change on its part, in its layers, or for the print. A change outside some layers leaves an open profile, so a new edit cannot go to those layers.
    - Windows calls `zs_set_project_load` for a project, so it needs no separate `zs_project_profiles` or `zs_app_project_load`. It has no islands button: the Check lists the islands.
 
@@ -74,6 +75,7 @@ Build the native Windows app in `windows/`: a WinUI 3 shell in C++/WinRT around 
 - **Keep a key out of each log, also in a test build.** The step log of the test hooks wrote the text of `prefset key` to the log file. The log now hides that step.
 - **Fill the times of a setting's lines after the slice.** A change refilled the page during the slice, when the core has no stats, and the times stayed away. `AfterScene` now fills them again.
 - **Say where a default value comes from.** The page wrote "From:" with no source for a default. It now has the wording of the GTK app, and Reset shows only for a change.
+- **Turn CR into LF in a multi-line field.** A WinUI TextBox gives its line breaks as CR. A click in the start G-code and a click away wrote the whole text back with CR, and the core splits G-code at LF. The commit now converts them, and text that is the same is no change.
 
 ## Acceptance checks
 
