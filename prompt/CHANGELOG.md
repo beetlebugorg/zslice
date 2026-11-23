@@ -39,3 +39,4 @@ One line for each update: the date, the commit that the folder describes, and th
 | 2026-11-23 | `d2a76c05` | README, CHANGELOG, 11: a Mac plate that does not fit slices, says why, and has Export off. |
 | 2026-11-23 | `724b751d` | README, CHANGELOG, 12: Windows line card with Holds up and the check warnings, and the check count after ZS_EVENT_CHECKED (by the Windows session). |
 | 2026-11-23 | `54094226` | README, CHANGELOG, 11: the Mac asks before a saved key goes to a new address; a test of a save with an empty active plate. |
+| 2026-11-23 | `05f4094c` | README, CHANGELOG, 11: the Mac model page sheet and ZIP picker; no file for a project with no parts. |

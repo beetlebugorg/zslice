@@ -50,6 +50,8 @@ Build the native Mac app in `macos/`: a SwiftUI and AppKit shell around the app 
 
 ## Lessons
 
+- **Import from a ZIP file, and call no site API.** A model page shows `zs_import_page_text` and Open the Page. A ZIP file from Open, Add Models, a drop, or Open With goes to the list. Cancel is the default button, so Return does not load. Load adds the checked files, then `zs_set_spill`. A 3MF file is also a ZIP file, so the app tells them apart by the extension.
+- **Write no file for a project with no parts.** A responder after the window handles Save and Save As, and says why when every plate is empty.
 - **Ask before a saved key goes to a new address.** A change of scheme, host, or port asks, with No as the default. No drops the key, Cancel keeps the old address and key, and a new origin drops the old https address. The address field is a draft until the edit ends, and Test the Connection asks first, because each of them can send the key.
 - **Test a save with an empty active plate.** The project keeps the parts of the other plates, and it opens with the same plates.
 - **Keep the line, the plate, and the camera in the core model.** A selected line is its key. A draft can miss that key, so a miss falls back to the nearest line of the same feature at the saved place, and the exact slice goes back to the first key and segment. A plate change is a request, and the camera target waits for its plate. Test a selection through a delete, an undo, and a redo.
