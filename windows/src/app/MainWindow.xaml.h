@@ -462,6 +462,8 @@ namespace winrt::ZSlice::implementation
         void SaveLinePlace();
         void RestoreLineSegment(int64_t path);
         void FindSelectedLine();
+        void FillLineNotes(zs_inspect const &info);
+        void RefreshLineNotes();
         // The other lines of a multiple selection: each by its key and its
         // place. A slice can renumber them, and path -1 waits for the line.
         struct MoreLine

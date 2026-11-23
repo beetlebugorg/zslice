@@ -547,6 +547,8 @@
                             </StackPanel>
                         </Grid>
                         <TextBlock x:Name="LineNozzle" TextWrapping="WrapWholeWords" FontSize="12" Opacity="0.85" Visibility="Collapsed" />
+                        <!-- What a support line holds up, and the warnings of the check at the line. -->
+                        <StackPanel x:Name="LineNotes" Spacing="3" Visibility="Collapsed" />
                         <TextBlock x:Name="LineSize" TextWrapping="WrapWholeWords" FontSize="12" Foreground="{ThemeResource ZsDim}" />
                         <Grid ColumnSpacing="6" Margin="0,4,0,0">
                             <Grid.ColumnDefinitions>
