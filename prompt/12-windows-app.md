@@ -32,7 +32,8 @@ Build the native Windows app in `windows/`: a WinUI 3 shell in C++/WinRT around 
    - The part card: the settings that the part has of its own (`zs_app_part_setting_set`), each with its editor and ×, and "+ Add a setting" for the selected part or parts. The filament stays in its row of chips.
    - The line card: "Support you added" for a line at a support mark, with its kind, its radius, and Remove (`zs_app_mark_at`, `zs_app_mark_set`, `zs_app_mark_remove`).
    - The import of a model (`MainWindow.ModelImport.cpp`, [the contract](../docs/internals/model-import.md)): a page link gets the text of the core and **Open the page**. A ZIP file from Open, a drop, or Open With gets the list, with Cancel as the default button. The checked files become parts, then `zs_set_spill`. No request goes to a site.
-   - The spools of a printer: `zs_app_filaments_from_printer`, with flag 1 for **Use the filaments of** and flag 2 for each status of the current printer. The Windows app reads a status only while the Printers page is open.
+   - The spools of a printer: `zs_app_filaments_from_printer`, with flag 1 for **Use the filaments of** and flag 2 for each status of the current printer.
+   - The link to the current printer, also with the Printers page closed: one status read each 5 s for an HTTP printer, and one MQTT connection for a Bambu Lab printer. A printer never has two connections.
 
 ## Rules that matter
 
@@ -47,6 +48,7 @@ Build the native Windows app in `windows/`: a WinUI 3 shell in C++/WinRT around 
 - A loaded file is its own history step. Else the first edit after a load joins that step, and the refinements have no guide.
 - The view builds its matrices for a clip space with y down; the vertex shaders negate y. `SV_InstanceID` starts at 0 for each draw, so a root constant gives the first instance for the highlight.
 - The backend writes its log lines to stderr itself: `std.log` does not compile for ARM64 Windows in Zig 0.16.
+- After a refused or dropped MQTT connection, wait at least 15 s, then twice as long each time, to 5 minutes. A printer in LAN mode takes few clients. A wrong access code (return code 4 or 5) stops the watch until the details change. After 5 minutes minimized, close the links.
 
 ## Lessons
 
@@ -77,3 +79,4 @@ Build the native Windows app in `windows/`: a WinUI 3 shell in C++/WinRT around 
 10. A line at a support mark shows the kind and the radius of the mark. A change of either reaches the core, and Remove takes the mark away.
 11. A ZIP file with more parts than one bed holds loads its checked files, and the parts that do not fit go on new plates. A file that is not a ZIP file shows the message of the core.
 12. Against a stub printdeck, **Use the filaments of** sends one GET and makes the plate its spools. The follow changes a printer with `machine.filament_change = tool`, and no other. No log has the key.
+13. With the Printers page closed, a stub printer gets one status read each 5 s, and none after the printer has no link. A broker that answers "server unavailable" gets its next CONNECT no sooner than 15 s later.
