@@ -1,6 +1,6 @@
 # A prompt that could build zslice
 
-Describes: main at commit `0bbae0b1` ("Add the multiple line selection to the prompt"), 2026-11-23.
+Describes: main at commit `4b76ddc5` ("Drop the old fit example from the Mac guide"), 2026-11-23.
 
 ## Read this first
 
