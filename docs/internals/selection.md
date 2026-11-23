@@ -64,7 +64,7 @@ The pick returns 0 while a plate request is open, because the table is still of 
 
 ## A selected line
 
-A new slice can renumber the paths. The model keeps the key of the line. After a slice, a shell finds the path of that key (`zs_app_path_of_key`) and calls `zs_sel_line_found`. A line that the slice did not make again has no path, and the line selection ends.
+A new slice can renumber the paths. The model keeps the key of the line. After a slice, a shell finds the path of that key (`zs_app_path_of_key`) and calls `zs_sel_line_found`. A draft slice can miss the key of a line that the exact slice makes again. So on a miss, a shell looks at the saved place: the same layer and feature, and the nearest line (`zs_app_pick_feature`). It selects that line with its own key, and the exact slice after the draft goes back to the first key and segment. With no line at that place, the line selection ends.
 
 ## A click on a gizmo handle
 
@@ -81,7 +81,7 @@ For a shell with no worker (GTK, the Mac, Windows):
 5. On a drag: `zs_sel_place` on each frame. Send the place to the app at the end, or as the shell does now.
 6. To change the plate: `zs_sel_plate_request`, `zs_set_select`, then `zs_sel_sync`. The sync ends the request.
 7. To act on a part: `zs_app_part_index(app, id)`. Never keep the index.
-8. After a slice: `zs_app_path_of_key` for the key of `zs_sel_line_get`, then `zs_sel_line_found`.
+8. After a slice: `zs_app_path_of_key` for the key of `zs_sel_line_get`, then `zs_sel_line_found`. On a miss, use the saved place (see "A selected line").
 9. `zs_sel_free` at the end.
 
 For a shell with a worker (the web app):

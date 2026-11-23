@@ -225,6 +225,10 @@ final class Workspace {
     // The selected line and its card (Selection.swift).
     var selection: Selection?
     var lineInfo: LineInfo?
+    /// The place of the selected line, for a slice that misses its key, and
+    /// its key and segment from before a draft (Selection.swift).
+    @ObservationIgnored var refindKey: RefindKey?
+    @ObservationIgnored var draftLine: (key: UInt64, seg: Int)?
     var cardOpen = false
     /// Where the click was (points in the view), and where the user moved
     /// the card to; the card keeps that place until it closes.
@@ -1352,6 +1356,23 @@ final class Workspace {
                         self.model.settingsChanged()
                         self.readSelectedParts()
                         NSLog("zslice clip selkeep: same %d, index %ld", self.selectedIDs.last == id ? 1 : 0, self.selectedPart ?? -1)
+                    case "lineinfill":
+                        // The infill line nearest to the selected line.
+                        if let r = self.refindKey {
+                            let path = zs_app_pick_feature(self.model.core, r.layer, Int32(ZS_FEATURE_INFILL.rawValue), r.x, r.y)
+                            if path != noPath { self.select(path: path, seg: 0, openCard: false) }
+                        }
+                    case "linekeep":
+                        // A change of the infill: the line stays selected
+                        // through the draft and the exact slice.
+                        let key = self.selection?.key ?? 0
+                        self.model.set("project.infill_density", "0.5")
+                        try? await Task.sleep(for: .seconds(0.2))
+                        for _ in 0 ..< 60 where self.model.draft || self.model.state != .done {
+                            try? await Task.sleep(for: .seconds(0.1))
+                        }
+                        try? await Task.sleep(for: .seconds(0.4))
+                        NSLog("zslice clip linekeep: selected %d, same key %d, draft %d", self.selection == nil ? 0 : 1, self.selection?.key == key ? 1 : 0, self.model.draft ? 1 : 0)
                     case "selundo":
                         // Undo and redo of a delete keep the selected part.
                         self.selectOnlyPart(1)
