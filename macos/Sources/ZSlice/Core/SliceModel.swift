@@ -161,29 +161,17 @@ final class SliceModel {
         return nil
     }
 
-    /// Why the slice failed, for the user. A part that does not fit names
-    /// its size and the size of the bed, so the fix is plain.
-    /// The first line is short, for the bottom bar; the rest says what to
-    /// do. A status with no facts of its own is one line.
-    func failureText(_ status: Int32) -> String {
-        guard status == Int32(ZS_PART_TOO_LARGE.rawValue) else { return statusText(status) }
-        // The core says only that a part does not fit. A part wider than
-        // the bed still slices (the Check says so); a part higher than the
-        // printer does not, so the height comes first.
-        let bx = Double(setting("machine.bed_size_x")) ?? 0, by = Double(setting("machine.bed_size_y")) ?? 0
-        let height = Double(setting("machine.max_height")) ?? 0
-        var parts: [zs_part] = []
-        for i in 0 ..< zs_app_part_count(core) {
-            var p = zs_part()
-            if zs_app_part_get(core, i, &p) == 0 { parts.append(p) }
-        }
-        if height > 0, let p = parts.first(where: { $0.size_z > height + 0.01 }) {
-            return String(format: "%.0f mm high; the printer reaches %.0f mm\nThe part is higher than the printer. Turn it, scale it down, or cut it (Cut on the part card).", p.size_z, height)
-        }
-        if bx > 0, by > 0, let p = parts.first(where: { $0.size_x > bx + 0.01 || $0.size_y > by + 0.01 }) {
-            return String(format: "%.0f × %.0f mm on a bed of %.0f × %.0f mm\nThe part is larger than the bed. Scale it down, turn it, or cut it (Cut on the part card).", p.size_x, p.size_y, bx, by)
-        }
-        return statusText(status)
+    /// Why the plate cannot print, or nil (zs_app_plate_printable). A part
+    /// that does not fit still slices and shows, but Export and Print stay
+    /// off, and the core refuses its G-code.
+    private(set) var unprintable: String?
+
+    func readPrintable() {
+        var buf = [CChar](repeating: 0, count: 1024)
+        var len = 0
+        let rc = zs_app_plate_printable(core, &buf, buf.count, &len)
+        let why = rc == Int32(ZS_PART_TOO_LARGE.rawValue) ? String(cString: buf) : nil
+        if why != unprintable { unprintable = why }
     }
 
     /// The project file of the plates for a save (ProjectFile.swift).
@@ -423,7 +411,7 @@ final class SliceModel {
     /// The last slice of the active plate is a draft: no G-code yet.
     private(set) var draft = false
     /// Export and Print: a slice that is not a draft.
-    var canExport: Bool { state == .done && !draft }
+    var canExport: Bool { state == .done && !draft && unprintable == nil }
     /// The work bar of the view (WorkBar.swift).
     let work = WorkState()
     /// The time of the last slice, from the request to the result.
@@ -493,7 +481,8 @@ final class SliceModel {
             onSimulated?()
         case Int(ZS_EVENT_FAILED.rawValue):
             if zs_app_state(core) == Int32(ZS_STATE_FAILED.rawValue) {
-                state = .failed(failureText(status))
+                NSLog("zslice: the slice failed: %@", coreText(zs_app_failure_name(core)))
+                state = .failed(statusText(status))
                 work.stop()
             }
         default:

@@ -63,6 +63,8 @@ struct Issue: Identifiable {
         case Int32(ZS_ISSUE_SEQUENCE.rawValue): "list.number"
         // The infill in a filament of its own, or tall infill beads.
         case Int32(ZS_ISSUE_INFILL.rawValue): "square.grid.3x3"
+        // A part that does not fit the printer, or that is too thin to print.
+        case Int32(ZS_ISSUE_FIT.rawValue): "exclamationmark.octagon"
         default: "rectangle.split.3x1"
         }
     }
@@ -185,7 +187,7 @@ extension Workspace {
     /// too small, an area with no support, a failed slice.
     var noteCount: Int {
         var n = 0
-        if model.state == .done, !plateFits { n += 1 }
+        if model.state == .done, !plateFits || model.unprintable != nil { n += 1 }
         if model.state == .done, !tinyParts.isEmpty { n += 1 }
         if model.state == .done, unsupportedArea != nil || simResult?.checkText != nil { n += 1 }
         if case .failed = model.state { n += 1 }

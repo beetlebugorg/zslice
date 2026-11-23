@@ -413,6 +413,7 @@ final class Workspace {
             NSLog("%@", line)
         }
         plateFits = zs_app_plate_fits(model.core) != 0
+        model.readPrintable()
         if ProcessInfo.processInfo.environment["ZSLICE_GCODE_NAME"] != nil { NSLog("zslice gcode name: %@", model.gcodeName()) }
         if fitAfterSlice {
             fitAfterSlice = false
@@ -2362,6 +2363,10 @@ final class Workspace {
 
     /// Sends the G-code to the current printer; print: start the print.
     func send(print: Bool) {
+        if let why = model.unprintable {
+            showNote(why)
+            return
+        }
         guard let p = PrinterStore.shared.current, p.kind != .none, let data = model.gcode(), goOnOffBed() else { return }
         if p.kind == .bambu {
             sendBambu(p, gcode: data, print: print)
@@ -2558,6 +2563,10 @@ final class Workspace {
 
     /// Exports the G-code of the last slice with a save panel.
     func exportGcode(from window: NSWindow?) {
+        if let why = model.unprintable {
+            showNote(why)
+            return
+        }
         guard let unsigned = model.gcode(), goOnOffBed() else { return }
         var data = Signer.sign(unsigned)
         let panel = NSSavePanel()

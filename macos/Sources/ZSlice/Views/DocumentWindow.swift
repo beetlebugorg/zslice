@@ -576,7 +576,12 @@ struct PrintCard: View {
     private var details: some View {
         let slicing = model.state == .slicing
         return VStack(alignment: .leading, spacing: 10) {
-            if !workspace.plateFits, model.state == .done {
+            if let why = model.unprintable, model.state == .done {
+                Label(why, systemImage: "exclamationmark.octagon.fill")
+                    .foregroundStyle(.red)
+                    .font(.callout)
+                    .fixedSize(horizontal: false, vertical: true)
+            } else if !workspace.plateFits, model.state == .done {
                 Label(Workspace.offBed, systemImage: "exclamationmark.octagon.fill")
                     .foregroundStyle(.red)
                     .font(.callout)
@@ -777,16 +782,16 @@ struct PrintAction: View {
             .buttonStyle(.borderedProminent)
             .fixedSize()
             .disabled(!model.canExport)
-            .help(p.kind == .printdeck
+            .help(model.unprintable ?? (p.kind == .printdeck
                 ? "Print on \(p.name) (⌘P), after you confirm that its bed is clear. A deck set to ask waits for a press of Print on it. Its menu: Upload Only, Export G-code."
-                : "Print on \(p.name) (⌘P), after you confirm that its bed is clear. Its menu: Upload Only, Export G-code.")
+                : "Print on \(p.name) (⌘P), after you confirm that its bed is clear. Its menu: Upload Only, Export G-code."))
             .keyboardShortcut("p", modifiers: .command)
         } else {
             Button("Export…") { workspace.exportGcode(from: NSApp.keyWindow) }
                 .keyboardShortcut("e", modifiers: .command)
                 .buttonStyle(.borderedProminent)
                 .disabled(!model.canExport)
-                .help(model.draft ? "The exact slice comes in a moment" : "Export the G-code (⌘E)")
+                .help(model.unprintable ?? (model.draft ? "The exact slice comes in a moment" : "Export the G-code (⌘E)"))
         }
 
     }
@@ -873,11 +878,19 @@ struct BottomBar: View {
                         VStack(alignment: .leading, spacing: 0) {
                             Text(PrintCard.duration(s.print_time_s))
                                 .font(.title3.weight(.semibold).monospacedDigit())
-                            Text(detail(s))
-                                .font(.caption.monospacedDigit())
-                                .foregroundStyle(.secondary)
-                                .fixedSize(horizontal: false, vertical: true)
+                            // A plate that cannot print says so in place of its facts.
+                            if model.unprintable != nil, model.state == .done {
+                                Label("Does not fit the printer", systemImage: "exclamationmark.octagon.fill")
+                                    .font(.caption.weight(.semibold))
+                                    .foregroundStyle(Color(red: 0xb4 / 255, green: 0x23 / 255, blue: 0x18 / 255))
+                            } else {
+                                Text(detail(s))
+                                    .font(.caption.monospacedDigit())
+                                    .foregroundStyle(.secondary)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
                         }
+                        .help(model.unprintable ?? "")
                         .opacity(model.state == .slicing ? 0.5 : 1)
                     } else if let why = model.failure {
                         // A slice that failed says why in the bar, not only
