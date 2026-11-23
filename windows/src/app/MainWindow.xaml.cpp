@@ -415,6 +415,7 @@ namespace winrt::ZSlice::implementation
         RefreshPlates();
         RefindSelectedGap();
         FindSelectedLine();
+        FindMoreLines();
         BaseLoaded();
         LiveLoaded();
         if (base_on || fall_shown || live_on)

@@ -462,6 +462,22 @@ namespace winrt::ZSlice::implementation
         void SaveLinePlace();
         void RestoreLineSegment(int64_t path);
         void FindSelectedLine();
+        // The other lines of a multiple selection: each by its key and its
+        // place. A slice can renumber them, and path -1 waits for the line.
+        struct MoreLine
+        {
+            int64_t path = -1;
+            uint64_t key = 0;
+            double x = 0, y = 0, z = 0;
+            int feature = 0;
+        };
+        std::vector<MoreLine> line_more;
+        bool more_lit = false;
+        bool MoreLineOf(int64_t path, MoreLine &out);
+        void ToggleMoreLine(int64_t path);
+        void ClearMoreLines();
+        void FindMoreLines();
+        void ShowMoreLines();
         // The place of the selected line. A strict key can miss a line that
         // moved a little, so a slice looks here next, as the web app does.
         bool line_placed = false;

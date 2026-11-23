@@ -170,6 +170,13 @@ namespace winrt::ZSlice::implementation
                 style.selected = SelectedPath() - first;
             style.fade = LineFade().IsChecked() != nullptr && LineFade().IsChecked().Value();
         }
+        if (!line_more.empty() && zs_app_toolpaths(app, &tp) == ZS_OK && layer2d_layer < tp.layer_count)
+        {
+            int64_t first = layer2d_layer == 0 ? 0 : tp.layer_ends[layer2d_layer - 1];
+            for (MoreLine const &line : line_more)
+                if (line.path >= first && line.path < (int64_t)tp.layer_ends[layer2d_layer])
+                    style.more.push_back(line.path - first);
+        }
         if (gaps_on && state == ZS_STATE_DONE && layer_count > 0)
         {
             size_t runs = 0;
@@ -224,6 +231,8 @@ namespace winrt::ZSlice::implementation
                 my = m.center_y;
                 radius = m.radius;
                 shape = m.shape;
+                if (m.shape == 1 || m.shape == 2)
+                    SelectLine((int64_t)path, (int64_t)segment);
             }
         }
         AddMeasure(mx, my, z, radius, shape);
@@ -244,6 +253,14 @@ namespace winrt::ZSlice::implementation
         layer2d->ToBed(x, y, bed_x, bed_y);
         size_t segment = 0;
         size_t path = zs_view_pick_layer(view, layer2d_layer, bed_x, bed_y, &segment);
+        // Shift and a click: the line joins the selection, or leaves it.
+        if (shift)
+        {
+            if (path != (size_t)-1)
+                ToggleMoreLine((int64_t)path);
+            RequestDraw();
+            return;
+        }
         if (path != (size_t)-1)
         {
             page_gap = false;

@@ -8,6 +8,8 @@
 
 #pragma once
 
+#include <vector>
+
 #include <d2d1_2.h>
 #include <d3d11.h>
 
@@ -23,6 +25,8 @@ namespace zs
         // The selected path, as an index in the paths of the layer, or -1.
         int64_t selected = -1;
         int64_t segment = -1;
+        // The other lines of a multiple selection on this layer.
+        std::vector<int64_t> more;
         bool dark = false;
         // A selected line with "Fade the others".
         bool fade = false;
