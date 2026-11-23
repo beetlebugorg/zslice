@@ -94,6 +94,50 @@ Cura LulzBot Edition resources, FAME 3D (LulzBot), https://github.com/lulzbot3d/
 
 **Notes:** The LulzBot printers (TAZ Workhorse, TAZ Pro, TAZ 5 to 8, Mini, SideKick, Bio) in the Cura format. LulzBot comes first for its own printers. The nozzle of a tool head is in its name ("SE 0.50 mm"): the tool takes it from there.
 
+### Creality firmware configurations
+
+```ref
+kind: data
+source: Creality firmware
+license: GPL-3.0
+link: https://github.com/CrealityOfficial/K1_Series_Klipper
+version: K1_Series_Klipper e09f36e6, K2_Series_Klipper bc0a5207, CR-10SE_Klipper b633196f, Hi_Klipper 646b6aaa
+files: tools/printer_library.py, src/printers/library.txt
+texts: licenses/gpl-3.0.txt
+area: printers
+summary: The kinematics of the K1 and K2 models, and the chamber heater of the K2 Pro, CR-10 SE, and Hi.
+```
+
+Creality, the `config/<model>/printer.cfg` files of https://github.com/CrealityOfficial/K1_Series_Klipper (commit `e09f36e6ada60e5467b0bef731a96263b5d8095b`), https://github.com/CrealityOfficial/K2_Series_Klipper (commit `bc0a52078ace1e4d82995e396b38457b9f441024`), https://github.com/CrealityOfficial/CR-10SE_Klipper (commit `b633196f0a9dfb010dd3fc2bd20dbeb37039b93a`), and https://github.com/CrealityOfficial/Hi_Klipper (commit `646b6aaaa4dc1fe9c4f773f1a425ea4666e5ed9b`)
+
+**License:** GPL-3.0 (the license of each repository); zslice uses facts and copies no code
+
+**Text:** `licenses/gpl-3.0.txt`
+
+**Notes:** The overrides of `tools/printer_library.py` use the `kinematics` value of the K1, K1C, K1 SE, K1 Max, K2, K2 Pro, and K2 Plus, and the `heater_generic chamber_heater` section. The K2 Pro has this section. The CR-10 SE and the Hi do not.
+
+### Marlin and Klipper printer configurations
+
+```ref
+kind: data
+source: Marlin Configurations, Klipper
+license: GPL-3.0
+link: https://github.com/MarlinFirmware/Configurations
+version: Configurations aae053b1, Klipper c9559fa0
+files: tools/printer_library.py, src/printers/library.txt
+texts: licenses/gpl-3.0.txt
+area: printers
+summary: The CoreXY kinematics of the Ender-4 and Ender-6, and the Z travel of the Ender-5 S1.
+```
+
+Marlin example configurations, https://github.com/MarlinFirmware/Configurations, `config/examples/Creality`, commit `aae053b1572b759a90ce8570e1cade123bcab2f1`, and Klipper, https://github.com/Klipper3d/klipper, `config/printer-creality-ender5-s1-2023.cfg`, commit `c9559fa04ec6b11fb1a9a1610903546319fcf310`
+
+**License:** GPL-3.0 (the license of each repository); zslice uses facts and copies no code
+
+**Text:** `licenses/gpl-3.0.txt`
+
+**Notes:** `COREXY` in the Marlin configurations of the Ender-4 and the Ender-6. The Klipper configuration of the Ender-5 S1 has a Z `position_max` of 280 mm.
+
 ## Data next to the binaries
 
 The bed models of the printers are files in `src/printers/beds/`: 456 meshes (`.mesh`) and 280 textures (`.png`), 10.5 MB in all. No binary and no wasm module contains them. The GTK app installs them in `share/zslice/beds`, and `zig build web` puts them in `zig-out/web/app/beds`. A shell loads the two files of the current printer (`zs_printers_bed`, `zs_view_set_bed`). The D lines of `src/printers/library.txt` name the files, and the P line of each printer model links its D line: 830 of the 1080 models have a bed, 813 with a mesh and 549 with a texture.
