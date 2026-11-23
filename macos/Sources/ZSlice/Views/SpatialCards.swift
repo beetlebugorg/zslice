@@ -20,7 +20,23 @@
 //! SPDX-License-Identifier: AGPL-3.0-or-later
 
 import Observation
+import AppKit
 import SwiftUI
+
+extension View {
+    /// A sheet of this size, but never wider or taller than its window, so
+    /// the sheet does not cover the title bar or stick out at the sides.
+    @MainActor func dialogFrame(width: CGFloat, height: CGFloat) -> some View {
+        // The window under the sheet: a sheet that measured itself would shrink.
+        let w = (NSApp.mainWindow ?? NSApp.windows.first { $0.isVisible && $0.sheetParent == nil && $0.styleMask.contains(.titled) })?.frame.size
+        return frame(width: min(width, (w?.width ?? width + 48) - 48), height: min(height, (w?.height ?? height + 96) - 96))
+    }
+
+    /// The head or the foot of a sheet with columns.
+    func dialogBar() -> some View {
+        padding(.horizontal, 24).padding(.vertical, 14)
+    }
+}
 
 /// The center of a card that the user moved, inside the view now. The
 /// settings pane makes the view narrower, so a card at the right edge

@@ -166,7 +166,7 @@ struct CalibrationSheet: View {
                 Button("Close") { dismiss() }.keyboardShortcut(.cancelAction)
             }
         }
-        .padding(20)
+        .padding(24)
         .frame(width: 520)
     }
 }
@@ -200,8 +200,8 @@ struct ImportReportSheet: View {
                 Button("Close") { dismiss() }.keyboardShortcut(.defaultAction)
             }
         }
-        .padding(20)
-        .frame(width: 720, height: 520)
+        .padding(24)
+        .dialogFrame(width: 720, height: 520)
     }
 
     private func at(_ r: [String], _ i: Int) -> String { i < r.count ? r[i] : "" }

@@ -43,9 +43,10 @@ struct PrinterPicker: View {
                 SearchField(text: $query, prompt: "Search: ender 3, mk4, k1 max, voron 2.4")
                     .frame(width: 320)
             }
-            .padding()
+            .dialogBar()
             Divider()
-            HSplitView {
+            // Fixed columns: an HSplitView in a sheet left its top empty.
+            HStack(spacing: 0) {
                 List(selection: Binding(get: { brand }, set: { brand = $0 ?? -1 })) {
                     Text("Popular (\(lib.popular.count))").tag(-2)
                     Text("All Brands").tag(-1)
@@ -53,7 +54,8 @@ struct PrinterPicker: View {
                         Text(b.name).tag(i)
                     }
                 }
-                .frame(minWidth: 160, maxWidth: 220)
+                .frame(width: 190)
+                Divider()
                 List(selection: $selected) {
                     if query.isEmpty && brand < 0 {
                         Section {
@@ -103,10 +105,12 @@ struct PrinterPicker: View {
                         }
                     }
                 }
-                .frame(minWidth: 280)
+                .frame(minWidth: 280, maxWidth: .infinity)
+                Divider()
                 detail
-                    .frame(minWidth: 300, maxWidth: .infinity)
+                    .frame(width: 320)
             }
+            .frame(maxHeight: .infinity)
             Divider()
             HStack {
                 Button("My Printer Is Not in the List") { addGeneric() }
@@ -117,9 +121,9 @@ struct PrinterPicker: View {
                     .disabled((selected == nil && network == nil) || name.isEmpty)
                     .help(selected == nil && network != nil ? "Add the printer of the network with generic settings; pick its model at the left for its bed and start G-code" : "")
             }
-            .padding()
+            .dialogBar()
         }
-        .frame(width: 960, height: 620)
+        .dialogFrame(width: 960, height: 620)
         .onAppear { discovery.start() }
         .onDisappear { discovery.stop() }
         .onChange(of: selected) {

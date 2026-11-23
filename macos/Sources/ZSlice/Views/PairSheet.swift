@@ -67,7 +67,7 @@ struct PairSheet: View {
                 }
             }
         }
-        .padding(20)
+        .padding(24)
         .frame(width: 440)
         .onAppear { start() }
         .onDisappear { task?.cancel() }
@@ -193,11 +193,11 @@ struct ConnectDeckSheet: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Connect a Printdeck").font(.headline)
-            Text("The address of the printdeck: on its System page. A secure address (https://….d.printdeck.beetlebug.org) works from anywhere; http://printdeck.local works on your network.")
+            Text(verbatim: "The address of the printdeck: on its System page. A secure address (https://….d.printdeck.beetlebug.org) works from anywhere; http://printdeck.local works on your network.")
                 .font(.callout)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
-            TextField("https://….d.printdeck.beetlebug.org or http://printdeck.local", text: $url)
+            TextField("Address", text: $url, prompt: Text(verbatim: "https://….d.printdeck.beetlebug.org or http://printdeck.local"))
                 .textFieldStyle(.roundedBorder)
                 .onSubmit { connect() }
             if !message.isEmpty {
@@ -212,7 +212,7 @@ struct ConnectDeckSheet: View {
                     .disabled(busy || url.trimmingCharacters(in: .whitespaces).isEmpty)
             }
         }
-        .padding(20)
+        .padding(24)
         .frame(width: 440)
         .onAppear {
             if !url.isEmpty, !tried {
