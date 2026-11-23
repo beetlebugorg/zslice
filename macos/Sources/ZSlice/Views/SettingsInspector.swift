@@ -213,6 +213,7 @@ struct LineSettings: View {
                     ForEach(info.picks, id: \.name) { p in
                         why(SettingInfo.byName[p.name]?.label ?? p.name, p.why)
                     }
+                    why("More about this line", info.explain).id("end")
                 }
                 .id("why")
             } else {
@@ -224,7 +225,7 @@ struct LineSettings: View {
         .task {
             guard ProcessInfo.processInfo.environment["ZSLICE_LINE_PAGE"] == "foot" else { return }
             try? await Task.sleep(for: .milliseconds(300))
-            scroller.scrollTo("why", anchor: .top)
+            scroller.scrollTo("end", anchor: .bottom)
         }
         }
     }

@@ -45,6 +45,9 @@ struct LineInfo {
     /// Why the planned speed, the real speed, and the flow are what they
     /// are, in words; a setting is a mark {{name}}.
     var whyPlanned = "", whyReal = "", whyFlow = ""
+    /// The other facts of the line, in words (zs_inspect.explain): the bead
+    /// and line widths, the plastic, the width range, and the print times.
+    var explain = ""
     /// The z of the line and its height and width, mm.
     var z = 0.0, height = 0.0, lineWidth = 0.0
     /// The part fan (0 to 1), the time of the layer (s), and the flow limit
@@ -201,6 +204,7 @@ extension Workspace {
             holds: info.holds_layer == ZS_NO_PATH ? nil : (Int(info.holds_layer), Int(info.holds_feature)),
             issues: lineIssues(ofPath: s.path, layer: Int(info.layer)))
         lineInfo?.nozzleText = coreText(info.nozzle_text)
+        lineInfo?.explain = coreText(info.explain)
         refindKey = middle(of: s.path).map { RefindKey(layer: info.layer, feature: info.feature, x: $0.x, y: $0.y) }
     }
 
