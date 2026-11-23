@@ -225,7 +225,6 @@ final class Workspace {
     // The selected line and its card (Selection.swift).
     var selection: Selection?
     var lineInfo: LineInfo?
-    @ObservationIgnored var refindKey: RefindKey?
     var cardOpen = false
     /// Where the click was (points in the view), and where the user moved
     /// the card to; the card keeps that place until it closes.

@@ -7,10 +7,10 @@
 //! yellow and the segment in orange. "Fade the others" shows the other
 //! lines as ghosts (zs_view_isolate).
 //!
-//! A new slice can change the index of each path. The window keeps the
-//! layer, the feature, and the middle point of the selected line, and after
-//! the slice zs_app_pick_feature finds the nearest line of the same feature
-//! there, as the web app and the GTK app do.
+//! A new slice can change the index of each path. The core selection model
+//! keeps the key of the line (zs_sel_line_set), and after the slice
+//! zs_app_path_of_key finds its path. A line that the slice did not make
+//! again ends the selection (docs/internals/selection.md).
 //!
 //! The keys of a selected line (docs/user/getting-started.md, "Keys in the
 //! preview"): Left and Right step along the print (Shift: a whole line), Up
@@ -93,7 +93,9 @@ extension Workspace {
     func select(path: Int, seg: Int, openCard: Bool) {
         let before = selection
         selection = Selection(path: path, seg: seg)
-        selection?.key = zs_app_path_key(model.core, path)
+        let key = zs_app_path_key(model.core, path)
+        selection?.key = key
+        if key != 0 { zs_sel_line_set(model.sel, key, path, seg) }
         // The same line again while a new slice runs (a right click on it):
         // the core has no slice to read, so the facts of before stay.
         if selection?.key == 0, let before, before.path == path, before.key != 0 {
@@ -134,7 +136,7 @@ extension Workspace {
     func clearSelection() {
         selection = nil
         lineInfo = nil
-        refindKey = nil
+        zs_sel_line_set(model.sel, 0, -1, -1)
         cardOpen = false
         cardMoved = nil
         showSelection()
@@ -193,7 +195,6 @@ extension Workspace {
             holds: info.holds_layer == ZS_NO_PATH ? nil : (Int(info.holds_layer), Int(info.holds_feature)),
             issues: lineIssues(ofPath: s.path, layer: Int(info.layer)))
         lineInfo?.nozzleText = coreText(info.nozzle_text)
-        refindKey = middle(of: s.path).map { RefindKey(layer: info.layer, feature: info.feature, x: $0.x, y: $0.y) }
     }
 
     /// The warnings of the check at a line, the worst first: its own, and
@@ -224,17 +225,18 @@ extension Workspace {
 
     /// After a new slice: the same line, or none.
     func refindSelection() {
-        guard selection != nil, let key = refindKey else {
-            if selection != nil { clearSelection() }
-            return
-        }
-        let path = zs_app_pick_feature(model.core, key.layer, key.feature, key.x, key.y)
-        guard path != noPath, let v = canvas.view else {
+        guard selection != nil else { return }
+        var key: UInt64 = 0, was = 0, seg = 0
+        zs_sel_line_get(model.sel, &key, &was, &seg)
+        let path = key == 0 ? noPath : zs_app_path_of_key(model.core, key)
+        guard path >= 0, let v = canvas.view else {
+            zs_sel_line_found(model.sel, -1, 0)
             clearSelection()
             return
         }
-        let segs = zs_view_path_segments(v, path)
-        select(path: path, seg: min(selection?.seg ?? 0, max(0, segs - 1)), openCard: false)
+        zs_sel_line_found(model.sel, path, zs_view_path_segments(v, path))
+        zs_sel_line_get(model.sel, &key, &was, &seg)
+        select(path: path, seg: max(seg, 0), openCard: false)
     }
 
     /// A double click on the 3D page: the camera turns to face the side of
@@ -367,11 +369,4 @@ struct Selection: Equatable {
     var key: UInt64 = 0
     var layer = -1
     var x = 0.0, y = 0.0, z = 0.0
-}
-
-struct RefindKey {
-    var layer: Int
-    var feature: Int32
-    var x: Double
-    var y: Double
 }
