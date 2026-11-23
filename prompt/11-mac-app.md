@@ -50,6 +50,9 @@ Build the native Mac app in `macos/`: a SwiftUI and AppKit shell around the app 
 
 ## Lessons
 
+- **Keep the print details inside their padding.** Filament rows wider than the card spilled over its padding and squeezed the spool mark. The card is 336 points wide, the rows have fixed columns, a head holds the close button, and the details scroll in a short window.
+- **Show the layer of a line that a key selects.** With j, the line went down under layers that stayed visible. The top of the range now goes to the layer of the line, and an empty layer is passed.
+- **Keep the reasons off the line card.** How the values come about (the planned and real speed, the flow, the reason for each pick, a slow-down, and the flow limit) is at the foot of the Selected Line page.
 - A selected part was an index, so a delete or an undo could move the selection to another part. The Mac app now keeps stable ids in `zs_selection`, and reads each index from its id at the moment of use.
 
 - **Write no session until the restore at launch is done.** A window gets its session, then waits for its NSWindow. A write in that time listed the new, empty window and removed the files of the last run, so a quit or a crash then lost the session. Count the sessions that windows took and did not restore yet. A change in that time writes once after the last restore.
