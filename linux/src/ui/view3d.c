@@ -270,6 +270,14 @@ static gboolean poll_scene(gpointer data) {
     if (v->view && zs_view_scene_pending(v->view)) {
         if (!zs_view_scene_poll(v->view)) return G_SOURCE_CONTINUE;
         v->scene_poll = 0;
+        /* A newer slice runs: the app has no toolpaths now, and a load
+         * empties the view. The beads stay until that slice comes. */
+        if (zs_app_state(zg_model_core(v->model)) == ZS_STATE_SLICING) {
+            zg_model_scene_loaded(v->model, FALSE);
+            if (v->base_on || v->fall_shown || v->live_on) show_preview(v);
+            queue_frame(v);
+            return G_SOURCE_REMOVE;
+        }
         load_data(v);
         return G_SOURCE_REMOVE;
     }
