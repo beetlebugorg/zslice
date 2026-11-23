@@ -46,6 +46,7 @@ This is the rule after several corrections. Match it in each shell.
 
 ## Lessons
 
+- **Measure an arrow drag from the center at the press.** The shells move the gizmo with the part. A move from the current center feeds back into itself.
 - **The bottom of each bead faces down.** From below, the first layer showed the infill through it. The bottom fan of the bead mesh had the same order as the top fan, so it faced up, and back-face culling removed it. Wind the bottom fan the other way.
 - **Far beads keep their look.** Ribbons for far beads and flat normals under 5 px made a 3DBenchy look washed out and hatched. Ribbons are off by default (`zs_view_set_ribbons`), and only the gloss fades on beads under 5 px.
 - **Fast when zoomed in.** Zoomed in on a 3DBenchy, the web view drew 77k full beads, and a shader with `discard` turned off the early depth test: 67 to 83 ms a frame on an Intel HD 530. Cull chunks of 96 beads, use a second program with no discard, and add a detail governor (`zs_view_set_detail`) while the view moves. The same zooms then took 50, 33, and 17 ms.

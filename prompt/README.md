@@ -1,6 +1,6 @@
 # A prompt that could build zslice
 
-Describes: main at commit `2c7e774f` ("Make the Mac search field one plain shape"), 2026-11-23.
+Describes: main at commit `6fb43210` ("Add the plain Mac search field to the prompt"), 2026-11-23.
 
 ## Read this first
 
