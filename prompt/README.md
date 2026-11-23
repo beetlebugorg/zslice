@@ -1,6 +1,6 @@
 # A prompt that could build zslice
 
-Describes: main at commit `55d1c868` ("Keep printer text and project settings out of GTK roll files"), 2026-11-23.
+Describes: main at commit `9e8156bf` ("Add the send and page fixes to the Windows prompt"), 2026-11-23.
 
 ## Read this first
 
