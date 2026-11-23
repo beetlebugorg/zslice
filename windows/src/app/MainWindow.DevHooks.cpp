@@ -453,6 +453,25 @@ namespace winrt::ZSlice::implementation
         {
             ChooseColorMode(_wtoi(words[0].c_str()));
         }
+        else if (verb == L"panemode" && !words.empty())
+        {
+            SetPanelMode(static_cast<PanelMode>(_wtoi(words[0].c_str())));
+        }
+        else if (verb == L"panedrag" && !words.empty())
+        {
+            PanelDragTo(Root().ActualWidth() - _wtof(words[0].c_str()));
+            PanelDragEnd();
+        }
+        else if (verb == L"paneesc")
+        {
+            zs::Log("dev: pane esc %d\n", PanelEscape() ? 1 : 0);
+        }
+        else if (verb == L"panestate")
+        {
+            zs::Log("dev: pane mode %d width %.0f actual %.0f view %.0f of %.0f visible %d pin %d | prefs %s %s %s\n", (int)panel_mode, SettingsPane().Width(), SettingsPane().ActualWidth(),
+                    ViewPanel().ActualWidth(), Root().ActualWidth(), SettingsPane().Visibility() == Microsoft::UI::Xaml::Visibility::Visible ? 1 : 0, SettingsPin().IsChecked().GetBoolean() ? 1 : 0,
+                    zs::Printers().Pref("panel", "-").c_str(), zs::Printers().Pref("panel_pinned", "-").c_str(), zs::Printers().Pref("panel_width", "-").c_str());
+        }
         else if (verb == L"manageopen")
         {
             printers->ShowManage();

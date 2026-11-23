@@ -602,6 +602,21 @@ namespace winrt::ZSlice::implementation
         void WireView();
         void SetColorMode(int mode);
         void ChooseColorMode(int mode);
+        enum class PanelMode
+        {
+            Hidden,
+            Over,
+            Pinned
+        };
+        PanelMode panel_mode = PanelMode::Hidden;
+        bool pane_dragging = false;
+        void SetPanelMode(PanelMode mode);
+        void FitPanel();
+        void PanelDragTo(double x);
+        void PanelDragEnd();
+        bool PanelEscape();
+        void WirePanelModes();
+        void ApplySavedPanel();
         void ShowSimItem();
         void ShowSimNote();
         void ToggleFasterSlicing();
