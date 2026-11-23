@@ -56,6 +56,8 @@ Build the settings model, the TOML profiles with inheritance, the formulas, the 
 - The search finds the filament first for "color", "colour", "extruder", "material", and "tool".
 - A variable with a number index in the G-code of the library (`first_layer_temperature[1]`) stays as it is. The core gives the value of that slot or nozzle. `printer_library.py` writes the OrcaSlicer test `idle_temperature == 0` as `is_nil(idle_temperature[...])`.
 - The library tool gives the Prusa models what their sources lack: CoreXY for the XL and the CORE One, i3 for the MK and MINI printers, and 330 mm of height for the CORE One L HF of OrcaSlicer.
+- A start G-code of a Creality model that ends in G91 gets a G90 from `printer_library.py`. zslice writes no G90 after the start G-code.
+- `OVERRIDES` and `START_EDITS` in `printer_library.py` have the Creality values from the firmware configurations: the kinematics of the K1, K2, Ender-4, and Ender-6, 280 mm for the Ender-5 S1, the chamber heaters, and the CR-100 prime line. The kinematics of the library shows in the printer picker. The machine profile does not use it.
 
 ## Lessons
 
@@ -70,6 +72,7 @@ Build the settings model, the TOML profiles with inheritance, the formulas, the 
 - **A Prusa MMU changes with a tool change.** A plate of two filaments on an MMU printer paused with M600 at each change, twice a layer. PrusaSlicer writes T0 and T1 for these printers, and the firmware unloads and loads the filament.
 - **Keep the outline tolerance in the project.** It changes the G-code, so as an engine option it made other G-code on another computer.
 - A multiline value (G-code) shows its first line and " …" in a row. This is the only short form of a value. A label never ends in "…".
+- **A start G-code left the printer in relative positions.** The Ender-3 V4 and SPARKX i7 templates end in G91. OrcaSlicer writes G90 after the start G-code, and zslice does not. Klipper batch mode rejected the moves of the print. The library now adds G90 for these models.
 
 ## Acceptance checks
 
@@ -84,3 +87,4 @@ Build the settings model, the TOML profiles with inheritance, the formulas, the 
 9. Each app lists the qualities in the order Fine, Standard, Strong, Draft, Coarse, with the same summary lines.
 10. The test "each Prusa model of the library prints two filaments with its checks" passes (`src/plate_job.zig`, part 03).
 11. The Faster slicing switch shows custom after a change of one of its options.
+- `plate_job.zig` has a table test of the 77 Creality models: the firmware, the kinematics, the start macro, absolute positions at the first layer, and the filament change command.
