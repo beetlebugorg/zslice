@@ -1,6 +1,6 @@
 # A prompt that could build zslice
 
-Describes: main at commit `a6e673b2` ("Write G90 before the print moves of each printer"), 2026-11-23.
+Describes: main at commit `c320b829` ("Move how the values come about to the foot of the line page"), 2026-11-23.
 
 ## Read this first
 
