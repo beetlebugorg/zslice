@@ -1,6 +1,6 @@
 # A prompt that could build zslice
 
-Describes: main at commit `a1369655` ("Add the nozzles of a USB Stop to the Windows prompt"), 2026-11-23.
+Describes: main at commit `d38ca557` ("Count every tool that a USB print heats in the GTK app"), 2026-11-23.
 
 ## Read this first
 

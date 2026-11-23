@@ -53,3 +53,4 @@ One line for each update: the date, the commit that the folder describes, and th
 | 2026-11-23 | `ed81f35b` | README, CHANGELOG: GTK opens a USB port only after the user agrees, and Stop on USB turns off the heaters and the fan with no move. |
 | 2026-11-23 | `8152a96a` | README, CHANGELOG, 11: the Mac test build links the current SDK, so a UI check shows the release look. |
 | 2026-11-23 | `10392b44` | README, CHANGELOG: Stop on USB in GTK turns off each nozzle with `M104 T<n> S0`. |
+| 2026-11-23 | `d38ca557` | README, CHANGELOG: Stop on USB in GTK counts T10 to T15 and the T word of M104 and M109. |
