@@ -315,6 +315,10 @@ namespace winrt::ZSlice::implementation
         void RangeScene();
         void RangeRefresh();
         void RangePlace();
+        // The changes of the layers of the card: name and value.
+        std::vector<std::pair<std::string, std::string>> RangeChangesNow();
+        void RangePaste(std::vector<std::pair<std::string, std::string>> const &changes);
+        void RangeClearChanges(std::vector<std::pair<std::string, std::string>> const &changes);
 #ifdef ZS_DEV_HOOKS
         bool RunRangeStep(std::wstring const &verb, std::vector<std::wstring> const &words);
         bool RunProfileStep(std::wstring const &verb, std::vector<std::wstring> const &words);
@@ -459,6 +463,16 @@ namespace winrt::ZSlice::implementation
         void DuplicateParts();
         void PasteParts(bool here, double x, double y);
         bool NewPlateFrom(zs_app *from);
+        // The last copy, of one kind, for Ctrl+V. The core keeps the parts.
+        enum class ClipKind { Empty, Parts, Label, Range };
+        ClipKind clip_kind = ClipKind::Empty;
+        std::string clip_label;
+        std::vector<std::pair<std::string, std::string>> clip_range;
+        ClipKind ClipNow() const;
+        void ClipCopy();
+        void ClipCut();
+        void ClipDuplicate();
+        void ClipPaste(bool at, double x, double y, bool here, bool as_plate);
         bool ClipKey(Windows::System::VirtualKey key, bool shift);
         // The pointer, in points of the view.
         double pointer_x = 0, pointer_y = 0;
@@ -614,6 +628,10 @@ namespace winrt::ZSlice::implementation
         void LabelPlace();
         void LabelOpen(int64_t part, uint32_t id);
         void LabelFilamentsChanged();
+        // Copy and paste of the selected label, as its JSON.
+        std::string LabelCopyJson();
+        bool LabelPaste(std::string const &json, bool at_point, double x, double y);
+        void LabelRemoveSelected();
 #ifdef ZS_DEV_HOOKS
         bool RunPaintStep(std::wstring const &verb, std::vector<std::wstring> const &words);
         bool RunLabelStep(std::wstring const &verb, std::vector<std::wstring> const &words);

@@ -955,6 +955,21 @@ namespace winrt::ZSlice::implementation
         {
             ClipKey(verb == L"copy" ? VirtualKey::C : verb == L"cut" ? VirtualKey::X : verb == L"paste" ? VirtualKey::V : VirtualKey::D, has(L"shift"));
         }
+        else if (verb == L"cliplog")
+        {
+            zs_app *clip_app = model->Active();
+            size_t label_chars = 0;
+            std::string label_json;
+            if (zs_app_part_count(clip_app) > 0 && zs_app_part_labels_get(clip_app, 0, nullptr, 0, &label_chars) == ZS_OK && label_chars > 0)
+            {
+                label_json.resize(label_chars + 1);
+                zs_app_part_labels_get(clip_app, 0, label_json.data(), label_json.size(), &label_chars);
+            }
+            size_t labels = 0;
+            for (size_t at = label_json.find("\"origin\""); at != std::string::npos; at = label_json.find("\"origin\"", at + 1))
+                labels++;
+            zs::Log("dev: clip kind %d range %zu label chars %zu | labels of part 0 %zu overrides %zu parts %zu\n", (int)ClipNow(), clip_range.size(), clip_label.size(), labels, zs_app_override_count(clip_app), zs_app_part_count(clip_app));
+        }
         else if (verb == L"bed")
         {
             ToggleBed();

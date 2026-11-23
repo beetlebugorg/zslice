@@ -1212,6 +1212,66 @@ namespace winrt::ZSlice::implementation
             b.Visibility(Visibility::Collapsed);
     }
 
+    // The changes of these layers. The last change of a setting wins.
+    std::vector<std::pair<std::string, std::string>> MainWindow::RangeChangesNow()
+    {
+        std::vector<std::pair<std::string, std::string>> out;
+        double z0 = 0, z1 = 0;
+        if (!RangeOpen() || model == nullptr || !range->ZRange(z0, z1))
+            return out;
+        zs_app *app = model->Active();
+        for (size_t i = 0, n = zs_app_override_count(app); i < n; i++)
+        {
+            zs_override o{};
+            if (zs_app_override_get(app, i, &o) != ZS_OK || o.z_min > z0 + 1e-4 || o.z_max < z0 - 1e-4)
+                continue;
+            std::string name(o.name, o.name_len), value(o.value, o.value_len);
+            auto same = std::find_if(out.begin(), out.end(), [&](auto const &c) { return c.first == name; });
+            if (same != out.end())
+                same->second = value;
+            else
+                out.emplace_back(std::move(name), std::move(value));
+        }
+        return out;
+    }
+
+    void MainWindow::RangePaste(std::vector<std::pair<std::string, std::string>> const &changes)
+    {
+        double z0 = 0, z1 = 0;
+        if (!RangeOpen() || model == nullptr || !range->ZRange(z0, z1))
+            return;
+        size_t done = 0;
+        for (auto const &c : changes)
+            if (zs_app_override_set(model->Active(), z0, z1, c.first.c_str(), c.second.c_str()) == ZS_OK)
+                done++;
+        if (done == 0)
+            return;
+        model->RequestSlice();
+        NoteChange();
+        RefreshSettingValues();
+        range->Refresh();
+        ProfilesRefresh();
+    }
+
+    void MainWindow::RangeClearChanges(std::vector<std::pair<std::string, std::string>> const &changes)
+    {
+        double z0 = 0, z1 = 0;
+        if (!RangeOpen() || model == nullptr || !range->ZRange(z0, z1))
+            return;
+        zs_app *app = model->Active();
+        size_t done = 0;
+        for (auto const &c : changes)
+            if (zs_app_override_remove(app, z0, z1, c.first.c_str()) == 1 || zs_app_override_clear_at(app, z0, c.first.c_str()) > 0)
+                done++;
+        if (done == 0)
+            return;
+        model->RequestSlice();
+        NoteChange();
+        RefreshSettingValues();
+        range->Refresh();
+        ProfilesRefresh();
+    }
+
     void MainWindow::RangePlace()
     {
         if (range != nullptr)

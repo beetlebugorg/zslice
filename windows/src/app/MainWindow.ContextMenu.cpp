@@ -158,7 +158,10 @@ namespace winrt::ZSlice::implementation
         }
         std::vector<size_t> parts(selected_parts.begin(), selected_parts.end());
         if (zs_app_parts_copy(model->Active(), parts.data(), parts.size(), 0) == ZS_OK)
-            ShowToast(parts.size() == 1 ? hstring(L"Copied the part.") : hstring(L"Copied the parts."));
+        {
+            clip_kind = ClipKind::Parts;
+            ShowToast(parts.size() == 1 ? std::wstring(L"Copied the part.") : L"Copied " + std::to_wstring(parts.size()) + L" parts.");
+        }
     }
 
     void MainWindow::CutParts()
@@ -172,6 +175,8 @@ namespace winrt::ZSlice::implementation
         std::vector<size_t> parts(selected_parts.begin(), selected_parts.end());
         if (zs_app_parts_copy(app, parts.data(), parts.size(), 0) != ZS_OK)
             return;
+        clip_kind = ClipKind::Parts;
+        ShowToast(parts.size() == 1 ? std::wstring(L"Cut the part. Ctrl+V pastes it.") : L"Cut " + std::to_wstring(parts.size()) + L" parts. Ctrl+V pastes them.");
         // The last index first: a removal moves the parts after it.
         std::sort(parts.rbegin(), parts.rend());
         for (size_t part : parts)
@@ -245,29 +250,146 @@ namespace winrt::ZSlice::implementation
         return true;
     }
 
-    bool MainWindow::ClipKey(VirtualKey key, bool shift)
+    // The kind of the last copy. Parts can be in the core from a copy of
+    // the plate.
+    MainWindow::ClipKind MainWindow::ClipNow() const
     {
-        if (key == VirtualKey::V)
+        return clip_kind == ClipKind::Empty && zs_clipboard_parts() > 0 ? ClipKind::Parts : clip_kind;
+    }
+
+    // A copy takes the first that applies: the selected label, the layers
+    // of the range card, then the parts.
+    void MainWindow::ClipCopy()
+    {
+        if (tool == Tool::Label)
         {
-            if (shift)
+            std::string json = LabelCopyJson();
+            if (!json.empty())
+            {
+                clip_label = std::move(json);
+                clip_kind = ClipKind::Label;
+                ShowToast(L"Copied the label.");
+                return;
+            }
+        }
+        if (RangeOpen())
+        {
+            auto changes = RangeChangesNow();
+            if (changes.empty())
+            {
+                ShowToast(L"These layers have no changes to copy.");
+                return;
+            }
+            ShowToast(L"Copied " + std::to_wstring(changes.size()) + (changes.size() == 1 ? L" change" : L" changes") + L" of the layers.");
+            clip_range = std::move(changes);
+            clip_kind = ClipKind::Range;
+            return;
+        }
+        CopyParts();
+    }
+
+    void MainWindow::ClipCut()
+    {
+        if (tool == Tool::Label)
+        {
+            std::string json = LabelCopyJson();
+            if (!json.empty())
+            {
+                clip_label = std::move(json);
+                clip_kind = ClipKind::Label;
+                ShowToast(L"Copied the label.");
+                LabelRemoveSelected();
+                return;
+            }
+        }
+        if (RangeOpen())
+        {
+            auto changes = RangeChangesNow();
+            if (changes.empty())
+            {
+                ShowToast(L"These layers have no changes to copy.");
+                return;
+            }
+            ShowToast(L"Copied " + std::to_wstring(changes.size()) + (changes.size() == 1 ? L" change" : L" changes") + L" of the layers.");
+            clip_range = std::move(changes);
+            clip_kind = ClipKind::Range;
+            RangeClearChanges(clip_range);
+            return;
+        }
+        CutParts();
+    }
+
+    // A copy next to the selection. The clipboard stays.
+    void MainWindow::ClipDuplicate()
+    {
+        if (tool == Tool::Label)
+        {
+            std::string json = LabelCopyJson();
+            if (!json.empty())
+            {
+                LabelPaste(json, false, 0, 0);
+                return;
+            }
+        }
+        if (RangeOpen())
+        {
+            ShowToast(L"Ctrl+D duplicates parts and labels.");
+            return;
+        }
+        DuplicateParts();
+    }
+
+    // at: x, y is a place for it (the pointer, or the right click). here:
+    // at x, y also with parts selected. as_plate: parts go on a new plate.
+    void MainWindow::ClipPaste(bool at, double x, double y, bool here, bool as_plate)
+    {
+        bool in_view = at && !show_2d && x >= 0 && y >= 0 && x < ViewPanel().ActualWidth() && y < ViewPanel().ActualHeight();
+        switch (ClipNow())
+        {
+        case ClipKind::Parts:
+            if (as_plate)
             {
                 if (!NewPlateFrom(nullptr))
                     ShowToast(L"The plate did not paste.");
             }
             else
             {
-                PasteParts(false, pointer_x, pointer_y);
+                PasteParts(here, x, y);
             }
+            break;
+        case ClipKind::Label:
+            if (show_2d)
+                ShowToast(L"Paste a label in the 3D view.");
+            else
+                LabelPaste(clip_label, in_view, x, y);
+            break;
+        case ClipKind::Range:
+            if (!RangeOpen())
+                ShowToast(L"Select layers first (drag up or down over the print), then paste the changes.");
+            else
+                RangePaste(clip_range);
+            break;
+        default:
+            ShowToast(L"The clipboard is empty: copy a part, a label, or layers first.");
+            break;
+        }
+    }
+
+    bool MainWindow::ClipKey(VirtualKey key, bool shift)
+    {
+        if (key == VirtualKey::V)
+        {
+            ClipPaste(true, pointer_x, pointer_y, false, shift);
             return true;
         }
         if (shift)
             return false;
         if (key == VirtualKey::C)
-            CopyParts();
+            ClipCopy();
         else if (key == VirtualKey::X)
-            CutParts();
+            ClipCut();
         else if (key == VirtualKey::D)
-            DuplicateParts();
+            ClipDuplicate();
         else
             return false;
         return true;
@@ -296,7 +418,7 @@ namespace winrt::ZSlice::implementation
         bool on_part = picked != (size_t)-1 && !on_support;
         bool marks = zs_app_mark_count(app) > 0;
         bool cut = layer_count > 0 && LayerSlider().Value() < LayerSlider().Maximum();
-        size_t clip = zs_clipboard_parts();
+        ClipKind clip = ClipNow();
 
         MenuFlyout menu;
         using Items = Windows::Foundation::Collections::IVector<MenuFlyoutItemBase>;
@@ -338,8 +460,8 @@ namespace winrt::ZSlice::implementation
                 PlateEdited();
         };
 
-        if (clip > 0)
-            add(menu.Items(), L"Paste here", [this, x, y] { PasteParts(true, x, y); }, L"Ctrl+V");
+        if (clip != ClipKind::Empty)
+            add(menu.Items(), L"Paste here", [this, x, y] { ClipPaste(true, x, y, true, false); }, L"Ctrl+V");
         if (on_support)
         {
             section();
@@ -433,13 +555,16 @@ namespace winrt::ZSlice::implementation
                 if (zs_app_part_count(model->Active()) == 0)
                     ShowToast(L"The plate has no parts to copy.");
                 else if (zs_app_parts_copy(model->Active(), nullptr, 0, 1) == ZS_OK)
+                {
+                    clip_kind = ClipKind::Parts;
                     ShowToast(L"Copied the plate.");
+                }
             });
             add(menu.Items(), L"Duplicate the plate", [this] {
                 if (!NewPlateFrom(model->Active()))
                     ShowToast(L"The plate has no parts to duplicate.");
             });
-            if (clip > 0)
+            if (clip == ClipKind::Parts)
                 add(menu.Items(), L"Paste as a new plate", [this] {
                     if (!NewPlateFrom(nullptr))
                         ShowToast(L"The plate did not paste.");
