@@ -16,9 +16,9 @@ namespace zs
 {
     namespace
     {
-        char const *const link_keys[] = { "none", "printdeck", "octoprint", "moonraker", "prusalink", "bambu" };
+        char const *const link_keys[] = { "none", "printdeck", "octoprint", "moonraker", "prusalink", "usb", "bambu" };
         char const *const link_titles[] = {
-            "None (export a file)", "printdeck", "OctoPrint", "Moonraker (Klipper)", "PrusaLink", "Bambu Lab (LAN mode)",
+            "None (export a file)", "printdeck", "OctoPrint", "Moonraker (Klipper)", "PrusaLink", "USB (serial port)", "Bambu Lab (LAN mode)",
         };
 
         std::wstring Wide(std::string const &text)
@@ -201,6 +201,9 @@ namespace zs
                 p.kind = LinkFromKey(Get(group, "connection"));
                 p.url = Get(group, "url");
                 p.serial = Get(group, "serial");
+                p.device = Get(group, "device");
+                if (int baud = atoi(Get(group, "baud").c_str()); baud > 0)
+                    p.baud = baud;
                 p.deck_name = Get(group, "deck_name");
                 p.tls_pin = Get(group, "tls_pin");
                 p.tls_since = _strtoi64(Get(group, "tls_since").c_str(), nullptr, 10);
@@ -244,6 +247,9 @@ namespace zs
             Put(out, "connection", LinkKey(p.kind));
             Put(out, "url", p.url);
             Put(out, "serial", p.serial);
+            Put(out, "device", p.device);
+            if (p.kind == LinkKind::Usb)
+                Put(out, "baud", std::to_string(p.baud));
             Put(out, "deck_name", p.deck_name);
             Put(out, "tls_pin", p.tls_pin);
             if (p.tls_since != 0)

@@ -4,7 +4,8 @@
 //
 // All network work runs on worker threads (windows/src/net). A worker posts
 // its result to the UI thread through Poster, which drops it if the window
-// is gone. The app never starts a print (see zs_printer_link.h).
+// is gone. Only a USB print starts a print, after a yes for that print
+// (MainWindow.Usb.cpp, zs_usb.h). The other links only upload.
 //
 // The behavior follows the GTK shell (linux/src/ui/printer-picker.c,
 // farm-page.c, pair-dialog.c, profile-menus.c, filaments.c, window.c) and
@@ -205,6 +206,17 @@ namespace winrt::ZSlice::implementation
         void PreferencesPanelClosed(std::shared_ptr<OverlayPanel> const &panel);
         void PreferencesThemeChanged();
         std::shared_ptr<PrefsPage> prefs;
+
+        // ---- MainWindow.Usb.cpp: a print over a USB serial port ----
+        winrt::fire_and_forget PrintUsb();
+        void StopUsb();
+        void ShowUsbState();
+        winrt::fire_and_forget AskUsbTest(std::string device, int baud, std::function<void(std::wstring const &, bool)> done);
+        winrt::fire_and_forget AskCloseDuringUsb();
+        // Set while a print streams. A store of true stops it.
+        std::shared_ptr<std::atomic<bool>> usb_stop;
+        bool usb_asking = false, usb_close_after = false;
+        Microsoft::UI::Xaml::Controls::Button usb_stop_button{ nullptr };
 
         // ---- MainWindow.Send.cpp ----
         void FillSendMenu();

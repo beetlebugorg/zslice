@@ -306,7 +306,7 @@ summary: HTTP, TLS, the H.264 camera decoder, and the encryption of the saved ke
 
 **Shell:** Windows (`windows/`)
 
-**Library:** The system libraries of Windows: WinHTTP (HTTP), Schannel through SSPI (TLS with a pinned certificate), Media Foundation (the H.264 Video Decoder MFT, for the RTSP camera of Bambu Lab printers), DPAPI (`CryptProtectData`, the saved keys), CNG (SHA-256 and random bytes), and Winsock (the printer search)
+**Library:** The system libraries of Windows: WinHTTP (HTTP), Schannel through SSPI (TLS with a pinned certificate), the communications functions (a USB serial port), Media Foundation (the H.264 Video Decoder MFT, for the RTSP camera of Bambu Lab printers), DPAPI (`CryptProtectData`, the saved keys), CNG (SHA-256 and random bytes), and Winsock (the printer search)
 
 **License:** Windows system libraries, part of Windows
 

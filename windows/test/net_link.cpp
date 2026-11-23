@@ -2040,7 +2040,7 @@ namespace
         for (std::string const &name : usb::Ports())
             CHECK(usb::ValidPort(name));
 
-        usb::Timing fast{ 1, 300 };
+        usb::Timing fast{ 1, 300, 300 };
         std::atomic<bool> stop{ false };
         // Comments, blank lines, spaces, and CR LF do not reach the printer.
         {
@@ -2070,7 +2070,7 @@ namespace
         {
             StubPrinter p;
             p.answer = [](std::string const &, size_t) { return std::string("echo: not ok\n"); };
-            usb::Result r = usb::Stream(p, "G1 X1\nG1 X2\n", stop, nullptr, usb::Timing{ 1, 60 });
+            usb::Result r = usb::Stream(p, "G1 X1\nG1 X2\n", stop, nullptr, usb::Timing{ 1, 60, 60 });
             CHECK(!r.ok);
             CHECK(r.message == "The printer did not answer.");
             CHECK(p.lines.size() == 1);
@@ -2099,7 +2099,8 @@ namespace
             CHECK(r.message == "The port stopped.");
             CHECK(p.lines.size() == 2);
         }
-        // A stop: no command goes out after it, and none is added.
+        // A stop with a command in flight: its "ok", then the three cooling
+        // commands in order, and no move.
         {
             StubPrinter p;
             std::atomic<bool> halt{ false };
@@ -2110,14 +2111,87 @@ namespace
             usb::Result r = usb::Stream(p, "G1 X1\nG1 X2\nG1 X3\nG1 X4\nG1 X5\n", halt, nullptr, fast);
             CHECK(!r.ok);
             CHECK(r.cancelled);
-            CHECK(p.lines.size() == 3);
+            CHECK(r.sent);
+            CHECK(r.cooled);
+            CHECK((p.lines == std::vector<std::string>{ "G1 X1", "G1 X2", "G1 X3", "M104 S0", "M140 S0", "M107" }));
+        }
+        // A stop between two commands: the cooling commands follow.
+        {
+            StubPrinter p;
+            std::atomic<bool> halt{ false };
+            usb::Result r = usb::Stream(p, "G1 X1\nG1 X2\n", halt, [&halt](double) { halt.store(true); }, fast);
+            CHECK(r.cancelled);
+            CHECK(r.cooled);
+            CHECK((p.lines == std::vector<std::string>{ "G1 X1", "M104 S0", "M140 S0", "M107" }));
+        }
+        // The command in flight never answers: nothing goes after it.
+        {
+            StubPrinter p;
+            std::atomic<bool> halt{ false };
+            p.answer = [&halt](std::string const &, size_t n) {
+                if (n == 2)
+                {
+                    halt.store(true);
+                    return std::string();
+                }
+                return std::string("ok\n");
+            };
+            usb::Result r = usb::Stream(p, "G1 X1\nG1 X2\nG1 X3\n", halt, nullptr, usb::Timing{ 1, 60, 60 });
+            CHECK(r.cancelled);
+            CHECK(!r.cooled);
+            CHECK(r.message == "The printer did not answer.");
+            CHECK(p.lines.size() == 2);
+        }
+        // The command in flight ends with an error of the printer.
+        {
+            StubPrinter p;
+            std::atomic<bool> halt{ false };
+            p.answer = [&halt](std::string const &, size_t) {
+                halt.store(true);
+                return std::string("Error:Printer halted\n");
+            };
+            usb::Result r = usb::Stream(p, "G1 X1\nG1 X2\n", halt, nullptr, fast);
+            CHECK(r.cancelled);
+            CHECK(!r.cooled);
+            CHECK(r.message.find("The printer said: ") == 0);
+            CHECK(p.lines.size() == 1);
+        }
+        // A cooling command with no "ok" ends the stop, and it is no success.
+        {
+            StubPrinter p;
+            std::atomic<bool> halt{ false };
+            p.answer = [&halt](std::string const &text, size_t) {
+                halt.store(true);
+                return text == "M140 S0" ? std::string() : std::string("ok\n");
+            };
+            usb::Result r = usb::Stream(p, "G1 X1\nG1 X2\n", halt, nullptr, usb::Timing{ 1, 300, 60 });
+            CHECK(r.cancelled);
+            CHECK(!r.cooled);
+            CHECK(r.message == "The printer did not answer.");
+            CHECK((p.lines == std::vector<std::string>{ "G1 X1", "M104 S0", "M140 S0" }));
+        }
+        // The port goes away during the cooling commands.
+        {
+            StubPrinter p;
+            std::atomic<bool> halt{ false };
+            p.on_line = [&p, &halt](size_t n) {
+                halt.store(true);
+                if (n == 2)
+                    p.dead = true;
+            };
+            usb::Result r = usb::Stream(p, "G1 X1\nG1 X2\n", halt, nullptr, fast);
+            CHECK(r.cancelled);
+            CHECK(!r.cooled);
+            CHECK(r.message == "The port stopped.");
         }
         // A stop during the wait for the board sends nothing at all.
         {
             StubPrinter p;
             std::atomic<bool> halt{ true };
-            usb::Result r = usb::Stream(p, "G28\n", halt, nullptr, usb::Timing{ 5000, 300 });
+            usb::Result r = usb::Stream(p, "G28\n", halt, nullptr, usb::Timing{ 5000, 300, 300 });
             CHECK(r.cancelled);
+            CHECK(!r.sent);
+            CHECK(!r.cooled);
             CHECK(p.lines.empty());
             CHECK(p.flushes == 0);
         }

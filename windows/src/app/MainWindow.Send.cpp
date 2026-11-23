@@ -1,7 +1,8 @@
 // Send and export: the G-code, the plate as 3MF, the project, and all plates.
 //
 // Each file has the signature of this install. A send only uploads the file:
-// the person starts the print on the printer (see zs_printer_link.h). The
+// the person starts the print on the printer (see zs_printer_link.h). A USB
+// printer has no upload, so it has no send here (see MainWindow.Usb.cpp). The
 // flow follows linux/src/ui/window.c.
 //
 // ZSLICE_SAVE_DIR=dir skips the save dialogs and writes there, for tests.
@@ -94,7 +95,8 @@ namespace winrt::ZSlice::implementation
         bool sliced = state == ZS_STATE_DONE && !draft;
         bool printable = w.PlateRefusal(app).empty();
         zs::SavedPrinter const &printer = zs::Printers().Current();
-        bool can_send = printer.kind != zs::LinkKind::None && printer.kind != zs::LinkKind::Bambu;
+        bool usb = printer.kind == zs::LinkKind::Usb;
+        bool can_send = printer.kind != zs::LinkKind::None && printer.kind != zs::LinkKind::Bambu && !usb;
         auto add = [&](std::wstring const &text, bool enabled, std::function<void()> run) {
             MenuFlyoutItem item;
             item.Text(text);
@@ -103,9 +105,16 @@ namespace winrt::ZSlice::implementation
             send_menu.Items().Append(item);
         };
         std::string id = printer.id;
+        if (usb)
+        {
+            add(L"Print on " + zs::ToWide(printer.name) + L" over USB…", usb_stop == nullptr && printable && sliced, [this] { PrintUsb(); });
+        }
+        else
+        {
         add(L"Upload to " + zs::ToWide(printer.name), can_send && !sending && !batch.on && printable && (sliced || state == ZS_STATE_SLICING),
             [this, id] { SendPlate(id, (size_t)-1); });
         add(L"Send all plates", can_send && !sending && !batch.on, [this] { SendAll(); });
+        }
         send_menu.Items().Append(MenuFlyoutSeparator());
         add(L"Export G-code…", printable && (sliced || state == ZS_STATE_SLICING), [this] { ExportGcode(); });
         add(L"Export all plates…", !batch.on, [this] { ExportAll(); });
@@ -118,6 +127,12 @@ namespace winrt::ZSlice::implementation
         zs::SavedPrinter *printer = zs::Printers().Find(printer_id);
         if (printer == nullptr || sending)
             return;
+        // Each line on a USB port runs, so nothing here reaches it.
+        if (printer->kind == zs::LinkKind::Usb)
+        {
+            Note(L"A USB printer has no upload. Use Print over USB.");
+            return;
+        }
         // The batch counts each upload that ends, so it allows no other.
         if (batch.on && !batch_sending)
         {
@@ -425,6 +440,12 @@ namespace winrt::ZSlice::implementation
     {
         if (batch.on || sending)
             return;
+        // Plates in a row need a clear bed between them.
+        if (zs::Printers().Current().kind == zs::LinkKind::Usb)
+        {
+            Note(L"A USB printer prints one plate at a time. Use Print over USB.");
+            return;
+        }
         zs_set *set = w.model->Set();
         batch = Batch{};
         batch.on = true;

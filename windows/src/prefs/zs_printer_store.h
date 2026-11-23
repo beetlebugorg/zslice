@@ -27,6 +27,7 @@ namespace zs
         OctoPrint,
         Moonraker,
         PrusaLink,
+        Usb,
         Bambu,
         Count,
     };
@@ -48,6 +49,9 @@ namespace zs
         std::string api_key;
         // The serial number of a Bambu Lab printer.
         std::string serial;
+        // A USB printer: the serial port (COM3) and its speed.
+        std::string device;
+        int baud = 250000;
         // The name of this printer on its printdeck. A send checks it.
         std::string deck_name;
         // The SHA-256 of the certificate (hex), and the start of its

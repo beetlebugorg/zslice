@@ -34,7 +34,7 @@ A send counts only when the printer stored the file. Any other answer shows as a
 | None | Export a G-code file, and copy it to the printer. |
 | printdeck, OctoPrint | The address of the printer. zslice gets its API key: tap Allow on the printer. |
 | Moonraker (Klipper) | The address of Moonraker. |
-| USB (Linux app) | The serial port and the speed. The computer must stay on while it prints. |
+| USB (Linux and Windows apps) | The serial port and the speed. The computer must stay on while it prints. |
 | Bambu Lab (LAN mode) | The IP address, the serial number, and the access code. The Linux app reads the status and the camera; the Mac app also sends prints (see [The macOS app](macos.md)). |
 
 When you add a printdeck or an OctoPrint printer, zslice asks it for a key at once. A printer whose key stops working shows **Get a key** on its card on the Printers page. **Get a key** asks the printer for a key. The printer asks you to allow zslice: on its screen (printdeck), or in its web page (OctoPrint, with the App Keys plugin). Allow it within 2 minutes. Check that the printer shows the same key id as zslice.

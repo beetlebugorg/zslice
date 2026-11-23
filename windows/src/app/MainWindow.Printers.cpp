@@ -237,6 +237,9 @@ namespace winrt::ZSlice::implementation
 
     void MainWindow::PrintersUi::Close()
     {
+        // The window closes: no more commands go to a USB printer.
+        if (usb_stop != nullptr)
+            usb_stop->store(true);
         StopFollow();
         save_timer.Stop();
         if (plates_timer != nullptr)
@@ -349,24 +352,30 @@ namespace winrt::ZSlice::implementation
     }
 
     // The main button of the bottom bar. A printer that takes files gets an
-    // upload. This app never starts a print.
+    // upload. A USB printer prints from here, after a yes for that print.
     void MainWindow::PrintersUi::RefreshPrimary()
     {
         zs::SavedPrinter const &printer = zs::Printers().Current();
-        bool can_send = printer.kind != zs::LinkKind::None && printer.kind != zs::LinkKind::Bambu;
+        bool usb = printer.kind == zs::LinkKind::Usb;
+        bool can_send = printer.kind != zs::LinkKind::None && printer.kind != zs::LinkKind::Bambu && !usb;
         w.ExportButton().Content(box_value(sending ? std::wstring(L"Sending…") : can_send ? L"Upload to " + zs::ToWide(printer.name) : std::wstring(L"Export G-code…")));
+        if (usb)
+            w.ExportButton().Content(box_value(L"Print over USB…"));
         if (sending)
             w.ExportButton().IsEnabled(false);
         // The arrow has the other ways to send, for a printer that takes files.
-        w.SendMenuButton().Visibility(can_send ? Visibility::Visible : Visibility::Collapsed);
+        w.SendMenuButton().Visibility(can_send || usb ? Visibility::Visible : Visibility::Collapsed);
         w.SendMenuButton().IsEnabled(zs_app_state(w.model->Active()) == ZS_STATE_DONE && !w.model->IsDraft() && !sending);
-        w.ExportButton().CornerRadius(can_send ? CornerRadius{ 6, 0, 0, 6 } : CornerRadiusHelper::FromUniformRadius(6));
+        w.ExportButton().CornerRadius(can_send || usb ? CornerRadius{ 6, 0, 0, 6 } : CornerRadiusHelper::FromUniformRadius(6));
+        ShowUsbState();
     }
 
     void MainWindow::PrintersUi::PrimaryAction()
     {
         zs::SavedPrinter const &printer = zs::Printers().Current();
-        if (printer.kind != zs::LinkKind::None && printer.kind != zs::LinkKind::Bambu)
+        if (printer.kind == zs::LinkKind::Usb)
+            PrintUsb();
+        else if (printer.kind != zs::LinkKind::None && printer.kind != zs::LinkKind::Bambu)
             SendPlate(printer.id, (size_t)-1);
         else
             ExportGcode();

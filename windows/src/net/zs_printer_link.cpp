@@ -381,6 +381,12 @@ namespace zs::link
 
     bool ReadStatus(Target const &t, CancelPtr const &cancel, Snapshot &out, std::string &error)
     {
+        // A status read never opens a serial port: an open can restart it.
+        if (t.kind == LinkKind::Usb)
+        {
+            error = "A USB printer has no network connection.";
+            return false;
+        }
         int kind = CoreKind(t.kind);
         if (kind == 0 || kind == 4)
         {
@@ -436,6 +442,11 @@ namespace zs::link
 
     bool ReadCamera(Target const &t, CancelPtr const &cancel, Camera &out, std::string &error)
     {
+        if (t.kind == LinkKind::Usb)
+        {
+            error = "A USB printer has no network connection.";
+            return false;
+        }
         int kind = CoreKind(t.kind);
         std::string base = BaseUrl(t.url);
         if (kind == 0 || kind == 4 || base.empty())
@@ -803,6 +814,12 @@ namespace zs::link
                         std::function<void(double)> const &progress)
     {
         UploadResult out;
+        if (t.kind == LinkKind::Usb)
+        {
+            // A USB port has no upload: each line runs. See zs_usb.h.
+            out.message = "A USB printer has no upload. Use Print over USB.";
+            return out;
+        }
         if (t.kind == LinkKind::None)
         {
             out.message = "This printer has no connection.";

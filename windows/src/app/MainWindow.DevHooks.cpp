@@ -2015,7 +2015,7 @@ namespace winrt::ZSlice::implementation
         {
             SelectPlate((size_t)number(0));
         }
-        else if (!RunSelectedStep(verb, words) && !RunDialogStep(verb, words) && !RunPaintStep(verb, words) && !RunLabelStep(verb, words) && !RunFilamentStep(verb, words) &&
+        else if (!RunUsbStep(verb, words) && !RunSelectedStep(verb, words) && !RunDialogStep(verb, words) && !RunPaintStep(verb, words) && !RunLabelStep(verb, words) && !RunFilamentStep(verb, words) &&
                  !RunPreferencesStep(verb, words) && !RunProjectStep(verb, words) && !RunRangeStep(verb, words) && !RunProfileStep(verb, words) && !RunScopeStep(verb, words) && !RunModelImportStep(verb, words) && verb != L"log")
         {
             zs::Log("dev: a bad step: %s\n", StepForLog(step).c_str());
