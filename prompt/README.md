@@ -1,6 +1,6 @@
 # A prompt that could build zslice
 
-Describes: main at commit `14b78de8` ("Add the Mac parity fixes to the prompt"), 2026-11-23.
+Describes: main at commit `9484b12b` ("Read the path of a local test part from the environment"), 2026-11-23.
 
 ## Read this first
 
