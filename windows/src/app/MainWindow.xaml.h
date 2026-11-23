@@ -408,6 +408,8 @@ namespace winrt::ZSlice::implementation
         void AddSelectedRow(Microsoft::UI::Xaml::Controls::StackPanel const &into, zs_setting_info const &info);
         void ShowWhyFlyout(int index, Microsoft::UI::Xaml::Controls::Button const &button);
         void OpenSelectedLink(std::string const &name);
+        void AppendLinkedText(Microsoft::UI::Xaml::Controls::TextBlock const &text, std::wstring const &why, std::function<void()> const &before);
+        void FillSelectedFoot(zs_inspect const &info);
         void BuildLinePage(SelectedPage &page);
         bool SelectedSectionOpen(std::wstring const &title);
         void AddSelectedMark(SelectedPage &page);

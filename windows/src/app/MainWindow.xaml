@@ -546,7 +546,6 @@
                                 <TextBlock Text="flow" FontSize="11" Foreground="{ThemeResource ZsDim}" HorizontalAlignment="Center" />
                             </StackPanel>
                         </Grid>
-                        <TextBlock x:Name="LineNote" TextWrapping="WrapWholeWords" FontSize="12" Foreground="#B45309" />
                         <TextBlock x:Name="LineNozzle" TextWrapping="WrapWholeWords" FontSize="12" Opacity="0.85" Visibility="Collapsed" />
                         <TextBlock x:Name="LineSize" TextWrapping="WrapWholeWords" FontSize="12" Foreground="{ThemeResource ZsDim}" />
                         <Grid ColumnSpacing="6" Margin="0,4,0,0">

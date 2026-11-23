@@ -554,9 +554,6 @@ namespace winrt::ZSlice::implementation
         LineReal().Text(text);
         swprintf_s(text, L"%.1f mm³/s", info.flow);
         LineFlow().Text(text);
-        std::wstring note = zs::ToWide(info.slow_text != nullptr ? info.slow_text : "");
-        LineNote().Text(note);
-        LineNote().Visibility(note.empty() ? Visibility::Collapsed : Visibility::Visible);
         // The speed limits of a nozzle after the first.
         std::wstring limits = info.nozzle >= 2 && info.nozzle_text != nullptr ? zs::ToWide(info.nozzle_text) : L"";
         LineNozzle().Text(limits);
@@ -609,15 +606,6 @@ namespace winrt::ZSlice::implementation
             name.FontSize(13);
             ToolTipService::SetToolTip(name, box_value(PlainDoc(s.doc)));
             labels.Children().Append(name);
-            if (picks[i].why != nullptr && picks[i].why[0] != 0)
-            {
-                TextBlock why;
-                why.Text(zs::ToWide(picks[i].why));
-                why.TextWrapping(TextWrapping::WrapWholeWords);
-                why.FontSize(11);
-                why.Opacity(0.7);
-                labels.Children().Append(why);
-            }
             row.Children().Append(labels);
             FrameworkElement editor = MakeEditor(s);
             Grid::SetColumn(editor, 1);

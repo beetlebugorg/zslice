@@ -1,6 +1,7 @@
 // The Selected page of the settings pane: what a clicked line, part, or gap
 // is. A line has its speeds with the reason for each, its measurements, the
-// settings that change it in sections, and "Change for": this print, this
+// settings that change it in sections, how its values come about at the
+// foot of the page, and "Change for": this print, this
 // layer, this layer and up, or this layer and down. A part has its place, its
 // quality, and its placement. A gap has the settings that can close it.
 //
@@ -90,7 +91,9 @@ namespace winrt::ZSlice::implementation
         std::string signature;
         StackPanel root{ nullptr };
         // The line.
-        TextBlock title{ nullptr }, note{ nullptr }, measure{ nullptr }, explain{ nullptr };
+        TextBlock title{ nullptr }, note{ nullptr }, measure{ nullptr };
+        StackPanel foot{ nullptr };
+        std::wstring foot_shown;
         TextBlock stats[3] = { nullptr, nullptr, nullptr };
         std::wstring why[3];
         double z = 0;
@@ -496,13 +499,20 @@ namespace winrt::ZSlice::implementation
     {
         if (selected_page == nullptr || selected_page->why[index].empty())
             return;
-        namespace Documents = Microsoft::UI::Xaml::Documents;
         TextBlock text;
         text.TextWrapping(TextWrapping::Wrap);
         text.MaxWidth(340);
         text.FontSize(13);
         Flyout flyout;
-        std::wstring const &why = selected_page->why[index];
+        AppendLinkedText(text, selected_page->why[index], [flyout] { flyout.Hide(); });
+        flyout.Content(text);
+        flyout.ShowAt(button);
+    }
+
+    // A text of the core: each {{name}} is a link to that setting.
+    void MainWindow::AppendLinkedText(TextBlock const &text, std::wstring const &why, std::function<void()> const &before)
+    {
+        namespace Documents = Microsoft::UI::Xaml::Documents;
         size_t at = 0;
         while (at < why.size())
         {
@@ -536,15 +546,79 @@ namespace winrt::ZSlice::implementation
             run.Text(label);
             Documents::Hyperlink link;
             link.Inlines().Append(run);
-            link.Click([this, name, flyout](auto &&, auto &&) {
-                flyout.Hide();
+            link.Click([this, name, before](auto &&, auto &&) {
+                if (before)
+                    before();
                 queue.TryEnqueue([this, name] { OpenSelectedLink(name); });
             });
             text.Inlines().Append(link);
             at = close + 2;
         }
-        flyout.Content(text);
-        flyout.ShowAt(button);
+    }
+
+    // How the values of the line come about: the facts that the line card
+    // leaves out. The rows change only when a text changes, so the page
+    // keeps its place after a slice.
+    void MainWindow::FillSelectedFoot(zs_inspect const &info)
+    {
+        SelectedPage &page = *selected_page;
+        std::vector<std::pair<std::wstring, std::wstring>> facts;
+        wchar_t head[64];
+        swprintf_s(head, L"Planned speed %.0f mm/s", info.planned_speed);
+        facts.push_back({ head, zs::ToWide(info.why_planned != nullptr ? info.why_planned : "") });
+        swprintf_s(head, L"Real speed %.0f mm/s", info.speed);
+        facts.push_back({ head, zs::ToWide(info.why_real != nullptr ? info.why_real : "") });
+        swprintf_s(head, L"Flow %.1f mm³/s", info.flow);
+        facts.push_back({ head, zs::ToWide(info.why_flow != nullptr ? info.why_flow : "") });
+        facts.push_back({ L"Slower than planned", zs::ToWide(info.slow_text != nullptr ? info.slow_text : "") });
+        if (info.flow_limited != 0 && info.max_flow > 0)
+        {
+            wchar_t limit[96];
+            swprintf_s(limit, L"The flow limit (%.0f mm³/s) sets the speed of this line, not the printer.", info.max_flow);
+            facts.push_back({ L"Flow limit", limit });
+        }
+        zs_pick picks[4];
+        size_t n = 0;
+        if (zs_app_inspect_picks(model->Active(), (size_t)SelectedPath(), picks, std::size(picks), &n) != ZS_OK)
+            n = 0;
+        for (size_t i = 0; i < std::min(n, std::size(picks)); i++)
+        {
+            std::wstring label = zs::ToWide(picks[i].name);
+            for (size_t k = 0, all = zs_setting_count(); k < all; k++)
+            {
+                zs_setting_info s{};
+                if (zs_setting_get_info(k, &s) == ZS_OK && strcmp(s.name, picks[i].name) == 0)
+                {
+                    label = zs::ToWide(s.label);
+                    break;
+                }
+            }
+            facts.push_back({ label, zs::ToWide(picks[i].why != nullptr ? picks[i].why : "") });
+        }
+        facts.push_back({ L"", zs::ToWide(info.explain != nullptr ? info.explain : "") });
+        std::wstring key;
+        for (auto const &fact : facts)
+            key += fact.first + L"\n" + fact.second + L"\n";
+        if (key == page.foot_shown)
+            return;
+        page.foot_shown = key;
+        page.foot.Children().Clear();
+        for (auto const &fact : facts)
+        {
+            if (fact.second.empty())
+                continue;
+            StackPanel item;
+            item.Spacing(2);
+            if (!fact.first.empty())
+                item.Children().Append(Text(fact.first, 12.5, false, true));
+            TextBlock body;
+            body.TextWrapping(TextWrapping::WrapWholeWords);
+            body.FontSize(12.5);
+            body.Foreground(TokenBrush(Root(), L"ZsDim"));
+            AppendLinkedText(body, fact.second, nullptr);
+            item.Children().Append(body);
+            page.foot.Children().Append(item);
+        }
     }
 
     // A link in a "why" text: the field of that setting on this page, or
@@ -721,13 +795,13 @@ namespace winrt::ZSlice::implementation
             }
         }
 
-        Expander more;
-        more.HorizontalAlignment(HorizontalAlignment::Stretch);
-        more.HorizontalContentAlignment(HorizontalAlignment::Stretch);
-        more.Header(box_value(L"How these values come about"));
-        page.explain = Text(L"", 12.5);
-        more.Content(page.explain);
-        page.root.Children().Append(more);
+        // At the foot of the page: the line card does not show this.
+        auto foot_head = Text(L"How these values come about", 14, false, true);
+        foot_head.Margin(ThicknessHelper::FromLengths(0, 12, 0, 2));
+        page.root.Children().Append(foot_head);
+        page.foot = StackPanel();
+        page.foot.Spacing(8);
+        page.root.Children().Append(page.foot);
         DrawSelectedRows();
     }
 
@@ -829,7 +903,7 @@ namespace winrt::ZSlice::implementation
         page.why[0] = zs::ToWide(info.why_planned != nullptr ? info.why_planned : "");
         page.why[1] = zs::ToWide(info.why_real != nullptr ? info.why_real : "");
         page.why[2] = zs::ToWide(info.why_flow != nullptr ? info.why_flow : "");
-        page.explain.Text(zs::ToWide(info.explain != nullptr ? info.explain : ""));
+        FillSelectedFoot(info);
         int64_t segment = SelectedSegment();
         zs_measure m{};
         if (zs_app_measure(app, (size_t)SelectedPath(), segment < 0 ? 0 : (size_t)segment, &m) == ZS_OK)
@@ -1289,6 +1363,22 @@ namespace winrt::ZSlice::implementation
                     row->focus.Focus(FocusState::Programmatic);
                     zs::Log("dev: selected why '%s'\n", zs::ToUtf8(SelectedWhy(name)).c_str());
                 }
+        }
+        else if (verb == L"selectedfoot" && selected_page != nullptr && selected_page->foot != nullptr)
+        {
+            zs::Log("dev: selected foot %u items\n", selected_page->foot.Children().Size());
+            for (auto const &child : selected_page->foot.Children())
+            {
+                auto item = child.as<StackPanel>();
+                std::string line;
+                for (auto const &part : item.Children())
+                {
+                    auto block = part.as<TextBlock>();
+                    std::wstring words{ block.Text() };
+                    line += zs::ToUtf8(words) + " | ";
+                }
+                zs::Log("dev: foot %s\n", line.c_str());
+            }
         }
         else if (verb == L"selectedgap")
         {
