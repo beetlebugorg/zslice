@@ -118,6 +118,10 @@ namespace winrt::ZSlice::implementation
 
     void MainWindow::WireChrome()
     {
+        // The tools end above the bottom bar.
+        ViewPanel().SizeChanged([this](auto &&, SizeChangedEventArgs const &e) {
+            ToolScroll().MaxHeight(std::max(96.0, (double)e.NewSize().Height - 26));
+        });
         // The rail and the toast stay over the bottom bar.
         Dock().SizeChanged([this](auto &&, SizeChangedEventArgs const &e) {
             // The bar folds by its own width: the settings pane takes a part

@@ -10,6 +10,8 @@
 
 #include "pch.h"
 #include "MainWindow.xaml.h"
+#include <algorithm>
+#include <limits>
 
 #include <charconv>
 #include <ctime>
@@ -614,6 +616,8 @@ namespace winrt::ZSlice::implementation
     void MainWindow::LayoutDock(double width)
     {
         bool narrow = width <= 760;
+        // On a narrow view the facts of the print wrap beside the button.
+        SummaryDetail().MaxWidth(narrow ? std::max(120.0, width - ExportButton().ActualWidth() - 76) : std::numeric_limits<double>::infinity());
         if (dock_laid_out && narrow == dock_narrow)
             return;
         dock_laid_out = true;

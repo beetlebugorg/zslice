@@ -33,7 +33,8 @@ A build with `-p:ZsDevHooks=true` reads `ZSLICE_DO`: steps with `;` between them
 | `src/app/MainWindow.xaml.cpp` | The window: the view in a `SwapChainPanel`, the open flow, and the events of the core. |
 | `src/app/MainWindow.Plates.cpp` | The plate bar, the signs, and the switch of the active plate. |
 | `src/app/MainWindow.Settings.cpp` | The settings pane from the descriptions of the core, the search, and the history. |
-| `src/app/MainWindow.Tools.cpp` | The tool strip, the pointer, the keys, the selection, Move, Turn, Grab, and Measure. |
+| `src/app/MainWindow.Tools.cpp` | The tool strip, the pointer, the keys, the selection, and Measure. |
+| `src/app/MainWindow.Transform.cpp` | The Move tool: its gizmo, turns, live moves with snap guides, and the keys and wheel of a part. |
 | `src/app/MainWindow.Cards.cpp` | The line card and the part card, placed beside what they describe. |
 | `src/app/MainWindow.Profiles.cpp` | The layer profiles of the settings pane, and their marks on the layer rail. |
 | `src/app/MainWindow.Scope.cpp` | "Settings for" of the settings pane: this print, the global settings, or one part. |
@@ -93,7 +94,7 @@ A build with `-p:ZsDevHooks=true` reads `ZSLICE_DO`: steps with `;` between them
 - `PlateRefusal` wraps `zs_app_plate_printable`. A plate with a part that does not fit has a slice, but `zs_app_gcode` returns `ZS_PART_TOO_LARGE`. Each path that makes a file checks it first, so no empty file goes to a disk or a printer.
 - The part card rows use `PartTarget`, which reads the first part and sets each selected part. Their editors live in `part_editors`, because the list of the pane clears `setting_editors` with its page.
 - `MarkOfSelection` finds the support mark of the selected line. A slice can renumber the lines and drop the selected segment, so with no segment it tries each point of the line.
-- The selection lives in one `zs_selection` (`docs/internals/selection.md`). `SelSync` runs after each change of the set, and `SelSync(true)` after the view loads a slice. `SelectedParts` gives the indices now, so no code keeps an index past one call. The drags of Move, Turn, and Grab still hold an index while the plate is on hold, until the transform port.
+- The selection lives in one `zs_selection` (`docs/internals/selection.md`). `SelSync` runs after each change of the set, and `SelSync(true)` after the view loads a slice. `SelectedParts` gives the indices now, so no code keeps an index past one call. A drag holds the stable id of its part.
 - A selected line is its key. After a slice, `FindSelectedLine` looks up the key, then the saved place of the line, as the web app does. A draft can miss a strict key, so the place keeps the line, and the exact slice restores its key and segment.
 - The spools of a printer go through `zs_app_filaments_from_printer`. **Use the filaments of** passes flag 1. `FollowSpools` passes flag 2 for each status of the current printer. A plate of a project, an upload, and a batch keep their filaments.
 - The link to the current printer is in `MainWindow.Farm.cpp`. `FollowTick` runs each 5 s and reads one status of an HTTP printer, or none while the Printers page reads it. `SyncBambuLinks` keeps at most one `BambuWatch` for each printer: the current printer, and each printer while the page shows. A new connection to a printer waits until the thread of its old one ends. `BambuRetrySeconds` gives the wait after a refusal or a drop: 15 s, doubling to 5 minutes. A wrong access code stops the watch until the details change. After 5 minutes minimized, the app closes its links.
