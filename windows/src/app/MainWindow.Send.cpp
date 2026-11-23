@@ -90,7 +90,6 @@ namespace winrt::ZSlice::implementation
         send_menu.Items().Clear();
         zs_app *app = w.model->Active();
         int state = zs_app_state(app);
-        bool has_parts = zs_app_part_count(app) > 0;
         bool draft = w.model->IsDraft();
         bool sliced = state == ZS_STATE_DONE && !draft;
         bool printable = w.PlateRefusal(app).empty();
@@ -110,9 +109,6 @@ namespace winrt::ZSlice::implementation
         send_menu.Items().Append(MenuFlyoutSeparator());
         add(L"Export G-code…", printable && (sliced || state == ZS_STATE_SLICING), [this] { ExportGcode(); });
         add(L"Export all plates…", !batch.on, [this] { ExportAll(); });
-        send_menu.Items().Append(MenuFlyoutSeparator());
-        add(L"Save this plate as 3MF…", has_parts, [this] { SavePlate3mf(); });
-        add(L"Save project (all plates)…", true, [this] { SaveProject(); });
     }
 
     // Uploads the G-code of a plate (-1: the active plate). The file has the
@@ -346,47 +342,29 @@ namespace winrt::ZSlice::implementation
             w.ShowError(L"The test print was not saved.");
     }
 
-    winrt::fire_and_forget MainWindow::PrintersUi::SavePlate3mf()
-    {
-        auto keep = shared_from_this();
-        // The await can outlast the window: this keeps it.
-        auto window = w.get_strong();
-        zs_app *app = w.model->Active();
-        if (zs_app_part_count(app) == 0)
-            co_return;
-        zs_plate_info info{};
-        std::string base = zs_set_plate_info(w.model->Set(), w.model->ActivePlate(), &info) == ZS_OK && info.name[0] != 0 ? info.name : "plate";
-        size_t dot = base.find_last_of('.');
-        if (dot != std::string::npos && dot > 0)
-            base.resize(dot);
-        hstring path = co_await PickSavePath(zs::ToWide(base), L"3MF", L".3mf");
-        if (path.empty() || w.model == nullptr || w.model->Active() != app)
-            co_return;
-        uint8_t const *bytes = nullptr;
-        size_t len = 0;
-        if (zs_app_write_3mf(app, &bytes, &len) != ZS_OK || bytes == nullptr)
-        {
-            w.ShowError(L"The 3MF file was not saved.");
-            co_return;
-        }
-        if (zs::state::WriteBytes(std::wstring(path), std::string(reinterpret_cast<char const *>(bytes), len)))
-            Note(L"Saved " + std::wstring(path));
-        else
-            w.ShowError(L"The 3MF file was not saved.");
-    }
-
     winrt::fire_and_forget MainWindow::PrintersUi::SaveProject()
     {
         auto keep = shared_from_this();
         // The await can outlast the window: this keeps it.
         auto window = w.get_strong();
-        zs_plate_info info{};
-        std::string base = zs_set_plate_info(w.model->Set(), 0, &info) == ZS_OK && info.name[0] != 0 ? info.name : "project";
+        // A project with a part on any plate saves, also from an empty plate.
+        // Its name comes from the active plate, else the first with parts.
+        std::string base;
+        size_t active = w.model->ActivePlate();
+        for (size_t i = 0, n = w.model->PlateCount(); i < n; i++)
+        {
+            zs_plate_info plate{};
+            if (zs_set_plate_info(w.model->Set(), i, &plate) != ZS_OK || plate.part_count == 0)
+                continue;
+            if (base.empty() || i == active)
+                base = plate.name[0] != 0 ? plate.name : "plate";
+        }
+        if (base.empty())
+            co_return;
         size_t dot = base.find_last_of('.');
         if (dot != std::string::npos && dot > 0)
             base.resize(dot);
-        // Another name than the plate 3MF, so one does not replace the other.
-        hstring path = co_await PickSavePath(zs::ToWide(base) + L"-project", L"zslice project (3MF)", L".3mf");
+        hstring path = co_await PickSavePath(zs::ToWide(base), L"zslice project (3MF)", L".3mf");
         if (path.empty() || w.model == nullptr)
             co_return;
         std::wstring chosen{ path };

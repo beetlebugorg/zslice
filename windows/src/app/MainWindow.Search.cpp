@@ -1100,7 +1100,7 @@ namespace winrt::ZSlice::implementation
                 if (model != nullptr && zs_app_part_count(model->Active()) > 0)
                 {
                     if (!f(model->Active()))
-                        ShowToast(L"Not all parts fit on the bed.");
+                        ShowPlaceFailed();
                     PlateEdited();
                 }
             };

@@ -71,6 +71,7 @@ namespace winrt::ZSlice::implementation
         // A click that lost its pointer capture is no click.
         bool pointer_cancelled = false;
         void ShowPlateName();
+        void ShowPlateNameMenu();
         void FinishLoad(std::wstring const &path, std::string const &bytes, bool read, bool new_plate = false);
 
         // A file or a link from outside the app (MainWindow.Open.cpp).
@@ -585,6 +586,9 @@ namespace winrt::ZSlice::implementation
         void ClipDuplicate();
         void ClipPaste(bool at, double x, double y, bool here, bool as_plate);
         bool ClipKey(Windows::System::VirtualKey key, bool shift);
+        bool DialogOpen();
+        void RunAppKey(Windows::System::VirtualKey key);
+        winrt::fire_and_forget ShowPlaceFailed();
         // The pointer, in points of the view.
         double pointer_x = 0, pointer_y = 0;
         Microsoft::UI::Xaml::Controls::MenuFlyout context_menu{ nullptr };

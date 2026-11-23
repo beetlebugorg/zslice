@@ -21,6 +21,10 @@ namespace winrt::ZSlice::implementation
 {
     void MainWindow::WirePlates()
     {
+        PlateName().RightTapped([this](auto &&, Input::RightTappedRoutedEventArgs const &e) {
+            ShowPlateNameMenu();
+            e.Handled(true);
+        });
         PlatePrev().Click([this](auto &&, auto &&) { StepPlate(-1); });
         PlateNext().Click([this](auto &&, auto &&) { StepPlate(1); });
         PlateAll().Click([this](auto &&, auto &&) { FramePlate((size_t)-1); });
@@ -159,6 +163,16 @@ namespace winrt::ZSlice::implementation
         RefreshSummary();
         RefreshPlates();
         RequestDraw();
+    }
+
+    void MainWindow::ShowPlateNameMenu()
+    {
+        MenuFlyout menu;
+        MenuFlyoutItem item;
+        item.Text(L"Remove plate " + to_hstring(model->ActivePlate() + 1));
+        item.Click([this](auto &&, auto &&) { AskRemovePlate(); });
+        menu.Items().Append(item);
+        menu.ShowAt(PlateName());
     }
 
     void MainWindow::ShowPlateName()
