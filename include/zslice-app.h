@@ -3079,6 +3079,106 @@ int zs_quality_summary(const char *name, char *buf, size_t cap, size_t *out_len)
 int zs_farm_collected(zs_farm *farm, size_t printer);
 size_t zs_farm_events(zs_farm *farm, zs_farm_event *out, size_t cap);
 
+/* ---- the selection model (src/app/selection.zig) ----
+ *
+ * One record of the focus: the active plate, the selected parts, the
+ * selected line and segment, the hover, the tool, and the camera target.
+ * A part is its stable id (zs_app_part_id), and a line is its key
+ * (zs_app_path_key). docs/internals/selection.md has the call order.
+ *
+ * The generation grows with each change. A shell with a worker notes the
+ * generation when it sends a request, and calls zs_sel_answered with it
+ * when the reply comes. A local change that is newer than the reply stays.
+ * A shell with no worker calls zs_sel_sync after each change of the set. */
+typedef struct zs_selection zs_selection;
+
+/* A part in the table of the model: its id, and its box on the bed, mm. */
+typedef struct zs_sel_part {
+    uint64_t id;
+    double x0, y0, z0, x1, y1, z1;
+} zs_sel_part;
+
+enum zs_sel_mode {
+    ZS_SEL_REPLACE = 0,
+    ZS_SEL_ADD = 1,
+    ZS_SEL_TOGGLE = 2,
+    ZS_SEL_REMOVE = 3
+};
+
+/* The camera targets of zs_sel_frame_request (a plate index is >= 0). */
+#define ZS_SEL_FRAME_NONE (-2)
+#define ZS_SEL_FRAME_ALL (-1)
+
+/* The stable id of part i (over 0), or 0 for a bad index. The id stays
+ * through moves, deletes, plate moves, undo, redo, and a reload. */
+uint64_t zs_app_part_id(const zs_app *app, size_t i);
+/* The index of the part with this id on this plate, or -1. */
+ptrdiff_t zs_app_part_index(const zs_app *app, uint64_t id);
+/* The table of the parts of the plate. Writes at most cap entries, and
+ * gives the count of parts in *n. */
+int zs_app_sel_parts(const zs_app *app, zs_sel_part *out, size_t cap, size_t *n);
+/* The path with this key in the last slice, or -1. */
+ptrdiff_t zs_app_path_of_key(const zs_app *app, uint64_t key);
+/* The part index of a path of the slice in the view, or -1 (a skirt). */
+ptrdiff_t zs_view_path_part(const zs_view *view, size_t path);
+
+int zs_sel_new(zs_selection **out);
+void zs_sel_free(zs_selection *sel);
+uint64_t zs_sel_generation(const zs_selection *sel);
+
+/* From the owner of the plates: the parts of the active plate, the parts
+ * that the view shows (call it when the view loads a slice), the active
+ * plate and the count of plates, and the end of the requests up to a
+ * generation. */
+int zs_sel_set_parts(zs_selection *sel, const zs_sel_part *parts, size_t n);
+int zs_sel_set_scene(zs_selection *sel, const zs_sel_part *parts, size_t n);
+void zs_sel_plate_report(zs_selection *sel, size_t active, size_t count);
+void zs_sel_answered(zs_selection *sel, uint64_t generation);
+/* All of the above from a set on the same thread. Call it after each
+ * change of the set. With `scene` 1, the view has loaded this slice. */
+int zs_sel_sync(zs_selection *sel, zs_set *set, int scene);
+
+/* The plate that the user sees, and a request to go to plate i. */
+size_t zs_sel_plate(const zs_selection *sel);
+void zs_sel_plate_request(zs_selection *sel, size_t i);
+
+/* The selected parts. The last one is the primary part. */
+int zs_sel_select(zs_selection *sel, uint64_t id, int mode);
+void zs_sel_clear(zs_selection *sel);
+size_t zs_sel_count(const zs_selection *sel);
+uint64_t zs_sel_get(const zs_selection *sel, size_t k);
+uint64_t zs_sel_primary(const zs_selection *sel);
+int zs_sel_has(const zs_selection *sel, uint64_t id);
+/* The index of a part on the plate now, or -1. */
+ptrdiff_t zs_sel_part_index(const zs_selection *sel, uint64_t id);
+/* The id of the part at an index of the plate now, or 0. */
+uint64_t zs_sel_part_at(const zs_selection *sel, size_t index);
+/* The box of a part at its current place: 1, or 0 for no such part. */
+int zs_sel_part_box(const zs_selection *sel, uint64_t id, zs_sel_part *out);
+/* A drag puts part id at (x, y) with its lowest point at z, at once. */
+int zs_sel_place(zs_selection *sel, uint64_t id, double x, double y, double z);
+
+/* The part under a pixel of the view at its current place, or 0. It needs
+ * no slice and no reply. */
+uint64_t zs_sel_pick(const zs_selection *sel, const zs_view *view, float px, float py);
+
+/* The selected line: its key, its path now, and its segment. Path -1: no
+ * line. After a new slice, give zs_sel_line_found the path of the key
+ * (zs_app_path_of_key) and the count of its segments. */
+void zs_sel_line_set(zs_selection *sel, uint64_t key, ptrdiff_t path, ptrdiff_t seg);
+void zs_sel_line_get(const zs_selection *sel, uint64_t *key, ptrdiff_t *path, ptrdiff_t *seg);
+void zs_sel_line_found(zs_selection *sel, ptrdiff_t path, ptrdiff_t segments);
+
+uint64_t zs_sel_hover(const zs_selection *sel);
+void zs_sel_hover_set(zs_selection *sel, uint64_t id);
+int zs_sel_tool(const zs_selection *sel);
+void zs_sel_tool_set(zs_selection *sel, int tool);
+
+/* Asks the camera to go to a plate, or to ZS_SEL_FRAME_ALL. take gives 1
+ * and the target when it is due: a plate target waits for its plate. */
+void zs_sel_frame_request(zs_selection *sel, ptrdiff_t target);
+int zs_sel_frame_take(zs_selection *sel, ptrdiff_t *target);
+
 #ifdef __cplusplus
 }
 #endif

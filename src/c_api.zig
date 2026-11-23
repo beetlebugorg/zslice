@@ -326,6 +326,7 @@ comptime {
     _ = @import("c_api/printers.zig");
     _ = @import("c_api/project.zig");
     _ = @import("c_api/set.zig");
+    _ = @import("c_api/selection.zig");
     _ = @import("c_api/farm.zig");
     _ = @import("c_api/sign.zig");
     _ = @import("c_api/link.zig");

@@ -164,7 +164,30 @@ pub const PlaceMode = enum(u8) {
     strength = 2,
 };
 
+/// The next free part id. All plates of the process share it, so a part
+/// that moves to another plate keeps an id that is free there.
+var next_part_id: std.atomic.Value(u32) = .init(1);
+
+/// The largest part id. The counter has 32 bits: wasm32 has no atomic
+/// operation on 64 bits.
+pub const max_part_id: u64 = std.math.maxInt(u32) - 1;
+
+fn newPartId() u64 {
+    return next_part_id.fetchAdd(1, .monotonic);
+}
+
+/// Makes sure that the next new id is over `id` (an id from a file).
+fn reservePartId(id: u64) void {
+    const want: u32 = @intCast(id + 1);
+    var at = next_part_id.load(.monotonic);
+    while (at < want) at = next_part_id.cmpxchgWeak(at, want, .monotonic, .monotonic) orelse return;
+}
+
 pub const Part = struct {
+    /// The stable id of the part: it stays through moves, deletes of
+    /// other parts, plate changes, undo, redo, and a reload. It is unique
+    /// on its plate, and 0 only until a plate takes the part.
+    id: u64 = 0,
     /// The name, with a 0 at the end for the C API.
     name: [:0]u8,
     /// The mesh on the plate: `source` with the pose and the scale.
@@ -445,6 +468,7 @@ pub const Plate = struct {
             part.x = spot[0];
             part.y = spot[1];
         }
+        self.claimId(&part);
         self.parts.append(gpa, part) catch |e| {
             part.mesh.deinit(gpa);
             gpa.free(part.name);
@@ -478,6 +502,7 @@ pub const Plate = struct {
             part.x = spot[0];
             part.y = spot[1];
         }
+        self.claimId(&part);
         self.parts.append(gpa, part) catch |e| {
             part.mesh.deinit(gpa);
             gpa.free(part.name);
@@ -497,6 +522,8 @@ pub const Plate = struct {
     /// caller owns it.
     pub fn clonePart(gpa: Allocator, src: *const Part) Allocator.Error!Part {
         var p: Part = src.*;
+        // A copy is another part: the plate that takes it gives it an id.
+        p.id = 0;
         p.name = try gpa.dupeZ(u8, src.name);
         errdefer gpa.free(p.name);
         p.mesh = try src.mesh.clone(gpa);
@@ -688,6 +715,7 @@ pub const Plate = struct {
         const spot = self.freeSpot(&p, bed, gap);
         p.x = spot[0];
         p.y = spot[1];
+        self.claimId(&p);
         self.parts.append(gpa, p) catch |e| {
             p.deinit(gpa);
             return e;
@@ -699,11 +727,40 @@ pub const Plate = struct {
     /// free place. The plate owns it after the call, also on an error.
     pub fn putAt(self: *Plate, gpa: Allocator, part: Part) Allocator.Error!usize {
         var p = part;
+        self.claimId(&p);
         self.parts.append(gpa, p) catch |e| {
             p.deinit(gpa);
             return e;
         };
         return self.parts.items.len - 1;
+    }
+
+    /// Gives a part that comes to this plate an id. It keeps its id if
+    /// the id is free here.
+    fn claimId(self: *const Plate, p: *Part) void {
+        if (p.id == 0 or self.indexOfId(p.id) != null) p.id = newPartId();
+    }
+
+    /// The index of the part with this id, or null.
+    pub fn indexOfId(self: *const Plate, id: u64) ?usize {
+        if (id == 0) return null;
+        for (self.parts.items, 0..) |*p, i| if (p.id == id) return i;
+        return null;
+    }
+
+    /// Gives part i the id of a saved plate. Parts from index `first` on
+    /// come from the same file. A new part of that file can hold the id
+    /// by chance: it then takes the id of part i, so ids stay unique. A
+    /// part before `first` keeps its id, and part i keeps its own.
+    pub fn restoreId(self: *Plate, first: usize, i: usize, id: u64) void {
+        if (i >= self.parts.items.len or id == 0 or id > max_part_id) return;
+        reservePartId(id);
+        if (self.indexOfId(id)) |at| {
+            if (at == i) return;
+            if (at < first) return;
+            self.parts.items[at].id = self.parts.items[i].id;
+        }
+        self.parts.items[i].id = id;
     }
 
     /// Moves part i to place `to` in the list of the plate: the parts

@@ -63,6 +63,8 @@ pub const support_areas = @import("app/support_areas.zig");
 /// The support trees that the user edits (see app/support_trees.zig).
 pub const support_trees = @import("app/support_trees.zig");
 pub const plate_set = @import("app/plate_set.zig");
+/// The selection and the focus of the app (see app/selection.zig).
+pub const selection = @import("app/selection.zig");
 /// The Speed group of the settings panel, and the Faster slicing switch.
 pub const speed = @import("app/speed.zig");
 /// The filaments of the plate (see app/filament_slots.zig).
@@ -660,6 +662,15 @@ pub const App = struct {
                 app.plate.lift(first + k, z);
                 continue;
             }
+            // "partid <tab> part <tab> id": the stable id of a part
+            // (plate.Part.id). An older version leaves this line out.
+            if (std.mem.startsWith(u8, line, "partid\t")) {
+                var f = std.mem.splitScalar(u8, line["partid\t".len..], '\t');
+                const k = std.fmt.parseInt(usize, f.next() orelse continue, 10) catch continue;
+                const id = std.fmt.parseInt(u64, f.next() orelse continue, 10) catch continue;
+                app.plate.restoreId(first, first + k, id);
+                continue;
+            }
             // "pose <tab> part <tab> 9 values <tab> 3 values": the pose and
             // the scale of a part (plate.Plate.restorePose).
             if (std.mem.startsWith(u8, line, "pose\t")) {
@@ -750,6 +761,9 @@ pub const App = struct {
         // The lift of each part that floats or sinks (plate.Part.z), by its
         // index on the plate.
         for (app.plate.parts.items, 0..) |p, k| if (p.z != 0) try w.print("lift\t{d}\t{d}\n", .{ k, p.z });
+        // The stable id of each part, so that undo, redo, and a reload
+        // find the same part.
+        for (app.plate.parts.items, 0..) |p, k| try w.print("partid\t{d}\t{d}\n", .{ k, p.id });
         // The pose and the scale of each part that has them (the mesh of
         // the file has them in its vertices): "pose", the index, the 9
         // values of the pose (rows), and the 3 of the scale.
@@ -3819,6 +3833,7 @@ pub fn statusOf(e: anyerror) c_int {
 const testing = std.testing;
 
 test {
+    _ = selection;
     _ = refine;
     _ = inspect_mod;
     _ = toolpaths_mod;
