@@ -1,6 +1,6 @@
 # A prompt that could build zslice
 
-Describes: main at commit `d9e1cbfc` ("Build the Linux app on a host with no desktop update tools"), 2026-11-23.
+Describes: main at commit `014aaad6` ("Keep a layer range on its body while a slice lands"), 2026-11-23.
 
 ## Read this first
 
