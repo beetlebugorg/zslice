@@ -651,6 +651,7 @@ namespace winrt::ZSlice::implementation
         // (MainWindow.ContextMenu.cpp).
         void ShowContextMenu(double x, double y);
         bool MenuPlace(double &x, double &y, double &z);
+        void PutSideDown(ptrdiff_t part, float const *ray);
         void SupportEdited();
         void RemoveSupportHere();
         void CopyForAi(wchar_t const *done = L"Copied a report of this line.");

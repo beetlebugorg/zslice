@@ -8,6 +8,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 #include "pch.h"
+#include <array>
 #include "MainWindow.xaml.h"
 #include "MainWindow.Printers.h"
 
@@ -41,6 +42,28 @@ namespace winrt::ZSlice::implementation
             layer++;
         z = layer < tp.layer_count ? tp.layer_z[layer] : 0;
         return true;
+    }
+
+    // "Put this side on the bed": the side under the click goes down. With
+    // no ray on the part, as in the 2D view, the place of the selected line
+    // names the side.
+    void MainWindow::PutSideDown(ptrdiff_t part, float const *ray)
+    {
+        if (part < 0)
+            return;
+        zs_app *app = model->Active();
+        int rc = ZS_OUT_OF_RANGE;
+        if (ray != nullptr)
+            rc = zs_app_part_put_down_ray(app, (size_t)part, ray[0], ray[1], ray[2], ray[3], ray[4], ray[5]);
+        if (rc == ZS_OUT_OF_RANGE)
+        {
+            double x, y, z;
+            if (!MenuPlace(x, y, z))
+                return;
+            rc = zs_app_part_put_down_at(app, (size_t)part, x, y, z);
+        }
+        if (rc == ZS_OK)
+            PlateEdited();
     }
 
     void MainWindow::SupportEdited()
@@ -622,11 +645,11 @@ namespace winrt::ZSlice::implementation
             add(menu.Items(), L"Cut the part", [this] { CutParts(); }, L"Ctrl+X");
             add(menu.Items(), L"Duplicate the part", [this] { DuplicateParts(); }, L"Ctrl+D");
             section();
-            add(menu.Items(), L"Put this side on the bed", [this, line_part] {
-                double px, py, pz;
-                ptrdiff_t part = line_part();
-                if (part >= 0 && MenuPlace(px, py, pz) && zs_app_part_put_down_at(model->Active(), (size_t)part, px, py, pz) == ZS_OK)
-                    PlateEdited();
+            // The ray of the click, from the camera that the user saw.
+            std::array<float, 6> side_ray{};
+            bool has_ray = !show_2d && zs_view_ray(view, (float)(x * Scale()), (float)(y * Scale()), side_ray.data()) != 0;
+            add(menu.Items(), L"Put this side on the bed", [this, line_part, side_ray, has_ray] {
+                PutSideDown(line_part(), has_ray ? side_ray.data() : nullptr);
             });
             MenuFlyoutSubItem modes;
             modes.Text(L"Placement");

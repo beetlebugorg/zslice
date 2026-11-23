@@ -357,6 +357,49 @@ namespace winrt::ZSlice::implementation
             zs::Log("dev: camera panel open\n");
             return true;
         }
+        if (verb == L"wallmenu" && words.size() >= 3)
+        {
+            // Opens the menu at the pixel of a bed point and puts that side
+            // down. `old` uses the place of the line, and `miss` a ray that
+            // misses the part, so the fallback runs.
+            float px = 0, py = 0;
+            bool seen = zs_view_pixel_of(view, _wtof(words[0].c_str()), _wtof(words[1].c_str()), _wtof(words[2].c_str()), &px, &py) != 0;
+            double s = Scale();
+            ShowContextMenu(px / s, py / s);
+            std::wstring how = words.size() > 3 ? words[3] : L"";
+            ptrdiff_t part = SelectedPath() >= 0 ? zs_app_part_of_path(model->Active(), (size_t)SelectedPath()) : -1;
+            bool ran = false;
+            if (how == L"old")
+            {
+                double x, y, z;
+                if (part >= 0 && MenuPlace(x, y, z) && zs_app_part_put_down_at(model->Active(), (size_t)part, x, y, z) == ZS_OK)
+                {
+                    PlateEdited();
+                    ran = true;
+                }
+            }
+            else if (how == L"miss")
+            {
+                float const away[6] = { -5000, -5000, 5000, 0, 0, 1 };
+                PutSideDown(part, away);
+                ran = part >= 0;
+            }
+            else
+            {
+                for (auto const &item : context_actions)
+                    if (item.first == L"Put this side on the bed")
+                    {
+                        auto action = item.second;
+                        action();
+                        ran = true;
+                        break;
+                    }
+            }
+            if (context_menu != nullptr)
+                context_menu.Hide();
+            zs::Log("dev: wall %s seen %d pixel %.0f %.0f part %lld ran %d\n", how.empty() ? "ray" : zs::ToUtf8(how).c_str(), seen ? 1 : 0, px, py, (long long)part, ran ? 1 : 0);
+            return true;
+        }
         if (verb == L"pressbutton" && !words.empty())
         {
             // pressbutton Some_text: the first button with this text, in the
