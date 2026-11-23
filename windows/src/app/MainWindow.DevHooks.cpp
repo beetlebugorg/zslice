@@ -742,6 +742,67 @@ namespace winrt::ZSlice::implementation
             detail_from = SettingsPage::Sections;
             ShowDetail(zs::ToUtf8(words[0]).c_str());
         }
+        else if (verb == L"fieldtype" || verb == L"fieldfocus" || verb == L"fieldkey" || verb == L"fieldlog" || verb == L"fieldleave")
+        {
+            // The first field of the open setting page.
+            using Node = Microsoft::UI::Xaml::DependencyObject;
+            using Tree = Microsoft::UI::Xaml::Media::VisualTreeHelper;
+            Microsoft::UI::Xaml::Controls::TextBox found{ nullptr };
+            std::function<void(Node const &)> walk = [&](Node const &at) {
+                if (auto box = at.try_as<Microsoft::UI::Xaml::Controls::TextBox>(); box != nullptr && found == nullptr)
+                    found = box;
+                for (int32_t i = 0, n = Tree::GetChildrenCount(at); i < n && found == nullptr; i++)
+                    walk(Tree::GetChild(at, i));
+            };
+            walk(SettingsList());
+            if (found == nullptr)
+                zs::Log("dev: field none\n");
+            else if (verb == L"fieldfocus")
+                found.Focus(Microsoft::UI::Xaml::FocusState::Programmatic);
+            else if (verb == L"fieldleave")
+                ViewPanel().Focus(Microsoft::UI::Xaml::FocusState::Programmatic);
+            else if (verb == L"fieldtype")
+                found.Text(words.empty() ? L"" : words[0]);
+            else if (verb == L"fieldlog" && !words.empty())
+            {
+                auto tip = Microsoft::UI::Xaml::Controls::ToolTipService::GetToolTip(found).try_as<winrt::Windows::Foundation::IPropertyValue>();
+                std::wstring text = tip != nullptr ? std::wstring(tip.GetString()) : L"";
+                std::replace(text.begin(), text.end(), L'\n', L' ');
+                zs::Log("dev: field shows '%s' core '%s' formula '%s' history %zu tip '%s'\n", to_string(found.Text()).c_str(), model->GetSetting(zs::ToUtf8(words[0]).c_str()).c_str(), model->Formula(zs::ToUtf8(words[0]).c_str()).c_str(),
+                        zs_app_history_count(model->Active()), zs::ToUtf8(text.substr(0, 62)).c_str());
+            }
+        }
+        else if (verb == L"textround")
+        {
+            // A multi-line field goes back to the core with no edit.
+            using Node = Microsoft::UI::Xaml::DependencyObject;
+            using Tree = Microsoft::UI::Xaml::Media::VisualTreeHelper;
+            Microsoft::UI::Xaml::Controls::TextBox found{ nullptr };
+            std::function<void(Node const &)> walk = [&](Node const &at) {
+                if (auto box = at.try_as<Microsoft::UI::Xaml::Controls::TextBox>(); box != nullptr && box.AcceptsReturn() && found == nullptr)
+                    found = box;
+                for (int32_t i = 0, n = Tree::GetChildrenCount(at); i < n; i++)
+                    walk(Tree::GetChild(at, i));
+            };
+            walk(SettingsList());
+            zs_setting_info info{};
+            bool known = false;
+            for (size_t i = 0, n = zs_setting_count(); !words.empty() && i < n && !known; i++)
+                known = zs_setting_get_info(i, &info) == ZS_OK && zs::ToUtf8(words[0]) == info.name;
+            if (found != nullptr && known)
+            {
+                std::wstring shown{ found.Text() };
+                std::string before = model->GetSetting(info.name);
+                size_t steps = zs_app_history_count(model->Active());
+                CommitSettingText(info, shown, PaneTarget().get());
+                std::string after = model->GetSetting(info.name);
+                zs::Log("dev: textround field CR %zu LF %zu | core before LF %zu CR %zu, after LF %zu CR %zu, same %d, history +%zu\n", std::count(shown.begin(), shown.end(), L'\r'), std::count(shown.begin(), shown.end(), L'\n'),
+                        std::count(before.begin(), before.end(), '\n'), std::count(before.begin(), before.end(), '\r'), std::count(after.begin(), after.end(), '\n'), std::count(after.begin(), after.end(), '\r'), before == after ? 1 : 0,
+                        zs_app_history_count(model->Active()) - steps);
+            }
+            else
+                zs::Log("dev: textround found no field\n");
+        }
         else if (verb == L"panesection" && !words.empty())
         {
             // The first section of a group, in the settings pane.
