@@ -254,7 +254,7 @@ namespace winrt::ZSlice::implementation
             if (zs_app_part_get(app, i, &p) == ZS_OK)
                 zs::Log(" (%.1f,%.1f rot %.0f size %.1fx%.1fx%.1f)", p.x, p.y, p.rotation, p.size_x, p.size_y, p.size_z);
         }
-        zs::Log(" | hand %d falling %d measure %d | line card %d part card %d | layer %.0f | state %d\n", hand ? 1 : 0, falling ? 1 : 0,
+        zs::Log(" | falling %d measure %d | line card %d part card %d | layer %.0f | state %d\n", falling ? 1 : 0,
                 measure_count, LineCard().Visibility() == Microsoft::UI::Xaml::Visibility::Visible ? 1 : 0,
                 PartCard().Visibility() == Microsoft::UI::Xaml::Visibility::Visible ? 1 : 0, LayerSlider().Value(), zs_app_state(app));
         if (MeasureCard().Visibility() == Microsoft::UI::Xaml::Visibility::Visible)
@@ -507,6 +507,137 @@ namespace winrt::ZSlice::implementation
             zs::Log("dev: line path %lld seg %lld key %llu key of path %llu same %d line card %d\n", (long long)path, (long long)SelectedSegment(), (unsigned long long)key,
                     (unsigned long long)now, key != 0 && key == now ? 1 : 0, LineCard().Visibility() == Microsoft::UI::Xaml::Visibility::Visible ? 1 : 0);
         }
+        else if (verb == L"gizdrag" && words.size() >= 2)
+        {
+            // gizdrag handle amount [shift]: a drag of a handle (0-2 ring, 3-5
+            // arrow) from a point on it, in 12 steps. The amount is mm along
+            // the arrow, or degrees for a ring.
+            zs_part p{};
+            int64_t part = PrimaryPart();
+            if (part >= 0 && zs_app_part_get(model->Active(), (size_t)part, &p) == ZS_OK)
+            {
+                int handle = _wtoi(words[0].c_str());
+                double amount = _wtof(words[1].c_str()), s = Scale();
+                bool free = words.size() >= 3 && words[2] == L"shift";
+                double radius = 0.62 * std::max({ p.size_x, p.size_y, p.size_z }) + 4;
+                double c[3] = { p.x, p.y, std::max(p.z, 0.0) + p.size_z / 2 };
+                auto point_at = [&](double t, double &x, double &y) {
+                    double q[3] = { c[0], c[1], c[2] };
+                    if (handle >= 3)
+                        q[handle - 3] += radius * 1.28 + amount * t;
+                    else
+                    {
+                        double a = (33 + amount * t) * 3.14159265358979 / 180, u = radius * std::cos(a), v = radius * std::sin(a);
+                        if (handle == 0) { q[1] += u; q[2] += v; }
+                        else if (handle == 1) { q[0] += u; q[2] -= v; }
+                        else { q[0] += u; q[1] += v; }
+                    }
+                    float px = 0, py = 0;
+                    zs_view_pixel_of(view, q[0], q[1], q[2], &px, &py);
+                    x = px / s;
+                    y = py / s;
+                };
+                double x, y;
+                point_at(0, x, y);
+                press_x = last_x = x;
+                press_y = last_y = y;
+                int found = HandleAt(x, y);
+                if (ToolPress(x, y, false))
+                {
+                    for (int k = 1; k <= 12; k++)
+                    {
+                        point_at(k / 12.0, x, y);
+                        ToolDrag(x, y, free);
+                    }
+                    zs::Log("dev: gizmo handle %d found %d target %.2f %.2f %.2f want %.0f label '%s'\n", handle, found, live_target[0], live_target[1], live_target[2], turn_want,
+                            zs::ToUtf8(std::wstring(DragLabelText().Text())).c_str());
+                    ToolRelease();
+                }
+                else
+                    zs::Log("dev: gizmo handle %d found %d: no press\n", handle, found);
+            }
+        }
+        else if (verb == L"partdrag" && words.size() >= 3)
+        {
+            // partdrag i dx dy [shift]: a drag of part i by mm on the bed,
+            // from the middle of its top. The log has what a pick finds at
+            // the old and the new place during the drag.
+            zs_app *app = model->Active();
+            size_t index = (size_t)_wtoi(words[0].c_str());
+            double dx = _wtof(words[1].c_str()), dy = _wtof(words[2].c_str()), s = Scale();
+            bool free = words.size() >= 4 && words[3] == L"shift";
+            zs_part p{};
+            if (zs_app_part_get(app, index, &p) == ZS_OK)
+            {
+                double z = std::max(p.z, 0.0) + p.size_z * 0.6;
+                auto at = [&](double t, double &x, double &y) {
+                    float px = 0, py = 0;
+                    zs_view_pixel_of(view, p.x + dx * t, p.y + dy * t, z, &px, &py);
+                    x = px / s;
+                    y = py / s;
+                };
+                double x0, y0, x, y;
+                at(0, x0, y0);
+                press_x = last_x = x0;
+                press_y = last_y = y0;
+                if (ToolPress(x0, y0, true))
+                {
+                    for (int k = 1; k <= 12; k++)
+                    {
+                        at(k / 12.0, x, y);
+                        ToolDrag(x, y, free);
+                    }
+                    uint64_t at_old = zs_sel_pick(sel.get(), view, (float)(x0 * s), (float)(y0 * s));
+                    uint64_t at_new = zs_sel_pick(sel.get(), view, (float)(x * s), (float)(y * s));
+                    zs::Log("dev: body part id %llu target %.2f %.2f live %d group %zu | pick old place %llu new place %llu\n", (unsigned long long)zs_app_part_id(app, index), live_target[0],
+                            live_target[1], live_on ? 1 : 0, move_group.size(), (unsigned long long)at_old, (unsigned long long)at_new);
+                    ToolRelease();
+                }
+                else
+                    zs::Log("dev: body: no press\n");
+            }
+        }
+        else if (verb == L"handleclick" && words.size() >= 1)
+        {
+            // handleclick h: a press and a release on a handle of the
+            // selected part. The click goes to the part under the pointer.
+            zs_part p{};
+            int64_t part = PrimaryPart();
+            if (part >= 0 && zs_app_part_get(model->Active(), (size_t)part, &p) == ZS_OK)
+            {
+                int handle = _wtoi(words[0].c_str());
+                double radius = 0.62 * std::max({ p.size_x, p.size_y, p.size_z }) + 4, s = Scale();
+                double q[3] = { p.x, p.y, std::max(p.z, 0.0) + p.size_z / 2 };
+                q[handle - 3] += radius * 1.28;
+                float px = 0, py = 0;
+                zs_view_pixel_of(view, q[0], q[1], q[2], &px, &py);
+                double x = px / s, y = py / s;
+                press_x = last_x = x;
+                press_y = last_y = y;
+                int found = HandleAt(x, y);
+                bool took = ToolPress(x, y, false);
+                if (took)
+                    ToolRelease();
+                ToolClick(x, y, false, false);
+                zs::Log("dev: handle click found %d took %d, under it part %lld, now primary %lld, turn %d live %d\n", found, took ? 1 : 0, (long long)PartAt(x, y, nullptr, nullptr),
+                        (long long)PrimaryPart(), turn_axis, live_on ? 1 : 0);
+            }
+        }
+        else if (verb == L"poselog")
+        {
+            zs_app *app = model->Active();
+            std::string all;
+            for (size_t i = 0, n = zs_app_part_count(app); i < n; i++)
+            {
+                zs_part p{};
+                if (zs_app_part_get(app, i, &p) != ZS_OK)
+                    continue;
+                char row[120];
+                snprintf(row, sizeof row, "[%llu: %.2f %.2f z %.2f rot %.0f a %.0f %.0f %.0f] ", (unsigned long long)zs_app_part_id(app, i), p.x, p.y, p.z, p.rotation, p.angle_x, p.angle_y, p.angle_z);
+                all += row;
+            }
+            zs::Log("dev: pose %s falling %d live %d\n", all.c_str(), falling ? 1 : 0, live_on ? 1 : 0);
+        }
         else if (verb == L"manageopen")
         {
             printers->ShowManage();
@@ -611,16 +742,12 @@ namespace winrt::ZSlice::implementation
             press_shift = false;
             if (took)
                 ToolRelease();
-            if (hand_click)
-                hand_click = false;
-            else
-                ToolClick(x, y, has(L"shift"), has(L"ctrl"));
+            ToolClick(x, y, has(L"shift"), has(L"ctrl"));
         }
         else if (verb == L"drag")
         {
             double x0 = number(0), y0 = number(1), x1 = number(2), y1 = number(3);
             bool took = ToolPress(x0, y0, has(L"ctrl"));
-            hand_click = false;
             double lx = x0, ly = y0;
             for (int k = 1; k <= 12; k++)
             {
@@ -735,8 +862,13 @@ namespace winrt::ZSlice::implementation
                 };
                 double x = 0, y = 0;
                 at(33, x, y);
-                if (ToolPress(x, y, false) && turn_axis >= 0)
+                if (ToolPress(x, y, false) && pending_handle >= 0 && pending_handle < 3)
                 {
+                    press_x = x;
+                    press_y = y;
+                    int asked_handle = pending_handle;
+                    pending_handle = -1;
+                    GizmoStart(asked_handle, x, y);
                     int picked = turn_axis;
                     for (int k = 1; k <= 12; k++)
                     {
@@ -1535,10 +1667,7 @@ namespace winrt::ZSlice::implementation
         }
         else if (verb == L"hover")
         {
-            if (hand)
-                HandMove(number(0), number(1), false, false);
-            else
-                SupportPointer(number(0), number(1));
+            SupportPointer(number(0), number(1));
         }
         else if (verb == L"key" && !words.empty())
         {
@@ -1560,7 +1689,11 @@ namespace winrt::ZSlice::implementation
                 key = VirtualKey::Enter;
             else if (name == L"Back")
                 key = VirtualKey::Back;
-            OnToolKey(key, has(L"shift"), false);
+            else if (name == L"PageUp")
+                key = VirtualKey::PageUp;
+            else if (name == L"PageDown")
+                key = VirtualKey::PageDown;
+            OnToolKey(key, has(L"shift"), has(L"ctrl"));
         }
         else if (verb == L"layer")
         {

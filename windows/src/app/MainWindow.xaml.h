@@ -342,9 +342,7 @@ namespace winrt::ZSlice::implementation
         {
             Select,
             Move,
-            Turn,
             Support,
-            Grab,
             Measure,
             Paint,
             Label,
@@ -356,9 +354,33 @@ namespace winrt::ZSlice::implementation
         void ToolDrag(double x, double y, bool shift);
         void ToolRelease();
         void ToolClick(double x, double y, bool shift, bool ctrl);
-        void BeginMove(int64_t part, double bed_x, double bed_y);
-        void HandMove(double x, double y, bool alt, bool shift);
-        bool HandRelease();
+        void BeginMove(int64_t part, double x, double y, double bed_x, double bed_y);
+        // The transform tool (MainWindow.Transform.cpp).
+        void PlaceGizmo();
+        int HandleAt(double x, double y);
+        void SetViewCursor(int shape);
+        void GizmoHover(double x, double y);
+        void ShowDragLabel(std::wstring const &text, double x, double y);
+        void HideDragLabel();
+        void GizmoStart(int handle, double x, double y);
+        void TurnMove(double x, double y, bool fine);
+        void TurnEnd();
+        void LiveBegin(uint64_t part, int axis);
+        void LivePreview();
+        void LivePush();
+        void LiveLoaded();
+        void LiveCancel();
+        double MmPerPoint(double x, double y);
+        double MmPerPointAxis(int axis);
+        void LiveSnap(double &x, double &y, int axis, double px, double py);
+        void LiveMove();
+        void ArrowMove(double x, double y, bool free);
+        void BodyMove(double x, double y, bool free);
+        void LiveEnd();
+        void HoldForKeys();
+        bool PartTurnKey(Windows::System::VirtualKey key, bool shift);
+        bool PartBracket(bool forward, bool shift);
+        bool PartWheel(int delta);
         void RunFall();
         void FallTick();
         void CheckFall();
@@ -980,13 +1002,27 @@ namespace winrt::ZSlice::implementation
         std::vector<SettingEditor> line_editors;
         // A drag of a tool.
         bool tool_drag = false;
-        int64_t moving_part = -1;
+        uint64_t moving_part = 0;
+        bool move_started = false;
+        int pending_handle = -1;
+        bool gizmo_on = false;
+        bool live_on = false, live_done = false;
+        uint64_t live_part = 0;
+        int arrow_axis = -1;
+        double live_start[3] = {}, live_target[3] = {}, live_sent[3] = {}, live_shown[3] = {}, live_size[3] = {}, live_hz = 0;
+        int64_t live_gen = -1;
+        int live_history_n = 0;
+        int64_t live_history_gen[8] = {};
+        double live_history[8][3] = {};
+        double fall_off[3] = {};
+        int wheel_turn = 0;
+        Microsoft::UI::Dispatching::DispatcherQueueTimer keys_timer{ nullptr };
         double move_x0 = 0, move_y0 = 0, bed_x0 = 0, bed_y0 = 0, moved_x = 0, moved_y = 0;
-        std::vector<int64_t> move_group;
+        std::vector<uint64_t> move_group;
         std::vector<double> move_group_xy;
         int turn_axis = -1;
-        int64_t turn_part = -1;
-        double turn_want = 0, turn_sent = 0, turn_rotation = 0;
+        uint64_t turn_part = 0;
+        double turn_want = 0, turn_sent = 0;
         double turn_pivot[3] = {};
         int tape_end = -1;
         double measure_box[4] = { 1e9, 1e9, -1e9, -1e9 };
@@ -994,16 +1030,11 @@ namespace winrt::ZSlice::implementation
         double measure_radius[2] = {};
         int measure_shape[2] = {};
         int measure_count = 0;
-        // The hand of the Grab tool, and the fall of a part.
+        // The fall of a part.
         Microsoft::UI::Dispatching::DispatcherQueueTimer fall_timer{ nullptr };
         std::chrono::steady_clock::time_point fall_last{};
         int64_t fall_part = -1;
         bool falling = false;
-        bool hand = false;
-        bool hand_click = false;
-        bool hand_turning = false;
-        double hand_height = 0, hand_x = 0, hand_y = 0, hand_turn_x = 0, hand_turn_y = 0;
-        double hand_yaw = 0, hand_tilt = 0, hand_yaw_sent = 0, hand_tilt_sent = 0;
 
         Microsoft::UI::Dispatching::DispatcherQueueTimer session_timer{ nullptr };
         std::chrono::steady_clock::time_point session_due{};

@@ -226,6 +226,11 @@
             </TextBlock>
 
             <!-- A short note, over the bottom bar. -->
+            <!-- The angle or the distance of a drag of the gizmo, next to the pointer. -->
+            <Border x:Name="DragLabel" Canvas.ZIndex="55" HorizontalAlignment="Left" VerticalAlignment="Top" Padding="6,3"
+                    Background="#D91F2126" IsHitTestVisible="False" Visibility="Collapsed">
+                <TextBlock x:Name="DragLabelText" Foreground="#FFFFFF" FontSize="13" />
+            </Border>
             <Border x:Name="ToastCard" Canvas.ZIndex="60" HorizontalAlignment="Center" VerticalAlignment="Bottom"
                     Margin="0,0,0,84" Padding="16,8" CornerRadius="18" Background="#EB242424"
                     MaxWidth="640" Visibility="Collapsed" IsHitTestVisible="False">
