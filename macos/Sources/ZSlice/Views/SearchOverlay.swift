@@ -214,15 +214,7 @@ struct SearchToolbarItem: View {
                 }
                 .frame(width: 14)
             }
-            .padding(.horizontal, 8)
-            .frame(height: 22)
-            // The same soft shape as the menus next to it. An open search
-            // shows as one accent line on that shape, with no second box.
-            .background(RoundedRectangle(cornerRadius: 7, style: .continuous).fill(Color.primary.opacity(search.open ? 0.02 : 0.05)))
-            .overlay(
-                RoundedRectangle(cornerRadius: 7, style: .continuous)
-                    .strokeBorder(search.open ? Color.accentColor.opacity(0.8) : Color.primary.opacity(0.08), lineWidth: search.open ? 1.5 : 1)
-            )
+            .modifier(SearchFieldShape(open: search.open))
             .contentShape(Rectangle())
             .onHover { hovering = $0 }
             .help("Search the settings and the actions (/ or ⌘F)")
@@ -233,6 +225,49 @@ struct SearchToolbarItem: View {
         } else {
             Button { search.open.toggle() } label: { Label("Search", systemImage: "magnifyingglass") }
                 .help("Search the settings and the actions (/ or ⌘F)")
+        }
+    }
+}
+
+/// The one shape of the search field. From macOS 26 the toolbar puts a
+/// glass capsule behind each item, so the field uses that kind of capsule
+/// and its toolbar item hides the shared one (SearchToolbarContent). An
+/// open search shows as one accent line on the shape.
+private struct SearchFieldShape: ViewModifier {
+    let open: Bool
+
+    func body(content: Content) -> some View {
+        if #available(macOS 26.0, *) {
+            content
+                .padding(.horizontal, 14)
+                .frame(height: 36)
+                .glassEffect(.regular, in: Capsule())
+                .overlay {
+                    if open { Capsule().strokeBorder(Color.accentColor.opacity(0.8), lineWidth: 1.5) }
+                }
+        } else {
+            content
+                .padding(.horizontal, 8)
+                .frame(height: 22)
+                .background(RoundedRectangle(cornerRadius: 7, style: .continuous).fill(Color.primary.opacity(open ? 0.02 : 0.05)))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 7, style: .continuous)
+                        .strokeBorder(open ? Color.accentColor.opacity(0.8) : Color.primary.opacity(0.08), lineWidth: open ? 1.5 : 1)
+                )
+        }
+    }
+}
+
+/// The search in the center of the toolbar, with no shared glass behind it.
+struct SearchToolbarContent: ToolbarContent {
+    let workspace: Workspace
+
+    var body: some ToolbarContent {
+        if #available(macOS 26.0, *) {
+            ToolbarItem(placement: .principal) { SearchToolbarItem(workspace: workspace) }
+                .sharedBackgroundVisibility(.hidden)
+        } else {
+            ToolbarItem(placement: .principal) { SearchToolbarItem(workspace: workspace) }
         }
     }
 }

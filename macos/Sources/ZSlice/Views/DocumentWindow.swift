@@ -430,9 +430,7 @@ struct DocumentWindow: View {
             // The search is always in the toolbar (or a Search button while
             // it is a card). The 2D view has no button: the keys 2 and 3,
             // and View > 2D View.
-            ToolbarItem(placement: .principal) {
-                SearchToolbarItem(workspace: workspace)
-            }
+            SearchToolbarContent(workspace: workspace)
             ToolbarItemGroup(placement: .primaryAction) {
                 PrinterMenu(workspace: workspace)
                 FilamentMenu(workspace: workspace)
