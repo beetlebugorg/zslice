@@ -169,6 +169,10 @@ namespace winrt::ZSlice::implementation
         void RefreshTiles();
         void RefreshQueue();
         void UpdateTile(std::shared_ptr<PrinterTile> const &tile, zs::link::Snapshot const *status, std::string const &error);
+        // The button "Use the filaments of": reads the spools of a printdeck.
+        void ReadSpools();
+        // A status of the current printer: the filaments follow its spools.
+        void FollowSpools(std::string const &name, zs::link::Snapshot const &status);
         void StartCamera(std::shared_ptr<PrinterTile> const &tile);
         void StopCamera(std::shared_ptr<PrinterTile> const &tile);
         void ShowCameraLarge(std::shared_ptr<PrinterTile> const &tile);

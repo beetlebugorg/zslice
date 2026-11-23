@@ -92,6 +92,7 @@
 // profclear name, profrename text, profdelete, profdone, profmark i, proflog.
 |1, prefsimulate 0|1.
 // A part that does not fit: fitlog, fitexport, fitissue.
+// Spools of the printer: spoolread, spoolfollow file, spoollog.
 // Import: miask [text], migo, mizip path, micheck i 0|1, miok, micancel, milog.
 // Settings for: scopeset n, scopeedit name value, scopereset name, scopelog name.
 // The print order of the part card: orderlog.
@@ -120,6 +121,13 @@ using Windows::System::VirtualKey;
 
 namespace
 {
+    // The text of a step for the log. A key of a test never goes there.
+    std::string StepForLog(std::wstring const &step)
+    {
+        std::string text = zs::ToUtf8(step);
+        return text.rfind("prefset key", 0) == 0 ? std::string("prefset key (hidden)") : text;
+    }
+
     // Writes the XAML chrome to a BMP file. This works when the desktop does
     // not compose the window. The core's swapchains are not in the picture.
     winrt::fire_and_forget SaveChrome(Microsoft::UI::Xaml::UIElement root, std::wstring path)
@@ -232,7 +240,7 @@ namespace winrt::ZSlice::implementation
     void MainWindow::LogDevState(std::wstring const &step)
     {
         zs_app *app = model->Active();
-        zs::Log("dev: %s | tool %d path %lld seg %lld parts", zs::ToUtf8(step).c_str(), (int)tool,
+        zs::Log("dev: %s | tool %d path %lld seg %lld parts", StepForLog(step).c_str(), (int)tool,
                 (long long)selected_path, (long long)selected_segment);
         for (int64_t i : selected_parts)
             zs::Log(" %lld", (long long)i);
@@ -675,6 +683,40 @@ namespace winrt::ZSlice::implementation
             model->SetSetting(zs::ToUtf8(words[0]).c_str(), zs::ToUtf8(words[1]), error);
             settle_timer.Stop();
         }
+        else if (verb == L"spoolread")
+        {
+            printers->ReadSpools();
+        }
+        else if (verb == L"spoolfollow" && !words.empty())
+        {
+            // spoolfollow file: a status of the printer with these spools.
+            std::string json, message;
+            if (zs::Model::ReadFile(words[0], json))
+            {
+                bool changed = printers->setup.FilamentsFromPrinter("Test printer", json, 2, message);
+                if (changed)
+                {
+                    FilamentsChanged();
+                    PlateEdited();
+                    RefreshSettingValues();
+                }
+                zs::Log("dev: spool follow changed %d '%s'\n", changed ? 1 : 0, message.c_str());
+            }
+        }
+        else if (verb == L"spoollog")
+        {
+            std::string list;
+            zs_app *app = model->Active();
+            for (size_t i = 0, n = zs_app_filament_count(app); i < n; i++)
+            {
+                char hand[8] = "", slot[16] = "";
+                zs_app_filament_get(app, i, "source.hand", hand, sizeof hand, nullptr);
+                zs_app_filament_get(app, i, "source.slot", slot, sizeof slot, nullptr);
+                list += "[" + FilamentValue(i, "filament.material") + " " + FilamentValue(i, "filament.color") + " slot " + slot + " hand " + hand + "] ";
+            }
+            zs::Log("dev: spools %s| note '%s' reading %d nozzle %s %s\n", list.c_str(), zs::ToUtf8(printers->filament_note).c_str(), printers->reading_filaments ? 1 : 0,
+                    model->GetSetting("machine.nozzle_type").c_str(), model->GetSetting("machine.nozzle_flow").c_str());
+        }
         else if (verb == L"fitexport")
         {
             printers->ExportGcode();
@@ -961,7 +1003,7 @@ namespace winrt::ZSlice::implementation
         else if (!RunPaintStep(verb, words) && !RunLabelStep(verb, words) && !RunFilamentStep(verb, words) &&
                  !RunPreferencesStep(verb, words) && !RunProjectStep(verb, words) && !RunRangeStep(verb, words) && !RunProfileStep(verb, words) && !RunScopeStep(verb, words) && !RunModelImportStep(verb, words) && verb != L"log")
         {
-            zs::Log("dev: a bad step: %s\n", zs::ToUtf8(step).c_str());
+            zs::Log("dev: a bad step: %s\n", StepForLog(step).c_str());
         }
         LogDevState(step);
         SupportDevLog();

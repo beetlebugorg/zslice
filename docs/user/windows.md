@@ -164,7 +164,7 @@ At the first start, the app asks for your printer. Type a part of its name, or p
 The top bar has the setup of the plate:
 
 - **The printer menu** switches the printer. It also has **Printer settings and G-code…**, **Manage printers…**, **Connect a printdeck…**, **Import a profile…**, and **Add a printer…**.
-- **The filament menu** has a color and a material for each filament. For a printdeck printer, **Use the filaments of** reads the spools that the printer has loaded.
+- **The filament menu** has a color and a material for each filament. For a printdeck printer, **Use the filaments of** reads the spools that the printer has loaded and makes them the filaments of the plate. While the **Printers** page is open, a printer that changes the filament by itself keeps the filaments of the plate up to date with its spools. A filament that you set by hand stays.
 - **The quality menu** lists each quality with its main points. It also has **Save as profile…** and **Import a profile…**.
 
 ## Import a profile

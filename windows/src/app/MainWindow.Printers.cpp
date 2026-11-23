@@ -365,6 +365,90 @@ namespace winrt::ZSlice::implementation
             ExportGcode();
     }
 
+    // The spools that a printdeck printer has loaded. The core makes them the
+    // filaments of the plate, also the ones set by hand: the user asked.
+    void MainWindow::PrintersUi::ReadSpools()
+    {
+        if (reading_filaments)
+            return;
+        reading_filaments = true;
+        filament_note.clear();
+        if (filament_flyout.IsOpen())
+            FillFilament();
+        zs::link::Target target = zs::link::TargetOf(zs::Printers().Current());
+        bool two_nozzles = setup.TwoNozzles();
+        struct Result
+        {
+            bool ok = false;
+            std::string body, name;
+            zs::DeckFilaments spools;
+            std::string message;
+        };
+        Async(
+            [target, two_nozzles] {
+                Result r;
+                r.name = target.name;
+                if (!zs::link::ReadLoadedFilaments(target, nullptr, r.body, r.message))
+                    return r;
+                r.ok = zs::ParseDeckFilaments(r.body, two_nozzles, target.name, r.spools, r.message);
+                return r;
+            },
+            [](PrintersUi &ui, Result &r) {
+                ui.reading_filaments = false;
+                if (r.ok)
+                {
+                    bool changed = ui.setup.FilamentsFromPrinter(r.name, r.body, 1, r.message);
+                    // The nozzle of the printer.
+                    if (!r.spools.nozzle_type.empty())
+                    {
+                        zs_app *app = ui.w.model->Active();
+                        zs_app_setting_set(app, "machine.nozzle_type", r.spools.nozzle_type.c_str());
+                        zs_app_setting_set(app, "machine.nozzle_flow", r.spools.nozzle_flow.c_str());
+                        std::string nozzles = " Nozzles: " + r.spools.nozzle_type + ", " + r.spools.nozzle_flow + ".";
+                        std::replace(nozzles.begin(), nozzles.end(), '_', ' ');
+                        r.message += nozzles;
+                        changed = true;
+                    }
+                    if (changed)
+                    {
+                        ui.w.FilamentsChanged();
+                        ui.w.PlateEdited();
+                        ui.setup.SaveState();
+                    }
+                    ui.w.RefreshSettingValues();
+                    ui.RefreshBar();
+                }
+                ui.filament_note = zs::ToWide(r.message);
+                ui.Note(ui.filament_note);
+                if (ui.filament_flyout.IsOpen())
+                    ui.FillFilament();
+            });
+    }
+
+    // On a printer that changes the filament by itself, the filaments of the
+    // plate follow its spools. A filament set by hand stays. A plate of a
+    // project keeps its filaments, and an upload keeps the plate it sends.
+    void MainWindow::PrintersUi::FollowSpools(std::string const &name, zs::link::Snapshot const &status)
+    {
+        if (status.core == nullptr || sending || batch.on || setup.ProjectPlates())
+            return;
+        size_t len = 0;
+        if (zs_printer_status_filaments(status.core.get(), nullptr, 0, &len) != ZS_OK)
+            return;
+        std::string json(len + 1, '\0');
+        if (zs_printer_status_filaments(status.core.get(), json.data(), json.size(), &len) != ZS_OK)
+            return;
+        json.resize(len);
+        std::string message;
+        if (!setup.FilamentsFromPrinter(name, json, 2, message))
+            return;
+        w.FilamentsChanged();
+        w.PlateEdited();
+        w.RefreshSettingValues();
+        RefreshBar();
+        Note(zs::ToWide(message));
+    }
+
     void MainWindow::PrintersUi::RefreshBar()
     {
         if (printer_button == nullptr)
@@ -676,45 +760,7 @@ namespace winrt::ZSlice::implementation
             Button use = TextButton(reading_filaments ? L"Reading the printer…" : L"Use the filaments of " + zs::ToWide(printer.name));
             use.IsEnabled(!reading_filaments);
             ToolTipService::SetToolTip(use, box_value(L"Read the spools that the printer has loaded, and make the filaments of the plate the same: count, material, and color"));
-            use.Click([this](auto &&, auto &&) {
-                if (reading_filaments)
-                    return;
-                reading_filaments = true;
-                filament_note.clear();
-                FillFilament();
-                zs::link::Target target = zs::link::TargetOf(zs::Printers().Current());
-                bool two_nozzles = setup.TwoNozzles();
-                struct Result
-                {
-                    bool ok = false;
-                    zs::DeckFilaments spools;
-                    std::string message;
-                };
-                Async(
-                    [target, two_nozzles] {
-                        Result r;
-                        std::string body;
-                        if (!zs::link::ReadLoadedFilaments(target, nullptr, body, r.message))
-                            return r;
-                        r.ok = zs::ParseDeckFilaments(body, two_nozzles, target.name, r.spools, r.message);
-                        if (r.ok)
-                            r.message = zs::DeckFilamentsMessage(r.spools, two_nozzles, target.name);
-                        return r;
-                    },
-                    [two_nozzles](PrintersUi &ui, Result &r) {
-                        ui.reading_filaments = false;
-                        if (r.ok)
-                        {
-                            ui.setup.ApplySpools(r.spools, two_nozzles);
-                            ui.w.RefreshSettingValues();
-                            ui.RefreshBar();
-                        }
-                        ui.filament_note = zs::ToWide(r.message);
-                        ui.Note(ui.filament_note);
-                        if (ui.filament_flyout.IsOpen())
-                            ui.FillFilament();
-                    });
-            });
+            use.Click([this](auto &&, auto &&) { ReadSpools(); });
             filament_panel.Children().Append(use);
             if (!filament_note.empty())
                 filament_panel.Children().Append(Label(filament_note, 12, false, true));
