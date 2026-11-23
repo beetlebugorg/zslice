@@ -156,7 +156,8 @@ namespace
         TextBlock text;
         text.TextWrapping(TextWrapping::WrapWholeWords);
         text.FontSize(12);
-        text.Foreground(Brush(0x5B, 0x61, 0x68));
+        // The color of the theme, dimmed.
+        text.Opacity(0.72);
         return text;
     }
 }
@@ -982,7 +983,7 @@ namespace winrt::ZSlice::implementation
             }
             else
             {
-                tree_info.Foreground(Brush(0x5B, 0x61, 0x68));
+                tree_info.ClearValue(TextBlock::ForegroundProperty());
             }
             tree_info.Text(text);
         }

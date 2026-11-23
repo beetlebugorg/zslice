@@ -11,6 +11,8 @@
 #include "pch.h"
 #include "MainWindow.xaml.h"
 
+#include <winrt/Microsoft.UI.Xaml.Documents.h>
+
 #include <cmath>
 
 using namespace winrt;
@@ -354,7 +356,7 @@ namespace winrt::ZSlice::implementation
             TextBlock slicing;
             slicing.Text(L"Slicing");
             slicing.FontWeight(Microsoft::UI::Text::FontWeights::SemiBold());
-            slicing.Foreground(Brush(0x5B, 0x61, 0x68));
+            slicing.Foreground(TokenBrush(Root(), L"ZsDim"));
             slicing.Margin(ThicknessHelper::FromLengths(4, 12, 0, 2));
             SettingsList().Children().Append(slicing);
             Button speed = RowButton(L"Speed");
@@ -366,7 +368,7 @@ namespace winrt::ZSlice::implementation
             TextBlock heading;
             heading.Text(g.title);
             heading.FontWeight(Microsoft::UI::Text::FontWeights::SemiBold());
-            heading.Foreground(Brush(0x5B, 0x61, 0x68));
+            heading.Foreground(TokenBrush(Root(), L"ZsDim"));
             heading.Margin(ThicknessHelper::FromLengths(4, 12, 0, 2));
             SettingsList().Children().Append(heading);
             char const *last = nullptr;
@@ -533,11 +535,9 @@ namespace winrt::ZSlice::implementation
         SettingsCrumb().Text(std::wstring(TitleOf(group)) + L" › " + (section[0] != 0 ? zs::ToWide(section) : L"General"));
         if (strcmp(group, "machine") == 0 || strcmp(group, "filament") == 0)
         {
-            TextBlock note = Wrapped(strcmp(group, "machine") == 0
-                                         ? L"Each printer keeps its own values here. They change when you change the printer."
-                                         : L"Each filament keeps its own values here. They change when you change the filament.",
-                                     12);
-            note.Foreground(Brush(0x5B, 0x61, 0x68));
+            FrameworkElement note = OwnerLabel(group, strcmp(group, "machine") == 0
+                                                          ? L": each printer keeps its own values here. They change when you change the printer."
+                                                          : L": each filament keeps its own values here. They change when you change the filament.");
             note.Margin(ThicknessHelper::FromLengths(4, 0, 0, 6));
             SettingsList().Children().Append(note);
         }
@@ -577,11 +577,78 @@ namespace winrt::ZSlice::implementation
             TextBlock where;
             where.Text(std::wstring(TitleOf(info.group)) + L" › " + zs::ToWide(info.section));
             where.FontSize(11);
-            where.Foreground(Brush(0x7A, 0x80, 0x87));
+            where.Foreground(TokenBrush(Root(), L"ZsDim"));
             where.Margin(ThicknessHelper::FromLengths(4, 6, 0, 0));
             SettingsList().Children().Append(where);
+            // A mixed list: a badge on each printer and filament setting.
+            if (FrameworkElement badge = OwnerLabel(info.group, nullptr); badge != nullptr)
+            {
+                badge.Margin(ThicknessHelper::FromLengths(4, 2, 0, 0));
+                SettingsList().Children().Append(badge);
+            }
             SettingsList().Children().Append(MakeSettingRow(info));
         }
+    }
+
+    std::wstring MainWindow::OwnerText(bool printer)
+    {
+        std::wstring who = printer ? L"Printer" : L"Filament";
+        std::string name = model != nullptr ? model->GetSetting(printer ? "machine.name" : "filament.name") : std::string();
+        return name.empty() ? who : who + L" · " + zs::ToWide(name);
+    }
+
+    FrameworkElement MainWindow::OwnerLabel(char const *group, wchar_t const *rest)
+    {
+        bool printer = strcmp(group, "machine") == 0;
+        if (!printer && strcmp(group, "filament") != 0)
+            return nullptr;
+        auto ink = TokenBrush(Root(), printer ? L"ZsOwnerMachine" : L"ZsOwnerFilament");
+        std::string key = printer ? "machine.name" : "filament.name";
+        TextBlock text;
+        text.TextWrapping(TextWrapping::Wrap);
+        if (rest != nullptr)
+        {
+            namespace Documents = Microsoft::UI::Xaml::Documents;
+            Documents::Run who, tail;
+            who.FontWeight(Microsoft::UI::Text::FontWeights::Bold());
+            who.Foreground(ink);
+            tail.Text(rest);
+            text.FontSize(12);
+            text.Inlines().Append(who);
+            text.Inlines().Append(tail);
+            auto fill = [this, who, printer]() mutable { who.Text(OwnerText(printer)); };
+            fill();
+            setting_editors.push_back({ key, fill });
+            return text;
+        }
+        text.FontSize(11);
+        text.FontWeight(Microsoft::UI::Text::FontWeights::SemiBold());
+        text.Foreground(ink);
+        auto fill = [this, text, printer]() mutable { text.Text(OwnerText(printer)); };
+        fill();
+        setting_editors.push_back({ key, fill });
+        Border badge;
+        badge.HorizontalAlignment(HorizontalAlignment::Left);
+        badge.CornerRadius(CornerRadiusHelper::FromUniformRadius(9));
+        badge.Padding(ThicknessHelper::FromLengths(6, 0, 6, 1));
+        badge.Background(Media::SolidColorBrush(printer ? Windows::UI::Color{ 41, 28, 126, 214 } : Windows::UI::Color{ 36, 217, 72, 15 }));
+        badge.Child(text);
+        ToolTipService::SetToolTip(badge, box_value(printer ? L"A printer setting: each printer has its own value, and it changes when you change the printer."
+                                                            : L"A filament setting: each filament has its own value, and it changes when you change the filament."));
+        return badge;
+    }
+
+    // The page again, with the colors of the theme.
+    void MainWindow::RedrawSettingsPage()
+    {
+        if (settings_page == SettingsPage::Sections)
+            ShowSections();
+        else if (settings_page == SettingsPage::Section && settings_group != nullptr)
+            ShowSection(settings_group, settings_section);
+        else if (settings_page == SettingsPage::Search)
+            ShowSearch(settings_query);
+        else if (settings_page == SettingsPage::Detail && !settings_detail.empty())
+            ShowDetail(std::string(settings_detail).c_str());
     }
 
     void MainWindow::SettingsGoBack()
@@ -630,7 +697,7 @@ namespace winrt::ZSlice::implementation
         HyperlinkButton label;
         label.Content(box_value(zs::ToWide(info.label)));
         label.Padding(ThicknessHelper::FromUniformLength(2));
-        label.Foreground(Brush(0x24, 0x28, 0x2E));
+        label.Foreground(TokenBrush(Root(), L"ZsFg"));
         label.HorizontalAlignment(HorizontalAlignment::Left);
         label.VerticalAlignment(VerticalAlignment::Center);
         ToolTipService::SetToolTip(label, box_value(PlainDoc(info.doc)));
@@ -657,7 +724,7 @@ namespace winrt::ZSlice::implementation
                 if (ProfileHas(key))
                     label.Foreground(TokenBrush(Root(), L"ZsAccentText"));
                 else
-                    label.Foreground(Brush(0x24, 0x28, 0x2E));
+                    label.Foreground(TokenBrush(Root(), L"ZsFg"));
             };
             tint();
             setting_editors.push_back({ key, tint });
@@ -887,12 +954,18 @@ namespace winrt::ZSlice::implementation
         TextBlock title = Wrapped(zs::ToWide(info.label), 18);
         title.FontWeight(Microsoft::UI::Text::FontWeights::SemiBold());
         page.Children().Append(title);
+        // A setting of the printer or the filament: say so, with the name.
+        if (FrameworkElement owner = OwnerLabel(info.group, strcmp(info.group, "machine") == 0
+                                                                ? L": each printer has its own value. It changes when you change the printer."
+                                                                : L": each filament has its own value. It changes when you change the filament.");
+            owner != nullptr)
+            page.Children().Append(owner);
         FrameworkElement detail_editor = MakeEditor(info, PaneTarget());
         TurnOffForScope(detail_editor, info);
         page.Children().Append(detail_editor);
 
         TextBlock source = Wrapped(L"", 12);
-        source.Foreground(Brush(0x5B, 0x61, 0x68));
+        source.Foreground(TokenBrush(Root(), L"ZsDim"));
         Button reset;
         reset.Content(box_value(L"Reset"));
         Grid source_row;

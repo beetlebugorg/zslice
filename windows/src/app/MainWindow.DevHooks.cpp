@@ -742,6 +742,27 @@ namespace winrt::ZSlice::implementation
             detail_from = SettingsPage::Sections;
             ShowDetail(zs::ToUtf8(words[0]).c_str());
         }
+        else if (verb == L"panesection" && !words.empty())
+        {
+            // The first section of a group, in the settings pane.
+            std::string group = zs::ToUtf8(words[0]);
+            ShowSettingsPane(true);
+            for (size_t i = 0, n = zs_setting_count(); i < n; i++)
+            {
+                zs_setting_info info{};
+                if (zs_setting_get_info(i, &info) == ZS_OK && group == info.group)
+                {
+                    ShowSection(info.group, info.section);
+                    break;
+                }
+            }
+        }
+        else if (verb == L"panesearch" && !words.empty())
+        {
+            ShowSettingsPane(true);
+            settings_query = words[0];
+            ShowSearch(words[0]);
+        }
         else if (verb == L"effectfeature" && !words.empty())
         {
             ShowFeature(_wtoi(words[0].c_str()));
