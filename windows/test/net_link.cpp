@@ -25,6 +25,7 @@
 #include <schannel.h>
 #include <security.h>
 
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
@@ -39,6 +40,7 @@
 #include "zslice.h"
 #include "zslice-app.h"
 #include "zs_h264.h"
+#include "zs_usb.h"
 
 #include "zs_app_shell.h"
 #include "zs_bambu.h"
@@ -1966,6 +1968,167 @@ namespace
         return 0;
     }
 
+    // ---- a stub printer on a USB port: no test opens a real port ----
+
+    class StubPrinter final : public usb::Port
+    {
+    public:
+        // The answer to each command, from the rules of the test.
+        std::function<std::string(std::string const &, size_t)> answer = [](std::string const &, size_t) { return std::string("ok\n"); };
+        std::vector<std::string> lines;
+        std::function<void(size_t)> on_line;
+        bool dead = false;
+        int flushes = 0;
+        size_t chunk = 1000;
+
+        bool Write(char const *data, size_t len) override
+        {
+            if (dead)
+                return false;
+            std::string text(data, len);
+            CHECK(!text.empty() && text.back() == '\n');
+            text.pop_back();
+            lines.push_back(text);
+            pending_ += answer(text, lines.size());
+            if (on_line)
+                on_line(lines.size());
+            return true;
+        }
+
+        int Read(char *data, size_t cap, int timeout_ms) override
+        {
+            if (dead)
+                return -1;
+            if (pending_.empty())
+            {
+                std::this_thread::sleep_for(std::chrono::milliseconds(std::min(timeout_ms, 5)));
+                return 0;
+            }
+            size_t n = std::min({ cap, chunk, pending_.size() });
+            memcpy(data, pending_.data(), n);
+            pending_.erase(0, n);
+            return (int)n;
+        }
+
+        void Flush() override
+        {
+            flushes++;
+            pending_.clear();
+        }
+
+    private:
+        std::string pending_;
+    };
+
+    void TestUsb()
+    {
+        // Only a plain COM name passes, so no other device can open.
+        for (char const *good : { "COM1", "COM3", "COM10", "COM256" })
+            CHECK(usb::ValidPort(good));
+        for (char const *bad : { "", "COM", "COM0", "COM01", "COM257", "COM3:", "COM3 ", " COM3", "com3", "\\\\.\\COM3", "LPT1", "NUL", "CON", "COM3\\x", "..\\COM3", "COMx", "COM1000" })
+            CHECK(!usb::ValidPort(bad));
+        for (int baud : usb::bauds)
+            CHECK(usb::ValidBaud(baud));
+        CHECK(!usb::ValidBaud(0));
+        CHECK(!usb::ValidBaud(9));
+        std::string error;
+        CHECK(usb::OpenPort("\\\\.\\PhysicalDrive0", 250000, error) == nullptr);
+        CHECK(error.find("Pick a serial port") != std::string::npos);
+        error.clear();
+        CHECK(usb::OpenPort("NUL", 250000, error) == nullptr);
+        // The list reads the registry and opens no port.
+        for (std::string const &name : usb::Ports())
+            CHECK(usb::ValidPort(name));
+
+        usb::Timing fast{ 1, 300 };
+        std::atomic<bool> stop{ false };
+        // Comments, blank lines, spaces, and CR LF do not reach the printer.
+        {
+            StubPrinter p;
+            std::vector<double> seen;
+            std::string gcode = "; a comment\nG28\r\n\n  G1 X1 Y2  ; to the corner\n\t\n;x\nM104 S200";
+            usb::Result r = usb::Stream(p, gcode, stop, [&](double f) { seen.push_back(f); }, fast);
+            CHECK(r.ok);
+            CHECK(!r.cancelled);
+            CHECK(p.flushes == 1);
+            CHECK((p.lines == std::vector<std::string>{ "G28", "G1 X1 Y2", "M104 S200" }));
+            CHECK(!seen.empty() && seen.back() == 1.0);
+            for (size_t i = 1; i < seen.size(); i++)
+                CHECK(seen[i] >= seen[i - 1]);
+        }
+        // Other lines of the printer, and an answer in small pieces.
+        {
+            StubPrinter p;
+            p.chunk = 1;
+            p.answer = [](std::string const &, size_t) { return std::string("echo:busy: processing\r\n T:200.0 /200.0 B:60.0\nok T:200\r\n"); };
+            usb::Result r = usb::Stream(p, "G1 X1\nG1 X2\nG1 X3\n", stop, nullptr, fast);
+            CHECK(r.ok);
+            CHECK(p.lines.size() == 3);
+        }
+        // Each command waits for its "ok": a line that only has it inside
+        // is no answer.
+        {
+            StubPrinter p;
+            p.answer = [](std::string const &, size_t) { return std::string("echo: not ok\n"); };
+            usb::Result r = usb::Stream(p, "G1 X1\nG1 X2\n", stop, nullptr, usb::Timing{ 1, 60 });
+            CHECK(!r.ok);
+            CHECK(r.message == "The printer did not answer.");
+            CHECK(p.lines.size() == 1);
+        }
+        // An error of the printer ends the print at that command.
+        for (char const *text : { "Error:Printer halted. kill() called!\n", "!! thermal runaway\n" })
+        {
+            StubPrinter p;
+            std::string said = text;
+            p.answer = [said](std::string const &, size_t n) { return n == 2 ? said : std::string("ok\n"); };
+            usb::Result r = usb::Stream(p, "G1 X1\nG1 X2\nG1 X3\nG1 X4\n", stop, nullptr, fast);
+            CHECK(!r.ok);
+            CHECK(!r.cancelled);
+            CHECK(r.message.find("The printer said: ") == 0);
+            CHECK(p.lines.size() == 2);
+        }
+        // A port that goes away.
+        {
+            StubPrinter p;
+            p.on_line = [&p](size_t n) {
+                if (n == 2)
+                    p.dead = true;
+            };
+            usb::Result r = usb::Stream(p, "G1 X1\nG1 X2\nG1 X3\n", stop, nullptr, fast);
+            CHECK(!r.ok);
+            CHECK(r.message == "The port stopped.");
+            CHECK(p.lines.size() == 2);
+        }
+        // A stop: no command goes out after it, and none is added.
+        {
+            StubPrinter p;
+            std::atomic<bool> halt{ false };
+            p.on_line = [&halt](size_t n) {
+                if (n == 3)
+                    halt.store(true);
+            };
+            usb::Result r = usb::Stream(p, "G1 X1\nG1 X2\nG1 X3\nG1 X4\nG1 X5\n", halt, nullptr, fast);
+            CHECK(!r.ok);
+            CHECK(r.cancelled);
+            CHECK(p.lines.size() == 3);
+        }
+        // A stop during the wait for the board sends nothing at all.
+        {
+            StubPrinter p;
+            std::atomic<bool> halt{ true };
+            usb::Result r = usb::Stream(p, "G28\n", halt, nullptr, usb::Timing{ 5000, 300 });
+            CHECK(r.cancelled);
+            CHECK(p.lines.empty());
+            CHECK(p.flushes == 0);
+        }
+        // Text with no command sends nothing.
+        {
+            StubPrinter p;
+            CHECK(usb::Stream(p, "; only\n\n  ; comments\n", stop, nullptr, fast).ok);
+            CHECK(p.lines.empty());
+        }
+    }
+
     void TestCamera()
     {
         std::string jpeg = "\xFF\xD8shot\xFF\xD9";
@@ -2481,7 +2644,7 @@ int main(int argc, char **argv)
         { "status", TestStatus }, { "key flow", TestKeyFlow }, { "deck", TestDeck }, { "upload", TestUpload },
         { "detect", TestDetect }, { "filaments", TestFilaments }, { "mjpeg", TestMjpeg }, { "camera", TestCamera },
         { "discovery", TestDiscovery }, { "bambu", TestBambu }, { "setup", TestSetup },
-        { "h264", TestH264 }, { "rtsp", TestRtsp }, { "open link", TestOpenLink }, { "project", TestProjectSource }, { "file types", TestRegisterApp }, { "hand off", TestHandOff }, { "state move", TestStateMove },
+        { "usb", TestUsb }, { "h264", TestH264 }, { "rtsp", TestRtsp }, { "open link", TestOpenLink }, { "project", TestProjectSource }, { "file types", TestRegisterApp }, { "hand off", TestHandOff }, { "state move", TestStateMove },
     };
     for (auto const &step : steps)
     {
