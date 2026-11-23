@@ -32,7 +32,7 @@ namespace
 <Border xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Width="280" Padding="12" Visibility="Collapsed"
-        Background="#FAFFFFFF" BorderBrush="#DDE0E4" BorderThickness="1" CornerRadius="8">
+        Background="{ThemeResource ZsPopover}" BorderBrush="{ThemeResource ZsPopoverBorder}" BorderThickness="1" CornerRadius="8">
   <StackPanel Spacing="6">
     <Grid>
       <Grid.ColumnDefinitions>
@@ -65,13 +65,13 @@ namespace
       <Slider x:Name="Size" Grid.Column="1" Minimum="0.3" Maximum="10" StepFrequency="0.1" SmallChange="0.1"
               IsThumbToolTipEnabled="False" AllowFocusOnInteraction="False" VerticalAlignment="Center"
               AutomationProperties.Name="The radius of the brush" ToolTipService.ToolTip="The radius of the brush" />
-      <TextBlock x:Name="SizeText" Grid.Column="2" FontSize="12" Foreground="#5B6168" TextAlignment="Right" VerticalAlignment="Center" />
+      <TextBlock x:Name="SizeText" Grid.Column="2" FontSize="12" Foreground="{ThemeResource ZsDim}" TextAlignment="Right" VerticalAlignment="Center" />
     </Grid>
     <TextBlock Text="Filament" FontSize="12" FontWeight="SemiBold" />
     <VariableSizedWrapGrid x:Name="Chips" Orientation="Horizontal" ItemWidth="30" ItemHeight="30" MaximumRowsOrColumns="8" />
-    <TextBlock x:Name="Notice" Visibility="Collapsed" FontSize="12" Foreground="#B45309" TextWrapping="WrapWholeWords"
+    <TextBlock x:Name="Notice" Visibility="Collapsed" FontSize="12" Foreground="{ThemeResource ZsWarning}" TextWrapping="WrapWholeWords"
                Text="The plate has one filament. Add a filament (+) to paint with it." />
-    <TextBlock x:Name="Hint" FontSize="12" Foreground="#5B6168" TextWrapping="WrapWholeWords" />
+    <TextBlock x:Name="Hint" FontSize="12" Foreground="{ThemeResource ZsDim}" TextWrapping="WrapWholeWords" />
     <Button x:Name="Clear" Content="Remove all paint" AllowFocusOnInteraction="False"
             ToolTipService.ToolTip="The whole part prints with its own filament again" />
   </StackPanel>

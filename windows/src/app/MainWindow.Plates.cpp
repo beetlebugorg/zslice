@@ -133,7 +133,7 @@ namespace winrt::ZSlice::implementation
         StopReplay();
         replay_time = 0;
         simulated = false;
-        sim_item.IsChecked(false);
+        ShowSimItem();
         GapCard().Visibility(Visibility::Collapsed);
         HandRelease();
         // The z range of the card is of the plate before.

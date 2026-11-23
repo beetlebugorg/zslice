@@ -6,6 +6,7 @@
 
 #include "pch.h"
 #include "MainWindow.xaml.h"
+#include "MainWindow.Printers.h"
 
 #include <cmath>
 
@@ -106,6 +107,7 @@ namespace winrt::ZSlice::implementation
         // The colors of the lines.
         Button colors;
         StyleStrip(colors, L"The colors of the lines", L"The colors of the lines", legend_glyph);
+        colors_button = colors;
         MenuFlyout menu;
         menu.Placement(Primitives::FlyoutPlacementMode::RightEdgeAlignedTop);
         for (int i = 0; i < 6; i++)
@@ -115,7 +117,7 @@ namespace winrt::ZSlice::implementation
             ToolTipService::SetToolTip(item, box_value(color_names[i]));
             item.GroupName(L"colors");
             item.IsChecked(i == 0);
-            item.Click([this, i](auto &&, auto &&) { SetColorMode(i); });
+            item.Click([this, i](auto &&, auto &&) { ChooseColorMode(i); });
             color_items.push_back(item);
             menu.Items().Append(item);
         }
@@ -188,11 +190,22 @@ namespace winrt::ZSlice::implementation
         });
     }
 
+    // A choice in the menu: it stays for the next start, and it is for the
+    // 3D view.
+    void MainWindow::ChooseColorMode(int mode)
+    {
+        zs::Printers().SetPref("colors", std::to_string(mode));
+        Set2D(false);
+        SetColorMode(mode);
+    }
+
     void MainWindow::SetColorMode(int mode)
     {
         color_mode = mode;
         for (size_t i = 0; i < color_items.size(); i++)
             color_items[i].IsChecked((int)i == mode);
+        if (colors_button != nullptr)
+            ToolTipService::SetToolTip(colors_button, box_value(std::wstring(L"The colors of the lines: ") + color_short[mode]));
         if (view == nullptr || model == nullptr)
             return;
         if (zs_app_state(model->Active()) == ZS_STATE_DONE)
@@ -250,11 +263,38 @@ namespace winrt::ZSlice::implementation
         if (model == nullptr || !zs_app_sim_adopt(model->Active()))
             return;
         simulated = true;
-        sim_item.IsChecked(true);
+        ShowSimItem();
         ShowSlice();
         if (sim_asked)
+        {
             RefreshSummary();
+            ShowBusy(L"");
+            ShowSimNote();
+        }
         sim_asked = false;
+    }
+
+    // While the simulated plastic shows, the plan is one click away.
+    void MainWindow::ShowSimItem()
+    {
+        sim_item.IsChecked(false);
+        sim_item.Text(simulated ? L"Show the plan" : L"Show the print as it forms");
+    }
+
+    // The note of a simulation that the user asked for.
+    void MainWindow::ShowSimNote()
+    {
+        zs_print_sim_stats st{};
+        if (zs_app_sim_stats(model->Active(), &st) != ZS_OK)
+            return;
+        if (st.moved == 0)
+        {
+            ShowToast(L"All the plastic stays where it prints.");
+            return;
+        }
+        char text[160];
+        snprintf(text, sizeof text, "The plastic of %zu lines does not stay where it prints: up to %.1f mm off. Turn on support, or change the turn of the part.", st.moved_paths, st.max_move);
+        ShowToast(zs::ToWide(text));
     }
 
     void MainWindow::ToggleSimulated()
@@ -266,13 +306,17 @@ namespace winrt::ZSlice::implementation
         {
             ShowToast(L"Slice first: the simulation needs a slice.");
             simulated = false;
-            sim_item.IsChecked(false);
+            ShowSimItem();
             return;
         }
         simulated = !simulated;
-        sim_item.IsChecked(simulated);
+        ShowSimItem();
+        // The simulation is for the 3D view.
+        Set2D(false);
         if (!simulated)
         {
+            if (sim_asked)
+                ShowBusy(L"");
             sim_asked = false;
             zs_app_show_simulated(app, 0);
             ShowSlice();
@@ -289,7 +333,7 @@ namespace winrt::ZSlice::implementation
         {
             ShowToast(L"Slice first: the simulation needs a slice.");
             simulated = false;
-            sim_item.IsChecked(false);
+            ShowSimItem();
             return;
         }
         sim_asked = true;
@@ -347,10 +391,12 @@ namespace winrt::ZSlice::implementation
         if (!LayerTimes(layer, t0, t1))
             return;
         StopReplay();
+        // The scrub is for the 3D view.
+        Set2D(false);
         replay_time = t0 + fraction * (t1 - t0);
-        // At the end of the layer: whole layers again.
+        // At the end of the layer: whole layers again, from the bottom knob.
         if (fraction >= 1)
-            zs_view_set_layer(view, layer);
+            ApplyLayerRange();
         else
             zs_view_set_time(view, replay_time);
         ShowScrub(layer, replay_time);
@@ -369,6 +415,8 @@ namespace winrt::ZSlice::implementation
         double total = zs_view_duration(view);
         if (total <= 0)
             return;
+        // The replay is for the 3D view.
+        Set2D(false);
         if (replay_time >= total)
             replay_time = 0;
         // After a move of the slider: from the start of the top layer.
