@@ -541,38 +541,16 @@ namespace zs
         return profile_[group];
     }
 
-    void PrinterSetup::ApplySpools(DeckFilaments const &d, bool two_nozzles)
+    bool PrinterSetup::FilamentsFromPrinter(std::string const &printer, std::string const &json, int flags, std::string &message)
     {
-        zs_app *app = model_.Active();
-        size_t want = d.use.size();
-        size_t have = zs_app_filament_count(app);
-        while (have < want)
-        {
-            size_t index = 0;
-            if (zs_app_filament_add(app, &index) != ZS_OK)
-                break;
-            have++;
-        }
-        while (have > want && zs_app_filament_remove(app, have - 1) == ZS_OK)
-            have--;
-        // A value that the core refuses (a material that it does not know)
-        // leaves the old value.
-        for (size_t k = 0; k < std::min(have, want); k++)
-        {
-            Spool const &s = d.use[k];
-            zs_app_filament_set(app, k, "filament.material", s.material.c_str());
-            if (!s.color.empty())
-                zs_app_filament_set(app, k, "filament.color", s.color.c_str());
-            if (two_nozzles)
-                zs_app_filament_set(app, k, "filament.nozzle", s.aux ? "1" : "0");
-        }
-        if (!d.nozzle_type.empty())
-        {
-            zs_app_setting_set(app, "machine.nozzle_type", d.nozzle_type.c_str());
-            zs_app_setting_set(app, "machine.nozzle_flow", d.nozzle_flow.c_str());
-        }
-        model_.RequestSlice();
+        char text[1024] = "";
+        int changed = 0;
+        int rc = zs_app_filaments_from_printer(model_.Active(), printer.c_str(), json.data(), json.size(), flags, &changed, text, sizeof text);
+        message = text;
+        if (rc != ZS_OK || changed == 0)
+            return false;
         SaveState();
+        return true;
     }
 
     int PrinterSetup::NozzleCount() const

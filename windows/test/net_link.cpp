@@ -1461,14 +1461,20 @@ namespace
         CHECK(PrinterSetup::ProfileFileName("..\\a b") == "___a-b");
 
         // The filaments of a printer.
-        DeckFilaments spools;
-        spools.use.push_back(Spool{ "A1", "PLA", "#ff0000", false });
-        spools.use.push_back(Spool{ "A2", "PETG", "#00ff00", false });
-        setup.ApplySpools(spools, false);
+        std::string spools = R"({"filaments":[{"slot":"A1","tray":0,"nozzle":"main","material":"PLA","color":"#ff0000"},{"slot":"A2","tray":1,"nozzle":"main","material":"PETG","color":"#00ff00"}]})";
+        CHECK(setup.FilamentsFromPrinter("X1", spools, 1, message));
+        CHECK(Has(message, "X1"));
         CHECK(zs_app_filament_count(model.Active()) == 2);
         char color[16] = "";
         CHECK(zs_app_filament_get(model.Active(), 1, "filament.color", color, sizeof color, nullptr) == ZS_OK);
         CHECK(Has(color, "00ff00"));
+        // The same spools change nothing.
+        CHECK(!setup.FilamentsFromPrinter("X1", spools, 1, message));
+        // The automatic follow changes a printer that pauses for a filament
+        // not at all.
+        std::string other = R"({"filaments":[{"slot":"A1","tray":0,"nozzle":"main","material":"PLA","color":"#0000ff"}]})";
+        CHECK(!setup.FilamentsFromPrinter("X1", other, 2, message));
+        CHECK(zs_app_filament_count(model.Active()) == 2);
 
         // The settings come back after a restart, with no key in them.
         setup.SaveState();

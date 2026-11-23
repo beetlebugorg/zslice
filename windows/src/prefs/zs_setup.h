@@ -92,7 +92,11 @@ namespace zs
         std::string GroupProfile(int group) const;
 
         // Makes the filaments of the plate the spools of the printer.
-        void ApplySpools(DeckFilaments const &spools, bool two_nozzles);
+        // Makes the filaments of the plate the spools of a printer
+        // (zs_app_filaments_from_printer). flags 1: also the filaments set
+        // by hand. flags 2: the automatic follow. True if a filament changed.
+        // `message` gets the words of the core for the user.
+        bool FilamentsFromPrinter(std::string const &printer, std::string const &json, int flags, std::string &message);
 
         bool TwoNozzles() const;
         int NozzleCount() const;

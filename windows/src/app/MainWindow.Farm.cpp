@@ -565,10 +565,15 @@ namespace winrt::ZSlice::implementation
             roll += ", " + std::to_string((int)std::lround(st->spool_left)) + " g left";
         t->roll.Text(zs::ToWide(roll));
         show(t->roll, !roll.empty());
-        if (t->id == zs::Printers().Current().id)
+        bool current = t->id == zs::Printers().Current().id;
+        std::string current_name = printer->name;
+        if (current)
             rolls = st->rolls;
         action();
         counts_now();
+        // Last: a change of the filaments can rebuild the page.
+        if (current)
+            FollowSpools(current_name, *st);
     }
 
     void MainWindow::PrintersUi::StartCamera(std::shared_ptr<PrinterTile> const &t)
