@@ -17,3 +17,4 @@ One line for each update: the date, the commit that the folder describes, and th
 | 2026-11-22 | `d108148a` | README, CHANGELOG, 12: Windows history rows open their scope, and copy and paste of labels and layer changes (by the Windows session). |
 | 2026-11-22 | `9614b39a` | README, CHANGELOG, 12: Windows clipboard for support areas, setting values, and line reports, in the copy order of the web and GTK apps (by the Windows session). |
 | 2026-11-22 | `f846465d` | README, CHANGELOG, 12: Windows 2D gaps and tape, filament chips in the editors and the range search (by the Windows session); the region note names the bed. |
+| 2026-11-22 | `ffa0c940` | README, CHANGELOG, 12: Windows owner labels, theme colors in the settings pane, and the printer camera in the print details (by the Windows session). |

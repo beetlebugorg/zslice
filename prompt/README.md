@@ -1,6 +1,6 @@
 # A prompt that could build zslice
 
-Describes: main at commit `f846465d` ("Name the bed in the region note of the bed temperature"), 2026-11-22.
+Describes: main at commit `ffa0c940` ("Add the owner labels and camera to the Windows prompt"), 2026-11-22.
 
 ## Read this first
 
