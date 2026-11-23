@@ -237,7 +237,7 @@ struct ModelPageSheet: View {
                 .disabled(found == nil)
             }
         }
-        .padding(20)
+        .padding(24)
         .frame(width: 460)
         .onAppear { text = workspace.importPageText }
     }
@@ -293,7 +293,9 @@ struct ImportSheet: View {
                     }
                 }
             }
-            .frame(minHeight: 220)
+            .listStyle(.plain)
+            .scrollContentBackground(.hidden)
+            .frame(minHeight: 200)
             HStack {
                 Text(choice.sum)
                     .font(.callout)
@@ -307,8 +309,8 @@ struct ImportSheet: View {
                     .disabled(!choice.ready)
             }
         }
-        .padding(20)
-        .frame(width: 520, height: 480)
+        .padding(24)
+        .dialogFrame(width: 520, height: 480)
     }
 }
 

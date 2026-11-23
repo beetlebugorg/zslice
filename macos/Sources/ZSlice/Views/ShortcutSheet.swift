@@ -119,7 +119,7 @@ struct ShortcutSheet: View {
                 SearchField(text: $filter, prompt: "Filter")
                     .frame(width: 200)
             }
-            .padding()
+            .dialogBar()
             Divider()
             ScrollView {
                 let groups = Self.table.map { g in
@@ -150,15 +150,15 @@ struct ShortcutSheet: View {
                         .frame(maxWidth: .infinity, alignment: .topLeading)
                     }
                 }
-                .padding()
+                .padding(.horizontal, 24).padding(.vertical, 16)
             }
             Divider()
             HStack {
                 Spacer()
                 Button("Done") { dismiss() }.keyboardShortcut(.defaultAction)
             }
-            .padding()
+            .dialogBar()
         }
-        .frame(width: 960, height: 640)
+        .dialogFrame(width: 960, height: 640)
     }
 }
