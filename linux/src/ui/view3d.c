@@ -89,6 +89,10 @@ typedef struct {
     /* A Ctrl+drag that moves a part: the part, its place at the start,
      * and the bed point under the pointer at the start. */
     gint64 moving;
+    /* The stable id of the moving part, and a group drag that holds the
+     * slices until its release. */
+    uint64_t moving_id;
+    gboolean group_held;
     /* A drag of a part of a selection of several parts moves them all:
      * their indexes and their places at the start (x, y pairs). */
     GArray *group, *group_xy;
@@ -184,6 +188,10 @@ typedef struct {
     double drag_label_x, drag_label_y;
     /* The part of a ring drag, and its pivot at the press. */
     gint64 turn_part;
+    /* The stable id of the part of the ring or the arrow, and a handle
+     * press that moved past the click distance. */
+    uint64_t turn_id, live_id;
+    gboolean handle_moved;
     double turn_pivot[3];
     /* A live move (an arrow, or a drag of the part; see live_begin): the
      * part, the axis of the arrow (-1: on the bed), the pose (x, y, lift)
@@ -523,6 +531,7 @@ static void load_data(View3d *v) {
     zg_bed_model_update(v->view, zg_model_core(v->model));
     /* The other plates of the set, in a row beside the active plate. */
     zs_set_view_sync(zg_model_plate_set(v->model), v->view);
+    zg_model_scene_loaded(v->model, !zs_view_scene_pending(v->view));
     zs_view_set_layer_range(v->view, v->layer_lo, v->layer);
     gint64 sel = zg_model_selected(v->model);
     zs_view_highlight(v->view, sel < 0 ? (size_t)-1 : (size_t)sel);
@@ -955,9 +964,10 @@ static int handle_at(View3d *v, double x, double y) {
 
 /* One step of a ring drag to the core: the turn since the last step. */
 static void turn_send(View3d *v) {
-    gint64 i = zg_model_selected_part(v->model);
+    gint64 i = v->turn_id ? zs_app_part_index(zg_model_core(v->model), v->turn_id) : -1;
     double step = v->turn_want - v->turn_sent;
     if (i < 0 || step == 0) return;
+    v->turn_part = i;
     v->turn_sent = v->turn_want;
     if (v->turn_axis == 2) {
         zs_part p;
@@ -990,6 +1000,8 @@ static gboolean ring_press(View3d *v, double x, double y) {
     v->drag_label_x = x;
     v->drag_label_y = y;
     v->turn_part = part;
+    v->turn_id = part >= 0 ? zs_app_part_id(zg_model_core(v->model), (size_t)part) : 0;
+    v->handle_moved = FALSE;
     zs_part p;
     if (v->turn_part >= 0 && zs_app_part_get(zg_model_core(v->model), (size_t)v->turn_part, &p) == ZS_OK) {
         v->turn_pivot[0] = p.x;
@@ -1162,6 +1174,8 @@ static void live_begin(View3d *v, gint64 part, int axis) {
     v->live_on = TRUE;
     v->live_done = FALSE;
     v->live_part = part;
+    v->live_id = zs_app_part_id(zg_model_core(v->model), (size_t)part);
+    v->handle_moved = FALSE;
     v->arrow_axis = axis;
     double pose[3] = {p.x, p.y, p.z};
     memcpy(v->live_start, pose, sizeof pose);
@@ -1193,7 +1207,18 @@ static void live_push(View3d *v) {
     const double *t = v->live_target;
     if (t[0] == v->live_sent[0] && t[1] == v->live_sent[1] && t[2] == v->live_sent[2]) return;
     if (!v->live_done && zs_app_state(zg_model_core(v->model)) == ZS_STATE_SLICING) return;
-    size_t i = (size_t)v->live_part;
+    /* The id names the part: an undo can change its index, or remove it. */
+    ptrdiff_t at = zs_app_part_index(zg_model_core(v->model), v->live_id);
+    if (at < 0) {
+        v->live_on = FALSE;
+        v->arrow_axis = -1;
+        v->drag_label[0] = '\0';
+        zg_model_hold(v->model, FALSE);
+        show_preview(v);
+        return;
+    }
+    v->live_part = at;
+    size_t i = (size_t)at;
     /* A change of the plate loads the view again (load_data, then
      * live_loaded): the pose counts as sent before the calls. */
     double was[3];
@@ -1298,6 +1323,7 @@ static void live_snap(View3d *v, double *x, double *y, int axis, double px, doub
 
 /* The part goes to the target: the view at once, the core when it can. */
 static void live_move(View3d *v) {
+    zg_model_place_part(v->model, v->live_id, v->live_target[0], v->live_target[1], v->live_target[2]);
     compute_rings(v);
     live_preview(v);
     live_push(v);
@@ -1561,21 +1587,15 @@ static void on_fall(ZgModel *model, gint64 part, gpointer data) {
     else fall_finish(v);
 }
 
-/* The part under a pixel: the part of the path there, or the part whose
- * footprint holds the bed point there. */
+/* The part under a pixel at its current place (zs_sel_pick), and the bed
+ * point there. */
 static gint64 part_at(View3d *v, double x, double y, double *bx, double *by) {
     int scale = gtk_widget_get_scale_factor(v->area);
-    zs_app *core = zg_model_core(v->model);
     double px = 0, py = 0;
-    gboolean on_bed = zs_view_bed_point(v->view, (float)(x * scale), (float)(y * scale), &px, &py);
+    zs_view_bed_point(v->view, (float)(x * scale), (float)(y * scale), &px, &py);
     if (bx) *bx = px;
     if (by) *by = py;
-    size_t path = zs_view_pick(v->view, (float)(x * scale), (float)(y * scale));
-    if (path != (size_t)-1) {
-        ptrdiff_t part = zs_app_part_of_path(core, path);
-        if (part >= 0) return part;
-    }
-    return on_bed ? zs_app_part_at(core, px, py) : -1;
+    return zg_model_pick_part(v->model, v->view, (float)(x * scale), (float)(y * scale));
 }
 
 /* The frame of each selected part on the bed. */
@@ -1999,7 +2019,7 @@ static void on_drag_begin(GtkGestureDrag *g, double x, double y, gpointer data) 
             gboolean in = FALSE;
             for (guint i = 0; i < n; i++) in = in || list[i] == part;
             if (!v->group) {
-                v->group = g_array_new(FALSE, FALSE, sizeof(gint64));
+                v->group = g_array_new(FALSE, FALSE, sizeof(guint64));
                 v->group_xy = g_array_new(FALSE, FALSE, sizeof(double));
             }
             g_array_set_size(v->group, 0);
@@ -2008,10 +2028,15 @@ static void on_drag_begin(GtkGestureDrag *g, double x, double y, gpointer data) 
                 for (guint i = 0; i < n; i++) {
                     zs_part q;
                     if (zs_app_part_get(zg_model_core(v->model), (size_t)list[i], &q) != ZS_OK) continue;
-                    g_array_append_val(v->group, list[i]);
+                    guint64 id = zs_app_part_id(zg_model_core(v->model), (size_t)list[i]);
+                    g_array_append_val(v->group, id);
                     g_array_append_val(v->group_xy, q.x);
                     g_array_append_val(v->group_xy, q.y);
                 }
+                /* The boxes follow the pointer at once, and the slices
+                 * follow them (see on_drag_update). */
+                zg_model_hold(v->model, TRUE);
+                v->group_held = TRUE;
             } else {
                 zg_model_select_part(v->model, part);
                 /* One part: a live move, with the snap (live_begin). The
@@ -2024,6 +2049,7 @@ static void on_drag_begin(GtkGestureDrag *g, double x, double y, gpointer data) 
                 if (!zg_model_falling(v->model)) live_begin(v, part, -1);
             }
             v->moving = part;
+            v->moving_id = zs_app_part_id(zg_model_core(v->model), (size_t)part);
             v->move_x0 = p.x;
             v->move_y0 = p.y;
             v->bed_x0 = bx;
@@ -2043,6 +2069,10 @@ static void on_drag_end(GtkGestureDrag *g, double dx, double dy, gpointer data) 
     View3d *v = data;
     v->moving = -1;
     v->tape_end = -1;
+    if (v->group_held) {
+        v->group_held = FALSE;
+        zg_model_hold(v->model, FALSE);
+    }
     ring_release(v);
     zg_support_release(v->support);
     zg_label_release(v->label);
@@ -2077,6 +2107,10 @@ static void on_drag_update(GtkGestureDrag *g, double dx, double dy, gpointer dat
     int scale = gtk_widget_get_scale_factor(v->area);
     float ddx = (float)(dx - v->drag_x), ddy = (float)(dy - v->drag_y);
     if (v->turn_axis >= 0 || (v->live_on && !v->live_done)) {
+        /* A press and a release at one place is a click on the part under
+         * the pointer: the handle moves after 4 points. */
+        if (!v->handle_moved && fabs(dx) <= 4 && fabs(dy) <= 4) return;
+        v->handle_moved = TRUE;
         double sx, sy;
         gtk_gesture_drag_get_start_point(g, &sx, &sy);
         GdkModifierType mods = gtk_event_controller_get_current_event_state(GTK_EVENT_CONTROLLER(g));
@@ -2138,14 +2172,19 @@ static void on_drag_update(GtkGestureDrag *g, double dx, double dy, gpointer dat
         gtk_gesture_drag_get_start_point(g, &sx, &sy);
         if (zs_view_bed_point(v->view, (float)((sx + dx) * scale), (float)((sy + dy) * scale), &bx, &by)) {
             if (v->group && v->group->len > 1) {
-                /* The parts move by the same amount; the copy of the list
-                 * stays, since each move changes the plate. */
+                /* The parts move by the same amount. The ids stay, since
+                 * each move changes the plate. */
+                zs_app *core = zg_model_core(v->model);
                 for (guint i = 0; i < v->group->len; i++) {
                     double *xy = &g_array_index(v->group_xy, double, 2 * i);
-                    zg_model_part_move(v->model, (size_t)g_array_index(v->group, gint64, i), xy[0] + bx - v->bed_x0, xy[1] + by - v->bed_y0);
+                    ptrdiff_t at = zs_app_part_index(core, g_array_index(v->group, guint64, i));
+                    if (at >= 0) zg_model_part_move(v->model, (size_t)at, xy[0] + bx - v->bed_x0, xy[1] + by - v->bed_y0);
                 }
+                show_part_box(v);
+                if (zs_app_state(core) != ZS_STATE_SLICING) zg_model_slice_now(v->model);
             } else {
-                zg_model_part_move(v->model, (size_t)v->moving, v->move_x0 + bx - v->bed_x0, v->move_y0 + by - v->bed_y0);
+                ptrdiff_t at = zs_app_part_index(zg_model_core(v->model), v->moving_id);
+                if (at >= 0) zg_model_part_move(v->model, (size_t)at, v->move_x0 + bx - v->bed_x0, v->move_y0 + by - v->bed_y0);
             }
         }
         v->drag_x = dx;

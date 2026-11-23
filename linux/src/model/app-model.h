@@ -53,6 +53,15 @@ void zg_model_toggle_part(ZgModel *self, gint64 part);
 /* All selected parts (n of them, the last is zg_model_selected_part),
  * valid until the next call. */
 const gint64 *zg_model_parts(ZgModel *self, guint *n);
+/* The selection model of the core (zs_sel_*). A shell keeps ids, and reads
+ * an index just before a call that needs one. */
+zs_selection *zg_model_selection(ZgModel *self);
+/* The part under a pixel at its current place, or -1. It needs no slice. */
+gint64 zg_model_pick_part(ZgModel *self, const zs_view *view, float px, float py);
+/* The view loaded a slice. `current`: its beads are in the view now. */
+void zg_model_scene_loaded(ZgModel *self, gboolean current);
+/* A drag has part `id` at x, y (center) with its lowest point at z. */
+void zg_model_place_part(ZgModel *self, uint64_t id, double x, double y, double z);
 /* The actions of the card of several parts. The changes of one call are
  * one step of the history. */
 void zg_model_parts_remove(ZgModel *self);

@@ -73,19 +73,21 @@ struct _ZgModel {
     int measure_shape[2];
     Bridge *bridge;
     char *name;
-    gint64 selected;
-    /* The key and the layer of the selected line, for an edit while a new
-     * slice runs (zs_app_path_key). */
-    uint64_t selected_key;
+    /* The selection model of the core: the selected parts, and the selected
+     * line and segment. A part is its stable id, and a line is its key. */
+    zs_selection *sel;
+    /* The layer of the selected line, for an edit while a new slice runs. */
     size_t selected_layer;
+    /* The key and the segment at the last selection of a line. A draft can
+     * miss the key, and the exact slice finds the line again. */
+    uint64_t anchor_key;
+    gint64 anchor_seg;
     /* With a selected line: the other lines fade (see zg_model_set_isolate). */
     gboolean isolate;
     /* The gaps view (see zg_model_set_gaps), and the selected gap: its
      * layer and index, or -1. */
     gboolean gaps_on;
     gint64 gap_layer, gap_index;
-    /* The selected segment of the selected line, or -1 (the whole line). */
-    gint64 segment;
     /* The place of the selection (a layer and a point of the path), so
      * that a new slice can pick the path at the same place again. */
     gboolean anchored;
@@ -104,18 +106,20 @@ struct _ZgModel {
     /* The scope of the inspector edits (see zg_model_set_scope). */
     gboolean scope_on;
     double scope_min, scope_max, scope_show;
-    /* The selected part of the plate (Ctrl+click), or -1. Shift and a
-     * click add parts: the other selected parts are in `parts_more`, and
-     * `part` is the last one. `parts_all` is the list that zg_model_parts
-     * returns. */
+    /* The index now of the primary selected part (the last one in `sel`),
+     * or -1, and the count of selected parts at the last signal.
+     * `parts_all` is the list that zg_model_parts returns. */
     gint64 part;
-    GArray *parts_more, *parts_all;
+    size_t part_count;
+    GArray *parts_all;
     /* The roll of filament in the printer (see zg_model_set_roll): its
      * key, or NULL. The filament settings are saved for it too. */
     char *roll;
     /* The part whose settings the editors change, or -1 for the plate
-     * (zg_model_set_part_scope). */
+     * (zg_model_set_part_scope). `part_scope_id` is the stable id of that
+     * part. */
     gint64 part_scope;
+    uint64_t part_scope_id;
     /* Undo and redo: the undo list is in the core (zs_app_history_*). The
      * model ends a step 400 ms after the last change (`undo_timer`), so a
      * burst of changes (a drag) is one step. `undo_restoring`: the model
@@ -444,6 +448,32 @@ static void bridge_clear(gpointer data) {
     g_weak_ref_clear(&b->model);
 }
 
+static gint64 line_path(ZgModel *self) {
+    ptrdiff_t path = -1;
+    zs_sel_line_get(self->sel, NULL, &path, NULL);
+    return path;
+}
+
+static gint64 line_segment(ZgModel *self) {
+    ptrdiff_t seg = -1;
+    zs_sel_line_get(self->sel, NULL, NULL, &seg);
+    return seg;
+}
+
+static uint64_t line_key(ZgModel *self) {
+    uint64_t key = 0;
+    zs_sel_line_get(self->sel, &key, NULL, NULL);
+    return key;
+}
+
+/* The count of segments of a path, or 0. */
+static gint64 path_segments(ZgModel *self, gint64 path) {
+    zs_toolpaths tp;
+    if (path < 0 || zs_app_toolpaths(self->core, &tp) != ZS_OK || (size_t)path >= tp.path_count) return 0;
+    uint32_t start = path == 0 ? 0 : tp.path_ends[path - 1], end = tp.path_ends[path];
+    return end > start + 1 ? (gint64)(end - start - 1) : 1;
+}
+
 /* The place of a selected line, to find it again after a slice. */
 typedef struct {
     double z, x, y;
@@ -506,18 +536,33 @@ static gboolean deliver(gpointer data) {
                     if (fabs(tz.layer_z[l] - model->anchor_z) < fabs(tz.layer_z[best] - model->anchor_z)) best = l;
                 model->anchor_layer = best;
             }
-            size_t path = zs_app_pick_layer(model->core, model->anchor_layer, model->anchor_x, model->anchor_y);
-            /* The line moved (for example a new skirt distance): the
-             * nearest line of the same kind on the same layer. */
-            zs_toolpaths tp;
-            if (zs_app_toolpaths(model->core, &tp) == ZS_OK &&
-                (path == (size_t)-1 || tp.path_features[path] != model->anchor_feature)) {
-                path = zs_app_pick_feature(model->core, model->anchor_layer, model->anchor_feature, model->anchor_x, model->anchor_y);
+            /* The key first: a new slice can renumber the paths. */
+            gint64 was = line_path(model), seg = line_segment(model);
+            ptrdiff_t by_key = model->anchor_key ? zs_app_path_of_key(model->core, model->anchor_key) : -1;
+            gint64 next = by_key;
+            if (by_key < 0) {
+                size_t path = zs_app_pick_layer(model->core, model->anchor_layer, model->anchor_x, model->anchor_y);
+                /* The line moved (for example a new skirt distance): the
+                 * nearest line of the same kind on the same layer. */
+                zs_toolpaths tp;
+                if (zs_app_toolpaths(model->core, &tp) == ZS_OK &&
+                    (path == (size_t)-1 || tp.path_features[path] != model->anchor_feature)) {
+                    path = zs_app_pick_feature(model->core, model->anchor_layer, model->anchor_feature, model->anchor_x, model->anchor_y);
+                }
+                next = path == (size_t)-1 ? -1 : (gint64)path;
+                /* The segment stays only on the same line. */
+                if (next != was) seg = -1;
+            } else {
+                if (seg < 0) seg = model->anchor_seg;
+                gint64 count = path_segments(model, next);
+                if (seg >= count) seg = count > 0 ? count - 1 : -1;
             }
-            gint64 next = path == (size_t)-1 ? -1 : (gint64)path;
-            /* The segment stays only on the same line. */
-            if (next != model->selected) model->segment = -1;
-            model->selected = next;
+            uint64_t key = next >= 0 ? zs_app_path_key(model->core, (size_t)next) : 0;
+            zs_sel_line_set(model->sel, key, next, seg);
+            if (next >= 0) {
+                ptrdiff_t sl = zs_app_path_layer(model->core, (size_t)next);
+                model->selected_layer = sl > 0 ? (size_t)sl : 0;
+            }
             /* No line of that kind there now (for example no skin at
              * this top thickness): the anchor stays, so the next slice
              * can find the line again, and the inspector keeps its page. */
@@ -527,7 +572,7 @@ static gboolean deliver(gpointer data) {
                     g_array_index(model->more, gint64, k) = find_anchor(model, &g_array_index(model->more_anchor, Anchor, k));
                 }
             }
-            g_signal_emit(model, signals[SIGNAL_SELECTION_CHANGED], 0, model->selected);
+            g_signal_emit(model, signals[SIGNAL_SELECTION_CHANGED], 0, line_path(model));
         }
         g_signal_emit(model, signals[SIGNAL_CORE_EVENT], 0, p->event, p->progress, p->status);
         /* The slice for the newest settings. */
@@ -562,9 +607,8 @@ static void zg_model_dispose(GObject *object) {
     if (self->more) g_array_free(self->more, TRUE);
     if (self->more_anchor) g_array_free(self->more_anchor, TRUE);
     self->more = self->more_anchor = NULL;
-    if (self->parts_more) g_array_free(self->parts_more, TRUE);
     if (self->parts_all) g_array_free(self->parts_all, TRUE);
-    self->parts_more = self->parts_all = NULL;
+    self->parts_all = NULL;
     if (self->save_timer) {
         g_source_remove(self->save_timer);
         self->save_timer = 0;
@@ -588,6 +632,7 @@ static void zg_model_dispose(GObject *object) {
     g_clear_pointer(&self->project_title, g_free);
     g_clear_pointer(&self->roll, g_free);
     g_clear_pointer(&self->refine_ids, g_ptr_array_unref);
+    g_clear_pointer(&self->sel, zs_sel_free);
     G_OBJECT_CLASS(zg_model_parent_class)->dispose(object);
 }
 
@@ -685,13 +730,15 @@ void zg_model_select(ZgModel *self, gint64 path) {
     if (self->more_anchor) g_array_set_size(self->more_anchor, 0);
     /* During a slice the key reads 0: the same line keeps its key. */
     uint64_t key = path >= 0 ? zs_app_path_key(self->core, (size_t)path) : 0;
-    if (key || path != self->selected) {
-        self->selected_key = key;
+    if (key || path != line_path(self)) {
         ptrdiff_t sl = path >= 0 ? zs_app_path_layer(self->core, (size_t)path) : -1;
         self->selected_layer = sl > 0 ? (size_t)sl : 0;
+    } else {
+        key = line_key(self);
     }
-    self->selected = path;
-    self->segment = -1;
+    zs_sel_line_set(self->sel, key, path, -1);
+    self->anchor_key = key;
+    self->anchor_seg = -1;
     self->anchored = FALSE;
     zs_toolpaths tp;
     if (path >= 0 && zs_app_toolpaths(self->core, &tp) == ZS_OK && (size_t)path < tp.path_count) {
@@ -1400,7 +1447,7 @@ gboolean zg_model_label_remove(ZgModel *self, size_t part, guint32 id) {
 
 void zg_model_toggle_more(ZgModel *self, gint64 path) {
     if (path < 0) return;
-    if (self->selected < 0) {
+    if (line_path(self) < 0) {
         zg_model_select(self, path);
         return;
     }
@@ -1409,7 +1456,7 @@ void zg_model_toggle_more(ZgModel *self, gint64 path) {
         self->more_anchor = g_array_new(FALSE, FALSE, sizeof(Anchor));
     }
     /* The first line again: the next line becomes the first. */
-    if (path == self->selected) {
+    if (path == line_path(self)) {
         if (self->more->len == 0) return;
         gint64 next = g_array_index(self->more, gint64, 0);
         GArray *rest = g_array_new(FALSE, FALSE, sizeof(gint64));
@@ -1421,14 +1468,14 @@ void zg_model_toggle_more(ZgModel *self, gint64 path) {
         g_array_append_vals(self->more_anchor, rest_a->data, rest_a->len);
         g_array_free(rest, TRUE);
         g_array_free(rest_a, TRUE);
-        g_signal_emit(self, signals[SIGNAL_SELECTION_CHANGED], 0, self->selected);
+        g_signal_emit(self, signals[SIGNAL_SELECTION_CHANGED], 0, line_path(self));
         return;
     }
     for (guint k = 0; k < self->more->len; k++) {
         if (g_array_index(self->more, gint64, k) == path) {
             g_array_remove_index(self->more, k);
             g_array_remove_index(self->more_anchor, k);
-            g_signal_emit(self, signals[SIGNAL_SELECTION_CHANGED], 0, self->selected);
+            g_signal_emit(self, signals[SIGNAL_SELECTION_CHANGED], 0, line_path(self));
             return;
         }
     }
@@ -1436,7 +1483,7 @@ void zg_model_toggle_more(ZgModel *self, gint64 path) {
     if (!anchor_of(self, path, &a)) return;
     g_array_append_val(self->more, path);
     g_array_append_val(self->more_anchor, a);
-    g_signal_emit(self, signals[SIGNAL_SELECTION_CHANGED], 0, self->selected);
+    g_signal_emit(self, signals[SIGNAL_SELECTION_CHANGED], 0, line_path(self));
 }
 
 const gint64 *zg_model_more(ZgModel *self, guint *n) {
@@ -1445,29 +1492,31 @@ const gint64 *zg_model_more(ZgModel *self, guint *n) {
 }
 
 gboolean zg_model_selection_lost(ZgModel *self) {
-    return self->selected < 0 && self->anchored;
+    return line_path(self) < 0 && self->anchored;
 }
 
 gint64 zg_model_selected(ZgModel *self) {
-    return self->selected;
+    return line_path(self);
 }
 
 void zg_model_select_segment(ZgModel *self, gint64 path, gint64 segment) {
     /* A new line: the full selection first (the inspector follows it). */
-    if (path != self->selected) zg_model_select(self, path);
-    self->segment = path >= 0 ? segment : -1;
-    g_signal_emit(self, signals[SIGNAL_SEGMENT_CHANGED], 0, self->segment);
+    if (path != line_path(self)) zg_model_select(self, path);
+    gint64 seg = path >= 0 ? segment : -1;
+    zs_sel_line_set(self->sel, line_key(self), line_path(self), seg);
+    self->anchor_seg = seg;
+    g_signal_emit(self, signals[SIGNAL_SEGMENT_CHANGED], 0, seg);
 }
 
 gint64 zg_model_segment(ZgModel *self) {
-    return self->segment;
+    return line_segment(self);
 }
 
 void zg_model_set_isolate(ZgModel *self, gboolean on) {
     if (self->isolate == on) return;
     self->isolate = on;
     /* The previews read the flag when the selection changes. */
-    g_signal_emit(self, signals[SIGNAL_SELECTION_CHANGED], 0, self->selected);
+    g_signal_emit(self, signals[SIGNAL_SELECTION_CHANGED], 0, line_path(self));
 }
 
 gboolean zg_model_isolate(ZgModel *self) {
@@ -1783,11 +1832,10 @@ static gboolean switch_test_step(gpointer data) {
 }
 
 static void zg_model_init(ZgModel *self) {
-    self->selected = -1;
-    self->segment = -1;
+    if (zs_sel_new(&self->sel) != ZS_OK) g_error("zslice: no selection model");
+    self->anchor_seg = -1;
     self->gap_layer = self->gap_index = -1;
     self->part = -1;
-    self->parts_more = g_array_new(FALSE, FALSE, sizeof(gint64));
     self->parts_all = g_array_new(FALSE, FALSE, sizeof(gint64));
     self->part_scope = -1;
     self->bridge = g_atomic_rc_box_new0(Bridge);
@@ -1907,18 +1955,31 @@ static void update_name(ZgModel *self) {
     self->name = n == 1 ? g_strdup(p.name) : g_strdup_printf("%s and %zu more", p.name, n - 1);
 }
 
+/* The model of the core follows the plates. A primary part with a new
+ * index, or a selected part that went, is a new selection for the cards. */
+static void sel_sync(ZgModel *self) {
+    zs_sel_sync(self->sel, self->set, 0);
+    uint64_t id = zs_sel_primary(self->sel);
+    gint64 now = id ? zs_app_part_index(self->core, id) : -1;
+    size_t count = zs_sel_count(self->sel);
+    if (now == self->part && count == self->part_count) return;
+    self->part = now;
+    self->part_count = count;
+    g_signal_emit(self, signals[SIGNAL_PART_SELECTED], 0, now);
+}
+
 static void plate_changed(ZgModel *self) {
     self->edit_gen++;
     update_name(self);
-    /* The part of the scope went: the plate. */
-    if (self->part_scope >= (gint64)zs_app_part_count(self->core)) {
-        self->part_scope = -1;
-        g_signal_emit(self, signals[SIGNAL_PART_SCOPE_CHANGED], 0);
+    /* The part of the scope has a new index, or went: the plate. */
+    if (self->part_scope >= 0) {
+        ptrdiff_t at = zs_app_part_index(self->core, self->part_scope_id);
+        if (at != self->part_scope) {
+            self->part_scope = at;
+            g_signal_emit(self, signals[SIGNAL_PART_SCOPE_CHANGED], 0);
+        }
     }
-    if ((size_t)self->part >= zs_app_part_count(self->core)) zg_model_select_part(self, -1);
-    /* The other selected parts that went. */
-    for (guint k = self->parts_more->len; k-- > 0;)
-        if ((size_t)g_array_index(self->parts_more, gint64, k) >= zs_app_part_count(self->core)) g_array_remove_index(self->parts_more, k);
+    sel_sync(self);
     g_signal_emit(self, signals[SIGNAL_PLATE_CHANGED], 0);
     if (zs_app_part_count(self->core) > 0) slice_plate_soon(self);
 }
@@ -1988,14 +2049,16 @@ gboolean zg_model_add(ZgModel *self, const char *name, const void *data, gsize l
 }
 
 void zg_model_select_part(ZgModel *self, gint64 part) {
-    gboolean had_more = self->parts_more->len > 0;
-    g_array_set_size(self->parts_more, 0);
-    if (self->part == part && !had_more) return;
+    sel_sync(self);
+    uint64_t id = part >= 0 ? zs_app_part_id(self->core, (size_t)part) : 0;
+    if (id == zs_sel_primary(self->sel) && zs_sel_count(self->sel) == (id ? 1u : 0u)) return;
     /* A part, or a line: not both. The line goes first, so the part page
      * comes after it. */
-    if (part >= 0 && self->selected >= 0) zg_model_select(self, -1);
-    self->part = part;
-    g_signal_emit(self, signals[SIGNAL_PART_SELECTED], 0, part);
+    if (id && line_path(self) >= 0) zg_model_select(self, -1);
+    zs_sel_select(self->sel, id, ZS_SEL_REPLACE);
+    self->part = id ? part : -1;
+    self->part_count = zs_sel_count(self->sel);
+    g_signal_emit(self, signals[SIGNAL_PART_SELECTED], 0, self->part);
 }
 
 gint64 zg_model_selected_part(ZgModel *self) {
@@ -2004,39 +2067,48 @@ gint64 zg_model_selected_part(ZgModel *self) {
 
 void zg_model_toggle_part(ZgModel *self, gint64 part) {
     if (part < 0) return;
+    sel_sync(self);
     if (self->part < 0) {
         zg_model_select_part(self, part);
         return;
     }
-    if (part == self->part) {
-        /* The last part of the others takes its place. */
-        gint64 next = -1;
-        if (self->parts_more->len > 0) {
-            next = g_array_index(self->parts_more, gint64, self->parts_more->len - 1);
-            g_array_set_size(self->parts_more, self->parts_more->len - 1);
-        }
-        self->part = next;
-        g_signal_emit(self, signals[SIGNAL_PART_SELECTED], 0, next);
-        return;
-    }
-    for (guint k = 0; k < self->parts_more->len; k++) {
-        if (g_array_index(self->parts_more, gint64, k) == part) {
-            g_array_remove_index(self->parts_more, k);
-            g_signal_emit(self, signals[SIGNAL_PART_SELECTED], 0, self->part);
-            return;
-        }
-    }
-    g_array_append_val(self->parts_more, self->part);
-    self->part = part;
-    g_signal_emit(self, signals[SIGNAL_PART_SELECTED], 0, part);
+    /* The last selected part is the primary part. */
+    zs_sel_select(self->sel, zs_app_part_id(self->core, (size_t)part), ZS_SEL_TOGGLE);
+    uint64_t id = zs_sel_primary(self->sel);
+    self->part = id ? zs_app_part_index(self->core, id) : -1;
+    self->part_count = zs_sel_count(self->sel);
+    g_signal_emit(self, signals[SIGNAL_PART_SELECTED], 0, self->part);
 }
 
 const gint64 *zg_model_parts(ZgModel *self, guint *n) {
     g_array_set_size(self->parts_all, 0);
-    g_array_append_vals(self->parts_all, self->parts_more->data, self->parts_more->len);
-    if (self->part >= 0) g_array_append_val(self->parts_all, self->part);
+    for (size_t k = 0; k < zs_sel_count(self->sel); k++) {
+        gint64 at = zs_app_part_index(self->core, zs_sel_get(self->sel, k));
+        if (at >= 0) g_array_append_val(self->parts_all, at);
+    }
     *n = self->parts_all->len;
     return (const gint64 *)self->parts_all->data;
+}
+
+zs_selection *zg_model_selection(ZgModel *self) {
+    return self->sel;
+}
+
+gint64 zg_model_pick_part(ZgModel *self, const zs_view *view, float px, float py) {
+    sel_sync(self);
+    uint64_t id = zs_sel_pick(self->sel, view, px, py);
+    return id ? zs_app_part_index(self->core, id) : -1;
+}
+
+void zg_model_scene_loaded(ZgModel *self, gboolean current) {
+    sel_sync(self);
+    /* The beads of an older place: the pick uses the boxes of the parts. */
+    if (current && self->shown_gen >= self->edit_gen) zs_sel_sync(self->sel, self->set, 1);
+    else zs_sel_set_scene(self->sel, NULL, 0);
+}
+
+void zg_model_place_part(ZgModel *self, uint64_t id, double x, double y, double z) {
+    zs_sel_place(self->sel, id, x, y, z);
 }
 
 static int cmp_desc(gconstpointer a, gconstpointer b) {
@@ -2335,6 +2407,10 @@ static void plate_switched(ZgModel *self) {
     self->undo_restoring = TRUE;
     update_name(self);
     self->part_scope = -1;
+    self->part_scope_id = 0;
+    sel_sync(self);
+    /* The slice of this plate is of its places now. */
+    if (zs_app_state(self->core) == ZS_STATE_DONE) self->shown_gen = self->edit_gen;
     g_signal_emit(self, signals[SIGNAL_PART_SCOPE_CHANGED], 0);
     static const char *prefixes[] = {"machine.", "filament.", "project."};
     for (int g = 0; g < 3; g++) zg_model_announce(self, prefixes[g]);
@@ -2366,7 +2442,11 @@ gboolean zg_model_plate_switching(ZgModel *self) {
 void zg_model_plate_select(ZgModel *self, size_t i) {
     if (i == zs_set_active(self->set) || i >= zs_set_count(self->set)) return;
     plate_leave(self);
-    if (zs_set_select(self->set, i) != ZS_OK) return;
+    zs_sel_plate_request(self->sel, i);
+    if (zs_set_select(self->set, i) != ZS_OK) {
+        sel_sync(self);
+        return;
+    }
     plate_switched(self);
 }
 
@@ -2401,7 +2481,8 @@ void zg_model_edits_changed(ZgModel *self) {
 gboolean zg_model_edit_line(ZgModel *self, gint64 path, int kind, double value) {
     if (path < 0) return FALSE;
     /* The key of the selected line works while a new slice runs. */
-    int rc = path == self->selected && self->selected_key ? zs_app_edit_add_key(self->core, self->selected_key, self->selected_layer, kind, value)
+    uint64_t key = path == line_path(self) ? line_key(self) : 0;
+    int rc = key ? zs_app_edit_add_key(self->core, key, self->selected_layer, kind, value)
                                                            : zs_app_edit_add(self->core, (size_t)path, kind, value);
     if (rc != ZS_OK) return FALSE;
     zg_model_select(self, -1);
@@ -2540,6 +2621,7 @@ void zg_model_set_part_scope(ZgModel *self, gint64 part) {
     if (part < -1 && part != ZG_SCOPE_GLOBAL) part = -1;
     if (self->part_scope == part) return;
     self->part_scope = part;
+    self->part_scope_id = part >= 0 ? zs_app_part_id(self->core, (size_t)part) : 0;
     g_signal_emit(self, signals[SIGNAL_PART_SCOPE_CHANGED], 0);
     /* The editors show the values of the scope. */
     zg_model_announce(self, "project.");
