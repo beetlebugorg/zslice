@@ -641,14 +641,14 @@ namespace winrt::ZSlice::implementation
                 if (zs_app_part_count(model->Active()) == 0)
                     return;
                 if (!zs_app_plate_smart_place(model->Active()))
-                    ShowToast(L"Not all parts fit on the bed.");
+                    ShowPlaceFailed();
                 PlateEdited();
             });
             add(menu.Items(), L"Arrange the plate", [this] {
                 if (zs_app_part_count(model->Active()) == 0)
                     return;
                 if (!zs_app_plate_arrange(model->Active()))
-                    ShowToast(L"Not all parts fit on the bed.");
+                    ShowPlaceFailed();
                 PlateEdited();
             });
             add(menu.Items(), L"Add models…", [this] { PickFile(); });

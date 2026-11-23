@@ -11,6 +11,7 @@
 using namespace winrt;
 using namespace Microsoft::UI::Xaml;
 using namespace Microsoft::UI::Xaml::Controls;
+using Windows::System::VirtualKey;
 
 namespace
 {
@@ -40,8 +41,84 @@ namespace
 
 namespace winrt::ZSlice::implementation
 {
+    // A dialog keeps the keys of the window.
+    bool MainWindow::DialogOpen()
+    {
+        for (auto const &popup : Media::VisualTreeHelper::GetOpenPopupsForXamlRoot(Content().XamlRoot()))
+            if (popup.Child().try_as<ContentDialog>() != nullptr)
+                return true;
+        return false;
+    }
+
+    void MainWindow::RunAppKey(VirtualKey key)
+    {
+        if (DialogOpen())
+            return;
+        if (key == VirtualKey::S && printers != nullptr)
+            printers->SaveProject();
+        else if (key == VirtualKey::E && printers != nullptr)
+            printers->ExportGcode();
+        else if (key == VirtualKey::Q)
+            // After the key event: the window goes away in this call.
+            queue.TryEnqueue([weak = get_weak()] {
+                if (auto self = weak.get())
+                    self->Close();
+            });
+        else if (key == VirtualKey::F10)
+        {
+            if (MainMenu().IsOpen())
+                MainMenu().Hide();
+            else
+                MainMenu().ShowAt(MainMenuButton());
+        }
+    }
+
+    // The same words as the GTK app, for each way to arrange the parts.
+    winrt::fire_and_forget MainWindow::ShowPlaceFailed()
+    {
+        auto lifetime = get_strong();
+        if (DialogOpen())
+            co_return;
+        ContentDialog dialog;
+        dialog.XamlRoot(Content().XamlRoot());
+        ThemeDialog(dialog);
+        dialog.Title(box_value(L"The parts do not all fit on the bed"));
+        TextBlock text;
+        text.TextWrapping(TextWrapping::Wrap);
+        text.Text(L"Some parts are past the edge of the bed. Remove a part, or use a printer with a larger bed.");
+        dialog.Content(text);
+        dialog.CloseButtonText(L"Close");
+        dialog.DefaultButton(ContentDialogButton::Close);
+        try
+        {
+            co_await dialog.ShowAsync();
+        }
+        catch (winrt::hresult_error const &)
+        {
+        }
+    }
+
     void MainWindow::WireMenu()
     {
+        // From a text field too, as in the GTK app.
+        struct AppKey
+        {
+            Windows::System::VirtualKeyModifiers mods;
+            VirtualKey key;
+        };
+        auto const control = Windows::System::VirtualKeyModifiers::Control;
+        for (AppKey const &k : { AppKey{ control, VirtualKey::S }, AppKey{ control, VirtualKey::E }, AppKey{ control, VirtualKey::Q },
+                                 AppKey{ Windows::System::VirtualKeyModifiers::None, VirtualKey::F10 } })
+        {
+            Input::KeyboardAccelerator accel;
+            accel.Modifiers(k.mods);
+            accel.Key(k.key);
+            accel.Invoked([this, key = k.key](auto &&, Input::KeyboardAcceleratorInvokedEventArgs const &e) {
+                RunAppKey(key);
+                e.Handled(true);
+            });
+            Root().KeyboardAccelerators().Append(accel);
+        }
         auto add = [this](hstring const &text, auto const &action) {
             MenuFlyoutItem item;
             item.Text(text);
@@ -65,15 +142,13 @@ namespace winrt::ZSlice::implementation
                 AfterRestore(model->Redo());
             }
         });
+        menu_undo.KeyboardAcceleratorTextOverride(L"Ctrl+Z");
+        menu_redo.KeyboardAcceleratorTextOverride(L"Ctrl+Shift+Z");
         line();
-        add(L"Save this plate as 3MF…", [this] {
-            if (printers != nullptr)
-                printers->SavePlate3mf();
-        });
-        add(L"Save project (all plates)…", [this] {
+        add(L"Save project…", [this] {
             if (printers != nullptr)
                 printers->SaveProject();
-        });
+        }).KeyboardAcceleratorTextOverride(L"Ctrl+S");
         add(L"Send all plates", [this] {
             if (printers != nullptr)
                 printers->SendAll();
@@ -82,12 +157,11 @@ namespace winrt::ZSlice::implementation
             if (printers != nullptr)
                 printers->ExportAll();
         });
-        line();
         add(L"Smart placement", [this] {
             if (model != nullptr && zs_app_part_count(model->Active()) > 0)
             {
                 if (!zs_app_plate_smart_place(model->Active()))
-                    ShowToast(L"Not all parts fit on the bed.");
+                    ShowPlaceFailed();
                 PlateEdited();
             }
         });
@@ -95,7 +169,7 @@ namespace winrt::ZSlice::implementation
             if (model != nullptr && zs_app_part_count(model->Active()) > 0)
             {
                 if (!zs_app_plate_arrange(model->Active()))
-                    ShowToast(L"Not all parts fit on the bed.");
+                    ShowPlaceFailed();
                 PlateEdited();
             }
         });
@@ -104,19 +178,21 @@ namespace winrt::ZSlice::implementation
         AddCalibrateMenu();
         add(L"Compare with Cura…", [this] { ShowCuraCompare(); });
         line();
+        AddProjectMenuItems();
         add(L"Printers", [this] {
             if (printers != nullptr)
                 printers->ShowPage(true);
         });
-        add(L"History", [this] { HistoryFlyout().ShowAt(HistoryButton()); });
-        AddProjectMenuItems();
+        add(L"History", [this] { HistoryFlyout().ShowAt(HistoryButton()); }).KeyboardAcceleratorTextOverride(L"Ctrl+H");
         line();
         menu_bed = ToggleMenuFlyoutItem{};
         menu_bed.Text(L"Hide the bed");
+        menu_bed.KeyboardAcceleratorTextOverride(L"B");
         menu_bed.Click([this](auto &&, auto &&) { ToggleBed(); });
         MainMenu().Items().Append(menu_bed);
         menu_2d = ToggleMenuFlyoutItem{};
         menu_2d.Text(L"2D view");
+        menu_2d.KeyboardAcceleratorTextOverride(L"2");
         menu_2d.Click([this](auto &&, auto &&) { Set2D(!show_2d); });
         MainMenu().Items().Append(menu_2d);
         line();

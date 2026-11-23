@@ -294,6 +294,31 @@ namespace winrt::ZSlice::implementation
                 Microsoft::UI::Xaml::Automation::Peers::ButtonAutomationPeer(found).Invoke();
             zs::Log("dev: press '%s' %s\n", zs::ToUtf8(want).c_str(), found != nullptr ? "done" : "not found");
         }
+        else if (verb == L"appkey" && !words.empty())
+        {
+            VirtualKey key = words[0] == L"s" ? VirtualKey::S : words[0] == L"e" ? VirtualKey::E : words[0] == L"q" ? VirtualKey::Q : VirtualKey::F10;
+            RunAppKey(key);
+        }
+        else if (verb == L"platemenu")
+        {
+            ShowPlateNameMenu();
+        }
+        else if (verb == L"placefail")
+        {
+            ShowPlaceFailed();
+        }
+        else if (verb == L"menulog")
+        {
+            for (auto const &entry : MainMenu().Items())
+            {
+                if (auto item = entry.try_as<Microsoft::UI::Xaml::Controls::MenuFlyoutItem>())
+                    zs::Log("dev: menu '%s' [%s]\n", zs::ToUtf8(std::wstring(item.Text())).c_str(), zs::ToUtf8(std::wstring(item.KeyboardAcceleratorTextOverride())).c_str());
+                else if (auto sub = entry.try_as<Microsoft::UI::Xaml::Controls::MenuFlyoutSubItem>())
+                    zs::Log("dev: menu '%s' >\n", zs::ToUtf8(std::wstring(sub.Text())).c_str());
+                else if (entry.try_as<Microsoft::UI::Xaml::Controls::MenuFlyoutSeparator>() != nullptr)
+                    zs::Log("dev: menu ---\n");
+            }
+        }
         else if (verb == L"manageopen")
         {
             printers->ShowManage();
