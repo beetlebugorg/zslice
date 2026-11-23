@@ -1533,6 +1533,26 @@ final class Workspace {
                         self.heldForTest = false
                         try? await Task.sleep(for: .seconds(0.4))
                         NSLog("zslice clip linegone: held %d, after release %d", held ? 1 : 0, self.selection == nil ? 0 : 1)
+                    case "putdown":
+                        // putdown or putdown:old: a click on the front wall of a
+                        // part, near its top face; old uses the point of the line, and
+                        // putdown:miss a click off the part.
+                        guard let b = self.part(0), let at = self.canvas.viewPoint(x: b.x, y: b.y - b.size_y / 2, z: b.size_z * 0.92) else { break }
+                        self.pick(at: at, card: false)
+                        let line = self.selection != nil
+                        if f.count > 1, f[1] == "miss" {
+                            // A ray that misses the part: the point of the line.
+                            self.putDown(at: CGPoint(x: 2, y: 2))
+                        } else if f.count > 1, let s = self.selection, let m = self.markPlace() {
+                            zs_app_part_put_down_at(self.model.core, zs_app_part_of_path(self.model.core, s.path), m.x, m.y, m.z)
+                            self.clearSelection()
+                            self.model.settingsChanged()
+                        } else {
+                            self.putDown(at: at)
+                        }
+                        try? await Task.sleep(for: .seconds(0.6))
+                        let c = self.part(0)
+                        NSLog("zslice clip putdown: line %d, before %.0f x %.0f x %.0f, after %.0f x %.0f x %.0f", line ? 1 : 0, b.size_x, b.size_y, b.size_z, c?.size_x ?? -1, c?.size_y ?? -1, c?.size_z ?? -1)
                     case "selundo":
                         // Undo and redo of a delete keep the selected part.
                         self.selectOnlyPart(1)

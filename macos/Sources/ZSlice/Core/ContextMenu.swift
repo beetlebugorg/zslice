@@ -20,7 +20,8 @@
 //!   Remove the Support Marks Here, and Clear All Support Marks
 //!   (zs_app_mark_*): a disk of 3 mm radius at the middle of the selected
 //!   segment, on its layer;
-//! - Put This Side on the Bed (zs_app_part_put_down_at), and the
+//! - Put This Side on the Bed (zs_app_part_put_down_ray, else
+//!   zs_app_part_put_down_at), and the
 //!   Placement of the part of the line (zs_app_part_place);
 //! - for the plate: Smart Placement, Arrange the Plate, Add Models, and
 //!   Clear the Plate (zs_app_plate_*);
@@ -145,7 +146,7 @@ extension Workspace {
                 ClosureItem("Cut the Part", key: "x") { [weak self] in self?.selectOnlyPart(k); self?.clipCut() },
                 ClosureItem("Duplicate the Part", key: "d") { [weak self] in self?.selectOnlyPart(k); self?.duplicatePart() },
             ])
-            section([ClosureItem("Put This Side on the Bed") { [weak self] in self?.putDown() }, place])
+            section([ClosureItem("Put This Side on the Bed") { [weak self] in self?.putDown(at: p) }, place])
         }
         if on == .empty {
             var items: [NSMenuItem] = [
@@ -280,12 +281,25 @@ extension Workspace {
         settingsPath = []
     }
 
-    /// The part of the selected line lies on the bed with the side of the
-    /// line down.
-    private func putDown() {
-        guard let s = selection, let m = markPlace() else { return }
+    /// The part of the selected line lies on the bed with the side under
+    /// the click down. The point of a line is inside the part, so it can
+    /// be nearer to a large face than to the wall that the user clicked.
+    /// A ray that misses the part uses the side nearest to the line.
+    func putDown(at p: CGPoint) {
+        guard let s = selection else { return }
         let part = zs_app_part_of_path(model.core, s.path)
-        guard part >= 0, zs_app_part_put_down_at(model.core, Int(part), m.x, m.y, m.z) == 0 else { return }
+        guard part >= 0 else { return }
+        var placed = false
+        var r = [Float](repeating: 0, count: 6)
+        let scale = Float(canvas.window?.backingScaleFactor ?? 2)
+        if page == .threeD, let v = canvas.view, zs_view_ray(v, Float(p.x) * scale, Float(p.y) * scale, &r) != 0 {
+            let rc = zs_app_part_put_down_ray(model.core, Int(part), Double(r[0]), Double(r[1]), Double(r[2]), Double(r[3]), Double(r[4]), Double(r[5]))
+            guard rc == 0 || rc == Int32(ZS_OUT_OF_RANGE.rawValue) else { return }
+            placed = rc == 0
+        }
+        if !placed {
+            guard let m = markPlace(), zs_app_part_put_down_at(model.core, Int(part), m.x, m.y, m.z) == 0 else { return }
+        }
         clearSelection()
         model.settingsChanged()
     }
