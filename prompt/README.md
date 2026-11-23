@@ -1,6 +1,6 @@
 # A prompt that could build zslice
 
-Describes: main at commit `99852983` ("Add the Mac part selection to the prompt"), 2026-11-23.
+Describes: main at commit `a6e673b2` ("Write G90 before the print moves of each printer"), 2026-11-23.
 
 ## Read this first
 

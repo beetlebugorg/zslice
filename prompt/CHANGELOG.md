@@ -29,3 +29,4 @@ One line for each update: the date, the commit that the folder describes, and th
 | 2026-11-23 | `2c7e774f` | README, CHANGELOG, 11: the Mac search field is one plain shape. |
 | 2026-11-23 | `6fb43210` | README, CHANGELOG, 08, 11, 12: the Windows transform tool on the selection model (by the Windows session); an arrow drag measures from the center at the press; the plain Mac search field (by the Mac session). |
 | 2026-11-23 | `f1893695` | README, CHANGELOG, 11: the Mac app keeps its selected parts in the core model. |
+| 2026-11-23 | `a6e673b2` | README, CHANGELOG, 02, 03: the Creality library fixes and its model test, and G90 before the print moves of each printer. |
