@@ -355,7 +355,7 @@ namespace winrt::ZSlice::implementation
                 continue;
             zs_setting_info info{};
             if (FindSetting(std::string(o.name, o.name_len).c_str(), info))
-                SettingsList().Children().Append(MakeSettingRow(info));
+                SettingsList().Children().Append(MakeSettingRow(info, true));
         }
     }
 

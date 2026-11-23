@@ -233,7 +233,15 @@ namespace winrt::ZSlice::implementation
         void ShowDetail(char const *name);
         void SettingsGoBack();
         void ClearSettingsList();
-        Microsoft::UI::Xaml::FrameworkElement MakeSettingRow(zs_setting_info const &info);
+        Microsoft::UI::Xaml::FrameworkElement MakeSettingRow(zs_setting_info const &info, bool with_section = false);
+        // Where the value of a row comes from. "" for a default. mine: a
+        // change of this print or part.
+        std::wstring RowSource(std::string const &key, bool per_part, bool &mine);
+        // The lines that the settings of a section change.
+        uint32_t SectionFocus(char const *group, char const *section);
+        // The rows of a search come in batches, so typing stays smooth.
+        void AppendSearchRows(std::shared_ptr<std::vector<uint32_t>> const &hits, size_t from, uint64_t fill);
+        uint64_t pane_fill = 0;
         void TurnOffForScope(Microsoft::UI::Xaml::FrameworkElement const &editor, zs_setting_info const &info);
         Microsoft::UI::Xaml::FrameworkElement MakeEditor(zs_setting_info const &info, std::shared_ptr<EditorTarget> const &target = nullptr);
         void CommitSetting(std::string const &name, std::string const &value);

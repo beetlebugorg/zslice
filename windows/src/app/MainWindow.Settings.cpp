@@ -366,13 +366,14 @@ namespace winrt::ZSlice::implementation
                 continue;
             if (((effect.features >> feature) & 1) == 0 || (effect.features & all) == all)
                 continue;
-            SettingsList().Children().Append(MakeSettingRow(info));
+            SettingsList().Children().Append(MakeSettingRow(info, true));
         }
         SetPaneFocus(1u << feature, false);
     }
 
     void MainWindow::ClearSettingsList()
     {
+        pane_fill++;
         setting_editors.clear();
         speed_toggle = nullptr;
         effect_box = nullptr;
@@ -592,45 +593,66 @@ namespace winrt::ZSlice::implementation
                 continue;
             SettingsList().Children().Append(MakeSettingRow(info));
         }
+        // A new section: its lines show, until a setting of it is picked.
+        SetPaneFocus(SectionFocus(group, section), false);
     }
 
     void MainWindow::ShowSearch(std::wstring const &query)
     {
         ClearSettingsList();
         settings_page = SettingsPage::Search;
-        SettingsBack().Visibility(Visibility::Collapsed);
-        // All matches first: the settings of nozzles that the printer does
-        // not have go before the limit of the list.
-        std::vector<uint32_t> hits(std::max<size_t>(zs_setting_count(), 1));
-        size_t found = std::min(zs_setting_search(zs::ToUtf8(query).c_str(), 0, hits.data(), nullptr, hits.size()), hits.size());
-        size_t count = 0;
+        SettingsBack().Visibility(Visibility::Visible);
+        // A part of the name, the help, or the key, in the order of the
+        // settings. The settings of nozzles the printer lacks stay out.
+        std::wstring needle = query;
+        std::transform(needle.begin(), needle.end(), needle.begin(), [](wchar_t c) { return (wchar_t)towlower(c); });
+        auto has = [&needle](std::wstring text) {
+            std::transform(text.begin(), text.end(), text.begin(), [](wchar_t c) { return (wchar_t)towlower(c); });
+            return text.find(needle) != std::wstring::npos;
+        };
+        auto hits = std::make_shared<std::vector<uint32_t>>();
         int nozzles = NozzleCount();
-        for (size_t i = 0; i < found && count < 60; i++)
+        for (size_t i = 0, n = zs_setting_count(); i < n; i++)
         {
             zs_setting_info info{};
-            if (zs_setting_get_info(hits[i], &info) == ZS_OK && info.nozzle < nozzles)
-                hits[count++] = hits[i];
-        }
-        SettingsCrumb().Text(count == 0 ? L"No setting matches" : L"Search");
-        for (size_t i = 0; i < count; i++)
-        {
-            zs_setting_info info{};
-            if (zs_setting_get_info(hits[i], &info) != ZS_OK)
+            if (zs_setting_get_info(i, &info) != ZS_OK || info.nozzle >= nozzles)
                 continue;
-            TextBlock where;
-            where.Text(std::wstring(TitleOf(info.group)) + L" › " + zs::ToWide(info.section));
-            where.FontSize(11);
-            where.Foreground(TokenBrush(Root(), L"ZsDim"));
-            where.Margin(ThicknessHelper::FromLengths(4, 6, 0, 0));
-            SettingsList().Children().Append(where);
-            // A mixed list: a badge on each printer and filament setting.
-            if (FrameworkElement badge = OwnerLabel(info.group, nullptr); badge != nullptr)
-            {
-                badge.Margin(ThicknessHelper::FromLengths(4, 2, 0, 0));
-                SettingsList().Children().Append(badge);
-            }
-            SettingsList().Children().Append(MakeSettingRow(info));
+            if (has(zs::ToWide(info.label)) || has(PlainDoc(info.doc)) || has(zs::ToWide(info.name)))
+                hits->push_back((uint32_t)i);
         }
+        SettingsCrumb().Text(hits->empty() ? L"No setting matches" : L"Search");
+        AppendSearchRows(hits, 0, pane_fill);
+    }
+
+    void MainWindow::AppendSearchRows(std::shared_ptr<std::vector<uint32_t>> const &hits, size_t from, uint64_t fill)
+    {
+        // Another page or a new search took the list.
+        if (fill != pane_fill || settings_page != SettingsPage::Search)
+            return;
+        size_t end = std::min(from + 30, hits->size());
+        for (size_t i = from; i < end; i++)
+        {
+            zs_setting_info info{};
+            if (zs_setting_get_info((*hits)[i], &info) == ZS_OK)
+                SettingsList().Children().Append(MakeSettingRow(info, true));
+        }
+        if (end < hits->size())
+            queue.TryEnqueue(Microsoft::UI::Dispatching::DispatcherQueuePriority::Low, [this, hits, end, fill] { AppendSearchRows(hits, end, fill); });
+    }
+
+    uint32_t MainWindow::SectionFocus(char const *group, char const *section)
+    {
+        uint32_t mask = 0;
+        for (size_t i = 0, n = zs_setting_count(); i < n; i++)
+        {
+            zs_setting_info info{};
+            zs_setting_effect effect{};
+            if (zs_setting_get_info(i, &info) != ZS_OK || strcmp(info.group, group) != 0 || strcmp(info.section, section) != 0)
+                continue;
+            if (zs_setting_get_effect(info.name, &effect) == ZS_OK)
+                mask |= effect.features;
+        }
+        return mask != 0 ? mask : (1u << ZS_FEATURE_COUNT) - 1;
     }
 
     std::wstring MainWindow::OwnerText(bool printer)
@@ -706,6 +728,12 @@ namespace winrt::ZSlice::implementation
                 ShowSections();
             return;
         }
+        // Back from a search ends it.
+        if (settings_page == SettingsPage::Search)
+        {
+            settings_query.clear();
+            SettingsSearch().Text(L"");
+        }
         ShowSections();
     }
 
@@ -726,48 +754,158 @@ namespace winrt::ZSlice::implementation
         ToolTipService::SetToolTip(editor, box_value(ScopeOffTip()));
     }
 
-    FrameworkElement MainWindow::MakeSettingRow(zs_setting_info const &info)
+    std::wstring MainWindow::RowSource(std::string const &key, bool per_part, bool &mine)
+    {
+        mine = false;
+        if (ScopeIsGlobal())
+            return key.rfind("project.", 0) == 0 ? L"Global" : L"In the printer or filament profile";
+        if (settings_scope >= 0 && !per_part)
+            return L"Same for all parts";
+        if (in_profile || model == nullptr)
+            return {};
+        ptrdiff_t part = settings_scope >= 0 ? (ptrdiff_t)settings_scope : -1;
+        if (part < 0)
+        {
+            std::string formula = model->Formula(key.c_str());
+            if (!formula.empty())
+            {
+                mine = true;
+                return L"= " + zs::ToWide(formula);
+            }
+        }
+        int level = ZS_LEVEL_DEFAULT;
+        char profile[256] = "";
+        if (zs_app_setting_source(model->Active(), part, key.c_str(), &level, profile, sizeof profile) != ZS_OK)
+            return {};
+        std::wstring from = zs::ToWide(profile);
+        switch (level)
+        {
+        case ZS_LEVEL_GLOBAL: return L"Global";
+        case ZS_LEVEL_MACHINE: return from.empty() ? L"Printer" : from;
+        case ZS_LEVEL_FILAMENT: return from.empty() ? L"Filament" : from;
+        case ZS_LEVEL_QUALITY: return from.empty() ? L"Quality" : from;
+        case ZS_LEVEL_PRINT: mine = true; return L"This print";
+        case ZS_LEVEL_PART: mine = true; return L"This part";
+        default: return {};
+        }
+    }
+
+    FrameworkElement MainWindow::MakeSettingRow(zs_setting_info const &info, bool with_section)
     {
         Grid row;
         row.ColumnSpacing(8);
         row.Padding(ThicknessHelper::FromLengths(4, 3, 0, 3));
-        ColumnDefinition label_column, editor_column;
+        ColumnDefinition label_column, editor_column, more_column;
         label_column.Width(GridLengthHelper::FromValueAndType(1, GridUnitType::Star));
         editor_column.Width(GridLengthHelper::FromValueAndType(170, GridUnitType::Pixel));
+        more_column.Width(GridLengthHelper::Auto());
         row.ColumnDefinitions().Append(label_column);
         row.ColumnDefinitions().Append(editor_column);
+        row.ColumnDefinitions().Append(more_column);
 
-        HyperlinkButton label;
-        label.Content(box_value(zs::ToWide(info.label)));
-        label.Padding(ThicknessHelper::FromUniformLength(2));
-        label.Foreground(TokenBrush(Root(), L"ZsFg"));
-        label.HorizontalAlignment(HorizontalAlignment::Left);
-        label.VerticalAlignment(VerticalAlignment::Center);
-        ToolTipService::SetToolTip(label, box_value(PlainDoc(info.doc)));
+        std::string key = info.name;
         char const *name = info.name;
-        label.Click([this, name](auto &&, auto &&) {
+        auto open = [this, name] {
             detail_from = settings_page;
             ShowDetail(name);
-        });
-        row.Children().Append(label);
+        };
 
-        FrameworkElement editor = MakeEditor(info, PaneTarget());
-        TurnOffForScope(editor, info);
+        // The name, where its value comes from, and in a mixed list its
+        // place and its owner. A click here opens the setting.
+        StackPanel names;
+        names.VerticalAlignment(VerticalAlignment::Center);
+        names.Padding(ThicknessHelper::FromUniformLength(2));
+        names.Background(Media::SolidColorBrush(Microsoft::UI::Colors::Transparent()));
+        ToolTipService::SetToolTip(names, box_value(PlainDoc(info.doc)));
+        if (auto element = names.try_as<IUIElementProtected>())
+            element.ProtectedCursor(Microsoft::UI::Input::InputSystemCursor::Create(Microsoft::UI::Input::InputSystemCursorShape::Hand));
+        names.Tapped([this, open](auto &&, Input::TappedRoutedEventArgs const &e) {
+            e.Handled(true);
+            // After the tap: the row goes away with the page.
+            queue.TryEnqueue([open] { open(); });
+        });
+        TextBlock label = Wrapped(zs::ToWide(info.label));
+        label.Foreground(TokenBrush(Root(), L"ZsFg"));
+        names.Children().Append(label);
+        TextBlock tag = Wrapped(L"", 11);
+        names.Children().Append(tag);
+        auto fill_tag = [this, tag, key, per_part = info.per_part != 0]() mutable {
+            bool mine = false;
+            std::wstring text = RowSource(key, per_part, mine);
+            tag.Text(text);
+            tag.Visibility(text.empty() ? Visibility::Collapsed : Visibility::Visible);
+            tag.Opacity(mine ? 1.0 : 0.6);
+            tag.Foreground(TokenBrush(Root(), mine ? L"ZsAccentText" : L"ZsFg"));
+        };
+        fill_tag();
+        setting_editors.push_back({ key, fill_tag });
+        if (with_section)
+        {
+            TextBlock where = Wrapped(std::wstring(TitleOf(info.group)) + L" › " + zs::ToWide(info.section), 11);
+            where.Foreground(TokenBrush(Root(), L"ZsDim"));
+            names.Children().Append(where);
+            // A mixed list: a badge on each printer and filament setting.
+            if (FrameworkElement badge = OwnerLabel(info.group, nullptr); badge != nullptr)
+            {
+                badge.Margin(ThicknessHelper::FromLengths(0, 2, 0, 0));
+                names.Children().Append(badge);
+            }
+        }
+        row.Children().Append(names);
+
+        // A quick change: the editor in the row. A text (the start G-code)
+        // shows its value, and opens on the detail page.
+        FrameworkElement editor{ nullptr };
+        if (info.kind == ZS_SETTING_TEXT)
+        {
+            TextBlock shown = Wrapped(L"", 12);
+            shown.TextAlignment(TextAlignment::Right);
+            auto target = PaneTarget();
+            auto fill_shown = [this, shown, key, target]() mutable {
+                if (model != nullptr)
+                    shown.Text(DisplayValue(key.c_str(), target != nullptr ? target->get(key) : model->GetSetting(key.c_str()), true));
+            };
+            fill_shown();
+            setting_editors.push_back({ key, fill_shown });
+            editor = shown;
+        }
+        else
+        {
+            editor = MakeEditor(info, PaneTarget());
+            TurnOffForScope(editor, info);
+        }
         // A row with a note under its name is taller than its editor.
         editor.VerticalAlignment(VerticalAlignment::Center);
         Grid::SetColumn(editor, 1);
         row.Children().Append(editor);
+
+        // The detail page: what it does, and the lines and time it changes.
+        Button more;
+        more.Width(24);
+        more.Height(28);
+        more.MinWidth(0);
+        more.MinHeight(0);
+        more.Padding(ThicknessHelper::FromUniformLength(0));
+        more.BorderThickness(ThicknessHelper::FromUniformLength(0));
+        more.Background(Media::SolidColorBrush(Microsoft::UI::Colors::Transparent()));
+        more.VerticalAlignment(VerticalAlignment::Center);
+        FontIcon chevron;
+        chevron.Glyph(L"\xE76C");
+        chevron.FontSize(10);
+        more.Content(chevron);
+        ToolTipService::SetToolTip(more, box_value(L"What it does, and the lines and the time it changes"));
+        Microsoft::UI::Xaml::Automation::AutomationProperties::SetName(more, zs::ToWide(info.label) + L": what it does");
+        more.Click([this, open](auto &&, auto &&) { queue.TryEnqueue([open] { open(); }); });
+        Grid::SetColumn(more, 2);
+        row.Children().Append(more);
+
         if (in_profile)
         {
             // A change of the profile has the accent color. A setting for
             // the whole print is dim: it cannot change for some layers.
-            std::string key = info.name;
-            label.Opacity(info.per_layer != 0 ? 1.0 : 0.6);
+            names.Opacity(info.per_layer != 0 ? 1.0 : 0.6);
             auto tint = [this, label, key]() mutable {
-                if (ProfileHas(key))
-                    label.Foreground(TokenBrush(Root(), L"ZsAccentText"));
-                else
-                    label.Foreground(TokenBrush(Root(), L"ZsFg"));
+                label.Foreground(TokenBrush(Root(), ProfileHas(key) ? L"ZsAccentText" : L"ZsFg"));
             };
             tint();
             setting_editors.push_back({ key, tint });
