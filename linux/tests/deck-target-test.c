@@ -1,3 +1,9 @@
+#define _GNU_SOURCE
+#include <fcntl.h>
+#include <poll.h>
+#include <stdlib.h>
+#include <termios.h>
+#include <unistd.h>
 /* deck-target-test.c: a send to a deck that drives more printers must
  * reach the printer that the user picked (src/net/printer-link.c).
  *
@@ -103,8 +109,106 @@ static void usb_upload_sends_nothing(void) {
     g_free(r.message);
 }
 
+/* A status query must not open the port: an open can restart the board. */
+static void on_usb_info(ZgPrinterInfo *info, const char *error, gpointer data) {
+    (void)error;
+    *(gboolean *)data = info != NULL;
+    if (info) zg_printer_info_free(info);
+}
+
+static void usb_query_opens_nothing(void) {
+    ZgPrinter p = {0};
+    p.id = (char *)"usb";
+    p.name = (char *)"USB";
+    p.kind = ZG_LINK_USB;
+    p.device = (char *)"/nonexistent/zslice-test-port";
+    gboolean got = FALSE;
+    zg_link_query(&p, NULL, on_usb_info, &got);
+    g_assert_true(got);
+}
+
+/* A printer on a pseudo terminal: it answers "ok" to each line, keeps the
+ * text, and asks for a Stop after five lines. */
+typedef struct {
+    int fd;
+    GCancellable *cancel;
+    GString *got;
+    GMutex lock;
+    gboolean end;
+} FakePrinter;
+
+static gpointer fake_printer(gpointer data) {
+    FakePrinter *f = data;
+    int lines = 0;
+    for (;;) {
+        g_mutex_lock(&f->lock);
+        gboolean end = f->end;
+        g_mutex_unlock(&f->lock);
+        if (end) return NULL;
+        struct pollfd w = {f->fd, POLLIN, 0};
+        if (poll(&w, 1, 20) <= 0 || !(w.revents & POLLIN)) continue;
+        char c;
+        if (read(f->fd, &c, 1) != 1) continue;
+        g_mutex_lock(&f->lock);
+        g_string_append_c(f->got, c);
+        g_mutex_unlock(&f->lock);
+        if (c != '\n') continue;
+        if (write(f->fd, "ok\n", 3) != 3) return NULL;
+        if (++lines == 5) g_cancellable_cancel(f->cancel);
+    }
+}
+
+static void usb_stop_turns_off_heat(void) {
+    int master = posix_openpt(O_RDWR | O_NOCTTY);
+    g_assert_cmpint(master, >=, 0);
+    g_assert_cmpint(grantpt(master), ==, 0);
+    g_assert_cmpint(unlockpt(master), ==, 0);
+    char *name = g_strdup(ptsname(master));
+    int keep = open(name, O_RDWR | O_NOCTTY);
+    g_assert_cmpint(keep, >=, 0);
+    struct termios t;
+    tcgetattr(keep, &t);
+    cfmakeraw(&t);
+    tcsetattr(keep, TCSANOW, &t);
+    FakePrinter f = {.fd = master, .cancel = g_cancellable_new(), .got = g_string_new(NULL)};
+    g_mutex_init(&f.lock);
+    GThread *th = g_thread_new("fake-printer", fake_printer, &f);
+    GString *code = g_string_new(NULL);
+    for (int i = 0; i < 2000; i++) g_string_append_printf(code, "G1 X%d\n", i % 100);
+    GBytes *g = g_string_free_to_bytes(code);
+    ZgPrinter p = {0};
+    p.id = (char *)"usb";
+    p.name = (char *)"USB";
+    p.kind = ZG_LINK_USB;
+    p.device = name;
+    p.baud = 115200;
+    Result r = {0};
+    zg_link_send(&p, "a.gcode", g, TRUE, f.cancel, NULL, on_done, &r);
+    while (!r.done) g_main_context_iteration(NULL, TRUE);
+    g_mutex_lock(&f.lock);
+    f.end = TRUE;
+    g_assert_nonnull(strstr(f.got->str, "M104 S0\n"));
+    g_assert_nonnull(strstr(f.got->str, "M140 S0\n"));
+    g_assert_nonnull(strstr(f.got->str, "M107\n"));
+    g_assert_null(strstr(strstr(f.got->str, "M104 S0\n"), "G1"));
+    g_mutex_unlock(&f.lock);
+    g_thread_join(th);
+    g_assert_false(r.ok);
+    g_assert_nonnull(strstr(r.message, "heaters and the fan are off"));
+    g_free(r.message);
+    g_bytes_unref(g);
+    g_string_free(f.got, TRUE);
+    g_object_unref(f.cancel);
+    g_mutex_clear(&f.lock);
+    close(keep);
+    close(master);
+    g_free(name);
+}
+
 int main(void) {
     usb_upload_sends_nothing();
+    usb_query_opens_nothing();
+    usb_stop_turns_off_heat();
     char *dir = g_dir_make_tmp("zslice-deck-XXXXXX", NULL);
     g_setenv("XDG_CONFIG_HOME", dir, TRUE);
     GError *error = NULL;

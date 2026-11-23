@@ -57,6 +57,9 @@ typedef void (*ZgProgressFn)(double fraction, gpointer data);
 /* Reads what the printer knows. `info` is NULL on an error; the callback
  * owns it (free it with zg_printer_info_free). */
 void zg_link_query(const ZgPrinter *p, GCancellable *cancel, ZgInfoFn fn, gpointer data);
+/* Opens and closes the serial port of a USB printer. An open can restart
+ * the board, so call this only after the user asks for it and agrees. */
+void zg_link_test_port(const ZgPrinter *p, ZgInfoFn fn, gpointer data);
 
 /* The camera of a printdeck, OctoPrint, or Moonraker printer
  * (zs_printer_camera_paths): the absolute addresses of its MJPEG stream

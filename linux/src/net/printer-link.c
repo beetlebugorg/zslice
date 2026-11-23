@@ -293,17 +293,11 @@ void zg_link_query(const ZgPrinter *p, GCancellable *cancel, ZgInfoFn fn, gpoint
         fn(NULL, "A Bambu Lab printer gives its status on the Printers page.", data);
         return;
     case ZG_LINK_USB: {
-        /* A serial port has no API: only check that it opens. */
-        int fd = p->device[0] ? open(p->device, O_RDWR | O_NOCTTY | O_NONBLOCK) : -1;
-        if (fd < 0) {
-            char *m = g_strdup_printf("The port %s does not open: %s", p->device[0] ? p->device : "(none)", g_strerror(errno));
-            fn(NULL, m, data);
-            g_free(m);
-            return;
-        }
-        close(fd);
+        /* A serial port has no status API, and an open can restart the
+         * board and end a print from its card. A status query never opens
+         * the port (see zg_link_test_port). */
         ZgPrinterInfo *info = g_new0(ZgPrinterInfo, 1);
-        info->state = g_strdup("Port opens");
+        info->state = g_strdup("USB: no live status");
         info->time_left = -1;
         fn(info, NULL, data);
         return;
@@ -323,6 +317,21 @@ void zg_link_query(const ZgPrinter *p, GCancellable *cancel, ZgInfoFn fn, gpoint
     q->paths = g_strsplit(zs_printer_status_paths(q->kind), "\n", -1);
     q->status = zs_printer_status_new();
     query_next(q);
+}
+
+void zg_link_test_port(const ZgPrinter *p, ZgInfoFn fn, gpointer data) {
+    int fd = p->device[0] ? open(p->device, O_RDWR | O_NOCTTY | O_NONBLOCK) : -1;
+    if (fd < 0) {
+        char *m = g_strdup_printf("The port %s does not open: %s", p->device[0] ? p->device : "(none)", p->device[0] ? g_strerror(errno) : "no port is set");
+        fn(NULL, m, data);
+        g_free(m);
+        return;
+    }
+    close(fd);
+    ZgPrinterInfo *info = g_new0(ZgPrinterInfo, 1);
+    info->state = g_strdup("Port opens");
+    info->time_left = -1;
+    fn(info, NULL, data);
 }
 
 void zg_link_camera(const ZgPrinter *p, GCancellable *cancel, ZgCameraFn fn, gpointer data) {
@@ -1074,10 +1083,10 @@ static gboolean report_done(gpointer data) {
 
 /* Reads until a line starts with "ok", or an error. The printer sends
  * other lines too (temperatures, echo). */
-static gboolean wait_ok(int fd, GCancellable *cancel, char **error) {
+static gboolean wait_ok_for(int fd, GCancellable *cancel, gint64 seconds, char **error) {
     char line[256];
     size_t n = 0;
-    gint64 deadline = g_get_monotonic_time() + 600 * G_USEC_PER_SEC; /* a long move or a heat-up */
+    gint64 deadline = g_get_monotonic_time() + seconds * G_USEC_PER_SEC;
     while (g_get_monotonic_time() < deadline) {
         if (cancel && g_cancellable_is_cancelled(cancel)) return FALSE;
         char c;
@@ -1106,6 +1115,30 @@ static gboolean wait_ok(int fd, GCancellable *cancel, char **error) {
     return FALSE;
 }
 
+static gboolean wait_ok(int fd, GCancellable *cancel, char **error) {
+    return wait_ok_for(fd, cancel, 600, error); /* a long move or a heat-up */
+}
+
+/* After a Stop by the user: the heaters and the fan off, with no move. Each
+ * command must get its "ok". `pending` is the count of lines that still owe
+ * an "ok". Returns the message for the user. */
+static char *cool_down(int fd, int pending) {
+    for (int i = 0; i < pending; i++) {
+        char *ignored = NULL;
+        wait_ok_for(fd, NULL, 3, &ignored);
+        g_free(ignored);
+    }
+    static const char *const off[] = {"M104 S0\n", "M140 S0\n", "M107\n"};
+    for (size_t i = 0; i < G_N_ELEMENTS(off); i++) {
+        char *e = NULL;
+        if (write(fd, off[i], strlen(off[i])) < 0 || !wait_ok_for(fd, NULL, 10, &e)) {
+            g_free(e);
+            return g_strdup("Stopped. The printer did not confirm the heaters off, so they may still be on.");
+        }
+    }
+    return g_strdup("Stopped. The heaters and the fan are off.");
+}
+
 static gpointer serial_thread(gpointer data) {
     Serial *s = data;
     int fd = open(s->device, O_RDWR | O_NOCTTY | O_NONBLOCK);
@@ -1131,9 +1164,12 @@ static gpointer serial_thread(gpointer data) {
     gsize pos = 0;
     gint64 last_report = 0;
     char *error = NULL;
+    gboolean sent = FALSE; /* a line went to the printer */
+    gboolean stopped = FALSE;
+    int pending = 0;
     while (pos < len) {
         if (s->cancel && g_cancellable_is_cancelled(s->cancel)) {
-            error = g_strdup("Canceled.");
+            stopped = TRUE;
             break;
         }
         const char *nl = memchr(text + pos, '\n', len - pos);
@@ -1148,11 +1184,19 @@ static gpointer serial_thread(gpointer data) {
         pos = end + 1;
         if (cut <= start) continue;
         if (write(fd, text + start, cut - start) < 0 || write(fd, "\n", 1) < 0) {
-            error = g_strdup_printf("The port stopped: %s", g_strerror(errno));
+            error = g_strdup_printf("The port stopped: %s. The heaters may still be on.", g_strerror(errno));
             break;
         }
+        sent = TRUE;
         if (!wait_ok(fd, s->cancel, &error)) {
-            if (!error) error = g_strdup("Canceled.");
+            if (!error) {
+                stopped = TRUE;
+                pending = 1;
+            } else {
+                char *full = g_strconcat(error, " The heaters may still be on.", NULL);
+                g_free(error);
+                error = full;
+            }
             break;
         }
         gint64 now = g_get_monotonic_time();
@@ -1162,6 +1206,7 @@ static gpointer serial_thread(gpointer data) {
             g_idle_add(report_progress, s);
         }
     }
+    if (stopped) error = sent ? cool_down(fd, pending) : g_strdup("Canceled. The printer got no line.");
     close(fd);
     s->ok = error == NULL;
     s->message = error;

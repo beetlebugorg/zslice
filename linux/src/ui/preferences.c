@@ -447,6 +447,25 @@ static void on_bambu_test(const zs_printer_status *st, const char *error, gpoint
     g_free(m);
 }
 
+/* The answer to "Open the USB port?". */
+static void on_usb_test_answer(GObject *source, GAsyncResult *res, gpointer data) {
+    GError *error = NULL;
+    int answer = gtk_alert_dialog_choose_finish(GTK_ALERT_DIALOG(source), res, &error);
+    /* The page closed: `data` can be gone. */
+    if (error && g_error_matches(error, G_IO_ERROR, G_IO_ERROR_CANCELLED)) {
+        g_error_free(error);
+        return;
+    }
+    g_clear_error(&error);
+    Prefs *p = data;
+    if (answer == 1) {
+        zg_link_test_port(p->printer, on_info, p);
+        return;
+    }
+    gtk_label_set_text(GTK_LABEL(p->result), "");
+    gtk_widget_set_sensitive(p->test, TRUE);
+}
+
 static void on_test(GtkButton *b, gpointer data) {
     Prefs *p = data;
     if (!p->printer) return;
@@ -470,6 +489,17 @@ static void on_test(GtkButton *b, gpointer data) {
     if (p->printer->kind == ZG_LINK_BAMBU) {
         zg_bambu_watch_stop(p->bambu_test);
         p->bambu_test = zg_bambu_watch(p->printer, on_bambu_test, p);
+        return;
+    }
+    if (p->printer->kind == ZG_LINK_USB) {
+        GtkAlertDialog *d = gtk_alert_dialog_new("Open the USB port of %s?", p->printer->name);
+        gtk_alert_dialog_set_detail(d, "Opening the port can restart the printer's board. That ends any print that runs from its card.");
+        const char *buttons[] = {"Cancel", "Open the port", NULL};
+        gtk_alert_dialog_set_buttons(d, buttons);
+        gtk_alert_dialog_set_cancel_button(d, 0);
+        gtk_alert_dialog_set_default_button(d, 0);
+        gtk_alert_dialog_choose(d, GTK_WINDOW(gtk_widget_get_root(p->test)), p->cancel, on_usb_test_answer, p);
+        g_object_unref(d);
         return;
     }
     zg_link_query(p->printer, p->cancel, on_info, p);
