@@ -33,7 +33,8 @@ Build the app core: all logic of the zslice app, behind one C API, so that each 
 15. `Set.spill` (`zs_set_spill`): while the parts of a plate do not fit its bed, its last part goes to a new plate with the same settings. An import of many files calls it once after the files load.
 16. The import from a model page (`src/model_import.zig`, the `zs_import_*` calls of `include/zslice.h`). The core reads the address of a Printables model or a Thingiverse thing. `zs_import_page_text(site)` gives the text for the user: it names the site, and says to click "Download all" there and open the ZIP file in zslice. The core lists the files of a ZIP file of a model (`zipfile.directory`, then `extract` for each checked file). The list groups the files by kind (3MF, STL, STEP, OBJ, other), checks the files to load first, and counts the plates of a 3MF file. The core makes no request to a site, and no app calls the API of a site (see the lesson below).
 17. The waste (`zs_app_waste`, part 05), the Speed section (`zs_speed_*`, `zs_app_speed_state`, `zs_app_speed_set`, part 02), and the regions of a body (`zs_app_region_set`, part 05).
-18. `src/c_api/*.zig`: thin layers. Each export checks its pointers, calls the Zig API, and turns the Zig error into a status. Each function that changes the state notes the change for the undo list. Text results use one rule: call once with a NULL buffer for the length, then again with a buffer.
+18. The selection model (`src/app/selection.zig`, the `zs_sel_*` calls, [Selection and focus](../docs/internals/selection.md)): the active plate, the selected parts by stable id, the line by its key, the hover, the tool, and the camera target. A generation orders the requests and the replies, and the pick tests a moved part at its current place.
+19. `src/c_api/*.zig`: thin layers. Each export checks its pointers, calls the Zig API, and turns the Zig error into a status. Each function that changes the state notes the change for the undo list. Text results use one rule: call once with a NULL buffer for the length, then again with a buffer.
 
 ## The C API shape
 
@@ -51,6 +52,7 @@ The prefixes of `zslice-app.h` (about 3100 lines), with their rough counts: `zs_
 - An import from a model page never starts a print. The list of files is the question before the load.
 - No app calls the API of a model site. A direct link to one file (an https URL of a model file, or a `zslice://open?file=` link) still downloads with the rules of the links: the user chose that one file.
 - A link refuses a zslice project, opens the model on a new plate if the active plate has parts, and never starts a print. In the GTK, Mac, and Windows apps, a file or a link from outside waits until the session is back.
+- A part has a stable id (`plate.Part.id`). It stays through moves, plate moves, undo, redo, and a reload (the `partid` lines of the 3MF metadata). A copy gets a new id. Never keep a part index across a call.
 
 ## Lessons
 
@@ -70,6 +72,7 @@ The prefixes of `zslice-app.h` (about 3100 lines), with their rough counts: `zs_
 - **Turn about the axes of the bed.** A turn about X or Y went about the axes of the part, so a part with a turn about Z turned the wrong way.
 - **Call no private API of a site, and obey the terms of each site.** The import read the file list and the download links of Printables from its private GraphQL API (`print(id)` and the `getDownloadLink` mutation). The terms of the Prusa sites forbid automated extraction. The core, the C API, and the GTK app lost that code. A model page now gets the text of `zs_import_page_text` and an Open the page button, as Thingiverse did. The result codes 4 and 9 are free, and the numbers of the other codes stay.
 - **Give a C string field an accessor call.** Swift imports no long C array as a field, so the Mac read the URL of a `zs_link` at offset 0 of the struct. `zs_link_url` and `zs_link_set_url` keep the layout of the struct free to change.
+- **Name a part by a stable id.** A selection by index named another part after a delete, a plate change, or an undo. Each part now has an id, and the model drops an id that left the plate.
 
 ## Acceptance checks
 
@@ -85,3 +88,4 @@ The prefixes of `zslice-app.h` (about 3100 lines), with their rough counts: `zs_
 10. A part higher than the printer slices, `zs_app_plate_printable` refuses the plate, and the fit text names the height of the part and of the printer.
 11. `zs_set_spill` puts the parts that do not fit one plate on new plates with the same settings.
 12. The tests of `src/model_import.zig` and `src/c_api/import.zig` pass: the addresses, the text for a page of each site, the ZIP lists, and the plates of a 3MF file. A grep of `src`, `include`, and the shells finds no `graphql`, `getDownloadLink`, or `api.printables`.
+13. The `selection:` and `selection api:` tests pass: a pick after a move, a late reply, a failed plate request, and ids through a delete, undo, redo, a save and a load, and a move to another plate.

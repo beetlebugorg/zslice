@@ -45,6 +45,9 @@ Build the web app at `web/app/`: the zslice window as one static page, with the 
 - The docked search results are 640 px wide. A speed ratio shows its speed ("≈ 75 mm/s") in a column of its own, so the controls of all rows line up.
 - The undock button of the search is a card with a title bar (the path `M2.5 3.5h11v9h-11zM2.5 6.5h11` on a 16-unit grid). The glyph of an external link reads as "open in a new tab".
 - A field sends its value after a pause in the typing. A slider sends values during a drag, so the view follows.
+- The page keeps no copy of the selection. `selection.js` wraps the model in the wasm instance of the page. `tools.part`, `tools.parts`, `app.sel`, `app.seg`, and `app.activePlate` read it.
+- The worker sends the table of the parts before the reply of a call. The client sends the generation and the stable part ids with each call.
+- A pick and the start of a drag wait for no worker reply.
 
 ## Card rules
 
@@ -70,6 +73,10 @@ Build the web app at `web/app/`: the zslice window as one static page, with the 
 - **Line up the key sheet columns.** A column break drops the top margin of a group, so the first title of the second column was 10 px higher. The space over a group is now padding. The names and tags of the settings wrap in a narrow panel, in place of "…".
 - **Put the history behind a button.** The timeline row of the dock used a full row for the marks of the steps.
 - **Free H and L for the vim keys.** The owner wants the vim keys. H was Grab and L was Label. Now G is Grab and E is Label, and G no longer turns the gaps on. Change the key sheets, the tooltips, the search actions, and the docs in the same commit.
+- **Never select from a late reply.** A reply of a turn or a move called `selectPart`, so it undid a newer click. A reply now updates the facts of the part. A reply that selects new parts checks `tools.stamp`.
+- **Do not wait for the worker to start a drag.** The press asked the worker for the part, so a drag of a part waited about 700 ms for a slice. The pick is now in the page.
+- **Let a click through a gizmo handle.** The rings and the arrows of a selected part took each click on a part behind them. A press and a release at one place is now a click on the part under the pointer.
+- **Keep the part card off the other parts.** The card of one part took the clicks on the part next to it. The card now takes a side that leaves the other parts clear, if one exists.
 
 ## Acceptance checks
 
@@ -82,3 +89,4 @@ Build the web app at `web/app/`: the zslice window as one static page, with the 
 7. `node web/app/test-node.mjs` passes the link checks: a redirect to a local address, a web page, no name, a large file, no CORS, and a zslice project each stop.
 8. `?open=<https URL of an STL>` asks first, then opens the model on a new plate if the plate has parts.
 9. `node web/app/test-node.mjs` passes the import checks: the page check, the text for a page of each site, a ZIP list, a file of it, and the spill through the wasm module.
+10. `node web/app/test-selection.mjs zig-out/web/app part.stl` passes in a memory cap: 100 selects after a move, Grab after 50 selects on two plates, each plate after a full plate, fast plate keys during a slice, the ring during a slice, undo and redo, and a line through a new slice.

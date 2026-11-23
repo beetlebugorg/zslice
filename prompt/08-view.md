@@ -59,6 +59,7 @@ This is the rule after several corrections. Match it in each shell.
 - **Turn a part toward the pointer on each ring.** The green ring ran from +X toward +Z, and a turn about +Y moves +X toward -Z, so a drag on that ring turned the part the other way. A drag also measured its angle on the screen, so a view from the side gave the wrong angle (issue #20).
 - **Keep the filament colors in a focus.** With the five spools of an X2D, the orange and red of the walls in a focus looked like filament 4 (#f98c36).
 - **End the view at the top of the dock.** The camera then frames the plate signs above the dock, and the dock covers no sign.
+- **A press on a handle is not yet a drag.** A handle can lie over another part. Start the drag after the pointer moves more than 4 CSS pixels. A release before that is a click on the part under the pointer (`zs_sel_pick`).
 
 ## Acceptance checks
 

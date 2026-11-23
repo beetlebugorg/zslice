@@ -40,6 +40,7 @@ Build the native Linux app in `linux/`: a GTK 4 shell in C around the app core, 
 - The tool keys of the web app: Move M (also R and G), Label E, and h and l step along the line. Gaps has no key.
 - The search gives S as the key of the Support tool, and has "Import a profile…". The main menu item that saves all plates is "Save project…".
 - The Linux app shows the active plate only. It has layer profiles, Compare with Cura, USB printers, Send all plates, and Export all plates.
+- The GTK app still keeps its own selection on the older calls. The port to the `zs_sel_*` calls is open: see [Selection and focus](../docs/internals/selection.md).
 
 ## Lessons
 
