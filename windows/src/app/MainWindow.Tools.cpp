@@ -624,6 +624,8 @@ namespace winrt::ZSlice::implementation
             SelectRun(path, segment);
         else
             SelectLine((int64_t)path, (int64_t)segment);
+        if (path != (size_t)-1)
+            GoToSelected();
     }
 
     // The line and its run, from the retraction before it to the next one:
@@ -990,12 +992,14 @@ namespace winrt::ZSlice::implementation
         else
             key = old_key;
         zs_sel_line_set(sel.get(), key, path, segment);
+        line_lost = false;
         if (path < 0)
             line_placed = false;
     }
 
     void MainWindow::SelectLine(int64_t path, int64_t segment)
     {
+        page_gap = false;
         SetSelectedParts({});
         SetSelectedLine(path, segment);
         SaveLinePlace();
@@ -1009,6 +1013,7 @@ namespace winrt::ZSlice::implementation
 
     void MainWindow::SelectPart(int64_t part)
     {
+        page_gap = false;
         SetSelectedLine(-1, -1);
         SetSelectedParts(part >= 0 ? std::vector<int64_t>{ part } : std::vector<int64_t>{});
         part_card_moved = false;
@@ -1017,6 +1022,8 @@ namespace winrt::ZSlice::implementation
         FillPartCard();
         if (tool == Tool::Paint)
             PaintPartSelected(part);
+        if (part >= 0)
+            GoToSelected();
     }
 
     void MainWindow::TogglePart(int64_t part)
@@ -1032,6 +1039,7 @@ namespace winrt::ZSlice::implementation
 
     void MainWindow::ClearSelection()
     {
+        page_gap = false;
         SetSelectedLine(-1, -1);
         SetSelectedParts({});
         ApplySelection();
@@ -1067,6 +1075,7 @@ namespace winrt::ZSlice::implementation
         }
         zs_view_part_boxes(view, boxes.data(), boxes.size() / 4);
         UpdateRings();
+        RefreshSelectedPage();
         RequestDraw();
     }
 
@@ -1103,11 +1112,14 @@ namespace winrt::ZSlice::implementation
         uint64_t key = 0;
         ptrdiff_t path = -1;
         zs_sel_line_get(sel.get(), &key, &path, nullptr);
-        if (path < 0)
+        // A line that a value removed can come back with the next value.
+        if (path < 0 && !line_lost)
             return;
         zs_app *app = model->Active();
         if (zs_app_state(app) != ZS_STATE_DONE)
             return;
+        if (path < 0)
+            key = line_place_key;
         ptrdiff_t found = key != 0 ? zs_app_path_of_key(app, key) : -1;
         if (found < 0)
         {
@@ -1126,6 +1138,8 @@ namespace winrt::ZSlice::implementation
             if (closest == (size_t)-1)
             {
                 SetSelectedLine(-1, -1);
+                line_placed = true;
+                line_lost = true;
                 HideCards();
                 return;
             }

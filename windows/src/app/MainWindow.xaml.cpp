@@ -320,6 +320,7 @@ namespace winrt::ZSlice::implementation
                 WorkProgress(event.progress);
                 SliceProgress().Visibility(Visibility::Visible);
                 SliceProgress().Value(event.progress);
+                SelectedStale(true);
             }
             break;
         case ZS_EVENT_SLICED:
@@ -412,6 +413,7 @@ namespace winrt::ZSlice::implementation
         if (effect_box != nullptr)
             FillEffect(effect_box, effect_key);
         RefreshPlates();
+        RefindSelectedGap();
         FindSelectedLine();
         LiveLoaded();
         ApplySelection();

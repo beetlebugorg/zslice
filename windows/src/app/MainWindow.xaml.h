@@ -1,4 +1,6 @@
 #pragma once
+
+#include <map>
 #include "MainWindow.g.h"
 
 #include <chrono>
@@ -114,6 +116,7 @@ namespace winrt::ZSlice::implementation
             Section,
             Search,
             Detail,
+            Selected,
         };
         // Where an editor reads and writes its value, in place of the print:
         // a range of layers (MainWindow.Range.cpp).
@@ -378,6 +381,45 @@ namespace winrt::ZSlice::implementation
         void BodyMove(double x, double y, bool free);
         void LiveEnd();
         void HoldForKeys();
+        // The Selected page of the pane (MainWindow.Selected.cpp).
+        struct SelectedPage;
+        std::shared_ptr<SelectedPage> selected_page;
+        PanePlace selected_from;
+        bool selected_wanted = false, selected_rebuild = false, selected_filtering = false;
+        int selected_scope = 0;
+        std::map<std::wstring, bool> selected_sections;
+        bool line_lost = false;
+        bool page_gap = false, page_gap_closed = false;
+        uint32_t page_gap_serial = 0;
+        double page_gap_x = 0, page_gap_y = 0;
+        void GoToSelected();
+        void ShowBrowserRows(bool show);
+        std::wstring SelectedTitle();
+        std::string SelectedSignature();
+        void ShowSelected();
+        void RefreshSelectedPage();
+        void SelectedStale(bool stale);
+        void RefindSelectedGap();
+        double SelectedLow() const;
+        double SelectedHigh() const;
+        void SelectedSet(std::string const &name, std::string const &value);
+        void DrawSelectedRows();
+        std::wstring SelectedWhy(std::string const &key);
+        void AddSelectedRow(Microsoft::UI::Xaml::Controls::StackPanel const &into, zs_setting_info const &info);
+        void ShowWhyFlyout(int index, Microsoft::UI::Xaml::Controls::Button const &button);
+        void OpenSelectedLink(std::string const &name);
+        void BuildLinePage(SelectedPage &page);
+        bool SelectedSectionOpen(std::wstring const &title);
+        void AddSelectedMark(SelectedPage &page);
+        void UpdateSelectedText();
+        void BuildPartPage(SelectedPage &page);
+        void SelectedPartValue(int field, double value);
+        void FillSelectedPart();
+        void BuildGapPage(SelectedPage &page);
+        std::wstring SettingDocText(char const *doc);
+#ifdef ZS_DEV_HOOKS
+        bool RunSelectedStep(std::wstring const &verb, std::vector<std::wstring> const &words);
+#endif
         Microsoft::UI::Xaml::Controls::TextBox PoseBox(int field);
         void ShowPose(zs_part const &p);
         void ApplyPose(int field);
