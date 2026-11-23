@@ -159,7 +159,7 @@ A click on a line opens its card in a corner of the view, clear of the line. The
 - The speed and the flow, the size of the line, the time of its layer, and the fan.
 - Notes: why the line is slow, when the flow limit sets its speed, and what a support line holds up ("Holds up: outer wall on layer 64, 7 layers up.").
 - The warnings of the check at the line.
-- Up to 5 settings, each with the reason that it matters for this line and an editor. A change slices at once. The editor keeps the focus, so the arrow keys keep stepping.
+- Up to 5 settings that matter for this line, each with an editor. **All Settings** shows the reasons at its foot, under How these values come about. A change slices at once. The editor keeps the focus, so the arrow keys keep stepping.
 
 The card can also edit the line itself:
 

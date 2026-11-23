@@ -6,11 +6,12 @@
 //! It shows what helps to decide what to change: what the line is (the
 //! feature, the layer, and the z), then two short lines of numbers (the
 //! speed and the flow; the size of the line, the time of its layer, and
-//! the fan). Notes say why it is slow, when the flow limit sets its speed,
-//! what a support line holds up, and the warnings of the check at the line
-//! (only a check that has run: zs_app_checks_ready). Then up to 5 settings
-//! that matter for it, as the core picks them (zs_app_inspect_picks), each
-//! with the reason and a live editor. A change slices at once. The rows
+//! the fan). Notes say what a support line holds up, and the warnings of
+//! the check at the line (only a check that has run: zs_app_checks_ready).
+//! Then up to 5 settings that matter for it, as the core picks them
+//! (zs_app_inspect_picks), each with a live editor. How the values come
+//! about is at the foot of All Settings (LineSettings), not on the card.
+//! A change slices at once. The rows
 //! keep their identity across slices, so an editor keeps the focus and the
 //! arrow keys keep stepping. "Fade the others" shows the line solid and
 //! the other lines as ghosts. "All Settings…" opens the drawer on all the
@@ -52,14 +53,9 @@ struct LineCard: View {
                 ForEach(info.picks, id: \.name) { p in
                     if let s = SettingInfo.byName[p.name] {
                         HStack(alignment: .firstTextBaseline) {
-                            VStack(alignment: .leading, spacing: 1) {
-                                Text(s.label)
-                                if !p.why.isEmpty {
-                                    Text(p.why).font(.caption).foregroundStyle(.secondary)
-                                }
-                            }
-                            .fixedSize(horizontal: false, vertical: true)
-                            .help(s.doc)
+                            Text(s.label)
+                                .fixedSize(horizontal: false, vertical: true)
+                                .help(s.doc)
                             Spacer(minLength: 8)
                             SettingEditor(model: model, info: s, entry: model.entry(s.name), compact: true)
                         }
@@ -160,15 +156,11 @@ struct LineCard: View {
 
     private var dot: Text { Text(" · ").foregroundStyle(.secondary) }
 
-    /// The notes of the line: why it is slow, the flow limit, what a
-    /// support line holds up, and the warnings of the check at the line.
+    /// The notes of the line: its nozzle, what a support line holds up,
+    /// and the warnings of the check at the line.
     private var notes: [(text: String, symbol: String, warn: Bool)] {
         var out: [(text: String, symbol: String, warn: Bool)] = []
         if !info.nozzleText.isEmpty { out.append((info.nozzleText, "circle.circle", false)) }
-        if !info.slowText.isEmpty { out.append((info.slowText, "tortoise", true)) }
-        if info.flowLimited, info.maxFlow > 0 {
-            out.append((String(format: "The flow limit (%.0f mm³/s) sets the speed of this line, not the printer.", info.maxFlow), "gauge.with.dots.needle.100percent", true))
-        }
         if let h = info.holds {
             let f = h.feature >= 0 && h.feature < Feature.titles.count ? Feature.titles[h.feature] : "Part"
             let up = h.layer - info.layer
