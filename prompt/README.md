@@ -1,6 +1,6 @@
 # A prompt that could build zslice
 
-Describes: main at commit `ed81f35b` ("Keep the GTK app off a USB port until the user asks"), 2026-11-23.
+Describes: main at commit `8152a96a` ("Link the Mac test app with the current SDK"), 2026-11-23.
 
 ## Read this first
 
