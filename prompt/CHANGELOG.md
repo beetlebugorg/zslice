@@ -10,3 +10,4 @@ One line for each update: the date, the commit that the folder describes, and th
 | 2026-11-22 | `85ffdcaa` (`no-site-api`, before its merge to main) | CHANGELOG, 07, 09, 10, 13, 15: no app calls the API of a model site (the Printables API is private, and the terms of the Prusa sites forbid automated extraction); a model page gets `zs_import_page_text` and Open the page; the ZIP list stays; the lessons in 07 and 10. |
 | 2026-11-22 | `58f58ca0` | README, CHANGELOG, 12: the part settings on the Windows part card, and Export off after a failed slice (the Windows session wrote part 12). |
 | 2026-11-22 | `c0a7de63` | README, CHANGELOG, 07, 12: support marks are lines of the plate 3MF, so they are steps of the history and stay in the session (a lesson in 07); the Windows line card edits a support mark (12, by the Windows session). |
+| 2026-11-22 | `8674769f` | README, CHANGELOG, 12: the import of a model page and a ZIP file on Windows (12, by the Windows session). |

@@ -1,6 +1,6 @@
 # A prompt that could build zslice
 
-Describes: main at commit `c0a7de63` ("Add support marks to the Windows prompt"), 2026-11-22.
+Describes: main at commit `8674769f` ("Add the model import to the Windows prompt"), 2026-11-22.
 
 ## Read this first
 
