@@ -9,8 +9,11 @@
 //!
 //! A new slice can change the index of each path. The core selection model
 //! keeps the key of the line (zs_sel_line_set), and after the slice
-//! zs_app_path_of_key finds its path. A line that the slice did not make
-//! again ends the selection (docs/internals/selection.md).
+//! zs_app_path_of_key finds its path. A draft can miss the key of a line
+//! that the exact slice makes again. So on a miss zs_app_pick_feature finds
+//! the nearest line of the same feature at the saved place, and the exact
+//! slice after a draft goes back to the first key and segment. With no line
+//! there, the selection ends (docs/internals/selection.md).
 //!
 //! The keys of a selected line (docs/user/getting-started.md, "Keys in the
 //! preview"): Left and Right step along the print (Shift: a whole line), Up
@@ -92,6 +95,7 @@ extension Workspace {
 
     func select(path: Int, seg: Int, openCard: Bool) {
         let before = selection
+        draftLine = nil
         selection = Selection(path: path, seg: seg)
         let key = zs_app_path_key(model.core, path)
         selection?.key = key
@@ -136,6 +140,8 @@ extension Workspace {
     func clearSelection() {
         selection = nil
         lineInfo = nil
+        refindKey = nil
+        draftLine = nil
         zs_sel_line_set(model.sel, 0, -1, -1)
         cardOpen = false
         cardMoved = nil
@@ -195,6 +201,7 @@ extension Workspace {
             holds: info.holds_layer == ZS_NO_PATH ? nil : (Int(info.holds_layer), Int(info.holds_feature)),
             issues: lineIssues(ofPath: s.path, layer: Int(info.layer)))
         lineInfo?.nozzleText = coreText(info.nozzle_text)
+        refindKey = middle(of: s.path).map { RefindKey(layer: info.layer, feature: info.feature, x: $0.x, y: $0.y) }
     }
 
     /// The warnings of the check at a line, the worst first: its own, and
@@ -226,17 +233,48 @@ extension Workspace {
     /// After a new slice: the same line, or none.
     func refindSelection() {
         guard selection != nil else { return }
+        guard let v = canvas.view else {
+            clearSelection()
+            return
+        }
         var key: UInt64 = 0, was = 0, seg = 0
         zs_sel_line_get(model.sel, &key, &was, &seg)
-        let path = key == 0 ? noPath : zs_app_path_of_key(model.core, key)
-        guard path >= 0, let v = canvas.view else {
+        // The line from before a draft comes first.
+        let wanted = draftLine ?? (key: key, seg: seg)
+        // ZSLICE_LINE_MISS=1: a draft misses the key, for a test.
+        let miss = model.draft && ProcessInfo.processInfo.environment["ZSLICE_LINE_MISS"] != nil
+        let hit = wanted.key == 0 || miss ? noPath : zs_app_path_of_key(model.core, wanted.key)
+        if hit >= 0 {
+            zs_sel_line_set(model.sel, wanted.key, hit, wanted.seg)
+            zs_sel_line_found(model.sel, hit, zs_view_path_segments(v, hit))
+            zs_sel_line_get(model.sel, &key, &was, &seg)
+            lineLog("key", hit)
+            select(path: hit, seg: max(seg, 0), openCard: false)
+            return
+        }
+        // A miss: the nearest line of the same feature at the saved place.
+        guard let r = refindKey else {
             zs_sel_line_found(model.sel, -1, 0)
             clearSelection()
             return
         }
-        zs_sel_line_found(model.sel, path, zs_view_path_segments(v, path))
-        zs_sel_line_get(model.sel, &key, &was, &seg)
-        select(path: path, seg: max(seg, 0), openCard: false)
+        let path = zs_app_pick_feature(model.core, r.layer, r.feature, r.x, r.y)
+        guard path != noPath else {
+            zs_sel_line_found(model.sel, -1, 0)
+            clearSelection()
+            return
+        }
+        let segs = zs_view_path_segments(v, path)
+        lineLog("place", path)
+        select(path: path, seg: min(max(wanted.seg, 0), max(0, segs - 1)), openCard: false)
+        // The exact slice looks for the first line again.
+        if model.draft { draftLine = wanted }
+    }
+
+    /// ZSLICE_LINE_LOG=1: how a new slice found the selected line.
+    private func lineLog(_ how: String, _ path: Int) {
+        guard ProcessInfo.processInfo.environment["ZSLICE_LINE_LOG"] != nil else { return }
+        NSLog("zslice line: by %@, path %ld, draft %d", how, path, model.draft ? 1 : 0)
     }
 
     /// A double click on the 3D page: the camera turns to face the side of
@@ -369,4 +407,11 @@ struct Selection: Equatable {
     var key: UInt64 = 0
     var layer = -1
     var x = 0.0, y = 0.0, z = 0.0
+}
+
+struct RefindKey {
+    var layer: Int
+    var feature: Int32
+    var x: Double
+    var y: Double
 }
