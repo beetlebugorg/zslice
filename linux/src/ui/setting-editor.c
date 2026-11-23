@@ -192,9 +192,22 @@ static void show_unusual(GtkWidget *editor) {
  * has the value. */
 static gboolean commit_value(GtkWidget *editor, const char *text, gboolean quiet) {
     GError *error = NULL;
+    const zs_setting_info *info = info_of(editor);
+    /* The text that the field shows for the value now, such as "auto" or
+     * "no limit", is no change. */
+    if (is_number(editor)) {
+        char *now = editor_get(editor, key_of(editor));
+        char *shown = zg_setting_display_value(info, now);
+        gboolean unedited = g_strcmp0(shown, text) == 0;
+        g_free(shown);
+        g_free(now);
+        if (unedited) {
+            gtk_widget_remove_css_class(editor, "error");
+            return TRUE;
+        }
+    }
     char *value = to_core(editor, text);
     /* Out of the hard limits: say what the limits are. */
-    const zs_setting_info *info = info_of(editor);
     if (is_number(editor) && info->limit_max > info->limit_min && zg_parses_as_number(value)) {
         double v = g_ascii_strtod(value, NULL);
         if (v < info->limit_min - 1e-12 || v > info->limit_max + 1e-12) {
