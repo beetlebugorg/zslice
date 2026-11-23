@@ -107,7 +107,7 @@ struct FilamentList: View {
     var body: some View {
         let list = model.filaments
         let st = model.filamentStats
-        VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 0) {
                 Text(list.count > 1 ? "\(list.count) filaments" : "Filament").font(.callout.weight(.medium))
                 if !list.isEmpty, list.allSatisfy(\.fromPrinter) {
@@ -129,17 +129,22 @@ struct FilamentList: View {
                         .help("The color of filament \(f.index + 1)")
                     Text("\(f.index + 1)").font(.callout.monospacedDigit()).foregroundStyle(.secondary).frame(width: 14)
                     // The holder of its spool in the printer ("A1"), or a mark
-                    // for a filament set by hand.
-                    if f.fromPrinter, !f.slot.isEmpty {
-                        Text(f.slot)
-                            .font(.caption.monospacedDigit().weight(.medium))
-                            .padding(.horizontal, 4)
-                            .background(Color.secondary.opacity(0.15), in: RoundedRectangle(cornerRadius: 3))
-                            .help("From the printer: the spool in \(f.slot)")
-                    } else if f.hand {
-                        Image(systemName: "hand.point.up.left").font(.caption).foregroundStyle(.secondary)
-                            .help("You set this filament. It stays when the printer has other spools.")
+                    // for a filament set by hand, in a column of one width.
+                    Group {
+                        if f.fromPrinter, !f.slot.isEmpty {
+                            Text(f.slot)
+                                .font(.caption.monospacedDigit().weight(.medium))
+                                .lineLimit(1)
+                                .fixedSize()
+                                .padding(.horizontal, 4)
+                                .background(Color.secondary.opacity(0.15), in: RoundedRectangle(cornerRadius: 3))
+                                .help("From the printer: the spool in \(f.slot)")
+                        } else if f.hand {
+                            Image(systemName: "hand.point.up.left").font(.caption).foregroundStyle(.secondary)
+                                .help("You set this filament. It stays when the printer has other spools.")
+                        }
                     }
+                    .frame(width: 26)
                     Picker("", selection: Binding(get: { f.material.isEmpty ? "PLA" : f.material },
                                                   set: { model.setFilament(f.index, "filament.material", $0) })) {
                         let kinds = SliceModel.filamentKinds
@@ -147,7 +152,7 @@ struct FilamentList: View {
                     }
                     .labelsHidden()
                     .controlSize(.small)
-                    .frame(width: 80)
+                    .frame(width: 76)
                     .help("The material of filament \(f.index + 1)")
                     // A printer with more than one nozzle: the nozzle of the
                     // filament.
@@ -160,20 +165,28 @@ struct FilamentList: View {
                         }
                         .labelsHidden()
                         .controlSize(.small)
-                        .frame(width: 72)
+                        .frame(width: 66)
                         .help(nozzles == 2
                             ? "The nozzle of filament \(f.index + 1): the main nozzle (fed by the AMS on the X2D), or the second nozzle (fed by the external spool)"
                             : "The nozzle of filament \(f.index + 1): the tool that prints it (T0 to T\(nozzles - 1))")
                     }
                     Spacer(minLength: 0)
                     if let g = st?.grams[safe: f.index], g > 0 {
-                        Text(String(format: "%.1f g", g)).font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                        Text(String(format: "%.1f g", g))
+                            .font(.caption.monospacedDigit())
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                            .fixedSize()
                     }
-                    if f.index > 0 {
-                        Button { model.removeFilament(f.index) } label: { Image(systemName: "xmark").font(.caption) }
-                            .buttonStyle(.borderless)
-                            .help("Remove filament \(f.index + 1). Its parts and layers print with filament 1.")
+                    // The column of × keeps its width on the first row too.
+                    Group {
+                        if f.index > 0 {
+                            Button { model.removeFilament(f.index) } label: { Image(systemName: "xmark").font(.caption) }
+                                .buttonStyle(.borderless)
+                                .help("Remove filament \(f.index + 1). Its parts and layers print with filament 1.")
+                        }
                     }
+                    .frame(width: 16)
                 }
             }
             if list.count < 16 {

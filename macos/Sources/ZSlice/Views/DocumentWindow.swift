@@ -201,15 +201,10 @@ struct DocumentWindow: View {
                         HStack {
                             Spacer()
                             PrintCard(workspace: workspace)
-                                .fixedSize()
+                                .fixedSize(horizontal: true, vertical: false)
                                 .panel()
-                                .overlay(alignment: .topTrailing) {
-                                    Button { workspace.detailsOpen = false } label: { CloseMark() }
-                                    .buttonStyle(.borderless)
-                                    .padding(6)
-                                    .help("Close the details")
-                                }
                         }
+                        .padding(.top, 12)
                         .padding(.trailing, 84)
                         .transition(.move(edge: .bottom).combined(with: .opacity))
                     }
@@ -554,8 +549,33 @@ struct PrintCard: View {
     }
 
     var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            // The head holds the close button, so it covers no content.
+            HStack {
+                Text("Print Details").font(.headline)
+                Spacer()
+                Button { workspace.detailsOpen = false } label: { CloseMark() }
+                    .buttonStyle(.borderless)
+                    .help("Close the details")
+            }
+            // In a short window the details scroll under the head.
+            ViewThatFits(in: .vertical) {
+                details
+                ScrollView { details }
+            }
+        }
+        // Wide enough for the columns of a filament row: content wider than
+        // this frame would spill over the padding.
+        .frame(width: 336)
+        .padding(14)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+        .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(.separator.opacity(0.5)))
+        .opacity(model.state == .empty ? 0 : 1)
+    }
+
+    private var details: some View {
         let slicing = model.state == .slicing
-        VStack(alignment: .leading, spacing: 8) {
+        return VStack(alignment: .leading, spacing: 10) {
             if !workspace.plateFits, model.state == .done {
                 Label(Workspace.offBed, systemImage: "exclamationmark.octagon.fill")
                     .foregroundStyle(.red)
@@ -575,7 +595,8 @@ struct PrintCard: View {
                     .controlSize(.small)
                 }
                 .font(.callout)
-                .padding(8)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(10)
                 .background(Color.orange.opacity(0.15), in: RoundedRectangle(cornerRadius: 8))
             } else if model.state == .done, let text = workspace.simResult?.checkText {
                 // The simulated print ran: it replaces the estimate from the
@@ -591,7 +612,8 @@ struct PrintCard: View {
                     }
                 }
                 .font(.callout)
-                .padding(8)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(10)
                 .background(Color.orange.opacity(0.15), in: RoundedRectangle(cornerRadius: 8))
             } else if model.state == .done, let area = workspace.unsupportedArea {
                 // The red warning of a part off the bed wins over this one.
@@ -604,7 +626,8 @@ struct PrintCard: View {
                         .help("Support everywhere a part hangs over the air (Support > Support)")
                 }
                 .font(.callout)
-                .padding(8)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(10)
                 .background(Color.orange.opacity(0.15), in: RoundedRectangle(cornerRadius: 8))
             }
             if case .failed(let why) = model.state {
@@ -676,11 +699,6 @@ struct PrintCard: View {
                 FilamentList(model: model)
             }
         }
-        .frame(width: 250)
-        .padding(12)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
-        .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(.separator.opacity(0.5)))
-        .opacity(model.state == .empty ? 0 : 1)
     }
 
     private func duration(_ seconds: Double) -> String { Self.duration(seconds) }
@@ -701,8 +719,8 @@ struct RefinementList: View {
 
     var body: some View {
         let list = workspace.refinements
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
                 Text(list.count == 1 ? "Your usual refinement" : "Your usual refinements: \(list.count)")
                     .font(.callout.weight(.semibold))
                 Spacer()
@@ -713,19 +731,24 @@ struct RefinementList: View {
                     }
                     .controlSize(.small)
                     .help("Apply each refinement (one undo step each)")
+                    // Over the column of ×, so it lines up with Apply.
+                    Color.clear.frame(width: 16, height: 1)
                 }
             }
             ForEach(list) { r in
-                HStack(alignment: .top, spacing: 6) {
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
                     VStack(alignment: .leading, spacing: 2) {
                         Text("\(r.whereText): \(r.what)").font(.callout).fixedSize(horizontal: false, vertical: true)
-                        Text("You made this change in \(r.count) other prints.").font(.caption).foregroundStyle(.secondary)
+                        Text("You made this change in \(r.count) other \(r.count == 1 ? "print" : "prints").")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
                     Spacer(minLength: 4)
                     Button("Apply") { workspace.applyRefinement(r) }.controlSize(.small)
-                    Button { workspace.hideRefinement(r) } label: { Image(systemName: "xmark") }
+                    Button { workspace.hideRefinement(r) } label: { Image(systemName: "xmark").font(.caption) }
                         .buttonStyle(.borderless)
-                        .controlSize(.small)
+                        .frame(width: 16)
                         .help("Do not offer this again")
                 }
             }
