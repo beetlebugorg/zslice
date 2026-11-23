@@ -248,6 +248,8 @@ The part card lists the settings that the part has of its own. Each has its edit
 
 N shows or hides the settings pane. It opens over the view. **Pin** puts it beside the view, and you can drag its left edge to change its width. Esc hides the pane when it is over the view. The app remembers the mode and the width.
 
+A click on a line, a part, or a gap opens its **Selected** page in the pane. **All settings…** on the line card opens it too. For a line, the page has its speeds with the reason for each, its measurements, and the settings that change it. **Change for** sets the layers of an edit: this print, this layer, this layer and up, or this layer and down. For a part, it has the place, the quality, and the placement. For a gap, it has the settings that can close it. The arrow at the top goes back to the settings.
+
 **Settings for** at the top of the settings pane says what a change is for: **This print**, **Global** (all your prints, under the quality profile), or one part. A setting that the choice cannot have shows and is off. Formulas and global settings stay after a restart.
 
 The **Speed** section at the top of the settings pane lists the options that change the time of a slice, with the gain and the cost of each. **Faster slicing** sets all of them to their faster values. It reads **Custom** when one option has another value.

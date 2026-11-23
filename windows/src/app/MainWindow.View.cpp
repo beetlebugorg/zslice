@@ -500,6 +500,11 @@ namespace winrt::ZSlice::implementation
         zs_gap const &g = gaps[gap];
         gap_selected = gap;
         gap_selected_layer = layer;
+        page_gap = true;
+        page_gap_closed = false;
+        page_gap_x = g.x;
+        page_gap_y = g.y;
+        page_gap_serial++;
         GapTitle().Text(L"A gap · layer " + std::to_wstring(layer + 1));
         wchar_t facts[96];
         swprintf_s(facts, L"%.3f mm², %.2f mm wide%s", g.area, g.width, g.at_edge ? L", at the edge of the part" : L"");
@@ -538,6 +543,7 @@ namespace winrt::ZSlice::implementation
         GapCard().Visibility(Visibility::Visible);
         double box[4] = { x - 12, y - 12, x + 12, y + 12 };
         PlaceCard(GapCard(), box);
+        GoToSelected();
         return true;
     }
 

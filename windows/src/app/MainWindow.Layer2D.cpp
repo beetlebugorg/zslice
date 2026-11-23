@@ -245,7 +245,11 @@ namespace winrt::ZSlice::implementation
         size_t segment = 0;
         size_t path = zs_view_pick_layer(view, layer2d_layer, bed_x, bed_y, &segment);
         if (path != (size_t)-1)
+        {
+            page_gap = false;
             SelectLine((int64_t)path, (int64_t)segment);
+            GoToSelected();
+        }
         else
             ClearSelection();
         RequestDraw();

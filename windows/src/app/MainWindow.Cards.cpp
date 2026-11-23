@@ -52,17 +52,8 @@ namespace winrt::ZSlice::implementation
         LineAll().Click([this](auto &&, auto &&) {
             if (SelectedPath() < 0)
                 return;
-            zs_inspect info{};
-            if (zs_app_inspect(model->Active(), (size_t)SelectedPath(), &info) != ZS_OK)
-                return;
             ShowSettingsPane(true);
-            zs_pick picks[1];
-            size_t n = 0;
-            if (zs_app_inspect_picks(model->Active(), (size_t)SelectedPath(), picks, 1, &n) == ZS_OK && n > 0)
-            {
-                detail_from = SettingsPage::Sections;
-                ShowDetail(picks[0].name);
-            }
+            ShowSelected();
         });
         auto edit = [this](int kind, double value) {
             if (model == nullptr || SelectedPath() < 0)
@@ -356,7 +347,10 @@ namespace winrt::ZSlice::implementation
         double const margin = 10;
         double left = 60; // the tool strip
         double right = CardLayer().ActualWidth() - margin;
-        if (LayerCard().Visibility() == Visibility::Visible)
+        // The panel over the view covers the right of it, with the rail.
+        if (panel_mode == PanelMode::Over)
+            right -= SettingsPane().ActualWidth();
+        else if (LayerCard().Visibility() == Visibility::Visible)
             right -= LayerCard().ActualWidth() + 16;
         double top = margin;
         double bottom = CardLayer().ActualHeight() - 66; // the plate bar

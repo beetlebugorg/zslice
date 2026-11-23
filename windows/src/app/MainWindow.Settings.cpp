@@ -283,6 +283,9 @@ namespace winrt::ZSlice::implementation
             RefreshSettingValues();
             ApplyPaneFocus();
         }
+        // A click on a line while the panel was hidden.
+        if (show && selected_wanted)
+            ShowSelected();
     }
 
     // Hidden, over the right of the view, or pinned beside it with a
@@ -542,6 +545,9 @@ namespace winrt::ZSlice::implementation
         setting_editors.clear();
         speed_toggle = nullptr;
         effect_box = nullptr;
+        selected_page = nullptr;
+        selected_wanted = false;
+        ShowBrowserRows(true);
         SetPaneFocus(0, false);
         SettingsList().Children().Clear();
         SettingsScroll().ChangeView(nullptr, box_value(0.0).as<Windows::Foundation::IReference<double>>(), nullptr, true);
@@ -627,6 +633,11 @@ namespace winrt::ZSlice::implementation
             NoteChange();
         }
         RefreshSettingValues();
+    }
+
+    std::wstring MainWindow::SettingDocText(char const *doc)
+    {
+        return PlainDoc(doc);
     }
 
     int MainWindow::NozzleCount()
@@ -914,6 +925,10 @@ namespace winrt::ZSlice::implementation
         {
             ShowSearch(place.query);
         }
+        else if (place.page == SettingsPage::Selected)
+        {
+            ShowSelected();
+        }
         else if (place.page == SettingsPage::Detail && !place.detail.empty())
         {
             settings_group = place.group;
@@ -948,6 +963,15 @@ namespace winrt::ZSlice::implementation
         namespace Documents = Microsoft::UI::Xaml::Documents;
         auto crumbs = SettingsCrumbs();
         crumbs.Inlines().Clear();
+        // The Selected page: its title, with the back arrow to the settings.
+        if (settings_page == SettingsPage::Selected)
+        {
+            Documents::Run title;
+            title.Text(SelectedTitle());
+            title.FontWeight(Microsoft::UI::Text::FontWeights::SemiBold());
+            crumbs.Inlines().Append(title);
+            return;
+        }
         auto add = [this, &crumbs](std::wstring const &text, int column, bool last) {
             if (crumbs.Inlines().Size() > 0)
             {
@@ -1081,10 +1105,21 @@ namespace winrt::ZSlice::implementation
             ShowSearch(settings_query);
         else if (settings_page == SettingsPage::Detail && !settings_detail.empty())
             ShowDetail(std::string(settings_detail).c_str());
+        else if (settings_page == SettingsPage::Selected)
+            ShowSelected();
     }
 
     void MainWindow::SettingsGoBack()
     {
+        // From the Selected page: the settings, at their place.
+        if (settings_page == SettingsPage::Selected)
+        {
+            PanePlace place = selected_from;
+            if (place.page == SettingsPage::Selected)
+                place = PanePlace{};
+            RestorePanePlace(place);
+            return;
+        }
         if (settings_page == SettingsPage::Detail)
         {
             // The list comes back at its place, with this row marked.

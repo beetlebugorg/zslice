@@ -418,14 +418,7 @@ namespace winrt::ZSlice::implementation
     void MainWindow::ArrowMove(double x, double y, bool free)
     {
         double s = Scale(), d = 0;
-        // The core measures from the center of the gizmo, and the gizmo goes
-        // with the part. The measure is from its place at the press, so the
-        // move does not feed back into itself.
-        double radius = 0.62 * std::max({ live_size[0], live_size[1], live_size[2] }) + 4;
-        zs_view_set_gizmo(view, live_start[0], live_start[1], std::max(live_start[2], 0.0) + live_size[2] / 2, radius, 1);
-        bool measured = zs_view_arrow_drag(view, (float)(x * s), (float)(y * s), &d) != 0;
-        PlaceGizmo();
-        if (!measured)
+        if (!zs_view_arrow_drag(view, (float)(x * s), (float)(y * s), &d))
             return;
         for (int k = 0; k < 3; k++)
             live_target[k] = live_start[k];

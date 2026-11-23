@@ -130,6 +130,7 @@
     <ClCompile Include="src\app\MainWindow.Range.cpp" />
     <ClCompile Include="src\app\MainWindow.Profiles.cpp" />
     <ClCompile Include="src\app\MainWindow.Scope.cpp" />
+    <ClCompile Include="src\app\MainWindow.Selected.cpp" />
     <ClCompile Include="src\app\MainWindow.ModelImport.cpp" />
     <ClCompile Include="src\app\MainWindow.View.cpp" />
     <ClCompile Include="src\app\MainWindow.Filaments.cpp" />

@@ -38,6 +38,7 @@ A build with `-p:ZsDevHooks=true` reads `ZSLICE_DO`: steps with `;` between them
 | `src/app/MainWindow.Cards.cpp` | The line card and the part card, placed beside what they describe. |
 | `src/app/MainWindow.Profiles.cpp` | The layer profiles of the settings pane, and their marks on the layer rail. |
 | `src/app/MainWindow.Scope.cpp` | "Settings for" of the settings pane: this print, the global settings, or one part. |
+| `src/app/MainWindow.Selected.cpp` | The Selected page of the pane: a line with its scoped edits, a part, or a gap. A new slice of the same line updates its text in place. |
 | `src/app/MainWindow.ModelImport.cpp` | The import from a model page or a ZIP file (see [the import contract](model-import.md)). |
 | `src/app/MainWindow.Range.cpp` | The card of a range of layers: the drag of the Select tool, Shift+K and Shift+J, the light, the overrides, and the search of these layers. |
 | `src/app/MainWindow.View.cpp` | The line colors, the print as it forms, the replay, the gaps, the check, and the bed. |
