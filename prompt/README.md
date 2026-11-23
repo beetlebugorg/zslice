@@ -1,6 +1,6 @@
 # A prompt that could build zslice
 
-Describes: main at commit `caf0dfd3` ("Add the Mac key prompt and empty plate save to the prompt"), 2026-11-23.
+Describes: main at commit `05f4094c` ("Add the model page and ZIP picker to the Mac app"), 2026-11-23.
 
 ## Read this first
 
