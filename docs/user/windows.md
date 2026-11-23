@@ -161,6 +161,8 @@ On a part, the menu adds support, blocks support, makes a layer profile, and pla
 
 Ctrl+C, Ctrl+X, Ctrl+V, and Ctrl+D copy, cut, paste, and duplicate the selected parts. Ctrl+Shift+V pastes them as a new plate. C shows the layers up to the selected line, and Shift+C shows all layers.
 
+With the Label tool, the same keys work on the selected label. A paste puts it on the face under the pointer, or under the first label. With the card of some layers open, Ctrl+C and Ctrl+X take the changes of those layers. Select other layers and press Ctrl+V to give them the same changes.
+
 ## The 2D view
 
 Press 2, or choose **2D view** in the main menu, to see the top layer from above. Press 2 again or 3 to go back. A drag pans the layer, the wheel or a pinch zooms it, and a double click fits it. A click selects a line. A tool other than Select goes back to the 3D view.

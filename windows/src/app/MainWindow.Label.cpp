@@ -1377,6 +1377,102 @@ namespace winrt::ZSlice::implementation
             Load(index, -1);
         }
 
+        // ---- copy and paste (MainWindow.ContextMenu.cpp) ----
+
+        std::string CopyJson()
+        {
+            if (Selected() == nullptr)
+                return {};
+            Flush();
+            zs::Label *l = Selected();
+            return l != nullptr ? zs::LabelJson(*l, false) : std::string{};
+        }
+
+        // On the face under the pointer with the same turn. Else under the
+        // label of the copy (its height and 1 mm lower), or over it, on the
+        // surface again. Only a face over the bed takes it.
+        bool Paste(std::string const &json, bool at_point, double x, double y)
+        {
+            std::vector<zs::Label> list;
+            if (json.empty() || !zs::LabelsParse(json, list) || list.empty())
+                return false;
+            zs::Label l = list[0];
+            if (w.tool != Tool::Label)
+                w.SetTool(Tool::Label);
+            zs_app *app = w.model->Active();
+            int64_t target = index;
+            double at[10];
+            bool placed = false;
+            if (at_point)
+            {
+                int64_t hit = w.PartAt(x, y, nullptr, nullptr);
+                if (hit >= 0)
+                {
+                    target = hit;
+                    placed = PlaceAt(hit, x, y, at);
+                }
+            }
+            if (target < 0 || (size_t)target >= zs_app_part_count(app))
+            {
+                w.ShowToast(L"Point at a part to paste the label there.");
+                return false;
+            }
+            if (target != index)
+                Load(target, -1);
+            if (placed)
+            {
+                double degrees = zs::LabelAngle(l);
+                std::copy_n(at, 3, l.origin);
+                std::copy_n(at + 3, 3, l.normal);
+                std::copy_n(at + 6, 3, l.right);
+                zs::LabelSetAngle(l, degrees);
+                curve = at[9];
+            }
+            else
+            {
+                auto shape = OutlineOfJson(zs::LabelJson(l, true));
+                double height = shape.has_value() ? shape->box[3] - shape->box[1] : 5;
+                double up[3];
+                zs::LabelUp(l, up);
+                zs_paint *session = Session(target);
+                bool found = false;
+                for (int side = 0; side < 2 && !found && session != nullptr; side++)
+                {
+                    double k = side == 0 ? -(height + 1) : height + 1;
+                    double start[3], from[3];
+                    for (int i = 0; i < 3; i++)
+                    {
+                        start[i] = l.origin[i] + up[i] * k;
+                        from[i] = start[i] + 5 * l.normal[i];
+                    }
+                    float ray[6] = { (float)from[0], (float)from[1], (float)from[2], (float)-l.normal[0], (float)-l.normal[1], (float)-l.normal[2] };
+                    double out[10];
+                    if (zs_label_place(session, ray, 5, out) == 1 && out[2] >= 0)
+                    {
+                        std::copy_n(start, 3, l.origin);
+                        zs::LabelMove(l, out, out + 3);
+                        found = true;
+                    }
+                }
+                if (!found)
+                {
+                    w.ShowToast(L"The label does not fit here. Point at a face of the part, then paste.");
+                    return false;
+                }
+            }
+            std::string text = zs::LabelJson(l, false);
+            Flush();
+            uint32_t id = 0;
+            if (zs_app_label_add(app, (size_t)target, text.data(), text.size(), &id) != ZS_OK)
+            {
+                w.ShowToast(L"The label does not fit here.");
+                return false;
+            }
+            LabelsChanged();
+            Load(target, id);
+            return true;
+        }
+
         void DrawPoints(int item)
         {
             drawing = item;
@@ -2487,6 +2583,21 @@ namespace winrt::ZSlice::implementation
         std::wstring svg;
         if (ReadSvgFile(path, svg))
             label->DropSvg(svg, path, x, y, label->OverView(x, y));
+    }
+
+    std::string MainWindow::LabelCopyJson()
+    {
+        return label->CopyJson();
+    }
+
+    bool MainWindow::LabelPaste(std::string const &json, bool at_point, double x, double y)
+    {
+        return label->Paste(json, at_point, x, y);
+    }
+
+    void MainWindow::LabelRemoveSelected()
+    {
+        label->Remove();
     }
 
     bool MainWindow::LabelKey(VirtualKey key)
