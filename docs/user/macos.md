@@ -157,7 +157,7 @@ Return on a number or a text goes into its field with the value selected. Type a
 A click on a line opens its card in a corner of the view, clear of the line. The card keeps its corner from click to click while that corner stays clear. It has:
 
 - The speed and the flow, the size of the line, the time of its layer, and the fan.
-- Notes: why the line is slow, when the flow limit sets its speed, and what a support line holds up ("Holds up: outer wall on layer 64, 7 layers up.").
+- Notes: the nozzle of the line, and what a support line holds up ("Holds up: outer wall on layer 64, 7 layers up.").
 - The warnings of the check at the line.
 - Up to 5 settings that matter for this line, each with an editor. **All Settings** shows the reasons at its foot, under How these values come about. A change slices at once. The editor keeps the focus, so the arrow keys keep stepping.
 
