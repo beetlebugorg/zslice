@@ -1,6 +1,6 @@
 # A prompt that could build zslice
 
-Describes: main at commit `c320b829` ("Move how the values come about to the foot of the line page"), 2026-11-23.
+Describes: main at commit `9371dc5b` ("Say what the Mac line card notes show now"), 2026-11-23.
 
 ## Read this first
 
