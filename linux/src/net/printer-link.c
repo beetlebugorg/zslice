@@ -970,6 +970,12 @@ void zg_link_send_wrapped(const ZgPrinter *p, const char *filename, GBytes *gcod
         return;
     }
     if (p->kind == ZG_LINK_USB) {
+        /* A USB printer has no file store: each line that goes out runs at
+         * once. An upload must never start a print. */
+        if (!print) {
+            done(FALSE, "A USB printer cannot store a file, because a send starts a print. Nothing was sent.", data);
+            return;
+        }
         send_serial(p, gcode, cancel, progress, done, data);
         return;
     }

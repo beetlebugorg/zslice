@@ -48,11 +48,13 @@ static void handle(SoupServer *server, SoupServerMessage *msg, const char *path,
 
 typedef struct {
     gboolean done, ok;
+    char *message;
 } Result;
 
 static void on_done(gboolean ok, const char *message, gpointer data) {
     Result *r = data;
-    (void)message;
+    g_free(r->message);
+    r->message = g_strdup(message);
     r->ok = ok;
     r->done = TRUE;
 }
@@ -81,7 +83,28 @@ static gboolean send_to(const char *name, const char *url) {
     return r.ok;
 }
 
+/* An upload to a USB printer must not reach the port: it would start a
+ * print. The device does not exist, so nothing can open. */
+static void usb_upload_sends_nothing(void) {
+    ZgPrinter p = {0};
+    p.id = (char *)"usb";
+    p.name = (char *)"USB";
+    p.kind = ZG_LINK_USB;
+    p.device = (char *)"/nonexistent/zslice-test-port";
+    p.baud = 115200;
+    Result r = {0};
+    GBytes *g = g_bytes_new_static("G28\n", 4);
+    zg_link_send(&p, "a.gcode", g, FALSE, NULL, NULL, on_done, &r);
+    while (!r.done) g_main_context_iteration(NULL, TRUE);
+    g_bytes_unref(g);
+    g_assert_false(r.ok);
+    g_assert_nonnull(r.message);
+    g_assert_nonnull(strstr(r.message, "Nothing was sent"));
+    g_free(r.message);
+}
+
 int main(void) {
+    usb_upload_sends_nothing();
     char *dir = g_dir_make_tmp("zslice-deck-XXXXXX", NULL);
     g_setenv("XDG_CONFIG_HOME", dir, TRUE);
     GError *error = NULL;
