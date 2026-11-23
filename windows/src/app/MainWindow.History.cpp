@@ -11,6 +11,7 @@
 #include "pch.h"
 #include "MainWindow.xaml.h"
 
+#include <charconv>
 #include <ctime>
 
 using namespace winrt;
@@ -209,6 +210,69 @@ namespace winrt::ZSlice::implementation
             FillHistoryList();
     }
 
+    // A double click on a change goes to its step and opens the change
+    // where it was made: on its part, in its layers, or for the print.
+    void MainWindow::OpenHistoryChange(size_t step, std::string const &line)
+    {
+        if (model == nullptr)
+            return;
+        size_t first = line.find('\t');
+        if (first == std::string::npos)
+            return;
+        size_t second = line.find('\t', first + 1);
+        std::string scope = line.substr(0, first);
+        std::string key = line.substr(first + 1, second == std::string::npos ? second : second - first - 1);
+        if (step != zs_app_history_current(model->Active()))
+            GoToStep(step);
+        zs_app *app = model->Active();
+        HistoryFlyout().Hide();
+        // An edit of a change outside some layers must not go to a profile.
+        if (scope.rfind("layers:", 0) != 0)
+            LeaveProfile();
+        if (scope.rfind("part:", 0) == 0)
+        {
+            std::string name = scope.substr(5);
+            int64_t part = -1;
+            for (size_t i = 0, n = zs_app_part_count(app); i < n && part < 0; i++)
+            {
+                zs_part info{};
+                if (zs_app_part_get(app, i, &info) == ZS_OK && info.name != nullptr && name == info.name)
+                    part = (int64_t)i;
+            }
+            if (part < 0)
+                return;
+            // The place of the part: its card.
+            if (key.empty() || key[0] == '(' || key == "position" || key == "rotation" || key == "orientation" || key == "scale")
+            {
+                SelectPart(part);
+                return;
+            }
+            ShowSettingsPane(true);
+            SetSettingsScope(part);
+        }
+        else if (scope.rfind("layers:", 0) == 0)
+        {
+            size_t colon = scope.find(':', 7);
+            if (colon == std::string::npos)
+                return;
+            double z_min = 0, z_max = 0;
+            char const *low = scope.data() + 7, *high = scope.data() + colon + 1, *end = scope.data() + scope.size();
+            if (std::from_chars(low, scope.data() + colon, z_min).ec != std::errc{} || std::from_chars(high, end, z_max).ec != std::errc{})
+                return;
+            OpenProfile(z_min, z_max);
+        }
+        else if (settings_scope >= 0)
+        {
+            SetSettingsScope(-1);
+        }
+        zs_setting_info info{};
+        if (key.empty() || key[0] == '(' || key == "quality" || !FindInfo(key, info))
+            return;
+        ShowSettingsPane(true);
+        detail_from = settings_page;
+        ShowDetail(info.name);
+    }
+
     void MainWindow::ClearHistoryAfter(size_t step)
     {
         if (model == nullptr)
@@ -375,16 +439,13 @@ namespace winrt::ZSlice::implementation
                         size_t second = line.find('\t', first + 1);
                         std::string key = line.substr(first + 1, second == std::string::npos ? second : second - first - 1);
                         zs_setting_info info{};
-                        if (key.find('.') != std::string::npos && FindInfo(key, info))
+                        bool is_setting = key.find('.') != std::string::npos && FindInfo(key, info);
+                        if (is_setting || line.rfind("part:", 0) == 0)
                         {
-                            ToolTipService::SetToolTip(change, box_value(L"Double-click to open this setting."));
-                            char const *name = info.name;
-                            change.DoubleTapped([this, name](auto &&, Input::DoubleTappedRoutedEventArgs const &e) {
+                            ToolTipService::SetToolTip(change, box_value(is_setting ? L"Double-click to open this setting." : L"Double-click to open this part."));
+                            change.DoubleTapped([this, i, line](auto &&, Input::DoubleTappedRoutedEventArgs const &e) {
                                 e.Handled(true);
-                                HistoryFlyout().Hide();
-                                ShowSettingsPane(true);
-                                detail_from = settings_page;
-                                ShowDetail(name);
+                                OpenHistoryChange(i, line);
                             });
                         }
                     }

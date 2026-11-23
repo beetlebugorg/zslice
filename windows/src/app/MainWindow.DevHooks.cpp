@@ -836,6 +836,20 @@ namespace winrt::ZSlice::implementation
                 RevertChange(all.substr(0, all.find('\n')));
             }
         }
+        else if (verb == L"histchange")
+        {
+            // histchange i: opens the first change of step i.
+            zs_history_step step{};
+            if (zs_app_history_step(model->Active(), (size_t)number(0), &step) == ZS_OK && step.changes != nullptr)
+            {
+                std::string all(step.changes, step.changes_len);
+                std::string line = all.substr(0, all.find('\n'));
+                zs::Log("dev: histchange line '%s'\n", line.substr(0, 60).c_str());
+                OpenHistoryChange((size_t)number(0), line);
+            }
+            zs::Log("dev: histchange page %d crumb '%s' scope %lld profile %d %.2f %.2f detail '%s'\n", (int)settings_page, to_string(SettingsCrumb().Text()).c_str(), (long long)settings_scope, in_profile ? 1 : 0,
+                    profile_min, profile_max, settings_detail.c_str());
+        }
         else if (verb == L"histclear")
         {
             ClearHistoryAfter((size_t)number(0));
