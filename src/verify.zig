@@ -91,7 +91,7 @@ const Edit = union(enum) {
     copy: usize,
     delete: usize,
     arrange,
-    line: struct { key: u64, kind: zs.app.edits_mod.Kind, value: f32, layer: u32 },
+    line: struct { key: u64, kind: zs.app.edits_mod.Kind, value: f32, layer: u32, zc: i32 },
     add_slot,
     part_slot: struct { part: usize, slot: u32 },
     range_slot: struct { z0: f64, z1: f64, slot: u32 },
@@ -116,7 +116,7 @@ const Edit = union(enum) {
             .copy => |p| try w.print("copy {d}", .{p}),
             .delete => |p| try w.print("delete {d}", .{p}),
             .arrange => try w.writeAll("arrange"),
-            .line => |x| try w.print("line {x} {s} {d:.2} level {d}", .{ x.key, @tagName(x.kind), x.value, x.layer }),
+            .line => |x| try w.print("line {x} {s} {d:.2} level {d} zc {d}", .{ x.key, @tagName(x.kind), x.value, x.layer, x.zc }),
             .add_slot => try w.writeAll("add a filament slot"),
             .part_slot => |x| try w.print("part {d} filament {d}", .{ x.part, x.slot }),
             .range_slot => |x| try w.print("range {d:.3}..{d:.3} filament {d}", .{ x.z0, x.z1, x.slot }),
@@ -338,7 +338,11 @@ fn nextEdit(a: Allocator, rnd: std.Random, t: *Twin) !Edit {
             if (keys.len < 10) return fallback;
             const k = rnd.uintLessThan(usize, keys.len);
             const kind: zs.app.edits_mod.Kind = if (r2 < 0.5) .flow else .delete;
-            return .{ .line = .{ .key = keys[k], .kind = kind, .value = 0.5 + @as(f32, @floatCast(r1)), .layer = levelOfPath(inc, k) } };
+            const level = levelOfPath(inc, k);
+            // One edit in four has no z, as an edit of an older file.
+            const lz = inc.toolpaths.layer_z.items;
+            const zc = if (rnd.uintLessThan(u8, 4) == 0 or level >= lz.len) zs.app.edits_mod.no_zc else zs.app.edits_mod.zcOf(lz[level]);
+            return .{ .line = .{ .key = keys[k], .kind = kind, .value = 0.5 + @as(f32, @floatCast(r1)), .layer = level, .zc = zc } };
         },
         75 => return if (slots < 4) .add_slot else fallback,
         76...77 => return if (slots >= 2) .{ .part_slot = .{ .part = part, .slot = 1 + rnd.uintLessThan(u32, slots) } } else .add_slot,
@@ -387,7 +391,7 @@ fn apply(app: *App, e: Edit, now_ms: i64) !void {
         .copy => |p| _ = try app.duplicatePart(p),
         .delete => |p| try app.removePart(p),
         .arrange => _ = try app.arrangePlate(),
-        .line => |x| try app.edits.put(gpa, .{ .key = x.key, .kind = x.kind, .value = x.value, .layer = x.layer }),
+        .line => |x| try app.edits.put(gpa, .{ .key = x.key, .kind = x.kind, .value = x.value, .layer = x.layer, .zc = x.zc }),
         .add_slot => _ = try zs.app.filament_slots.add(app),
         .part_slot => |x| try app.setPartSetting(x.part, "project.filament", try std.fmt.bufPrint(&buf, "{d}", .{x.slot})),
         .range_slot => |x| try app.setOverride(x.z0, x.z1, "project.filament", try std.fmt.bufPrint(&buf, "{d}", .{x.slot})),
@@ -451,7 +455,7 @@ fn checkRestore(t: *Twin, seed: u64, step: usize) !void {
     fresh.settings = full.settings;
     try fresh.loadStl("verify.3mf", file);
     fresh.settings = full.settings;
-    for (full.edits.list.items) |e| try fresh.edits.put(t.gpa, .{ .key = e.key, .kind = e.kind, .value = e.value, .layer = e.layer, .x = e.x, .y = e.y, .z = e.z });
+    for (full.edits.list.items) |e| try fresh.edits.put(t.gpa, .{ .key = e.key, .kind = e.kind, .value = e.value, .layer = e.layer, .x = e.x, .y = e.y, .z = e.z, .zc = e.zc, .anchor = e.anchor });
     t.result.restore_steps += 1;
     const same = sliceApp(fresh) and std.mem.eql(u8, fresh.gcode() orelse "", full.gcode() orelse "");
     if (same) return;

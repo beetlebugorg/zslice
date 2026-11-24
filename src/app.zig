@@ -646,8 +646,12 @@ pub const App = struct {
                 const x = std.fmt.parseFloat(f32, f.next() orelse "0") catch 0;
                 const y = std.fmt.parseFloat(f32, f.next() orelse "0") catch 0;
                 const z = std.fmt.parseFloat(f32, f.next() orelse "0") catch 0;
+                // The z of the layer of the line (edits.zcOf). A file of
+                // an older version has none: the edit then makes each
+                // level dirty.
+                const zc = std.fmt.parseInt(i32, f.next() orelse "", 10) catch edits_mod.no_zc;
                 if (kind > 2) continue;
-                try app.edits.put(app.gpa, .{ .key = key, .kind = @enumFromInt(kind), .value = value, .layer = layer, .x = x, .y = y, .z = z });
+                try app.edits.put(app.gpa, .{ .key = key, .kind = @enumFromInt(kind), .value = value, .layer = layer, .x = x, .y = y, .z = z, .zc = zc });
                 continue;
             }
             if (std.mem.startsWith(u8, line, "linefil\t")) {
@@ -758,6 +762,15 @@ pub const App = struct {
     /// The lines of Metadata/zslice_overrides.txt in the 3MF file of the
     /// plate: the layer profiles, the support areas, the filament slots,
     /// the support trees, the edits of lines, and the overrides.
+    /// "edit <tab> key <tab> kind <tab> value <tab> layer <tab> x <tab> y
+    /// <tab> z <tab> zc": an edit of the user on a line. `zc` is empty for
+    /// an edit with no z (edits.no_zc).
+    fn writeEditLine(w: *std.Io.Writer, e: edits_mod.Edit) error{WriteFailed}!void {
+        try w.print("edit\t{x}\t{d}\t{d}\t{d}\t{d}\t{d}\t{d}\t", .{ e.key, @intFromEnum(e.kind), e.value, e.layer, e.x, e.y, e.z });
+        if (e.zc != edits_mod.no_zc) try w.print("{d}", .{e.zc});
+        try w.writeAll("\n");
+    }
+
     pub fn writeFileLines(app: *const App, w: *std.Io.Writer) (Allocator.Error || error{WriteFailed})!void {
         for (app.profiles.items) |p| try w.print("profile\t{d}\t{d}\t{s}\n", .{ p.z_min, p.z_max, p.name });
         try app.areas.write3mfLines(w);
@@ -796,7 +809,7 @@ pub const App = struct {
     fn writeEditLines(app: *const App, w: *std.Io.Writer) error{WriteFailed}!void {
         for (app.edits.list.items) |e| {
             const a = e.anchor orelse {
-                try w.print("edit\t{x}\t{d}\t{d}\t{d}\t{d}\t{d}\t{d}\n", .{ e.key, @intFromEnum(e.kind), e.value, e.layer, e.x, e.y, e.z });
+                try writeEditLine(w, e);
                 continue;
             };
             try w.print("linefil\t{d}\t{d}\t{x}\t{d}\t{d}\t{d}\t{d}", .{ e.value, e.layer, a.stamp, a.part, a.feature, @intFromBool(a.whole), a.length });
@@ -3529,19 +3542,31 @@ pub const App = struct {
         }
         const prev: ?*zs.PlateJob = if (app.prev_job) |*j| j else null;
         // The job keeps the move streams of the print. The edits of the
-        // lines change the plans, and the job does not see them in `init`.
+        // lines change the plans, so this hash has them. With
+        // engine.slice_form on, the key of each level has the edits of its
+        // own z (PlateJob.levelKey), so they leave this hash.
         var edits_hash = std.hash.Wyhash.init(0);
         for (app.edits.list.items) |e| {
-            zs.settings.hashValue(&edits_hash, .{ e.key, e.kind, e.value, e.layer, e.x, e.y, e.z });
-            // A filament edit depends on the place of its part too.
-            const a = e.anchor orelse continue;
-            if (app.edits.placeOf(a.part)) |pl| edits_hash.update(std.mem.asBytes(pl));
+            // A filament edit of a line changes the filament mask of its
+            // level, and so the prime tower and the first filaments of
+            // other levels (PlateJob.markLineEdits). It stays in this hash
+            // with the place of its part, also with engine.slice_form on.
+            if (e.anchor) |a| {
+                zs.settings.hashValue(&edits_hash, .{ e.key, e.kind, e.value, e.layer, e.x, e.y, e.z });
+                if (app.edits.placeOf(a.part)) |pl| edits_hash.update(std.mem.asBytes(pl));
+                continue;
+            }
+            if (!part.engine.slice_form) zs.settings.hashValue(&edits_hash, .{ e.key, e.kind, e.value, e.layer, e.x, e.y, e.z });
         }
         // The order of the parts on a level depends on the number of
         // filaments (see plate_job.zig).
         zs.settings.hashValue(&edits_hash, app.slice_filaments.len);
+        // An edit that came back (undo, a file) gets the state of its key
+        // in the slice before. `init` then clears the state of the edits
+        // of each level that plans again (PlateJob.takeForms).
+        app.edits.recall();
         const init_t0 = zs.stage_clock.now();
-        const job_or = zs.PlateJob.init(app.gpa, part, app.slice_parts, .{ .overrides = layer_overrides.items, .monitor = monitor, .old = prev, .streams = edits_hash.final(), .filaments = app.slice_filaments, .left_out = app.slice_left_out[0..app.slice_left_out_n] });
+        const job_or = zs.PlateJob.init(app.gpa, part, app.slice_parts, .{ .overrides = layer_overrides.items, .monitor = monitor, .old = prev, .streams = edits_hash.final(), .edits = &app.edits, .filaments = app.slice_filaments, .left_out = app.slice_left_out[0..app.slice_left_out_n] });
         zs.stage_clock.add(.init, init_t0);
         // The new job took what it could use. A job that failed (for
         // example, a cancel) can leave the old job without outlines, so the
@@ -3550,9 +3575,8 @@ pub const App = struct {
         var job = job_or catch |e| return app.finishFailed(e);
         // The edits of the user apply to each layer plan. A level with a
         // move stream gets no plan: its edits stay as the slice before
-        // found them. An edit that came back (undo, a file) gets that
-        // state again.
-        if (!job.hasStreams()) app.edits.resetApplied() else app.edits.recall();
+        // found them.
+        if (!job.hasStreams()) app.edits.resetApplied();
         job.edits = &app.edits;
         job.markLineEdits(&app.edits) catch |e| {
             job.deinit();
@@ -5457,6 +5481,23 @@ fn stlOf(gpa: Allocator, mesh: *zs.mesh.Mesh) ![]u8 {
     errdefer bytes.deinit();
     try mesh.writeStl(&bytes.writer);
     return bytes.toOwnedSlice();
+}
+
+test "app: the z of an edit in the file, and an edit of an older file" {
+    const gpa = testing.allocator;
+    const app = try App.create(gpa, null, null);
+    defer app.destroy();
+    // A line of a file of before: no zc.
+    try app.readFileLines(0, "edit\tabc\t1\t0.5\t3\t0\t0\t0\n");
+    // A line of this version.
+    try app.readFileLines(0, "edit\tdef\t0\t1\t4\t0\t0\t0\t1020\n");
+    try testing.expectEqual(@as(usize, 2), app.edits.list.items.len);
+    try testing.expectEqual(edits_mod.no_zc, app.edits.list.items[0].zc);
+    try testing.expectEqual(@as(i32, 1020), app.edits.list.items[1].zc);
+    var w: std.Io.Writer.Allocating = .init(gpa);
+    defer w.deinit();
+    for (app.edits.list.items) |e| try App.writeEditLine(&w.writer, e);
+    try testing.expectEqualStrings("edit\tabc\t1\t0.5\t3\t0\t0\t0\t\nedit\tdef\t0\t1\t4\t0\t0\t0\t1020\n", w.written());
 }
 
 test "app: each kind of edit gives the G-code of a new slice" {

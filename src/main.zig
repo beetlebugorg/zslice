@@ -664,15 +664,23 @@ fn benchEdit(gpa: std.mem.Allocator, app: *zslice.app.App, io: Io, err: *Io.Writ
     if (eq(u8, kind, "zrange")) try app.setOverride(5, 10, "project.infill_density", "0.3");
     if (eq(u8, kind, "zwalls")) try app.setOverride(5, 10, "project.wall_count", "2");
     _ = try benchSlice(app, io);
+    // undo: the first change is not timed, so each timed slice goes back
+    // to a value of the slice before the last one.
+    if (eq(u8, kind, "undo")) {
+        try app.setSetting("project.infill_density", "0.3");
+        _ = try benchSlice(app, io);
+    }
     // The line of a flow edit: a path in the middle level.
     var edit_key: u64 = 0;
     var edit_level: u32 = 0;
+    var edit_zc: i32 = zslice.app.edits_mod.no_zc;
     if (eq(u8, kind, "edit")) {
         const tp = &app.toolpaths;
         edit_level = @intCast(tp.layer_ends.items.len / 2);
         const p0 = tp.layer_ends.items[edit_level - 1];
         if (p0 + 3 >= tp.path_key.items.len) return error.SliceFailed;
         edit_key = tp.path_key.items[p0 + 3];
+        edit_zc = zslice.app.edits_mod.zcOf(tp.layer_z.items[edit_level]);
     }
     const last = app.plate.count() - 1;
     const x0 = app.plate.parts.items[0].x;
@@ -681,7 +689,7 @@ fn benchEdit(gpa: std.mem.Allocator, app: *zslice.app.App, io: Io, err: *Io.Writ
     for (times, 0..) |*t, k| {
         const kf: f64 = @floatFromInt(k + 1);
         if (eq(u8, kind, "edit")) {
-            try app.edits.put(gpa, .{ .key = edit_key, .kind = .flow, .value = @floatCast(0.5 + 0.05 * kf), .layer = edit_level });
+            try app.edits.put(gpa, .{ .key = edit_key, .kind = .flow, .value = @floatCast(0.5 + 0.05 * kf), .layer = edit_level, .zc = edit_zc });
         } else if (eq(u8, kind, "zrange")) {
             try app.setOverride(5, 10, "project.infill_density", try std.fmt.bufPrint(&buf, "{d:.2}", .{0.3 + 0.01 * kf}));
         } else if (eq(u8, kind, "zwalls")) {
@@ -692,7 +700,7 @@ fn benchEdit(gpa: std.mem.Allocator, app: *zslice.app.App, io: Io, err: *Io.Writ
                 o.z_max = 10 + 0.2 * kf;
             };
         } else if (eq(u8, kind, "undo")) {
-            try app.setSetting("project.infill_density", if (k % 2 == 0) "0.3" else "0.2");
+            try app.setSetting("project.infill_density", if (k % 2 == 0) "0.2" else "0.3");
         } else if (eq(u8, kind, "prefs")) {
             try app.setSetting("engine.auto_simulate", if (k % 2 == 0) "false" else "true");
         } else if (eq(u8, kind, "move")) {

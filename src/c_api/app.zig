@@ -1496,7 +1496,9 @@ export fn zs_app_edit_add(a: ?*App, path: usize, kind: c_int, value: f64) c_int 
         else => return @intFromEnum(Status.invalid_argument),
     };
     const layer = t.layerOfPath(path) orelse 0;
-    app.edits.put(app.gpa, .{ .key = t.path_key.items[path], .kind = k, .value = @floatCast(value), .layer = @intCast(layer) }) catch return @intFromEnum(Status.out_of_memory);
+    // The z of the level of the line in this result (see edits.zcOf).
+    const zc = if (layer < t.layer_z.items.len) zs.app.edits_mod.zcOf(t.layer_z.items[layer]) else zs.app.edits_mod.no_zc;
+    app.edits.put(app.gpa, .{ .key = t.path_key.items[path], .kind = k, .value = @floatCast(value), .layer = @intCast(layer), .zc = zc }) catch return @intFromEnum(Status.out_of_memory);
     noted(app, null, true);
     return ok;
 }
@@ -1512,7 +1514,7 @@ export fn zs_app_edit_add_dot(a: ?*App, layer: usize, x: f64, y: f64, d: f64) c_
     const z = t.layer_z.items[layer];
     const xf: f32 = @floatCast(x);
     const yf: f32 = @floatCast(y);
-    app.edits.put(app.gpa, .{ .key = zs.app.edits_mod.Edits.dotKey(z, xf, yf), .kind = .dot, .value = @floatCast(@max(d, 0.2)), .layer = @intCast(layer), .x = xf, .y = yf, .z = z }) catch return @intFromEnum(Status.out_of_memory);
+    app.edits.put(app.gpa, .{ .key = zs.app.edits_mod.Edits.dotKey(z, xf, yf), .kind = .dot, .value = @floatCast(@max(d, 0.2)), .layer = @intCast(layer), .x = xf, .y = yf, .z = z, .zc = zs.app.edits_mod.zcOf(z) }) catch return @intFromEnum(Status.out_of_memory);
     noted(app, null, true);
     return ok;
 }
@@ -1537,6 +1539,8 @@ export fn zs_app_edit_add_key(a: ?*App, key: u64, layer: usize, kind: c_int, val
         1 => .flow,
         else => return @intFromEnum(Status.invalid_argument),
     };
+    // The layer number can be of another slice than the one that runs, so
+    // the edit gets no z (edits.no_zc): it makes each level dirty.
     app.edits.put(app.gpa, .{ .key = key, .kind = k, .value = @floatCast(value), .layer = @intCast(layer) }) catch return @intFromEnum(Status.out_of_memory);
     noted(app, null, true);
     return ok;
@@ -1549,7 +1553,7 @@ export fn zs_app_edit_add_dot_z(a: ?*App, layer: usize, z: f64, x: f64, y: f64, 
     const zf: f32 = @floatCast(z);
     const xf: f32 = @floatCast(x);
     const yf: f32 = @floatCast(y);
-    app.edits.put(app.gpa, .{ .key = zs.app.edits_mod.Edits.dotKey(zf, xf, yf), .kind = .dot, .value = @floatCast(@max(d, 0.2)), .layer = @intCast(layer), .x = xf, .y = yf, .z = zf }) catch return @intFromEnum(Status.out_of_memory);
+    app.edits.put(app.gpa, .{ .key = zs.app.edits_mod.Edits.dotKey(zf, xf, yf), .kind = .dot, .value = @floatCast(@max(d, 0.2)), .layer = @intCast(layer), .x = xf, .y = yf, .z = zf, .zc = zs.app.edits_mod.zcOf(z) }) catch return @intFromEnum(Status.out_of_memory);
     noted(app, null, true);
     return ok;
 }

@@ -32,6 +32,16 @@
 //!   and the flow of its line, so the plastic stays the same.
 //! - `LayerPlan.groupByFilament` runs after the edits. So the colored lines
 //!   of a layer print together, with the fewest filament changes.
+//! - Each edit has `zc`: the z of the layer of its line, in 0.01 mm, with
+//!   the rounding of `pathKey`. The key of a level of the slice form has
+//!   the edits of its z (plate_job.zig), so an edit plans only its own
+//!   level again. An edit of an older file has no `zc` (`no_zc`): the
+//!   key of each level has it, and each level plans again.
+//! - A filament edit is not in the key of its level. It changes the
+//!   filament mask of its level, and the mask sets the prime tower and the
+//!   first filaments of other levels. So it is in the hash of all levels,
+//!   with the place of its part (app.zig). `levelZc` gives its level for
+//!   the applied flag only.
 //!
 //! SPDX-License-Identifier: AGPL-3.0-or-later
 
@@ -225,9 +235,33 @@ pub const Edit = struct {
     z: f32 = 0,
     /// A filament edit: the place of its line.
     anchor: ?Anchor = null,
+    /// The z of the layer of the line in 0.01 mm (`zcOf`), or `no_zc`.
+    zc: i32 = no_zc,
     /// The last slice found the line (set by `apply`).
     applied: std.atomic.Value(bool) = .init(false),
 };
+
+/// The `zc` of an edit with no known layer z: each level has it.
+pub const no_zc: i32 = std.math.minInt(i32);
+
+/// The z of a layer in 0.01 mm, with the rounding of `pathKey`.
+pub fn zcOf(z: f64) i32 {
+    if (!(@abs(z) < 1e7)) return no_zc;
+    return @intFromFloat(@round(z * 100));
+}
+
+/// True if the edit can change the plan of a level at z `level_zc`
+/// (`zcOf`). The edit of a line is on the level with its z. A drop is on
+/// each level within 0.005 mm (see `apply`). So an edit within 1 of the
+/// level is in, and an edit with no `zc` is in each level.
+pub fn onLevel(e: *const Edit, level_zc: i32) bool {
+    return zcNear(e.zc, level_zc);
+}
+
+fn zcNear(zc: i32, level_zc: i32) bool {
+    if (zc == no_zc) return true;
+    return @abs(@as(i64, zc) - @as(i64, level_zc)) <= 1;
+}
 
 /// The key of path i of a plan.
 pub fn pathKey(plan: *const LayerPlan, i: usize) u64 {
@@ -318,12 +352,30 @@ pub const Edits = struct {
         }
     }
 
+    /// The `zc` of an edit. A filament edit gets it from the z of its
+    /// first anchor point at the place of its part (see `applyFilaments`).
+    /// A filament edit whose part is gone or has another shape gets
+    /// `no_zc`.
+    pub fn levelZc(e: *const Edits, x: *const Edit) i32 {
+        const a = x.anchor orelse return x.zc;
+        const pl = e.placeOf(a.part) orelse return no_zc;
+        if (pl.stamp != a.stamp) return no_zc;
+        return zcOf(pl.toBed(a.pts[0])[2] / 1000);
+    }
+
+    /// True if edit x can apply to the plan of a level at `level_zc`.
+    /// The filament edits count too (see `levelZc`).
+    pub fn touches(e: *const Edits, x: *const Edit, level_zc: i32) bool {
+        return zcNear(e.levelZc(x), level_zc);
+    }
+
     /// Adds an edit, or changes the edit of the same line.
     pub fn put(e: *Edits, gpa: Allocator, edit: Edit) Allocator.Error!void {
         for (e.list.items) |*x| if (x.key == edit.key) {
             x.kind = edit.kind;
             x.value = edit.value;
             x.anchor = edit.anchor;
+            if (edit.zc != no_zc) x.zc = edit.zc;
             return;
         };
         try e.list.append(gpa, edit);

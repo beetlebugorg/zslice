@@ -71,6 +71,7 @@ const gcode_mod = @import("gcode.zig");
 const layer_mod = @import("layer.zig");
 const stream_mod = @import("stream.zig");
 const form = @import("form.zig");
+const edits_mod = @import("app/edits.zig");
 const support_mod = @import("support.zig");
 const islands_mod = @import("islands.zig");
 const parallel = @import("parallel.zig");
@@ -242,6 +243,10 @@ pub const Options = struct {
     /// inputs that the job does not get in `init`: the edits of the
     /// lines.
     streams: ?u64 = null,
+    /// The edits of the user on the lines (app/edits.zig). With
+    /// engine.slice_form on, the key of each level has the edits of its
+    /// z, and `streams` leaves them out.
+    edits: ?*const @import("app/edits.zig").Edits = null,
     /// The filaments of the plate after the first: slot 2, 3, and on (see
     /// filaments.zig). The first is the filament of the settings. The
     /// strings must live as long as the job.
@@ -433,7 +438,7 @@ pub const PlateJob = struct {
         // level before it ends, and a lift moves the head between parts.
         if (opts.streams) |extra| if (!pj.sequential) {
             const rest = planStamp(settings, parts, opts.overrides, keys, boxes, extra ^ slot_nozzles.key());
-            try pj.takeForms(opts.old, rest, settings.engine.slice_form);
+            try pj.takeForms(opts.old, rest, settings.engine.slice_form, if (settings.engine.slice_form) opts.edits else null);
         };
         return pj;
     }
@@ -442,11 +447,11 @@ pub const PlateJob = struct {
     /// level keeps its stream if a generation of its form has its key.
     /// With `slice_form` off, only one generation stays, so the reuse and
     /// the memory are as with the one stamp of the whole print of before.
-    fn takeForms(pj: *PlateJob, old: ?*PlateJob, rest: u64, slice_form: bool) Allocator.Error!void {
+    fn takeForms(pj: *PlateJob, old: ?*PlateJob, rest: u64, slice_form: bool, edits: ?*const edits_mod.Edits) Allocator.Error!void {
         const gpa = pj.gpa;
         const n = pj.levels.len;
         pj.level_keys = try gpa.alloc(form.Key, n);
-        for (pj.level_keys, 0..) |*k, i| k.* = pj.levelKey(rest, i);
+        for (pj.level_keys, 0..) |*k, i| k.* = pj.levelKey(rest, i, edits);
         // A form of another level count is of another print (rule 6 of
         // form.zig: a check that fails drops the forms).
         if (old) |o| if (o.forms.len == n) {
@@ -457,20 +462,38 @@ pub const PlateJob = struct {
             pj.forms = try gpa.alloc(form.LevelForm, n);
             @memset(pj.forms, .{});
         }
-        for (pj.forms, pj.level_keys) |*f, k| {
-            _ = f.select(gpa, k);
+        for (pj.forms, pj.level_keys, 0..) |*f, k, i| {
+            const kept = f.select(gpa, k);
             if (!slice_form) f.paths[1].deinit(gpa);
+            // An edit of a level that plans again applies again: it shows
+            // as not applied if its line is gone (edits.Edit.applied).
+            if (!kept) if (edits) |es| {
+                const zc = edits_mod.zcOf(pj.levels[i].z);
+                for (es.list.items) |*e| if (es.touches(e, zc)) @constCast(e).applied.store(false, .release);
+            };
         }
     }
 
     /// The key of level i: the inputs of all levels (`rest`, see
-    /// `planStamp`), the index, the z, and the height of the level, the
+    /// `planStamp`), the edits of the lines of the level (with
+    /// engine.slice_form on), the index, the z, and the height of the level, the
     /// support of the level, and the support of the level under it. The
     /// stream of a level starts where the level under it ends, so a change
     /// of the support under it makes it dirty too (the rule of the
     /// support edits of before).
-    fn levelKey(pj: *const PlateJob, rest: u64, i: usize) form.Key {
+    fn levelKey(pj: *const PlateJob, rest: u64, i: usize, edits: ?*const edits_mod.Edits) form.Key {
         var kb: form.KeyBuilder = .init(0x1e7e1);
+        // The edits of the lines of this level (edits.onLevel), in the
+        // order of the list.
+        if (edits) |es| {
+            const zc = edits_mod.zcOf(pj.levels[i].z);
+            // A filament edit is in the hash of all levels (app.zig), not
+            // here: its filament mask reaches other levels (markLineEdits).
+            for (es.list.items) |*e| if (e.anchor == null and edits_mod.onLevel(e, zc)) {
+                kb.add(.{ e.key, @intFromEnum(e.kind), e.value, e.x, e.y, e.z, e.zc });
+            };
+            kb.add(@as(u64, 0xed175));
+        }
         kb.add(rest);
         kb.add(@as(u64, i));
         kb.add(pj.levels[i].z);
