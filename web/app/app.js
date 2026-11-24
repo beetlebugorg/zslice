@@ -1022,6 +1022,30 @@ var lineCard = new LineCard({
     const r = await client.call("paintBody", { beads, filament: f });
     return { error: r.error ?? null, lo: ext[0], hi: ext[1], above, below };
   },
+  // A filament for the selected line, or for its segment. The line shows
+  // the color at once, also while a slice runs. The slice follows.
+  colorLine: async (info, scope, f) => {
+    const path = app.sel;
+    const beads = view.lineBeads(path);
+    if (!beads) return { error: "No line." };
+    const seg = scope === "segment" ? Math.max(0, app.seg) : -1;
+    view.showLineColor(path, seg, filaments()[f - 1]?.color);
+    requestFrame();
+    const r = await client.call("lineFilament", { beads, seg, feature: view.x.zs_view_path_feature(view.v, path), filament: f, path });
+    if (r.error) {
+      view.colorShown = false;
+      view.highlight(app.sel, app.seg, app.isolate);
+      requestFrame();
+    }
+    return r;
+  },
+  // The filament edit on the selected line, or { index: -1 }.
+  lineState: async () => {
+    const beads = view.lineBeads(app.sel);
+    return beads ? client.call("lineFilamentState", { beads, path: app.sel }) : { index: -1 };
+  },
+  clearLine: (index) => client.call("editRemove", { index }),
+  lineSegments: () => (app.sel >= 0 ? view.pathSegments(app.sel) : 0),
   // The same filament on more layers of the body (the beads of paintLine).
   extendLine: async (beads, f) => {
     if (app.sel >= 0) {
@@ -2246,6 +2270,8 @@ $("view-sign").hidden = app.page !== "2d";
 // the line, so the Selected page shows (inspector.c, on_picked).
 function select(path, seg, picked) {
   heldLine = null;
+  // A click on a line shows its selection again.
+  if (picked) view.colorShown = false;
   app.sel = path;
   app.seg = path >= 0 ? seg : -1;
   view.highlight(path, app.seg, app.isolate);

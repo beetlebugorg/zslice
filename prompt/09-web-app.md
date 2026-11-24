@@ -35,6 +35,7 @@ Build the web app at `web/app/`: the zslice window as one static page, with the 
 17. The settings of each nozzle (part 02), the Infill filament with the filament chips ("Part" for 0), the Filament row of the line card and the rows of the range card for a part of some layers (part 05), and the waste line of the filaments (part 05).
 18. The import of a model ZIP file (`web/app/modelimport.js`). No app calls the API of a site. The page dialog shows the text of the core (`zs_import_page_text`): it names the site, and says how to get the ZIP file of the model. Then it opens the page. A ZIP file from Open or a drop shows the list of the core with check boxes. The checked files go on a new plate, and the worker call `spill` puts the parts that do not fit on more plates.
 19. The icon: a favicon, a touch icon, and a manifest with 192 and 512 px icons (part 15).
+20. The scope of the Filament row of the line card: **This line** (the default), **This segment** (for a line of more segments), and **This part of the layer**. A line or a segment shows the color at once (`View.showLineColor`) and keeps it over the yellow of the selection until the next click. The card shows the cost on the layer, "Clear this color", and "This color waits" when the slice has no such line.
 
 ## Numbers and rules that matter
 
@@ -94,3 +95,4 @@ Build the web app at `web/app/`: the zslice window as one static page, with the 
 9. `node web/app/test-node.mjs` passes the import checks: the page check, the text for a page of each site, a ZIP list, a file of it, and the spill through the wasm module.
 10. `node web/app/test-selection.mjs zig-out/web/app part.stl` passes in a memory cap: 100 selects after a move, Grab after 50 selects on two plates, each plate after a full plate, fast plate keys during a slice, the ring during a slice, undo and redo, and a line through a new slice.
 11. `node web/app/test-inspector.mjs zig-out/web/app "Paint:"` passes: both parts draw in the Paint tool with their colors, a click paints only the part under it, a stroke stays on its part, the filament of each part counts, a mirrored part takes paint on the clicked face, and undo, close, and reload keep the paint of each part.
+12. `node web/app/test-inspector.mjs zig-out/web/app "this "` passes: a real click on a wall and one chip click color one line (one path of filament 2 on its layer, none above or below, two changes in the G-code); undo, redo, a session in a new page, and Clear. "This segment" during a slice colors one segment, and the layer has one more line.

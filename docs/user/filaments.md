@@ -15,7 +15,8 @@ Click the Filament button in the top bar. It shows a dot for each filament.
 
 - **A part**: select it, and pick a filament chip on its card.
 - **Some layers**: drag over the layers (see [Click a line](lines.md)), and pick a filament chip on the card of the layers.
-- **One part of a layer**: click a line, and pick a chip in the row **Filament** of its card. Only the body of that line on its layer gets the filament. The card then offers the layers above and below. See [Give a line a filament](lines.md#give-a-line-a-filament).
+- **One line, or one segment of it**: click the line, pick **This line** or **This segment** on its card, and pick a chip. See [Give a line a filament](lines.md#give-a-line-a-filament).
+- **One part of a layer**: click a line, pick **This part of the layer**, and pick a chip in the row **Filament** of its card. Only the body of that line on its layer gets the filament. The card then offers the layers above and below. See [Give a line a filament](lines.md#give-a-line-a-filament).
 - **One body on some layers**: drag over the layers from a line of that body. Pick a chip in the row **This part of the layers**. Only the lit body gets the filament, and the other bodies on those layers keep theirs. The row **Whole layers** is for all the lines. See [Give a body a filament](lines.md#give-a-body-a-filament).
 - **Search**: type "color", "material", "extruder", or "tool" in the search. The filament comes first.
 - **A face or some letters**: use the Paint tool (P). A click paints a whole face. The brush paints where you drag.

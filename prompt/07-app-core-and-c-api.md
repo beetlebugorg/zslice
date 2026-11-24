@@ -35,6 +35,7 @@ Build the app core: all logic of the zslice app, behind one C API, so that each 
 17. The waste (`zs_app_waste`, part 05), the Speed section (`zs_speed_*`, `zs_app_speed_state`, `zs_app_speed_set`, part 02), and the regions of a body (`zs_app_region_set`, part 05).
 18. The selection model (`src/app/selection.zig`, the `zs_sel_*` calls, [Selection and focus](../docs/internals/selection.md)): the active plate, the selected parts by stable id, the line by its key, the hover, the tool, and the camera target. A generation orders the requests and the replies, and the pick tests a moved part at its current place.
 19. `src/c_api/*.zig`: thin layers. Each export checks its pointers, calls the Zig API, and turns the Zig error into a status. Each function that changes the state notes the change for the undo list. Text results use one rule: call once with a NULL buffer for the length, then again with a buffer.
+20. The filament edits of one line (part 05): `zs_view_line_beads` gives the beads of a path, `zs_app_line_filament` adds the edit from them (it reads no toolpaths, so it works while a slice runs), `zs_app_line_filament_at` finds the edit on a line, `zs_app_line_filament_cost` gives the cost, and `zs_view_tint_line` shows the color at once.
 
 ## The C API shape
 

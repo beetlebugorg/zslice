@@ -233,7 +233,7 @@ export class HistoryPage {
     box.append(el("div", "hist-edits-title", `Line edits (${edits.length})`));
     edits.forEach((e, i) => {
       const row = el("div", "hist-edit");
-      const what = e.kind === 0 ? "does not print" : e.kind === 2 ? `a drop of ${e.value.toFixed(1)} mm` : `${Math.round(e.value * 100)} % plastic`;
+      const what = e.kind === 0 ? "does not print" : e.kind === 2 ? `a drop of ${e.value.toFixed(1)} mm` : e.kind === 3 ? `filament ${Math.round(e.value)} on one line` : `${Math.round(e.value * 100)} % plastic`;
       const text = el("div", "", `Layer ${e.layer + 1}: ${what}`);
       const state = el("div", e.applied ? "dim" : "hist-edit-wait", e.applied ? "" : "waits: its line is not in this slice");
       const x = el("button", "flat icon", "×");

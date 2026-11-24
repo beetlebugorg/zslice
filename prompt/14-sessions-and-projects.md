@@ -54,3 +54,4 @@ Make the app come back exactly as it was after a reload, a quit, or a crash: the
 5. A project path that leaves the repository (`../`) is refused.
 6. A part lifted or sunk, and turned about X and Y, comes back from a session with the same vertices, angles, and G-code.
 7. A region of a body (part 05) stays after a save, a load, and an undo.
+14. A filament edit of one line is a "linefil" line in the 3MF overrides, the session, and the undo list: the filament, the layer, the stamp, the part id, the feature, whole or segment, the length, and the points. An older version skips the line.

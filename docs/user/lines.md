@@ -28,14 +28,22 @@ Esc, ×, or a click on no line closes the card.
 
 ## Give a line a filament
 
-The line card has the row **Filament**. It is for this part of the layer only: the line and the lines joined to it on its layer. An inner line also takes the outer wall around it.
+The line card has the row **Filament**. Above the chips, three buttons choose what the filament colors:
+
+- **This line** (the default): the one line that you clicked, from its start to its end.
+- **This segment**: one straight piece of the line, the piece under the click. The line then prints in pieces. This button shows for a line with more than one segment.
+- **This part of the layer**: the line and the lines joined to it on its layer. An inner line also takes the outer wall around it.
 
 1. Click a line.
-2. Pick a filament chip in **Filament**. Pick **+** to add a filament to the plate.
-3. That part of the layer turns the color of the filament at once. The slice follows.
-4. The card then shows **Also the layers above** and **Also the layers below** when the body goes on there. Click one to give those layers the same filament.
+2. Pick **This line**, **This segment**, or **This part of the layer**.
+3. Pick a filament chip in **Filament**. Pick **+** to add a filament to the plate.
+4. The line, the segment, or the part turns the color of the filament at once. The slice follows. This also works while a slice runs.
+5. For a line or a segment, the card shows the cost on its layer: the extra filament changes, their time, and the waste. A line in a filament that the layer does not have costs two changes: one to the filament, and one back.
+6. For a part of the layer, the card then shows **Also the layers above** and **Also the layers below** when the body goes on there. Click one to give those layers the same filament.
 
-The other parts of the layer keep their filament. Only the lines of that part on that layer change, as in [Give a body a filament](#give-a-body-a-filament). Each change is one step of the history, and Ctrl+Z undoes it.
+The lines of one filament on a layer print together, so two colored lines of the same filament cost the same two changes as one. **Clear this color** gives the line the filament of its part again. Each change is one step of the history, and Ctrl+Z undoes it.
+
+The color of a line or a segment stays with the part when you move it, turn it on the bed, or mirror it. It is in the project and in the 3MF file. A new slice must make the same line again. If a setting changes the line (another wall count, another line width, another infill angle), or if you scale or tip the part, the color waits. The card and the history then say "waits: its line is not in this slice". zslice never gives the color to another line. A move of the part changes the infill lines, so a color on an infill line waits after a move.
 
 ## Where the card shows
 

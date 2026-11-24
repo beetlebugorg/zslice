@@ -658,7 +658,7 @@ function tinyParts(c) {
   return out;
 }
 
-const PLATE_OPS = new Set(["fallStep", "load", "add", "plate", "projectLoad", "partAction", "partsAction", "partsMove", "partsSettingSet", "partsToPlate", "partsPaste", "partsCut", "platePaste", "plateDuplicate", "partCut", "partMove", "partFill", "partToPlate", "editAdd", "editDot", "editRemove", "partSettingSet", "paintSet", "paintBody", "regionSet", "labelAdd", "labelUpdate", "labelRemove", "filamentAdd", "filamentRemove", "filamentSet", "filamentsFromPrinter", "partPutDown", "partTurn", "partPlace", "partLift", "partAngles", "putDown", "place", "partMove", "partRotate", "partScale", "partSettle", "markAdd", "supportRemoveAt", "supportKindAt", "markRemoveNear", "markSet", "markRemove", "marksClear", "supportAreaAdd", "supportAreaSet", "supportAreaKind", "supportAreaRemove", "treeMoveNode", "treeRadius", "treeMoveBranch", "treeDelete", "treeAdd", "treeReset"]);
+const PLATE_OPS = new Set(["fallStep", "load", "add", "plate", "projectLoad", "partAction", "partsAction", "partsMove", "partsSettingSet", "partsToPlate", "partsPaste", "partsCut", "platePaste", "plateDuplicate", "partCut", "partMove", "partFill", "partToPlate", "editAdd", "editDot", "editRemove", "partSettingSet", "paintSet", "paintBody", "lineFilament", "regionSet", "labelAdd", "labelUpdate", "labelRemove", "filamentAdd", "filamentRemove", "filamentSet", "filamentsFromPrinter", "partPutDown", "partTurn", "partPlace", "partLift", "partAngles", "putDown", "place", "partMove", "partRotate", "partScale", "partSettle", "markAdd", "supportRemoveAt", "supportKindAt", "markRemoveNear", "markSet", "markRemove", "marksClear", "supportAreaAdd", "supportAreaSet", "supportAreaKind", "supportAreaRemove", "treeMoveNode", "treeRadius", "treeMoveBranch", "treeDelete", "treeAdd", "treeReset"]);
 
 // The values of settings at z (core.valueAt): { name: entry }.
 function valuesAt({ z, names }) {
@@ -1636,6 +1636,33 @@ const ops = {
     const n = core.paintBody(beads, filament);
     if (n > 0) wantSlice();
     return { changed: n };
+  },
+
+  // A filament for one line or one segment (linecard.js). It reads the
+  // beads of the view, so it works while a slice runs.
+  lineFilament({ beads, seg, feature, filament, path }) {
+    const cost = core.state() === STATE.done ? core.lineFilamentCost(path, filament) : null;
+    const index = core.lineFilament(beads, seg, feature, filament);
+    if (index < 0) return { error: "This line cannot have its own filament." };
+    wantSlice();
+    return { index, cost };
+  },
+
+  // The filament edit on a line: { index, filament, applied, cost }, or
+  // { index: -1 }.
+  lineFilamentState({ beads, path }) {
+    const index = core.lineFilamentAt(beads);
+    if (index < 0) return { index: -1 };
+    const w = core.w;
+    const p = w.alloc(32);
+    try {
+      if (w.x.zs_app_edit_get(core.app, index, p, p + 8, p + 16, p + 20) !== 0) return { index: -1 };
+      const filament = Math.round(w.f64(p + 8));
+      const cost = core.state() === STATE.done ? core.lineFilamentCost(path, filament) : null;
+      return { index, filament, applied: w.i32(p + 20) === 1, cost };
+    } finally {
+      w.free(p, 32);
+    }
   },
 
   // A setting of the region of a lit body of some layers (rangecard.js):

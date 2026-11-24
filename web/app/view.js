@@ -229,8 +229,11 @@ export class View3D {
   // Highlights a path (-1: none), its segment (-1: none), and with
   // `isolate` shows the other beads as ghosts.
   highlight(path, seg, isolate) {
-    this.x.zs_view_highlight(this.v, path < 0 ? NONE : path);
-    if (path >= 0) this.x.zs_view_highlight_segment(this.v, path, seg);
+    // A line that just got a filament shows that color, not the yellow of
+    // the selection (see showLineColor).
+    const lit = this.colorShown ? -1 : path;
+    this.x.zs_view_highlight(this.v, lit < 0 ? NONE : lit);
+    if (lit >= 0) this.x.zs_view_highlight_segment(this.v, lit, seg);
     this.x.zs_view_isolate(this.v, isolate && path >= 0 ? 1 : 0);
   }
 
@@ -272,6 +275,26 @@ export class View3D {
     const n = this.w.u32(c + 4);
     if (n === 0) return null;
     return new Float32Array(this.x.memory.buffer, this.w.u32(c), n).slice();
+  }
+
+  // The beads of one path (zs_view_line_beads): a Float32Array of 9 floats
+  // for each bead, or null.
+  lineBeads(path) {
+    if (path < 0) return null;
+    const c = this.w.cell;
+    if (this.x.zs_view_line_beads(this.v, path, c, c + 4) !== 0) return null;
+    const n = this.w.u32(c + 4);
+    return n ? new Float32Array(this.x.memory.buffer, this.w.u32(c), n).slice() : null;
+  }
+
+  // Shows line `path` (or its segment `seg`, if not negative) in the color
+  // "#rrggbb" at once, until the next slice loads.
+  showLineColor(path, seg, hex) {
+    const m = /^#([0-9a-f]{6})$/i.exec(hex || "");
+    if (!m) return;
+    this.colorShown = true;
+    this.x.zs_view_highlight(this.v, NONE);
+    this.x.zs_view_tint_line(this.v, path, seg, parseInt(m[1], 16));
   }
 
   // The first and the last layer of the body of path `start`

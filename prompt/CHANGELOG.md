@@ -70,3 +70,4 @@ One line for each update: the date, the commit that the folder describes, and th
 | 2026-11-23 | Keep a line that is picked while a slice starts on Windows | README, CHANGELOG, 12: a lesson: the place of a line picked during a slice comes from the view |
 | 2026-11-23 | Paint any part of the plate in the web Paint tool | README, CHANGELOG, 05, 09: the web Paint tool shows and paints each part with no selection; the ray test of a paint session has room at shared edges (a lesson in 05). |
 | 2026-11-23 | Keep the Windows bottom bar to two rows in a narrow view | README, CHANGELOG, 12: two rows of the bottom bar in a narrow view, a smaller type for the plates, and a narrow row of 40 % |
+| 2026-11-23 | Choose a line or a segment for a filament on the line card | README, CHANGELOG, 05, 07, 09, 14: a filament for one line or one segment, its anchor, the cut, the cost, the "linefil" lines, and the lessons of the end swap and the edit state. |

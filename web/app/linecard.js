@@ -17,6 +17,13 @@
 // follows. Then the card offers the layers above and below where the
 // body goes on (zs_view_connected_layers).
 //
+// The scope buttons choose what a chip colors: "This line" (the default:
+// one whole path, and the word that the card uses for what a click picks),
+// "This segment" (one straight piece of the line), or "This part of the
+// layer" (the body, as above). A line or a segment is a filament edit
+// (zs_app_line_filament). The card shows its cost and a way to clear it,
+// and it says so when a new slice no longer has the line.
+//
 // All the data comes from one call to the worker for each click (inspect:
 // zs_app_inspect, its picks, and the cached check). The card does no work
 // for each frame.
@@ -202,18 +209,43 @@ export class LineCard {
       const box = el("div", "lc-settings lc-filament");
       const row = el("div", "lc-row");
       const label = el("div", "lc-label");
-      label.append(el("span", "lc-name", "Filament"), el("span", "lc-why", "This part of the layer"));
-      label.title = "A filament for the body of this line on its layer only: the lines joined to it. The paint of the part keeps it.";
+      label.append(el("span", "lc-name", "Filament"));
       this.filEditor = filamentEditor(
-        { name: "line.filament", doc: "A filament for this part of the layer" },
+        { name: "line.filament", doc: "A filament for the chosen scope" },
         (v) => this.pickFilament(Number(v)),
         this.ctx.addFilament ?? null,
       );
       row.append(label, this.filEditor.node);
       this.extend = el("div", "lc-extend");
       this.extend.hidden = true;
-      box.append(row, this.extend);
+      this.scope = this.ctx.colorLine ? "line" : "body";
+      const scopes = el("div", "lc-scope");
+      scopes.setAttribute("role", "radiogroup");
+      scopes.setAttribute("aria-label", "What the filament colors");
+      this.scopeButtons = new Map();
+      const choices = [
+        ["line", "This line", "The filament colors this one line, from its start to its end"],
+        ["segment", "This segment", "The filament colors one straight piece of this line. The line prints in pieces"],
+        ["body", "This part of the layer", "The filament colors the lines joined to this line on its layer"],
+      ];
+      for (const [id, text, title] of choices) {
+        if (id !== "body" && !this.ctx.colorLine) continue;
+        const b = el("button", "flat", text);
+        b.title = title;
+        b.setAttribute("role", "radio");
+        b.onclick = () => this.setScope(id);
+        this.scopeButtons.set(id, b);
+        scopes.append(b);
+      }
+      this.lineNote = el("div", "lc-info lc-line-note");
+      this.lineNote.hidden = true;
+      this.clearButton = el("button", "flat lc-clear", "Clear this color");
+      this.clearButton.title = "The line prints in the filament of its part again";
+      this.clearButton.hidden = true;
+      this.clearButton.onclick = () => this.clearColor();
+      box.append(scopes, row, this.lineNote, this.clearButton, this.extend);
       card.append(box);
+      this.setScope(this.scope);
     }
 
     // The settings that matter for this line. The picks of the core
@@ -276,12 +308,59 @@ export class LineCard {
     this.update(info);
   }
 
-  // A filament for the body of the line on its layer. Then the buttons
-  // for the layers above and below where the body goes on.
+  setScope(id) {
+    this.scope = id;
+    for (const [k, b] of this.scopeButtons ?? []) {
+      b.classList.toggle("checked", k === id);
+      b.setAttribute("aria-checked", String(k === id));
+    }
+  }
+
+  // The text of what a filament edit costs.
+  costText(c) {
+    if (!c) return "The cost shows after the slice.";
+    if (c.changes === 0) return "No extra filament changes on this layer.";
+    const waste = c.grams >= 0.005 ? ` and ${c.grams.toFixed(2)} g of waste` : "";
+    return `Adds ${c.changes} filament changes on this layer: about ${layerTimeText(c.seconds)}${waste}.`;
+  }
+
+  // The state of the filament edit on the selected line.
+  async refreshLine() {
+    if (!this.ctx.lineState || !this.lineNote) return;
+    const ask = (this.lineAsk = (this.lineAsk ?? 0) + 1);
+    const st = await this.ctx.lineState();
+    if (ask !== this.lineAsk || !this.node) return;
+    this.lineEdit = st.index;
+    this.clearButton.hidden = st.index < 0;
+    this.lineNote.hidden = st.index < 0;
+    this.lineNote.classList.toggle("warning", st.index >= 0 && !st.applied);
+    if (st.index >= 0) this.lineNote.textContent = st.applied ? this.costText(st.cost) : "This color waits: the new slice does not have its line.";
+  }
+
+  async clearColor() {
+    if (!(this.lineEdit >= 0)) return;
+    await this.ctx.clearLine(this.lineEdit);
+    this.lineEdit = -1;
+    this.clearButton.hidden = true;
+    this.lineNote.hidden = true;
+  }
+
+  // A filament for the chosen scope. For a body, then the buttons for the
+  // layers above and below where the body goes on.
   async pickFilament(f) {
     const info = this.info;
     if (!info || !this.ctx.paintLine) return "No line.";
     this.extend.hidden = true;
+    if (this.scope !== "body") {
+      const r = await this.ctx.colorLine(info, this.scope, f);
+      if (r.error) return r.error;
+      this.lineEdit = r.index;
+      this.lineNote.classList.remove("warning");
+      this.lineNote.textContent = this.costText(r.cost);
+      this.lineNote.hidden = false;
+      this.clearButton.hidden = false;
+      return null;
+    }
     const r = await this.ctx.paintLine(info, f);
     if (r.error) return r.error;
     const buttons = [];
@@ -317,6 +396,10 @@ export class LineCard {
 
   update(info) {
     this.title.textContent = info.title;
+    const segments = this.ctx.lineSegments?.() ?? 0;
+    this.scopeButtons?.get("segment")?.toggleAttribute("hidden", segments < 2);
+    if (this.scope === "segment" && segments < 2) this.setScope("line");
+    this.refreshLine();
     if (this.filEditor && info.filament > 0) this.filEditor.update({ value: info.filament });
     this.where.textContent = `Layer ${info.layer + 1} · z ${info.z.toFixed(2)} mm`;
     const slow = info.slowReason !== 0;

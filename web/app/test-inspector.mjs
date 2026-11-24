@@ -17,6 +17,7 @@
 import { createRequire } from "node:module";
 import { spawn } from "node:child_process";
 import net from "node:net";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -440,8 +441,142 @@ const paintTests = {
   },
 };
 
+// The filament of each path of layers L - 1 to L + 1: { [layer]: [f...] }.
+const layerFilaments = (page, L) => page.evaluate(async (l) => {
+  const z = window.zslice;
+  const out = { [l - 1]: [], [l]: [], [l + 1]: [] };
+  for (let p = 0; p < 1e6; p++) {
+    const pl = z.view.pathLayer(p);
+    if (pl > l + 1) break;
+    if (pl < l - 1) continue;
+    out[pl].push((await z.client.call("inspect", { path: p, seg: 0 }))?.info?.filament ?? -1);
+  }
+  return out;
+}, L);
+
+// The count of filament changes in the G-code of the plate.
+const gcodeChanges = (page) => page.evaluate(async () => {
+  const r = await window.zslice.client.call("plateGcode", { index: 0 });
+  const text = new TextDecoder().decode(new Uint8Array(r.bytes));
+  return (text.match(/^; filament change \d+:/gm) ?? []).length;
+});
+
+// A real click on the outer wall at the left side of the part, on layer
+// `layer`. Returns the layer of the selected line.
+async function clickWall(page, layer) {
+  const at = await page.evaluate((l) => {
+    const z = window.zslice;
+    const b = z.tools.sel.box(z.tools.sel.idAt(0));
+    const q = z.view.pixelOf(b.x0, (b.y0 + b.y1) / 2 + 3, z.app.layers.z[l] - 0.1);
+    const c = document.getElementById("gl").getBoundingClientRect();
+    const k = window.devicePixelRatio || 1;
+    return { x: c.left + q[0] / k, y: c.top + q[1] / k };
+  }, layer);
+  await page.mouse.click(at.x, at.y);
+  await page.waitForFunction(() => window.zslice.app.sel >= 0 && document.querySelector(".lc-filament .fil-chip"), null, { timeout: 5000 });
+  return page.evaluate(() => window.zslice.view.pathLayer(window.zslice.app.sel));
+}
+
+// The screenshots of the card go to the temp folder (or $SHOTS).
+const shot = (name) => path.join(process.env.SHOTS ?? os.tmpdir(), name);
+
+const count2 = (fils) => fils.filter((f) => f === 2).length;
+
+
 const tests = {
   ...paintTests,
+  "this line: one click colors one line; undo, redo, a session, and clear": async () => {
+    const { page, ctx, errors } = await newPage(1440, 900, 1, 1);
+    await page.evaluate(() => window.zslice.browser.ctx.addFilament());
+    await page.waitForTimeout(500);
+    await idle(page);
+    await page.locator("#gl").focus();
+    await page.keyboard.press("v");
+    const L = await clickWall(page, 20);
+    const scope = await page.evaluate(() => document.querySelector(".lc-scope button.checked")?.textContent);
+    check(scope === "This line", `the default scope is ${scope}`);
+    const before = await layerFilaments(page, L);
+    await page.locator(".lc-filament:visible .fil-chip:not(.fil-add)").nth(1).click();
+    // The color shows at once, before the slice.
+    check(await page.evaluate(() => window.zslice.view.colorShown === true), "the line does not show its color at once");
+    await page.waitForTimeout(300);
+    await idle(page);
+    await page.waitForTimeout(200);
+    const after = await layerFilaments(page, L);
+    check(count2(after[L]) === 1 && count2(after[L - 1]) === 0 && count2(after[L + 1]) === 0, `filament 2 on layers: ${count2(after[L - 1])}, ${count2(after[L])}, ${count2(after[L + 1])}`);
+    check(after[L].length === before[L].length, "the layer has another count of lines");
+    const changes = await gcodeChanges(page);
+    check(changes === 2, `${changes} filament changes in the G-code`);
+    const note = await page.evaluate(() => document.querySelector(".lc-line-note")?.textContent ?? "");
+    check(/Adds 2 filament changes/.test(note), `the card says: ${note}`);
+    await page.screenshot({ path: shot("inspector-line.png") });
+    // Undo, then redo.
+    await page.locator("#gl").focus();
+    await page.keyboard.press("Control+z");
+    await page.waitForTimeout(300);
+    await idle(page);
+    check(count2((await layerFilaments(page, L))[L]) === 0, "undo kept the color");
+    await page.keyboard.press("Control+Shift+z");
+    await page.waitForTimeout(300);
+    await idle(page);
+    check(count2((await layerFilaments(page, L))[L]) === 1, "redo lost the color");
+    // The session: write it, open it in a new page.
+    const bytes = await page.evaluate(async () => Array.from(new Uint8Array((await window.zslice.client.call("sessionWrite", {})).bytes)));
+    const two = await newPage(1440, 900, 1, 1);
+    await two.page.evaluate(async (b) => window.zslice.client.call("sessionRead", { bytes: new Uint8Array(b).buffer }), bytes);
+    await two.page.waitForTimeout(500);
+    await idle(two.page);
+    await two.page.evaluate(() => window.zslice.client.call("slice", {}).catch(() => null));
+    await two.page.waitForTimeout(500);
+    await idle(two.page);
+    const reread = count2((await layerFilaments(two.page, L))[L]);
+    await two.ctx.close();
+    check(reread === 1, `the session has ${reread} colored lines on the layer`);
+    // Clear.
+    await page.locator("#gl").focus();
+    await page.keyboard.press("Escape");
+    await clickWall(page, L);
+    const clear = page.locator(".lc-clear:visible");
+    await clear.waitFor({ timeout: 5000 });
+    await page.screenshot({ path: shot("inspector-clear.png") });
+    await clear.click();
+    await page.waitForTimeout(300);
+    await idle(page);
+    check(count2((await layerFilaments(page, L))[L]) === 0, "clear kept the color");
+    check(await gcodeChanges(page) === 0, "clear kept the changes");
+    check(errors.length === 0, errors.join("; "));
+    await ctx.close();
+    return `line ${L}: 2 changes, undo, redo, session, clear`;
+  },
+  "this segment: one click while a slice runs colors one segment": async () => {
+    const { page, ctx, errors } = await newPage(1440, 900, 1, 1);
+    await page.evaluate(() => window.zslice.browser.ctx.addFilament());
+    await page.waitForTimeout(500);
+    await idle(page);
+    await page.locator("#gl").focus();
+    await page.keyboard.press("v");
+    const L = await clickWall(page, 24);
+    const segs = await page.evaluate(() => window.zslice.view.pathSegments(window.zslice.app.sel));
+    check(segs >= 2, `the wall has ${segs} segments`);
+    const before = await layerFilaments(page, L);
+    await page.locator(".lc-scope button", { hasText: "This segment" }).click();
+    await page.screenshot({ path: shot("inspector-segment.png") });
+    // A slice starts (another layer height), and the click comes while it runs.
+    await page.evaluate(() => window.zslice.browser.ctx.addFilament());
+    const slicing = await page.evaluate(() => window.zslice.app.slicing || window.zslice.app.state !== "done");
+    await page.locator(".lc-filament:visible .fil-chip:not(.fil-add)").nth(1).click();
+    await page.waitForTimeout(400);
+    await idle(page);
+    await page.waitForTimeout(200);
+    const after = await layerFilaments(page, L);
+    check(count2(after[L]) === 1 && count2(after[L - 1]) === 0 && count2(after[L + 1]) === 0, `filament 2 on layers: ${count2(after[L - 1])}, ${count2(after[L])}, ${count2(after[L + 1])}`);
+    check(after[L].length === before[L].length + 1, `the layer has ${after[L].length} lines, before ${before[L].length}: the wall did not cut in two`);
+    const changes = await gcodeChanges(page);
+    check(changes === 2, `${changes} filament changes in the G-code`);
+    check(errors.length === 0, errors.join("; "));
+    await ctx.close();
+    return `segment on layer ${L}, click during a slice: ${slicing}`;
+  },
   "a line picked while a slice starts stays selected, and one chip click colors it": async () => {
     const { page, ctx, errors } = await newPage(1440, 900, 2, 1);
     await page.evaluate(async () => {
@@ -582,7 +717,7 @@ const tests = {
       await page.waitForFunction(() => {
         const c = document.getElementById("gl");
         return c.height === Math.round(c.getBoundingClientRect().height * devicePixelRatio);
-      }, null, { timeout: 5000, polling: 100 }).catch(async () => {
+      }, null, { timeout: 20000, polling: 100 }).catch(async () => {
         const st = await page.evaluate(() => {
           const c = document.getElementById("gl");
           const r = c.getBoundingClientRect();

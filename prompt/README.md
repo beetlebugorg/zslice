@@ -1,6 +1,6 @@
 # A prompt that could build zslice
 
-Describes: main through "Keep the Windows bottom bar to two rows in a narrow view", 2026-11-23.
+Describes: main through "Choose a line or a segment for a filament on the line card", 2026-11-24.
 
 ## Read this first
 

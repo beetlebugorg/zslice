@@ -1280,6 +1280,34 @@ export class Core {
     return w.withBytes(bytes, (p) => (w.x.zs_app_paint_body(this.app, p, beads.length, filament, w.cell) === 0 ? w.u32(w.cell) : -1));
   }
 
+  // A filament for one line or one segment (zs_app_line_filament). Returns
+  // the index of the edit, or -1.
+  lineFilament(beads, seg, feature, filament) {
+    const w = this.w;
+    const bytes = new Uint8Array(beads.buffer, beads.byteOffset, beads.byteLength);
+    return w.withBytes(bytes, (p) => (w.x.zs_app_line_filament(this.app, p, beads.length, seg, feature, filament, w.cell) === 0 ? w.u32(w.cell) : -1));
+  }
+
+  // The filament edit on the line of these beads, or -1.
+  lineFilamentAt(beads) {
+    const w = this.w;
+    const bytes = new Uint8Array(beads.buffer, beads.byteOffset, beads.byteLength);
+    return w.withBytes(bytes, (p) => w.x.zs_app_line_filament_at(this.app, p, beads.length));
+  }
+
+  // What filament `f` costs for `path`: { changes, seconds, grams }, or
+  // null with no slice.
+  lineFilamentCost(path, f) {
+    const w = this.w;
+    const p = w.alloc(24);
+    try {
+      if (w.x.zs_app_line_filament_cost(this.app, path, f, p, p + 8, p + 16) !== 0) return null;
+      return { changes: w.u32(p), seconds: w.f64(p + 8), grams: w.f64(p + 16) };
+    } finally {
+      w.free(p, 24);
+    }
+  }
+
   // The region of a body of some layers (zs_app_region_set): setting
   // `name` of region `id` (0: the region of the beads) to `value` (null:
   // no value of its own). Returns { id } (0: the region went), or
