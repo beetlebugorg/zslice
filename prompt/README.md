@@ -1,6 +1,6 @@
 # A prompt that could build zslice
 
-Describes: main at commit `42a8b25d` ("Treat a roll of unknown weight as unknown in GTK"), 2026-11-23.
+Describes: main at commit `14dfc505` ("Add the small parity fixes to the Windows prompt"), 2026-11-23.
 
 ## Read this first
 
