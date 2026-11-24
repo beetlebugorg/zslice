@@ -598,6 +598,8 @@ namespace winrt::ZSlice::implementation
         void ProjectPlateFiles(uint64_t epoch, size_t index, std::shared_ptr<zs_files> const &files, std::string const &error);
         void ProjectSetCount(size_t part, int value);
         void ProjectSetStatus(std::string const &key, std::string const &status);
+        // The active plate of a project went out as a print.
+        void ProjectPlateSent();
         void RefreshProjectTotals();
 #ifdef ZS_DEV_HOOKS
         bool RunProjectStep(std::wstring const &verb, std::vector<std::wstring> const &words);

@@ -810,8 +810,8 @@ namespace zs::link
         }
     }
 
-    UploadResult Upload(Target &t, std::string const &filename, std::string const &bytes, CancelPtr const &cancel,
-                        std::function<void(double)> const &progress)
+    static UploadResult Transfer(Target &t, std::string const &filename, std::string const &bytes, CancelPtr const &cancel,
+                                 std::function<void(double)> const &progress, bool print)
     {
         UploadResult out;
         if (t.kind == LinkKind::Usb)
@@ -879,8 +879,8 @@ namespace zs::link
         }
         http::Form form = http::NewForm();
         form.File("file", filename, bytes);
-        // The app never starts a print: the person does, on the printer.
-        form.Field("print", "false");
+        // Only UploadAndPrint sets this.
+        form.Field("print", print ? "true" : "false");
         http::Request req;
         req.method = "POST";
         req.url = base + (t.kind == LinkKind::Moonraker ? "/server/files/upload" : "/api/files/local");
@@ -929,8 +929,25 @@ namespace zs::link
             return out;
         }
         out.ok = true;
-        out.message = "Uploaded to " + t.name + " (" + LinkTitle(t.kind) + "). Start the print on the printer.";
+        if (!print)
+            out.message = "Uploaded to " + t.name + " (" + LinkTitle(t.kind) + "). Start the print on the printer.";
+        else if (t.kind == LinkKind::Printdeck)
+            out.message = "Sent to " + t.name + ". It prints, or waits for a press of Print if the deck is set to ask.";
+        else
+            out.message = "Sent to " + t.name + "; it prints.";
         return out;
+    }
+
+    UploadResult Upload(Target &t, std::string const &filename, std::string const &bytes, CancelPtr const &cancel,
+                        std::function<void(double)> const &progress)
+    {
+        return Transfer(t, filename, bytes, cancel, progress, false);
+    }
+
+    UploadResult UploadAndPrint(Target &t, std::string const &filename, std::string const &bytes, CancelPtr const &cancel,
+                                std::function<void(double)> const &progress, PrintConfirmed)
+    {
+        return Transfer(t, filename, bytes, cancel, progress, true);
     }
 
     std::string TrustText(Target const &t)

@@ -636,6 +636,123 @@ namespace
         CHECK(!r.ok && r.cancelled);
     }
 
+    // The one call that starts a print. It runs only against stubs.
+    void TestPrintNet()
+    {
+        std::string answer = R"({"files":{"local":{"name":"a.gcode"}},"done":true})";
+        int status = 201;
+        std::atomic<int> posts{ 0 };
+        HttpStub printer([&](Seen const &s) -> Reply {
+            if (s.path == "/api/files/local" && s.method == "POST")
+            {
+                posts++;
+                return Json(answer, status);
+            }
+            return Json("{}", 404);
+        });
+        link::Target t;
+        t.name = "Octo";
+        t.kind = LinkKind::OctoPrint;
+        t.url = printer.Url();
+        t.api_key = test_key;
+        std::string gcode = "G1 X1\n; the file\n";
+        char const *const yes_field = "name=\"print\"\r\n\r\ntrue\r\n";
+        char const *const no_field = "name=\"print\"\r\n\r\nfalse\r\n";
+        link::UploadResult r = link::UploadAndPrint(t, "a.gcode", gcode, nullptr, nullptr, link::PrintConfirmed{});
+        CHECK(r.ok);
+        CHECK(posts == 1);
+        CHECK(printer.Log().size() == 1 && Has(printer.Log()[0].body, yes_field) && !Has(printer.Log()[0].body, no_field));
+        CHECK(r.message == "Sent to Octo; it prints.");
+        CHECK(!Has(r.message, test_key));
+        // The next upload of the same target starts nothing.
+        r = link::Upload(t, "a.gcode", gcode, nullptr, nullptr);
+        CHECK(r.ok);
+        CHECK(printer.Log().size() == 2 && Has(printer.Log()[1].body, no_field) && !Has(printer.Log()[1].body, yes_field));
+
+        // A refusal is one request. A print is never sent twice.
+        posts = 0;
+        status = 500;
+        r = link::UploadAndPrint(t, "a.gcode", gcode, nullptr, nullptr, link::PrintConfirmed{});
+        CHECK(!r.ok);
+        CHECK(posts == 1);
+        status = 201;
+        // A 2xx answer that is no stored file is an error.
+        answer = "<html>login</html>";
+        r = link::UploadAndPrint(t, "a.gcode", gcode, nullptr, nullptr, link::PrintConfirmed{});
+        CHECK(!r.ok);
+        answer = R"({"files":{"local":{"name":"a.gcode"}},"done":true})";
+
+        // A print does not follow a redirect to another address.
+        HttpStub elsewhere([](Seen const &) { return Json("{\"done\":true}"); });
+        HttpStub redirect([&](Seen const &) {
+            return Reply{ 307, "", "Location: " + elsewhere.Url() + "/api/files/local\r\n" };
+        });
+        link::Target rt = t;
+        rt.url = redirect.Url();
+        r = link::UploadAndPrint(rt, "a.gcode", gcode, nullptr, nullptr, link::PrintConfirmed{});
+        CHECK(!r.ok);
+        CHECK(elsewhere.Log().empty());
+
+        // Moonraker: its own path.
+        HttpStub moon([](Seen const &s) -> Reply {
+            return s.path == "/server/files/upload" ? Json("{\"result\":{}}", 201) : Json("{}", 404);
+        });
+        link::Target k;
+        k.name = "Voron";
+        k.kind = LinkKind::Moonraker;
+        k.url = moon.Url();
+        r = link::UploadAndPrint(k, "a.gcode", gcode, nullptr, nullptr, link::PrintConfirmed{});
+        CHECK(r.ok);
+        CHECK(moon.Log().size() == 1 && Has(moon.Log()[0].body, yes_field));
+
+        // A deck: an address that leads to another printer gets no file.
+        std::string list = R"({"printers":[{"name":"TAZ 6","label":"TAZ","url":""},{"name":"X2D","label":"X2D","url":"/printers/x2d"}]})";
+        std::atomic<int> uploads{ 0 };
+        HttpStub deck([&](Seen const &s) -> Reply {
+            if (s.path == "/slicer/printer.json")
+                return Json(list);
+            if (s.method == "POST")
+            {
+                uploads++;
+                return Json(R"({"files":{"local":{}}})", 201);
+            }
+            return Json("{}", 404);
+        });
+        link::Target d;
+        d.name = "X2D";
+        d.kind = LinkKind::Printdeck;
+        d.url = deck.Url();
+        d.api_key = test_key;
+        r = link::UploadAndPrint(d, "a.gcode", gcode, nullptr, nullptr, link::PrintConfirmed{});
+        CHECK(!r.ok);
+        CHECK(uploads == 0);
+        d.url = deck.Url() + "/printers/x2d";
+        r = link::UploadAndPrint(d, "a.gcode", gcode, nullptr, nullptr, link::PrintConfirmed{});
+        CHECK(r.ok);
+        CHECK(uploads == 1);
+        CHECK(Has(r.message, "waits for a press of Print"));
+        CHECK(Has(deck.Log().back().path, "/printers/x2d/api/files/local") && Has(deck.Log().back().body, yes_field));
+
+        // No connection, Bambu Lab, and USB: nothing goes out.
+        for (LinkKind kind : { LinkKind::None, LinkKind::Bambu, LinkKind::Usb })
+        {
+            link::Target no;
+            no.kind = kind;
+            no.url = printer.Url();
+            size_t before = printer.Log().size();
+            CHECK(!link::UploadAndPrint(no, "a", gcode, nullptr, nullptr, link::PrintConfirmed{}).ok);
+            CHECK(printer.Log().size() == before);
+        }
+
+        // A canceled print sends no file.
+        auto cancel = std::make_shared<http::Cancel>();
+        cancel->Stop();
+        posts = 0;
+        r = link::UploadAndPrint(t, "a", gcode, cancel, nullptr, link::PrintConfirmed{});
+        CHECK(!r.ok && r.cancelled);
+        CHECK(posts == 0);
+    }
+
     void TestDetect()
     {
         HttpStub deck([](Seen const &s) -> Reply {
@@ -2927,7 +3044,7 @@ int main(int argc, char **argv)
     };
     Step const steps[] = {
         { "json", TestJson }, { "store", TestStore }, { "addresses", TestAddresses }, { "signing", TestSigning },
-        { "status", TestStatus }, { "key flow", TestKeyFlow }, { "deck", TestDeck }, { "upload", TestUpload },
+        { "status", TestStatus }, { "key flow", TestKeyFlow }, { "deck", TestDeck }, { "upload", TestUpload }, { "print", TestPrintNet },
         { "detect", TestDetect }, { "filaments", TestFilaments }, { "mjpeg", TestMjpeg }, { "camera", TestCamera },
         { "discovery", TestDiscovery }, { "bambu", TestBambu }, { "setup", TestSetup }, { "rolls", TestRolls },
         { "usb", TestUsb }, { "h264", TestH264 }, { "rtsp", TestRtsp }, { "open link", TestOpenLink }, { "project", TestProjectSource }, { "file types", TestRegisterApp }, { "hand off", TestHandOff }, { "state move", TestStateMove },

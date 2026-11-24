@@ -398,7 +398,7 @@ namespace winrt::ZSlice::implementation
             if (auto *p = zs::Printers().Find(zs::Printers().Current().id))
             {
                 p->kind = zs::LinkKind::OctoPrint;
-                p->url = "http://127.0.0.1:1";
+                p->url = "http://127.0.0.1:" + (words.size() > 2 ? zs::ToUtf8(words[2]) : std::string("1"));
                 zs::Printers().Save();
                 printers->rolls_printer = p->id;
                 printers->spool_now = zs::ToUtf8(words[0]);
@@ -406,6 +406,18 @@ namespace winrt::ZSlice::implementation
                 printers->RefreshBar();
                 printers->RefreshPrimary();
             }
+        }
+        else if (verb == L"usbprintpage")
+            printers->PrintPlate(zs::Printers().Current().id, (size_t)-1, true, !words.empty());
+        else if (verb == L"usbfarurl")
+        {
+            // A documentation address: the guard must refuse it.
+            if (auto *p = zs::Printers().Find(zs::Printers().Current().id))
+            {
+                p->url = "http://192.0.2.1:7125";
+                zs::Printers().Save();
+            }
+            printers->SendPlate(zs::Printers().Current().id, (size_t)-1, true, PrintersUi::SendKind::Print);
         }
         else if (verb == L"usblowsend")
             printers->SendPlate(zs::Printers().Current().id, (size_t)-1);

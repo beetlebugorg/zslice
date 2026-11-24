@@ -230,7 +230,7 @@ A part that is too high or too large for the printer still slices, so you can se
 
 F10 opens the main menu. It has **Save project…** (Ctrl+S), **Send all plates**, and **Export all plates…**. Ctrl+E exports the G-code, and Ctrl+Q quits. A dialog that is open keeps these keys.
 
-**On a network printer, the Windows app never starts a print.** It uploads the file, and you start the print on the printer.
+**On a network printer, the main button prints.** **Print to OctoPrint** (or the name of your connection) asks if the bed is clear, with Cancel as the default. After your yes, it uploads the file, and the printer can start at once. A printdeck set to ask waits for a press of Print on it. **Print the plate** on a card and **Send** in the list of plates ask the same question. **Upload only** in the menu of the arrow and **Upload to the printer** in the search store the file and start nothing. **Send all plates** also starts nothing. The Windows app sends nothing to a Bambu Lab printer.
 
 **On a USB printer, Print over USB starts the print at once.** A serial port has no upload, so the app sends each command while the printer runs it. Set **USB (serial port)**, the port, and the speed in Preferences. The app asks before each print, and **Cancel** is the default. Clear the bed first. Keep the computer on and the cable in until the print ends. The computer stays awake during the print, and closing the app asks first.
 
