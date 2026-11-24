@@ -1154,8 +1154,32 @@ namespace winrt::ZSlice::implementation
         line_placed = false;
         int64_t selected = SelectedPath(), segment = SelectedSegment();
         zs_toolpaths tp{};
-        if (selected < 0 || zs_app_toolpaths(model->Active(), &tp) != ZS_OK || (size_t)selected >= tp.path_count)
+        if (selected < 0)
             return;
+        if (zs_app_toolpaths(model->Active(), &tp) != ZS_OK || (size_t)selected >= tp.path_count)
+        {
+            // A line picked while a slice runs: the app has no toolpaths
+            // yet, so its place comes from the view. Without a place, the
+            // slice drops the line, and the next filament click does
+            // nothing.
+            if (view == nullptr)
+                return;
+            int feature = zs_view_path_feature(view, (size_t)selected);
+            size_t layer = zs_view_path_layer(view, (size_t)selected);
+            float const *beads = nullptr;
+            size_t n = 0;
+            // 9 floats a bead: part, layer, top z, height, ends a and b, width.
+            if (feature < 0 || zs_view_connected_beads(view, (size_t)selected, layer, layer, &beads, &n) != ZS_OK || n < 9)
+                return;
+            line_place_x = (beads[4] + beads[6]) / 2;
+            line_place_y = (beads[5] + beads[7]) / 2;
+            line_place_z = beads[2];
+            line_place_feature = feature;
+            zs_sel_line_get(sel.get(), &line_place_key, nullptr, nullptr);
+            line_place_segment = segment;
+            line_placed = true;
+            return;
+        }
         size_t path = (size_t)selected;
         uint32_t start = path == 0 ? 0 : tp.path_ends[path - 1], end = tp.path_ends[path];
         if (end <= start)
