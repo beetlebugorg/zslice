@@ -56,6 +56,8 @@ The prefixes of `zslice-app.h` (about 3100 lines), with their rough counts: `zs_
 - A part has a stable id (`plate.Part.id`). It stays through moves, plate moves, undo, redo, and a reload (the `partid` lines of the 3MF metadata). A copy gets a new id. Never keep a part index across a call.
 - `App.dropWork` drops all kept work: the next slice starts from the mesh. The slice verifier calls it before each slice of its second app.
 - A line edit has `zc`, the z of its layer in 0.01 mm. `zs_app_edit_add_key` gives none (its layer number can be of another slice), so its edit makes each level dirty.
+- A filament edit of one line (edit kind 3, `edits.Anchor`) is not level-local. It changes the filament mask of its level (`PlateJob.markLineEdits`), and the mask sets the prime tower and the first filaments of other levels. So it stays in the hash of all levels with the place of its part, also with `engine.slice_form` on. `Edits.levelZc` gives its level only to clear its applied flag. `App.lineAnchor` makes the anchor of a line without a change to the app.
+- `Edits.recall` runs before `PlateJob.init`, so a level that plans again clears the applied flags that the recall gave.
 
 ## Lessons
 

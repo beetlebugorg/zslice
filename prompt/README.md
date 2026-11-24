@@ -1,6 +1,6 @@
 # A prompt that could build zslice
 
-Describes: main through "Close the gate of the nozzles that a machine does not have", 2026-11-24.
+Describes: main through "Add the filament edits of lines to the verifier and the bench", 2026-11-24.
 
 ## Read this first
 

@@ -840,9 +840,19 @@ pub const App = struct {
     /// are in the frame of the slice in the view, so the anchor comes from
     /// the place of the part in that slice.
     pub fn lineFilament(app: *App, beads: []const f32, seg: isize, feature: c_int, filament: u32) LineFilamentError!usize {
+        if (filament == 0 or filament > 255) return error.InvalidSettings;
+        const a = try app.lineAnchor(beads, seg, feature);
+        const layer: u32 = @intFromFloat(beads[1]);
+        app.stopWorker();
+        return app.edits.putFilament(app.gpa, a, filament, layer);
+    }
+
+    /// The anchor of one line, or of segment `seg` of it, from the beads of
+    /// the view (see `lineFilament`). The app does not change.
+    pub fn lineAnchor(app: *const App, beads: []const f32, seg: isize, feature: c_int) LineFilamentError!edits_mod.Anchor {
         const stride = zs.body_region.stride;
         const count = beads.len / stride;
-        if (count == 0 or filament == 0 or filament > 255) return error.InvalidSettings;
+        if (count == 0) return error.InvalidSettings;
         if (feature < 0 or feature == @intFromEnum(zs.settings.Feature.skirt)) return error.InvalidSettings;
         if (app.settings.project.spiral_vase or beads[0] < 0) return error.InvalidSettings;
         const part: u32 = @intFromFloat(beads[0]);
@@ -881,9 +891,7 @@ pub const App = struct {
             a.pts[m] = pl.toMesh(bead(beads, count - 1).b);
             a.n = @intCast(m + 1);
         }
-        const layer: u32 = @intFromFloat(beads[1]);
-        app.stopWorker();
-        return app.edits.putFilament(app.gpa, a, filament, layer);
+        return a;
     }
 
     /// The filament edit on the line of these beads, or null: all points
@@ -4418,8 +4426,9 @@ fn layerBeads(gpa: Allocator, app: *App, layer: usize, out: *std.ArrayList(f32))
     }
 }
 
-/// The beads of one path of the last slice, as the view gives them.
-fn oneBeads(gpa: Allocator, app: *App, p: usize, out: *std.ArrayList(f32)) !void {
+/// The beads of one path of the last slice, as the view gives them. The
+/// verifier and the bench make filament edits of lines with them.
+pub fn oneBeads(gpa: Allocator, app: *App, p: usize, out: *std.ArrayList(f32)) !void {
     const tp = app.allToolpaths().?;
     out.clearRetainingCapacity();
     const layer = tp.layerOfPath(p).?;

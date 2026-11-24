@@ -80,3 +80,4 @@ Keep these in each hot loop (from the architecture page):
 5. `zslice bench --only draft` gives the draft and the exact times, and the exact slice after a draft gives the G-code of before.
 6. `zig build verify` passes, and fails when one input leaves a key (for example `project.fast_offsets` out of `engine.outlineKey`).
 7. With `engine.slice_form=true`, `zslice bench --only edit` makes at most 2 plans, `--only undo` 0, and `--only zrange` at most 27, each with `same`.
+8. `zslice verify` makes filament edits of lines (whole lines and segments, on parts that move, turn, or mirror in the same step), and `zslice bench --only linefil`, `linefilseg`, `linefilmove`, and `linefilmirror` each print `same`.

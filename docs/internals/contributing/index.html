@@ -124,6 +124,12 @@ zig build -Doptimize=ReleaseFast</code></pre>
 <pre><code>zig build -Doptimize=ReleaseFast
 python3 -I tools/corpus.py zig-out/bin/zslice ../printdeck report.tsv</code></pre>
 <p>Run it before you finish a change to the geometry or slicing code. Each file must slice with status <code>ok</code>.</p>
+<p>A change that must keep the G-code also compares the hash of the G-code of each corpus file. Make the table with the build before the change, and again with the build after it. <code>diff</code> must print nothing:</p>
+<pre><code>python3 -I tools/corpus_hash.py zig-out/bin/zslice ../printdeck hash-before.tsv 2
+python3 -I tools/corpus_hash.py zig-out/bin/zslice ../printdeck hash-after.tsv 2
+diff hash-before.tsv hash-after.tsv</code></pre>
+<h3 id="the-slice-verifier">The slice verifier</h3>
+<p><code>zig build verify</code> runs <code>zslice verify --quick</code> in a ReleaseFast build: the sweep of the settings of the demo part, and 3 seeds of 40 random edits. It fails if a slice with kept work differs from a full slice. The CI runs it after the tests. Run it after each change to a key, a memo, or a kept stream. See <a href="../../internals/code-quality/#the-slice-verifier">The slice verifier</a>.</p>
 <h3 id="look-at-the-output">Look at the output</h3>
 <p>A test can pass while the output is wrong. Look at the layers:</p>
 <pre><code>zslice preview part.stl --layer 20 -o layer20.svg

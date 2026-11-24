@@ -81,6 +81,15 @@ pub const Result = struct {
 
 const Set = struct { name: []const u8, value: []const u8 };
 
+/// The change of the part after a filament edit of a line, in the same
+/// step.
+const LineThen = union(enum) {
+    none,
+    move: [2]f64,
+    turn_z: f64,
+    mirror: u1,
+};
+
 const Edit = union(enum) {
     set: Set,
     part_set: struct { part: usize, set: Set },
@@ -94,6 +103,12 @@ const Edit = union(enum) {
     delete: usize,
     arrange,
     line: struct { key: u64, kind: zs.app.edits_mod.Kind, value: f32, layer: u32, zc: i32 },
+    /// A filament for one line or one segment (edits.Anchor). The anchor
+    /// comes from `inc`. Each app puts the id of its own part in it. Then
+    /// the part can move, turn, or mirror in the same step.
+    line_fil: struct { part: usize, anchor: zs.app.edits_mod.Anchor, filament: u32, layer: u32, then: LineThen },
+    /// A new filament for filament edit `index` of the edit list.
+    fil_value: struct { index: usize, filament: u32 },
     add_slot,
     part_slot: struct { part: usize, slot: u32 },
     range_slot: struct { z0: f64, z1: f64, slot: u32 },
@@ -119,6 +134,16 @@ const Edit = union(enum) {
             .delete => |p| try w.print("delete {d}", .{p}),
             .arrange => try w.writeAll("arrange"),
             .line => |x| try w.print("line {x} {s} {d:.2} level {d} zc {d}", .{ x.key, @tagName(x.kind), x.value, x.layer, x.zc }),
+            .line_fil => |x| {
+                try w.print("line filament {d} part {d} feature {d} {s} level {d}", .{ x.filament, x.part, x.anchor.feature, if (x.anchor.whole) "line" else "segment", x.layer });
+                switch (x.then) {
+                    .none => {},
+                    .move => |d| try w.print(", then move by {d:.4},{d:.4}", .{ d[0], d[1] }),
+                    .turn_z => |d| try w.print(", then turn about z to {d:.3}", .{d}),
+                    .mirror => |ax| try w.print(", then mirror axis {d}", .{ax}),
+                }
+            },
+            .fil_value => |x| try w.print("filament edit {d} to filament {d}", .{ x.index, x.filament }),
             .add_slot => try w.writeAll("add a filament slot"),
             .part_slot => |x| try w.print("part {d} filament {d}", .{ x.part, x.slot }),
             .range_slot => |x| try w.print("range {d:.3}..{d:.3} filament {d}", .{ x.z0, x.z1, x.slot }),
@@ -324,7 +349,8 @@ fn nextEdit(a: Allocator, rnd: std.Random, t: *Twin) !Edit {
     const slots: u32 = @intCast(zs.app.filament_slots.count(inc));
     const fallback: Edit = .{ .move = .{ .part = part, .dx = r1 * 4 - 2, .dy = r2 * 4 - 2 } };
     switch (roll) {
-        0...39 => return .{ .set = (try pickSet(a, rnd, t.opts, inc.settings)) orelse return fallback },
+        0...31 => return .{ .set = (try pickSet(a, rnd, t.opts, inc.settings)) orelse return fallback },
+        32...39 => return lineFilEdit(a, rnd, t, slots) catch fallback,
         40...44 => return .{ .part_set = .{ .part = part, .set = (try pickLayerSet(a, rnd, t.opts, inc.settings)) orelse return fallback } },
         45...52 => return .{ .range = .{ .z0 = z0, .z1 = z1, .set = (try pickLayerSet(a, rnd, t.opts, inc.settings)) orelse return fallback } },
         53...56 => return fallback,
@@ -341,7 +367,7 @@ fn nextEdit(a: Allocator, rnd: std.Random, t: *Twin) !Edit {
             const have = inc.edits.list.items;
             if (have.len > 0 and rnd.uintLessThan(u8, 3) == 0) {
                 const e = have[rnd.uintLessThan(usize, have.len)];
-                if (e.kind != .dot) return .{ .line = .{ .key = e.key, .kind = e.kind, .value = 0.5 + @as(f32, @floatCast(r1)), .layer = e.layer, .zc = e.zc } };
+                if (e.kind != .dot and e.kind != .filament) return .{ .line = .{ .key = e.key, .kind = e.kind, .value = 0.5 + @as(f32, @floatCast(r1)), .layer = e.layer, .zc = e.zc } };
             }
             const keys = inc.toolpaths.path_key.items;
             if (keys.len < 10) return fallback;
@@ -376,6 +402,47 @@ fn nextEdit(a: Allocator, rnd: std.Random, t: *Twin) !Edit {
     }
 }
 
+/// A filament edit of a line of `inc`: a new one, or one in three a new
+/// filament of an edit that exists. Half of the new ones are of one
+/// segment, so the plan cuts the line. Half of them move, turn, or mirror
+/// the part in the same step.
+fn lineFilEdit(a: Allocator, rnd: std.Random, t: *Twin, slots: u32) !Edit {
+    if (slots < 2) return .add_slot;
+    const inc = t.inc;
+    const filament = 1 + rnd.uintLessThan(u32, slots);
+    const have = inc.edits.list.items;
+    if (have.len > 0 and rnd.uintLessThan(u8, 3) == 0) {
+        const i = rnd.uintLessThan(usize, have.len);
+        if (have[i].anchor != null) return .{ .fil_value = .{ .index = i, .filament = filament } };
+    }
+    const tp = inc.allToolpaths() orelse return error.NoResult;
+    const n = tp.pathCount();
+    if (n < 10) return error.NoResult;
+    const no_part = zs.layer.LayerPlan.no_part;
+    const skirt = @intFromEnum(zs.settings.Feature.skirt);
+    for (0..16) |_| {
+        const p = rnd.uintLessThan(usize, n);
+        if (tp.path_part.items[p] == no_part or tp.path_features.items[p] == skirt) continue;
+        var beads: std.ArrayList(f32) = .empty;
+        try zs.app.oneBeads(a, inc, p, &beads);
+        const count = beads.items.len / zs.body_region.stride;
+        if (count == 0) continue;
+        const seg: isize = if (rnd.boolean()) -1 else @intCast(rnd.uintLessThan(usize, count));
+        const anchor = inc.lineAnchor(beads.items, seg, tp.path_features.items[p]) catch continue;
+        const part: usize = @intFromFloat(beads.items[0]);
+        if (part >= inc.plate.count()) continue;
+        const r = rnd.float(f64);
+        const then: LineThen = switch (rnd.uintLessThan(u8, 6)) {
+            0 => .{ .move = .{ r * 6 - 3, rnd.float(f64) * 6 - 3 } },
+            1 => .{ .turn_z = r * 360 },
+            2 => .{ .mirror = if (r < 0.5) 0 else 1 },
+            else => .none,
+        };
+        return .{ .line_fil = .{ .part = part, .anchor = anchor, .filament = filament, .layer = @intFromFloat(beads.items[1]), .then = then } };
+    }
+    return error.NoResult;
+}
+
 fn levelOfPath(app: *const App, path: usize) u32 {
     for (app.toolpaths.layer_ends.items, 0..) |end, l| if (path < end) return @intCast(l);
     return 0;
@@ -401,6 +468,24 @@ fn apply(app: *App, e: Edit, now_ms: i64) !void {
         .delete => |p| try app.removePart(p),
         .arrange => _ = try app.arrangePlate(),
         .line => |x| try app.edits.put(gpa, .{ .key = x.key, .kind = x.kind, .value = x.value, .layer = x.layer, .zc = x.zc }),
+        .line_fil => |x| {
+            var an = x.anchor;
+            an.part = app.plate.parts.items[x.part].id;
+            _ = try app.edits.putFilament(gpa, an, x.filament, x.layer);
+            switch (x.then) {
+                .none => {},
+                .move => |d| {
+                    const p = &app.plate.parts.items[x.part];
+                    try app.movePart(x.part, p.x + d[0], p.y + d[1]);
+                },
+                .turn_z => |d| try app.rotatePart(x.part, d),
+                .mirror => |ax| try app.mirrorPart(x.part, ax),
+            }
+        },
+        .fil_value => |x| {
+            const list = app.edits.list.items;
+            if (x.index < list.len and list[x.index].anchor != null) list[x.index].value = @floatFromInt(x.filament);
+        },
         .add_slot => _ = try zs.app.filament_slots.add(app),
         .part_slot => |x| try app.setPartSetting(x.part, "project.filament", try std.fmt.bufPrint(&buf, "{d}", .{x.slot})),
         .range_slot => |x| try app.setOverride(x.z0, x.z1, "project.filament", try std.fmt.bufPrint(&buf, "{d}", .{x.slot})),

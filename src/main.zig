@@ -85,7 +85,10 @@ const usage =
     \\            range), undo (the infill there and back), prefs
     \\            (engine.auto_simulate), move, turnz, move2 (moves the
     \\            model of --second FILE), and draftexact (the exact slice
-    \\            after three drafts). Each one compares its G-code with a
+    \\            after three drafts), linefil and linefilseg (filament 2
+    \\            and 3 in turn for one wall or its first segment), and
+    \\            linefilmove and linefilmirror (a part with such an edit
+    \\            moves or mirrors). Each one compares its G-code with a
     \\            slice from the start. --stages prints, after each kind, the
     \\            time of each stage for one slice and the counts of the
     \\            plans, runs, texts, booleans, and offsets.
@@ -640,7 +643,7 @@ const bench_changes = [_]struct { key: []const u8, kind: []const u8, name: []con
 };
 
 /// The edits of the gate tables of the slice form (see benchEdit).
-const edit_kinds = [_][]const u8{ "edit", "zrange", "zwalls", "zfil", "undo", "prefs", "move", "turnz", "move2", "draftexact" };
+const edit_kinds = [_][]const u8{ "edit", "zrange", "zwalls", "zfil", "undo", "prefs", "move", "turnz", "move2", "draftexact", "linefil", "linefilseg", "linefilmove", "linefilmirror" };
 
 /// One kind of edit of `edit_kinds`, with a new value for each slice. Each
 /// slice is timed. At the end, the app drops its work and slices again,
@@ -660,6 +663,11 @@ fn benchEdit(gpa: std.mem.Allocator, app: *zslice.app.App, io: Io, err: *Io.Writ
     if (eq(u8, kind, "zfil")) {
         _ = try zslice.app.filament_slots.add(app);
         try app.setOverride(5, 10, "project.filament", "2");
+    }
+    const linefil = std.mem.startsWith(u8, kind, "linefil");
+    if (linefil) {
+        _ = try zslice.app.filament_slots.add(app);
+        _ = try zslice.app.filament_slots.add(app);
     }
     if (eq(u8, kind, "zrange")) try app.setOverride(5, 10, "project.infill_density", "0.3");
     if (eq(u8, kind, "zwalls")) try app.setOverride(5, 10, "project.wall_count", "2");
@@ -681,6 +689,23 @@ fn benchEdit(gpa: std.mem.Allocator, app: *zslice.app.App, io: Io, err: *Io.Writ
         if (p0 + 3 >= tp.path_key.items.len) return error.SliceFailed;
         edit_key = tp.path_key.items[p0 + 3];
         edit_zc = zslice.app.edits_mod.zcOf(tp.layer_z.items[edit_level]);
+    }
+    // The filament edit: the first outer wall of the middle level, the
+    // whole line or its first segment. linefilmove and linefilmirror keep
+    // it, and move or mirror the part.
+    var fil_edit: usize = 0;
+    if (linefil) {
+        const tp = &app.toolpaths;
+        const level = tp.layer_ends.items.len / 2;
+        const wall = @intFromEnum(zslice.settings.Feature.outer_wall);
+        const p = for (tp.layer_ends.items[level - 1]..tp.layer_ends.items[level]) |p| {
+            if (tp.path_features.items[p] == wall) break p;
+        } else return error.SliceFailed;
+        var beads: std.ArrayList(f32) = .empty;
+        defer beads.deinit(gpa);
+        try zslice.app.oneBeads(gpa, app, p, &beads);
+        fil_edit = try app.lineFilament(beads.items, if (eq(u8, kind, "linefilseg")) 0 else -1, wall, 2);
+        if (!eq(u8, kind, "linefil") and !eq(u8, kind, "linefilseg")) _ = try benchSlice(app, io);
     }
     const last = app.plate.count() - 1;
     const x0 = app.plate.parts.items[0].x;
@@ -709,6 +734,13 @@ fn benchEdit(gpa: std.mem.Allocator, app: *zslice.app.App, io: Io, err: *Io.Writ
             try app.rotatePart(0, 15 * kf);
         } else if (eq(u8, kind, "move2")) {
             try app.movePart(last, app.plate.parts.items[last].x + 0.777, app.plate.parts.items[last].y);
+        } else if (eq(u8, kind, "linefil") or eq(u8, kind, "linefilseg")) {
+            // The filament of the line goes from 2 to 3 and back.
+            app.edits.list.items[fil_edit].value = if (k % 2 == 0) 3 else 2;
+        } else if (eq(u8, kind, "linefilmove")) {
+            try app.movePart(0, x0 + 1.234 * kf, y0 + 0.5 * kf);
+        } else if (eq(u8, kind, "linefilmirror")) {
+            try app.mirrorPart(0, @intCast(k % 2));
         } else if (eq(u8, kind, "draftexact")) {
             // A drag with a live view: three drafts of the infill, then
             // the exact slice. Only the exact slice is timed.

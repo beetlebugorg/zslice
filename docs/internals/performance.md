@@ -187,6 +187,20 @@ The same edits with `engine.slice_form=true`, on 2026-11-24, at a load average o
 
 A line edit plans its own level. An override of `project.infill_density` or `project.wall_count` (`settings.layer_local`) plans the levels of its range and the level above the range. An undo and a redo find the stream of each level in the older generation. The time of these edits is now the time of the run and the text of all levels: about 36 ms of CPU.
 
+### The filament edits of lines
+
+A filament edit of one line (edit kind 3) is in the hash of all levels, so it plans each level. Its filament goes into the filament mask of its level, and the mask sets the prime tower and the first filaments of other levels (`PlateJob.markLineEdits`). The 3DBenchy, on 2026-11-24, CPU median of 7 slices, with `engine.slice_form` off and on. Each kind prints `same`.
+
+| Kind | Edit | Off: plans, CPU ms | On: plans, CPU ms |
+|---|---|---|---|
+| `edit` | The flow of one line | 239, 152 | 1, 52 |
+| `linefil` | Filament 2 and 3 in turn for one wall | 240, 172 | 68.6, 78 |
+| `linefilseg` | The same for the first segment of the wall | 240, 172 | 68.6, 77 |
+| `linefilmove` | Move a part with a filament edit | 240, 1460 | 240, 1459 |
+| `linefilmirror` | Mirror a part with a filament edit | 240, 1453 | 240, 1454 |
+
+With the setting on, the first two slices of `linefil` plan all levels. The next slices find each stream in the older generation, so the mean is 68.6 plans. A move and a mirror need the part forms of milestone M2.
+
 ## Rules
 
 - Compare CPU times when other programs use the machine. The wall time of a full slice was 500 to 680 ms during these measurements, and its CPU time changed by less than 1 % between rounds.
