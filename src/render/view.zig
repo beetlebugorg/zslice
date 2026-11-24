@@ -4297,6 +4297,27 @@ pub const View = struct {
         }
     }
 
+    /// Shows path `path`, or its segment `seg`, in the color `rgb` at once.
+    /// The next load of a slice replaces the color.
+    pub fn tintLine(v: *View, path: usize, seg: ?usize, rgb: u32) void {
+        const r = v.pathBeads(path);
+        var lo = r[0];
+        var hi = r[1];
+        if (seg) |s| {
+            if (s >= hi - lo) return;
+            lo += @intCast(s);
+            hi = lo + 1;
+        }
+        const c = [3]u8{ @truncate(rgb >> 16), @truncate(rgb >> 8), @truncate(rgb) };
+        const inst = if (v.headless) null else v.patchTarget();
+        for (lo..hi) |k| {
+            const b = &v.beads.items[k];
+            b.rgba = .{ c[0], c[1], c[2], b.rgba[3] };
+            if (inst) |q| q[k].rgba = b.rgba;
+        }
+        if (!v.headless and inst == null) v.renderer.setInstances(v.beads.items, v.marks.items) catch {};
+    }
+
     /// The other paths of a multiple selection: yellow, as the highlighted
     /// path. Only the beads of the paths that join or leave the selection
     /// change in the instances of the renderer (see `patchMore`).

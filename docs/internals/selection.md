@@ -68,6 +68,29 @@ A new slice can renumber the paths. The model keeps the key of the line. After a
 
 While a slider is held, GTK and the web app keep the page and the line card of a line that a slice removed. The release finds the line again, or ends the selection.
 
+## A filament for one line
+
+A filament edit of one line or one segment (`zs_app_line_filament`) is an edit of kind 3 in the list of `app/edits.zig`. Its key is not the key of the line, because a move changes the points of the line. It has an anchor:
+
+| Field | Meaning |
+|---|---|
+| Part | The stable id of the part |
+| Stamp | The pose, the scale, the counts, and the box of the mesh. A move and a turn about z keep it |
+| Points | Up to 48 points of the line (or the two ends of the segment) in the frame of the mesh, in µm |
+| Length | The length of the line or the segment |
+
+Rules:
+
+1. The shell sends the beads of the path in the view (`zs_view_line_beads`). The core reads no toolpaths, so the call works while a slice runs. The anchor comes from the place of the part in the slice that the view shows.
+2. A slice maps the anchor to the bed with the place of the part at the start of the slice. It colors a line only if exactly one line of the same part, feature, and layer is within 50 µm of each anchor point and has the same length. Else the edit waits (`applied` 0) and no line changes.
+3. A segment cuts its line at the segment ends. A closed loop opens at the segment. The cut keeps the width, the height, the region, and the flow of each piece, and it checks that the pieces are as long as the line. A line with a height at each point (spiral, slope smoothing) does not cut.
+4. A mirror moves the anchors with the part. A scale or a tilt gives another stamp, so the edit waits.
+5. `PlateJob.markLineEdits` adds the filament of each edit to the mask of its level, so the prime tower and the first filaments know it.
+6. `LayerPlan.groupByFilament` runs after the edits, so the colored lines of a layer print together.
+7. The file and the undo lines are "linefil" lines. An older version skips them.
+
+The calls: `zs_view_line_beads` for the beads, `zs_app_line_filament` to add, `zs_app_line_filament_at` to find the edit on a selected line, `zs_app_line_filament_cost` for the cost on the card, `zs_app_edit_get` for its state, and `zs_app_edit_remove` to clear it. `zs_view_tint_line` shows the color at once.
+
 ## A click on a gizmo handle
 
 A handle of the gizmo can lie over another part. A press and a release at one place is a click, so the click goes to the part under the pointer. A drag starts only after the pointer moves more than 4 CSS pixels.

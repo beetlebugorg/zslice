@@ -558,6 +558,17 @@ uint32_t zs_app_path_filament(const zs_app *app, size_t path);
  * is not there now (the edit waits). Any output can be NULL. */
 int zs_app_edit_get(const zs_app *app, size_t i, int *kind, double *value, size_t *layer, int *applied);
 int zs_app_edit_remove(zs_app *app, size_t i);
+/* A filament for one line (seg < 0) or one segment of it. beads: the beads
+ * of the path (zs_view_line_beads), 9 floats each, n floats. It works while
+ * a slice runs. Gives the index of the edit (kind 3, value: the filament).
+ * Slice again after it. One history step. An edit whose line is gone has
+ * applied 0 in zs_app_edit_get, and colors no other line. */
+int zs_app_line_filament(zs_app *app, const float *beads, size_t n, ptrdiff_t seg, int feature, uint32_t filament, size_t *index);
+/* The filament edit on the line of these beads, or -1. */
+ptrdiff_t zs_app_line_filament_at(const zs_app *app, const float *beads, size_t n);
+/* The cost of a filament for path `path` of the last slice: the extra
+ * filament changes, their time (s), and the waste (g). */
+int zs_app_line_filament_cost(const zs_app *app, size_t path, uint32_t filament, uint32_t *changes, double *seconds, double *grams);
 size_t zs_app_layer_count(const zs_app *app);
 /* The part on the bed: min x, min y, max x, max y, in mm. */
 int zs_app_part_bounds(const zs_app *app, double out[4]);
@@ -3130,6 +3141,12 @@ ptrdiff_t zs_app_part_index(const zs_app *app, uint64_t id);
 int zs_app_sel_parts(const zs_app *app, zs_sel_part *out, size_t cap, size_t *n);
 /* The path with this key in the last slice, or -1. */
 ptrdiff_t zs_app_path_of_key(const zs_app *app, uint64_t key);
+/* The beads of one path of the view, 9 floats each (see
+ * zs_view_connected_beads). Bead k is segment k. */
+int zs_view_line_beads(zs_view *view, size_t path, const float **out, size_t *n);
+/* Shows a path (or its segment, if seg is not negative) in the color
+ * 0xrrggbb at once. The next load of a slice replaces the color. */
+void zs_view_tint_line(zs_view *view, size_t path, ptrdiff_t seg, uint32_t rgb);
 /* The part index of a path of the slice in the view, or -1 (a skirt). */
 ptrdiff_t zs_view_path_part(const zs_view *view, size_t path);
 

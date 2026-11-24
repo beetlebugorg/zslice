@@ -1601,6 +1601,37 @@ export fn zs_app_edit_get(a: ?*const App, i: usize, kind: ?*c_int, value: ?*f64,
     return ok;
 }
 
+/// A filament for one line (seg < 0) or for segment `seg` of it. `beads`:
+/// the beads of the path in the view (zs_view_line_beads), 9 floats each,
+/// `n` floats. It works while a slice runs: it reads no toolpaths. Gives
+/// the index of the edit. Slice again after it. One history step.
+export fn zs_app_line_filament(a: ?*App, beads: ?[*]const f32, n: usize, seg: isize, feature: c_int, filament: u32, index: ?*usize) c_int {
+    const app = a orelse return @intFromEnum(Status.invalid_argument);
+    const b = beads orelse return @intFromEnum(Status.invalid_argument);
+    const r = app.lineFilament(b[0..n], seg, feature, filament) catch |e| return status(e);
+    if (index) |o| o.* = r;
+    noted(app, null, true);
+    return ok;
+}
+
+/// The filament edit on the line of these beads, or -1.
+export fn zs_app_line_filament_at(a: ?*const App, beads: ?[*]const f32, n: usize) isize {
+    const app = a orelse return -1;
+    const b = beads orelse return -1;
+    return app.lineFilamentAt(b[0..n]) orelse -1;
+}
+
+/// The cost of filament `filament` for path `path` of the last slice: the
+/// extra filament changes, their time (s), and the waste (g).
+export fn zs_app_line_filament_cost(a: ?*const App, path: usize, filament: u32, changes: ?*u32, seconds: ?*f64, grams: ?*f64) c_int {
+    const app = a orelse return @intFromEnum(Status.invalid_argument);
+    const r = app.lineFilamentCost(path, filament) orelse return @intFromEnum(Status.no_result);
+    if (changes) |o| o.* = r.changes;
+    if (seconds) |o| o.* = r.seconds;
+    if (grams) |o| o.* = r.grams;
+    return ok;
+}
+
 /// Removes edit i. Slice again after it. One history step.
 export fn zs_app_edit_remove(a: ?*App, i: usize) c_int {
     const app = a orelse return @intFromEnum(Status.invalid_argument);

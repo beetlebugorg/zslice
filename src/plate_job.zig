@@ -1333,6 +1333,32 @@ pub const PlateJob = struct {
         };
     }
 
+    /// The filament edits of single lines count on their levels, as the
+    /// picks do: the prime tower and the first filaments then know them.
+    /// An edit whose line is gone counts too. It can make the tower one
+    /// change taller, and it never leaves a change without a tower.
+    pub fn markLineEdits(self: *PlateJob, e: *const @import("app/edits.zig").Edits) Allocator.Error!void {
+        if (self.slots.len < 2) return;
+        var any = false;
+        for (e.list.items) |x| any = any or x.anchor != null;
+        if (!any) return;
+        if (self.level_picks.len == 0) {
+            self.level_picks = try self.gpa.alloc(u32, self.levels.len);
+            @memset(self.level_picks, 0);
+        }
+        const Mark = struct {
+            pj: *PlateJob,
+            fn add(m: @This(), z: f64, filament: u32) void {
+                const n_slots = @min(m.pj.slots.len, filaments_mod.max_slots);
+                const bit = @as(u32, 1) << @intCast(filaments_mod.slotOf(filament, n_slots));
+                for (m.pj.levels, 0..) |lv, i| if (@abs(lv.z - z) <= 0.005) {
+                    m.pj.level_picks[i] |= bit;
+                };
+            }
+        };
+        e.eachFilament(Mark{ .pj = self }, Mark.add);
+    }
+
     /// Gives each line of the plan of layer `layer` of group `g` the
     /// filament of the newest pick that holds most of its length. The
     /// lines stay as they are. Skirt, brim, and support have no pick.

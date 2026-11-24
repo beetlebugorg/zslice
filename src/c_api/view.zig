@@ -858,6 +858,17 @@ export fn zs_view_connected_beads(view: ?*View, start: usize, lo: usize, hi: usi
     return ok;
 }
 
+/// The beads of one path, as zs_view_connected_beads gives them. Bead k
+/// is segment k. `out` is valid until the next call.
+export fn zs_view_line_beads(view: ?*View, path: usize, out: ?*[*]const f32, n: ?*usize) c_int {
+    if (!render_on) return @intFromEnum(Status.not_supported);
+    const v = view orelse return @intFromEnum(Status.invalid_argument);
+    v.bodyBeads(&.{path}, &body_beads) catch |e| return status(e);
+    if (out) |o| o.* = body_beads.items.ptr;
+    if (n) |count| count.* = body_beads.items.len;
+    return ok;
+}
+
 /// The first and the last layer of the body of path `start` (the rule of
 /// zs_view_light_connected over all layers): where the body goes on above
 /// and below its layer. ZS_OUT_OF_RANGE: no such path.
@@ -892,6 +903,14 @@ export fn zs_view_highlight_more(view: ?*View, paths: ?[*]const usize, n: usize)
     const list: []const usize = if (paths) |p| p[0..n] else &.{};
     v.setMore(list) catch |e| return status(e);
     return ok;
+}
+
+/// Shows path `path` (or its segment `seg`, if not negative) in the color
+/// 0xrrggbb at once. The next load of a slice replaces the color.
+export fn zs_view_tint_line(view: ?*View, path: usize, seg: isize, rgb: u32) void {
+    if (!render_on) return;
+    const v = view orelse return;
+    v.tintLine(path, if (seg < 0) null else @intCast(seg), rgb);
 }
 
 export fn zs_view_highlight_segment(view: ?*View, path: usize, seg: isize) void {

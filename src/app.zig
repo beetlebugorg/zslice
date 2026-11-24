@@ -385,6 +385,10 @@ pub const App = struct {
     fall: ?Fall = null,
     /// The last bond test of each part (see bondOf).
     bond_memo: std.ArrayList(BondMemo) = .empty,
+    /// The places of the parts for the slice that runs, and for the slice
+    /// that the view shows (see edits.Place).
+    slice_places: []edits_mod.Place = &.{},
+    scene_places: []edits_mod.Place = &.{},
     /// The edits of the user on the lines of the slice (app/edits.zig).
     edits: edits_mod.Edits = .{},
     /// The filaments of the plate after the first: slot 2, 3, and on
@@ -432,6 +436,8 @@ pub const App = struct {
         app.gpa.free(app.file_bytes);
         app.undo.deinit(app.gpa);
         app.edits.deinit(app.gpa);
+        app.gpa.free(app.slice_places);
+        app.gpa.free(app.scene_places);
         app.marks.deinit(app.gpa);
         app.gpa.free(app.slice_marks);
         app.areas.deinit(app.gpa);
@@ -488,6 +494,7 @@ pub const App = struct {
         app.areas.clear(app.gpa);
         // The edits were for the lines of the old parts.
         app.edits.list.clearRetainingCapacity();
+        app.edits.places = &.{};
         app.plate.clear(app.gpa);
         app.calibration = null;
     }
@@ -641,6 +648,10 @@ pub const App = struct {
                 try app.edits.put(app.gpa, .{ .key = key, .kind = @enumFromInt(kind), .value = value, .layer = layer, .x = x, .y = y, .z = z });
                 continue;
             }
+            if (std.mem.startsWith(u8, line, "linefil\t")) {
+                try app.readLineFilament(line);
+                continue;
+            }
             // "mark <tab> x <tab> y <tab> z <tab> r <tab> kind": a support
             // mark of the user (support.Mark).
             if (std.mem.startsWith(u8, line, "mark\t")) {
@@ -750,7 +761,7 @@ pub const App = struct {
         try app.areas.write3mfLines(w);
         try filament_slots.write3mfLines(app, w);
         try support_trees.write3mfLines(app, w);
-        for (app.edits.list.items) |e| try w.print("edit\t{x}\t{d}\t{d}\t{d}\t{d}\t{d}\t{d}\n", .{ e.key, @intFromEnum(e.kind), e.value, e.layer, e.x, e.y, e.z });
+        try app.writeEditLines(w);
         // The support marks of the user at a point (support.Mark): "mark",
         // x, y, z, the radius, and the kind. They are in the history and
         // the session with the plate.
@@ -777,13 +788,188 @@ pub const App = struct {
         for (app.overrides.items) |o| try w.print("{d}\t{d}\t{s}\t{s}\n", .{ o.z_min, o.z_max, o.name, o.value });
     }
 
+    /// The edits of lines: "edit" for a key, and "linefil" for a filament
+    /// edit with its anchor (see app/edits.zig). An older version skips
+    /// the "linefil" lines.
+    fn writeEditLines(app: *const App, w: *std.Io.Writer) error{WriteFailed}!void {
+        for (app.edits.list.items) |e| {
+            const a = e.anchor orelse {
+                try w.print("edit\t{x}\t{d}\t{d}\t{d}\t{d}\t{d}\t{d}\n", .{ e.key, @intFromEnum(e.kind), e.value, e.layer, e.x, e.y, e.z });
+                continue;
+            };
+            try w.print("linefil\t{d}\t{d}\t{x}\t{d}\t{d}\t{d}\t{d}", .{ e.value, e.layer, a.stamp, a.part, a.feature, @intFromBool(a.whole), a.length });
+            for (a.pts[0..a.n]) |q| try w.print("\t{d}\t{d}\t{d}", .{ q[0], q[1], q[2] });
+            try w.writeByte('\n');
+        }
+    }
+
+    /// Reads a "linefil" line (see `writeEditLines`).
+    fn readLineFilament(app: *App, line: []const u8) Allocator.Error!void {
+        var f = std.mem.splitScalar(u8, line["linefil\t".len..], '\t');
+        const value = std.fmt.parseFloat(f64, f.next() orelse return) catch return;
+        const layer = std.fmt.parseInt(u32, f.next() orelse return, 10) catch return;
+        var a: edits_mod.Anchor = .{ .stamp = std.fmt.parseInt(u64, f.next() orelse return, 16) catch return, .part = std.fmt.parseInt(u64, f.next() orelse return, 10) catch return, .feature = std.fmt.parseInt(u8, f.next() orelse return, 10) catch return, .whole = (f.next() orelse return)[0] == '1', .n = 0, .length = std.fmt.parseFloat(f64, f.next() orelse return) catch return };
+        while (f.next()) |x| {
+            if (a.n == edits_mod.max_anchor) return;
+            a.pts[a.n] = .{ std.fmt.parseInt(i32, x, 10) catch return, std.fmt.parseInt(i32, f.next() orelse return, 10) catch return, std.fmt.parseInt(i32, f.next() orelse return, 10) catch return };
+            a.n += 1;
+        }
+        if (a.n < 2 or !(value >= 1 and value <= 255)) return;
+        _ = try app.edits.putFilament(app.gpa, a, @intFromFloat(value), layer);
+    }
+
+    pub const LineFilamentError = Allocator.Error || error{ NoResult, InvalidSettings };
+
+    /// Adds the filament edit of one line, or of segment `seg` of it, from
+    /// the beads of the view (body_region.stride floats each). The beads
+    /// are in the frame of the slice in the view, so the anchor comes from
+    /// the place of the part in that slice.
+    pub fn lineFilament(app: *App, beads: []const f32, seg: isize, feature: c_int, filament: u32) LineFilamentError!usize {
+        const stride = zs.body_region.stride;
+        const count = beads.len / stride;
+        if (count == 0 or filament == 0 or filament > 255) return error.InvalidSettings;
+        if (feature < 0 or feature == @intFromEnum(zs.settings.Feature.skirt)) return error.InvalidSettings;
+        if (app.settings.project.spiral_vase or beads[0] < 0) return error.InvalidSettings;
+        const part: u32 = @intFromFloat(beads[0]);
+        var place: ?*const edits_mod.Place = null;
+        for (app.scene_places) |*p| if (p.index == part) {
+            place = p;
+        };
+        const pl = place orelse return error.NoResult;
+        const bead = struct {
+            fn at(b: []const f32, k: usize) struct { a: [3]f64, b: [3]f64 } {
+                const q = b[k * stride ..][0..stride];
+                return .{ .a = .{ q[4], q[5], q[2] }, .b = .{ q[6], q[7], q[2] } };
+            }
+        }.at;
+        var a: edits_mod.Anchor = .{ .part = pl.id, .stamp = pl.stamp, .feature = @intCast(feature), .whole = true, .n = 0, .length = 0 };
+        if (seg >= 0 and count > 1) {
+            if (seg >= count) return error.InvalidSettings;
+            // A line with a height at each point keeps one filament.
+            for (0..count) |k| if (@abs(beads[k * stride + 2] - beads[2]) > 0.001) return error.InvalidSettings;
+            const e = bead(beads, @intCast(seg));
+            a.whole = false;
+            a.n = 2;
+            a.pts[0] = pl.toMesh(e.a);
+            a.pts[1] = pl.toMesh(e.b);
+            a.length = 1000 * std.math.hypot(e.b[0] - e.a[0], e.b[1] - e.a[1]);
+        } else {
+            for (0..count) |k| {
+                const e = bead(beads, k);
+                a.length += 1000 * std.math.hypot(e.b[0] - e.a[0], e.b[1] - e.a[1]);
+            }
+            // The start of each bead, evenly, and the end of the last.
+            const m = @min(count, edits_mod.max_anchor - 1);
+            for (0..m) |j| {
+                a.pts[j] = pl.toMesh(bead(beads, j * count / m).a);
+            }
+            a.pts[m] = pl.toMesh(bead(beads, count - 1).b);
+            a.n = @intCast(m + 1);
+        }
+        const layer: u32 = @intFromFloat(beads[1]);
+        app.stopWorker();
+        return app.edits.putFilament(app.gpa, a, filament, layer);
+    }
+
+    /// The filament edit on the line of these beads, or null: all points
+    /// of its anchor lie on the line.
+    pub fn lineFilamentAt(app: *const App, beads: []const f32) ?isize {
+        const stride = zs.body_region.stride;
+        if (beads.len < stride or beads[0] < 0) return null;
+        const part: u32 = @intFromFloat(beads[0]);
+        var place: ?*const edits_mod.Place = null;
+        for (app.scene_places) |*p| if (p.index == part) {
+            place = p;
+        };
+        const pl = place orelse return null;
+        const tol: f64 = edits_mod.match_um / 1000;
+        for (app.edits.list.items, 0..) |*e, i| {
+            const anchor = if (e.anchor) |*q| q else continue;
+            if (anchor.part != pl.id or anchor.stamp != pl.stamp) continue;
+            const all = for (anchor.pts[0..anchor.n]) |q| {
+                const b = pl.toBed(q);
+                const x = b[0] / 1000;
+                const y = b[1] / 1000;
+                if (@abs(b[2] / 1000 - beads[2]) > 0.005) break false;
+                var near = false;
+                var k: usize = 0;
+                while (k + stride <= beads.len) : (k += stride) {
+                    const ax: f64 = beads[k + 4];
+                    const ay: f64 = beads[k + 5];
+                    const dx = beads[k + 6] - ax;
+                    const dy = beads[k + 7] - ay;
+                    const l2 = dx * dx + dy * dy;
+                    const t = if (l2 > 0) std.math.clamp(((x - ax) * dx + (y - ay) * dy) / l2, 0, 1) else 0;
+                    if (std.math.hypot(ax + t * dx - x, ay + t * dy - y) <= tol) {
+                        near = true;
+                        break;
+                    }
+                }
+                if (!near) break false;
+            } else true;
+            if (all) return @intCast(i);
+        }
+        return null;
+    }
+
+    pub const LineCost = struct { changes: u32, seconds: f64, grams: f64 };
+
+    /// What a filament for one path costs on its layer. A filament that
+    /// the layer has already adds no change, because the planner groups
+    /// the lines of each filament. A new one adds a change to it and a
+    /// change back.
+    pub fn lineFilamentCost(app: *const App, path: usize, filament: u32) ?LineCost {
+        const t = app.allToolpaths() orelse return null;
+        if (path >= t.path_tool.items.len or filament == 0) return null;
+        const layer = t.layerOfPath(path) orelse return null;
+        const lo: usize = if (layer == 0) 0 else t.layer_ends.items[layer - 1];
+        const hi: usize = t.layer_ends.items[layer];
+        const want = filament - 1;
+        // The other lines of the layer: the filament of most of them is
+        // the base. This line can have the edit already, so it does not
+        // count.
+        var counts = [_]u32{0} ** 256;
+        for (lo..hi) |k| {
+            if (k != path) counts[t.path_tool.items[k]] += 1;
+        }
+        if (counts[want] > 0) return .{ .changes = 0, .seconds = 0, .grams = 0 };
+        var own: usize = t.path_tool.items[path];
+        var most: u32 = 0;
+        for (counts, 0..) |c, k| if (c > most) {
+            most = c;
+            own = k;
+        };
+        if (own == want) return .{ .changes = 0, .seconds = 0, .grams = 0 };
+        const m = app.settings.machine;
+        var grams: f64 = 0;
+        if (m.filament_change == .tool and own < app.filaments.items.len and want < app.filaments.items.len) {
+            const from = app.filaments.items[own];
+            const to = app.filaments.items[want];
+            const mult = app.settings.project.flush_multiplier;
+            grams = (zs.filaments.flushVolume(from.color, to.color, m.flush_volume, mult) * to.density + zs.filaments.flushVolume(to.color, from.color, m.flush_volume, mult) * from.density) / 1000;
+        }
+        return .{ .changes = 2, .seconds = 2 * m.change_time, .grams = grams };
+    }
+
+    /// The place of each part now, for the filament edits.
+    fn makeLinePlaces(app: *const App) Allocator.Error![]edits_mod.Place {
+        const out = try app.gpa.alloc(edits_mod.Place, app.plate.parts.items.len);
+        for (app.plate.parts.items, out, 0..) |*p, *o, k| o.* = linePlace(p, k);
+        return out;
+    }
+
+    fn linePlace(p: *const zs.plate.Part, k: usize) edits_mod.Place {
+        const b = p.mesh.bounds();
+        return .{ .index = @intCast(k), .id = p.id, .stamp = edits_mod.shapeStamp(p.pose, p.scale, p.mesh.vertices.items.len, p.mesh.faces.items.len, b.min, b.max), .m = p.transform() };
+    }
+
     /// The lines of the plate that a copy of the whole plate keeps
     /// (app/clipboard.zig): the layer profiles, the filament slots, the
     /// edits, and the overrides. The parts keep their areas and trees.
     pub fn writePlateLines(app: *const App, w: *std.Io.Writer) (Allocator.Error || error{WriteFailed})!void {
         for (app.profiles.items) |p| try w.print("profile\t{d}\t{d}\t{s}\n", .{ p.z_min, p.z_max, p.name });
         try filament_slots.write3mfLines(app, w);
-        for (app.edits.list.items) |e| try w.print("edit\t{x}\t{d}\t{d}\t{d}\t{d}\t{d}\t{d}\n", .{ e.key, @intFromEnum(e.kind), e.value, e.layer, e.x, e.y, e.z });
+        try app.writeEditLines(w);
         for (app.overrides.items) |o| try w.print("{d}\t{d}\t{s}\t{s}\n", .{ o.z_min, o.z_max, o.name, o.value });
     }
 
@@ -1368,8 +1554,18 @@ pub const App = struct {
 
     /// Mirrors a part along the X (0) or Y (1) axis of the bed.
     pub fn mirrorPart(app: *App, i: usize, axis: u1) Allocator.Error!void {
+        // The filament edits of the part mirror with it.
+        const before: ?edits_mod.Place = if (i < app.plate.parts.items.len) linePlace(&app.plate.parts.items[i], i) else null;
+        const fp0 = if (before != null) app.plate.parts.items[i].footprint() else [4]f64{ 0, 0, 0, 0 };
+        const c: [2]f64 = .{ (fp0[0] + fp0[2]) / 2, (fp0[1] + fp0[3]) / 2 };
         try app.plate.mirror(app.gpa, i, axis);
         app.plate.keepOnBed(i, app.bedSize(), app.partGap());
+        if (before) |old| {
+            const p = &app.plate.parts.items[i];
+            app.stopWorker();
+            const fp1 = p.footprint();
+            app.edits.mirrorAnchors(old, linePlace(p, i), axis, c, .{ (fp1[0] + fp1[2]) / 2, (fp1[1] + fp1[3]) / 2 });
+        }
         try app.plateChanged();
     }
 
@@ -2058,6 +2254,7 @@ pub const App = struct {
                 .delete => try w.writeAll("does not print\n"),
                 .flow => try w.print("{d:.0} % plastic\n", .{e.value * 100}),
                 .dot => try w.print("a drop of {d:.1} mm at {d:.1}, {d:.1}\n", .{ e.value, e.x, e.y }),
+                .filament => try w.print("filament {d}\n", .{@as(u32, @intFromFloat(e.value))}),
             }
         }
         // The support marks of the user at a point.
@@ -2845,6 +3042,11 @@ pub const App = struct {
         app.slice_overrides = app.gpa.dupe(zs.settings.Override, app.overrides.items) catch &.{};
         app.gpa.free(app.slice_filaments);
         app.slice_filaments = app.gpa.dupe(zs.settings.Filament, app.filaments.items) catch &.{};
+        // The places of the parts for the filament edits of lines. The
+        // worker reads them while the shell changes the plate.
+        app.gpa.free(app.slice_places);
+        app.slice_places = app.makeLinePlaces() catch &.{};
+        app.edits.places = app.slice_places;
         app.gpa.free(app.slice_view_marks);
         app.slice_view_marks = app.gpa.dupe(zs.support.Mark, app.marks.items) catch &.{};
         app.gpa.free(app.slice_marks);
@@ -3311,7 +3513,12 @@ pub const App = struct {
         // The job keeps the move streams of the print. The edits of the
         // lines change the plans, and the job does not see them in `init`.
         var edits_hash = std.hash.Wyhash.init(0);
-        for (app.edits.list.items) |e| zs.settings.hashValue(&edits_hash, .{ e.key, e.kind, e.value, e.layer, e.x, e.y, e.z });
+        for (app.edits.list.items) |e| {
+            zs.settings.hashValue(&edits_hash, .{ e.key, e.kind, e.value, e.layer, e.x, e.y, e.z });
+            // A filament edit depends on the place of its part too.
+            const a = e.anchor orelse continue;
+            if (app.edits.placeOf(a.part)) |pl| edits_hash.update(std.mem.asBytes(pl));
+        }
         // The order of the parts on a level depends on the number of
         // filaments (see plate_job.zig).
         zs.settings.hashValue(&edits_hash, app.slice_filaments.len);
@@ -3323,9 +3530,14 @@ pub const App = struct {
         var job = job_or catch |e| return app.finishFailed(e);
         // The edits of the user apply to each layer plan. A level with a
         // move stream gets no plan: its edits stay as the slice before
-        // found them.
-        if (!job.hasStreams()) app.edits.resetApplied();
+        // found them. An edit that came back (undo, a file) gets that
+        // state again.
+        if (!job.hasStreams()) app.edits.resetApplied() else app.edits.recall();
         job.edits = &app.edits;
+        job.markLineEdits(&app.edits) catch |e| {
+            job.deinit();
+            return app.finishFailed(e);
+        };
         var out: std.Io.Writer.Allocating = .initOwnedSlice(app.gpa, app.spare_gcode);
         app.spare_gcode = &.{};
         out.clearRetainingCapacity();
@@ -3373,6 +3585,10 @@ pub const App = struct {
         if (stands_now != null) app.checks_pending.store(true, .release);
         app.part_box = job.bounds() orelse .{ 0, 0, 0, 0 };
         app.job = job;
+        app.edits.remember(app.gpa);
+        // The places of the slice that the view shows now.
+        app.gpa.free(app.scene_places);
+        app.scene_places = app.gpa.dupe(edits_mod.Place, app.slice_places) catch &.{};
         app.toolpaths = store;
         app.gcode_bytes = bytes;
         app.gcode_buf = buf;
@@ -4154,6 +4370,209 @@ fn layerBeads(gpa: Allocator, app: *App, layer: usize, out: *std.ArrayList(f32))
             try out.appendSlice(gpa, &.{ 0, @floatFromInt(layer), z, h, tp.points.items[2 * k], tp.points.items[2 * k + 1], tp.points.items[2 * k + 2], tp.points.items[2 * k + 3], 0.4 });
         }
     }
+}
+
+/// The beads of one path of the last slice, as the view gives them.
+fn oneBeads(gpa: Allocator, app: *App, p: usize, out: *std.ArrayList(f32)) !void {
+    const tp = app.allToolpaths().?;
+    out.clearRetainingCapacity();
+    const layer = tp.layerOfPath(p).?;
+    const part: f32 = @floatFromInt(tp.path_part.items[p]);
+    const a: usize = if (p == 0) 0 else tp.path_ends.items[p - 1];
+    var k = a;
+    while (k + 1 < tp.path_ends.items[p]) : (k += 1) {
+        try out.appendSlice(gpa, &.{ part, @floatFromInt(layer), tp.layer_z.items[layer], tp.layer_height.items[layer], tp.points.items[2 * k], tp.points.items[2 * k + 1], tp.points.items[2 * k + 2], tp.points.items[2 * k + 3], 0.4 });
+    }
+    // The view has a bead for the closing segment of a loop.
+    const e = tp.path_ends.items[p];
+    if (tp.path_closed.items[p] != 0 and e - a > 2) {
+        try out.appendSlice(gpa, &.{ part, @floatFromInt(layer), tp.layer_z.items[layer], tp.layer_height.items[layer], tp.points.items[2 * (e - 1)], tp.points.items[2 * (e - 1) + 1], tp.points.items[2 * a], tp.points.items[2 * a + 1], 0.4 });
+    }
+}
+
+/// A plate with an L-shaped part (no symmetry) and two filaments, sliced.
+fn lineTestApp(gpa: Allocator) !*App {
+    var b: zs.mesh.Builder = .init(gpa);
+    try zs.mesh.shapes.addBox(&b, 0, 0, 0, 30, 10, 4);
+    try zs.mesh.shapes.addBox(&b, 0, 10, 0, 10, 25, 4);
+    var mesh = try b.finish();
+    var bytes: std.Io.Writer.Allocating = .init(gpa);
+    defer bytes.deinit();
+    try mesh.writeStl(&bytes.writer);
+    mesh.deinit(gpa);
+    const app = try App.create(gpa, null, null);
+    errdefer app.destroy();
+    try app.loadStl("ell.stl", bytes.written());
+    app.settings.machine.filament_change = .tool;
+    _ = try filament_slots.add(app);
+    try app.startSlice();
+    app.stopWorkerForTest();
+    return app;
+}
+
+/// The first outer wall of the layer nearest to the middle of the part.
+fn midWall(app: *App) struct { path: usize, layer: usize } {
+    const tp = app.allToolpaths().?;
+    const layer = tp.layer_ends.items.len / 2;
+    for (tp.layer_ends.items[layer - 1]..tp.layer_ends.items[layer]) |p| {
+        if (tp.path_features.items[p] == @intFromEnum(zs.settings.Feature.outer_wall)) return .{ .path = p, .layer = layer };
+    }
+    unreachable;
+}
+
+/// The plastic (mm³) of the lines of the parts: no skirt and no tower.
+fn partPlastic(app: *App) f64 {
+    const tp = app.allToolpaths().?;
+    var sum: f64 = 0;
+    for (0..tp.pathCount()) |p| {
+        if (tp.path_part.items[p] == zs.layer.LayerPlan.no_part) continue;
+        sum += tp.path_area.items[p] * tp.pathLength(p);
+    }
+    return sum;
+}
+
+/// The paths of filament 2: on `layer`, and on the other layers.
+fn toolTwo(app: *App, layer: usize) [2]usize {
+    const tp = app.allToolpaths().?;
+    var out = [2]usize{ 0, 0 };
+    var first: usize = 0;
+    for (tp.layer_ends.items, 0..) |end, l| {
+        defer first = end;
+        for (tp.path_tool.items[first..end]) |t| {
+            if (t == 1) out[@intFromBool(l != layer)] += 1;
+        }
+    }
+    return out;
+}
+
+test "app: a filament for one line colors that line alone" {
+    const gpa = testing.allocator;
+    const app = try lineTestApp(gpa);
+    defer app.destroy();
+    const plain = partPlastic(app);
+    const w = midWall(app);
+    var beads: std.ArrayList(f32) = .empty;
+    defer beads.deinit(gpa);
+    try oneBeads(gpa, app, w.path, &beads);
+    const cost = app.lineFilamentCost(w.path, 2).?;
+    try testing.expectEqual(@as(u32, 2), cost.changes);
+    _ = try app.lineFilament(beads.items, -1, @intFromEnum(zs.settings.Feature.outer_wall), 2);
+    try app.startSlice();
+    app.stopWorkerForTest();
+    try testing.expect(app.edits.list.items[0].applied.load(.acquire));
+    try testing.expectEqual([2]usize{ 1, 0 }, toolTwo(app, w.layer));
+    // A change to the filament and a change back, with a prime tower up
+    // to the layer of the line (PlateJob.markLineEdits).
+    try testing.expectEqual(@as(u32, 2), app.stats.changes);
+    try testing.expect(app.stats.tower_layers[0] > w.layer);
+    // The lines of the part keep their plastic.
+    try testing.expectApproxEqRel(plain, partPlastic(app), 1e-4);
+    try testing.expect(std.mem.indexOf(u8, app.gcode_bytes, "\nT1") != null);
+    try testing.expect(std.mem.indexOf(u8, app.gcode_bytes, "\nT0") != null);
+}
+
+test "app: a filament for one segment cuts the line and keeps the plastic" {
+    const gpa = testing.allocator;
+    const app = try lineTestApp(gpa);
+    defer app.destroy();
+    const plain = partPlastic(app);
+    const w = midWall(app);
+    var beads: std.ArrayList(f32) = .empty;
+    defer beads.deinit(gpa);
+    try oneBeads(gpa, app, w.path, &beads);
+    const segs = beads.items.len / zs.body_region.stride;
+    try testing.expect(segs >= 4);
+    // The longest segment of the wall.
+    var seg: usize = 0;
+    var longest: f32 = 0;
+    for (0..segs) |k| {
+        const q = beads.items[k * 9 ..][0..9];
+        const l = std.math.hypot(q[6] - q[4], q[7] - q[5]);
+        if (l > longest) {
+            longest = l;
+            seg = k;
+        }
+    }
+    _ = try app.lineFilament(beads.items, @intCast(seg), @intFromEnum(zs.settings.Feature.outer_wall), 2);
+    try app.startSlice();
+    app.stopWorkerForTest();
+    try testing.expect(app.edits.list.items[0].applied.load(.acquire));
+    try testing.expectEqual([2]usize{ 1, 0 }, toolTwo(app, w.layer));
+    try testing.expectEqual(@as(u32, 2), app.stats.changes);
+    try testing.expectApproxEqRel(plain, partPlastic(app), 1e-4);
+    // The path of filament 2 has the length of the segment.
+    const tp = app.allToolpaths().?;
+    for (tp.path_tool.items, 0..) |t, p| {
+        if (t != 1) continue;
+        const a: usize = if (p == 0) 0 else tp.path_ends.items[p - 1];
+        var len: f32 = 0;
+        var k = a;
+        while (k + 1 < tp.path_ends.items[p]) : (k += 1) len += std.math.hypot(tp.points.items[2 * k + 2] - tp.points.items[2 * k], tp.points.items[2 * k + 3] - tp.points.items[2 * k + 1]);
+        try testing.expectApproxEqAbs(longest, len, 0.01);
+    }
+}
+
+test "app: a line filament follows a move, a turn, a mirror, undo, and the file" {
+    const gpa = testing.allocator;
+    const app = try lineTestApp(gpa);
+    defer app.destroy();
+    _ = app.undo.commit(app, 0);
+    const w = midWall(app);
+    var beads: std.ArrayList(f32) = .empty;
+    defer beads.deinit(gpa);
+    try oneBeads(gpa, app, w.path, &beads);
+    _ = try app.lineFilament(beads.items, 0, @intFromEnum(zs.settings.Feature.outer_wall), 2);
+    app.undo.note(gpa, null, true);
+    _ = app.undo.commit(app, 1000);
+    const check = struct {
+        fn f(q: *App, layer: usize) !void {
+            try q.startSlice();
+            q.stopWorkerForTest();
+            try testing.expect(q.edits.list.items[0].applied.load(.acquire));
+            try testing.expectEqual([2]usize{ 1, 0 }, toolTwo(q, layer));
+        }
+    }.f;
+    try check(app, w.layer);
+    app.plate.parts.items[0].x += 13.37;
+    app.plate.parts.items[0].y -= 7.5;
+    try app.plateChanged();
+    try check(app, w.layer);
+    app.plate.parts.items[0].rot = 90;
+    try app.plateChanged();
+    try check(app, w.layer);
+    try app.mirrorPart(0, 0);
+    try check(app, w.layer);
+    // The lines of the file bring it back.
+    var text: std.Io.Writer.Allocating = .init(gpa);
+    defer text.deinit();
+    try app.writeFileLines(&text.writer);
+    app.edits.list.clearRetainingCapacity();
+    try app.readFileLines(0, text.written());
+    try testing.expectEqual(@as(usize, 1), app.edits.list.items.len);
+    try check(app, w.layer);
+    // Undo to the state with no edit, and redo.
+    _ = app.undo.undo(app, 3000);
+    try testing.expectEqual(@as(usize, 0), app.edits.list.items.len);
+    _ = app.undo.redo(app, 4000);
+    try testing.expectEqual(@as(usize, 1), app.edits.list.items.len);
+}
+
+test "app: a line filament whose shape changed waits and colors nothing" {
+    const gpa = testing.allocator;
+    const app = try lineTestApp(gpa);
+    defer app.destroy();
+    const w = midWall(app);
+    var beads: std.ArrayList(f32) = .empty;
+    defer beads.deinit(gpa);
+    try oneBeads(gpa, app, w.path, &beads);
+    _ = try app.lineFilament(beads.items, -1, @intFromEnum(zs.settings.Feature.outer_wall), 2);
+    try app.plate.setScale(gpa, 0, .{ 1.1, 1, 1 });
+    try app.plateChanged();
+    try app.startSlice();
+    app.stopWorkerForTest();
+    try testing.expect(!app.edits.list.items[0].applied.load(.acquire));
+    try testing.expectEqual([2]usize{ 0, 0 }, toolTwo(app, w.layer));
+    try testing.expectEqual(@as(u32, 0), app.stats.changes);
 }
 
 test "app: a filament pick of one layer changes all its lines and no other layer" {
