@@ -75,7 +75,8 @@ const wide = boxStl(50, 50, 10);
 const big = readFileSync(bigPart);
 
 async function newPage(model, copies) {
-  const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+  // The Inspector column has 380 px: the view stays 1280 px wide.
+  const ctx = await browser.newContext({ viewport: { width: 1660, height: 800 } });
   const page = await ctx.newPage();
   const errors = [];
   page.on("pageerror", (e) => errors.push(String(e)));
@@ -302,7 +303,7 @@ const tests = {
             const z = window.zslice;
             const r = document.getElementById("gl").getBoundingClientRect();
             const q = [px - r.left, py - r.top];
-            return { pick: z.tools.sel.pick(z.view, q[0], q[1]), handle: z.view.x.zs_view_gizmo_at(z.view.v, q[0], q[1], 9), tool: z.tools.tool, at: document.elementFromPoint(px, py)?.id || document.elementFromPoint(px, py)?.className, plate: z.tools.sel.plate , card: (() => { const c = document.querySelector(".part-card")?.getBoundingClientRect(); return c && [c.left, c.top, c.right, c.bottom].map(Math.round); })(), view: [Math.round(r.width), Math.round(r.height)], avoid: z.partCard.otherBoxes(1).map((b) => b.map(Math.round)), user: z.partCard.userAt ?? null };
+            return { pick: z.tools.sel.pick(z.view, q[0], q[1]), handle: z.view.x.zs_view_gizmo_at(z.view.v, q[0], q[1], 9), tool: z.tools.tool, at: document.elementFromPoint(px, py)?.id || document.elementFromPoint(px, py)?.className, plate: z.tools.sel.plate, view: [Math.round(r.width), Math.round(r.height)] };
           }, [x, y]);
           throw new Error(`select ${k}: got ${got}, want ${ids[c]}: ${JSON.stringify(d)}`);
         }

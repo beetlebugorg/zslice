@@ -23,6 +23,8 @@ node web/app/test-node.mjs zig-out/web/app/zslice.wasm part.stl
 node web/app/test-signing.mjs zig-out/web/app/zslice.wasm
 ```
 
+`test-inspector.mjs` drives a headless browser: `PLAYWRIGHT=<path to playwright-core> node web/app/test-inspector.mjs zig-out/web/app`. It proves that no selection UI intersects the canvas, at many window sizes and camera positions.
+
 `test-signing.mjs` signs G-code with WebCrypto, as the page does, and checks it with the core (`zs_verify_gcode`).
 
 `node web/app/test-link.mjs` tests the printer link with two local servers: a request with the API key follows no redirect, so the key never goes to another host. It also tests the checks of the addresses that a deck gives.
