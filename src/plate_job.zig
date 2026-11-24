@@ -437,8 +437,10 @@ pub const PlateJob = struct {
         // A sequential plate has no move streams: a stream starts where the
         // level before it ends, and a lift moves the head between parts.
         if (opts.streams) |extra| if (!pj.sequential) {
-            const rest = planStamp(settings, parts, opts.overrides, keys, boxes, extra ^ slot_nozzles.key());
-            try pj.takeForms(opts.old, rest, settings.engine.slice_form, if (settings.engine.slice_form) opts.edits else null);
+            const form_on = settings.engine.slice_form;
+            const local = form_on and pj.layersAreLocal();
+            const rest = planStamp(settings, parts, opts.overrides, keys, boxes, extra ^ slot_nozzles.key(), local);
+            try pj.takeForms(opts.old, rest, form_on, if (form_on) opts.edits else null, if (local) opts.overrides else &.{});
         };
         return pj;
     }
@@ -447,11 +449,11 @@ pub const PlateJob = struct {
     /// level keeps its stream if a generation of its form has its key.
     /// With `slice_form` off, only one generation stays, so the reuse and
     /// the memory are as with the one stamp of the whole print of before.
-    fn takeForms(pj: *PlateJob, old: ?*PlateJob, rest: u64, slice_form: bool, edits: ?*const edits_mod.Edits) Allocator.Error!void {
+    fn takeForms(pj: *PlateJob, old: ?*PlateJob, rest: u64, slice_form: bool, edits: ?*const edits_mod.Edits, local: []const settings_mod.Override) Allocator.Error!void {
         const gpa = pj.gpa;
         const n = pj.levels.len;
         pj.level_keys = try gpa.alloc(form.Key, n);
-        for (pj.level_keys, 0..) |*k, i| k.* = pj.levelKey(rest, i, edits);
+        for (pj.level_keys, 0..) |*k, i| k.* = pj.levelKey(rest, i, edits, local);
         // A form of another level count is of another print (rule 6 of
         // form.zig: a check that fails drops the forms).
         if (old) |o| if (o.forms.len == n) {
@@ -481,8 +483,23 @@ pub const PlateJob = struct {
     /// stream of a level starts where the level under it ends, so a change
     /// of the support under it makes it dirty too (the rule of the
     /// support edits of before).
-    fn levelKey(pj: *const PlateJob, rest: u64, i: usize, edits: ?*const edits_mod.Edits) form.Key {
+    fn levelKey(pj: *const PlateJob, rest: u64, i: usize, edits: ?*const edits_mod.Edits, local: []const settings_mod.Override) form.Key {
         var kb: form.KeyBuilder = .init(0x1e7e1);
+        // The overrides of the local settings (settings.layer_local) that
+        // cover a layer of a part on this level, in the order of the
+        // list: the rule of Job.resolveLayers (Override.covers with the
+        // top z of the layer). The ends of a range are not in the key.
+        const lv = pj.levels[i];
+        for (local, 0..) |o, k| {
+            if (k >= 64 or !settings_mod.isLayerLocal(o.name)) continue;
+            var covers = false;
+            for (pj.entries[lv.first..lv.end]) |e| {
+                const layers = pj.groups[pj.instances[e.instance].group].job.layers;
+                if (e.layer < layers.len and o.covers(layers[e.layer].z)) covers = true;
+            }
+            if (covers) kb.add(.{ settings_mod.currentName(o.name), o.value });
+        }
+        kb.add(@as(u64, 0x10ca1));
         // The edits of the lines of this level (edits.onLevel), in the
         // order of the list.
         if (edits) |es| {
@@ -501,6 +518,24 @@ pub const PlateJob = struct {
         kb.add(pj.supportKey(i));
         kb.add(if (i > 0) pj.supportKey(i - 1) else @as(u64, 0));
         return kb.final();
+    }
+
+    /// True if no layer of the plate reads the settings of other layers:
+    /// no lightning infill, no flow pattern, and no combined infill on any
+    /// layer of any part. Then an override of a setting of
+    /// `settings.layer_local` changes only the plans of the layers that it
+    /// covers.
+    fn layersAreLocal(pj: *const PlateJob) bool {
+        for (pj.groups) |*g| {
+            if (!resolvedIsLocal(&g.job.resolved)) return false;
+            for (g.job.layer_resolved) |*r| if (!resolvedIsLocal(r)) return false;
+        }
+        return true;
+    }
+
+    fn resolvedIsLocal(r: *const Resolved) bool {
+        const p = r.settings.project;
+        return p.infill_pattern != .lightning and p.infill_pattern != .flow and p.infill_layers <= 1;
     }
 
     /// Frees the memos of the job of each group (see Job.dropMemos).
@@ -1636,7 +1671,9 @@ const Scaled = struct {
 /// a change of one of them has the same stamp. A mesh adds its shape key
 /// and its box: the caller of `PlateJob.init` gives an old job only if
 /// each part has the same mesh.
-fn planStamp(settings: Settings, parts: []const PartInput, overrides: []const settings_mod.Override, keys: []const u64, boxes: []const mesh_mod.Bounds3, extra: u64) u64 {
+/// With `local`, the overrides of the settings of `settings.layer_local`
+/// are not in it: the key of each level has them.
+fn planStamp(settings: Settings, parts: []const PartInput, overrides: []const settings_mod.Override, keys: []const u64, boxes: []const mesh_mod.Bounds3, extra: u64, local: bool) u64 {
     var h = std.hash.Wyhash.init(0x57a3);
     const hv = settings_mod.hashValue;
     hv(&h, extra);
@@ -1652,12 +1689,14 @@ fn planStamp(settings: Settings, parts: []const PartInput, overrides: []const se
             }
         }
     }.f;
-    hv(&h, overrides.len);
-    for (overrides) |o| {
+    for (overrides, 0..) |o, k| {
+        if (local and k < 64 and settings_mod.isLayerLocal(o.name)) continue;
         hv(&h, [2]f64{ o.z_min, o.z_max });
         hv(&h, o.name);
         if (!settings_mod.isPatchSetting(o.name)) hv(&h, o.value);
     }
+    // The end of the list of the overrides.
+    hv(&h, @as(u64, 0x0e5));
     for (parts, keys, boxes) |p, k, b| {
         hv(&h, p.part);
         hv(&h, k);
@@ -3672,6 +3711,41 @@ test "plate job: kept forms of another level count go" {
     defer gpa.free(b);
     try testing.expectEqualStrings(a, b);
     try testing.expectEqual(pj2.levels.len, plans_made.load(.monotonic) - plans);
+}
+
+test "plate job: an override of a local setting plans only the levels of its range" {
+    const gpa = testing.allocator;
+    var m = try testBox(0, 0, 20, 20, 14);
+    defer m.deinit(gpa);
+    var s: Settings = .{};
+    s.engine.threads = 2;
+    s.engine.slice_form = true;
+    const parts = formTestParts(&m);
+    var o1 = [_]settings_mod.Override{.{ .z_min = 5, .z_max = 10, .name = "project.infill_density", .value = "0.3" }};
+    var pj1 = try PlateJob.init(gpa, s, &parts, .{ .streams = 0, .overrides = &o1 });
+    defer pj1.deinit();
+    const a = try gcodeOf(&pj1);
+    defer gpa.free(a);
+    var in_range: usize = 0;
+    for (pj1.levels) |lv| in_range += @intFromBool(o1[0].covers(lv.z));
+    var prev = &pj1;
+    var jobs: [2]PlateJob = undefined;
+    for (&jobs, [_][]const u8{ "0.35", "0.4" }) |*pj, v| {
+        var o2 = [_]settings_mod.Override{.{ .z_min = 5, .z_max = 10, .name = "project.infill_density", .value = v }};
+        pj.* = try PlateJob.init(gpa, s, &parts, .{ .streams = 0, .overrides = &o2, .old = prev });
+        const plans = plans_made.load(.monotonic);
+        const b = try gcodeOf(pj);
+        defer gpa.free(b);
+        // The levels of the range, and at most one more: its first travel.
+        try testing.expect(plans_made.load(.monotonic) - plans <= in_range + 1);
+        var fresh = try PlateJob.init(gpa, s, &parts, .{ .streams = 0, .overrides = &o2 });
+        defer fresh.deinit();
+        const want = try gcodeOf(&fresh);
+        defer gpa.free(want);
+        try testing.expectEqualStrings(want, b);
+        prev = pj;
+    }
+    for (&jobs) |*pj| pj.deinit();
 }
 
 test "plate job: a slice after a canceled slice gives the G-code of a new job" {

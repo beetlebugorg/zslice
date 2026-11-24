@@ -2443,6 +2443,38 @@ pub const layer_settings = [_][]const u8{
     "filament.hole_xy_offset",
 };
 
+/// The layer settings whose override of a z range changes only the plans
+/// of the levels in its range (see the key of each level in
+/// plate_job.zig). With engine.slice_form on, an override of one of them
+/// makes only the levels that it covers dirty, and a drag of one end of
+/// the range makes only the levels that enter or leave it dirty.
+///
+/// A name enters this list only with two proofs:
+///
+/// 1. A search of src/layer.zig, src/engine.zig, src/support.zig,
+///    src/tree_support.zig, src/lightning.zig, and src/plate_job.zig
+///    finds no read of the setting on a layer other than the planned
+///    layer.
+/// 2. `zslice verify <model> --ranges NAME` passes on the four test
+///    models.
+///
+/// The plate job keeps each override in the hash of all levels when a
+/// layer of the plate reads the settings of other layers: lightning
+/// infill, the flow pattern, or combined infill (`infill_layers` over 1).
+/// Never add project.layer_height (an outline setting) or
+/// project.infill_layers (combined infill reads the settings of the
+/// layers of its group).
+pub const layer_local = [_][]const u8{
+    "project.infill_density",
+    "project.wall_count",
+};
+
+pub fn isLayerLocal(old_name: []const u8) bool {
+    const name = currentName(old_name);
+    for (layer_local) |n| if (std.mem.eql(u8, n, name)) return true;
+    return false;
+}
+
 pub fn isLayerSetting(old_name: []const u8) bool {
     const name = currentName(old_name);
     for (layer_settings) |n| if (std.mem.eql(u8, n, name)) return true;

@@ -623,8 +623,12 @@ fn runRanges(gpa: Allocator, io: Io, models: []const Model, opts: *const Options
     defer arena_state.deinit();
     const arena = arena_state.allocator();
     var step: usize = 0;
+    // "all": each setting of settings.layer_local. Another name: that
+    // layer setting.
+    const all = std.mem.eql(u8, which, "all");
     for (zs.settings.layer_settings) |name| {
-        if (!std.mem.eql(u8, which, "all") and !std.mem.eql(u8, which, name)) continue;
+        if (all and !zs.settings.isLayerLocal(name)) continue;
+        if (!all and !std.mem.eql(u8, which, name)) continue;
         if (skipped(opts, name)) continue;
         const info = infoOf(name) orelse continue;
         if (info.kind == .text) continue;
