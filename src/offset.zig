@@ -68,9 +68,15 @@ pub const Options = struct {
 
 /// The default of `Options.shortcut`: off. The setting
 /// project.fast_offsets (an experiment) turns it on for the slices of the
-/// process (App sets it at the start of each slice). The shortcut saves
-/// about 11 % of the CPU of a slice; some skin and fill lines move more
-/// than 1 micrometer where a thin piece is at a threshold.
+/// process (App sets it at the start of each slice, and so does each job
+/// in `engine.Job.initBase`). The shortcut saves about 11 % of the CPU of
+/// a slice; some skin and fill lines move more than 1 micrometer where a
+/// thin piece is at a threshold.
+///
+/// Rule: two slices with other values of the setting must not run at the
+/// same time. The plate set slices one plate at a time
+/// (app/plate_set.zig), so this holds. The outline key has the setting
+/// (`engine.outlineKey`), so kept work of the other method is not used.
 pub var fast_offsets = std.atomic.Value(bool).init(false);
 
 /// Moves the boundaries of `paths` by `delta` units. A positive delta makes

@@ -706,6 +706,10 @@ pub const Job = struct {
     }
 
     fn initBase(gpa: Allocator, mesh: *const Mesh, settings: Settings, outline_overrides: []const settings_mod.Override, marks: []const support_mod.Mark, monitor: Monitor, old: ?*Job, offset: ?[2]f64, trees: ?*const skel_mod.Skeleton, trees_layers: u64, find_islands: bool, slots: settings_mod.SlotNozzles, bed_z: ?f64) Error!Job {
+        // The offset method of project.fast_offsets: a switch of the
+        // process, so each slice sets it (the CLI too). `outlineKey` has
+        // the setting, so a job with the other method keeps no work.
+        @import("offset.zig").fast_offsets.store(settings.project.fast_offsets, .monotonic);
         // Step 1.
         const r = settings.resolveFor(slots) catch return error.InvalidSettings;
         const threads = parallel.threadCount(settings.engine.threads);
@@ -1742,6 +1746,8 @@ fn outlineKey(settings: Settings, outline_overrides: []const settings_mod.Overri
         dy,                   p.first_layer_height, p.layer_height,    f.shrinkage_z,
         f.shrinkage_xy,       f.xy_offset,          f.hole_xy_offset,  p.first_layer_xy_offset,
         p.resolution,         e.gap_closing,        @floatFromInt(@intFromBool(p.polyholes)),
+        // The offsets read this switch of the process (see initBase).
+        @floatFromInt(@intFromBool(p.fast_offsets)),
     };
     h.update(std.mem.sliceAsBytes(&values));
     for (outline_overrides) |o| {
@@ -1925,6 +1931,20 @@ test "a hole offset does not remove an island in the hole" {
 }
 
 const testing = std.testing;
+
+test "project.fast_offsets is in the outline key" {
+    const gpa = testing.allocator;
+    var m = try mesh_mod.shapes.demo(gpa);
+    defer m.deinit(gpa);
+    var s: Settings = .{};
+    var a = try Job.init(gpa, &m, s);
+    defer a.deinit();
+    s.project.fast_offsets = true;
+    var b = try Job.init(gpa, &m, s);
+    defer b.deinit();
+    @import("offset.zig").fast_offsets.store(false, .monotonic);
+    try testing.expect(a.outline_key != b.outline_key);
+}
 
 test "slice the demo part" {
     const gpa = testing.allocator;

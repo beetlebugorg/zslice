@@ -669,7 +669,7 @@ test "verify: random edits of the demo part give the bytes of a full slice" {
     try m.writeStl(&stl.writer);
     var sink: Io.Writer.Discarding = .init(&.{});
     const models = [_]Model{.{ .name = "demo.stl", .bytes = stl.written() }};
-    const r = try run(gpa, std.testing.io, &models, .{ .seeds = &.{ 11, 22 }, .steps = 12, .skip = &.{"project.fast_offsets"} }, &sink.writer);
+    const r = try run(gpa, std.testing.io, &models, .{ .seeds = &.{ 11, 22 }, .steps = 12 }, &sink.writer);
     try std.testing.expectEqual(@as(usize, 0), r.faults);
     try std.testing.expect(r.steps >= 2);
 }
