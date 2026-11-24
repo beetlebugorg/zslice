@@ -137,11 +137,8 @@ namespace winrt::ZSlice::implementation
         std::function<void()> body_search_fill;
 
         bool open = false;
-        bool moved = false;
-        bool place_queued = false;
         size_t lo = 0, hi = 0;
         double z_top_lo = 0, z_top_hi = 0, z_bottom = 0;
-        double last_box[4] = { 1e9, 1e9, -1e9, -1e9 };
 
         // The light. light_path -1: all the lines of the layers.
         bool light_on = false, light_pt = false;
@@ -548,19 +545,7 @@ namespace winrt::ZSlice::implementation
             rows_box = card.FindName(L"RcRows").as<StackPanel>();
             card.FindName(L"RcClose").as<Button>().Click([this](auto &&, auto &&) { w.RangeClose(); });
             card.FindName(L"RcAdd").as<Button>().Click([this](auto &&, auto &&) { OpenScope(); });
-            w.MakeCardMovable(card, card.FindName(L"RcHead").as<FrameworkElement>(), &moved);
-            // A new row changes the height: the card goes beside the layers
-            // again after its layout.
-            card.SizeChanged([this](auto &&, auto &&) {
-                if (place_queued)
-                    return;
-                place_queued = true;
-                Later([this] {
-                    place_queued = false;
-                    Place(true);
-                });
-            });
-            w.CardLayer().Children().Append(card);
+            w.DockCard(card, 3);
 
             body_row = Grid();
             body_row.ColumnSpacing(8);
@@ -802,7 +787,6 @@ namespace winrt::ZSlice::implementation
             if (!open)
             {
                 open = true;
-                moved = false;
                 body_key.clear();
                 BuildRows();
                 card.Visibility(Visibility::Visible);
@@ -820,52 +804,6 @@ namespace winrt::ZSlice::implementation
                 DrawScope(row);
             }
             Refresh();
-            Place(true);
-        }
-
-        // Beside the lit layers: the box of the print from the bottom of the
-        // first layer to the top of the last, on the screen.
-        void Place(bool force)
-        {
-            if (!open || w.view == nullptr)
-                return;
-            // The rows scroll in a card that is taller than the view.
-            card.MaxHeight(std::max(220.0, w.CardLayer().ActualHeight() - 76));
-            if (moved)
-                return;
-            double b[4];
-            if (zs_view_bounds(w.view, b) != ZS_OK)
-                return;
-            double s = w.Scale();
-            double box[4] = { 1e9, 1e9, -1e9, -1e9 };
-            for (int k = 0; k < 8; k++)
-            {
-                float qx, qy;
-                if (!zs_view_pixel_of(w.view, k & 1 ? b[2] : b[0], k & 2 ? b[3] : b[1], k & 4 ? z_top_hi : z_bottom, &qx, &qy))
-                    continue;
-                box[0] = std::min(box[0], qx / s);
-                box[1] = std::min(box[1], qy / s);
-                box[2] = std::max(box[2], qx / s);
-                box[3] = std::max(box[3], qy / s);
-            }
-            if (box[0] > box[2])
-                return;
-            // The card of the selected line stays in view too.
-            if (w.LineCard().Visibility() == Visibility::Visible)
-            {
-                double x = Canvas::GetLeft(w.LineCard()), y = Canvas::GetTop(w.LineCard());
-                box[0] = std::min(box[0], x);
-                box[1] = std::min(box[1], y);
-                box[2] = std::max(box[2], x + w.LineCard().ActualWidth());
-                box[3] = std::max(box[3], y + w.LineCard().ActualHeight());
-            }
-            bool same = true;
-            for (int i = 0; i < 4; i++)
-                same = same && std::abs(box[i] - last_box[i]) < 0.5;
-            if (same && !force)
-                return;
-            std::copy(box, box + 4, last_box);
-            w.PlaceCard(card, box);
         }
 
         // The search scope of these layers: the settings that can change
@@ -960,7 +898,6 @@ namespace winrt::ZSlice::implementation
         r.region = 0;
         r.region_values.clear();
         r.body_search_fill = nullptr;
-        r.moved = false;
         r.card.Visibility(Visibility::Collapsed);
         r.rows.clear();
         r.rows_box.Children().Clear();
@@ -1096,7 +1033,6 @@ namespace winrt::ZSlice::implementation
         if (r.region == 0)
             r.region = r.FindRegion();
         r.Refresh();
-        r.Place(true);
     }
 
     void MainWindow::RangeRefresh()
@@ -1310,12 +1246,6 @@ namespace winrt::ZSlice::implementation
         RefreshSettingValues();
         range->Refresh();
         ProfilesRefresh();
-    }
-
-    void MainWindow::RangePlace(bool force)
-    {
-        if (range != nullptr)
-            range->Place(force);
     }
 
 #ifdef ZS_DEV_HOOKS

@@ -778,7 +778,6 @@ namespace winrt::ZSlice::implementation
             card.BorderThickness(ThicknessHelper::FromUniformLength(1));
             card.CornerRadius(CornerRadiusHelper::FromUniformRadius(8));
             card.Visibility(Visibility::Collapsed);
-            card.RequestedTheme(ElementTheme::Light);
             Automation::AutomationProperties::SetName(card, L"Support");
 
             StackPanel body;
@@ -878,9 +877,7 @@ namespace winrt::ZSlice::implementation
             body.Children().Append(del);
 
             card.Child(body);
-            Canvas::SetLeft(card, 64);
-            Canvas::SetTop(card, 10);
-            w.CardLayer().Children().Append(card);
+            w.DockCard(card, 2);
 
             td_timer = w.queue.CreateTimer();
             td_timer.IsRepeating(false);

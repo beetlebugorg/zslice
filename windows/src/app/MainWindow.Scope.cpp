@@ -17,6 +17,7 @@
 #include "pch.h"
 #include "MainWindow.xaml.h"
 #include "MainWindow.Printers.h"
+#include "zs_part_text.h"
 
 using namespace winrt;
 using namespace Microsoft::UI::Xaml;
@@ -299,10 +300,10 @@ namespace winrt::ZSlice::implementation
         if (model == nullptr)
             return;
         zs_app *app = model->Active();
-        // The settings from the file of the part: read only.
+        // The settings from the file of the part, and its regions: read only.
+        std::string file_text;
         {
             size_t file_len = 0;
-            std::string file_text;
             if (zs_app_part_settings(app, (size_t)part, nullptr, 0, &file_len) == ZS_OK && file_len > 0)
             {
                 file_text.assign(file_len + 1, '\0');
@@ -311,8 +312,6 @@ namespace winrt::ZSlice::implementation
                 else
                     file_text.clear();
             }
-            PartFileText().Text(zs::ToWide(file_text));
-            PartFileBox().Visibility(file_text.empty() ? Visibility::Collapsed : Visibility::Visible);
         }
         std::vector<zs_setting_info> own;
         std::string key = std::to_string(part) + ":";
@@ -326,6 +325,47 @@ namespace winrt::ZSlice::implementation
                 continue;
             key += std::string(info.name) + ",";
             own.push_back(info);
+        }
+        // A value of the part with no row here, then each region apart. A
+        // value of a region is not a value of the part.
+        {
+            zs::PartText parsed = zs::ReadPartText(file_text);
+            auto title_of = [](std::string const &name) {
+                zs_setting_info info{};
+                for (size_t i = 0, n = zs_setting_count(); i < n; i++)
+                    if (zs_setting_get_info(i, &info) == ZS_OK && name == info.name)
+                        return zs::ToWide(info.label);
+                return std::wstring();
+            };
+            auto value_of = [](std::string const &name, std::string const &value) {
+                char text[128] = "";
+                size_t len = 0;
+                if (zs_setting_display(name.c_str(), value.c_str(), 1, text, sizeof text, &len) == ZS_OK && len < sizeof text)
+                    return zs::ToWide(std::string(text, len));
+                return zs::ToWide(value);
+            };
+            std::wstring shown;
+            for (auto const &[name, value] : parsed.part)
+            {
+                bool has_row = name == "project.filament" || std::any_of(own.begin(), own.end(), [&name](zs_setting_info const &i) { return name == i.name; });
+                if (has_row)
+                    continue;
+                std::wstring title = title_of(name);
+                shown += (title.empty() ? zs::ToWide(name) : title) + L": " + value_of(name, value) + L"\n";
+            }
+            for (auto const &volume : parsed.volumes)
+            {
+                std::wstring rows;
+                for (auto const &[name, value] : volume.values)
+                    if (std::wstring title = title_of(name); !title.empty())
+                        rows += L"  " + title + L": " + value_of(name, value) + L"\n";
+                if (!rows.empty())
+                    shown += L"Region: " + zs::ToWide(volume.name) + L"\n" + rows;
+            }
+            if (!shown.empty())
+                shown.pop_back();
+            PartFileText().Text(shown);
+            PartFileBox().Visibility(shown.empty() ? Visibility::Collapsed : Visibility::Visible);
         }
         if (key == part_settings_key)
         {

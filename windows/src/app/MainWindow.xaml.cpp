@@ -286,7 +286,6 @@ namespace winrt::ZSlice::implementation
             zs::Log("shell: the view did not draw: %s\n", zs_status_string(rc));
         // The handle and the card of a label follow the camera.
         LabelPlace();
-        RangePlace();
         PlaceMeasure();
     }
 

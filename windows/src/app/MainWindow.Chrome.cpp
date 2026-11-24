@@ -171,8 +171,7 @@ namespace winrt::ZSlice::implementation
         Root().SizeChanged([this](auto &&, SizeChangedEventArgs const &e) {
             double width = e.NewSize().Width;
             SearchField().Width(std::clamp(width * 0.3, 200.0, 380.0));
-            if (panel_mode != PanelMode::Hidden)
-                FitPanel();
+            ApplyInspector();
             HeaderSearch().PlaceholderText(width < 900 ? L"Search" : L"Search settings and actions");
             LayoutHeader();
         });
@@ -321,6 +320,7 @@ namespace winrt::ZSlice::implementation
     {
         if (model == nullptr)
             return;
+        InspectorPlateChanged();
         zs_app *app = model->Active();
         int state = zs_app_state(app);
         DockSummary().Visibility(state == ZS_STATE_EMPTY ? Visibility::Collapsed : Visibility::Visible);

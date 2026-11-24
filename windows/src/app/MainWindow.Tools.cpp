@@ -232,14 +232,10 @@ namespace winrt::ZSlice::implementation
         else if (drag == Drag::Pan)
         {
             zs_view_pan(view, (float)(dx * Scale()), (float)(dy * Scale()));
-            PlaceLineCard();
-            PlacePartCard();
         }
         else
         {
             zs_view_orbit(view, (float)dx, (float)dy);
-            PlaceLineCard();
-            PlacePartCard();
         }
         RequestDraw();
         e.Handled(true);
@@ -839,50 +835,15 @@ namespace winrt::ZSlice::implementation
         }
         MeasureText().Text(text);
         MeasureCard().Visibility(Visibility::Visible);
-        measure_box[0] = 1e9;
         PlaceMeasure();
     }
 
+    // The readout of the Measure tool: a corner of the view that takes no
+    // pointer, as in web/app/index.html.
     void MainWindow::PlaceMeasure()
     {
-        if (view == nullptr || MeasureCard().Visibility() != Visibility::Visible)
-            return;
-        if (measure_count == 0)
-        {
-            Canvas::SetLeft(MeasureCard(), 64);
-            Canvas::SetTop(MeasureCard(), 10);
-            return;
-        }
-        double box[4] = { 1e9, 1e9, -1e9, -1e9 };
-        for (int i = 0; i < measure_count; i++)
-        {
-            double x = 0, y = 0;
-            if (show_2d && layer2d != nullptr)
-            {
-                layer2d->ToView(measure[3 * i], measure[3 * i + 1], x, y);
-            }
-            else
-            {
-                float qx, qy;
-                if (!zs_view_pixel_of(view, measure[3 * i], measure[3 * i + 1], measure[3 * i + 2], &qx, &qy))
-                    continue;
-                x = qx / Scale();
-                y = qy / Scale();
-            }
-            box[0] = std::min(box[0], x - 12);
-            box[1] = std::min(box[1], y - 12);
-            box[2] = std::max(box[2], x + 12);
-            box[3] = std::max(box[3], y + 12);
-        }
-        if (box[0] > box[2])
-            return;
-        bool same = true;
-        for (int i = 0; i < 4; i++)
-            same = same && std::abs(box[i] - measure_box[i]) < 0.5;
-        if (same)
-            return;
-        std::copy(box, box + 4, measure_box);
-        PlaceCard(MeasureCard(), box);
+        Canvas::SetLeft(MeasureCard(), 64);
+        Canvas::SetTop(MeasureCard(), 10);
     }
 
     void MainWindow::ClearMeasure()
@@ -1111,7 +1072,6 @@ namespace winrt::ZSlice::implementation
         SetSelectedParts({});
         SetSelectedLine(path, segment);
         SaveLinePlace();
-        line_card_moved = false;
         // Another line: no buttons of the body of the line before.
         ClearLineExtend();
         ApplySelection();
@@ -1125,7 +1085,6 @@ namespace winrt::ZSlice::implementation
         page_gap = false;
         SetSelectedLine(-1, -1);
         SetSelectedParts(part >= 0 ? std::vector<int64_t>{ part } : std::vector<int64_t>{});
-        part_card_moved = false;
         ApplySelection();
         FillLineCard();
         FillPartCard();
@@ -1483,7 +1442,7 @@ namespace winrt::ZSlice::implementation
         // P and E close their tool when it is open.
         case VirtualKey::P: SetTool(tool == Tool::Paint ? Tool::Select : Tool::Paint); return true;
         case VirtualKey::E: SetTool(tool == Tool::Label ? Tool::Select : Tool::Label); return true;
-        case VirtualKey::N: ShowSettingsPane(SettingsPane().Visibility() != Visibility::Visible); return true;
+        case VirtualKey::N: SetInspectorOpen(!InspectorShown()); return true;
         case VirtualKey::PageUp: StepLayer(10); return true;
         case VirtualKey::PageDown: StepLayer(-10); return true;
         case VirtualKey::H:

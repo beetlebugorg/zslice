@@ -196,7 +196,7 @@ namespace winrt::ZSlice::implementation
         });
 
         SettingsToggle().Click([this](auto &&, auto &&) {
-            ShowSettingsPane(SettingsToggle().IsChecked().GetBoolean());
+            SetInspectorOpen(SettingsToggle().IsChecked().GetBoolean());
         });
         SettingsBack().Click([this](auto &&, auto &&) { SettingsGoBack(); });
         WirePanelModes();
@@ -205,7 +205,7 @@ namespace winrt::ZSlice::implementation
         back_key.Key(VirtualKey::Left);
         back_key.Modifiers(Windows::System::VirtualKeyModifiers::Menu);
         back_key.Invoked([this](auto &&, Input::KeyboardAcceleratorInvokedEventArgs const &e) {
-            if (SettingsPane().Visibility() != Visibility::Visible)
+            if (!SettingsTabShown())
                 return;
             PaneHistoryBack();
             e.Handled(true);
@@ -269,65 +269,18 @@ namespace winrt::ZSlice::implementation
         ShowSections();
     }
 
-    // N and the button of the header bar. The panel comes back over the
-    // view, or pinned if the user pinned it last.
+    // Opens the Settings tab of the column, for a user who asked for a
+    // setting.
     void MainWindow::ShowSettingsPane(bool show)
     {
         if (!show)
-            SetPanelMode(PanelMode::Hidden);
-        else if (panel_mode == PanelMode::Hidden)
-            SetPanelMode(zs::Printers().Pref("panel_pinned", "0") == "1" ? PanelMode::Pinned : PanelMode::Over);
-        else
         {
-            SettingsToggle().IsChecked(true);
-            RefreshSettingValues();
-            ApplyPaneFocus();
+            SetInspectorOpen(false);
+            return;
         }
-        // A click on a line while the panel was hidden.
-        if (show && selected_wanted)
-            ShowSelected();
-    }
-
-    // Hidden, over the right of the view, or pinned beside it with a
-    // splitter. The choice stays for the next start, as in the GTK app.
-    void MainWindow::SetPanelMode(PanelMode mode)
-    {
-        panel_mode = mode;
-        bool shown = mode != PanelMode::Hidden, pinned = mode == PanelMode::Pinned;
-        auto pane = SettingsPane();
-        Grid::SetColumn(pane, pinned ? 1 : 0);
-        Grid::SetColumnSpan(pane, pinned ? 1 : 2);
-        pane.HorizontalAlignment(pinned ? HorizontalAlignment::Stretch : HorizontalAlignment::Right);
-        Canvas::SetZIndex(pane, pinned ? 0 : 70);
-        FitPanel();
-        pane.Visibility(shown ? Visibility::Visible : Visibility::Collapsed);
-        PaneSplitter().Visibility(pinned ? Visibility::Visible : Visibility::Collapsed);
-        if (shown)
-            zs::Printers().SetPref("panel_pinned", pinned ? "1" : "0");
-        zs::Printers().SetPref("panel", pinned ? "pinned" : shown ? "overlay" : "hidden");
-        SettingsToggle().IsChecked(shown);
-        SettingsPin().IsChecked(pinned);
-        if (shown)
-            RefreshSettingValues();
-        ApplyPaneFocus();
-        PlaceOpenCards();
-    }
-
-    // Over the view: 460 points, or less in a narrow window. Pinned: the
-    // saved width, with at least 360 points left for the view, so the bottom bar fits.
-    void MainWindow::FitPanel()
-    {
-        double room = Root().ActualWidth();
-        double width;
-        if (panel_mode == PanelMode::Pinned)
-        {
-            width = std::clamp(atof(zs::Printers().Pref("panel_width", "560").c_str()), 300.0, 2000.0);
-            if (room > 0)
-                width = std::min(width, std::max(300.0, room - 360));
-        }
-        else
-            width = room > 0 ? std::min(460.0, room * 0.92) : 460.0;
-        SettingsPane().Width(width);
+        if (!InspectorShown())
+            SetInspectorOpen(true);
+        ShowInspectorTab(true);
     }
 
     void MainWindow::PanelDragTo(double x)
@@ -341,30 +294,9 @@ namespace winrt::ZSlice::implementation
         zs::Printers().SetPref("panel_width", std::to_string((int)std::lround(SettingsPane().Width())));
     }
 
-    // Esc in the panel over the view hides it. A text field keeps its Esc.
-    bool MainWindow::PanelEscape()
-    {
-        if (panel_mode != PanelMode::Over)
-            return false;
-        auto focused = Input::FocusManager::GetFocusedElement(Content().XamlRoot());
-        if (focused.try_as<TextBox>() != nullptr || focused.try_as<NumberBox>() != nullptr || focused.try_as<PasswordBox>() != nullptr ||
-            focused.try_as<ComboBox>() != nullptr)
-            return false;
-        SetPanelMode(PanelMode::Hidden);
-        return true;
-    }
-
     void MainWindow::WirePanelModes()
     {
-        SettingsPin().Click([this](auto &&, auto &&) {
-            if (panel_mode != PanelMode::Hidden)
-                SetPanelMode(SettingsPin().IsChecked().GetBoolean() ? PanelMode::Pinned : PanelMode::Over);
-        });
-        SettingsClose().Click([this](auto &&, auto &&) { SetPanelMode(PanelMode::Hidden); });
-        SettingsPane().KeyDown([this](auto &&, Input::KeyRoutedEventArgs const &e) {
-            if (e.Key() == VirtualKey::Escape && PanelEscape())
-                e.Handled(true);
-        });
+        WireInspector();
         auto bar = PaneSplitter();
         if (auto cursor_owner = bar.try_as<IUIElementProtected>())
             cursor_owner.ProtectedCursor(Microsoft::UI::Input::InputSystemCursor::Create(Microsoft::UI::Input::InputSystemCursorShape::SizeWestEast));
@@ -391,16 +323,6 @@ namespace winrt::ZSlice::implementation
         bar.PointerCaptureLost(finish);
     }
 
-    // The mode of the last session; hidden at the first start.
-    void MainWindow::ApplySavedPanel()
-    {
-        std::string mode = zs::Printers().Pref("panel", "hidden");
-        if (mode == "pinned")
-            SetPanelMode(PanelMode::Pinned);
-        else if (mode == "overlay")
-            SetPanelMode(PanelMode::Over);
-    }
-
     // The view shows the lines that the open setting changes, while the
     // pane shows it.
     void MainWindow::SetPaneFocus(uint32_t mask, bool first_layer)
@@ -414,7 +336,7 @@ namespace winrt::ZSlice::implementation
     {
         if (view == nullptr || model == nullptr || search_eye_set || tool == Tool::Support)
             return;
-        bool on = pane_focus != 0 && SettingsPane().Visibility() == Visibility::Visible;
+        bool on = pane_focus != 0 && SettingsTabShown();
         if (!on)
         {
             if (pane_focus_on)
@@ -547,7 +469,6 @@ namespace winrt::ZSlice::implementation
         speed_toggle = nullptr;
         effect_box = nullptr;
         selected_page = nullptr;
-        selected_wanted = false;
         ShowBrowserRows(true);
         SetPaneFocus(0, false);
         SettingsList().Children().Clear();
