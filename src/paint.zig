@@ -216,6 +216,30 @@ pub const Paint = struct {
         }
     }
 
+    /// Rewrites each tree for faces whose vertices v0, v1, v2 are now v0,
+    /// v2, v1 (a mirror reverses the faces). A tree names its pieces by
+    /// the order of the vertices, so the same nibbles on a reversed face
+    /// paint other pieces. The new tree covers the same pieces.
+    pub fn reverseFaces(p: *Paint, gpa: Allocator) Allocator.Error!void {
+        const unit = [3]V3{ .{ 0, 0, 0 }, .{ 1, 0, 0 }, .{ 0, 1, 0 } };
+        for (p.trees.values()) |*nib| {
+            var old: Tree = .{};
+            defer old.deinit(gpa);
+            var r: Reader = .{ .nib = nib.* };
+            try old.read(gpa, &r);
+            var new: Tree = .{};
+            defer new.deinit(gpa);
+            try new.nodes.append(gpa, .{});
+            try reverseNode(&old, 0, unit, &new, 0, .{ unit[0], unit[2], unit[1] }, 0, gpa);
+            var out: std.ArrayList(u8) = .empty;
+            errdefer out.deinit(gpa);
+            try new.write(gpa, 0, &out);
+            const text = try out.toOwnedSlice(gpa);
+            gpa.free(nib.*);
+            nib.* = text;
+        }
+    }
+
     /// Calls `f(ctx, a, b, c, state)` for each painted leaf of triangle
     /// `tri` of `m` (state 0 too), with the vertices of the leaf.
     pub fn leaves(p: *const Paint, m: *const Mesh, tri: usize, ctx: anytype, comptime f: fn (@TypeOf(ctx), V3, V3, V3, u8) void) void {
@@ -421,6 +445,83 @@ const Tree = struct {
         if (same) t.nodes.items[i] = .{ .state = state };
     }
 };
+
+fn sameTriangle(a: [3]V3, b: [3]V3) bool {
+    for (a) |q| {
+        var found = false;
+        for (b) |w| found = found or std.mem.eql(f32, &q, &w);
+        if (!found) return false;
+    }
+    return true;
+}
+
+fn indexOfVertex(v: [3]V3, q: V3) u2 {
+    for (v, 0..) |w, i| if (std.mem.eql(f32, &q, &w)) return @intCast(i);
+    return 0;
+}
+
+/// The state of the first leaf under node `i`.
+fn firstLeaf(t: *const Tree, i: u32) u8 {
+    const n = t.nodes.items[i];
+    return if (n.sides == 0) n.state else firstLeaf(t, n.first);
+}
+
+/// Adds the children of a new split node. Returns the index of the first.
+fn addSplit(t: *Tree, gpa: Allocator, i: u32, sides: u2, side: u2) Allocator.Error!u32 {
+    const first: u32 = @intCast(t.nodes.items.len);
+    try t.nodes.appendNTimes(gpa, .{}, @as(usize, sides) + 1);
+    t.nodes.items[i] = .{ .sides = sides, .side = side, .first = first };
+    return first;
+}
+
+/// Copies the old node on triangle `v` into new node `ni` on `nv`, the
+/// same triangle with its vertices in another order. A split of two sides
+/// has a diagonal that depends on the order, so it becomes two splits of
+/// one side with the same pieces.
+fn reverseNode(old: *const Tree, oi: u32, v: [3]V3, new: *Tree, ni: u32, nv: [3]V3, depth: usize, gpa: Allocator) Allocator.Error!void {
+    const n = old.nodes.items[oi];
+    if (n.sides == 0) {
+        new.nodes.items[ni] = .{ .state = n.state };
+        return;
+    }
+    if (depth + @as(usize, if (n.sides == 2) 2 else 1) > max_file_depth) {
+        new.nodes.items[ni] = .{ .state = firstLeaf(old, oi) };
+        return;
+    }
+    const ch = children(v, n.sides, n.side);
+    const Pair = struct {
+        fn copy(o: *const Tree, first: u32, c: anytype, nw: *Tree, at: u32, tri: [3]V3, d: usize, g: Allocator) Allocator.Error!void {
+            for (0..c.n) |k| if (sameTriangle(c.t[k], tri)) {
+                return reverseNode(o, first + @as(u32, @intCast(k)), c.t[k], nw, at, tri, d, g);
+            };
+            unreachable;
+        }
+    };
+    if (n.sides == 2) {
+        const s: usize = n.side % 3;
+        const r1 = v[(s + 1) % 3];
+        const m20 = mid(v[(s + 2) % 3], v[s]);
+        const outer_side = indexOfVertex(nv, r1);
+        const outer = children(nv, 1, outer_side);
+        const a = try addSplit(new, gpa, ni, 1, outer_side);
+        for (0..2) |j| {
+            const at = a + @as(u32, @intCast(j));
+            if (sameTriangle(ch.t[2], outer.t[j])) {
+                try Pair.copy(old, n.first, ch, new, at, outer.t[j], depth + 1, gpa);
+                continue;
+            }
+            const inner_side = indexOfVertex(outer.t[j], m20);
+            const inner = children(outer.t[j], 1, inner_side);
+            const b = try addSplit(new, gpa, at, 1, inner_side);
+            for (0..2) |k| try Pair.copy(old, n.first, ch, new, b + @as(u32, @intCast(k)), inner.t[k], depth + 2, gpa);
+        }
+        return;
+    }
+    const side: u2 = if (n.sides == 1) indexOfVertex(nv, v[n.side % 3]) else 0;
+    const nch = children(nv, n.sides, side);
+    const first = try addSplit(new, gpa, ni, n.sides, side);
+    for (0..nch.n) |j| try Pair.copy(old, n.first, ch, new, first + @as(u32, @intCast(j)), nch.t[j], depth + 1, gpa);
+}
 
 /// A sphere of the brush: the center and the radius (mm).
 pub const Sphere = struct {
@@ -1159,4 +1260,76 @@ test "brush: an edge splits, and the pieces in the sphere take the paint" {
     try testing.expect(try brushTriangle(&p, gpa, &m, 0, .{ .c = .{ 10, 10, 0 }, .r = 40 }, 2, 0.5));
     try testing.expectEqual(@as(u8, 2), p.stateOf(0));
     try testing.expectEqual(@as(usize, 0), p.trees.count());
+}
+
+test "paint: a reversed face keeps the same painted pieces, for each kind of split" {
+    const gpa = std.testing.allocator;
+    var b: mesh_mod.Builder = .init(gpa);
+    errdefer b.deinit();
+    try b.addTriangle(.{ .x = 0, .y = 0, .z = 0 }, .{ .x = 16, .y = 0, .z = 0 }, .{ .x = 0, .y = 16, .z = 0 });
+    var m = try b.finish();
+    defer m.deinit(gpa);
+    // The area of each state, on a fine grid of the triangle.
+    const cover = struct {
+        fn state(pa: *const Paint, mesh: *const Mesh, x: f32, y: f32) u8 {
+            const F = struct {
+                x: f32, y: f32, out: *u8,
+                fn add(f: @This(), p: V3, q: V3, w: V3, s: u8) void {
+                    const d1 = (f.x - q[0]) * (p[1] - q[1]) - (p[0] - q[0]) * (f.y - q[1]);
+                    const d2 = (f.x - w[0]) * (q[1] - w[1]) - (q[0] - w[0]) * (f.y - w[1]);
+                    const d3 = (f.x - p[0]) * (w[1] - p[1]) - (w[0] - p[0]) * (f.y - p[1]);
+                    const neg = d1 < 0 or d2 < 0 or d3 < 0;
+                    const pos = d1 > 0 or d2 > 0 or d3 > 0;
+                    if (!(neg and pos)) f.out.* = s;
+                }
+            };
+            var got: u8 = 0xee;
+            pa.leaves(mesh, 0, F{ .x = x, .y = y, .out = &got }, F.add);
+            return got;
+        }
+    };
+    var prng = std.Random.DefaultPrng.init(7);
+    const rnd = prng.random();
+    for (0..60) |_| {
+        var pa: Paint = .{};
+        defer pa.deinit(gpa);
+        for (0..3) |_| {
+            const sph: Sphere = .{ .c = .{ rnd.float(f32) * 16, rnd.float(f32) * 16, 0 }, .r = 1 + rnd.float(f32) * 6 };
+            _ = try brushTriangle(&pa, gpa, &m, 0, sph, 1 + rnd.uintLessThan(u8, 3), 0.5);
+        }
+        var want: [64]u8 = undefined;
+        var n: usize = 0;
+        var i: f32 = 0.37;
+        while (i < 16 and n < want.len) : (i += 2.03) {
+            var j: f32 = 0.41;
+            while (j < 16 - i and n < want.len) : (j += 2.07) {
+                want[n] = cover.state(&pa, &m, i, j);
+                n += 1;
+            }
+        }
+        const f = m.faces.items[0];
+        try pa.reverseFaces(gpa);
+        m.faces.items[0] = .{ f[0], f[2], f[1] };
+        var k: usize = 0;
+        i = 0.37;
+        while (i < 16 and k < n) : (i += 2.03) {
+            var j: f32 = 0.41;
+            while (j < 16 - i and k < n) : (j += 2.07) {
+                try std.testing.expectEqual(want[k], cover.state(&pa, &m, i, j));
+                k += 1;
+            }
+        }
+        // A second reversal is the first paint again.
+        try pa.reverseFaces(gpa);
+        m.faces.items[0] = f;
+        k = 0;
+        i = 0.37;
+        while (i < 16 and k < n) : (i += 2.03) {
+            var j: f32 = 0.41;
+            while (j < 16 - i and k < n) : (j += 2.07) {
+                try std.testing.expectEqual(want[k], cover.state(&pa, &m, i, j));
+                k += 1;
+            }
+        }
+    }
 }

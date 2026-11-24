@@ -1909,6 +1909,96 @@ test "plate set: this side on the bed takes the side that the ray hits" {
     try testing.expect((try firstLayerArea(gpa, app, 0)) > 0);
 }
 
+/// The painted area of part i and its center, for the state `state`.
+fn paintedCenter(app: *App, i: usize, state: u8) [4]f64 {
+    const p = &app.plate.parts.items[i];
+    const Sum = struct {
+        state: u8,
+        out: *[4]f64,
+        fn add(c: @This(), a: zs.paint.V3, b: zs.paint.V3, d: zs.paint.V3, s: u8) void {
+            if (s != c.state) return;
+            const u = [3]f64{ @as(f64, b[0]) - a[0], @as(f64, b[1]) - a[1], @as(f64, b[2]) - a[2] };
+            const w = [3]f64{ @as(f64, d[0]) - a[0], @as(f64, d[1]) - a[1], @as(f64, d[2]) - a[2] };
+            const n = [3]f64{ u[1] * w[2] - u[2] * w[1], u[2] * w[0] - u[0] * w[2], u[0] * w[1] - u[1] * w[0] };
+            const area = @sqrt(n[0] * n[0] + n[1] * n[1] + n[2] * n[2]) / 2;
+            for (0..3) |k| c.out[k] += area * (@as(f64, a[k]) + b[k] + d[k]) / 3;
+            c.out[3] += area;
+        }
+    };
+    var out = [4]f64{ 0, 0, 0, 0 };
+    for (0..p.mesh.faces.items.len) |t| p.paint.leaves(&p.mesh, t, Sum{ .state = state, .out = &out }, Sum.add);
+    if (out[3] > 0) for (0..3) |k| {
+        out[k] /= out[3];
+    };
+    return out;
+}
+
+test "plate set: a mirror moves the paint with the part, and it comes back from each file" {
+    const gpa = testing.allocator;
+    const session = @import("session.zig");
+    const cube = try boxStl(gpa, 40, 20, 10);
+    defer gpa.free(cube);
+    const set = try Set.create(gpa, null, null, false);
+    defer set.destroy();
+    const app = set.appOf(0).?;
+    try app.loadStl("box.stl", cube);
+    const p = &app.plate.parts.items[0];
+    // A round patch away from the center of the top, so that a mirror moves it.
+    const b = p.mesh.bounds();
+    const sphere: zs.paint.Sphere = .{ .c = .{ @floatCast(b.min[0] + 9), @floatCast(b.min[1] + 7), @floatCast(b.max[2]) }, .r = 5 };
+    for (0..p.mesh.faces.items.len) |t| _ = try zs.paint.brushTriangle(&p.paint, gpa, &p.mesh, t, sphere, 2, 0.4);
+    const before = paintedCenter(app, 0, 2);
+    try testing.expect(before[3] > 40);
+    const mid_x = (@as(f64, b.min[0]) + b.max[0]) / 2;
+    try app.plate.mirror(gpa, 0, 0);
+    const after = paintedCenter(app, 0, 2);
+    const c = app.plate.parts.items[0].mesh.bounds();
+    const mid_after = (@as(f64, c.min[0]) + c.max[0]) / 2;
+    try testing.expectApproxEqAbs(before[3], after[3], 1e-3);
+    try testing.expectApproxEqAbs(before[0] - mid_x, -(after[0] - mid_after), 1e-3);
+    try testing.expectApproxEqAbs(before[1], after[1], 1e-3);
+    for (0..3) |mode| {
+        const back = try Set.create(gpa, null, null, false);
+        defer back.destroy();
+        var diag: project_file.Diagnostic = .{};
+        var fresh: ?*App = null;
+        defer if (fresh) |f| f.destroy();
+        switch (mode) {
+            0 => {
+                const bytes = try session.write(gpa, set, null, "");
+                defer gpa.free(bytes);
+                const r = try session.read(gpa, bytes, back, &diag);
+                gpa.free(r.app_text);
+            },
+            1 => {
+                const bytes = try project_file.save(gpa, "test", &.{.{ .app = app, .name = "Plate" }}, 0);
+                defer gpa.free(bytes);
+                try back.openProject(bytes, &diag);
+            },
+            else => {
+                const bytes = try app.write3mfAlloc(gpa);
+                defer gpa.free(bytes);
+                fresh = try App.create(gpa, null, null);
+                try fresh.?.loadStl("box.3mf", bytes);
+            },
+        }
+        const q = fresh orelse back.appOf(0).?;
+        const got = paintedCenter(q, 0, 2);
+        try testing.expectApproxEqAbs(after[3], got[3], 1e-3);
+        try testing.expectApproxEqAbs(after[1], got[1] - (@as(f64, q.plate.parts.items[0].mesh.bounds().min[1]) - c.min[1]), 1e-3);
+        // A second mirror after the reload brings the paint back too.
+        try q.plate.mirror(gpa, 0, 0);
+        const again = paintedCenter(q, 0, 2);
+        const e = q.plate.parts.items[0].mesh.bounds();
+        try testing.expectApproxEqAbs(before[0] - mid_x, again[0] - (@as(f64, e.min[0]) + e.max[0]) / 2, 1e-3);
+    }
+    // Reset brings the first paint back.
+    try app.plate.resetPose(gpa, 0);
+    const reset = paintedCenter(app, 0, 2);
+    const r = app.plate.parts.items[0].mesh.bounds();
+    try testing.expectApproxEqAbs(before[0] - mid_x, reset[0] - (@as(f64, r.min[0]) + r.max[0]) / 2, 1e-3);
+}
+
 test "plate set: a part put down on a side comes back the same from a session, a project, and a 3MF file" {
     const gpa = testing.allocator;
     const session = @import("session.zig");

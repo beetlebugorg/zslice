@@ -225,6 +225,9 @@ pub const Part = struct {
     /// file): a filament for each triangle, or for its pieces (see
     /// paint.zig). Empty: no paint.
     paint: paint_mod.Paint = .{},
+    /// True if the faces of `mesh` are reversed from the file (a mirror).
+    /// The trees of `paint` follow the order of the vertices of `mesh`.
+    faces_flipped: bool = false,
     /// The labels on the surface of the part (see label.zig), in the
     /// frame of the file mesh (`source`, else `mesh`).
     labels: std.ArrayList(label_mod.Label) = .empty,
@@ -922,6 +925,10 @@ pub const Plate = struct {
         const flip = p.scale[0] * p.scale[1] * p.scale[2] < 0;
         try m.faces.ensureTotalCapacity(gpa, src.faces.items.len);
         for (src.faces.items) |f| m.faces.appendAssumeCapacity(if (flip) .{ f[0], f[2], f[1] } else f);
+        if (flip != p.faces_flipped) {
+            try p.paint.reverseFaces(gpa);
+            p.faces_flipped = flip;
+        }
         p.mesh.deinit(gpa);
         p.mesh = m;
         p.measure();
@@ -1231,6 +1238,7 @@ pub const Plate = struct {
         }
         p.pose = pose;
         p.scale = scale;
+        p.faces_flipped = flip;
     }
 
     /// The orientation and the scale of the file again.

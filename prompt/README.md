@@ -1,6 +1,6 @@
 # A prompt that could build zslice
 
-Describes: main through "Add a gzip call to the core for the app shells", 2026-11-23.
+Describes: main through "Keep the paint of a part in place through a mirror", 2026-11-23.
 
 ## Read this first
 
