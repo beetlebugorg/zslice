@@ -37,15 +37,11 @@ The line card has the row **Filament**. It is for this part of the layer only: t
 
 The other parts of the layer keep their filament. Only the lines of that part on that layer change, as in [Give a body a filament](#give-a-body-a-filament). Each change is one step of the history, and Ctrl+Z undoes it.
 
-## Move and size the cards
+## Where the card shows
 
-The cards remember where you put them:
+In the web app, the card of a selection is a page of the **Inspector**, the column beside the view. It never covers the view, and a selection does not move or resize the view. Press N to show or hide the column. In a narrow window, the column is a row under the view. It opens only when you click the panel button in the header. A dot on that button shows that a selection has a page.
 
-- Drag the top row of a card to move it. The next card of that kind opens there.
-- Drag the lower right corner to make it larger or smaller. The size stays too.
-- Double-click the top row to give the card its automatic place and size again.
-
-A card never covers the line that you clicked. If its place is over the line, the card goes beside it for this time only. The line card, the layers card, the part card, and the search keep their places in this browser.
+In the other apps, the card still opens over the view until they get the Inspector. Drag its top row to move it, and drag its lower right corner to change its size.
 
 ## Select a run
 
@@ -66,7 +62,7 @@ Use the Select tool (V). Press on a line, and drag up or down. The body of that 
 - Only the part that you pressed on. The other parts on the plate stay as they are.
 - Only the body joined to that line. A tube that rises from a lid lights alone, with no lid. The light stops where the shape gets much wider at once.
 
-Shift+J and Shift+K do the same from a selected line. Release the button: a card opens beside the layers, and it covers no part of them. It shows "Layers A–B" and the settings that can change for some layers: the infill density and pattern, the walls, the speeds, the fan, and the temperature. "+ Add a setting for these layers" finds the others. A change is for these layers, on all the parts of the plate, and the part slices at once. Esc, ×, or a click elsewhere ends the selection.
+Shift+J and Shift+K do the same from a selected line. Release the button: the card of the layers opens. It shows "Layers A–B" and the settings that can change for some layers: the infill density and pattern, the walls, the speeds, the fan, and the temperature. "+ Add a setting for these layers" finds the others. A change is for these layers, on all the parts of the plate, and the part slices at once. Esc, ×, or a click elsewhere ends the selection.
 
 A drag that starts on the bed or in the air turns the view.
 

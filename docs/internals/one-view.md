@@ -71,13 +71,12 @@ Each plate is one `App` (`zs_app`), with its own settings, profiles, parts, slic
 
 - The settings search (`/`) with live controls in the results, which the user can move (search.js).
 - The sheet of the keyboard shortcuts (`?`, shortcuts.js).
-- The panel as a drawer: hidden, over the view, or pinned (`N`, the sliders button, Pin). The print card floats over the view.
-- The line card in a corner of the view, away from the selected line, with the numbers of the line and live editors of its first settings (linecard.js).
+- The Inspector (dock.js): one column beside the view, with the tabs Inspector and Settings (`N` shows or hides it). The column is layout, so no page of a selection draws over the view. A selection changes its content, and never opens, closes, or resizes it. In a window of 760 px or less, it is a row under the view that opens only when the user asks.
+- The line page of the Inspector, with the numbers of the line and live editors of its first settings (linecard.js).
 - The tool strip at the left of the view (Select, Move, Measure), with the key of each tool.
-- The part card (partcard.js): duplicate (core: `zs_app_part_duplicate`), best orientation, less support, reset, remove, and the settings of the part, with a search for the part.
-- The range card (rangecard.js): a drag of the Select tool from a line lights layers, and the card edits overrides for them (setScoped with zmin and zmax).
-- A selection of several parts (Shift and a click): a frame for each (`zs_view_part_boxes`), and the part card with the actions for all of them, each one call to the worker and one step of the history.
-- The cards move with a drag of their head (drag.js).
+- The part page of the Inspector (partcard.js): duplicate (core: `zs_app_part_duplicate`), best orientation, less support, reset, remove, and the settings of the part, with a search for the part.
+- The range page of the Inspector (rangecard.js): a drag of the Select tool from a line lights layers, and the page edits overrides for them (setScoped with zmin and zmax).
+- A selection of several parts (Shift and a click): a frame for each (`zs_view_part_boxes`), and the part page with the actions for all of them, each one call to the worker and one step of the history.
 - The measure on the tape, and the tape in the 2D view.
 - The gizmo of the Move tool (gizmo.js): rings for X, Y, and Z, and arrows for X, Y, and Z (the arrow of Z lifts the part) on the selected part, the drag of the part with smart guides (`zs_part_snap`), a preview on each frame, and a live draft slice that follows the drag.
 - A double click on a side of a part lays the part down on that side.

@@ -35,9 +35,9 @@ A rail or a card stays open until you click × or press Esc. The app remembers t
 
 ![The settings panel, pinned at the right, at Top thickness: its value, its formula, its default, and the lines that it changes. The Benchy shows only its skin](../img/settings-panel.webp "The panel at one setting: the view shows only the lines that the setting changes.")
 
-1. Press N, or click the panel button in the header.
-2. Click a section, then a setting. The › at the end of a row opens the page of the setting.
-3. Click **Pin** to put the panel beside the view. Drag the splitter to change its width.
+1. Press N, or click the panel button in the header, to show the column beside the view.
+2. Click the **Settings** tab. Click a section, then a setting. The › at the end of a row opens the page of the setting.
+3. Drag the splitter to change the width of the column.
 
 The sections come in the order of use. The part starts with the layers, the lines, the walls, the skin, and the infill. Then come the speed, the travel, the support, and the skirt and brim. The filament starts with the filament, the temperatures, the flow, and the cooling. In each section, the settings that most people change come first, and the expert settings come last. The search (`/`) finds each setting.
 

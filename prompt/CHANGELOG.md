@@ -61,3 +61,4 @@ One line for each update: the date, the commit that the folder describes, and th
 | 2026-11-23 | Add network printing to the Windows app | README, CHANGELOG, 12: the main button, Print the plate, and the queue Send ask if the bed is clear, with Cancel as the default. `UploadAndPrint` is the one call that sends `print=true`. |
 | 2026-11-23 | Add a gzip call to the core for the app shells | README, CHANGELOG: `zs_gzip` and `zs_gzip_free` give the shells one gzip encoder. |
 | 2026-11-23 | Keep the paint of a part in place through a mirror | README, CHANGELOG: a mirror rewrites each paint tree for the reversed faces. |
+| 2026-11-23 | Describe the Inspector in the docs | README, CHANGELOG, 09: the docked Inspector replaces the floating cards on web. |
