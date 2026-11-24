@@ -370,10 +370,14 @@ pub const App = struct {
     quality: []const zs.settings.Change = &.{},
     global: []const zs.settings.Change = &.{},
     /// The settings of the parts and the modifier volumes for the running
-    /// slice (see part_settings.zig), the meshes that it points to, and
-    /// the parts of the plate job (in `slice_arena`).
+    /// slice (see part_settings.zig), and the parts of the plate job (in
+    /// `slice_arena`). They point into `placed`.
     slice_plan: ?zs.part_settings.Plan = null,
-    slice_meshes: []zs.Mesh = &.{},
+    /// The placed mesh of each part and each modifier volume, with its
+    /// key (see `makeSlicePlan`). A placed mesh stays between slices while
+    /// its key stays, so a slice with no change of the plate copies no
+    /// mesh and hashes no mesh.
+    placed: []Placed = &.{},
     slice_parts: []const zs.plate_job.PartInput = &.{},
     /// The parts that the last slice left out (too low to slice).
     slice_left_out: [8]zs.plate_job.LeftOut = undefined,
@@ -447,6 +451,7 @@ pub const App = struct {
         app.trees_note.deinit(app.gpa);
         app.trees_note_out.deinit(app.gpa);
         app.dropSlicePlan();
+        app.dropPlaced();
         for (app.plates.items) |*slot| slot.deinit(app.gpa);
         app.plates.deinit(app.gpa);
         if (app.mesh) |*m| m.deinit(app.gpa);
@@ -3196,9 +3201,6 @@ pub const App = struct {
     fn dropSlicePlan(app: *App) void {
         if (app.slice_plan) |*p| p.deinit();
         app.slice_plan = null;
-        for (app.slice_meshes) |*m| m.deinit(app.gpa);
-        app.gpa.free(app.slice_meshes);
-        app.slice_meshes = &.{};
         if (app.slice_arena) |*a| a.deinit();
         app.slice_arena = null;
         app.slice_parts = &.{};
@@ -3298,31 +3300,106 @@ pub const App = struct {
         return out;
     }
 
+    /// The placed mesh of a part or of a modifier volume of it, for a
+    /// slice. The key is the content of the mesh and the place
+    /// (plate.Part.placedKey), so a mesh with the key in its slot is the
+    /// mesh that `Plate.partMesh` makes now.
+    const Placed = struct {
+        /// The slot: the stable id of the part, and 0 for the part or
+        /// k + 1 for its volume k.
+        id: u64 = 0,
+        which: usize = 0,
+        key: u64 = 0,
+        mesh: zs.Mesh = .empty,
+        /// The key of the faces (plate_job.shapeKey) and the box.
+        shape_key: u64 = 0,
+        box: zs.mesh.Bounds3 = .{ .min = @splat(0), .max = @splat(0) },
+
+        fn deinit(pl: *Placed, gpa: Allocator) void {
+            pl.mesh.deinit(gpa);
+            pl.* = .{};
+        }
+    };
+
+    /// Frees the placed meshes. The next slice makes them again.
+    fn dropPlaced(app: *App) void {
+        for (app.placed) |*pl| pl.deinit(app.gpa);
+        app.gpa.free(app.placed);
+        app.placed = &.{};
+    }
+
+    /// The placed mesh of part i (`which` 0) or of its volume which - 1:
+    /// the one of the slice before if its slot has the key, else a new
+    /// one.
+    fn takePlaced(app: *App, i: usize, which: usize) Allocator.Error!Placed {
+        const p = &app.plate.parts.items[i];
+        const key = p.placedKey(which);
+        for (app.placed) |*o| if (o.key == key and o.id == p.id and o.which == which) {
+            const r = o.*;
+            o.* = .{};
+            return r;
+        };
+        var m = if (which == 0) try app.plate.partMesh(app.gpa, i) else try app.plate.volumeMesh(app.gpa, i, which - 1);
+        errdefer m.deinit(app.gpa);
+        return .{ .id = p.id, .which = which, .key = key, .mesh = m, .shape_key = zs.plate_job.shapeKey(&m), .box = m.bounds() };
+    }
+
+    /// True if each known key of a mesh of the plate is the key of the
+    /// mesh now (plate.Part.mesh_key). A change of a mesh with no
+    /// `touchMesh` after it makes this false. The slice verifier checks it
+    /// after each step.
+    pub fn meshKeysFresh(app: *const App) bool {
+        for (app.plate.parts.items) |*p| {
+            if (p.mesh_key != 0 and p.mesh_key != p.mesh.contentKey()) return false;
+            for (p.volumes.items) |*v| if (v.mesh_key != 0 and v.mesh_key != v.mesh.contentKey()) return false;
+        }
+        return true;
+    }
+
     /// The parts of the plate job for the next slice: the mesh of each
     /// part on the bed, its settings and its modifier volumes (see
     /// part_settings.zig), and the support marks of the user over it.
     fn makeSlicePlan(app: *App) Allocator.Error!void {
         support_trees.check(app);
+        // A key that is stale is a cache fault: check the keys in a build
+        // with safety checks (see `meshKeysFresh`).
+        if (std.debug.runtime_safety) std.debug.assert(app.meshKeysFresh());
         app.dropSlicePlan();
         app.slice_arena = .init(app.gpa);
         const a = app.slice_arena.?.allocator();
         var n: usize = 0;
         for (app.plate.parts.items) |p| n += 1 + p.volumes.items.len;
-        app.slice_meshes = try app.gpa.alloc(zs.Mesh, n);
-        @memset(app.slice_meshes, .empty);
+        // The placed meshes of this slice. Each one comes from the list
+        // of the slice before if its key is the same. The rest of that
+        // list goes (a part that changed or went).
+        const placed = try app.gpa.alloc(Placed, n);
+        @memset(placed, .{});
+        var k: usize = 0;
+        errdefer {
+            for (placed[0..k]) |*pl| pl.deinit(app.gpa);
+            app.gpa.free(placed);
+        }
+        for (app.plate.parts.items, 0..) |p, i| {
+            placed[k] = try app.takePlaced(i, 0);
+            k += 1;
+            for (0..p.volumes.items.len) |vk| {
+                placed[k] = try app.takePlaced(i, vk + 1);
+                k += 1;
+            }
+        }
+        app.dropPlaced();
+        app.placed = placed;
         const inputs = try a.alloc(zs.part_settings.Input, n);
         // The plate index of each input that is a part.
         const part_of = try a.alloc(?u32, n);
-        var k: usize = 0;
+        k = 0;
         for (app.plate.parts.items, 0..) |p, i| {
             const host = k;
-            app.slice_meshes[k] = try app.plate.partMesh(app.gpa, i);
-            inputs[k] = .{ .name = p.name, .meta = p.meta, .mesh = &app.slice_meshes[k] };
+            inputs[k] = .{ .name = p.name, .meta = p.meta, .mesh = &placed[k].mesh };
             part_of[k] = @intCast(i);
             k += 1;
-            for (p.volumes.items, 0..) |v, vk| {
-                app.slice_meshes[k] = try app.plate.volumeMesh(app.gpa, i, vk);
-                inputs[k] = .{ .name = v.name, .meta = v.meta, .mesh = &app.slice_meshes[k], .host = host };
+            for (p.volumes.items) |v| {
+                inputs[k] = .{ .name = v.name, .meta = v.meta, .mesh = &placed[k].mesh, .host = host };
                 part_of[k] = null;
                 k += 1;
             }
@@ -3333,13 +3410,14 @@ pub const App = struct {
         var n_parts: usize = 0;
         app.slice_left_out_n = 0;
         for (plan.parts) |pp| {
-            const mesh = &app.slice_meshes[pp.input];
+            const pl = &placed[pp.input];
+            const mesh = &pl.mesh;
             // A part lower than half of the first layer: no layer cuts it.
             // It stays out of the slice, so that the other parts slice,
             // and the check names it (checks.fitIssues). With no other
             // part, the slice fails with PartTooThin.
             if (plan.parts.len > 1) {
-                const bb = mesh.bounds();
+                const bb = pl.box;
                 if (bb.max[2] * app.settings.filament.shrinkage_z < app.settings.project.first_layer_height / 2) {
                     if (app.slice_left_out_n < app.slice_left_out.len) {
                         const nm = if (part_of[pp.input]) |pi| app.plate.parts.items[pi].name else "";
@@ -3352,7 +3430,7 @@ pub const App = struct {
             const out = &all_parts[n_parts];
             n_parts += 1;
             // The marks of the user over the box of the part.
-            const b = mesh.bounds();
+            const b = pl.box;
             var marks: std.ArrayList(zs.support.Mark) = .empty;
             for (app.slice_marks) |mk| {
                 const rx = @max(mk.r, mk.hw);
@@ -3400,6 +3478,9 @@ pub const App = struct {
             }
             out.* = .{
                 .mesh = mesh,
+                .mesh_key = pl.key,
+                .shape_key = pl.shape_key,
+                .box = pl.box,
                 .changes = changes,
                 .modifiers = pp.modifiers,
                 .picks = pp.picks,
@@ -3475,6 +3556,7 @@ pub const App = struct {
     pub fn dropWork(app: *App) void {
         app.stopWorker();
         app.dropPrevJob();
+        app.dropPlaced();
         if (app.job) |*j| j.dropMemos();
         app.drop_work = true;
     }
@@ -5644,6 +5726,48 @@ test "app: a trim keeps the result, and the next slice gives the same G-code" {
     try fresh.startSlice();
     fresh.stopWorkerForTest();
     try testing.expectEqualStrings(fresh.gcode().?, app.gcode().?);
+}
+
+test "app: a slice with no change of the plate keeps the placed mesh, and a move makes it again" {
+    const gpa = testing.allocator;
+    var mesh = try zs.mesh.shapes.demo(gpa);
+    var bytes: std.Io.Writer.Allocating = .init(gpa);
+    defer bytes.deinit();
+    try mesh.writeStl(&bytes.writer);
+    mesh.deinit(gpa);
+    const app = try App.create(gpa, null, null);
+    defer app.destroy();
+    try app.loadStl("demo.stl", bytes.written());
+    try app.startSlice();
+    app.stopWorkerForTest();
+    try testing.expectEqual(@as(usize, 1), app.placed.len);
+    const verts = app.placed[0].mesh.vertices.items.ptr;
+    const key = app.placed[0].key;
+    // A setting: the same placed mesh, with no copy.
+    try app.setSetting("project.infill_density", "0.35");
+    try app.requestSlice();
+    app.stopWorkerForTest();
+    try testing.expectEqual(verts, app.placed[0].mesh.vertices.items.ptr);
+    try testing.expectEqual(key, app.placed[0].key);
+    // A move: a new key and a new mesh, at the new place.
+    const p = app.plate.parts.items[0];
+    try app.movePart(0, p.x + 3, p.y);
+    try app.requestSlice();
+    app.stopWorkerForTest();
+    try testing.expect(app.placed[0].key != key);
+    var want = try app.plate.partMesh(gpa, 0);
+    defer want.deinit(gpa);
+    try testing.expectEqualSlices(zs.mesh.Vec3, want.vertices.items, app.placed[0].mesh.vertices.items);
+    // A scale changes the mesh of the part: its key goes, and comes again.
+    try app.scalePart(0, .{ 1.1, 1.1, 1.1 });
+    try testing.expectEqual(@as(u64, 0), app.plate.parts.items[0].mesh_key);
+    try app.requestSlice();
+    app.stopWorkerForTest();
+    try testing.expect(app.meshKeysFresh());
+    try testing.expectEqual(app.plate.parts.items[0].mesh.contentKey(), app.plate.parts.items[0].mesh_key);
+    // dropWork frees the placed meshes.
+    app.dropWork();
+    try testing.expectEqual(@as(usize, 0), app.placed.len);
 }
 
 test "app: a support mark adds support where the settings have none" {

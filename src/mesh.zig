@@ -63,6 +63,17 @@ pub const Mesh = struct {
         return out;
     }
 
+    /// The content key of the mesh: a hash of the bytes of its vertices
+    /// and its faces. Never 0. Two meshes with the same key have the same
+    /// vertices and faces.
+    pub fn contentKey(self: *const Mesh) u64 {
+        var h = std.hash.Wyhash.init(0x3e5);
+        h.update(std.mem.asBytes(&[2]usize{ self.vertices.items.len, self.faces.items.len }));
+        h.update(std.mem.sliceAsBytes(self.vertices.items));
+        h.update(std.mem.sliceAsBytes(self.faces.items));
+        return h.final() | 1;
+    }
+
     pub fn bounds(self: Mesh) Bounds3 {
         var b: Bounds3 = .{ .min = @splat(std.math.inf(f64)), .max = @splat(-std.math.inf(f64)) };
         for (self.vertices.items) |v| {

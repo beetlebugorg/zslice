@@ -452,6 +452,12 @@ pub const Job = struct {
         /// part under the bed does not print). A plate gives 0 (see
         /// plate.Part.z).
         bed_z: ?f64 = null,
+        /// The content key of the mesh (see plate_job.PartInput.mesh_key),
+        /// or 0. The outline key has it, so an old job of another mesh
+        /// gives no work.
+        mesh_key: u64 = 0,
+        /// The box of the mesh, or null: the job finds it.
+        box: ?mesh_mod.Bounds3 = null,
     };
 
     /// The gap (mm) between the walls of a part and the root of a painted
@@ -502,7 +508,7 @@ pub const Job = struct {
         var outline_overrides: std.ArrayList(settings_mod.Override) = .empty;
         defer outline_overrides.deinit(gpa);
         for (overrides) |o| if (isOutlineSetting(o.name)) try outline_overrides.append(gpa, o);
-        var job = try initBase(gpa, mesh, settings, outline_overrides.items, opts.marks, opts.monitor, opts.old, opts.offset, opts.trees, opts.trees_layers, opts.islands, opts.slots, opts.bed_z);
+        var job = try initBase(gpa, mesh, settings, outline_overrides.items, opts.marks, opts.monitor, opts.old, opts.offset, opts.trees, opts.trees_layers, opts.islands, opts.slots, opts.bed_z, opts.mesh_key, opts.box);
         errdefer job.deinit();
         job.rings = opts.rings;
         if (overrides.len > 0) try job.resolveLayers(settings, overrides);
@@ -706,7 +712,7 @@ pub const Job = struct {
         self.layer_resolved = try list.toOwnedSlice(gpa);
     }
 
-    fn initBase(gpa: Allocator, mesh: *const Mesh, settings: Settings, outline_overrides: []const settings_mod.Override, marks: []const support_mod.Mark, monitor: Monitor, old: ?*Job, offset: ?[2]f64, trees: ?*const skel_mod.Skeleton, trees_layers: u64, find_islands: bool, slots: settings_mod.SlotNozzles, bed_z: ?f64) Error!Job {
+    fn initBase(gpa: Allocator, mesh: *const Mesh, settings: Settings, outline_overrides: []const settings_mod.Override, marks: []const support_mod.Mark, monitor: Monitor, old: ?*Job, offset: ?[2]f64, trees: ?*const skel_mod.Skeleton, trees_layers: u64, find_islands: bool, slots: settings_mod.SlotNozzles, bed_z: ?f64, mesh_key: u64, box: ?mesh_mod.Bounds3) Error!Job {
         // The offset method of project.fast_offsets: a switch of the
         // process, so each slice sets it (the CLI too). `outlineKey` has
         // the setting, so a job with the other method keeps no work.
@@ -717,7 +723,7 @@ pub const Job = struct {
 
         // Step 2.
         if (mesh.faces.items.len == 0) return error.EmptyMesh;
-        const b = mesh.bounds();
+        const b = box orelse mesh.bounds();
         const f = settings.filament;
         // The bed: the lowest point of the mesh, or the bed z of the
         // options (a part that floats or sinks).
@@ -737,7 +743,7 @@ pub const Job = struct {
 
         // The outlines depend only on the mesh and these values. If an
         // older job has the same key, its outlines are good.
-        const key = outlineKey(settings, outline_overrides, height, b, dx, dy);
+        const key = outlineKey(settings, outline_overrides, height, b, dx, dy, mesh_key);
         var job: Job = .{
             .gpa = gpa,
             .resolved = r,
@@ -771,9 +777,14 @@ pub const Job = struct {
             job.memos = try gpa.alloc(layer_mod.Memo, job.layers.len);
             for (job.memos) |*mm| mm.* = .init(gpa);
             // Keep the results that the old job or the job before it used.
+            // A memo that keeps all its results moves with no copy.
             const min_gen = o.gen -| 1;
             for (job.memos, o.memos) |*mine, *theirs| {
-                const kept = try theirs.keep(gpa, min_gen);
+                const kept = if (theirs.keepsAll(min_gen)) moved: {
+                    const whole = theirs.*;
+                    theirs.* = .init(gpa);
+                    break :moved whole;
+                } else try theirs.keep(gpa, min_gen);
                 mine.deinit();
                 mine.* = kept;
             }
@@ -1752,9 +1763,12 @@ const Pipeline = struct {
 /// setting but its skip list in settings_tiers.zig), and the overrides
 /// that pass 1 uses. The geometry tier reads project.fast_offsets: the
 /// offsets read its switch of the process (see initBase).
-fn outlineKey(settings: Settings, outline_overrides: []const settings_mod.Override, height: f64, b: mesh_mod.Bounds3, dx: f64, dy: f64) u64 {
+/// The key of the outlines of a job. A mesh key of 0 (the command line
+/// tool) adds nothing, so the key is as before the mesh key.
+fn outlineKey(settings: Settings, outline_overrides: []const settings_mod.Override, height: f64, b: mesh_mod.Bounds3, dx: f64, dy: f64, mesh_key: u64) u64 {
     var kb: form.KeyBuilder = .init(0);
     kb.add([_]f64{ height, b.min[0], b.min[1], b.min[2], b.max[0], b.max[1], b.max[2], dx, dy });
+    if (mesh_key != 0) kb.add(mesh_key);
     kb.settings(&settings, .geometry);
     for (outline_overrides) |o| {
         kb.add([2]f64{ o.z_min, o.z_max });

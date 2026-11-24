@@ -100,6 +100,14 @@ const copy_tolerance = 1e-3;
 pub const PartInput = struct {
     /// The mesh of the part on the bed (the coordinates of the plate).
     mesh: *const Mesh,
+    /// The content key of `mesh` (App.Placed), or 0: then `init` makes
+    /// it. The outline key of the job of the part has it, so an old job of
+    /// another mesh gives no work.
+    mesh_key: u64 = 0,
+    /// The key of the faces of `mesh` (`shapeKey`) and its box, or 0 and
+    /// null: then `init` makes them.
+    shape_key: u64 = 0,
+    box: ?mesh_mod.Bounds3 = null,
     /// The changes of the settings of the part, over the settings of the
     /// plate. The changes of the settings of the plate (see
     /// settings.isPlateSetting) do not apply. The strings must live as
@@ -228,9 +236,9 @@ pub const Options = struct {
     overrides: []const settings_mod.Override = &.{},
     monitor: engine.Monitor = .{},
     /// The plate job before, for its work: the job of a group takes the
-    /// work of the old job of the same part (see Job.initReuse). The
-    /// caller knows that each part has the same mesh as before. Free the
-    /// old job after the call.
+    /// work of the old job of the same part (see Job.initReuse) if its
+    /// outline key is the same. The outline key has the mesh key of the
+    /// part (`PartInput.mesh_key`). Free the old job after the call.
     old: ?*PlateJob = null,
     /// See Job.keep_memos.
     keep_memos: bool = true,
@@ -335,7 +343,7 @@ pub const PlateJob = struct {
         var all: mesh_mod.Bounds3 = .{ .min = @splat(std.math.inf(f64)), .max = @splat(-std.math.inf(f64)) };
         for (parts, boxes) |p, *b| {
             if (p.mesh.faces.items.len == 0) return error.EmptyMesh;
-            b.* = p.mesh.bounds();
+            b.* = p.box orelse p.mesh.bounds();
             for (0..3) |k| {
                 all.min[k] = @min(all.min[k], b.min[k]);
                 all.max[k] = @max(all.max[k], b.max[k]);
@@ -350,7 +358,7 @@ pub const PlateJob = struct {
         defer reps.deinit(gpa);
         const keys = try gpa.alloc(u64, parts.len);
         defer gpa.free(keys);
-        for (parts, keys) |p, *k| k.* = shapeKey(p.mesh);
+        for (parts, keys) |p, *k| k.* = if (p.shape_key != 0) p.shape_key else shapeKey(p.mesh);
         for (parts, 0..) |p, i| {
             const b = boxes[i];
             var inst: Instance = .{ .part = p.part, .name = p.name, .group = @intCast(reps.items.len), .center = .{ (b.min[0] + b.max[0]) / 2, (b.min[1] + b.max[1]) / 2 } };
@@ -407,6 +415,10 @@ pub const PlateJob = struct {
                 // The bed is at z 0: a part with a lift floats or sinks
                 // (plate.Part.z).
                 .bed_z = 0,
+                // A caller with no mesh key (a test, the command line
+                // tool) gets the key made here.
+                .mesh_key = if (p.mesh_key != 0) p.mesh_key else p.mesh.contentKey(),
+                .box = p.box,
             });
             errdefer job.deinit();
             // The scaled monitor lives only in this call.
@@ -1157,6 +1169,13 @@ pub const PlateJob = struct {
             for (split.states, 0..) |st, k| {
                 var q = p;
                 q.mesh = mesh;
+                // The mesh with the plateaus has its own faces and box. Its
+                // mesh key stays: the labels make it from the mesh of the
+                // part, and the key of the part has the labels.
+                if (mesh != p.mesh) {
+                    q.shape_key = 0;
+                    q.box = null;
+                }
                 q.paint_split = split;
                 q.paint_index = k;
                 if (k > 0) {
@@ -1733,7 +1752,7 @@ fn planStamp(settings: Settings, parts: []const PartInput, overrides: []const se
 
 /// A hash of the faces and the vertex count of a mesh: copies have the
 /// same key.
-fn shapeKey(m: *const Mesh) u64 {
+pub fn shapeKey(m: *const Mesh) u64 {
     var h = std.hash.Wyhash.init(0x9a7e);
     h.update(std.mem.asBytes(&m.vertices.items.len));
     h.update(std.mem.sliceAsBytes(m.faces.items));

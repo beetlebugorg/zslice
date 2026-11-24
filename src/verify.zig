@@ -264,6 +264,9 @@ const Twin = struct {
         } else {
             t.result.failed_slices += 1;
         }
+        // A key of a mesh that is not the key of the mesh now: the next
+        // slice can keep a placed mesh of before (plate.Part.mesh_key).
+        if (diff == null and !t.inc.meshKeysFresh()) diff = .{ .what = "a mesh key", .offset = 0, .level = 0 };
         const d = diff orelse return ok_inc;
         t.result.faults += 1;
         try t.report.print("FAULT seed {d} step {d}: ", .{ seed, step });

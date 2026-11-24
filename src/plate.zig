@@ -64,6 +64,9 @@ pub const Volume = struct {
     source: ?Mesh = null,
     /// The metadata of the volume: its role and its settings.
     meta: []Meta = &.{},
+    /// The content key of `mesh` (see `meshKey`), or 0 if it is not known.
+    /// A change of `mesh` sets it to 0.
+    mesh_key: u64 = 0,
 
     fn deinit(v: *Volume, gpa: Allocator) void {
         v.mesh.deinit(gpa);
@@ -231,6 +234,11 @@ pub const Part = struct {
     /// The labels on the surface of the part (see label.zig), in the
     /// frame of the file mesh (`source`, else `mesh`).
     labels: std.ArrayList(label_mod.Label) = .empty,
+    /// The content key of `mesh` (see `meshKey`), or 0 if it is not known.
+    /// Each change of `mesh` sets it to 0 (`touchMesh`), and the next slice
+    /// makes it again. The slice keeps the placed mesh of the part while
+    /// this key and the place stay the same (see App.makeSlicePlan).
+    mesh_key: u64 = 0,
 
     fn deinit(p: *Part, gpa: Allocator) void {
         if (p.trees) |*t| t.deinit(gpa);
@@ -242,6 +250,35 @@ pub const Part = struct {
         threemf.freeMeta(gpa, p.meta);
         for (p.volumes.items) |*v| v.deinit(gpa);
         p.volumes.deinit(gpa);
+    }
+
+    /// Marks the mesh of the part and of its volumes as changed: the next
+    /// slice makes their keys again. Call it after each change of `mesh`.
+    pub fn touchMesh(p: *Part) void {
+        p.mesh_key = 0;
+        for (p.volumes.items) |*v| v.mesh_key = 0;
+    }
+
+    /// The content key of the mesh of the part, made now if it is not
+    /// known.
+    pub fn meshKey(p: *Part) u64 {
+        if (p.mesh_key == 0) p.mesh_key = p.mesh.contentKey();
+        return p.mesh_key;
+    }
+
+    /// The key of the placed mesh of the part (`Plate.partMesh`): the
+    /// content key of the mesh, and each field that `placed` reads. Volume
+    /// k gets k + 1 in `which`, and the content key of its own mesh.
+    pub fn placedKey(p: *Part, which: usize) u64 {
+        var h = std.hash.Wyhash.init(0x91ace);
+        h.update(std.mem.asBytes(&p.meshKey()));
+        if (which > 0) {
+            const v = &p.volumes.items[which - 1];
+            if (v.mesh_key == 0) v.mesh_key = v.mesh.contentKey();
+            h.update(std.mem.asBytes(&[2]u64{ which, v.mesh_key }));
+        }
+        h.update(std.mem.asBytes(&[_]f64{ p.x, p.y, p.z, p.rot, p.shift[0], p.shift[1] }));
+        return h.final() | 1;
     }
 
     pub fn freeLabels(p: *Part, gpa: Allocator) void {
@@ -931,6 +968,7 @@ pub const Plate = struct {
         }
         p.mesh.deinit(gpa);
         p.mesh = m;
+        p.touchMesh();
         p.measure();
         for (p.volumes.items) |*v| {
             if (v.source == null) v.source = try cloneMesh(gpa, &v.mesh);

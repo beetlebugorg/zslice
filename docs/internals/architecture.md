@@ -140,13 +140,13 @@ zslice uses arenas for temporary memory. An arena frees all its memory in one st
 - Each boolean, offset, fill, and plan takes an arena for its intermediate data from the pool in `scratch.zig`, and gives it back at the end. The arena keeps its memory (up to 16 MB) for the next call, so a slice does not get new pages from the operating system for each call. The engine frees the memory of the pool at the end of a slice. The result of a call goes in the allocator of the caller.
 - `layer.plan` puts the plan in its own arena (it lives until the G-code is written).
 - `slicer.sliceAt` uses a pool arena for the segments and chains of a layer.
-- The memo of each layer (`layer.Memo`) has its own arena with the results of the slow steps (offsets, skin, fill regions) by their inputs. An app keeps the memos for the next slice (`Job.initReuse`). A one-shot slice frees each memo after the plan of its layer (`Job.keep_memos`).
+- The memo of each layer (`layer.Memo`) has its own arena with the results of the slow steps (offsets, skin, fill regions) by their inputs. An app keeps the memos for the next slice (`Job.initReuse`). A memo whose results the last two slices used moves to the new job with no copy (`Memo.keepsAll`). A one-shot slice frees each memo after the plan of its layer (`Job.keep_memos`).
 
 Long-lived memory:
 
 | Data | Lifetime | Size |
 |---|---|---|
-| Mesh | The whole slice | 12 bytes for each vertex, 12 bytes for each triangle |
+| Mesh | The whole slice. An app keeps the placed mesh of each part until the part changes (`App.placed`) | 12 bytes for each vertex, 12 bytes for each triangle |
 | Face index | Pass 1 | 4 bytes for each (triangle, layer) crossing |
 | Outlines and surfaces | The whole slice | 16 bytes for each outline point |
 | Memos | The slice, or until the next slice of an app | The results of the slow steps of a layer |
@@ -230,5 +230,7 @@ A key reads every setting, minus a skip list for its tier (`src/settings_tiers.z
 No tier reads the six app preferences (`engine.threads`, `engine.draft_slices`, `engine.auto_simulate`, `engine.slice_form`, `engine.verify_slices`, `engine.form_budget_mb`). A name enters a skip list only with a search of the code of the tier and a pass of `zslice verify --sweep` (see [The slice verifier](code-quality.md#the-slice-verifier)).
 
 The key of a level (`PlateJob.levelKey`) hashes the inputs of all levels (`planStamp`), the index, the z, and the height of the level, the support of the level, and the support of the level under it. The stream of a level starts where the level under it ends, so a change under it makes it dirty too. `PlateJob.forms` keeps two generations of the stream of each level (`form.LevelForm`): the stream of the last slice, and the stream before it. So an undo of a change plans no level. With `engine.slice_form` off, only one generation stays, and the reuse is as before the slice form.
+
+The placed mesh of each part (the mesh on the bed) is the first piece. `plate.Part.mesh_key` is a hash of the vertices and the faces of the mesh of the part. Each change of that mesh sets the key to 0 (`Part.touchMesh`), and the next slice makes it again. `App.makeSlicePlan` keeps the placed mesh of each part and each modifier volume (`App.placed`) with a key of the mesh key and the place (`Part.placedKey`). A slice with no change of the plate copies no mesh and hashes no mesh. The outline key of a job has the key of its placed mesh (`Job.Options.mesh_key`), so an old job of another mesh gives no work. `zslice verify` checks after each step that each known mesh key is the key of the mesh now (`App.meshKeysFresh`).
 
 A slot holds a key and the stream that the key made, as a pair. The pipeline frees the old stream of a level first, then stores the new stream, then its key (`Pipeline.writeOne`). So a cancel or a failed encode leaves a slot with no key, and the next slice plans that level.

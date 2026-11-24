@@ -775,6 +775,17 @@ pub const Memo = struct {
         self.arena.deinit();
     }
 
+    /// True if a slice of generation `min_gen` or later used each result:
+    /// then `keep` drops nothing, and the memo can move as it is.
+    pub fn keepsAll(self: *const Memo, min_gen: u32) bool {
+        inline for (@typeInfo(Memo).@"struct".fields) |f| {
+            if (comptime f.type != std.heap.ArenaAllocator) {
+                for (@field(self, f.name).items) |e| if (e.gen < min_gen) return false;
+            }
+        }
+        return true;
+    }
+
     /// A new memo with the results that a slice of generation `min_gen` or
     /// later used. The copy also frees the memory of the dropped results.
     pub fn keep(self: *const Memo, gpa: Allocator, min_gen: u32) Allocator.Error!Memo {
