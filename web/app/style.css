@@ -220,7 +220,7 @@ button.pill { border-radius: 999px; padding: 6px 22px; background: var(--accent-
 /* The view ends at the top of the dock: the camera frames the plates and
    their signs in the part that shows. Its top left stays at the top left
    of the preview, so the floats keep their places. */
-.preview #gl { height: auto; bottom: var(--dock-h, 0px); }
+.preview #gl { height: calc(100% - var(--dock-h, 0px)); bottom: auto; }
 .preview.drop { outline: 3px dashed var(--accent-bg); outline-offset: -8px; }
 .panel {
   width: 380px; max-width: 75vw; min-width: 300px; flex: none;

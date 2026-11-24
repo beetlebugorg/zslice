@@ -405,7 +405,11 @@ function resize() {
   if (changed && typeof drawFrame === "function") drawFrame(performance.now());
   else requestFrame();
 }
-new ResizeObserver(resize).observe(canvas);
+// The window and the column change the size of the view too.
+const viewSize = new ResizeObserver(resize);
+viewSize.observe(canvas);
+viewSize.observe($("preview"));
+window.addEventListener("resize", resize);
 
 const dpr = () => window.devicePixelRatio || 1;
 
@@ -2079,7 +2083,11 @@ var prefsFollowers = new Set(); // var: applySettings can run before this line
 
 // The height of the dock, for the print card over it in a narrow view
 // (the dock wraps onto more rows).
-new ResizeObserver(() => $("preview").style.setProperty("--dock-h", `${$("dock").offsetHeight}px`)).observe($("dock"));
+new ResizeObserver(() => {
+  $("preview").style.setProperty("--dock-h", `${$("dock").offsetHeight}px`);
+  // The view ends at the top of the dock: its size follows at once.
+  resize();
+}).observe($("dock"));
 // The height of the print card, for the layer slider over it.
 new ResizeObserver(() => $("preview").style.setProperty("--card-h", `${$("summary").offsetHeight}px`)).observe($("summary"));
 
