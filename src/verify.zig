@@ -472,6 +472,9 @@ fn runRandom(gpa: Allocator, io: Io, models: []const Model, opts: *const Options
         const arena = arena_state.allocator();
         var prng: std.Random.DefaultPrng = .init(seed);
         const rnd = prng.random();
+        // The result must not depend on the thread count: in the last
+        // seed of more than one, `inc` slices with one thread.
+        if (opts.seeds.len > 1 and seed == opts.seeds[opts.seeds.len - 1]) try t.inc.setSetting("engine.threads", "1");
         for (t.apps()) |app| _ = app.undo.commit(app, 0);
         _ = try t.check(seed, 0, null, "first slice");
         var text: [512]u8 = undefined;

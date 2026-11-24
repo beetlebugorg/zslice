@@ -70,6 +70,7 @@ const engine = @import("engine.zig");
 const gcode_mod = @import("gcode.zig");
 const layer_mod = @import("layer.zig");
 const stream_mod = @import("stream.zig");
+const form = @import("form.zig");
 const support_mod = @import("support.zig");
 const islands_mod = @import("islands.zig");
 const parallel = @import("parallel.zig");
@@ -271,18 +272,16 @@ pub const PlateJob = struct {
     /// The shapes that start in the air (see islands.zig), of all parts,
     /// at their places, with the index of their level.
     islands: []islands_mod.Island = &.{},
-    /// The move stream of each level (see stream.zig): the stored form of
-    /// the print. `writeGcode` fills them. A level with a valid stream
-    /// needs no plan: the G-code comes from the stream and the settings
-    /// of this job. Empty without Options.streams.
-    streams: []stream_mod.Stream = &.{},
-    /// The key of the support of each level when its stream was made (see
-    /// `supportKey`): the stamp leaves the support out, so an edit of the
-    /// support (a tree, a mark, an area) plans only the levels whose
-    /// support changed, and the level after each one.
-    stream_support: []u64 = &.{},
-    /// A hash of all inputs of the layer plans (see `planStamp`).
-    stamp: u64 = 0,
+    /// The key of each level (see `levelKey`): a hash of all inputs of the
+    /// plan of the level and of its travels. Empty without
+    /// Options.streams.
+    level_keys: []form.Key = &.{},
+    /// The kept form of each level (see form.zig): the move stream of the
+    /// level, in two generations. `writeGcode` fills them. A level whose
+    /// current stream has the key of the level needs no plan: the G-code
+    /// comes from the stream and the settings of this job. Empty without
+    /// Options.streams.
+    forms: []form.LevelForm = &.{},
     /// The parts print one at a time (see the file comment).
     sequential: bool = false,
     /// The parts left out of the slice (Options.left_out).
@@ -433,26 +432,52 @@ pub const PlateJob = struct {
         // A sequential plate has no move streams: a stream starts where the
         // level before it ends, and a lift moves the head between parts.
         if (opts.streams) |extra| if (!pj.sequential) {
-            pj.stamp = planStamp(settings, parts, opts.overrides, keys, boxes, extra ^ slot_nozzles.key());
-            const old_streams: ?*PlateJob = if (opts.old) |o| (if (o.stamp == pj.stamp and o.streams.len == pj.levels.len) o else null) else null;
-            if (old_streams) |o| {
-                // The same inputs of the plans: the streams are still right,
-                // but for the levels whose support changed (writeRange).
-                pj.streams = o.streams;
-                o.streams = &.{};
-                pj.stream_support = o.stream_support;
-                o.stream_support = &.{};
-            } else {
-                pj.streams = try gpa.alloc(stream_mod.Stream, pj.levels.len);
-                @memset(pj.streams, .{});
-            }
-            if (pj.stream_support.len != pj.levels.len) {
-                gpa.free(pj.stream_support);
-                pj.stream_support = try gpa.alloc(u64, pj.levels.len);
-                @memset(pj.stream_support, 0);
-            }
+            const rest = planStamp(settings, parts, opts.overrides, keys, boxes, extra ^ slot_nozzles.key());
+            try pj.takeForms(opts.old, rest, settings.engine.slice_form);
         };
         return pj;
+    }
+
+    /// Makes the key of each level, and takes the kept forms of `old`. A
+    /// level keeps its stream if a generation of its form has its key.
+    /// With `slice_form` off, only one generation stays, so the reuse and
+    /// the memory are as with the one stamp of the whole print of before.
+    fn takeForms(pj: *PlateJob, old: ?*PlateJob, rest: u64, slice_form: bool) Allocator.Error!void {
+        const gpa = pj.gpa;
+        const n = pj.levels.len;
+        pj.level_keys = try gpa.alloc(form.Key, n);
+        for (pj.level_keys, 0..) |*k, i| k.* = pj.levelKey(rest, i);
+        // A form of another level count is of another print (rule 6 of
+        // form.zig: a check that fails drops the forms).
+        if (old) |o| if (o.forms.len == n) {
+            pj.forms = o.forms;
+            o.forms = &.{};
+        };
+        if (pj.forms.len != n) {
+            pj.forms = try gpa.alloc(form.LevelForm, n);
+            @memset(pj.forms, .{});
+        }
+        for (pj.forms, pj.level_keys) |*f, k| {
+            _ = f.select(gpa, k);
+            if (!slice_form) f.paths[1].deinit(gpa);
+        }
+    }
+
+    /// The key of level i: the inputs of all levels (`rest`, see
+    /// `planStamp`), the index, the z, and the height of the level, the
+    /// support of the level, and the support of the level under it. The
+    /// stream of a level starts where the level under it ends, so a change
+    /// of the support under it makes it dirty too (the rule of the
+    /// support edits of before).
+    fn levelKey(pj: *const PlateJob, rest: u64, i: usize) form.Key {
+        var kb: form.KeyBuilder = .init(0x1e7e1);
+        kb.add(rest);
+        kb.add(@as(u64, i));
+        kb.add(pj.levels[i].z);
+        kb.add(pj.levels[i].height);
+        kb.add(pj.supportKey(i));
+        kb.add(if (i > 0) pj.supportKey(i - 1) else @as(u64, 0));
+        return kb.final();
     }
 
     /// Frees the memos of the job of each group (see Job.dropMemos).
@@ -481,9 +506,8 @@ pub const PlateJob = struct {
         gpa.free(self.level_picks);
         self.outline0.deinit(gpa);
         gpa.free(self.islands);
-        for (self.streams) |*s| s.deinit(gpa);
-        gpa.free(self.streams);
-        gpa.free(self.stream_support);
+        form.freeForms(gpa, self.forms);
+        gpa.free(self.level_keys);
         gpa.free(self.slots);
         for (self.splits) |s| {
             s.deinit();
@@ -496,8 +520,15 @@ pub const PlateJob = struct {
 
     /// True if a level has a move stream from the job before.
     pub fn hasStreams(self: *const PlateJob) bool {
-        for (self.streams) |s| if (s.valid) return true;
+        if (self.forms.len != self.level_keys.len) return false;
+        for (self.forms, self.level_keys) |*f, k| if (f.paths[0].holds(k)) return true;
         return false;
+    }
+
+    /// Drops the kept streams of all levels: the next slice plans each
+    /// level.
+    pub fn dropForms(self: *PlateJob) void {
+        for (self.forms) |*f| f.deinit(self.gpa);
     }
 
     /// True if the plate prints as the one job of one part: then a level
@@ -1435,27 +1466,8 @@ pub const PlateJob = struct {
         return h.final();
     }
 
-    /// The streams of the levels whose support changed since their stream
-    /// was made go, and so does the stream of the level after each one (it
-    /// starts where that level ends).
-    fn dropChangedSupport(self: *const PlateJob) void {
-        if (self.streams.len != self.levels.len or self.stream_support.len != self.levels.len) return;
-        var drop_next = false;
-        for (self.streams, self.stream_support, 0..) |*st, *key, i| {
-            const now = self.supportKey(i);
-            const changed = key.* != now;
-            if (st.valid and (changed or drop_next)) {
-                st.deinit(self.gpa);
-                st.* = .{};
-            }
-            drop_next = changed;
-            key.* = now;
-        }
-    }
-
     fn writeRange(self: *const PlateJob, out: *Writer, sink: ?Job.LayerSink, lo: usize, hi: usize) Error!engine.Stats {
         const gpa = self.gpa;
-        if (lo == 0 and hi == self.levels.len) self.dropChangedSupport();
         // The drop of the levels: level lo prints at its own height above
         // the bed.
         const drop = if (lo == 0 or lo >= self.levels.len) 0 else self.levels[lo].z - self.levels[lo].height;
@@ -1539,8 +1551,9 @@ pub const PlateJob = struct {
             .done = if (keep) null else Ctx.done,
             .resolved = if (self.single()) &self.groups[0].job.resolved else &self.resolved,
             .layers = hi - lo,
-            // The streams are of the whole print.
-            .streams = if (lo == 0 and hi == self.levels.len and self.streams.len == hi) self.streams else null,
+            // The forms are of the whole print.
+            .forms = if (lo == 0 and hi == self.levels.len and self.forms.len == hi and self.level_keys.len == hi) self.forms else null,
+            .keys = self.level_keys,
             .bind = Ctx.bind,
             .slots = self.slots,
             .towers = if (lo == 0) self.towers() else .{},
@@ -2513,7 +2526,7 @@ test "plate job: one part at a time" {
     var pj = try PlateJob.init(gpa, s, &parts, .{ .streams = 1 });
     defer pj.deinit();
     try testing.expect(pj.sequential);
-    try testing.expectEqual(@as(usize, 0), pj.streams.len);
+    try testing.expectEqual(@as(usize, 0), pj.forms.len);
     const n0 = pj.jobOf(0).?.layers.len;
     const n1 = pj.jobOf(1).?.layers.len;
     try testing.expectEqual(n0 + n1, pj.layerCount());
@@ -3555,6 +3568,123 @@ test "plate job: a change flushes into the infill of the new filament" {
     try testing.expectEqual(@as(f64, 0), st2.flush_hidden_mm);
     try testing.expectEqual(st.changes, st2.changes);
     try testing.expectApproxEqRel(full_mm, st2.flush_mm, 1e-9);
+}
+
+/// A box of 10 mm on the plate, as one part, for the tests of the forms.
+fn formTestParts(m: *Mesh) [1]PartInput {
+    return .{.{ .mesh = m, .part = 0 }};
+}
+
+test "plate job: after a slice, each level holds its stream with its key" {
+    const gpa = testing.allocator;
+    var m = try testBox(0, 0, 20, 20, 4);
+    defer m.deinit(gpa);
+    var s: Settings = .{};
+    s.engine.threads = 2;
+    const parts = formTestParts(&m);
+    var pj = try PlateJob.init(gpa, s, &parts, .{ .streams = 0 });
+    defer pj.deinit();
+    const a = try gcodeOf(&pj);
+    defer gpa.free(a);
+    try testing.expectEqual(pj.levels.len, pj.forms.len);
+    for (pj.forms, pj.level_keys) |*f, k| {
+        try testing.expect(k != form.no_key);
+        try testing.expectEqual(k, f.paths[0].key);
+        try testing.expect(f.paths[0].stream.valid);
+    }
+}
+
+test "plate job: an infill change and back plans no level with the slice form" {
+    const gpa = testing.allocator;
+    var m = try testBox(0, 0, 20, 20, 4);
+    defer m.deinit(gpa);
+    for ([_]bool{ true, false }) |on| {
+        var s: Settings = .{};
+        s.engine.threads = 2;
+        s.engine.slice_form = on;
+        const parts = formTestParts(&m);
+        var pj1 = try PlateJob.init(gpa, s, &parts, .{ .streams = 0 });
+        defer pj1.deinit();
+        const a = try gcodeOf(&pj1);
+        defer gpa.free(a);
+        var s2 = s;
+        s2.project.infill_density = 0.4;
+        var pj2 = try PlateJob.init(gpa, s2, &parts, .{ .streams = 0, .old = &pj1 });
+        defer pj2.deinit();
+        const b = try gcodeOf(&pj2);
+        defer gpa.free(b);
+        var pj3 = try PlateJob.init(gpa, s, &parts, .{ .streams = 0, .old = &pj2 });
+        defer pj3.deinit();
+        const plans = plans_made.load(.monotonic);
+        const c = try gcodeOf(&pj3);
+        defer gpa.free(c);
+        try testing.expectEqualStrings(a, c);
+        const made = plans_made.load(.monotonic) - plans;
+        // On: the older generation has the streams. Off: one generation,
+        // so each level plans again, as before the slice form.
+        if (on) try testing.expectEqual(@as(usize, 0), made) else try testing.expectEqual(pj3.levels.len, made);
+    }
+}
+
+test "plate job: kept forms of another level count go" {
+    const gpa = testing.allocator;
+    var m = try testBox(0, 0, 20, 20, 4);
+    defer m.deinit(gpa);
+    var s: Settings = .{};
+    s.engine.threads = 2;
+    s.engine.slice_form = true;
+    const parts = formTestParts(&m);
+    var pj1 = try PlateJob.init(gpa, s, &parts, .{ .streams = 0 });
+    defer pj1.deinit();
+    const a = try gcodeOf(&pj1);
+    defer gpa.free(a);
+    // A form list of the wrong length, as a stale or a broken one.
+    form.freeForms(gpa, pj1.forms);
+    pj1.forms = try gpa.alloc(form.LevelForm, 1);
+    pj1.forms[0] = .{};
+    var pj2 = try PlateJob.init(gpa, s, &parts, .{ .streams = 0, .old = &pj1 });
+    defer pj2.deinit();
+    const plans = plans_made.load(.monotonic);
+    const b = try gcodeOf(&pj2);
+    defer gpa.free(b);
+    try testing.expectEqualStrings(a, b);
+    try testing.expectEqual(pj2.levels.len, plans_made.load(.monotonic) - plans);
+}
+
+test "plate job: a slice after a canceled slice gives the G-code of a new job" {
+    const gpa = testing.allocator;
+    var m = try testBox(0, 0, 20, 20, 12);
+    defer m.deinit(gpa);
+    var s: Settings = .{};
+    s.engine.threads = 2;
+    s.engine.slice_form = true;
+    const parts = formTestParts(&m);
+    var fresh = try PlateJob.init(gpa, s, &parts, .{ .streams = 0 });
+    defer fresh.deinit();
+    const want = try gcodeOf(&fresh);
+    defer gpa.free(want);
+    // A cancel in the middle of the levels.
+    const Stop = struct {
+        flag: std.atomic.Value(bool) = .init(false),
+        fn progress(ctx: ?*anyopaque, fraction: f64) void {
+            const st: *@This() = @ptrCast(@alignCast(ctx.?));
+            if (fraction > 0.6) st.flag.store(true, .release);
+        }
+    };
+    var stop: Stop = .{};
+    var s0 = s;
+    s0.project.infill_density = 0.4;
+    var pj1 = try PlateJob.init(gpa, s0, &parts, .{ .streams = 0, .monitor = .{ .ctx = &stop, .progress = Stop.progress, .cancel = &stop.flag } });
+    defer pj1.deinit();
+    var sink: Writer.Discarding = .init(&.{});
+    try testing.expectError(error.Canceled, pj1.writeGcode(&sink.writer));
+    // Each slot holds a complete stream with its key, or no key.
+    for (pj1.forms) |*f| for (&f.paths) |*p| try testing.expect(p.key == form.no_key or p.stream.valid);
+    var pj2 = try PlateJob.init(gpa, s, &parts, .{ .streams = 0, .old = &pj1 });
+    defer pj2.deinit();
+    const got = try gcodeOf(&pj2);
+    defer gpa.free(got);
+    try testing.expectEqualStrings(want, got);
 }
 
 test "plate job: a layer of two filaments from its move stream keeps its print order" {

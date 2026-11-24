@@ -635,6 +635,27 @@ W. McKeeman, "Differential Testing for Software", Digital Technical Journal, vol
 
 **How zslice uses it:** `zslice verify` gives the same edits to two apps. One app keeps its work between slices, and the other drops its work before each slice. The G-code, the toolpaths, and the statistics must be equal.
 
+### Early cutoff and verifying traces
+
+```ref
+kind: paper
+source: A. Mokhov, N. Mitchell, S. Peyton Jones
+license: Paper (facts and ideas only)
+link: https://doi.org/10.1145/3236774
+version: Proc. ACM Program. Lang. 2, ICFP, Article 79, 2018
+files: src/form.zig, src/plate_job.zig
+area: slicing
+summary: A task runs again only if the hash of one of its inputs changed; the key of each level is a hash of the inputs of its plan.
+```
+
+A. Mokhov, N. Mitchell, and S. Peyton Jones, "Build Systems a la Carte", ICFP 2018 (read on 2026-11-24). A build system with verifying traces records the hashes of the inputs of each task, and runs a task again only if one of them changed. With early cutoff, a task whose new result equals the old result stops the work after it.
+
+**License:** Paper (facts and ideas only)
+
+**Used in:** `src/form.zig`, `src/plate_job.zig`
+
+**How zslice uses it:** The key of each level (`PlateJob.levelKey`) is a hash of all inputs of the plan of the level. A slice plans a level again only if its key changed. Two generations of the stream of each level keep the result of an undo.
+
 ### Memoization
 
 ```ref

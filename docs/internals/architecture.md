@@ -224,7 +224,11 @@ A key reads every setting, minus a skip list for its tier (`src/settings_tiers.z
 | Tier | Piece | Key | Skips |
 |---|---|---|---|
 | Geometry | The outlines of a part | `engine.outlineKey` | All settings but 11 (the layer heights, the shrinkage, the XY offsets, the resolution, the gap closing, the polyholes, `project.fast_offsets`) |
-| Regions, paths | The memo of a layer, the move stream of a level | The value keys of the memo, `plate_job.planStamp` | The patch settings (`settings.patch_settings`) |
+| Regions, paths | The memo of a layer, the move stream of a level | The value keys of the memo, `PlateJob.levelKey` | The patch settings (`settings.patch_settings`) |
 | Text | The G-code of a level | None yet | Nothing |
 
 No tier reads the six app preferences (`engine.threads`, `engine.draft_slices`, `engine.auto_simulate`, `engine.slice_form`, `engine.verify_slices`, `engine.form_budget_mb`). A name enters a skip list only with a search of the code of the tier and a pass of `zslice verify --sweep` (see [The slice verifier](code-quality.md#the-slice-verifier)).
+
+The key of a level (`PlateJob.levelKey`) hashes the inputs of all levels (`planStamp`), the index, the z, and the height of the level, the support of the level, and the support of the level under it. The stream of a level starts where the level under it ends, so a change under it makes it dirty too. `PlateJob.forms` keeps two generations of the stream of each level (`form.LevelForm`): the stream of the last slice, and the stream before it. So an undo of a change plans no level. With `engine.slice_form` off, only one generation stays, and the reuse is as before the slice form.
+
+A slot holds a key and the stream that the key made, as a pair. The pipeline frees the old stream of a level first, then stores the new stream, then its key (`Pipeline.writeOne`). So a cancel or a failed encode leaves a slot with no key, and the next slice plans that level.

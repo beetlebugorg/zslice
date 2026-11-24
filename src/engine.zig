@@ -1197,6 +1197,14 @@ pub fn dropMemo(gpa: Allocator, cache: []layer_mod.Memo, i: usize) void {
     cache[i] = .init(gpa);
 }
 
+/// The kept stream of layer i, if its key is the key of the layer.
+fn storedStream(src: *const PlanSource, i: usize) ?*const stream_mod.Stream {
+    const fs = src.forms orelse return null;
+    if (i >= fs.len or i >= src.keys.len) return null;
+    const p = &fs[i].paths[0];
+    return if (p.holds(src.keys[i])) &p.stream else null;
+}
+
 /// Where pass 2 gets its layer plans: from one job, or from the jobs of
 /// the parts of a plate (see plate_job.zig).
 pub const PlanSource = struct {
@@ -1211,11 +1219,13 @@ pub const PlanSource = struct {
     /// and the settings of the layers with no settings of their own.
     resolved: *const settings_mod.Resolved,
     layers: usize,
-    /// The stored stream of each layer (see stream.zig), or null. A layer
-    /// with a valid stream gets its plan from the stream, with no call of
-    /// `plan`. The pipeline stores the stream of each layer that it
-    /// plans. Needs `bind`.
-    streams: ?[]stream_mod.Stream = null,
+    /// The kept form of each layer (see form.zig), or null. A layer whose
+    /// current stream has the key `keys[i]` gets its plan from the
+    /// stream, with no call of `plan`. The pipeline stores the stream of
+    /// each layer that it plans, with its key. Needs `bind`.
+    forms: ?[]form.LevelForm = null,
+    /// The key of each layer, with `forms`.
+    keys: []const form.Key = &.{},
     bind: ?stream_mod.BindFn = null,
     /// The filaments of the plate (see gcode.Emitter.slots).
     slots: []const settings_mod.Filament = &.{},
@@ -1307,7 +1317,7 @@ pub fn emitAll(gpa: Allocator, src: PlanSource, threads: usize, monitor: Monitor
     // The stored stream of layer 0 has its paths in print order, and
     // needs no plan.
     if (src.layers > 0 and src.slots.len >= 2) {
-        const stored: ?*const stream_mod.Stream = if (src.streams) |st| (if (st.len > 0 and st[0].valid) &st[0] else null) else null;
+        const stored = storedStream(&src, 0);
         var prep: gcode.Prepared = .{};
         defer prep.deinit(gpa);
         var lp = if (stored) |st| try st.decode(gpa, &prep, src.bind.?, src.ctx, 0) else try src.plan(src.ctx, gpa, 0);
@@ -1561,7 +1571,7 @@ const Pipeline = struct {
             return true;
         }
         const slot = &p.slots[i % p.slots.len];
-        const stored: ?*const stream_mod.Stream = if (p.src.streams) |st| (if (st[i].valid) &st[i] else null) else null;
+        const stored = storedStream(&p.src, i);
         if (stored) |st| {
             // The plan and the travel answers from the stream.
             const decode_t0 = stage_clock.now();
@@ -1659,14 +1669,18 @@ const Pipeline = struct {
             return true;
         };
         // The stream of a planned layer, for the next slice.
-        if (p.src.streams) |st| if (!slot.prep.replay) {
+        // Only the thread of layer i writes the form of layer i. The old
+        // stream goes first, so a failed encode leaves an empty slot with
+        // no key. The key goes in after the new stream (form.LevelForm).
+        if (p.src.forms) |fs| if (!slot.prep.replay) {
             const encode_t0 = stage_clock.now();
             defer stage_clock.add(.encode, encode_t0);
-            st[i].deinit(p.gpa);
-            st[i] = stream_mod.Stream.encode(p.gpa, &slot.plan.?, &slot.prep, p.src.bind.?, p.src.ctx, i) catch |e| {
+            fs[i].paths[0].deinit(p.gpa);
+            const st = stream_mod.Stream.encode(p.gpa, &slot.plan.?, &slot.prep, p.src.bind.?, p.src.ctx, i) catch |e| {
                 p.fail(e);
                 return true;
             };
+            fs[i].store(p.gpa, p.src.keys[i], st);
         };
         slot.written.store(i + 1, .release);
         p.signal.notify();

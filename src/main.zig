@@ -948,10 +948,7 @@ fn benchTree(app: *zslice.app.App, io: Io, err: *Io.Writer, times: []Sample) !vo
         // G-code of the streams against the G-code of new plans.
         const kept = try gpa.dupe(u8, app.gcode().?);
         defer gpa.free(kept);
-        if (app.job) |*pj| for (pj.streams) |*one| {
-            one.deinit(gpa);
-            one.* = .{};
-        };
+        if (app.job) |*pj| pj.dropForms();
         _ = try benchSlice(app, io);
         try err.print("tree G-code against new plans in the same app: {s}\n", .{if (std.mem.eql(u8, kept, app.gcode().?)) "same" else "OTHER"});
     }
