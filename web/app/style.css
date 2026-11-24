@@ -215,15 +215,6 @@ button.pill { border-radius: 999px; padding: 6px 22px; background: var(--accent-
 /* The panel is a drawer (docs/internals/one-view.md): hidden, over the
    view (overlay), or pinned beside it. */
 .window.panel-hidden .panel, .window.panel-hidden .splitter { display: none; }
-.window.panel-overlay .splitter { display: none; }
-.window.panel-overlay .panel {
-  position: absolute; right: 0; top: 0; bottom: 0; z-index: 20;
-  width: min(460px, 92vw) !important;
-  box-shadow: -18px 0 44px var(--shadow);
-}
-.panel-pin { min-height: 28px; padding: 2px 10px; font-size: 0.85em; }
-.panel-pin[aria-pressed="true"] { background: var(--accent-bg); color: var(--accent-fg); }
-#panel-toggle[aria-pressed="true"] { background: var(--accent-bg); color: var(--accent-fg); }
 .preview { flex: 1; position: relative; background: var(--view-bg); min-width: 0; overflow: hidden; }
 .preview canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; outline: none; }
 /* The view ends at the top of the dock: the camera frames the plates and
@@ -232,7 +223,7 @@ button.pill { border-radius: 999px; padding: 6px 22px; background: var(--accent-
 .preview #gl { height: auto; bottom: var(--dock-h, 0px); }
 .preview.drop { outline: 3px dashed var(--accent-bg); outline-offset: -8px; }
 .panel {
-  width: 560px; max-width: 75vw; min-width: 300px; flex: none;
+  width: 380px; max-width: 75vw; min-width: 300px; flex: none;
   display: flex; flex-direction: column;
   background: var(--bg);
   border-left: 1px solid var(--border);
@@ -256,7 +247,8 @@ button.pill { border-radius: 999px; padding: 6px 22px; background: var(--accent-
 .linked { display: flex; }
 /* The tool strip at the left of the view: one tool for the mouse, with
    its key in the corner. */
-.toolstrip { top: calc(18px + var(--toolbar-h, 40px)); left: 10px; display: flex; flex-direction: column; gap: 2px; }
+.toolstrip { top: calc(18px + var(--toolbar-h, 40px)); left: 10px; display: flex; flex-direction: column; gap: 2px; max-height: calc(100% - var(--dock-h, 70px) - 30px - var(--toolbar-h, 40px)); overflow-y: auto; scrollbar-width: none; }
+.toolstrip > * { flex: none; }
 .toolstrip .tool { position: relative; width: 40px; height: 40px; min-height: 0; padding: 0; display: flex; align-items: center; justify-content: center; border-radius: 8px; }
 .strip-sep { height: 1px; margin: 3px 6px; background: rgba(var(--fg-rgb), 0.18); }
 .toolstrip .tool::after { content: attr(data-key); position: absolute; right: 3px; bottom: 1px; font-size: 9px; opacity: 0.55; }
@@ -895,14 +887,7 @@ button.destructive { background: var(--destructive); color: #fff; }
 .keys-none { padding: 16px 0; color: var(--dim); }
 
 /* The card of a selected line (linecard.js). */
-.line-card {
-  position: absolute; z-index: 6; width: 280px;
-  display: flex; flex-direction: column; gap: 8px; padding: 10px 12px 10px 14px;
-  background: var(--popover); color: var(--fg);
-  border: 1px solid var(--popover-border); border-radius: 12px;
-  box-shadow: 0 10px 30px var(--shadow); outline: none;
-}
-.line-card { max-width: calc(100% - 170px); max-height: calc(100% - 100px); overflow-y: auto; }
+.line-card { display: flex; flex-direction: column; gap: 8px; color: var(--fg); outline: none; }
 .lc-head { display: flex; align-items: flex-start; gap: 6px; }
 .lc-titles, .lc-head > .lc-title { flex: 1; min-width: 0; }
 .lc-title { font-weight: 700; }
@@ -947,13 +932,7 @@ button.icon.lc-close { min-height: 24px; min-width: 24px; padding: 0; margin: -3
 
 /* The card of a selected part (partcard.js); it shares the look of the
    line card. */
-.part-card {
-  position: absolute; z-index: 6; width: 300px;
-  display: flex; flex-direction: column; gap: 8px; padding: 10px 12px 10px 14px;
-  background: var(--popover); color: var(--fg);
-  border: 1px solid var(--popover-border); border-radius: 12px;
-  box-shadow: 0 10px 30px var(--shadow);
-}
+.part-card { display: flex; flex-direction: column; gap: 8px; color: var(--fg); }
 .sum-warn { color: #fff; background: var(--warn-bg); border-radius: 6px; padding: 6px 8px; font-size: 0.88em; margin-top: 4px; }
 .sum-warn.sum-hint { background: var(--hint-bg); }
 .sum-warn button { margin-left: 4px; padding: 2px 8px; }
@@ -975,10 +954,6 @@ button.icon.lc-close { min-height: 24px; min-width: 24px; padding: 0; margin: -3
 .pc-clear { min-height: 22px; min-width: 22px; padding: 0; opacity: 0.7; }
 .pc-add { align-self: flex-start; min-height: 24px; padding: 2px 0; color: var(--accent); font-size: 0.88em; }
 
-/* The head of a card that moves with a drag (drag.js). */
-.drag-handle { cursor: grab; touch-action: none; user-select: none; }
-.drag-handle.dragging { cursor: grabbing; }
-
 /* "Fade the others" in the line card. */
 .lc-fade { min-height: 26px; padding: 2px 8px; font-size: 0.85em; border-radius: 7px; white-space: nowrap; }
 .lc-fade.checked { background: var(--accent-bg); color: var(--accent-fg); }
@@ -986,13 +961,7 @@ button.icon.lc-close { min-height: 24px; min-width: 24px; padding: 0; margin: -3
 
 /* The rings of the Turn tool (turn.js). */
 /* The card of the Support tool (support.js), under the toolbar. */
-.support-card {
-  position: absolute; z-index: 6; top: calc(18px + var(--toolbar-h, 40px)); left: 62px; width: 300px;
-  display: flex; flex-direction: column; gap: 8px; padding: 10px 12px;
-  background: var(--popover); color: var(--fg);
-  border: 1px solid var(--popover-border); border-radius: 12px;
-  box-shadow: 0 10px 30px var(--shadow); font-size: 0.9em;
-}
+.support-card { display: flex; flex-direction: column; gap: 8px; color: var(--fg); font-size: 0.9em; }
 .sc-title { font-weight: 600; flex: 1; }
 .sc-head { display: flex; align-items: center; gap: 6px; }
 .sc-close { min-height: 24px; min-width: 24px; padding: 0; border-radius: 12px; }
@@ -1149,8 +1118,9 @@ button.icon.lc-close { min-height: 24px; min-width: 24px; padding: 0; margin: -3
 .preview .dock > .scrub { grid-column: 3; grid-row: 1; border-left: 1px solid rgba(var(--fg-rgb), 0.15); padding-left: 8px; min-width: 0; width: auto; }
 .preview .dock .scrub input { width: auto; min-width: 60px; }
 .preview .dock > .dock-summary { grid-column: 4; grid-row: 1; }
-/* A narrow view: the replay goes to a second row, under the plates. */
-@container (max-width: 760px) {
+/* A narrow view: the replay goes to a second row, under the plates. The
+   Inspector column makes the view narrow, so this starts at 1040 px. */
+@container (max-width: 1040px) {
   .preview .dock { grid-template-columns: auto minmax(0, 1fr) auto; grid-template-rows: auto auto; }
   .preview .dock > .scrub { grid-column: 1 / 3; grid-row: 2; border-left: none; padding-left: 0; }
   .preview .dock > .dock-summary { grid-column: 3; grid-row: 1 / 3; }
@@ -1247,7 +1217,6 @@ button.icon.lc-close { min-height: 24px; min-width: 24px; padding: 0; margin: -3
 
 /* The Label tool (label.js) and the card of a label (labelcard.js). */
 #tool-label.on { background: var(--accent-bg); color: var(--accent-fg); }
-.label-card { width: 340px; max-height: calc(100% - 100px); }
 .label-item { display: flex; flex-direction: column; gap: 6px; padding: 6px 0; border-top: 1px solid rgba(var(--fg-rgb), 0.1); }
 .label-shapes .pc-action { min-height: 24px; padding: 2px 7px; }
 .label-shapes .pc-action.on, .label-depth .pc-action.on, .label-mode .pc-action.on { background: var(--accent-bg); color: var(--accent-fg); }
@@ -1335,3 +1304,37 @@ button.icon.lc-close { min-height: 24px; min-width: 24px; padding: 0; margin: -3
 .rc-scope.part { color: var(--accent-fg); background: var(--accent); }
 .rc-note { font-size: 0.75em; opacity: 0.7; grid-column: 1 / -1; overflow-wrap: anywhere; }
 .rc-search-body { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-top: 2px; }
+
+/* The Inspector (dock.js): a column of the window, or a row under the view
+   in a narrow window. It is never over the view. */
+.panel-tabs { display: flex; align-items: center; gap: 2px; padding: 6px 8px 0; border-bottom: 1px solid var(--border); }
+.panel-tabs #panel-close { margin-left: auto; }
+.panel-tab { background: none; border-radius: 7px 7px 0 0; min-height: 32px; padding: 4px 12px; font-weight: 600; color: var(--dim); border-bottom: 2px solid transparent; }
+.panel-tab:hover { background: var(--row-hover); }
+.panel-tab[aria-selected="true"] { color: var(--fg); border-bottom-color: var(--accent-bg); }
+#page-inspect { overflow-y: auto; padding: 12px 14px 18px; }
+.insp-behind { display: none !important; }
+.insp-plate-body { display: flex; flex-direction: column; gap: 8px; }
+.insp-parts { display: flex; flex-direction: column; }
+.insp-part { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 2px 10px; min-height: 30px; padding: 4px 6px; margin: 0 -6px; text-align: left; font-weight: 400; height: auto; }
+.insp-part-name { overflow-wrap: anywhere; min-width: 0; }
+.insp-part-size { font-size: 0.85em; font-variant-numeric: tabular-nums; }
+.insp-group { border-top: 1px solid rgba(var(--fg-rgb), 0.1); padding: 6px 0 2px; }
+.insp-group > summary { cursor: pointer; padding: 2px 0 6px; font-size: 0.75em; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; color: var(--dim); }
+.insp-group > .lc-settings { border-top: none; padding-top: 0; }
+.insp-slot .lc-row { flex-wrap: wrap; }
+.insp-slot .pc-cut-row { flex-wrap: wrap; }
+.pc-scale { margin-bottom: 6px; }
+.pc-scale-l { color: var(--dim); }
+input.pc-scale-n { width: 7em; font-variant-numeric: tabular-nums; }
+.pc-mirrored { padding: 1px 8px; border-radius: 999px; background: var(--accent-bg); color: var(--accent-fg); font-size: 0.85em; font-weight: 600; }
+.pc-volumes { display: flex; flex-direction: column; gap: 3px; margin-top: 6px; }
+.pc-volume-row { justify-content: space-between; font-size: 0.92em; }
+#panel-toggle { position: relative; }
+#panel-toggle.has-selection::after { content: ""; position: absolute; top: 4px; right: 4px; width: 8px; height: 8px; border-radius: 50%; background: var(--accent-bg); }
+/* A narrow window: the Inspector is a row under the view. The view keeps
+   the rest of the height. */
+.window.panel-sheet { flex-direction: column; }
+.window.panel-sheet .splitter { display: none; }
+.window.panel-sheet .preview { flex: 1 1 0; min-height: 0; }
+.window.panel-sheet .panel { width: auto !important; max-width: none; min-width: 0; height: 46%; border-left: none; border-top: 1px solid var(--border); }

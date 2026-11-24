@@ -1,7 +1,7 @@
 // rangecard.js: the card of a range of layers. A left drag of the Select
 // tool that starts on a printed line lights the layers from the layer of
 // that line to the layer under the pointer (zs_view_light_layers). On the
-// release this card opens beside the lit layers, never over them. It
+// release this page shows in the Inspector (dock.js). It
 // shows "Layers A–B" and the settings that can change for some layers
 // (settings.zig, layer_settings): a few that matter most, and "+ Add a
 // setting for these layers" for the others. An edit is an override of
@@ -29,8 +29,7 @@
 //
 // One call to the worker opens the card (setScoped with no change
 // returns the values too), and one call makes each edit. The card does no
-// work for each frame: app.js calls `place` after a frame, which projects
-// 8 points.
+// work for each frame.
 //
 // Esc, a click elsewhere in the view, or × closes the card and ends the
 // light.
@@ -39,9 +38,6 @@
 
 import { el } from "./settings.js";
 import { filamentEditor } from "./filaments.js";
-import { movable } from "./drag.js";
-import { spatial, savedPlace, remember } from "./spatial.js";
-import { placeBeside, freeArea } from "./place.js";
 
 // The settings that the card shows first, in order, when the setting can
 // change for some layers.
@@ -58,9 +54,8 @@ export const RANGE_SETTINGS = [
 ];
 
 export class RangeCard {
-  // ctx: { browser (SettingsBrowser), host (the element of the view),
-  //        pixelOf([x, y, z]) -> device pixels or null, bounds() -> the
-  //        print box [x0, y0, x1, y1] mm or null, layerZ(l) (the top of
+  // ctx: { browser (SettingsBrowser), host (the slot of the Inspector),
+  //        layerZ(l) (the top of
   //        layer l, mm), layerBottom(l), edit(name, value, zmin, zmax,
   //        names) -> Promise<{ error, at }>, reset(name, zmin, zmax,
   //        names) -> Promise<{ at }>, values(zmin, names) -> Promise<at>,
@@ -74,7 +69,6 @@ export class RangeCard {
     this.node = null;
     this.range = null; // [lo, hi], the layers
     this.rows = [];
-    this.userAt = null;
   }
 
   get open() {
@@ -97,7 +91,10 @@ export class RangeCard {
   async show(lo, hi) {
     this.range = [Math.min(lo, hi), Math.max(lo, hi)];
     this.bodyPicked = false;
-    if (!this.node) this.build();
+    if (!this.node) {
+      this.build();
+      this.ctx.reveal?.();
+    }
     const [a, b] = this.range;
     this.title.textContent = a === b ? `Layer ${a + 1}` : `Layers ${a + 1}–${b + 1}`;
     const [z0, z1] = this.zRange();
@@ -109,7 +106,6 @@ export class RangeCard {
     for (const r of this.rows) this.drawScope(r);
     if (body && this.ctx.regionOf) this.region = (await this.ctx.regionOf()) ?? this.region;
     this.fill(await this.ctx.values(z0, this.names()));
-    this.place();
   }
 
   close() {
@@ -117,7 +113,6 @@ export class RangeCard {
     this.node.remove();
     this.node = null;
     this.range = null;
-    this.userAt = null;
     this.bodyPicked = false;
     this.body = false;
     this.region = { id: 0, values: {} };
@@ -131,20 +126,10 @@ export class RangeCard {
     const head = el("div", "lc-head");
     this.title = el("div", "lc-title");
     const close = el("button", "flat icon lc-close", "×");
-    close.setAttribute("aria-label", "Close");
-    close.title = "Close (Esc)";
+    close.setAttribute("aria-label", "Clear the selection");
+    close.title = "Clear the selection (Esc)";
     close.onclick = () => this.close();
     head.append(this.title, close);
-    head.title = "Drag to move the card";
-    movable(card, head, this.ctx.host, (x, y) => {
-      this.userAt = [x, y];
-      remember("range-card", { x, y });
-    });
-    // Its place and size stay for the next card (spatial.js).
-    spatial(card, "range-card", head, () => {
-      this.userAt = null;
-      this.place();
-    });
     this.facts = el("div", "lc-size");
     this.box = el("div", "lc-settings");
     const add = el("button", "flat pc-add", "+ Add a setting for these layers");
@@ -358,43 +343,5 @@ export class RangeCard {
         label.append(el("div", "lc-why", part(info) ? "This part of the layers" : `Whole layers only. ${info.regionNote}`));
       },
     };
-  }
-
-  // Beside the lit layers: the box of the print from the bottom of the
-  // first layer to the top of the last, on the screen. The card covers
-  // no part of it.
-  place() {
-    const card = this.node;
-    if (!card || !this.range) return;
-    if (this.userAt) {
-      [card.style.left, card.style.top] = this.userAt.map((v) => `${v}px`);
-      return;
-    }
-    const b = this.ctx.bounds();
-    if (!b) return;
-    const dpr = window.devicePixelRatio || 1;
-    const za = this.ctx.layerBottom(this.range[0]);
-    const zb = this.ctx.layerZ(this.range[1]);
-    const box = [Infinity, Infinity, -Infinity, -Infinity];
-    for (const x of [b[0], b[2]]) for (const y of [b[1], b[3]]) for (const z of [za, zb]) {
-      const q = this.ctx.pixelOf([x, y, z]);
-      if (!q) continue;
-      box[0] = Math.min(box[0], q[0] / dpr);
-      box[1] = Math.min(box[1], q[1] / dpr);
-      box[2] = Math.max(box[2], q[0] / dpr);
-      box[3] = Math.max(box[3], q[1] / dpr);
-    }
-    // The place where the user put the card before, if it is clear of
-    // what the card is about.
-    const kept = savedPlace("range-card", card, this.ctx.host, box[0] <= box[2] ? box : null);
-    if (kept) {
-      card.style.left = `${kept[0]}px`;
-      card.style.top = `${kept[1]}px`;
-      return;
-    }
-    const area = freeArea(this.ctx.host);
-    const [x, y] = box[0] <= box[2] ? placeBeside(box, area, card.offsetWidth, card.offsetHeight) : [area[2] - card.offsetWidth, area[1] + 52];
-    card.style.left = `${x}px`;
-    card.style.top = `${y}px`;
   }
 }

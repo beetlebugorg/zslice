@@ -1,7 +1,5 @@
-// linecard.js: the card of a selected line (docs/internals/one-view.md).
-// A click on a line opens it in a corner of the view, away from the line,
-// so it never covers the line or the part around it. It keeps its corner
-// from click to click while that corner stays clear of the line.
+// linecard.js: the Inspector page of a selected line (dock.js,
+// docs/internals/one-view.md).
 //
 // It shows what helps to decide what to change: what the line is (the
 // feature, the layer, and the z), its speed and flow and what slows it
@@ -25,15 +23,10 @@
 //
 // The card follows the line after a new slice (the inspector finds the
 // line again), and closes with Esc, with a click on no line, or with ×.
-// A drag of its head moves it, and it keeps that place for the next
-// lines until it closes.
 //
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { el } from "./settings.js";
-import { movable } from "./drag.js";
-import { spatial, savedPlace, remember } from "./spatial.js";
-import { placeCorner, freeArea, GAP as PLACE_GAP } from "./place.js";
 import { FEATURE_TITLES } from "./format.js";
 import { filamentEditor } from "./filaments.js";
 
@@ -43,8 +36,6 @@ const SLOW = [
   "Slow: the segments are short, so the head does not reach full speed.",
 ];
 const MAX_SETTINGS = 5;
-// The space around the clicked line that the card keeps clear, CSS px.
-const CLEAR = 24;
 // The kinds of the check (checks.zig) that the card shows as a warning:
 // flow, cooling, overhang, island, bridge.
 const WARN_KINDS = new Set([0, 1, 2, 3, 5]);
@@ -122,10 +113,9 @@ export function flowNote(info) {
 }
 
 export class LineCard {
-  // ctx: { browser (SettingsBrowser), host (the element of the view),
+  // ctx: { browser (SettingsBrowser), host (the slot of the Inspector),
   //        more() (open the Selected page), close() (clear the selection),
   //        openSetting(name) (show the setting in the panel),
-  //        lineBox() (the box of the line on the screen),
   //        paintLine(info, filament) -> Promise<{ error, lo, hi, above,
   //        below }> (the body of the line on its layer, and the layers
   //        where it goes on), extendLine(beads, filament) -> Promise<error
@@ -133,20 +123,15 @@ export class LineCard {
   constructor(ctx) {
     this.ctx = ctx;
     this.node = null;
-    this.at = [0, 0];
     this.signature = "";
-    // The corner of the card: it stays from click to click.
-    this.corner = null;
   }
 
   get open() {
     return !!this.node;
   }
 
-  // Opens the card for the next `show`. (x, y): the click, CSS pixels in
-  // the view: the card keeps clear of it.
-  openAt(x, y) {
-    this.at = [x, y];
+  // Opens the card for the next `show`.
+  openNext() {
     this.want = true;
   }
 
@@ -157,7 +142,6 @@ export class LineCard {
   }
 
   close() {
-    this.userAt = null;
     this.want = false;
     this.dropEditors();
     this.node?.remove();
@@ -186,7 +170,6 @@ export class LineCard {
     const sig = `${info.title}\n${info.settings}\n${this.pickNames(info).join("\n")}`;
     if (this.node && sig === this.signature) {
       this.update(info);
-      this.place();
       return;
     }
     this.signature = sig;
@@ -206,20 +189,10 @@ export class LineCard {
     const titles = el("div", "lc-titles");
     titles.append(this.title, this.where);
     const close = el("button", "flat icon lc-close", "×");
-    close.setAttribute("aria-label", "Close");
-    close.title = "Close (Esc)";
+    close.setAttribute("aria-label", "Clear the selection");
+    close.title = "Clear the selection (Esc)";
     close.onclick = () => this.ctx.close();
     head.append(titles, close);
-    head.title = "Drag to move the card";
-    movable(card, head, this.ctx.host, (x, y) => {
-      this.userAt = [x, y];
-      remember("line-card", { x, y });
-    });
-    // Its place and size stay for the next card (spatial.js).
-    spatial(card, "line-card", head, () => {
-      this.userAt = null;
-      this.place();
-    });
     this.stats = el("div", "lc-stats");
     this.notes = el("div", "lc-notes");
     card.append(head, this.stats, this.notes);
@@ -301,7 +274,6 @@ export class LineCard {
     this.ctx.host.append(card);
     this.node = card;
     this.update(info);
-    this.place();
   }
 
   // A filament for the body of the line on its layer. Then the buttons
@@ -385,46 +357,5 @@ export class LineCard {
     }
     this.notes.replaceChildren(...notes);
     this.notes.hidden = notes.length === 0;
-  }
-
-  // In a corner of the view, clear of the line (a card that the user
-  // moved stays).
-  place() {
-    const card = this.node;
-    if (!card) return;
-    if (this.userAt) {
-      [card.style.left, card.style.top] = this.userAt.map((v) => `${v}px`);
-      return;
-    }
-    // The box of the whole line that the user clicked, the click, and some
-    // room around them: the card covers no part of it.
-    const box = this.ctx.lineBox?.() ?? [this.at[0], this.at[1], this.at[0], this.at[1]];
-    box[0] = Math.min(box[0], this.at[0]) - CLEAR;
-    box[1] = Math.min(box[1], this.at[1]) - CLEAR;
-    box[2] = Math.max(box[2], this.at[0]) + CLEAR;
-    box[3] = Math.max(box[3], this.at[1]) + CLEAR;
-    // The place where the user put the card before, if it is clear of the
-    // line.
-    const kept = savedPlace("line-card", card, this.ctx.host, box);
-    if (kept) {
-      card.style.left = `${kept[0]}px`;
-      card.style.top = `${kept[1]}px`;
-      return;
-    }
-    const area = freeArea(this.ctx.host);
-    card.style.maxHeight = "";
-    let [x, y, corner, over] = placeCorner(box, area, card.offsetWidth, card.offsetHeight, this.corner);
-    if (over > 0) {
-      // A narrow or short view: no corner is clear of the line. The card
-      // gets shorter, and scrolls, to fit above or below the line.
-      const room = Math.max(box[1] - area[1], area[3] - box[3]) - PLACE_GAP - 1;
-      if (room >= 120) {
-        card.style.maxHeight = `${room}px`;
-        [x, y, corner] = placeCorner(box, area, card.offsetWidth, card.offsetHeight, this.corner);
-      }
-    }
-    this.corner = corner;
-    card.style.left = `${x}px`;
-    card.style.top = `${y}px`;
   }
 }

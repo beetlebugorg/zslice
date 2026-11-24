@@ -634,7 +634,10 @@ export class LabelTool {
       this.redraw();
       return;
     }
-    if (!this.card) this.card = new this.ctx.Card(this, this.ctx.host);
+    if (!this.card) {
+      this.card = new this.ctx.Card(this, this.ctx.cardHost);
+      this.ctx.reveal?.();
+    }
     this.card.show(l);
     this.redraw();
     this.loadInfo();
@@ -1221,7 +1224,7 @@ export class LabelTool {
   }
 
   // After each frame: the handles keep their size on the screen (a zoom
-  // draws them again), and the card goes beside the label.
+  // draws them again).
   place() {
     if (!this.on || this.sel < 0) return;
     const l = this.label;
@@ -1229,7 +1232,6 @@ export class LabelTool {
       const mpp = this.mmPerPx(l);
       if (Math.abs(mpp - this.handleScale) > 0.08 * this.handleScale) this.redraw();
     }
-    this.card?.place(this.screenBox());
   }
 
   // ---- the handles and the smart guides ----

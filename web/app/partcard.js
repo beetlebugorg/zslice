@@ -1,5 +1,5 @@
-// partcard.js: the card of a selected part, next to it in the view
-// (docs/internals/one-view.md). The Move tool (or Ctrl+click) selects a
+// partcard.js: the Inspector page of a selected part (dock.js,
+// docs/internals/one-view.md). The Move tool (or Ctrl+click) selects a
 // part, and the card shows:
 //
 // - its name and its size;
@@ -21,23 +21,19 @@
 // one of them with the Move tool (or Ctrl), or the arrow keys, moves them
 // all. Each action is one call to the worker, and one step of the history.
 //
-// A change slices at once. The card follows the part when the camera
-// moves (app.js calls `place` after each frame), until a drag of its head
-// moves it.
+// A change slices at once.
 //
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { el } from "./settings.js";
-import { movable } from "./drag.js";
-import { spatial, savedPlace, remember } from "./spatial.js";
-import { placeBeside, freeArea, overlaps } from "./place.js";
+import { group } from "./dock.js";
+import { displayValue } from "./format.js";
 import { filaments, followFilaments } from "./filaments.js";
 import { labelName } from "./label.js";
 
 export class PartCard {
-  // ctx: { client, browser (SettingsBrowser), host (the element of the
-  //        view), pixelOf(point) -> [px, py] in device pixels or null,
-  //        select(part or null), search(text, scope), toast(text) }
+  // ctx: { client, browser (SettingsBrowser), host (the slot of the
+  //        Inspector), select(part or null), search(text, scope), toast(text) }
   constructor(ctx) {
     this.ctx = ctx;
     this.node = null;
@@ -81,7 +77,6 @@ export class PartCard {
       this.refreshLabels();
       await this.refreshSettings();
     }
-    this.place();
   }
 
   // The list of the labels of the part.
@@ -102,12 +97,10 @@ export class PartCard {
       b.onclick = () => this.ctx.openLabel?.(part.index, l.id);
       box.append(b);
     }
-    this.place();
   }
 
   close() {
     this.endCut();
-    this.userAt = null;
     this.node?.remove();
     this.node = null;
     this.part = null;
@@ -123,7 +116,6 @@ export class PartCard {
     this.part = parts[parts.length - 1];
     if (!sameSet) this.buildMany();
     this.updateMany();
-    this.place();
   }
 
   buildMany() {
@@ -136,20 +128,10 @@ export class PartCard {
     const head = el("div", "lc-head");
     this.title = el("div", "lc-title");
     const close = el("button", "flat icon lc-close", "×");
-    close.setAttribute("aria-label", "Close");
-    close.title = "Close (Esc)";
+    close.setAttribute("aria-label", "Clear the selection");
+    close.title = "Clear the selection (Esc)";
     close.onclick = () => this.ctx.select(null);
     head.append(this.title, close);
-    head.title = "Drag to move the card";
-    movable(card, head, this.ctx.host, (x, y) => {
-      this.userAt = [x, y];
-      remember("part-card", { x, y });
-    });
-    // Its place and size stay for the next card (spatial.js).
-    spatial(card, "part-card", head, () => {
-      this.userAt = null;
-      this.place();
-    });
     this.facts = el("div", "lc-size");
     const actions = el("div", "pc-actions");
     const action = (label, key, title, name) => {
@@ -209,20 +191,10 @@ export class PartCard {
     const head = el("div", "lc-head");
     this.title = el("div", "lc-title");
     const close = el("button", "flat icon lc-close", "×");
-    close.setAttribute("aria-label", "Close");
-    close.title = "Close (Esc)";
+    close.setAttribute("aria-label", "Clear the selection");
+    close.title = "Clear the selection (Esc)";
     close.onclick = () => this.ctx.select(null);
     head.append(this.title, close);
-    head.title = "Drag to move the card";
-    movable(card, head, this.ctx.host, (x, y) => {
-      this.userAt = [x, y];
-      remember("part-card", { x, y });
-    });
-    // Its place and size stay for the next card (spatial.js).
-    spatial(card, "part-card", head, () => {
-      this.userAt = null;
-      this.place();
-    });
     this.facts = el("div", "lc-size");
     // The pose: a number field for each value (Enter or a change applies).
     this.pose = el("div", "pc-pose");
@@ -264,23 +236,35 @@ export class PartCard {
     actions.append(cutB);
     action("Best orientation", "", "Turn the part to its best orientation: less support, more on the bed, low", "smart");
     action("Less support", "", "Turn the part to need the least support", "less-support");
-    // The scale, in % of the file, the same along each axis.
-    const scaleRow = el("label", "pc-cut-row pc-scale");
-    this.scaleIn = Object.assign(document.createElement("input"), { type: "number", min: "1", max: "100000", step: "any", className: "pc-cut-n" });
-    this.scaleIn.title = "The size of the part, in % of the file (Enter applies)";
+    // The size, in % of the file, the same along each axis. The field
+    // shows the size with no sign. The Mirrored mark shows the mirror.
+    const sizeRow = el("label", "pc-cut-row pc-scale");
+    this.scaleIn = Object.assign(document.createElement("input"), { type: "number", min: "1", max: "100000", step: "any", className: "pc-scale-n" });
+    this.scaleIn.title = "The size of the part, in % of the file (Enter applies). A mirrored part stays mirrored.";
     const applyScale = async () => {
       const v = Number(this.scaleIn.value);
       if (!(v > 0) || !this.part) return;
       const r = await this.ctx.client.call("partScale", { index: this.part.index, s: v / 100 });
-      if (r.part) this.show(r.part);
+      if (r.part) this.ctx.update(r.part);
     };
     this.scaleIn.onkeydown = (e) => { if (e.key === "Enter") applyScale(); e.stopPropagation(); };
     this.scaleIn.onchange = applyScale;
-    scaleRow.append("Scale ", this.scaleIn, " %");
-    actions.append(scaleRow);
-    action("Mirror X", "", "Mirror the part from left to right", "mirror-x");
-    action("Mirror Y", "", "Mirror the part from front to back", "mirror-y");
-    action("Reset", "", "The orientation and the scale of the file again", "reset");
+    this.mirrorMark = el("span", "pc-mirrored", "Mirrored");
+    this.mirrorMark.title = "This part is a mirror image of its file. Mirror X or Mirror Y again, or Reset, removes the mirror.";
+    this.mirrorMark.hidden = true;
+    sizeRow.append(el("span", "pc-scale-l", "Scale"), this.scaleIn, el("span", "dim", "%"), this.mirrorMark);
+    this.mirrorNote = el("div", "dim caption");
+    this.mirrorNote.hidden = true;
+    const sizeActions = el("div", "pc-actions");
+    const sized = (label, title, name) => {
+      const b = el("button", "pc-action", label);
+      b.title = title;
+      b.onclick = () => this.act(name);
+      sizeActions.append(b);
+    };
+    sized("Mirror X", "Mirror the part from left to right", "mirror-x");
+    sized("Mirror Y", "Mirror the part from front to back", "mirror-y");
+    sized("Reset", "The orientation and the scale of the file again", "reset");
     const moveB = el("button", "pc-action", "To a new plate");
     moveB.title = "Move the part to a new plate, with the settings of this plate";
     moveB.onclick = () => this.moveToNewPlate();
@@ -309,23 +293,34 @@ export class PartCard {
     this.cutBox = el("div", "pc-cut");
     this.cutBox.hidden = true;
     this.settingsBox = el("div", "lc-settings");
+    // The settings of the modifier volumes of the part: each volume is a
+    // region of its own, so its values are not values of the part.
+    this.volumeBox = el("div", "pc-volumes");
+    this.volumeBox.hidden = true;
     const add = el("button", "flat pc-add", "+ Add a setting for this part");
     add.title = "Search the settings that a part can have of its own";
     add.onclick = () => this.ctx.search("", this.scope());
     // The filament of the part (or of the selected parts): a chip for
     // each filament of the plate (filaments.js).
     const filRow = el("div", "lc-row pc-filament");
-    const filLabel = el("div", "lc-label");
-    filLabel.append(el("div", "lc-name", "Filament"));
     const filInfo = this.ctx.browser.byName.get("project.filament");
     this.filEd = filInfo ? this.ctx.browser.makeEditor(filInfo, "part", (n, v) => this.scope().set(n, v)) : null;
-    filLabel.title = filInfo?.doc ?? "";
-    if (this.filEd) filRow.append(filLabel, this.filEd.node);
+    filRow.title = filInfo?.doc ?? "";
+    if (this.filEd) filRow.append(this.filEd.node);
     // The labels of the part (label.js): a click selects one in the Label
     // tool.
     this.labelBox = el("div", "pc-labels");
     this.labelBox.hidden = true;
-    card.append(head, this.facts, this.pose, this.note, filRow, actions, make, this.cutBox, this.labelBox, this.settingsBox, add);
+    card.append(
+      head,
+      this.facts,
+      group("Position and turn", this.pose, this.note),
+      group("Size and mirror", sizeRow, this.mirrorNote, sizeActions),
+      group("Filament", filRow),
+      group("Actions", actions, make, this.cutBox),
+      this.labelBox,
+      group("Settings of this part", this.settingsBox, this.volumeBox, add),
+    );
     card.addEventListener("keydown", (e) => {
       if (e.key === "Escape" && !e.target.closest("input, select, textarea")) {
         e.preventDefault();
@@ -404,7 +399,6 @@ export class PartCard {
       this.ctx.selectReply(r.part ? [r.part] : [], stamp);
     };
     show();
-    this.place();
   }
 
   async fill(n) {
@@ -445,13 +439,12 @@ export class PartCard {
     this.cutBox.hidden = true;
     this.cutBox.replaceChildren();
     this.ctx.cutPlane?.(null);
-    this.place();
   }
 
   updateFacts() {
     const p = this.part;
     this.title.textContent = p.name || `Part ${p.index + 1}`;
-    if (this.scaleIn && document.activeElement !== this.scaleIn && p.scale) this.scaleIn.value = String(Math.round(p.scale[0] * 10000) / 100);
+    this.updateScale(p);
     this.facts.textContent = `${p.sizeX.toFixed(1)} × ${p.sizeY.toFixed(1)} × ${p.sizeZ.toFixed(1)} mm`;
     // The pose: a field that has the focus keeps what the user types.
     const a = p.angles ?? [0, 0, p.rotation ?? 0];
@@ -464,6 +457,19 @@ export class PartCard {
     this.note.textContent = p.note ?? "";
     this.note.hidden = !p.note;
     this.updateOrder();
+  }
+
+  // The size with no sign, and a clear mark for a mirrored part. An odd
+  // count of negative axes is a mirror image.
+  updateScale(p) {
+    if (!this.scaleIn || !p.scale) return;
+    const pct = (v) => Math.round(Math.abs(v) * 10000) / 100;
+    if (document.activeElement !== this.scaleIn) this.scaleIn.value = String(pct(p.scale[0]));
+    const mirrored = p.scale.filter((v) => v < 0).length % 2 === 1;
+    this.mirrorMark.hidden = !mirrored;
+    const even = pct(p.scale[0]) === pct(p.scale[1]) && pct(p.scale[1]) === pct(p.scale[2]);
+    this.mirrorNote.textContent = even ? "" : `Each axis has its own size: X ${pct(p.scale[0])} %, Y ${pct(p.scale[1])} %, Z ${pct(p.scale[2])} %. A new scale sets all three.`;
+    this.mirrorNote.hidden = even;
   }
 
   // The pose field `key` applies: one call, one step of the history.
@@ -540,6 +546,29 @@ export class PartCard {
     if (!this.part) return;
     const r = await this.ctx.client.call("partSettings", { index: this.part.index });
     this.fillSettings(r.list);
+    this.fillVolumes(r.volumes ?? []);
+  }
+
+  // The settings of the modifier volumes, by volume. The Inspector of the
+  // layers edits them: select the layers of the region.
+  fillVolumes(volumes) {
+    const box = this.volumeBox;
+    if (!box) return;
+    const byName = this.ctx.browser.byName;
+    const shown = volumes.filter((v) => v.list.some(([name]) => byName.has(name)));
+    box.replaceChildren();
+    box.hidden = shown.length === 0;
+    for (const v of shown) {
+      box.append(el("div", "pc-heading", `Region: ${v.name}`));
+      for (const [name, value] of v.list) {
+        const info = byName.get(name);
+        if (!info) continue;
+        const row = el("div", "lc-row pc-volume-row");
+        row.title = "This value is for this region only. Drag over its layers to change it.";
+        row.append(el("div", "lc-name", info.label), el("div", "dim", displayValue(info, value)));
+        box.append(row);
+      }
+    }
   }
 
   // The rows of the settings of the part, each with its editor.
@@ -570,7 +599,6 @@ export class PartCard {
       row.append(label, ed.node, clear);
       box.append(row);
     }
-    this.place();
   }
 
   async act(action) {
@@ -595,73 +623,5 @@ export class PartCard {
     }
     if (action === "split") this.ctx.toast(`Split into ${r.count} parts.`);
     this.ctx.selectReply(r.part ? [r.part] : [], stamp);
-  }
-
-  // Next to the part (or the parts), over the right of its top, inside
-  // the view.
-  place() {
-    const card = this.node;
-    if (!card || !this.part) return;
-    if (this.userAt) {
-      [card.style.left, card.style.top] = this.userAt.map((v) => `${v}px`);
-      return;
-    }
-    const dpr = window.devicePixelRatio || 1;
-    const box = [Infinity, Infinity, -Infinity, -Infinity];
-    for (const p of this.parts.length > 0 ? this.parts : [this.part]) this.addBox(p, box, dpr);
-    // The place where the user put the card before, if it is clear of
-    // what the card is about.
-    const avoid = this.otherBoxes(dpr);
-    const kept = savedPlace("part-card", card, this.ctx.host, box[0] <= box[2] ? box : null);
-    if (kept && !avoid.some((b) => overlaps([kept[0], kept[1], kept[0] + card.offsetWidth, kept[1] + card.offsetHeight], b))) {
-      card.style.left = `${kept[0]}px`;
-      card.style.top = `${kept[1]}px`;
-      return;
-    }
-    const area = freeArea(this.ctx.host);
-    const [x, y] = box[0] <= box[2] ? placeBeside(box, area, card.offsetWidth, card.offsetHeight, avoid) : [area[2] - card.offsetWidth, area[1] + 52];
-    card.style.left = `${x}px`;
-    card.style.top = `${y}px`;
-  }
-
-  // The boxes on the screen of the parts that are not selected, so that
-  // the card leaves them free for a click. At most 32 parts: this runs on
-  // each frame.
-  otherBoxes(dpr) {
-    const out = [];
-    for (const p of (this.ctx.otherParts?.() ?? []).slice(0, 32)) {
-      const box = [Infinity, Infinity, -Infinity, -Infinity];
-      for (const sx of [-1, 1]) for (const sy of [-1, 1]) for (const z of [p.z, p.z + p.sizeZ]) {
-        const q = this.ctx.pixelOf({ x: p.x + (sx * p.sizeX) / 2, y: p.y + (sy * p.sizeY) / 2, z });
-        if (!q) continue;
-        box[0] = Math.min(box[0], q[0] / dpr);
-        box[1] = Math.min(box[1], q[1] / dpr);
-        box[2] = Math.max(box[2], q[0] / dpr);
-        box[3] = Math.max(box[3], q[1] / dpr);
-      }
-      if (box[0] <= box[2]) out.push(box);
-    }
-    return out;
-  }
-
-  // Grows box (CSS pixels) by the box of part p on the screen.
-  addBox(p, box, dpr) {
-    // The box of the part on the screen, with the gizmo of the Move tool
-    // (gizmo.js: the rings, radius 0.62 of the largest size and 4 mm, and
-    // the arrows out to 1.5 radii): the card covers no part of them.
-    const ring = 0.62 * Math.max(p.sizeX, p.sizeY, p.sizeZ) + 4;
-    const reach = 1.5 * ring;
-    const hx = Math.max(p.sizeX / 2, reach);
-    const hy = Math.max(p.sizeY / 2, reach);
-    const lift = Math.max(0, p.z ?? 0);
-    const zTop = lift + Math.max(p.sizeZ, p.sizeZ / 2 + reach);
-    for (const sx of [-1, 1]) for (const sy of [-1, 1]) for (const z of [0, zTop]) {
-      const q = this.ctx.pixelOf({ x: p.x + sx * hx, y: p.y + sy * hy, z });
-      if (!q) continue;
-      box[0] = Math.min(box[0], q[0] / dpr);
-      box[1] = Math.min(box[1], q[1] / dpr);
-      box[2] = Math.max(box[2], q[0] / dpr);
-      box[3] = Math.max(box[3], q[1] / dpr);
-    }
   }
 }

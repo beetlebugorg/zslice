@@ -49,7 +49,6 @@
 
 import { el } from "./settings.js";
 import { TREE_STRIDE } from "./core.js";
-import { placeBeside, freeArea } from "./place.js";
 
 // The kinds of an area (enum zs_mark_kind).
 export const KINDS = [
@@ -139,7 +138,7 @@ export class SupportTool {
     this.paneOpen = loadPaneOpen();
     this.card = el("div", "support-card");
     this.card.hidden = true;
-    ctx.host.append(this.card);
+    ctx.cardHost.append(this.card);
     // Capture: a press on a point is a drag of it, and not an orbit.
     ctx.host.addEventListener("pointerdown", (e) => this.press(e), true);
     ctx.host.addEventListener("pointermove", (e) => this.hover(e));
@@ -488,49 +487,6 @@ export class SupportTool {
   place() {
     const want = ((this.on && this.paneOpen) || !!this.lite) && this.ctx.page() === "3d";
     if (want === this.card.hidden) this.showCard();
-    else if (want) this.placeCard();
-  }
-
-  // The card stays clear of the selected branch: beside its box on the
-  // screen. With no branch, at its place by the tool strip.
-  placeCard() {
-    const card = this.card;
-    const s = this.tsel && this.nodeOk(this.tsel) ? this.tsel : null;
-    const area = !this.on && !this.lite?.tree ? this.lite?.hot?.pts : null;
-    if ((!s && !area) || this.card.hidden) {
-      card.style.left = "";
-      card.style.top = "";
-      return;
-    }
-    const d = this.dpr();
-    const box = [Infinity, Infinity, -Infinity, -Infinity];
-    for (const k of s ? this.branchOf(s.part, s.node) : []) {
-      const nd = this.node(s.part, k);
-      for (const p of [[nd.x - nd.r, nd.y, nd.z], [nd.x + nd.r, nd.y, nd.z], [nd.x, nd.y - nd.r, nd.z], [nd.x, nd.y + nd.r, nd.z]]) {
-        const q = this.pixelOf(p);
-        if (!q) continue;
-        box[0] = Math.min(box[0], q[0] / d);
-        box[1] = Math.min(box[1], q[1] / d);
-        box[2] = Math.max(box[2], q[0] / d);
-        box[3] = Math.max(box[3], q[1] / d);
-      }
-    }
-    // The area of a picked grid support, down to the bed under it: the
-    // support stands there.
-    for (const p of area ?? []) {
-      for (const z of [p[2], 0]) {
-        const q = this.pixelOf([p[0], p[1], z]);
-        if (!q) continue;
-        box[0] = Math.min(box[0], q[0] / d);
-        box[1] = Math.min(box[1], q[1] / d);
-        box[2] = Math.max(box[2], q[0] / d);
-        box[3] = Math.max(box[3], q[1] / d);
-      }
-    }
-    if (!(box[2] >= box[0])) return;
-    const [x, y] = placeBeside(box, freeArea(this.ctx.host), card.offsetWidth, card.offsetHeight);
-    card.style.left = `${x}px`;
-    card.style.top = `${y}px`;
   }
 
   // Opens or closes the pane (S again, or a click on the tool).
@@ -554,6 +510,7 @@ export class SupportTool {
       card.hidden = true;
       return;
     }
+    if (card.hidden) this.ctx.reveal?.();
     card.hidden = false;
     card.replaceChildren();
     const a = this.sel >= 0 ? this.areas[this.sel] : null;
@@ -600,7 +557,6 @@ export class SupportTool {
           : `${n} points. Click the first point, or press Enter, to close the area.`;
       card.append(el("div", "sc-info", hint));
     }
-    this.placeCard();
   }
 
   // The card of a support that the Select tool picked: what it is, and
@@ -609,6 +565,7 @@ export class SupportTool {
     const card = this.card;
     const l = this.lite;
     const s = this.tsel && this.nodeOk(this.tsel) ? this.tsel : null;
+    if (card.hidden) this.ctx.reveal?.();
     card.hidden = false;
     card.replaceChildren();
     const head = el("div", "sc-head");
@@ -642,7 +599,6 @@ export class SupportTool {
       kinds.append(b);
     }
     card.append(del, kinds);
-    this.placeCard();
   }
 
   // The support of the Select tool becomes another kind (an area of that

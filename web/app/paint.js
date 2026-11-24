@@ -367,8 +367,9 @@ export class PaintTool {
         this.close();
       }
     });
-    this.ctx.host.append(card);
+    this.ctx.cardHost.append(card);
     this.card = card;
+    this.ctx.reveal?.();
     this.drawChips();
   }
 

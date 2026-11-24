@@ -1,7 +1,5 @@
-// labelcard.js: the card of the selected label of the Label tool
-// (label.js). A spatial card (spatial.js): it goes to the place where
-// the user put it last, else beside the label (place.js). It never covers
-// the label or its handle.
+// labelcard.js: the Inspector page of the selected label of the Label
+// tool (label.js, dock.js).
 //
 // The card has:
 // - the shapes of the label, each with the chips Text, Line, Bar, Ring,
@@ -20,13 +18,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { el } from "./settings.js";
-import { movable } from "./drag.js";
-import { spatial, savedPlace, remember } from "./spatial.js";
-import { placeBeside, freeArea } from "./place.js";
 import { filaments, inkOn } from "./filaments.js";
 import { SHAPES, SHAPE_NAMES, MODES, MODE_NAMES, DEFAULT_RELIEF, CURVE_LIMIT, CURVE_TEXT, angleOf, labelName } from "./label.js";
-
-const KIND = "label-card";
 
 // The fields of each shape: [field, label, unit, min, max, step, tip].
 const FIELDS = {
@@ -79,7 +72,6 @@ export class LabelCard {
     this.tool = tool;
     this.host = host;
     this.node = null;
-    this.userAt = null;
     this.inputs = []; // { node, get(label) }: the fields that follow the label
   }
 
@@ -91,7 +83,6 @@ export class LabelCard {
   // Builds the card for label l again (a new label, or other shapes).
   show(l) {
     const keepScroll = this.node?.scrollTop ?? 0;
-    const at = this.node ? [this.node.style.left, this.node.style.top] : null;
     // The field with the focus keeps it in the new card.
     const fields = this.node ? [...this.node.querySelectorAll("input, select, button")] : [];
     const focus = fields.indexOf(document.activeElement);
@@ -107,18 +98,9 @@ export class LabelCard {
     this.title = el("div", "lc-title", `Label ${labelName(l)}`);
     const close = el("button", "flat icon lc-close", "×");
     close.setAttribute("aria-label", "Close");
-    close.title = "Close the card (Esc). The label stays.";
+    close.title = "Clear the selection (Esc). The label stays.";
     close.onclick = () => tool.select(-1);
     head.append(this.title, close);
-    head.title = "Drag to move the card";
-    movable(card, head, this.host, (x, y) => {
-      this.userAt = [x, y];
-      remember(KIND, { x, y });
-    });
-    spatial(card, KIND, head, () => {
-      this.userAt = null;
-      this.place(tool.screenBox());
-    });
     card.append(head);
 
     // A notice when the label has the filament of the part.
@@ -234,7 +216,6 @@ export class LabelCard {
     });
     this.host.append(card);
     this.node = card;
-    if (at) [card.style.left, card.style.top] = at;
     card.scrollTop = keepScroll;
     if (focus >= 0) {
       const f = card.querySelectorAll("input, select, button")[focus];
@@ -243,7 +224,6 @@ export class LabelCard {
     }
     this.update(l);
     this.showInfo(tool.info);
-    this.place(tool.screenBox());
   }
 
   // The box of one shape: its chips and its fields.
@@ -444,26 +424,5 @@ export class LabelCard {
     this.cost.append(c);
     if (!info.sliced) this.cost.append(el("div", "dim caption", "An estimate. The slice gives the count."));
     if (info.kind === "side" && n > 10 && info.top_changes >= 0) this.cost.append(el("div", "lc-info", `On the top face, this label costs ${info.top_changes} ${info.top_changes === 1 ? "change" : "changes"}.`));
-  }
-
-  // Beside the label (box: its box on the screen, CSS pixels of the host,
-  // or null), or at the place where the user put the card.
-  place(box) {
-    const card = this.node;
-    if (!card) return;
-    if (this.userAt) {
-      [card.style.left, card.style.top] = this.userAt.map((v) => `${v}px`);
-      return;
-    }
-    const kept = savedPlace(KIND, card, this.host, box);
-    if (kept) {
-      card.style.left = `${kept[0]}px`;
-      card.style.top = `${kept[1]}px`;
-      return;
-    }
-    const area = freeArea(this.host);
-    const [x, y] = box ? placeBeside(box, area, card.offsetWidth, card.offsetHeight) : [area[2] - card.offsetWidth, area[1] + 52];
-    card.style.left = `${x}px`;
-    card.style.top = `${y}px`;
   }
 }

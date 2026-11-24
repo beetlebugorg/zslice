@@ -1,17 +1,8 @@
-// spatial.js: each card remembers where the user put it, and its size.
-//
-// The user asked for this: "remember where I put it, leave it there, and
-// pop it up there the next time I need it". Each kind of card (the line
-// card, the range card, the part card, the history card, the search) has
-// one place and one size in this browser (localStorage). A card that opens
-// goes to its place, unless there it covers the thing that the user
-// clicked: a card never covers that (see place.js); then it goes to the
-// automatic place for this time. A double click on the head of a card
-// forgets its place and its size.
+// spatial.js: the undocked search remembers where the user put it, and
+// its size, in this browser (localStorage). A double click on its head
+// forgets them. The cards of a selection are in the Inspector (dock.js).
 //
 // SPDX-License-Identifier: AGPL-3.0-or-later
-
-import { freeArea } from "./place.js";
 
 const KEY = "zslice.spatial.v1";
 
@@ -80,19 +71,4 @@ export function spatial(card, kind, handle = null, reset = null) {
       reset?.();
     });
   }
-}
-
-// The kept place of a kind for `card` in `host`, moved inside the free
-// area of the view, or null: none, or it covers `box` (x0, y0, x1, y1, the
-// thing that the user clicked, in the pixels of the host).
-export function savedPlace(kind, card, host, box = null) {
-  const s = saved(kind);
-  if (!(s.x >= 0 && s.y >= 0)) return null;
-  const area = freeArea(host);
-  const w = card.offsetWidth;
-  const h = card.offsetHeight;
-  const x = Math.max(area[0], Math.min(s.x, area[2] - w));
-  const y = Math.max(area[1], Math.min(s.y, area[3] - Math.min(h, 80)));
-  if (box && x < box[2] && x + w > box[0] && y < box[3] && y + h > box[1]) return null;
-  return [x, y];
 }

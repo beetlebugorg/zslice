@@ -68,6 +68,7 @@ import { HistoryPage } from "./history.js";
 import { ProjectPage } from "./project.js";
 import { SearchOverlay } from "./search.js";
 import { ShortcutSheet } from "./shortcuts.js";
+import { InspectorDock } from "./dock.js";
 import { LineCard } from "./linecard.js";
 import { PartCard } from "./partcard.js";
 import { RangeCard } from "./rangecard.js";
@@ -283,10 +284,8 @@ function drawFrame(now) {
     gl.draw(f);
   }
   tools?.placeTape();
-  partCard?.place();
   supportTool?.place();
   labelTool?.place();
-  if (rangeCard?.open) rangeCard.place();
   placeOpenButton();
   frameTimes[frameCount++ % frameTimes.length] = performance.now() - t0;
   if (more || staging) requestFrame();
@@ -295,62 +294,72 @@ function drawFrame(now) {
 
 
 
-// ---- the panel: a drawer (docs/internals/one-view.md) ----
+// ---- the Inspector: a column of the window (dock.js) ----
 //
-// "hidden": the view has the whole window. "overlay": the panel slides
-// over the right of the view. "pinned": the panel is beside the view, as
-// a column with the splitter. N shows and hides it; Pin switches between
-// over and beside. The choice stays in the store.
+// The Inspector and the settings share one column beside the view. In a
+// narrow window the column is a row under the view. Both are layout, so
+// the view gets the rest of the window and nothing of a selection covers
+// it. A selection never opens, closes, or resizes the column. Only the
+// user does (N, the header button, or the × of the column). The wide
+// state stays in the store. A narrow window starts with the row closed.
 
-function panelMode() {
-  return store.panelMode === "pinned" || store.panelMode === "overlay" ? store.panelMode : "hidden";
+const narrowWindow = window.matchMedia("(max-width: 760px)");
+let sheetOpen = false;
+let dockHasSelection = false;
+
+function panelShown() {
+  return narrowWindow.matches ? sheetOpen : store.inspectorOpen !== false;
 }
 
-function setPanelMode(mode) {
+function panelMode() {
+  return panelShown() ? "pinned" : "hidden";
+}
+
+function applyPanel() {
+  const shown = panelShown();
   const w = document.querySelector(".window");
-  w.classList.toggle("panel-hidden", mode === "hidden");
-  w.classList.toggle("panel-overlay", mode === "overlay");
-  $("panel-toggle").setAttribute("aria-pressed", String(mode !== "hidden"));
-  $("panel-pin").setAttribute("aria-pressed", String(mode === "pinned"));
-  if (mode !== "hidden") store.panelPinned = mode === "pinned";
-  store.panelMode = mode;
-  saveStore();
+  w.classList.toggle("panel-hidden", !shown);
+  w.classList.toggle("panel-sheet", narrowWindow.matches);
+  const b = $("panel-toggle");
+  b.setAttribute("aria-pressed", String(shown));
+  b.classList.toggle("has-selection", dockHasSelection && !shown);
   // A hidden panel leaves the view of the whole print; a panel that
   // shows again brings back the focus of its page.
   if (typeof browser === "undefined") return;
-  if (mode === "hidden") clearFocus();
+  if (!shown) clearFocus();
   else browser.sendFocus();
 }
 
-// Shows the panel (over the view, or pinned if the user pinned it last).
+function setPanelOpen(open) {
+  if (narrowWindow.matches) sheetOpen = open;
+  else {
+    store.inspectorOpen = open;
+    saveStore();
+  }
+  applyPanel();
+}
+
 function showPanel() {
-  if (panelMode() === "hidden") setPanelMode(store.panelPinned ? "pinned" : "overlay");
+  if (!panelShown()) setPanelOpen(true);
 }
 
 function togglePanel() {
-  if (panelMode() === "hidden") showPanel();
-  else setPanelMode("hidden");
+  setPanelOpen(!panelShown());
 }
 
-setPanelMode(panelMode());
+applyPanel();
+narrowWindow.addEventListener("change", applyPanel);
 $("panel-toggle").onclick = () => togglePanel();
-$("panel-close").onclick = () => setPanelMode("hidden");
-$("panel-pin").onclick = () => setPanelMode(panelMode() === "pinned" ? "overlay" : "pinned");
-// Esc in the panel over the view hides it (an entry keeps its own Esc).
-$("panel").addEventListener("keydown", (e) => {
-  if (e.key !== "Escape" || panelMode() !== "overlay") return;
-  if (e.target.closest?.("input, textarea, select")) return;
-  setPanelMode("hidden");
-  canvas.focus();
-});
+$("panel-close").onclick = () => setPanelOpen(false);
 
 // ---- the splitter: the width of the panel, kept in the store ----
 
 {
   const panel = $("panel");
   const splitter = $("splitter");
-  const DEFAULT = 560;
+  const DEFAULT = 380;
   const clampWidth = (w) => Math.max(300, Math.min(w, window.innerWidth * 0.75));
+  panel.style.width = `${DEFAULT}px`;
   if (store.panelWidth) panel.style.width = `${clampWidth(store.panelWidth)}px`;
   let drag = null;
   splitter.addEventListener("pointerdown", (e) => {
@@ -715,7 +724,7 @@ async function setSetting(name, value) {
   }
 }
 
-var browser = new SettingsBrowser({ // var: setPanelMode runs before this line
+var browser = new SettingsBrowser({ // var: applyPanel runs before this line
   infos,
   // The start or the end G-code with its values, from the last slice.
   gcodeHead: (name) => client.call("gcodeHead", { name }),
@@ -881,6 +890,8 @@ var paintTool = new PaintTool({
   gl,
   canvas,
   host: $("preview"),
+  cardHost: $("insp-slot"),
+  reveal: () => revealSelection(),
   button: $("tool-paint"),
   // The selected part, else the first part.
   part: () => (tools.part ? tools.part.index : app.parts > 0 ? 0 : -1),
@@ -910,6 +921,8 @@ var labelTool = new LabelTool({
   gl,
   canvas,
   host: $("preview"),
+  cardHost: $("insp-slot"),
+  reveal: () => revealSelection(),
   button: $("tool-label"),
   Card: LabelCard,
   part: () => (tools.part ? tools.part.index : -1),
@@ -939,11 +952,9 @@ var partCard = new PartCard({
   // A click on a label of the part: the Label tool selects it.
   openLabel: (index, id) => labelTool.open(index, id),
   browser,
-  host: $("preview"),
-  pixelOf: (p) => tools.pixelOf(p),
+  host: $("insp-slot"),
   select: (part) => tools.selectPart(part),
   update: (part) => tools.updatePart(part),
-  otherParts: () => tools.otherParts(),
   stamp: () => tools.stamp,
   selectReply: (list, stamp) => tools.selectReply(list, stamp),
   search: (text, scope) => search.show(text, scope),
@@ -965,37 +976,22 @@ var partCard = new PartCard({
 // The card of a selected line, next to it in the view (linecard.js).
 var lineCard = new LineCard({
   browser,
-  // The box of the selected line on the screen, in CSS pixels.
-  lineBox: () => {
-    if (app.page !== "3d" || app.sel < 0) return null;
-    const c = view.w.cell;
-    if (!view.x.zs_view_path_rect(view.v, app.sel, c)) return null;
-    const k = window.devicePixelRatio || 1;
-    const f = new Float32Array(view.w.u8.buffer, c, 4);
-    return [f[0] / k, f[1] / k, f[2] / k, f[3] / k];
-  },
   isolate: () => toggleIsolate(),
   isolated: () => app.isolate,
-  host: $("preview"),
+  host: $("insp-slot"),
   // The jump from a setting of the card to the setting in the panel.
   openSetting: (name) => {
     showTab("settings");
     browser.openSetting(name);
   },
-  // All settings: the long form of the line in the panel takes the place
-  // of the card; the line stays selected.
+  // All settings: the long form of the line takes the place of the card
+  // in the Inspector. The line stays selected.
   more: () => {
     lineCard.close();
     showTab("selected");
-    // The focus goes into the panel, so Esc hides it.
     $("selected-back").focus({ preventScroll: true });
   },
-  // With the panel on the line, a close of the card keeps the selection
-  // (the panel has its data); else it clears it.
-  close: () => {
-    if (panelMode() !== "hidden" && !$("page-selected").hidden) lineCard.close();
-    else select(-1, -1, false);
-  },
+  close: () => select(-1, -1, false),
   // An edit of the line (zs_app_edit_add): kind 0 delete, 1 flow.
   // info: the line (inspect), with its key and layer.
   edit: async (info, kind, value) => {
@@ -2089,10 +2085,10 @@ new ResizeObserver(() => $("preview").style.setProperty("--card-h", `${$("summar
 
 // ---- the panel and the pages ----
 
-// The panel has the settings, and the long form of the selected line
-// (with one back arrow to the settings). The history is a popover over
-// its button in the dock, the project a dialog, and the printers a page over the
-// view.
+// The column has two tabs: the Inspector (dock.js) and the settings. The
+// long form of a line is a page of the Inspector, with a back arrow. The
+// history is a popover over its button in the dock, the project a dialog,
+// and the printers a page over the view.
 function showTab(name) {
   if (name === "history") {
     toggleHistory(true);
@@ -2108,20 +2104,44 @@ function showTab(name) {
     return;
   }
   showPanel();
+  setPage(name);
+}
+
+// Shows a page of the column. It does not open the column.
+function setPage(name) {
   const selected = name === "selected";
-  $("page-settings").hidden = selected;
+  const settings = name === "settings";
+  $("page-inspect").hidden = selected || settings;
+  $("page-settings").hidden = !settings;
   $("page-selected").hidden = !selected;
-  // One back arrow: to the settings from the selected line, else the
-  // arrow of the settings (it hides at their first column).
+  $("panel-nav").hidden = !selected && !settings;
   $("selected-back").hidden = !selected;
   $("crumb-back").hidden = selected;
   $("crumbs").hidden = selected;
   $("panel-title").hidden = !selected;
-  // The title of the Selected page: a line, a gap, or a part.
+  $("tab-inspector").setAttribute("aria-selected", String(!settings));
+  $("tab-settings").setAttribute("aria-selected", String(settings));
+  // The title of the long form: a line or a gap.
   if (selected) $("panel-title").textContent = app.selectedKind === "gap" ? "Selected gap" : "Selected line";
+  // Back on the Inspector, the selected line has its short page again.
+  if (!selected && !settings && app.info && !lineCard.open) {
+    lineCard.openNext();
+    lineCard.show(app.info);
+  }
   updateFocus();
 }
-$("selected-back").onclick = () => showTab("settings");
+
+// A new selection shows the Inspector tab, unless the user types in a
+// setting. It does not open the column, and the view keeps its size.
+function revealSelection() {
+  if ($("page-settings").hidden) return;
+  if ($("page-settings").contains(document.activeElement)) return;
+  setPage("inspector");
+}
+
+$("selected-back").onclick = () => setPage("inspector");
+$("tab-inspector").onclick = () => setPage("inspector");
+$("tab-settings").onclick = () => setPage("settings");
 
 // The history popover: open (true), closed (false), or the other state.
 // It opens over its button in the dock, and never covers the button.
@@ -2178,7 +2198,6 @@ document.addEventListener("keydown", (e) => {
 function showFarm(show) {
   $("farm-view").hidden = !show;
   // The page has the width of the window.
-  if (show && panelMode() === "overlay") setPanelMode("hidden");
   $("printers-page").setAttribute("aria-pressed", String(show));
   $("printers-page").classList.toggle("checked", show);
   if (show) farm.start();
@@ -2233,19 +2252,19 @@ function select(path, seg, picked) {
   }
   requestFrame();
   if (picked && path >= 0) {
-    // The card of the line opens at the click; a panel that shows also
-    // turns to the Selected page.
-    // With the panel on the Selected page, the panel shows the new line,
-    // and no card opens (the same data twice). Else the card opens at the
-    // click.
+    // On the long form, the long form shows the new line. Else the short
+    // page of the line shows in the Inspector.
     app.selectedKind = "line";
-    if (panelMode() !== "hidden" && !$("page-selected").hidden) showTab("selected");
+    if (!$("page-selected").hidden) setPage("selected");
     else {
-      lineCard.openAt(...(app.pickPoint ?? [120, 120]));
-      if (panelMode() !== "hidden") showTab("selected");
+      lineCard.openNext();
+      revealSelection();
     }
   }
-  if (path < 0) lineCard.close();
+  if (path < 0) {
+    lineCard.close();
+    if (!$("page-selected").hidden && app.selectedKind !== "gap") setPage("inspector");
+  }
   inspect();
 }
 
@@ -2959,9 +2978,15 @@ const inspector = new Inspector($("page-selected"), {
 
 // ---- the tools: select, move, measure ----
 
+let lastPartId = 0;
+
 var tools = new Tools({ // var: drawFrame can run before this line
-  // The card of the part goes beside the part and its gizmo.
-  partSelected: (part, parts) => partCard?.show(part, parts),
+  // The page of the part in the Inspector. A new part shows the tab.
+  partSelected: (part, parts) => {
+    if (part && part.id !== lastPartId) revealSelection();
+    lastPartId = part?.id ?? 0;
+    partCard?.show(part, parts);
+  },
   sel: selection,
   client, view, canvas, view2d,
   buttons: { select: $("tool-select"), move: $("tool-move"), measure: $("tool-measure"), support: $("tool-support") },
@@ -2986,6 +3011,8 @@ var tools = new Tools({ // var: drawFrame can run before this line
 var supportTool = new SupportTool({ // var: tools can call it before this line
   client, view, canvas,
   host: $("preview"),
+  cardHost: $("insp-slot"),
+  reveal: () => revealSelection(),
   page: () => app.page,
   frame: () => requestFrame(),
   focus: () => updateFocus(),
@@ -3001,9 +3028,8 @@ const layerBottom = (l) => (l > 0 ? layerTop(l - 1) : layerTop(0) - (app.layers?
 
 var rangeCard = new RangeCard({ // var: drawFrame can run before this line
   browser,
-  host: $("preview"),
-  pixelOf: (p) => view.pixelOf(p[0], p[1], p[2]),
-  bounds: () => view.bounds(),
+  host: $("insp-slot"),
+  reveal: () => revealSelection(),
   layerZ: layerTop,
   layerBottom,
   edit: async (name, value, zmin, zmax, names) => {
@@ -3058,6 +3084,35 @@ var rangeCard = new RangeCard({ // var: drawFrame can run before this line
     requestFrame();
   },
 });
+
+// The Inspector: one place for the page of the selection, and the summary
+// of the plate with no selection.
+var inspectorDock = new InspectorDock($("insp-slot"), $("insp-plate"), {
+  summary: () => {
+    if (!tools?.sel) return null;
+    const plates = app.plates?.length || 1;
+    const time = app.state === "done" ? $("sum-time").textContent : "";
+    const detail = app.state === "done" ? $("sum-detail").textContent : "";
+    const parts = [];
+    for (let i = 0; ; i++) {
+      const id = tools.sel.idAt(i);
+      if (!id) break;
+      const p = tools.factsOf(id);
+      if (p) parts.push({ id, name: p.name || `Part ${i + 1}`, size: `${p.sizeX.toFixed(1)} × ${p.sizeY.toFixed(1)} × ${p.sizeZ.toFixed(1)} mm` });
+    }
+    const count = `${parts.length} ${parts.length === 1 ? "part" : "parts"}`;
+    return { title: `Plate ${(app.activePlate ?? 0) + 1} of ${plates}`, facts: [count, time, detail].filter(Boolean).join(" · "), parts };
+  },
+  selectPart: (id) => {
+    if (tools.tool !== "move") tools.set("move");
+    tools.selectPart(tools.factsOf(id));
+  },
+  changed: (has) => {
+    dockHasSelection = has;
+    $("panel-toggle").classList.toggle("has-selection", has && !panelShown());
+  },
+});
+setPage("inspector");
 
 // The layer under the pointer in a drag over layers: the pointer goes to
 // the nearest point of the line on the screen from the bed to the top
@@ -3201,7 +3256,8 @@ const gaps = new Gaps({
     app.info = null;
     view.highlight(-1, -1, false);
     inspector.signature = null;
-    showTab("selected");
+    setPage("selected");
+    $("panel-toggle").classList.toggle("has-selection", !panelShown());
     requestFrame();
   },
   setSetting: (name, value) => setSetting(name, value),
@@ -3414,6 +3470,7 @@ function updateBadge() {
 function updateSummary() {
   updateSummaryCard();
   updateBadge();
+  inspectorDock?.plateChanged();
 }
 
 // The work bar of the view: the draft slice, the exact slice, and the
@@ -4512,7 +4569,7 @@ function captureUi() {
     tool: tools.tool,
     mode: app.mode,
     layers: { lo: layers.lo, hi: layers.hi, count: layers.count },
-    panel: { selected: !$("page-selected").hidden, column: browser.column, group: browser.group, section: browser.section, search: browser.search, key: browser.key },
+    panel: { selected: !$("page-selected").hidden, tab: $("page-settings").hidden ? "inspector" : "settings", column: browser.column, group: browser.group, section: browser.section, search: browser.search, key: browser.key },
     scroll: { sections: col("col-sections"), settings: col("col-settings"), detail: col("col-detail"), selected: col("page-selected") },
     history: !$("history-pop").hidden,
     farm: !$("farm-view").hidden,
@@ -4975,6 +5032,7 @@ async function restoreUi(camera) {
   if (u?.tool) tools.set(u.tool);
   setCamera(u?.camera ?? camera);
   if (u?.panel) {
+    if (u.panel.tab === "settings") setPage("settings");
     if (u.panel.key) browser.openSetting(u.panel.key);
     else if (u.panel.column > 0 && u.panel.group) browser.showColumn?.(u.panel.column);
   }
@@ -5249,6 +5307,7 @@ window.zslice = {
   clipboard,
   labelTool,
   camera: () => cameraNow(),
+  setCamera: (c) => setCamera(c),
   rangeCard,
   search,
   shortcuts,
