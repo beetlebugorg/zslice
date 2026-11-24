@@ -62,3 +62,4 @@ One line for each update: the date, the commit that the folder describes, and th
 | 2026-11-23 | Add a gzip call to the core for the app shells | README, CHANGELOG: `zs_gzip` and `zs_gzip_free` give the shells one gzip encoder. |
 | 2026-11-23 | Keep the paint of a part in place through a mirror | README, CHANGELOG: a mirror rewrites each paint tree for the reversed faces. |
 | 2026-11-23 | Describe the Inspector in the docs | README, CHANGELOG, 09: the docked Inspector replaces the floating cards on web. |
+| 2026-11-23 | Dock the Mac Inspector beside the view | README, CHANGELOG, 11: one Inspector column replaces the floating cards on the Mac. |

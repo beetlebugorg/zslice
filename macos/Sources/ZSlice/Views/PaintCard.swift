@@ -74,11 +74,7 @@ struct PaintCard: View {
                 .help("The whole part prints with its own filament again")
         }
         .controlSize(.small)
-        .padding(14)
-        .frame(width: 280)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
-        .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(.separator))
-        .shadow(color: .black.opacity(0.15), radius: 12, y: 4)
+        .frame(maxWidth: .infinity, alignment: .leading)
         // A new color of a filament: the palette again.
         .onChange(of: model.filaments) { workspace.paintColors() }
     }

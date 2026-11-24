@@ -199,7 +199,7 @@ extension Workspace {
     /// The settings pane at a setting.
     func openSetting(_ name: String) {
         guard let info = SettingInfo.byName[name] else { return }
-        showSettings = true
+        openDock(.settings)
         settingsPath = [.section(group: info.group, section: info.section), .setting(name)]
     }
 }

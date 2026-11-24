@@ -1,6 +1,6 @@
 # A prompt that could build zslice
 
-Describes: main through "Describe the Inspector in the docs", 2026-11-23.
+Describes: main through "Dock the Mac Inspector beside the view", 2026-11-23.
 
 ## Read this first
 

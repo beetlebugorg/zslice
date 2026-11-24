@@ -73,9 +73,8 @@ extension Workspace {
 
     // MARK: - pick and select
 
-    /// A click at a point of the view (in points from its top left). card:
-    /// open the card of the line (a right click for the menu does not).
-    func pick(at p: CGPoint, card: Bool = true) {
+    /// A click at a point of the view (in points from its top left).
+    func pick(at p: CGPoint) {
         guard let v = canvas.view, model.state == .done || layerCount > 0 else { return }
         var seg = 0
         let path: Int
@@ -89,14 +88,11 @@ extension Workspace {
         if path == noPath {
             clearSelection()
         } else {
-            cardAt = p
-            // With the line in the pane, the pane shows the new line, and
-            // no card opens.
-            select(path: path, seg: seg, openCard: card && !lineInPane)
+            select(path: path, seg: seg)
         }
     }
 
-    func select(path: Int, seg: Int, openCard: Bool) {
+    func select(path: Int, seg: Int) {
         let before = selection
         draftLine = nil
         selection = Selection(path: path, seg: seg)
@@ -108,7 +104,6 @@ extension Workspace {
         if selection?.key == 0, let before, before.path == path, before.key != 0 {
             selection = before
             selection?.seg = seg
-            if openCard { cardOpen = true }
             showSelection()
             return
         }
@@ -118,7 +113,6 @@ extension Workspace {
             selection?.y = m.y
             selection?.z = m.z
         }
-        if openCard { cardOpen = true }
         showSelection()
         inspect()
     }
@@ -148,8 +142,6 @@ extension Workspace {
         releaseTimer?.invalidate()
         releaseTimer = nil
         zs_sel_line_set(model.sel, 0, -1, -1)
-        cardOpen = false
-        cardMoved = nil
         showSelection()
     }
 
@@ -255,7 +247,7 @@ extension Workspace {
             zs_sel_line_found(model.sel, hit, zs_view_path_segments(v, hit))
             zs_sel_line_get(model.sel, &key, &was, &seg)
             lineLog("key", hit)
-            select(path: hit, seg: max(seg, 0), openCard: false)
+            select(path: hit, seg: max(seg, 0))
             return
         }
         // A miss: the nearest line of the same feature at the saved place.
@@ -270,7 +262,7 @@ extension Workspace {
         }
         let segs = zs_view_path_segments(v, path)
         lineLog("place", path)
-        select(path: path, seg: min(max(wanted.seg, 0), max(0, segs - 1)), openCard: false)
+        select(path: path, seg: min(max(wanted.seg, 0), max(0, segs - 1)))
         // The exact slice looks for the first line again.
         if model.draft { draftLine = wanted }
     }
@@ -368,8 +360,7 @@ extension Workspace {
             case "H" where shift: step(-1)
             case "L" where shift: step(1)
             case "c": setRange(lo: lo, hi: zs_view_path_layer(v, s.path))
-            // Esc: the card first (closeCard keeps a line of the pane), then the selection.
-            case "\u{1b}": if cardOpen { closeCard() } else { clearSelection() }
+            case "\u{1b}": clearSelection()
             default: return false
             }
         }
@@ -400,7 +391,7 @@ extension Workspace {
         guard let v = canvas.view else { return }
         let l = zs_view_path_layer(v, path)
         if l != hi { setRange(lo: min(lo, l), hi: l) }
-        select(path: path, seg: seg, openCard: false)
+        select(path: path, seg: seg)
     }
 }
 

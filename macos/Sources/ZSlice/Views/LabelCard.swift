@@ -16,10 +16,6 @@ import UniformTypeIdentifiers
 
 struct LabelCard: View {
     let workspace: Workspace
-    let area: CGSize
-    @State private var cardSize = CGSize(width: 320, height: 400)
-    @State private var drag: CGSize = .zero
-    @State private var moved: CGPoint?
     @FocusState private var textFocus: Int?
 
     /// The number fields of each shape: field, label, unit, min, max, tip.
@@ -46,30 +42,13 @@ struct LabelCard: View {
     var body: some View {
         if let l = st.label {
             card(l)
-                .padding(14)
-                .spatialSize("label", width: 320)
-                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
-                .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(.separator))
-                .spatialGrip("label", size: cardSize)
-                .shadow(color: .black.opacity(0.15), radius: 12, y: 4)
-                .onGeometryChange(for: CGSize.self) { $0.size } action: { cardSize = $0 }
-                .position(place)
-                .offset(drag)
                 .onChange(of: workspace.labelFocusText) { textFocus = 0 }
         }
     }
 
-    private var place: CGPoint {
-        if let moved { return keptInView(moved, size: cardSize, area: area, bottom: workspace.dockHeight + 12) }
-        let box = st.box
-        if let c = SpatialStore.shared.center("label", size: cardSize, area: area, bottom: workspace.dockHeight + 12, avoiding: box) { return c }
-        return cardPlace(avoiding: box, near: CGPoint(x: area.width - 92 - cardSize.width / 2, y: 236), size: cardSize, in: area,
-                         bottom: workspace.dockHeight + 12, panels: workspace.panels)
-    }
-
     @ViewBuilder
     private func card(_ l: PartLabel) -> some View {
-        ScrollView {
+        Group {
             VStack(alignment: .leading, spacing: 10) {
                 head(l)
                 notices(l)
@@ -102,7 +81,6 @@ struct LabelCard: View {
                     .help("Remove the label from the part (Delete)")
             }
         }
-        .frame(maxHeight: max(200, area.height - workspace.dockHeight - 80))
         .controlSize(.small)
     }
 
@@ -114,22 +92,7 @@ struct LabelCard: View {
                 CloseMark()
             }
             .buttonStyle(.borderless)
-            .help("Close the card (Esc). The label stays.")
-        }
-        .contentShape(Rectangle())
-        .help("Drag to move the card; zslice keeps its place. A double click puts it back.")
-        .gesture(DragGesture(coordinateSpace: .global)
-            .onChanged { drag = $0.translation }
-            .onEnded { g in
-                let c = place
-                let to = CGPoint(x: c.x + g.translation.width, y: c.y + g.translation.height)
-                moved = to
-                SpatialStore.shared.moved("label", center: to, size: cardSize)
-                drag = .zero
-            })
-        .onTapGesture(count: 2) {
-            SpatialStore.shared.forget("label")
-            moved = nil
+            .help("Clear the selection (Esc). The label stays.")
         }
     }
 

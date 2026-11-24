@@ -158,12 +158,6 @@ final class Workspace {
     var paint: PaintSession?
     /// The other lines of a run (Shift and a click) are lit.
     @ObservationIgnored var runLit = false
-    /// The panels over the view (global frames), and the global origin of
-    /// the layer of the cards: a card keeps out of each panel.
-    var panelFrames: [CGRect] = []
-    var cardsOrigin: CGPoint = .zero
-    /// The panels in the coordinates of the cards.
-    var panels: [CGRect] { panelFrames.map { $0.offsetBy(dx: -cardsOrigin.x, dy: -cardsOrigin.y) } }
     /// The range of Shift+K and Shift+J: the first layer, and the layer
     /// that moves.
     @ObservationIgnored var keyRange: (a: Int, b: Int)?
@@ -227,7 +221,6 @@ final class Workspace {
     /// shows from below.
     var bedHidden = false
     /// The size of the card of a gap as it shows, for its place.
-    var gapCardSize = CGSize(width: 320, height: 220)
     var checkOpen = false
     var issues: [Issue] = []
 
@@ -241,15 +234,7 @@ final class Workspace {
     /// Waits for the release of a slider that removed the selected line.
     @ObservationIgnored var releaseTimer: Timer?
     @ObservationIgnored var heldForTest: Bool?
-    var cardOpen = false
-    /// Where the click was (points in the view), and where the user moved
-    /// the card to; the card keeps that place until it closes.
-    var cardAt = CGPoint(x: 120, y: 120)
-    var cardMoved: CGPoint?
-    /// The corner of the line card (0 top left, 1 top right, 2 bottom left,
-    /// 3 bottom right): it keeps it from click to click.
-    @ObservationIgnored var cardCorner: Int?
-    /// The height of the bottom bar, for the cards to keep clear of it.
+    /// The height of the bottom bar and of the row of a narrow window.
     var dockHeight: CGFloat = 70
     /// "Fade the others": the app keeps the choice.
     var isolate = prefs.bool(forKey: "isolate") {
@@ -277,7 +262,7 @@ final class Workspace {
         if PrinterStore.shared.unreadable {
             showNote("The file of your printers did not read. zslice keeps it as it is, and does not save changes to the printers.", seconds: 12)
         }
-        if ProcessInfo.processInfo.environment["ZSLICE_PANEL"] != nil { showSettings = true }
+        if ProcessInfo.processInfo.environment["ZSLICE_PANEL"] != nil { openDock(.settings) }
         // ZSLICE_SEARCH=text opens the search with that text (the field reads it).
         if let t = ProcessInfo.processInfo.environment["ZSLICE_SEARCH"] {
             // ZSLICE_SEARCH_UNDOCK=1: the search as a card.
@@ -1344,12 +1329,11 @@ final class Workspace {
                 }
                 // "card": the card of the line only.
                 if env["ZSLICE_REMOVE_SUPPORT"] == "card" {
-                    cardAt = CGPoint(x: 450, y: 300)
-                    select(path: path, seg: 0, openCard: true)
+                    select(path: path, seg: 0)
                     NSLog("zslice support card: %@", lineInfo.map { "\($0.title), holds \($0.holds.map { "layer \($0.layer) feature \($0.feature)" } ?? "none")" } ?? "none")
                     return
                 }
-                select(path: path, seg: 0, openCard: false)
+                select(path: path, seg: 0)
                 let areas = zs_app_support_area_count(model.core)
                 removeSupportHere()
                 NSLog("zslice remove support: layer %ld path %ld, areas %ld -> %ld, note %@", l, path, areas,
@@ -1384,10 +1368,14 @@ final class Workspace {
                 NSLog("zslice gap open: pick %d", self.pickGap(at: at) ? 1 : 0)
                 try? await Task.sleep(for: .seconds(1.5))
                 let box = self.gapScreenBox() ?? .zero
-                let size = self.gapCardSize
-                let c = cardPlace(avoiding: box, near: at, size: size, in: self.canvas.bounds.size, bottom: 12, panels: self.panels)
-                let card = CGRect(x: c.x - size.width / 2, y: c.y - size.height / 2, width: size.width, height: size.height)
-                NSLog("zslice gap open: gap %@, card %@, overlap %d", NSStringFromRect(box), NSStringFromRect(card), card.intersects(box) ? 1 : 0)
+                NSLog("zslice gap open: gap %@, card %@, overlap %d", NSStringFromRect(box), self.dockKind.rawValue, self.dockKind == .gap ? 0 : 1)
+            }
+        }
+        // ZSLICE_DOCK_TEST=1: a selection never moves the view (InspectorDock.swift).
+        if env["ZSLICE_DOCK_TEST"] != nil {
+            Task { @MainActor in
+                try? await Task.sleep(for: .seconds(Double(env["ZSLICE_DOCK_WAIT"] ?? "") ?? 4))
+                await self.runDockTest()
             }
         }
         // ZSLICE_PICK=x,y picks the line at that point of the view (points),
@@ -1464,7 +1452,7 @@ final class Workspace {
                         // The infill line nearest to the selected line.
                         if let r = self.refindKey {
                             let path = zs_app_pick_feature(self.model.core, r.layer, Int32(ZS_FEATURE_INFILL.rawValue), r.x, r.y)
-                            if path != noPath { self.select(path: path, seg: 0, openCard: false) }
+                            if path != noPath { self.select(path: path, seg: 0) }
                         }
                     case "linekeep":
                         // A change of the infill: the line stays selected
@@ -1538,7 +1526,7 @@ final class Workspace {
                         // part, near its top face; old uses the point of the line, and
                         // putdown:miss a click off the part.
                         guard let b = self.part(0), let at = self.canvas.viewPoint(x: b.x, y: b.y - b.size_y / 2, z: b.size_z * 0.92) else { break }
-                        self.pick(at: at, card: false)
+                        self.pick(at: at)
                         let line = self.selection != nil
                         if f.count > 1, f[1] == "miss" {
                             // A ray that misses the part: the point of the line.
@@ -1837,12 +1825,6 @@ final class Workspace {
         }
         // ZSLICE_LINE_PAGE=1 opens the page of the picked line.
         if env["ZSLICE_LINE_PAGE"] != nil, selection != nil { showLineSettings() }
-        // ZSLICE_CARD_FAR=1: a card moved to the far right, with the pane open.
-        if env["ZSLICE_CARD_FAR"] != nil, selection != nil {
-            cardMoved = CGPoint(x: 9000, y: 240)
-            cardOpen = true
-            showSettings = true
-        }
         // ZSLICE_DOUBLE_CLICK=x,y: a double click there (as in the GTK app).
         if let xy = env["ZSLICE_DOUBLE_CLICK"]?.split(separator: ",").compactMap({ Double($0) }), xy.count == 2, let v = canvas.view {
             if !lookAtSide(CGPoint(x: xy[0], y: xy[1])) { zs_view_reset_smooth(v) }
@@ -2155,14 +2137,21 @@ final class Workspace {
 
     // MARK: - the settings drawer
 
-    /// The drawer shows. The app keeps the choice for the next window.
-    var showSettings = prefs.bool(forKey: "panel") {
+    /// The column of the Inspector shows. The app keeps the choice. A test
+    /// run starts with it closed, so its points in the view stay.
+    var showSettings = prefs.object(forKey: "inspectorOpen") as? Bool ?? (ProcessInfo.processInfo.environment["ZSLICE_FRESH"] == nil) {
         didSet {
-            prefs.set(showSettings, forKey: "panel")
+            prefs.set(showSettings, forKey: "inspectorOpen")
             if !showSettings { focus(0, firstLayer: false) }
         }
     }
-
+    var dockTab = DockTab.inspector
+    /// The row under the view of a narrow window: only the user opens it.
+    var dockRowOpen = false
+    /// The width of the window, for the row of a narrow window.
+    var windowWidth: CGFloat = 0
+    /// The groups of the Inspector that the user closed.
+    var closedGroups = Set(prefs.stringArray(forKey: "inspectorClosedGroups") ?? [])
 
     /// The pages of the settings browser that show, from its first page.
     var settingsPath: [SettingsRoute] = []
@@ -2171,20 +2160,13 @@ final class Workspace {
     /// closes: the pane has the same facts, and the line stays selected.
     /// The pane shows the page of the selected line.
     var lineInPane: Bool {
-        guard showSettings, let last = settingsPath.last, case .line = last else { return false }
+        guard dockShown, dockTab == .settings, let last = settingsPath.last, case .line = last else { return false }
         return true
     }
 
-    /// The × or Esc of the card: with the line in the pane, only the card
-    /// closes; else the selection goes too.
-    func closeCard() {
-        if lineInPane { cardOpen = false } else { clearSelection() }
-    }
-
     func showLineSettings() {
-        showSettings = true
+        openDock(.settings)
         settingsPath = [.line]
-        cardOpen = false
     }
 
     /// The right pane has only the settings. The history is a popover of
@@ -2337,7 +2319,7 @@ final class Workspace {
     /// always: also with the drawer hidden (the eye of the search).
     func focus(_ mask: UInt32, firstLayer: Bool, always: Bool = false) {
         // A hidden drawer shows the whole print.
-        let m = showSettings || always ? mask : 0
+        let m = (dockShown && dockTab == .settings) || always ? mask : 0
         focusMask = m
         focusFirst = firstLayer
         applyFocus()
@@ -2947,9 +2929,9 @@ extension Workspace: SliceViewDelegate {
             case "h", "H": scrubStep(-0.02)
             case "l", "L": scrubStep(0.02)
             case "C" where shift: setRange(lo: 0, hi: layerCount - 1)
-            case "n" where !shift: showSettings.toggle()
-            // Esc with nothing else to close: the settings pane.
-            case "\u{1b}" where showSettings: showSettings = false
+            case "n" where !shift: toggleDock()
+            // Esc with nothing else to close: the row of a narrow window.
+            case "\u{1b}" where narrowWindow && dockRowOpen: dockRowOpen = false
             case "/": if searchOpen { closeSearch() } else { openSearch() }
             // 2 shows the 2D view, and 2 again the 3D view; 3 the 3D view.
             case "2" where !shift: page = page == .twoD ? .threeD : .twoD
@@ -3123,7 +3105,7 @@ extension Workspace {
             for c in v.subviews { if let f = table(c) { return f } }
             return nil
         }
-        showSettings = true
+        openDock(.settings)
         try? await Task.sleep(for: .milliseconds(500))
         var out: [String] = []
         for place in ["view", "window", "settings list"] {

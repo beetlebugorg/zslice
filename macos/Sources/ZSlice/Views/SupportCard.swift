@@ -41,11 +41,7 @@ struct SupportCard: View {
                 trees
             }
         }
-        .padding(14)
-        .frame(width: 290)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
-        .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(.separator))
-        .shadow(color: .black.opacity(0.15), radius: 12, y: 4)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     /// The trees: the buttons and the text.
@@ -138,10 +134,6 @@ struct PickedSupportCard: View {
             }
         }
         .controlSize(.small)
-        .padding(14)
-        .frame(width: 290)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
-        .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(.separator))
-        .shadow(color: .black.opacity(0.15), radius: 12, y: 4)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }

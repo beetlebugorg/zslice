@@ -21,7 +21,7 @@ Build the native Mac app in `macos/`: a SwiftUI and AppKit shell around the app 
 7. The window: a toolbar with the file button, the search field in the center (as on the web), then the printer menu, the Filament button, the Quality menu, Printers, Settings, and More at the right. The search field gives up its width before an item at the right cuts its label. At a narrow width, AppKit moves whole items to the » menu. One bottom bar as on the web. The settings drawer is a SwiftUI inspector, always pinned.
    - The search can also be a rail at the left of the view (beside the tool strip) or at the right (beside the layer slider), the height of the view, with the name of each setting over its control. The head of the results, the card, and the rails have a button for each other place. A card and a rail stay open until × or Esc.
    - A click in the view closes the results under the toolbar field. A drag to turn or pan keeps them.
-8. Cards and panels with `cardPlace(avoiding:)`, `.panel()` frames, and spatial cards (`SpatialStore`, the rules of `web/app/spatial.js`).
+8. One Inspector column beside the view (`Views/InspectorDock.swift`, the rules of `web/app/dock.js`), with Inspector and Settings tabs. A selection changes only its content. A window of 1040 points or less has a row under the view that only the user opens. The undocked search card keeps its place (`SpatialStore`).
 9. The tools: Select (V), Move (M), Turn (R), Grab (G), Measure (T), Support (S), Label (E), Paint (P). The Mac keeps Move, Turn, and Grab as three tools; the transform tool of the web and GTK apps is not on the Mac yet. h and l step like the arrows: the segment before or after a selected line, else the nozzle back or on. Shift-H and Shift-L step a whole line. Gaps has no key; View > Show Gaps stays.
    - The open panel, a drop, and the Finder take `.step`, `.stp`, and `.obj`. The part card has Mirror X and Mirror Y. B and View > Hide the Bed hide the bed.
    - The range card has the row "This body" (part 05).
@@ -61,7 +61,8 @@ Build the native Mac app in `macos/`: a SwiftUI and AppKit shell around the app 
 - **Allow one MQTT connection for each Bambu address.** `BambuGate` holds it, and keeps the wait after a failure across new reads: 15 s, doubling to 5 minutes. A new access code ends the wait, and Test uses a login of the last 15 s.
 - **Write nothing from an unedited field.** The text of a value need not parse back to the same string, so a field that lost the focus could change a later-nozzle value.
 - **Keep the Selected Line page under a held slider.** A slice that removes the line waits for the release, then finds the line or ends the selection.
-- **Keep a moved card in the view.** The settings pane makes the view narrower, so each card clamps its saved place.
+- **Keep the view out of the column.** `.ignoresSafeArea()` ran the view under the inspector, so its center was off. The view keeps the trailing safe area.
+- **Keep the bottom bar whole.** A narrow view beside the column cut off Export. The column leaves the view 720 points, and a narrower window has the row.
 - **Import from a ZIP file, and call no site API.** A model page shows `zs_import_page_text` and Open the Page. A ZIP file from Open, Add Models, a drop, or Open With goes to the list. Cancel is the default button, so Return does not load. Load adds the checked files, then `zs_set_spill`. A 3MF file is also a ZIP file, so the app tells them apart by the extension.
 - **Write no file for a project with no parts.** A responder after the window handles Save and Save As, and says why when every plate is empty.
 - **Ask before a saved key goes to a new address.** A change of scheme, host, or port asks, with No as the default. No drops the key, Cancel keeps the old address and key, and a new origin drops the old https address. The address field is a draft until the edit ends, and Test the Connection asks first, because each of them can send the key.
@@ -77,7 +78,6 @@ Build the native Mac app in `macos/`: a SwiftUI and AppKit shell around the app 
 - A model file (an STL, or a 3MF that `zs_project_file_is` does not know) becomes an untitled document, so a save never writes over the model.
 - Open an empty window at launch. Do not open the Open panel.
 - Keep the main thread free after a slice. Keep the thinned tree dots until the trees or the camera change.
-- Keep the cards off the panels of the view. Place the gap card by its measured size.
 - Keep the search in the toolbar, with a way to undock it.
 - Keep only the settings in the right pane.
 - Keep the API key on its origin through redirects (`KeyRedirect`).
@@ -97,4 +97,5 @@ Build the native Mac app in `macos/`: a SwiftUI and AppKit shell around the app 
 4. `ZSLICE_RESTORE_DELAY=s` shows that no session file is written during the wait.
 5. `qlmanage -x -p file.gcode` shows the 3D preview.
 6. `ZSLICE_RIGHT_DRAG=1` (a mouse right drag) must orbit. `ZSLICE_RIGHT_DRAG=touch` (a trackpad) must pan. `ZSLICE_INPUT_LOG=1` logs the subtype of each right press on a real trackpad.
-7. `ZSLICE_BAMBU_OUT` writes the `.gcode.3mf` of each slice of a Bambu Lab plate, as a send builds it.
+7. `ZSLICE_DOCK_TEST=1` must pass with no skip: a selection keeps the view frame, the camera, and the open state.
+8. `ZSLICE_BAMBU_OUT` writes the `.gcode.3mf` of each slice of a Bambu Lab plate, as a send builds it.

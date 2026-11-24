@@ -120,7 +120,7 @@ final class SearchState {
             SearchAction(label: "Show the 3D View", keys: "3") { workspace.page = .threeD },
             SearchAction(label: "Show the 2D View", keys: "2") { workspace.page = .twoD },
             SearchAction(label: "Fit the Part", keys: "⌘0") { workspace.fit() },
-            SearchAction(label: "Show or Hide the Settings", keys: "N") { workspace.showSettings.toggle() },
+            SearchAction(label: "Show or Hide the Settings", keys: "N") { workspace.toggleDock() },
             SearchAction(label: "Measure", keys: "T") { workspace.setTool(.measure) },
             SearchAction(label: "Move a Part", keys: "M") { workspace.setTool(.move) },
             SearchAction(label: "Turn a Part", keys: "R") { workspace.setTool(.turn) },

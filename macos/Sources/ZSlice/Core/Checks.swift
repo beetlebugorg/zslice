@@ -130,7 +130,6 @@ extension Workspace {
         gapCard = GapInfo(layer: hi, index: Int(i), area: g.area, width: g.width,
                           steps: out.prefix(count).map { (text($0.name, $0.name_len), text($0.value, $0.value_len), text($0.why, $0.why_len)) },
                           bed: bed, z: layerTopBottom(hi)?.top ?? 0)
-        cardAt = p
         return true
     }
 
@@ -209,7 +208,7 @@ extension Workspace {
     func show(_ issue: Issue) {
         setRange(lo: lo, hi: max(issue.layer, lo))
         if let p = issue.path {
-            select(path: p, seg: 0, openCard: false)
+            select(path: p, seg: 0)
         }
     }
 }

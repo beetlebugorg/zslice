@@ -1,11 +1,6 @@
-//! Spatial cards (web/app/spatial.js): each kind of card remembers where
-//! the user put it, and its size.
-//!
-//! The user asked for it: "remember where I put it, leave it there, and
-//! pop it up there the next time I need it". Each kind of card (the line
-//! card, the range card, the part card, the history card) has one place
-//! and one size for the user, in the preferences of the app (`prefs`, so a
-//! test run keeps its own).
+//! The undocked search card (web/app/spatial.js) remembers where the user
+//! put it, and its size, in the preferences of the app (`prefs`, so a test
+//! run keeps its own). The cards of a selection are in the Inspector.
 //!
 //! - A drag of the head of a card moves it, and keeps its place.
 //! - The grip at the lower right corner resizes it, and keeps its size.
@@ -36,16 +31,6 @@ extension View {
     func dialogBar() -> some View {
         padding(.horizontal, 24).padding(.vertical, 14)
     }
-}
-
-/// The center of a card that the user moved, inside the view now. The
-/// settings pane makes the view narrower, so a card at the right edge
-/// goes back into it and never lies under the pane.
-func keptInView(_ c: CGPoint, size: CGSize, area: CGSize, bottom: CGFloat) -> CGPoint {
-    let left: CGFloat = 64, top: CGFloat = 60, right = area.width - 84, foot = area.height - max(bottom, 8)
-    let x = max(left, min(c.x - size.width / 2, right - size.width))
-    let y = max(top, min(c.y - size.height / 2, foot - (size.height <= foot - top ? size.height : 80)))
-    return CGPoint(x: x + size.width / 2, y: y + size.height / 2)
 }
 
 @MainActor
