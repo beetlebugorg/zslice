@@ -353,7 +353,8 @@ export class Tools {
   // Asks the worker for the facts of parts that the page does not have.
   fetchFacts(ids) {
     for (const id of ids) {
-      if (this.facts.has(id)) continue;
+      // A part from the model alone has no scale yet.
+      if (this.facts.get(id)?.scale) continue;
       const index = this.sel.indexOf(id);
       if (index < 0) continue;
       this.ctx.client.call("partGet", { index }).then((r) => r.part && this.updatePart(r.part));
@@ -399,7 +400,7 @@ export class Tools {
   // a change (force: the user selected).
   show(force = false) {
     const list = this.parts;
-    const key = list.map((p) => `${p.id}:${p.index}:${p.x}:${p.y}:${p.z}:${p.sizeX}:${p.sizeY}:${p.sizeZ}:${p.rotation}:${p.name}`).join("|");
+    const key = list.map((p) => `${p.id}:${p.index}:${p.x}:${p.y}:${p.z}:${p.sizeX}:${p.sizeY}:${p.sizeZ}:${p.rotation}:${p.name}:${p.scale}`).join("|");
     if (!force && key === this.shownKey) return;
     this.shownKey = key;
     this.ctx.partSelected?.(list.length ? list[list.length - 1] : null, list);

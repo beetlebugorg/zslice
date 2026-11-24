@@ -1207,16 +1207,40 @@ export class Core {
   }
 
   // The zslice settings of part i: [[name, value]] (its own values, not
-  // the values of the plate).
+  // the values of the plate). The text lists the modifier volumes after
+  // the part. Their values are not values of the part (partVolumes).
   partSettings(i) {
+    return this.partSettingsText(i).part;
+  }
+
+  // The settings of the modifier volumes of part i: [{ name, list }].
+  partVolumes(i) {
+    return this.partSettingsText(i).volumes;
+  }
+
+  partSettingsText(i) {
     const w = this.w;
     const text = w.readText((b, c, l) => w.x.zs_app_part_settings(this.app, i, b, c, l)) ?? "";
-    const out = [];
+    const part = [];
+    const volumes = [];
+    let list = part;
+    let region = false;
     for (const line of text.split("\n")) {
+      const v = /^Volume "(.*)":$/.exec(line);
+      if (v) {
+        list = [];
+        region = /^(Region|Pick) \d+$/.test(v[1]);
+        volumes.push({ name: v[1], list });
+        continue;
+      }
       const m = /^\s+([a-z]+\.[a-z0-9_]+) = (.*)$/.exec(line);
-      if (m && !line.includes(": not used")) out.push([m[1], m[2]]);
+      if (!m || line.includes(": not used")) continue;
+      // Each body region stores "no walls of its own" (App.regionSet).
+      // That is a part of how a region works, and the user did not set it.
+      if (region && m[1] === "project.wall_count" && m[2] === "0") continue;
+      list.push([m[1], m[2]]);
     }
-    return out;
+    return { part, volumes };
   }
 
   // ---- the paint of a part (zs_app_part_mesh, zs_app_part_paint_*) ----

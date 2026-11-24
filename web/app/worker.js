@@ -1104,10 +1104,12 @@ const ops = {
   },
 
   // Scales part i to s times the size of its file (1 = 100 %), the same
-  // along each axis.
+  // along each axis. The sign of each axis stays: a mirrored part stays
+  // mirrored.
   partScale({ index, s }) {
     if (!(s > 1e-3 && s < 1e3)) return { part: core.part(index) };
-    if (core.w.x.zs_app_part_scale(core.app, index, s, s, s) === 0) sliceOrHold(false);
+    const [sx, sy, sz] = (core.part(index)?.scale ?? [1, 1, 1]).map((v) => (v < 0 ? -s : s));
+    if (core.w.x.zs_app_part_scale(core.app, index, sx, sy, sz) === 0) sliceOrHold(false);
     return { part: core.part(index) };
   },
 
@@ -1676,7 +1678,8 @@ const ops = {
   },
 
   partSettings({ index }) {
-    return { list: core.partSettings(index) };
+    const { part, volumes } = core.partSettingsText(index);
+    return { list: part, volumes };
   },
 
   partSettingSet({ index, name, value }) {
