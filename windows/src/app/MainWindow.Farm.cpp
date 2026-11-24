@@ -472,16 +472,68 @@ namespace winrt::ZSlice::implementation
         // Each open reads the camera of the printer again.
         details_camera_id.clear();
         UpdateDetailsCamera();
+        UpdateDetailsState();
     }
 
-    void MainWindow::PrintersUi::DetailsStatus(std::string const &id, zs::link::Snapshot const *status)
+    void MainWindow::PrintersUi::DetailsStatus(std::string const &id, zs::link::Snapshot const *status, std::string const &error)
     {
         details_has_status = status != nullptr;
         details_status_id = id;
+        details_error = error;
         if (status != nullptr)
             details_status = *status;
         if (details_open)
             UpdateDetailsCamera();
+        // A send shows its own progress.
+        if (!sending)
+            UpdateDetailsState();
+    }
+
+    // The state of the current printer and its roll, in the print details.
+    // The short line has the state, and the tooltip has the printer name.
+    void MainWindow::PrintersUi::UpdateDetailsState()
+    {
+        TextBlock label = w.SummaryPrinterState();
+        zs::SavedPrinter const &printer = zs::Printers().Current();
+        if (!Polled(printer) || details_status_id != printer.id)
+        {
+            label.Visibility(Visibility::Collapsed);
+            return;
+        }
+        std::wstring state, roll;
+        if (!details_has_status)
+            state = L"no connection";
+        else
+        {
+            zs::link::Snapshot const &st = details_status;
+            if (!st.job.empty() && st.progress > 0)
+            {
+                state = zs::ToWide(st.state.empty() ? std::string("Printing") : st.state) + L" " + std::to_wstring(std::lround(st.progress * 100)) + L" %";
+                if (st.time_left > 0)
+                {
+                    wchar_t left[32];
+                    swprintf_s(left, L", %d:%02d left", (int)st.time_left / 3600, (int)st.time_left / 60 % 60);
+                    state += left;
+                }
+            }
+            else
+                state = zs::ToWide(st.state.empty() ? std::string("connected") : st.state);
+            if (!st.spool_name.empty())
+            {
+                roll = zs::ToWide(st.spool_name);
+                // The core gives 0 grams for a roll with no known weight.
+                if (st.spool_left > 0)
+                    roll += L", " + std::to_wstring(std::lround(st.spool_left)) + L" g left";
+            }
+        }
+        label.Text(roll.empty() ? state : state + L" · " + roll);
+        std::wstring tip = zs::ToWide(printer.name) + L": " + state;
+        if (!details_has_status && !details_error.empty())
+            tip += L"\n" + zs::ToWide(details_error);
+        else if (!roll.empty())
+            tip += L"\nIn the printer: " + roll;
+        ToolTipService::SetToolTip(label, box_value(tip));
+        label.Visibility(Visibility::Visible);
     }
 
     void MainWindow::PrintersUi::UpdateDetailsCamera()
@@ -660,7 +712,7 @@ namespace winrt::ZSlice::implementation
                 // The user can pick another printer during the request.
                 if (ui.follow_stopped || r.id != zs::Printers().Current().id)
                     return;
-                ui.DetailsStatus(r.id, r.ok ? &r.status : nullptr);
+                ui.DetailsStatus(r.id, r.ok ? &r.status : nullptr, r.error);
                 if (!r.ok)
                     return;
                 ui.FollowPrinter(r.name, r.status);

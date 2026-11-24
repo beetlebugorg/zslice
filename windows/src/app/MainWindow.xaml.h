@@ -317,6 +317,11 @@ namespace winrt::ZSlice::implementation
         // The hover card and the list of the history (MainWindow.History.cpp).
         void WireHistory();
         void GoToStep(size_t step);
+        // Space in the history: back to the step shown before.
+        void FlipHistoryStep();
+        // That step plus one (0 is none), and its plate.
+        size_t history_flip = 0;
+        zs_app *history_flip_app = nullptr;
         void OpenHistoryChange(size_t step, std::string const &line);
         void ClearHistoryAfter(size_t step);
         void ShowStepMenu(Microsoft::UI::Xaml::FrameworkElement const &target, Windows::Foundation::Point at, size_t step);

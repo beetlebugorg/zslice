@@ -1320,12 +1320,22 @@ namespace winrt::ZSlice::implementation
 
     void MainWindow::StepLine(int direction, bool whole)
     {
-        if (view == nullptr || SelectedPath() < 0)
+        if (view == nullptr)
             return;
+        // No line: the nozzle moves through the top layer, 2 % a step.
+        if (SelectedPath() < 0)
+        {
+            double range = ScrubSlider().Maximum() - ScrubSlider().Minimum();
+            ScrubSlider().Value(std::clamp(ScrubSlider().Value() + direction * 0.02 * range, ScrubSlider().Minimum(), ScrubSlider().Maximum()));
+            return;
+        }
         size_t path = (size_t)SelectedPath();
         ptrdiff_t segment = (ptrdiff_t)SelectedSegment();
         if (!zs_view_step(view, &path, &segment, direction, whole ? 1 : 0))
             return;
+        // A step can end on another layer, and the view follows it.
+        if (ptrdiff_t layer = zs_app_path_layer(model->Active(), path); layer >= 0 && (double)(layer + 1) != LayerSlider().Value())
+            LayerSlider().Value((double)(layer + 1));
         ClearMoreLines();
         SetSelectedLine((int64_t)path, (int64_t)segment);
         SaveLinePlace();
@@ -1465,7 +1475,8 @@ namespace winrt::ZSlice::implementation
         case VirtualKey::V: SetTool(Tool::Select); return true;
         case VirtualKey::M: SetTool(Tool::Move); return true;
         case VirtualKey::R: SetTool(Tool::Move); return true;
-        case VirtualKey::S: SetTool(Tool::Support); return true;
+        case VirtualKey::S:
+        case VirtualKey::U: SetTool(Tool::Support); return true;
         case VirtualKey::G: SetTool(Tool::Move); return true;
         case VirtualKey::T: SetTool(Tool::Measure); return true;
         case VirtualKey::B: ToggleBed(); return true;

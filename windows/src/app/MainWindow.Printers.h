@@ -200,7 +200,8 @@ namespace winrt::ZSlice::implementation
         // current printer prints. It plays only while the details show,
         // and it uses the status of the link: it adds no status request.
         void DetailsOpen(bool open);
-        void DetailsStatus(std::string const &id, zs::link::Snapshot const *status);
+        void DetailsStatus(std::string const &id, zs::link::Snapshot const *status, std::string const &error = {});
+        void UpdateDetailsState();
         void UpdateDetailsCamera();
         void StartCamera(std::shared_ptr<PrinterTile> const &tile);
         void StopCamera(std::shared_ptr<PrinterTile> const &tile);
@@ -289,7 +290,7 @@ namespace winrt::ZSlice::implementation
         std::shared_ptr<zs::http::Cancel> follow_cancel;
         bool follow_reading = false, follow_asleep = false, follow_stopped = false;
         bool details_open = false, details_has_status = false, details_camera_read = false, details_has_source = false;
-        std::string details_status_id, details_camera_id;
+        std::string details_status_id, details_camera_id, details_error;
         zs::link::Snapshot details_status;
         zs::CameraSource details_source;
         std::shared_ptr<zs::CameraFeed> details_feed;
