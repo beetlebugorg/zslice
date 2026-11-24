@@ -1,6 +1,6 @@
 # A prompt that could build zslice
 
-Describes: main through "Paint any part of the plate in the web Paint tool", 2026-11-24.
+Describes: main through "Keep the Windows bottom bar to two rows in a narrow view", 2026-11-23.
 
 ## Read this first
 

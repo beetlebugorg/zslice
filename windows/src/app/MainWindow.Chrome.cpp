@@ -123,6 +123,16 @@ namespace winrt::ZSlice::implementation
             ToolScroll().MaxHeight(std::max(96.0, (double)e.NewSize().Height - 26));
         });
         // The rail and the toast stay over the bottom bar.
+        // The width of the view changes with the window and the Inspector.
+        ViewPanel().SizeChanged([this](auto &&, SizeChangedEventArgs const &e) {
+            if (e.NewSize().Width != e.PreviousSize().Width)
+                LayoutDock(e.NewSize().Width);
+        });
+        // A plate bar with more buttons can need the third row.
+        PlateBar().SizeChanged([this](auto &&, SizeChangedEventArgs const &e) {
+            if (e.NewSize().Width != e.PreviousSize().Width)
+                LayoutDock(Dock().ActualWidth());
+        });
         Dock().SizeChanged([this](auto &&, SizeChangedEventArgs const &e) {
             // The bar folds by its own width: the settings pane takes a part
             // of the window.

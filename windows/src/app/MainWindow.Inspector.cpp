@@ -87,7 +87,7 @@ namespace winrt::ZSlice::implementation
         {
             double high = WorkArea().ActualHeight();
             pane.Width(std::numeric_limits<double>::quiet_NaN());
-            pane.Height(std::clamp(high * 0.45, 180.0, std::max(180.0, high - 160)));
+            pane.Height(std::clamp(high * 0.4, 180.0, std::max(180.0, high - 160)));
         }
         else
         {

@@ -1022,7 +1022,11 @@ namespace winrt::ZSlice::implementation
         bool history_mark_late = false;
         zs_app *history_shown_app = nullptr;
         size_t history_shown_count = (size_t)-1, history_shown_now = (size_t)-1;
-        bool dock_laid_out = false, dock_narrow = false;
+        bool dock_laid_out = false;
+        // 0: one row, 1: two rows, 2: three rows.
+        int dock_mode = 0;
+        bool plate_bar_small = false;
+        void SetPlateBarSmall(bool compact);
 
         size_t check_problems = 0;
         std::vector<RefineTip> refine_tips;

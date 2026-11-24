@@ -99,7 +99,7 @@ A number applies a moment after you stop typing. Up and Down change its last dec
 
 A click on the name of a setting or on its arrow opens its page, with a slider, the formula, where the value comes from, and the lines it changes. Drag the name on that page to change a number. The path over the list is clickable. Back returns to the list at the same place, with the setting marked, and Alt+Left or the back button of the mouse returns to the place before.
 
-The bottom bar has Undo, Redo, and the history button (Ctrl+H). A number on the button counts your changes since the last open or save. The button opens the list of the steps, where ↶ undoes one change and keeps the later ones. Right-click a step to go to it or to clear the history after it. Esc closes the list.
+In a narrow view, the bottom bar has two rows: the plates and the print, then the history and the replay. The plates get a smaller type before the bar needs a third row. No label gets shorter. The bottom bar has Undo, Redo, and the history button (Ctrl+H). A number on the button counts your changes since the last open or save. The button opens the list of the steps, where ↶ undoes one change and keeps the later ones. Right-click a step to go to it or to clear the history after it. Esc closes the list.
 
 A change shows as a fast draft first, and the exact slice follows 300 ms after your last change or at the end of a drag. A thin bar at the top of the view shows the work, and small text says what runs and how long it took. Export and upload wait for the exact slice.
 
