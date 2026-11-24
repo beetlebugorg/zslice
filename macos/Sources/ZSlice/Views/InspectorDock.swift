@@ -150,15 +150,27 @@ extension Workspace {
         func clear() {
             closeRangeCard()
             gapCard = nil
+            clearSupportPick()
             selectLabel(nil)
             setTool(.select)
             selectOnlyPart(nil)
             clearSelection()
         }
-        func enter(_ kind: DockKind) -> Bool {
+        func enter(_ kind: DockKind, many: Bool = false) -> Bool {
             let mid = CGPoint(x: canvas.bounds.midX, y: canvas.bounds.midY)
             switch kind {
-            case .part: selectOnlyPart(0)
+            case .part:
+                selectOnlyPart(0)
+                if many {
+                    togglePart(1)
+                    guard selectedParts.count == 2 else { return false }
+                }
+            case .pickedSupport:
+                var tp = zs_toolpaths()
+                guard zs_app_toolpaths(model.core, &tp) == 0, let features = tp.path_features,
+                      let path = (0 ..< tp.path_count).first(where: { features[$0] == UInt8(ZS_FEATURE_SUPPORT.rawValue) }),
+                      let q = pathPoint(path, seg: 0) else { return false }
+                supportSelectAt(SIMD3(q.x, q.y, q.z))
             case .line:
                 select(path: 0, seg: 0)
             case .range: openRangeCard(max(0, hi - 4), hi)
@@ -189,6 +201,12 @@ extension Workspace {
             }
             return dockKind == kind
         }
+        // ZSLICE_DOCK_TEST=slicepick: a line picked while a slice starts
+        // stays selected when the slice lands.
+        if ProcessInfo.processInfo.environment["ZSLICE_DOCK_TEST"] == "slicepick" {
+            await runSlicePickTest()
+            return
+        }
         // ZSLICE_DOCK_TEST=part (or another kind): that page stays, for a
         // screenshot, with the facts of the part.
         let mode = ProcessInfo.processInfo.environment["ZSLICE_DOCK_TEST"] ?? ""
@@ -206,6 +224,14 @@ extension Workspace {
                 NSLog("zslice dock: scale %.2f %.2f %.2f to %.2f %.2f %.2f", p.scale_x, p.scale_y, p.scale_z, q.scale_x, q.scale_y, q.scale_z)
             }
             return
+        }
+        // ZSLICE_DOCK_PARTS=2: two parts, for the page of several parts. A
+        // copy can change the slice, so a run for gaps keeps one part.
+        if ProcessInfo.processInfo.environment["ZSLICE_DOCK_PARTS"] == "2", zs_app_part_count(model.core) < 2 {
+            selectOnlyPart(0)
+            duplicatePart()
+            try? await Task.sleep(for: .seconds(1))
+            for _ in 0 ..< 400 where model.state != .done { try? await Task.sleep(for: .milliseconds(25)) }
         }
         for (width, row) in [(1500.0, false), (1100, false), (1000, false), (720, false), (720, true)] {
             var f = w.frame
@@ -227,13 +253,15 @@ extension Workspace {
                 zs_view_orbit(v, move.0, move.1)
                 zs_view_pan(v, move.2, move.3)
                 try? await Task.sleep(for: .milliseconds(700))
-                for kind in [DockKind.part, .line, .range, .gap, .paint, .support, .label] {
+                for (kind, many) in [(DockKind.part, false), (.part, true), (.pickedSupport, false), (.line, false), (.range, false),
+                                     (.gap, false), (.paint, false), (.support, false), (.label, false)] {
+                    let page = many ? "parts" : kind.rawValue
                     clear()
                     try? await Task.sleep(for: .milliseconds(250))
                     let frame = canvas.convert(canvas.bounds, to: nil), cam = camera(), open = (showSettings, dockRowOpen), grid = hits()
-                    guard enter(kind) else {
+                    guard enter(kind, many: many) else {
                         skipped += 1
-                        NSLog("zslice dock: skip %.0f %@ %@", width, name, kind.rawValue)
+                        NSLog("zslice dock: skip %.0f %@ %@", width, name, page)
                         continue
                     }
                     try? await Task.sleep(for: .milliseconds(350))
@@ -241,7 +269,7 @@ extension Workspace {
                         && showSettings == open.0 && dockRowOpen == open.1 && hits() == grid
                     if same { ok += 1 } else {
                         bad += 1
-                        NSLog("zslice dock: FAIL %.0f %@ %@ frame %d camera %d open %d hits %d", width, name, kind.rawValue,
+                        NSLog("zslice dock: FAIL %.0f %@ %@ frame %d camera %d open %d hits %d", width, name, page,
                               canvas.convert(canvas.bounds, to: nil) == frame ? 1 : 0, camera() == cam ? 1 : 0,
                               showSettings == open.0 && dockRowOpen == open.1 ? 1 : 0, hits() == grid ? 1 : 0)
                     }
@@ -250,6 +278,36 @@ extension Workspace {
         }
         clear()
         NSLog("zslice dock: passed %d, failed %d, skipped %d", ok, bad, skipped)
+    }
+}
+
+extension Workspace {
+    private func runSlicePickTest() async {
+        guard let v = canvas.view else { return }
+        var tp = zs_toolpaths()
+        guard zs_app_toolpaths(model.core, &tp) == 0, tp.path_count > 10 else { return }
+        var kept = 0, same = 0
+        let rounds = 8
+        for round in 0 ..< rounds {
+            let path = tp.path_count / 3 + round * 7
+            let layer = zs_view_path_layer(v, path), feature = zs_view_path_feature(v, path)
+            clearSelection()
+            _ = model.set("project.infill_density", round % 2 == 0 ? "0.21" : "0.22")
+            for _ in 0 ..< 200 where model.state == .done { try? await Task.sleep(for: .milliseconds(1)) }
+            let during = model.state != .done
+            select(path: path, seg: 0)
+            let key = selection?.key ?? 0
+            for _ in 0 ..< 400 where model.state != .done { try? await Task.sleep(for: .milliseconds(25)) }
+            try? await Task.sleep(for: .milliseconds(900))
+            for _ in 0 ..< 400 where model.state != .done { try? await Task.sleep(for: .milliseconds(25)) }
+            try? await Task.sleep(for: .milliseconds(300))
+            let now = selection.map { (zs_view_path_layer(v, $0.path), zs_view_path_feature(v, $0.path)) }
+            if now != nil, lineInfo != nil { kept += 1 }
+            if let now, now.0 == layer, now.1 == feature { same += 1 }
+            NSLog("zslice slice pick: round %d, during %d, key %llu, kept %d, page %d, same place %d", round, during ? 1 : 0, key,
+                  now == nil ? 0 : 1, lineInfo == nil ? 0 : 1, now?.0 == layer && now?.1 == feature ? 1 : 0)
+        }
+        NSLog("zslice slice pick: kept %d of %d, same layer and feature %d", kept, rounds, same)
     }
 }
 

@@ -66,3 +66,4 @@ One line for each update: the date, the commit that the folder describes, and th
 | 2026-11-23 | Keep a line that is picked while a slice starts | README, CHANGELOG: the view height follows the bottom bar, and a line picked during a slice stays selected. |
 | 2026-11-23 | Dock the Mac Inspector beside the view | README, CHANGELOG, 11: one Inspector column replaces the floating cards on the Mac. |
 | 2026-11-23 | Move the selection cards into a docked Inspector on Windows | README, CHANGELOG, 12: one column or narrow row for each selection page, with groups, region values apart, and a Mirrored mark. |
+| 2026-11-23 | Keep a Mac line that is picked while a slice starts | README, CHANGELOG, 11: the place of the line comes from the view; the dock test has support and several parts. |

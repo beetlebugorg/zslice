@@ -1,6 +1,6 @@
 # A prompt that could build zslice
 
-Describes: main through "Move the selection cards into a docked Inspector on Windows", 2026-11-23.
+Describes: main through "Keep a Mac line that is picked while a slice starts", 2026-11-23.
 
 ## Read this first
 
