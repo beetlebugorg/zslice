@@ -59,3 +59,4 @@ One line for each update: the date, the commit that the folder describes, and th
 | 2026-11-23 | `42a8b25d` | README, CHANGELOG: GTK treats a roll of unknown weight as unknown. |
 | 2026-11-23 | Leave housekeeping commits out of the release notes | README, UPDATING, CHANGELOG: the update goes in the last code commit, with no separate commit. |
 | 2026-11-23 | Add network printing to the Windows app | README, CHANGELOG, 12: the main button, Print the plate, and the queue Send ask if the bed is clear, with Cancel as the default. `UploadAndPrint` is the one call that sends `print=true`. |
+| 2026-11-23 | Add a gzip call to the core for the app shells | README, CHANGELOG: `zs_gzip` and `zs_gzip_free` give the shells one gzip encoder. |

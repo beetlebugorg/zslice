@@ -7,6 +7,7 @@
 
 const std = @import("std");
 const zs = @import("../root.zig");
+const c = @import("../c_api.zig");
 const ol = zs.open_link;
 const Result = ol.Result;
 
@@ -140,6 +141,61 @@ export fn zs_link_limits(max_bytes: ?*u64, max_redirects: ?*c_int, link_size: ?*
     if (max_bytes) |p| p.* = ol.max_bytes;
     if (max_redirects) |p| p.* = ol.max_redirects;
     if (link_size) |p| p.* = @sizeOf(Link);
+}
+
+/// `data` as a gzip file, in memory of the C API (level 6).
+fn gzipAlloc(data: []const u8) (std.mem.Allocator.Error || std.Io.Writer.Error)![]u8 {
+    const flate = std.compress.flate;
+    const window = try c.gpa.alloc(u8, flate.max_window_len);
+    defer c.gpa.free(window);
+    // The compressor needs room in its output from the start.
+    var out: std.Io.Writer.Allocating = try .initCapacity(c.gpa, 4096);
+    defer out.deinit();
+    var z = try flate.Compress.init(&out.writer, window, .gzip, .level_6);
+    try z.writer.writeAll(data);
+    try z.finish();
+    return out.toOwnedSlice();
+}
+
+export fn zs_gzip(data: ?[*]const u8, len: usize, out: ?*?[*]u8, out_len: ?*usize) c_int {
+    const o = out orelse return @intFromEnum(c.Status.invalid_argument);
+    const n = out_len orelse return @intFromEnum(c.Status.invalid_argument);
+    if (data == null and len != 0) return @intFromEnum(c.Status.invalid_argument);
+    const input: []const u8 = if (len == 0) &.{} else data.?[0..len];
+    const z = gzipAlloc(input) catch return @intFromEnum(c.Status.out_of_memory);
+    o.* = z.ptr;
+    n.* = z.len;
+    return c.ok;
+}
+
+export fn zs_gzip_free(data: ?[*]u8, len: usize) void {
+    const d = data orelse return;
+    c.gpa.free(d[0..len]);
+}
+
+test "C API: gzip gives a file that inflates to the same bytes" {
+    const flate = std.compress.flate;
+    const gpa = std.testing.allocator;
+    for ([_]usize{ 0, 1, 70000 }) |size| {
+        const text = try gpa.alloc(u8, size);
+        defer gpa.free(text);
+        for (text, 0..) |*b, i| b.* = "G1 X10 Y20\n"[i % 11];
+        var z: ?[*]u8 = null;
+        var n: usize = 0;
+        try std.testing.expectEqual(c.ok, zs_gzip(text.ptr, text.len, &z, &n));
+        defer zs_gzip_free(z, n);
+        try std.testing.expectEqual(@as(u8, 0x1f), z.?[0]);
+        try std.testing.expectEqual(@as(u8, 0x8b), z.?[1]);
+        if (size > 1000) try std.testing.expect(n < size / 10);
+        var in: std.Io.Reader = .fixed(z.?[0..n]);
+        const window = try gpa.alloc(u8, flate.max_window_len);
+        defer gpa.free(window);
+        var d: flate.Decompress = .init(&in, .gzip, window);
+        const back = try d.reader.allocRemaining(gpa, .unlimited);
+        defer gpa.free(back);
+        try std.testing.expectEqualSlices(u8, text, back);
+    }
+    try std.testing.expect(zs_gzip(null, 4, null, null) != c.ok);
 }
 
 test "C API: a link, a redirect, and a name" {

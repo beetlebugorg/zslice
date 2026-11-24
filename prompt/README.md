@@ -1,6 +1,6 @@
 # A prompt that could build zslice
 
-Describes: main through "Add network printing to the Windows app", 2026-11-23.
+Describes: main through "Add a gzip call to the core for the app shells", 2026-11-23.
 
 ## Read this first
 

@@ -2155,6 +2155,11 @@ int zs_gcode_new(zs_gcode **out);
 int zs_gcode_feed(zs_gcode *g, const uint8_t *data, size_t len);
 int zs_gcode_finish(zs_gcode *g);
 void zs_gcode_free(zs_gcode *g);
+/* `data` as a gzip file (level 6). The call can take a long time, so run it
+ * on a worker thread. *out is memory of the core: free it with
+ * zs_gzip_free and the same length. */
+int zs_gzip(const uint8_t *data, size_t len, uint8_t **out, size_t *out_len);
+void zs_gzip_free(uint8_t *data, size_t len);
 
 typedef struct zs_gcode_info {
     uint64_t size;      /* bytes */
