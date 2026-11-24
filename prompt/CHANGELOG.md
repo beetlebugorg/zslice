@@ -68,3 +68,4 @@ One line for each update: the date, the commit that the folder describes, and th
 | 2026-11-23 | Move the selection cards into a docked Inspector on Windows | README, CHANGELOG, 12: one column or narrow row for each selection page, with groups, region values apart, and a Mirrored mark. |
 | 2026-11-23 | Keep a Mac line that is picked while a slice starts | README, CHANGELOG, 11: the place of the line comes from the view; the dock test has support and several parts. |
 | 2026-11-23 | Keep a line that is picked while a slice starts on Windows | README, CHANGELOG, 12: a lesson: the place of a line picked during a slice comes from the view |
+| 2026-11-23 | Paint any part of the plate in the web Paint tool | README, CHANGELOG, 05, 09: the web Paint tool shows and paints each part with no selection; the ray test of a paint session has room at shared edges (a lesson in 05). |

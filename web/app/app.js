@@ -897,13 +897,9 @@ var paintTool = new PaintTool({
   cardHost: $("insp-slot"),
   reveal: () => revealSelection(),
   button: $("tool-paint"),
-  // The selected part, else the first part.
-  part: () => (tools.part ? tools.part.index : app.parts > 0 ? 0 : -1),
-  partFilament: async (i) => {
-    const r = await client.call("partSettings", { index: i });
-    const own = r.list?.find(([n]) => n === "project.filament");
-    return Number(own ? own[1] : browser.values?.["project.filament"]?.value ?? 1) || 1;
-  },
+  // The selected part is the active part at first, if there is one.
+  part: () => (tools.part ? tools.part.index : -1),
+  indexOf: (id) => selection.indexOf(id),
   requestFrame: () => requestFrame(),
   toast: (t) => toast(t),
   addFilament: async () => {
@@ -3355,8 +3351,9 @@ async function undoRedo(op) {
   applySettings(r);
   if (!r.ok) toast(op === "undo" ? "Nothing to undo." : "Nothing to redo.");
   history.refresh();
-  // The labels of the step (label.js).
+  // The labels of the step (label.js), and its paint (paint.js).
   labelTool?.reload();
+  paintTool?.sync();
 }
 
 // ---- the printability check ----
@@ -3956,6 +3953,7 @@ function onWorkerEvent(m) {
   if (m.event === "parts") {
     selection.setParts(m.table);
     tools.tableChanged();
+    paintTool?.sync();
     return;
   }
   // A scene in steps comes first, so the events keep their order. The

@@ -1,6 +1,6 @@
 # A prompt that could build zslice
 
-Describes: main through "Keep a line that is picked while a slice starts on Windows", 2026-11-23.
+Describes: main through "Paint any part of the plate in the web Paint tool", 2026-11-24.
 
 ## Read this first
 

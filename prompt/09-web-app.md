@@ -49,6 +49,7 @@ Build the web app at `web/app/`: the zslice window as one static page, with the 
 - The page keeps no copy of the selection. `selection.js` wraps the model in the wasm instance of the page. `tools.part`, `tools.parts`, `app.sel`, `app.seg`, and `app.activePlate` read it.
 - The worker sends the table of the parts before the reply of a call. The client sends the generation and the stable part ids with each call.
 - A pick and the start of a drag wait for no worker reply.
+- The Paint tool (`paint.js`) shows the mesh of each part of the plate at its place, in the colors of its paint. It needs no selection. Each part has its own paint session. A part with paint gets it at the open, and a part with no paint at the first hover over its box. A ray tests the boxes nearest first. A brush stroke stays on the part where it starts. A press paints with the filament of the part under it: chip k on a part of filament k is state 0. The Inspector names the active part (the last part painted) and the part under the pointer. `paintParts` in the worker sends a mesh and a paint only when their keys changed, so a sync after an undo or a move is cheap.
 
 ## Card rules
 
@@ -77,6 +78,7 @@ Build the web app at `web/app/`: the zslice window as one static page, with the 
 - **Never select from a late reply.** A reply of a turn or a move called `selectPart`, so it undid a newer click. A reply now updates the facts of the part. A reply that selects new parts checks `tools.stamp`.
 - **Do not wait for the worker to start a drag.** The press asked the worker for the part, so a drag of a part waited about 700 ms for a slice. The pick is now in the page.
 - **Let a click through a gizmo handle.** The rings and the arrows of a selected part took each click on a part behind them. A press and a release at one place is now a click on the part under the pointer.
+- **Show every part in the Paint tool.** With no selection, the tool opened the first part and drew only its mesh, so the other parts and their paint went from the view. Now each part draws, and a click paints the part under the pointer.
 - **A floating card cannot stay out of the way.** Each placement rule for the old cards still covered the model in some view. The fix was structural: the selection UI is a layout column, and the view takes the rest of the window.
 
 ## Acceptance checks
@@ -91,3 +93,4 @@ Build the web app at `web/app/`: the zslice window as one static page, with the 
 8. `?open=<https URL of an STL>` asks first, then opens the model on a new plate if the plate has parts.
 9. `node web/app/test-node.mjs` passes the import checks: the page check, the text for a page of each site, a ZIP list, a file of it, and the spill through the wasm module.
 10. `node web/app/test-selection.mjs zig-out/web/app part.stl` passes in a memory cap: 100 selects after a move, Grab after 50 selects on two plates, each plate after a full plate, fast plate keys during a slice, the ring during a slice, undo and redo, and a line through a new slice.
+11. `node web/app/test-inspector.mjs zig-out/web/app "Paint:"` passes: both parts draw in the Paint tool with their colors, a click paints only the part under it, a stroke stays on its part, the filament of each part counts, a mirrored part takes paint on the clicked face, and undo, close, and reload keep the paint of each part.

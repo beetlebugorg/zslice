@@ -348,10 +348,11 @@ void main() {
     frag = vec4(t.rgb, a);
 }`;
 
-// The paint tool (paint.js): the mesh of a part, each triangle in the
+// The paint tool (paint.js): the mesh of each part, each triangle in the
 // color of its filament. state: 0 the filament of the part, k the color
 // k of the palette, + 128 for the region under the pointer, 255 a
-// triangle with pieces (they draw in their own buffer).
+// triangle with pieces (they draw in their own buffer). glow: the light
+// of a whole part under the brush.
 const paintVert = `#version 300 es
 precision highp float;
 layout(location = 0) in vec3 pos;
@@ -372,6 +373,7 @@ const paintFrag = `#version 300 es
 precision highp float;
 uniform vec3 colors[18];
 uniform vec3 light;
+uniform float glow;
 in vec3 vnormal;
 flat in int vstate;
 out vec4 frag;
@@ -383,6 +385,7 @@ void main() {
     float lit = 0.45 + 0.55 * max(dot(n, normalize(light)), 0.0) + 0.15 * abs(n.z);
     vec3 col = c * min(lit, 1.0);
     if (vstate >= 128) col = mix(col, vec3(0.2, 0.55, 1.0), 0.45);
+    if (glow > 0.0) col = mix(col, vec3(0.2, 0.55, 1.0), glow);
     frag = vec4(col, 1.0);
 }`;
 
@@ -543,8 +546,12 @@ export class GlRenderer {
     this.signGen = -1;
     this.signTexWidth = 0;
     this.paintProg = compile(gl, paintVert, paintFrag);
-    // The paint mesh (setPaintMesh): null when the paint tool is off.
-    this.paint = null;
+    // The meshes of the paint tool (addPaintMesh). The view shows them in
+    // place of the beads while paintOn is true.
+    this.paintOn = false;
+    this.paintMeshes = new Set();
+    this.paintFocus = null;
+    this.paintColors = new Float32Array(54);
     // The decals of the Label tool (setLabels): null for none.
     this.labels = null;
     this.bedVbo = gl.createBuffer();
@@ -988,30 +995,37 @@ export class GlRenderer {
 
   // ---- the paint tool (paint.js) ----
 
-  // The mesh of a part for the paint tool: pos (9 floats for each
-  // triangle) and normals (3 floats for each triangle). null ends it.
-  setPaintMesh(pos, normals) {
+  // Shows the paint meshes in place of the beads, or ends that.
+  setPaintView(on) {
+    this.paintOn = on;
+  }
+
+  // A mesh of a part for the paint tool: verts (x, y, z) and faces (three
+  // indexes each). Returns its handle. Each triangle has its own three
+  // vertices, so it has a flat normal and one state.
+  addPaintMesh(verts, faces) {
     const gl = this.gl;
-    if (this.paint) {
-      for (const b of [this.paint.vbo, this.paint.sbo, this.paint.lvbo]) gl.deleteBuffer(b);
-      for (const v of [this.paint.vao, this.paint.lvao]) gl.deleteVertexArray(v);
-    }
-    this.paint = null;
-    if (!pos) return;
-    const n = pos.length / 9;
+    const n = faces.length / 3;
     const data = new Float32Array(n * 18);
     for (let t = 0; t < n; t++) {
+      const a = 3 * faces[3 * t], b = 3 * faces[3 * t + 1], c = 3 * faces[3 * t + 2];
+      const ux = verts[b] - verts[a], uy = verts[b + 1] - verts[a + 1], uz = verts[b + 2] - verts[a + 2];
+      const wx = verts[c] - verts[a], wy = verts[c + 1] - verts[a + 1], wz = verts[c + 2] - verts[a + 2];
+      let nx = uy * wz - uz * wy, ny = uz * wx - ux * wz, nz = ux * wy - uy * wx;
+      const len = Math.hypot(nx, ny, nz) || 1;
+      nx /= len; ny /= len; nz /= len;
+      const o = 18 * t;
       for (let k = 0; k < 3; k++) {
-        const o = (3 * t + k) * 6;
-        data[o] = pos[9 * t + 3 * k];
-        data[o + 1] = pos[9 * t + 3 * k + 1];
-        data[o + 2] = pos[9 * t + 3 * k + 2];
-        data[o + 3] = normals[3 * t];
-        data[o + 4] = normals[3 * t + 1];
-        data[o + 5] = normals[3 * t + 2];
+        const v = k === 0 ? a : k === 1 ? b : c;
+        data[o + 6 * k] = verts[v];
+        data[o + 6 * k + 1] = verts[v + 1];
+        data[o + 6 * k + 2] = verts[v + 2];
+        data[o + 6 * k + 3] = nx;
+        data[o + 6 * k + 4] = ny;
+        data[o + 6 * k + 5] = nz;
       }
     }
-    const p = { count: 3 * n, leaves: 0 };
+    const p = { count: 3 * n, leaves: 0, base: [0.82, 0.82, 0.8] };
     p.vao = gl.createVertexArray();
     gl.bindVertexArray(p.vao);
     p.vbo = gl.createBuffer();
@@ -1038,48 +1052,70 @@ export class GlRenderer {
     gl.enableVertexAttribArray(2);
     gl.vertexAttribPointer(2, 1, gl.FLOAT, false, 28, 24);
     gl.bindVertexArray(null);
-    this.paint = p;
-    this.paintColors = new Float32Array(54);
+    this.paintMeshes.add(p);
+    return p;
   }
 
-  // The state of each vertex (3 for each triangle, see paintFrag).
-  setPaintStates(states) {
-    if (!this.paint) return;
+  removePaintMesh(p) {
     const gl = this.gl;
-    gl.bindBuffer(gl.ARRAY_BUFFER, this.paint.sbo);
+    for (const b of [p.vbo, p.sbo, p.lvbo]) gl.deleteBuffer(b);
+    for (const v of [p.vao, p.lvao]) gl.deleteVertexArray(v);
+    this.paintMeshes.delete(p);
+    if (this.paintFocus === p) this.paintFocus = null;
+  }
+
+  // The state of each vertex of a mesh (3 for each triangle, see
+  // paintFrag).
+  setPaintStates(p, states) {
+    const gl = this.gl;
+    gl.bindBuffer(gl.ARRAY_BUFFER, p.sbo);
     gl.bufferSubData(gl.ARRAY_BUFFER, 0, states);
   }
 
-  // The pieces: 7 floats for each vertex (pos, normal, state).
-  setPaintLeaves(data) {
-    if (!this.paint) return;
+  // The pieces of a mesh: 7 floats for each vertex (pos, normal, state).
+  setPaintLeaves(p, data) {
     const gl = this.gl;
-    gl.bindBuffer(gl.ARRAY_BUFFER, this.paint.lvbo);
+    gl.bindBuffer(gl.ARRAY_BUFFER, p.lvbo);
     gl.bufferData(gl.ARRAY_BUFFER, data, gl.DYNAMIC_DRAW);
-    this.paint.leaves = data.length / 7;
+    p.leaves = data.length / 7;
   }
 
-  // The colors: 18 of [r, g, b] in 0..1 (0: the filament of the part).
+  // The colors: 18 of [r, g, b] in 0..1. Color 0 of each mesh is its
+  // base (setPaintBase).
   setPaintColors(list) {
-    if (!this.paint) return;
     for (let i = 0; i < 18; i++) {
       const c = list[i] ?? list[0];
       this.paintColors.set(c, 3 * i);
     }
   }
 
+  // The color of state 0 of a mesh: the filament of its part.
+  setPaintBase(p, color) {
+    p.base = color;
+  }
+
+  // The mesh that glows under the brush, or null.
+  setPaintFocus(p) {
+    this.paintFocus = p;
+  }
+
   drawPaint(f) {
     const gl = this.gl;
-    const p = this.paint;
+    const u = this.paintProg.u;
     gl.useProgram(this.paintProg.prog);
-    gl.uniformMatrix4fv(this.paintProg.u.mvp, false, f.grid, 0, 16);
-    gl.uniform3fv(this.paintProg.u["colors[0]"], this.paintColors);
-    gl.uniform3f(this.paintProg.u.light, -0.4, -0.6, 0.7);
-    gl.bindVertexArray(p.vao);
-    gl.drawArrays(gl.TRIANGLES, 0, p.count);
-    if (p.leaves > 0) {
-      gl.bindVertexArray(p.lvao);
-      gl.drawArrays(gl.TRIANGLES, 0, p.leaves);
+    gl.uniformMatrix4fv(u.mvp, false, f.grid, 0, 16);
+    gl.uniform3fv(u["colors[0]"], this.paintColors);
+    gl.uniform3f(u.light, -0.4, -0.6, 0.7);
+    for (const p of this.paintMeshes) {
+      // Only element 0 of the array changes for each part.
+      gl.uniform3f(u["colors[0]"], p.base[0], p.base[1], p.base[2]);
+      gl.uniform1f(u.glow, p === this.paintFocus ? 0.14 : 0);
+      gl.bindVertexArray(p.vao);
+      gl.drawArrays(gl.TRIANGLES, 0, p.count);
+      if (p.leaves > 0) {
+        gl.bindVertexArray(p.lvao);
+        gl.drawArrays(gl.TRIANGLES, 0, p.leaves);
+      }
     }
     gl.bindVertexArray(null);
   }
@@ -1201,8 +1237,8 @@ export class GlRenderer {
       }
     }
 
-    // The paint tool shows the mesh of the part, and no beads.
-    if (this.paint) {
+    // The paint tool shows the mesh of each part, and no beads.
+    if (this.paintOn) {
       this.drawPaint(f);
       this.drawBed(f);
       gl.bindVertexArray(null);

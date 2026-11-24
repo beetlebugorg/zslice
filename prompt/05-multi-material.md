@@ -57,6 +57,7 @@ Print a plate with more than one filament: a filament for each part, each layer 
 
 - **The paint split used polygons first.** It grew the painted seeds in steps of one line width, with an offset and three booleans for each step and each filament. A brushed 3DBenchy hull needed 4 to 22 s and 3 to 9 GB. The distance field does the same split in 90 ms on 8 threads. A part with no paint has the same G-code.
 - Stop the paint split of a slice on a cancel.
+- **Give the ray test of a paint session room at the edges.** A ray on the shared edge of two triangles missed both by rounding, went through the surface, and hit a face behind it. A click on a diagonal then painted the bottom of a box. The edge test of `rayTriangle` now has a room of 1e-5.
 - Keep the filament of each part of a Bambu Studio 3MF.
 - Keep labels in the 3MF file, the snapshots, and the history.
 - Keep the material and the color in their Bambu config lines.

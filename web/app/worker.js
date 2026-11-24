@@ -168,6 +168,23 @@ function livePose(c, index) {
   return p ? { index, x: p.x, y: p.y, z: p.z } : undefined;
 }
 
+// ---- the keys of the paint tool (paintParts) ----
+
+// An FNV-1a hash of the 32-bit words of a typed array.
+function hashWords(a) {
+  const w = new Uint32Array(a.buffer, a.byteOffset, a.length);
+  let h = 0x811c9dc5;
+  for (let i = 0; i < w.length; i++) h = Math.imul(h ^ w[i], 0x01000193);
+  return h >>> 0;
+}
+
+// The key of a paint text: its length and an FNV-1a hash of its chars.
+function paintKeyOf(text) {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < text.length; i++) h = Math.imul(h ^ text.charCodeAt(i), 0x01000193);
+  return `${text.length}:${h >>> 0}`;
+}
+
 // ---- the table of the parts (the selection model of the page) ----
 
 // The table of the parts of core c (zs_sel_part), as an ArrayBuffer.
@@ -1574,11 +1591,43 @@ const ops = {
     return { verts: m.verts, faces: m.faces, text: core.partPaint(index) };
   },
 
-  // The paint of part `index` from the paint tool: slices again.
+  // Each part of the plate for the paint tool: { id, index, name,
+  // filament, meshKey, paintKey }. known: { id: { meshKey, paintKey } },
+  // the parts that the page has. A row has the mesh (verts, faces) and
+  // the paint (text) only if they differ from `known`.
+  paintParts({ known = {} }) {
+    const n = core.w.x.zs_app_part_count(core.app);
+    const parts = [];
+    const transfer = [];
+    for (let index = 0; index < n; index++) {
+      const p = core.part(index);
+      const m = p && core.partMesh(index);
+      if (!m) continue;
+      const own = core.partSettings(index).find(([k]) => k === "project.filament");
+      const meshKey = `${m.verts.length}:${m.faces.length}:${hashWords(m.verts)}:${hashWords(m.faces)}`;
+      const text = core.partPaint(index);
+      const paintKey = paintKeyOf(text);
+      const row = { id: p.id, index, name: p.name, filament: Number(own ? own[1] : core.get("project.filament")) || 1, meshKey, paintKey };
+      const k = known[p.id];
+      const newMesh = !k || k.meshKey !== meshKey;
+      if (newMesh) {
+        row.verts = m.verts;
+        row.faces = m.faces;
+        // A shared memory gives shared buffers: they cannot transfer.
+        for (const b of [m.verts.buffer, m.faces.buffer]) if (b instanceof ArrayBuffer) transfer.push(b);
+      }
+      if (newMesh || k.paintKey !== paintKey) row.text = text;
+      parts.push(row);
+    }
+    return { parts, transfer };
+  },
+
+  // The paint of part `index` from the paint tool: slices again. The key
+  // of the paint comes back, so the page knows the text that the part has.
   paintSet({ index, text }) {
     if (!core.setPartPaint(index, text)) return { error: "No part." };
     wantSlice();
-    return {};
+    return { paintKey: paintKeyOf(core.partPaint(index)) };
   },
 
   // The filament of a body of some layers (rangecard.js): the beads of

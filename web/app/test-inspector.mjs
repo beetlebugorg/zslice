@@ -204,7 +204,244 @@ const cameras = (c) => {
 
 const SIZES = [[1920, 1080], [1280, 800], [1024, 700], [800, 600], [760, 900], [390, 844], [844, 390]];
 
+// ---- the Paint tool with several parts ----
+
+// The paint text of each part, from the worker.
+const paintTexts = (page) => page.evaluate(async () => {
+  const z = window.zslice;
+  const out = [];
+  for (let index = 0; index < z.app.parts; index++) out.push((await z.client.call("paintOpen", { index })).text);
+  return out;
+});
+
+// The triangles of a paint text, sorted.
+const paintedTris = (text) => text.split("\n").filter(Boolean).map((l) => Number(l.split(" ")[0])).sort((a, b) => a - b);
+
+// The page point of a point on a face of part `i`. u, v, w: 0 to 1 in its box.
+const partPoint = (page, i, u, v, w) => page.evaluate(([index, a, b, c]) => {
+  const z = window.zslice;
+  const q = z.tools.sel.box(z.tools.sel.idAt(index));
+  const p = z.view.pixelOf(q.x0 + a * (q.x1 - q.x0), q.y0 + b * (q.y1 - q.y0), q.z0 + c * (q.z1 - q.z0));
+  const r = document.getElementById("gl").getBoundingClientRect();
+  const k = window.devicePixelRatio || 1;
+  return { x: r.left + p[0] / k, y: r.top + p[1] / k };
+}, [i, u, v, w]);
+
+// The colors on the screen at page points, from a real screenshot.
+async function screenColors(page, points) {
+  await page.evaluate(() => new Promise((res) => requestAnimationFrame(() => requestAnimationFrame(res))));
+  const png = (await page.screenshot()).toString("base64");
+  return page.evaluate(async ([data, list]) => {
+    const blob = await (await fetch(`data:image/png;base64,${data}`)).blob();
+    const bmp = await createImageBitmap(blob);
+    const c = new OffscreenCanvas(bmp.width, bmp.height);
+    const g = c.getContext("2d");
+    g.drawImage(bmp, 0, 0);
+    return list.map((q) => [...g.getImageData(Math.round(q.x), Math.round(q.y), 1, 1).data].slice(0, 3));
+  }, [png, points]);
+}
+
+const colorGap = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
+
+// Two parts, a second filament, and paint on the top (triangles 2 and 3)
+// of the second part.
+async function paintedPlate(mirror = false) {
+  const made = await newPage(1280, 800, 2, 1);
+  const { page } = made;
+  await page.evaluate(() => window.zslice.browser.ctx.addFilament());
+  await page.waitForTimeout(300);
+  await idle(page);
+  if (mirror) {
+    await KINDS.part(page);
+    await page.evaluate(() => {
+      const z = window.zslice;
+      z.tools.selectPart(z.tools.factsOf(z.tools.sel.idAt(1)));
+    });
+    await page.waitForFunction(() => window.zslice.tools.part?.index === 1);
+    await page.click('#insp-slot .pc-action:text-is("Mirror X")');
+    await page.waitForSelector("#insp-slot .pc-mirrored:not([hidden])");
+    await page.waitForTimeout(200);
+    await idle(page);
+    await clear(page);
+  }
+  await page.evaluate(() => window.zslice.client.call("paintSet", { index: 1, text: "2 8\n3 8\n" }));
+  await page.waitForTimeout(200);
+  await idle(page);
+  return made;
+}
+
+async function settle(page) {
+  await page.waitForTimeout(200);
+  await page.waitForFunction(() => [...window.zslice.paintTool.parts.values()].every((e) => e.pending === 0));
+  await idle(page);
+}
+
+const paintTests = {
+  async "Paint: both parts stay in the view with their colors"() {
+    const { page, ctx, errors } = await paintedPlate();
+    const cam = await page.evaluate(() => window.zslice.camera());
+    const a = await partPoint(page, 0, 0.5, 0.5, 1);
+    const b = await partPoint(page, 1, 0.5, 0.5, 1);
+    const off = { x: (a.x + b.x) / 2, y: Math.min(a.y, b.y) - 150 };
+    await page.mouse.move(5, 5);
+    await page.click("#tool-paint");
+    await page.waitForSelector("#insp-slot .paint-card", { state: "attached" });
+    const [pa, pb, bg] = await screenColors(page, [a, b, off]);
+    check(colorGap(pa, bg) > 30, `the first part does not draw: ${pa} on ${bg}`);
+    check(colorGap(pb, bg) > 30, `the second part does not draw: ${pb} on ${bg}`);
+    check(colorGap(pa, pb) > 30, `the paint of the second part does not show: ${pa} and ${pb}`);
+    check(same(await page.evaluate(() => window.zslice.camera()), cam), "the camera moved");
+    const line = await page.textContent("#insp-slot .paint-part");
+    check(line.includes("Click a part"), `no part is active, and the card says: ${line}`);
+    check(errors.length === 0, errors.join("; "));
+    await page.evaluate(() => window.zslice.paintTool.close());
+    check(same(await page.evaluate(() => window.zslice.camera()), cam), "the close moved the camera");
+    await ctx.close();
+    return `part 1 ${pa}, part 2 ${pb}, bed ${bg}`;
+  },
+
+  async "Paint: a click paints the part under it, and undo and reload keep each part"() {
+    const { page, ctx, errors } = await paintedPlate();
+    let stage = "click part 1";
+    try {
+      await page.mouse.move(5, 5);
+      await page.click("#tool-paint");
+      await page.waitForSelector("#insp-slot .paint-card", { state: "attached" });
+      const a = await partPoint(page, 0, 0.5, 0.5, 1);
+      await page.mouse.move(a.x, a.y);
+      await page.waitForFunction(() => document.querySelector("#insp-slot .paint-part").textContent.includes("part 1 of 2"));
+      await page.mouse.down();
+      await page.mouse.up();
+      await settle(page);
+      let t = await paintTexts(page);
+      check(same(paintedTris(t[0]), [2, 3]), `a click on part 1 painted ${paintedTris(t[0])}`);
+      check(same(paintedTris(t[1]), [2, 3]), `a click on part 1 changed part 2: ${paintedTris(t[1])}`);
+      const front = await partPoint(page, 1, 0.5, 0, 0.5);
+      stage = "click part 2";
+      await page.mouse.click(front.x, front.y);
+      await settle(page);
+      t = await paintTexts(page);
+      check(same(paintedTris(t[0]), [2, 3]), `a click on part 2 changed part 1: ${paintedTris(t[0])}`);
+      check(same(paintedTris(t[1]), [2, 3, 4, 5]), `a click on part 2 painted ${paintedTris(t[1])}`);
+      check((await page.textContent("#insp-slot .paint-part")).includes("part 2 of 2"), "the card does not name part 2");
+      await page.mouse.move(5, 5);
+      stage = "undo";
+      await page.keyboard.press("Control+z");
+      await page.waitForFunction(async () => (await window.zslice.client.call("paintOpen", { index: 1 })).text.split("\n").filter(Boolean).length === 2);
+      await settle(page);
+      await page.waitForFunction(() => {
+        const z = window.zslice;
+        const e = z.paintTool.parts.get(z.tools.sel.idAt(1));
+        const w = z.view.w;
+        w.x.zs_paint_text(e.s, w.cell, w.cell + 4);
+        return w.text(w.u32(w.cell), w.u32(w.cell + 4)).split("\n").filter(Boolean).length === 2;
+      }, null, { timeout: 5000 });
+      t = await paintTexts(page);
+      check(same(paintedTris(t[0]), [2, 3]) && same(paintedTris(t[1]), [2, 3]), `after undo: ${paintedTris(t[0])} and ${paintedTris(t[1])}`);
+      stage = "click after undo";
+      // A new click after the undo must not bring the undone paint back.
+      await page.mouse.click(front.x, front.y);
+      await settle(page);
+      await page.keyboard.press("Control+z");
+      await page.waitForFunction(async () => (await window.zslice.client.call("paintOpen", { index: 1 })).text.split("\n").filter(Boolean).length === 2);
+      await settle(page);
+      await page.evaluate(() => window.zslice.paintTool.close());
+      await idle(page);
+      const closed = await paintTexts(page);
+      check(closed[0] === t[0] && closed[1] === t[1], "the close changed the paint");
+      check(errors.length === 0, errors.join("; "));
+      stage = "reload";
+      // The session of the page keeps the paint of each part.
+      await page.waitForTimeout(2500);
+      await page.goto(`http://127.0.0.1:${port}/`);
+      await page.waitForFunction(() => window.zslice?.app?.parts >= 2, null, { timeout: 120000 });
+      await idle(page);
+      const back = await paintTexts(page);
+      check(back[0] === closed[0] && back[1] === closed[1], `after a reload: ${paintedTris(back[0])} and ${paintedTris(back[1])}`);
+      await page.mouse.move(5, 5);
+      await page.click("#tool-paint");
+      await page.waitForSelector("#insp-slot .paint-card", { state: "attached" });
+      const [pa, pb] = await screenColors(page, [await partPoint(page, 0, 0.5, 0.5, 1), await partPoint(page, 1, 0.5, 0.5, 1)]);
+      check(colorGap(pa, pb) < 30, `after a reload, the two painted tops differ: ${pa} and ${pb}`);
+      await ctx.close();
+      return `part 1 ${paintedTris(back[0])}, part 2 ${paintedTris(back[1])}, also after a reload`;
+    } catch (e) {
+      throw new Error(`${stage}: ${e.message}`);
+    }
+  },
+
+  async "Paint: a brush stroke stays on the part where it starts"() {
+    const { page, ctx, errors } = await paintedPlate();
+    await page.mouse.move(5, 5);
+    await page.click("#tool-paint");
+    await page.waitForSelector("#insp-slot .paint-card", { state: "attached" });
+    await page.click('#insp-slot .paint-modes .pc-action:text-is("Brush")');
+    const before = await paintTexts(page);
+    const a = await partPoint(page, 0, 0.5, 0.5, 1);
+    const b = await partPoint(page, 1, 0.5, 0.5, 1);
+    await page.mouse.move(a.x, a.y);
+    await page.mouse.down();
+    for (let i = 1; i <= 12; i++) await page.mouse.move(a.x + ((b.x - a.x) * i) / 12, a.y + ((b.y - a.y) * i) / 12);
+    await page.mouse.up();
+    await settle(page);
+    const t = await paintTexts(page);
+    check(t[0] !== before[0] && t[0].length > 0, "the stroke did not paint part 1");
+    check(t[1] === before[1], "the stroke went over to part 2");
+    check(errors.length === 0, errors.join("; "));
+    await ctx.close();
+    return `${paintedTris(t[0]).length} triangles of part 1, none of part 2`;
+  },
+
+  async "Paint: a click uses the filament of the part under it"() {
+    const { page, ctx, errors } = await paintedPlate();
+    await page.evaluate(() => window.zslice.client.call("partSettingSet", { index: 1, name: "project.filament", value: "2" }));
+    await page.waitForTimeout(200);
+    await idle(page);
+    await page.mouse.move(5, 5);
+    await page.click("#tool-paint");
+    await page.waitForSelector("#insp-slot .paint-card", { state: "attached" });
+    await page.click('#insp-slot .paint-chips .fil-chip:text-is("2")');
+    // Filament 2 on the part of filament 2 takes its paint away.
+    const b = await partPoint(page, 1, 0.5, 0.5, 1);
+    await page.mouse.click(b.x, b.y);
+    await settle(page);
+    let t = await paintTexts(page);
+    check(t[1] === "", `filament 2 on its own part left: ${paintedTris(t[1])}`);
+    // The same chip on the part of filament 1 paints it.
+    const a = await partPoint(page, 0, 0.5, 0.5, 1);
+    await page.mouse.click(a.x, a.y);
+    await settle(page);
+    t = await paintTexts(page);
+    check(same(paintedTris(t[0]), [2, 3]), `filament 2 on part 1 painted ${paintedTris(t[0])}`);
+    check(t[1] === "", "the click on part 1 changed part 2");
+    check(errors.length === 0, errors.join("; "));
+    await ctx.close();
+    return "state 0 on its own filament, and filament 2 on the other part";
+  },
+
+  async "Paint: a mirrored part takes paint on the face under the click"() {
+    const { page, ctx, errors } = await paintedPlate(true);
+    await page.mouse.move(5, 5);
+    await page.click("#tool-paint");
+    await page.waitForSelector("#insp-slot .paint-card", { state: "attached" });
+    const front = await partPoint(page, 1, 0.5, 0, 0.5);
+    const [before] = await screenColors(page, [front]);
+    await page.mouse.click(front.x, front.y);
+    await settle(page);
+    await page.mouse.move(5, 5);
+    const [after] = await screenColors(page, [front]);
+    const t = await paintTexts(page);
+    check(same(paintedTris(t[1]), [2, 3, 4, 5]), `the mirrored part has ${paintedTris(t[1])}`);
+    check(t[0] === "", `the click changed part 1: ${t[0]}`);
+    check(colorGap(before, after) > 30, `the face under the click stays ${before}`);
+    check(errors.length === 0, errors.join("; "));
+    await ctx.close();
+    return `the face went from ${before} to ${after}`;
+  },
+};
+
 const tests = {
+  ...paintTests,
   "a line picked while a slice starts stays selected, and one chip click colors it": async () => {
     const { page, ctx, errors } = await newPage(1440, 900, 2, 1);
     await page.evaluate(async () => {

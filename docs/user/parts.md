@@ -106,16 +106,16 @@ The G-code changes the filament where it changes. Set how the printer does this 
 
 ### Paint a part
 
-The Paint tool (**P**) paints filaments on the surface of a part. The view shows the part itself, in the colors of its paint.
+The Paint tool (**P**) paints filaments on the surface of a part. In the web app, the view shows all parts of the plate at their places, in the colors of their paint.
 
-1. Select the part, and press **P**. With no part selected, the tool paints the first part.
+1. Press **P**. In the web app, you do not have to select a part first. A click paints the part under the pointer, and the Inspector shows the name of that part. In the Linux, Mac, and Windows apps, the tool paints the selected part, or the first part if none is selected.
 2. Click a filament chip on the card.
 3. Paint:
    - **Smart select**: move the pointer over the part. The region under it lights up. Click to paint it. A raised letter or a logo is one region: its top and its sides. A flat face or a smooth surface is one region too. Shift and a click add more regions; a click on another chip then paints all of them.
-   - **Brush**: drag over the surface. The size sets the radius of the brush. The edge of the brush splits the triangles under it, so the border is clean.
+   - **Brush**: drag over the surface. The size sets the radius of the brush. The edge of the brush splits the triangles under it, so the border is clean. A stroke stays on the part where it starts.
 4. Right drag turns the view, and a middle drag pans. Press **P** or **Esc** to close the tool.
 
-**Remove all paint** on the card gives the whole part its own filament again. Each click or stroke is one step of the history, so **Ctrl+Z** takes back the last one.
+**Remove all paint** on the card gives the whole active part its own filament again. The active part is the part that you painted last, and the Inspector names it. Each click or stroke is one step of the history, so **Ctrl+Z** takes back the last one.
 
 The web app, the Linux app, and the Mac app all have the Paint tool. In the Linux app, the part card of a painted part shows a chip for each filament of its paint, and its **Paint** button opens the tool on the part.
 
