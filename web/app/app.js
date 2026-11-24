@@ -2310,6 +2310,8 @@ async function inspect(refind) {
   }
   const r = await client.call("inspect", { path: app.sel, seg: app.seg, refind });
   if (id !== inspectId) return;
+  // The worker is slicing: the page of this line comes with that slice.
+  if (r.busy && !refind) return;
   if (refind && !r.info && (sliderHeld || (heldLine && app.draft))) {
     heldLine = refind;
     selection.setLine(0n, -1, -1);
@@ -2338,13 +2340,14 @@ async function inspect(refind) {
 
 // The place of the selection, to find it again after a new slice.
 function refindKey() {
-  const info = app.info;
   if (app.sel < 0) return heldLine;
-  if (!info) return null;
+  // From the view: a line picked while a slice runs has no page yet.
   view.pathBeads(app.sel, rangeTmp);
   const b = rangeTmp[1] > rangeTmp[0] ? rangeTmp[0] + ((rangeTmp[1] - rangeTmp[0]) >> 1) : -1;
   if (b < 0) return null;
-  return { key: String(selection.line().key), layer: info.layer, feature: info.feature, ...view.beadPoint(b) };
+  const layer = view.pathLayer(app.sel);
+  const feature = view.x.zs_view_path_feature(view.v, app.sel);
+  return { key: String(selection.line().key), layer, feature, ...view.beadPoint(b) };
 }
 const rangeTmp = new Uint32Array(2);
 

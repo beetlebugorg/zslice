@@ -63,3 +63,4 @@ One line for each update: the date, the commit that the folder describes, and th
 | 2026-11-23 | Keep the paint of a part in place through a mirror | README, CHANGELOG: a mirror rewrites each paint tree for the reversed faces. |
 | 2026-11-23 | Describe the Inspector in the docs | README, CHANGELOG, 09: the docked Inspector replaces the floating cards on web. |
 | 2026-11-23 | Show the printdeck estimate in the Windows app | README, CHANGELOG, 12: the print card shows the time of a printdeck. The request has no print field, and it passes the deck and certificate checks of an upload. |
+| 2026-11-23 | Keep a line that is picked while a slice starts | README, CHANGELOG: the view height follows the bottom bar, and a line picked during a slice stays selected. |

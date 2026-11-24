@@ -1,6 +1,6 @@
 # A prompt that could build zslice
 
-Describes: main through "Show the printdeck estimate in the Windows app", 2026-11-23.
+Describes: main through "Keep a line that is picked while a slice starts", 2026-11-23.
 
 ## Read this first
 

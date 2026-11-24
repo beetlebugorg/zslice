@@ -205,6 +205,165 @@ const cameras = (c) => {
 const SIZES = [[1920, 1080], [1280, 800], [1024, 700], [800, 600], [760, 900], [390, 844], [844, 390]];
 
 const tests = {
+  "a line picked while a slice starts stays selected, and one chip click colors it": async () => {
+    const { page, ctx, errors } = await newPage(1440, 900, 2, 1);
+    await page.evaluate(async () => {
+      const z = window.zslice;
+      await z.browser.ctx.addFilament();
+      const b = z.tools.sel.box(z.tools.sel.idAt(1));
+      const L = Math.floor(z.layers.count / 2);
+      z.view.pickLayer(L, b.x0 + 0.2, (b.y0 + b.y1) / 2);
+      z.app.pickPoint = [b.x0 + 0.2, (b.y0 + b.y1) / 2];
+      z.select(z.view.hit[0], 0, true);
+    });
+    await page.waitForTimeout(500);
+    await idle(page);
+    await page.waitForTimeout(200);
+    check(await page.evaluate(() => window.zslice.app.sel >= 0), "the slice dropped the line");
+    const chip = page.locator(".lc-filament:visible .fil-chip:not(.fil-add)").nth(1);
+    await chip.waitFor({ timeout: 5000 });
+    await chip.click();
+    await page.waitForTimeout(300);
+    await idle(page);
+    await page.waitForTimeout(150);
+    const f = await page.evaluate(async () => {
+      const z = window.zslice;
+      return z.app.sel < 0 ? -2 : (await z.client.call("inspect", { path: z.app.sel, seg: 0 }))?.info?.filament ?? -1;
+    });
+    check(f === 2, `the line has filament ${f} after one click`);
+    check(errors.length === 0, errors.join("; "));
+    await ctx.close();
+    return "kept, and colored on the first click";
+  },
+  "one click on a line's filament chip colors its layer": async () => {
+    const { page, ctx, errors } = await newPage(1440, 900, 1, 1);
+    await page.evaluate(() => window.zslice.browser.ctx.addFilament());
+    await page.waitForTimeout(500);
+    await idle(page);
+    await page.locator("#gl").focus();
+    await page.keyboard.press("v");
+    const out = [];
+    const fil = (x, y, layer) => page.evaluate(async ([px, py, l]) => {
+      const z = window.zslice;
+      if (!z.view.pickLayer(l, px, py)) return -1;
+      return (await z.client.call("inspect", { path: z.view.hit[0], seg: 0 }))?.info?.filament ?? -1;
+    }, [x, y, layer]);
+    for (let round = 0; round < 8; round++) {
+      const at = await page.evaluate((r) => {
+        const z = window.zslice;
+        const b = z.tools.sel.box(z.tools.sel.idAt(0));
+        const layer = 8 + r * 5;
+        const q = z.view.pixelOf(b.x0, (b.y0 + b.y1) / 2, z.app.layers.z[layer] - 0.1);
+        const c = document.getElementById("gl").getBoundingClientRect();
+        const k = window.devicePixelRatio || 1;
+        return { x: c.left + q[0] / k, y: c.top + q[1] / k, bx: b.x0 + 0.2, by: (b.y0 + b.y1) / 2 };
+      }, round);
+      await page.mouse.click(at.x, at.y);
+      await page.waitForFunction(() => window.zslice.app.sel >= 0 && document.querySelector(".lc-filament .fil-chip"), null, { timeout: 5000 });
+      if (round % 2) await page.waitForTimeout(400);
+      const layer = await page.evaluate(() => window.zslice.view.pathLayer(window.zslice.app.sel));
+      const chip = page.locator(".lc-filament:visible .fil-chip:not(.fil-add)").nth(1);
+      await chip.click();
+      await page.waitForTimeout(250);
+      await idle(page);
+      out.push({ layer, got: await fil(at.bx, at.by, layer), on: await page.evaluate(() => document.querySelector(".lc-filament .fil-chip.on")?.textContent ?? null) });
+      await page.keyboard.press("Escape");
+      await page.waitForTimeout(120);
+    }
+    const bad = out.filter((o) => o.got !== 2);
+    check(bad.length === 0, `first click failed in ${bad.length} of ${out.length}: ${JSON.stringify(out).slice(0, 500)}`);
+    check(errors.length === 0, errors.join("; "));
+    await ctx.close();
+    return `${out.length} lines took on the first click`;
+  },
+  "one click on a filament chip colors a selected layer": async () => {
+    const { page, ctx, errors } = await newPage(1440, 900, 1, 1);
+    await page.evaluate(() => window.zslice.browser.ctx.addFilament());
+    await page.waitForTimeout(500);
+    await idle(page);
+    const out = [];
+    for (let round = 0; round < 6; round++) {
+      const L = await page.evaluate((r) => {
+        const z = window.zslice;
+        const b = z.tools.sel.box(z.tools.sel.idAt(0));
+        const layer = 5 + r * 4;
+        z.view.pickLayer(layer, b.x0 + 0.2, (b.y0 + b.y1) / 2);
+        z.app.pickPoint = [b.x0 + 0.2, (b.y0 + b.y1) / 2];
+        z.select(z.view.hit[0], 0, true);
+        return layer;
+      }, round);
+      await page.waitForFunction(() => window.zslice.app.sel >= 0, null, { timeout: 5000 });
+      await page.locator("#gl").focus();
+      await page.keyboard.press("Shift+K");
+      await page.waitForTimeout(80);
+      const st = await page.evaluate(() => {
+        const z = window.zslice;
+        const rows = [...document.querySelectorAll(".range-body")];
+        return { sel: z.app.sel, light: z.app.rangeLight ? { path: z.app.rangeLight.path, lo: z.app.rangeLight.lo, hi: z.app.rangeLight.hi } : null, open: z.rangeCard.open, body: z.rangeCard.body, rows: rows.map((r) => ({ hidden: r.hidden, h: r.offsetHeight, card: r.closest(".range-card")?.hidden ?? null, disp: getComputedStyle(r).display })), top: document.querySelector("#inspector-slot > :not([hidden])")?.className ?? null };
+      });
+      if (!st.rows.some((r) => r.h > 0)) throw new Error(`round ${round}: ${JSON.stringify(st)}`);
+      const chip = page.locator(".range-body:visible .fil-chip:not(.fil-add)").nth(1);
+      await chip.waitFor({ timeout: 5000 });
+      await chip.click();
+      await page.waitForTimeout(250);
+      await idle(page);
+      const got = await page.evaluate(async (layer) => {
+        const z = window.zslice;
+        const b = z.tools.sel.box(z.tools.sel.idAt(0));
+        if (!z.view.pickLayer(layer, b.x0 + 0.2, (b.y0 + b.y1) / 2)) return -1;
+        return (await z.client.call("inspect", { path: z.view.hit[0], seg: 0 }))?.info?.filament ?? -1;
+      }, L);
+      out.push(got);
+      await page.keyboard.press("Escape");
+      await page.waitForTimeout(100);
+    }
+    check(out.every((f) => f === 2), `the filament after one click, by round: ${out}`);
+    check(errors.length === 0, errors.join("; "));
+    await ctx.close();
+    return `${out.length} rounds took on the first click`;
+  },
+  "the view fills the space above the bottom bar": async () => {
+    const notes = [];
+    for (const [w, h, k] of [[1000, 640, 2], [1200, 760, 2], [1440, 900, 2], [1728, 1000, 2], [1000, 900, 1], [860, 700, 2]]) {
+      const { page, ctx, errors } = await newPage(w, h, 2, k);
+      const measure = (what) => page.evaluate((name) => {
+        const r = (id) => document.getElementById(id).getBoundingClientRect();
+        const gl = r("gl"), dock = r("dock"), pv = r("preview");
+        const c = document.getElementById("gl");
+        return { name, glB: Math.round(gl.bottom), glH: Math.round(gl.height), dockT: Math.round(dock.top), dockH: Math.round(dock.height), glBar: Math.round(parseFloat(getComputedStyle(document.getElementById("preview")).getPropertyValue("--dock-h")) || 0), pvB: Math.round(pv.bottom), bufH: c.height, want: Math.round(gl.height * devicePixelRatio), var: getComputedStyle(document.getElementById("preview")).getPropertyValue("--dock-h") };
+      }, what);
+      const report = [await measure("start")];
+      await page.evaluate(() => {
+        const z = window.zslice;
+        const b = z.tools.sel.box(z.tools.sel.idAt(0));
+        const L = Math.floor(z.layers.count / 2);
+        if (z.view.pickLayer(L, b.x0 + 0.2, (b.y0 + b.y1) / 2)) z.select(z.view.hit[0], 0, true);
+      });
+      await page.waitForTimeout(300);
+      report.push(await measure("line"));
+      await page.setViewportSize({ width: w - 60, height: h - 40 });
+      await page.waitForFunction(() => {
+        const c = document.getElementById("gl");
+        return c.height === Math.round(c.getBoundingClientRect().height * devicePixelRatio);
+      }, null, { timeout: 5000, polling: 100 }).catch(async () => {
+        const st = await page.evaluate(() => {
+          const c = document.getElementById("gl");
+          const r = c.getBoundingClientRect();
+          return { buf: c.height, css: r.height, k: devicePixelRatio, want: r.height * devicePixelRatio, attrW: c.width, cssW: r.width, dock: document.getElementById("dock").offsetHeight, v: getComputedStyle(document.getElementById("preview")).getPropertyValue("--dock-h") };
+        });
+        throw new Error(`${w}x${h}@${k}: ${JSON.stringify(st)}`);
+      });
+      report.push(await measure("resized"));
+      for (const m of report) {
+        check(Math.abs(m.glB - (m.pvB - m.glBar)) <= 1, `${w}x${h}@${k} ${m.name}: the view ends at ${m.glB}, and the bar starts at ${m.pvB - m.glBar}`);
+        check(m.bufH === m.want, `${w}x${h}@${k} ${m.name}: buffer ${m.bufH}, view ${m.want}`);
+        notes.push(`${w}x${h}@${k} ${m.name}: gl bottom ${m.glB} dock top ${m.dockT} dock h ${m.dockH} preview bottom ${m.pvB} buf ${m.bufH}/${m.want} var ${m.var}`);
+      }
+      check(errors.length === 0, errors.join("; "));
+      await ctx.close();
+    }
+    return `${notes.length} states`;
+  },
   async "no selection UI intersects the canvas, at each size and camera"() {
     let checks = 0;
     for (const [w, h] of SIZES) {

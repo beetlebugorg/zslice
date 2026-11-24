@@ -162,6 +162,7 @@ const tests = {
   "a layer range keeps its body across a slice, with two parts": async () => {
     const { page, ctx, errors } = await newPage("test-cube.stl", 2);
     await page.evaluate(() => window.zslice.browser.ctx.addFilament());
+    await page.waitForTimeout(500);
     await idle(page);
     const start = await page.evaluate(() => {
       const z = window.zslice;
@@ -174,7 +175,7 @@ const tests = {
       return { L, box: b, other: z.tools.sel.box(z.tools.sel.idAt(0)) };
     });
     check(start, "no line on the second part");
-    await page.waitForTimeout(150);
+    await page.waitForFunction(() => window.zslice.app.sel >= 0, null, { timeout: 5000 });
     await page.locator("#gl").focus().catch(() => {});
     await page.keyboard.press("Shift+K");
     check((await page.evaluate(() => window.zslice.rangeCard.paintBody(2))) === null, "the first filament gave an error");

@@ -879,7 +879,7 @@ const ops = {
   // The Selected page of a path. With `refind` ({ layer, feature, x, y }
   // of the line before a new slice): the same line in the new slice.
   inspect({ path, seg, refind }) {
-    if (core.state() !== STATE.done) return { info: null };
+    if (core.state() !== STATE.done) return { info: null, busy: true };
     let p = path;
     if (refind) p = core.refind(refind.layer, refind.feature, refind.x, refind.y);
     const info = p >= 0 ? core.inspect(p, seg ?? -1) : null;
