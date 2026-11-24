@@ -128,6 +128,10 @@ pub const PartInput = struct {
     /// The id of the part for the toolpaths (for example, its index on
     /// the plate).
     part: u32,
+    /// The stable id of the part (plate.Part.id), or null: then `part`
+    /// is the id. The job of a group takes the work of the old job with
+    /// the same id (see `Options.old`).
+    id: ?u64 = null,
     /// The paint of the triangles of `mesh` (see paint.zig), or null. A
     /// painted part slices as one job for each filament of its paint (see
     /// paint_split.zig). It must live as long as the job.
@@ -169,6 +173,9 @@ pub const Group = struct {
     job: Job,
     /// The part whose mesh the job slices.
     part: u32,
+    /// The slot of the group: the stable id of that part (see
+    /// `PartInput.id`).
+    slot: u64 = 0,
     /// The job slices one filament of a painted part.
     painted: bool = false,
     /// The split of the painted part, and the index of the filament of
@@ -392,9 +399,10 @@ pub const PlateJob = struct {
                 s.set(c.name, c.value) catch return error.InvalidSettings;
             }
             var old_job: ?*Job = null;
-            // A painted part slices again: its outlines are the regions of
-            // its filaments.
-            if (p.paint_split == null) if (opts.old) |o| for (o.groups) |*og| if (og.part == p.part and !og.painted) {
+            // The old job of the same slot. A painted part slices again:
+            // its outlines are the regions of its filaments.
+            const slot = slotOf(p);
+            if (p.paint_split == null) if (opts.old) |o| for (o.groups) |*og| if (og.slot == slot and !og.painted) {
                 old_job = &og.job;
                 break;
             };
@@ -425,6 +433,7 @@ pub const PlateJob = struct {
             job.monitor = opts.monitor;
             job.keep_memos = opts.keep_memos;
             if (p.modifiers.len > 0) try job.setModifiers(p.modifiers);
+            job.part_key = partKey(&job, &s, p);
             // The picks of the part, cut as the job cuts its mesh. One
             // filament on the plate: a pick has no effect.
             var layer_picks: []LayerPick = &.{};
@@ -435,7 +444,7 @@ pub const PlateJob = struct {
                 for (p.picks, layer_picks) |pk, *lp| lp.* = .{ .outlines = try job.sliceExtra(pa, pk.mesh), .filament = pk.filament };
             }
             const layer_level = try gpa.alloc(u32, job.layers.len);
-            groups.appendAssumeCapacity(.{ .job = job, .part = p.part, .layer_level = layer_level, .painted = p.paint_split != null, .split = p.paint_split, .paint_index = p.paint_index, .picks = layer_picks });
+            groups.appendAssumeCapacity(.{ .job = job, .part = p.part, .slot = slot, .layer_level = layer_level, .painted = p.paint_split != null, .split = p.paint_split, .paint_index = p.paint_index, .picks = layer_picks });
         }
         pj.groups = try groups.toOwnedSlice(gpa);
 
@@ -451,7 +460,10 @@ pub const PlateJob = struct {
         if (opts.streams) |extra| if (!pj.sequential) {
             const form_on = settings.engine.slice_form;
             const local = form_on and pj.layersAreLocal();
-            const rest = planStamp(settings, parts, opts.overrides, keys, boxes, extra ^ slot_nozzles.key(), local);
+            const rest = if (form_on)
+                pj.restKey(settings, parts, opts.overrides, extra ^ slot_nozzles.key(), local)
+            else
+                planStamp(settings, parts, opts.overrides, keys, boxes, extra ^ slot_nozzles.key(), false);
             try pj.takeForms(opts.old, rest, form_on, if (form_on) opts.edits else null, if (local) opts.overrides else &.{});
         };
         return pj;
@@ -465,7 +477,10 @@ pub const PlateJob = struct {
         const gpa = pj.gpa;
         const n = pj.levels.len;
         pj.level_keys = try gpa.alloc(form.Key, n);
-        for (pj.level_keys, 0..) |*k, i| k.* = pj.levelKey(rest, i, edits, local);
+        // The key of the first layers of all parts, for the levels with a
+        // skirt or a brim (item 7 of the level key).
+        const rings: u64 = if (slice_form) outline0Key(pj.outline0) else 0;
+        for (pj.level_keys, 0..) |*k, i| k.* = pj.levelKey(rest, i, edits, local, slice_form, rings);
         // A form of another level count is of another print (rule 6 of
         // form.zig: a check that fails drops the forms).
         if (old) |o| if (o.forms.len == n) {
@@ -495,8 +510,24 @@ pub const PlateJob = struct {
     /// stream of a level starts where the level under it ends, so a change
     /// of the support under it makes it dirty too (the rule of the
     /// support edits of before).
-    fn levelKey(pj: *const PlateJob, rest: u64, i: usize, edits: ?*const edits_mod.Edits, local: []const settings_mod.Override) form.Key {
+    fn levelKey(pj: *const PlateJob, rest: u64, i: usize, edits: ?*const edits_mod.Edits, local: []const settings_mod.Override, parts: bool, rings: u64) form.Key {
         var kb: form.KeyBuilder = .init(0x1e7e1);
+        // With the slice form, the parts of the level in print order: the
+        // key of the part of each (`Job.part_key`), its id, its move, and
+        // its layer. The rest of the plate is in `rest`, so a change of
+        // one part makes only the levels of that part dirty.
+        if (parts) {
+            const lv = pj.levels[i];
+            for (pj.entries[lv.first..lv.end]) |e| {
+                const inst = pj.instances[e.instance];
+                const g = &pj.groups[inst.group];
+                kb.add(.{ g.job.part_key, g.slot, inst.part, inst.group, inst.dx, inst.dy, e.layer });
+            }
+            kb.add(@as(u64, 0x9a475));
+            // The skirt and the brim go around the first layers of all
+            // parts, and the support of each part keeps out of them.
+            if (!pj.single() and i < layer_mod.ringLevels(pj.levelResolved(i))) kb.add(rings);
+        }
         // The overrides of the local settings (settings.layer_local) that
         // cover a layer of a part on this level, in the order of the
         // list: the rule of Job.resolveLayers (Override.covers with the
@@ -548,6 +579,34 @@ pub const PlateJob = struct {
     fn resolvedIsLocal(r: *const Resolved) bool {
         const p = r.settings.project;
         return p.infill_pattern != .lightning and p.infill_pattern != .flow and p.infill_layers <= 1;
+    }
+
+    /// The inputs of all levels with the slice form (`rest` of the level
+    /// key): the settings of the plate, the overrides that are not local,
+    /// the ids of the parts in their order, the prime towers, the
+    /// sequential flag, and the parts left out. The parts themselves are in
+    /// the key of each level (`levelKey`).
+    fn restKey(pj: *const PlateJob, settings: Settings, parts: []const PartInput, overrides: []const settings_mod.Override, extra: u64, local: bool) u64 {
+        var kb: form.KeyBuilder = .init(0x7e57);
+        kb.add(extra);
+        form.hashSettingsWith(&kb.h, &settings, .paths, true);
+        for (overrides, 0..) |o, k| {
+            if (local and k < 64 and settings_mod.isLayerLocal(o.name)) continue;
+            kb.add([2]f64{ o.z_min, o.z_max });
+            kb.add(o.name);
+            if (!settings_mod.isPatchSetting(o.name)) kb.add(o.value);
+        }
+        kb.add(@as(u64, 0x0e5));
+        kb.add(parts.len);
+        for (parts) |p| kb.add(.{ p.part, slotOf(p), p.paint_index });
+        const t = pj.towers();
+        kb.add(t.n);
+        for (t.items()) |tw| kb.add(tw);
+        kb.add(t.of_slot);
+        kb.add(pj.sequential);
+        kb.add(pj.left_out_n);
+        for (pj.left_out[0..pj.left_out_n]) |*o| kb.add(.{ o.nameOf(), o.height, o.x, o.y });
+        return kb.final();
     }
 
     /// Frees the memos of the job of each group (see Job.dropMemos).
@@ -1747,6 +1806,59 @@ fn planStamp(settings: Settings, parts: []const PartInput, overrides: []const se
         // key of each level (supportKey) covers them, so an edit of them
         // keeps the streams of the levels with the same support.
     }
+    return h.final();
+}
+
+/// The slot of a part (`PartInput.id`). A part with no stable id gets
+/// its index, in a range of its own.
+fn slotOf(p: PartInput) u64 {
+    return p.id orelse (@as(u64, 1) << 63) | p.part;
+}
+
+/// The key of a part (`Job.part_key`): all that the plans of its layers
+/// read besides the plate. These are the outline key of its job (with its
+/// mesh), the paths settings of the part (the plate settings with its own
+/// changes), its modifiers, its paint, its labels, and its picks: the
+/// items of each part in `planStamp`. The marks and the trees of the user
+/// change only the support, and the key of the support of each level has
+/// them.
+fn partKey(job: *const Job, s: *const Settings, p: PartInput) form.Key {
+    var kb: form.KeyBuilder = .init(0x9a47);
+    kb.add(job.outline_key);
+    form.hashSettingsWith(&kb.h, s, .paths, true);
+    const changes = struct {
+        fn f(k: *form.KeyBuilder, list: []const settings_mod.Change) void {
+            k.add(list.len);
+            for (list) |c| {
+                k.add(c.name);
+                if (!settings_mod.isPatchSetting(c.name)) k.add(c.value);
+            }
+        }
+    }.f;
+    changes(&kb, p.changes);
+    kb.add(if (p.paint) |pp| pp.hash() else 0);
+    kb.add(p.paint_index);
+    kb.add(p.labels.len);
+    for (p.labels) |*l| label_mod.hash(l, &kb.h);
+    kb.add(p.picks.len);
+    for (p.picks) |pk| {
+        kb.add(pk.filament);
+        kb.add(pk.mesh.contentKey());
+    }
+    kb.add(p.modifiers.len);
+    for (p.modifiers) |m| {
+        kb.add(m.mesh.contentKey());
+        kb.add(m.order);
+        changes(&kb, m.changes);
+    }
+    return kb.final();
+}
+
+/// A hash of the first layers of all parts (`PlateJob.outline0`).
+fn outline0Key(o: Paths) u64 {
+    var h = std.hash.Wyhash.init(0x0a71);
+    h.update(std.mem.sliceAsBytes(o.points.items));
+    h.update(std.mem.sliceAsBytes(o.ends.items));
     return h.final();
 }
 
@@ -3766,6 +3878,149 @@ test "plate job: an override of a local setting plans only the levels of its ran
         prev = pj;
     }
     for (&jobs) |*pj| pj.deinit();
+}
+
+/// A plate job with the old job `old` against a new job of the same
+/// parts: the same G-code. Returns the count of the plans of the job with
+/// the old job.
+fn checkAgainstNew(gpa: Allocator, s: Settings, parts: []const PartInput, opts: Options, old: *PlateJob, out: *PlateJob) !usize {
+    var o = opts;
+    o.streams = 0;
+    o.old = old;
+    out.* = try PlateJob.init(gpa, s, parts, o);
+    const plans = plans_made.load(.monotonic);
+    const b = try gcodeOf(out);
+    defer gpa.free(b);
+    const made = plans_made.load(.monotonic) - plans;
+    o.old = null;
+    var fresh = try PlateJob.init(gpa, s, parts, o);
+    defer fresh.deinit();
+    const want = try gcodeOf(&fresh);
+    defer gpa.free(want);
+    try testing.expectEqualStrings(want, b);
+    return made;
+}
+
+test "plate job: a move of the low part plans no level over it, with the slice form" {
+    const gpa = testing.allocator;
+    var low = try testBox(0, 0, 20, 20, 2);
+    defer low.deinit(gpa);
+    var moved_low = try testBox(4, 0, 24, 20, 2);
+    defer moved_low.deinit(gpa);
+    var tall = try testBox(40, 0, 50, 10, 8);
+    defer tall.deinit(gpa);
+    var s: Settings = .{};
+    s.engine.threads = 2;
+    s.engine.slice_form = true;
+    // The parts stay at their places, as in the app: no offset from the
+    // box of all parts.
+    s.project.placement = .file;
+    const before = [_]PartInput{ .{ .mesh = &low, .part = 0, .id = 7 }, .{ .mesh = &tall, .part = 1, .id = 9 } };
+    var pj1 = try PlateJob.init(gpa, s, &before, .{ .streams = 0 });
+    defer pj1.deinit();
+    const a = try gcodeOf(&pj1);
+    defer gpa.free(a);
+    const after = [_]PartInput{ .{ .mesh = &moved_low, .part = 0, .id = 7 }, .{ .mesh = &tall, .part = 1, .id = 9 } };
+    var pj2: PlateJob = undefined;
+    const made = try checkAgainstNew(gpa, s, &after, .{}, &pj1, &pj2);
+    defer pj2.deinit();
+    // The levels of the low part, and at most one more: the first travel
+    // of the level over it starts at another place.
+    var with_low: usize = 0;
+    for (pj2.levels) |lv| with_low += @intFromBool(lv.z <= 2 + z_eps);
+    try testing.expect(with_low < pj2.levels.len);
+    try testing.expect(made <= with_low + 1);
+    // The tall part took the outlines of its old job. The low part cut
+    // its new mesh.
+    try testing.expectEqual(@as(usize, 0), pj1.groups[1].job.outlines.len);
+    try testing.expect(pj1.groups[0].job.outlines.len > 0);
+}
+
+test "plate job: a part added, then deleted, gives the G-code of a new job" {
+    const gpa = testing.allocator;
+    var m1 = try testBox(0, 0, 20, 20, 3);
+    defer m1.deinit(gpa);
+    var m2 = try testBox(40, 0, 52, 12, 5);
+    defer m2.deinit(gpa);
+    var s: Settings = .{};
+    s.engine.threads = 2;
+    s.engine.slice_form = true;
+    const one = [_]PartInput{.{ .mesh = &m1, .part = 0, .id = 1 }};
+    const two = [_]PartInput{ .{ .mesh = &m1, .part = 0, .id = 1 }, .{ .mesh = &m2, .part = 1, .id = 2 } };
+    var pj1 = try PlateJob.init(gpa, s, &one, .{ .streams = 0 });
+    defer pj1.deinit();
+    const a = try gcodeOf(&pj1);
+    defer gpa.free(a);
+    var pj2: PlateJob = undefined;
+    _ = try checkAgainstNew(gpa, s, &two, .{}, &pj1, &pj2);
+    defer pj2.deinit();
+    var pj3: PlateJob = undefined;
+    _ = try checkAgainstNew(gpa, s, &one, .{}, &pj2, &pj3);
+    defer pj3.deinit();
+    const c = try gcodeOf(&pj3);
+    defer gpa.free(c);
+    try testing.expectEqualStrings(a, c);
+}
+
+test "plate job: a part that moves next to another changes the rings of both, with a brim and support" {
+    const gpa = testing.allocator;
+    var m1 = try testBox(0, 0, 20, 20, 4);
+    defer m1.deinit(gpa);
+    var far = try testBox(60, 0, 70, 10, 6);
+    defer far.deinit(gpa);
+    var near = try testBox(23, 0, 33, 10, 6);
+    defer near.deinit(gpa);
+    var s: Settings = .{};
+    s.engine.threads = 2;
+    s.engine.slice_form = true;
+    s.project.brim_width = 3;
+    s.project.support = .everywhere;
+    s.project.skirt_layers = 3;
+    const before = [_]PartInput{ .{ .mesh = &m1, .part = 0, .id = 1 }, .{ .mesh = &far, .part = 1, .id = 2 } };
+    const after = [_]PartInput{ .{ .mesh = &m1, .part = 0, .id = 1 }, .{ .mesh = &near, .part = 1, .id = 2 } };
+    var pj1 = try PlateJob.init(gpa, s, &before, .{ .streams = 0 });
+    defer pj1.deinit();
+    const a = try gcodeOf(&pj1);
+    defer gpa.free(a);
+    var pj2: PlateJob = undefined;
+    _ = try checkAgainstNew(gpa, s, &after, .{}, &pj1, &pj2);
+    defer pj2.deinit();
+    // And back.
+    var pj3: PlateJob = undefined;
+    _ = try checkAgainstNew(gpa, s, &before, .{}, &pj2, &pj3);
+    defer pj3.deinit();
+}
+
+test "plate job: two filaments with a prime tower, a part moves" {
+    const gpa = testing.allocator;
+    var m1 = try testBox(0, 0, 20, 20, 3);
+    defer m1.deinit(gpa);
+    var m2 = try testBox(40, 0, 60, 20, 3);
+    defer m2.deinit(gpa);
+    var m2b = try testBox(40, 30, 60, 50, 3);
+    defer m2b.deinit(gpa);
+    var s: Settings = .{};
+    s.engine.threads = 2;
+    s.engine.slice_form = true;
+    s.machine.filament_change = .tool;
+    var red = s.filament;
+    red.color = "#ff0000";
+    const before = [_]PartInput{
+        .{ .mesh = &m1, .part = 0, .id = 1 },
+        .{ .mesh = &m2, .part = 1, .id = 2, .changes = &.{.{ .name = "project.filament", .value = "2" }} },
+    };
+    const after = [_]PartInput{
+        .{ .mesh = &m1, .part = 0, .id = 1 },
+        .{ .mesh = &m2b, .part = 1, .id = 2, .changes = &.{.{ .name = "project.filament", .value = "2" }} },
+    };
+    var pj1 = try PlateJob.init(gpa, s, &before, .{ .streams = 0, .filaments = &.{red} });
+    defer pj1.deinit();
+    try testing.expect(pj1.towers().n > 0);
+    const a = try gcodeOf(&pj1);
+    defer gpa.free(a);
+    var pj2: PlateJob = undefined;
+    _ = try checkAgainstNew(gpa, s, &after, .{ .filaments = &.{red} }, &pj1, &pj2);
+    defer pj2.deinit();
 }
 
 test "plate job: a slice after a canceled slice gives the G-code of a new job" {

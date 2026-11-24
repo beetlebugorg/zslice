@@ -383,6 +383,9 @@ pub const Job = struct {
     /// A hash of all inputs of the outlines (see `outlineKey`). Two jobs of
     /// the same mesh with the same key have the same outlines.
     outline_key: u64 = 0,
+    /// The key of the part of a plate job (see plate_job.partKey), or 0:
+    /// the key of each level of the part has it.
+    part_key: u64 = 0,
     /// The generation of the job: one more than the job that it took its
     /// memos from (see layer.Memo).
     gen: u32 = 0,

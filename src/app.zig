@@ -1131,8 +1131,11 @@ pub const App = struct {
     /// makes the mesh again (with no regions of the old one).
     pub fn plateChanged(app: *App) Allocator.Error!void {
         app.plate_changed = true;
-        app.dropPrevJob();
         const n = app.plate.count();
+        // With engine.slice_form on, the work of before stays: the job of
+        // each part has the key of its mesh and its place, so a part that
+        // did not change keeps its work (plate_job.partKey).
+        if (!app.settings.engine.slice_form or n == 0) app.dropPrevJob();
         const name = if (n == 0)
             try app.gpa.dupe(u8, "")
         else if (n == 1)
@@ -3060,7 +3063,7 @@ pub const App = struct {
             if (app.mesh) |*old| old.deinit(app.gpa);
             app.mesh = m;
             app.plate_changed = false;
-            app.dropPrevJob();
+            if (!app.settings.engine.slice_form) app.dropPrevJob();
         }
         app.slice_settings = app.settings;
         app.slice_draft = app.draft;
@@ -3478,6 +3481,7 @@ pub const App = struct {
             }
             out.* = .{
                 .mesh = mesh,
+                .id = if (part_of[pp.input]) |pi| app.plate.parts.items[pi].id else null,
                 .mesh_key = pl.key,
                 .shape_key = pl.shape_key,
                 .box = pl.box,

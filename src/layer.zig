@@ -1962,6 +1962,14 @@ pub fn ringLoops(s: Allocator, r: *const Resolved, outline0: Paths, i: usize, ri
     }
 }
 
+/// The count of the levels from the bottom that can have a skirt or a
+/// brim (see `ringLoops`): `ringPlan` and `ringBand` give nothing on the
+/// levels over them.
+pub fn ringLevels(r: *const Resolved) usize {
+    const p = r.settings.project;
+    return @max(p.skirt_layers, @intFromBool(p.brim_width > 0));
+}
+
 /// The holes of `paths` (its loops with a negative area), turned so that
 /// each is an area of its own.
 fn holesAsAreas(s: Allocator, paths: Paths) Allocator.Error!Paths {
