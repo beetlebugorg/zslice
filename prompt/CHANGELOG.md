@@ -57,3 +57,4 @@ One line for each update: the date, the commit that the folder describes, and th
 | 2026-11-23 | `8114e228` | README, CHANGELOG: Stop on USB in GTK reads heater words with no space. |
 | 2026-11-23 | `55d1c868` | README, CHANGELOG: GTK takes only a plain material name from a printer, and a project ends the link to a roll. |
 | 2026-11-23 | `42a8b25d` | README, CHANGELOG: GTK treats a roll of unknown weight as unknown. |
+| 2026-11-23 | Leave housekeeping commits out of the release notes | README, UPDATING, CHANGELOG: the update goes in the last code commit, with no separate commit. |

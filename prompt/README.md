@@ -1,6 +1,6 @@
 # A prompt that could build zslice
 
-Describes: main at commit `14dfc505` ("Add the small parity fixes to the Windows prompt"), 2026-11-23.
+Describes: main through "Leave housekeeping commits out of the release notes", 2026-11-23.
 
 ## Read this first
 
@@ -71,4 +71,4 @@ The main links:
 
 ## How it stays current
 
-The folder describes one commit. The commit and the date are at the top of this page. Each push and each merge to main includes the update of this folder for its commits. The update follows the steps in `UPDATING.md`, and adds a line to `CHANGELOG.md`.
+The folder describes main through one commit. Its subject and the date are at the top of this page. Each push and each merge to main includes the update of this folder for its commits. The update follows the steps in `UPDATING.md`, and adds a line to `CHANGELOG.md`.

@@ -4,7 +4,7 @@ Each push to main includes the update of this folder for the commits that it bri
 
 ## Steps
 
-1. Read the commit at the top of `README.md` ("Describes: ... at commit ...").
+1. Find the commit that last changed this folder: `git log -1 --format=%h -- prompt/README.md`.
 2. List the commits that the push brings to main, from that commit to the tip of the branch:
 
    ```sh
@@ -21,10 +21,10 @@ Each push to main includes the update of this folder for the commits that it bri
    - Add or change an acceptance check.
    - Remove a statement that the code no longer supports.
 6. Add a new part only for a new area of the app. Give it the next number, and add it to the list in `README.md`.
-7. Change the commit and the date at the top of `README.md` to the last commit that you read: the tip of the branch that goes to main.
-8. Add one line to `CHANGELOG.md`: the date, the commit, and the parts that changed.
+7. Change the top of `README.md` to `Describes: main through "<subject of the last code commit>", <date>.`
+8. Add one line to `CHANGELOG.md`: the date, the subject of the last code commit, and the parts that changed.
 9. Check each statement against the code or the docs of that commit. When you cannot check a statement, say so in the sentence, or leave it out.
-10. Commit the update on the branch that goes to main, so that the push or the merge brings the code and the update together.
+10. Put the update in the last code commit of the branch with `git commit --amend`. Do not make a separate commit for the prompt or for a pointer to a commit. The release notes must list only changes that a user can see.
 
 ## Where each area lives
 

@@ -9,7 +9,9 @@
 #   - else one app folder (web/, linux/, macos/, windows/): that app.
 #   - else only docs and Markdown files: "Documentation".
 #   - else: "Build and tools".
-# A merge commit is not listed. The release workflow runs this script.
+# A merge commit is not listed, and a commit that changes only prompt/ or
+# the built doc pages (docs/**/*.html) is not listed. The release workflow
+# runs this script.
 # SPDX-License-Identifier: AGPL-3.0-or-later
 import subprocess
 import sys
@@ -38,6 +40,11 @@ def previous_tag(tag):
     return r.stdout.strip() if r.returncode == 0 else None
 
 
+def housekeeping(paths):
+    """True for a commit with no change that a reader of the notes needs."""
+    return bool(paths) and all(p.startswith("prompt/") or (p.startswith("docs/") and p.endswith(".html")) for p in paths)
+
+
 def group_of(paths):
     if any(p.startswith(CORE) for p in paths):
         return "core"
@@ -62,6 +69,8 @@ def main():
     for record in log.split("\x1e")[1:]:
         lines = [x for x in record.splitlines() if x.strip()]
         head, paths = lines[0], lines[1:]
+        if housekeeping(paths):
+            continue
         short, subject = head.split(" ", 1)
         groups[group_of(paths)].append(f"- {subject} ({short})")
 
