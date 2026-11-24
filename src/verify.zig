@@ -661,6 +661,9 @@ pub fn run(gpa: Allocator, io: Io, models: []const Model, opts: Options, report:
 }
 
 test "verify: random edits of the demo part give the bytes of a full slice" {
+    // The test of the C API links libc and runs the tests of this module
+    // again. One run is enough.
+    if (comptime @import("builtin").link_libc) return error.SkipZigTest;
     const gpa = std.testing.allocator;
     var m = try zs.mesh.shapes.demo(gpa);
     defer m.deinit(gpa);
@@ -669,7 +672,7 @@ test "verify: random edits of the demo part give the bytes of a full slice" {
     try m.writeStl(&stl.writer);
     var sink: Io.Writer.Discarding = .init(&.{});
     const models = [_]Model{.{ .name = "demo.stl", .bytes = stl.written() }};
-    const r = try run(gpa, std.testing.io, &models, .{ .seeds = &.{ 11, 22 }, .steps = 12 }, &sink.writer);
+    const r = try run(gpa, std.testing.io, &models, .{ .seeds = &.{ 11, 22 }, .steps = 6 }, &sink.writer);
     try std.testing.expectEqual(@as(usize, 0), r.faults);
     try std.testing.expect(r.steps >= 2);
 }

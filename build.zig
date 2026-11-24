@@ -24,6 +24,26 @@ pub fn build(b: *std.Build) void {
     });
     b.installArtifact(exe);
 
+    // zig build verify: the slice verifier (src/verify.zig) on the demo
+    // part, in a ReleaseFast build of its own. A fault fails the step.
+    {
+        const vmod = b.createModule(.{ .root_source_file = b.path("src/root.zig"), .target = target, .optimize = .ReleaseFast });
+        addLicenses(b, vmod);
+        const vexe = b.addExecutable(.{
+            .name = "zslice-verify",
+            .root_module = b.createModule(.{
+                .root_source_file = b.path("src/main.zig"),
+                .target = target,
+                .optimize = .ReleaseFast,
+                .imports = &.{.{ .name = "zslice", .module = vmod }},
+            }),
+        });
+        const vrun = b.addRunArtifact(vexe);
+        vrun.addArgs(&.{ "verify", "--quick" });
+        const verify_step = b.step("verify", "Check that kept work gives the G-code of a full slice");
+        verify_step.dependOn(&vrun.step);
+    }
+
     const run_step = b.step("run", "Run the command line tool");
     const run_cmd = b.addRunArtifact(exe);
     run_step.dependOn(&run_cmd.step);

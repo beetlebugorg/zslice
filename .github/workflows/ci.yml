@@ -90,6 +90,8 @@ jobs:
         with:
           version: ${{ env.ZIG_VERSION }}
       - run: zig build test
+      # The slice verifier: kept work gives the G-code of a full slice.
+      - run: zig build verify
       # The command line tool slices a 20 mm cube.
       - name: Slice a cube
         run: |

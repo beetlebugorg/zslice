@@ -56,6 +56,10 @@ python3 -I tools/corpus_hash.py zig-out/bin/zslice ../printdeck hash-after.tsv 2
 diff hash-before.tsv hash-after.tsv
 ```
 
+### The slice verifier
+
+`zig build verify` runs `zslice verify --quick` in a ReleaseFast build: the sweep of the settings of the demo part, and 3 seeds of 40 random edits. It fails if a slice with kept work differs from a full slice. The CI runs it after the tests. Run it after each change to a key, a memo, or a kept stream. See [The slice verifier](code-quality.md#the-slice-verifier).
+
 ### Look at the output
 
 A test can pass while the output is wrong. Look at the layers:
