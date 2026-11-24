@@ -67,5 +67,22 @@ for (const [kind, name, values] of kinds) {
   }
   show("z range infill", times);
 }
+// A drag with drafts: three draft slices of the infill, then the exact
+// slice. Only the exact slice is timed. With slice_form, the drafts use
+// their own lane, and the exact slice keeps the work of the exact lane.
+{
+  const times = [];
+  for (let k = 0; k < 5; k++) {
+    wasm.x.zs_app_set_draft(core.app, 1);
+    for (let d = 0; d < 3; d++) {
+      const e = core.set("project.infill_density", (0.2 + 0.01 * k + 0.001 * d).toFixed(3));
+      if (e !== "") throw new Error(e);
+      slice();
+    }
+    wasm.x.zs_app_set_draft(core.app, 0);
+    times.push(slice());
+  }
+  show("draft, exact", times);
+}
 const mem = wasm.x && wasm.x.memory ? wasm.x.memory.buffer.byteLength : 0;
 console.log(`wasm memory ${(mem / 1048576).toFixed(0)} MB`);

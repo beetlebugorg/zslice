@@ -267,8 +267,14 @@ pub const App = struct {
     /// density or the wall count changed), the new job of the part takes
     /// the outlines and the results of the slow steps that are still good
     /// (see Job.initReuse and plate_job.Options.old). Only the worker uses
-    /// it while a slice runs.
-    prev_job: ?zs.PlateJob = null,
+    /// it while a slice runs. One job for each lane (form.Lane): with
+    /// engine.slice_form on, a draft slice reads and writes the draft lane
+    /// only, so the drafts of a drag do not replace the work of the exact
+    /// slice. With it off, all slices use the exact lane, and a draft
+    /// replaces the exact work.
+    prev: [2]?zs.PlateJob = .{ null, null },
+    /// The lane of the slice that runs, or of the last slice.
+    slice_lane: zs.form.Lane = .exact,
     /// A part that slices coarse (see `setCoarsePart`), or null.
     coarse_part: ?usize = null,
     /// The next slices are drafts (see `setDraft`).
@@ -3047,10 +3053,11 @@ pub const App = struct {
         const start_t0 = zs.stage_clock.now();
         app.stopWorker();
         app.clearGaps();
-        // Keep the last job for its regions, and free the rest.
+        // Keep the last job for its regions, in the lane of its slice,
+        // and free the job before it in that lane.
         if (app.job) |j| {
-            app.dropPrevJob();
-            app.prev_job = j;
+            app.dropPrev(app.slice_lane);
+            app.prev[@intFromEnum(app.slice_lane)] = j;
             app.job = null;
         }
         // The result stays until this slice. Its work goes now.
@@ -3067,6 +3074,11 @@ pub const App = struct {
         }
         app.slice_settings = app.settings;
         app.slice_draft = app.draft;
+        // The lane of this slice. With engine.slice_form off, one lane:
+        // the work of a draft goes, as before the lanes.
+        const form_on = app.settings.engine.slice_form;
+        if (!form_on) app.dropPrev(.draft);
+        app.slice_lane = if (form_on and app.draft) .draft else .exact;
         if (app.draft) {
             const s = &app.slice_settings;
             s.project.resolution = @max(s.project.resolution, draft_resolution);
@@ -3525,8 +3537,8 @@ pub const App = struct {
         const t = app.gpa.create(Trash) catch return app.trim();
         t.* = .{ .gpa = app.gpa };
         if (app.job) |*j| j.takeMemos(&t.memos) catch j.dropMemos();
-        t.prev_job = app.prev_job;
-        app.prev_job = null;
+        t.prev = app.prev;
+        app.prev = .{ null, null };
         t.gcode = app.spare_gcode;
         app.spare_gcode = &.{};
         t.paths = app.spare_paths;
@@ -3539,14 +3551,14 @@ pub const App = struct {
     const Trash = struct {
         gpa: Allocator,
         memos: std.ArrayList(zs.layer.Memo) = .empty,
-        prev_job: ?zs.PlateJob = null,
+        prev: [2]?zs.PlateJob = .{ null, null },
         gcode: []u8 = &.{},
         paths: Toolpaths = .{},
 
         fn free(t: *Trash) void {
             for (t.memos.items) |*m| m.deinit();
             t.memos.deinit(t.gpa);
-            if (t.prev_job) |*j| j.deinit();
+            for (&t.prev) |*p| if (p.*) |*j| j.deinit();
             t.gpa.free(t.gcode);
             t.paths.deinit(t.gpa);
             t.gpa.destroy(t);
@@ -3565,16 +3577,24 @@ pub const App = struct {
         app.drop_work = true;
     }
 
+    /// Frees the kept jobs of both lanes.
     fn dropPrevJob(app: *App) void {
-        if (app.prev_job) |*j| j.deinit();
-        app.prev_job = null;
+        app.dropPrev(.exact);
+        app.dropPrev(.draft);
+    }
+
+    /// Frees the kept job of one lane.
+    fn dropPrev(app: *App, lane: zs.form.Lane) void {
+        const p = &app.prev[@intFromEnum(lane)];
+        if (p.*) |*j| j.deinit();
+        p.* = null;
     }
 
     /// A job that did not finish: its regions are still good for its
     /// settings, so keep it for the next slice.
     fn keepForRegions(app: *App, job: zs.PlateJob) void {
-        app.dropPrevJob();
-        app.prev_job = job;
+        app.dropPrev(app.slice_lane);
+        app.prev[@intFromEnum(app.slice_lane)] = job;
     }
 
     fn clearResults(app: *App) void {
@@ -3634,7 +3654,7 @@ pub const App = struct {
                 layer_overrides.append(app.gpa, o) catch |e| return app.finishFailed(e);
             }
         }
-        const prev: ?*zs.PlateJob = if (app.prev_job) |*j| j else null;
+        const prev: ?*zs.PlateJob = if (app.prev[@intFromEnum(app.slice_lane)]) |*j| j else null;
         // The job keeps the move streams of the print. The edits of the
         // lines change the plans, so this hash has them. With
         // engine.slice_form on, the key of each level has the edits of its
@@ -3664,8 +3684,8 @@ pub const App = struct {
         zs.stage_clock.add(.init, init_t0);
         // The new job took what it could use. A job that failed (for
         // example, a cancel) can leave the old job without outlines, so the
-        // old job goes in each case.
-        app.dropPrevJob();
+        // old job goes in each case. The job of the other lane stays.
+        app.dropPrev(app.slice_lane);
         var job = job_or catch |e| return app.finishFailed(e);
         // The edits of the user apply to each layer plan. A level with a
         // move stream gets no plan: its edits stay as the slice before
@@ -5772,6 +5792,49 @@ test "app: a slice with no change of the plate keeps the placed mesh, and a move
     // dropWork frees the placed meshes.
     app.dropWork();
     try testing.expectEqual(@as(usize, 0), app.placed.len);
+}
+
+test "app: the exact slice after a draft keeps the work of the exact lane" {
+    const gpa = testing.allocator;
+    var mesh = try zs.mesh.shapes.demo(gpa);
+    var bytes: std.Io.Writer.Allocating = .init(gpa);
+    defer bytes.deinit();
+    try mesh.writeStl(&bytes.writer);
+    mesh.deinit(gpa);
+    const clock = zs.stage_clock;
+    for ([_]bool{ true, false }) |on| {
+        const app = try App.create(gpa, null, null);
+        defer app.destroy();
+        try app.setSetting("engine.slice_form", if (on) "true" else "false");
+        try app.loadStl("demo.stl", bytes.written());
+        try app.startSlice();
+        app.stopWorkerForTest();
+        // A draft with another infill.
+        app.setDraft(true);
+        try app.setSetting("project.infill_density", "0.35");
+        try app.requestSlice();
+        app.stopWorkerForTest();
+        try testing.expect(app.isDraft());
+        // The exact slice with that infill.
+        app.setDraft(false);
+        const was = clock.on.swap(true, .monotonic);
+        defer clock.on.store(was, .monotonic);
+        clock.reset();
+        try app.requestSlice();
+        app.stopWorkerForTest();
+        const cuts = clock.callsOf(.mesh_cut);
+        clock.on.store(was, .monotonic);
+        // On: the exact lane kept the outlines. Off: one lane, so the
+        // draft replaced the exact work, as before the lanes.
+        try testing.expectEqual(@as(usize, if (on) 0 else 1), cuts);
+        const fresh = try App.create(gpa, null, null);
+        defer fresh.destroy();
+        try fresh.loadStl("demo.stl", bytes.written());
+        try fresh.setSetting("project.infill_density", "0.35");
+        try fresh.startSlice();
+        fresh.stopWorkerForTest();
+        try testing.expectEqualStrings(fresh.gcode().?, app.exactGcode().?);
+    }
 }
 
 test "app: a support mark adds support where the settings have none" {
