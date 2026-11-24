@@ -48,6 +48,14 @@ python3 -I tools/corpus.py zig-out/bin/zslice ../printdeck report.tsv
 
 Run it before you finish a change to the geometry or slicing code. Each file must slice with status `ok`.
 
+A change that must keep the G-code also compares the hash of the G-code of each corpus file. Make the table with the build before the change, and again with the build after it. `diff` must print nothing:
+
+```sh
+python3 -I tools/corpus_hash.py zig-out/bin/zslice ../printdeck hash-before.tsv 2
+python3 -I tools/corpus_hash.py zig-out/bin/zslice ../printdeck hash-after.tsv 2
+diff hash-before.tsv hash-after.tsv
+```
+
 ### Look at the output
 
 A test can pass while the output is wrong. Look at the layers:
