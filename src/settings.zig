@@ -1268,6 +1268,16 @@ pub const EngineOptions = struct {
     /// simulation by hand ("Show the print as it forms"). The G-code is
     /// the same.
     auto_simulate: bool = true,
+    /// Keep the work of a slice for each part and each level, and make
+    /// only the changed pieces again. The G-code is the same. Off: the
+    /// slicer keeps its work as before.
+    slice_form: bool = false,
+    /// After each slice that used kept work, slice again from the start
+    /// and compare the G-code. For tests. It doubles the time of a slice.
+    verify_slices: bool = false,
+    /// The most memory, in MB, of the kept work that only makes the next
+    /// slice faster. The web app uses at most 96.
+    form_budget_mb: u32 = 256,
     /// The name of the print, for {job_name} in the start and end G-code.
     /// The command line tool sets it to the model file name.
     job_name: []const u8 = "",
@@ -2051,6 +2061,7 @@ pub const limits = [_]struct { []const u8, f64, f64 }{
     .{ "project.resolution", 0.0005, 0.5 },
     .{ "engine.gap_closing", 0, 10 },
     .{ "engine.threads", 0, 256 },
+    .{ "engine.form_budget_mb", 1, 65536 },
 };
 
 /// The limits of a setting, or null for a setting with none.

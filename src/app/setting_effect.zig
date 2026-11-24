@@ -182,6 +182,9 @@ const preview_notes = [_]struct { []const u8, [:0]const u8 }{
     .{ "engine.auto_simulate", "The simulation of the print after each slice: the print as it forms, and the failures of the Check. The G-code is the same." },
     .{ "engine.draft_slices", "The view during an edit: a draft first, then the exact slice. The G-code is the same." },
     .{ "engine.job_name", "The name of the print, for the start G-code." },
+    .{ "engine.slice_form", "The work that the slicer keeps between slices. The G-code is the same." },
+    .{ "engine.verify_slices", "A second slice from the start after each slice, to check the kept work. The G-code is the same." },
+    .{ "engine.form_budget_mb", "The memory of the kept work. The G-code is the same." },
 };
 
 fn noteOf(full_name: []const u8) [:0]const u8 {

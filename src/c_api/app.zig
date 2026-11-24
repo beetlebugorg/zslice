@@ -934,9 +934,12 @@ export fn zs_app_setting_set(a: ?*App, name: ?[*:0]const u8, value: ?[*:0]const 
     const v = std.mem.span(value orelse return @intFromEnum(Status.invalid_argument));
     app.setSetting(n, v) catch |e| return status(e);
     // A history step has no engine options. The thread count, the draft
-    // slices, and the simulation after each slice are app preferences, so
-    // a change of them is no pending edit.
-    const pref = std.mem.eql(u8, n, "engine.threads") or std.mem.eql(u8, n, "engine.draft_slices") or std.mem.eql(u8, n, "engine.auto_simulate");
+    // slices, the simulation after each slice, and the three options of
+    // the kept work are app preferences, so a change of them is no
+    // pending edit.
+    const prefs = [_][]const u8{ "engine.threads", "engine.draft_slices", "engine.auto_simulate", "engine.slice_form", "engine.verify_slices", "engine.form_budget_mb" };
+    var pref = false;
+    for (prefs) |p| pref = pref or std.mem.eql(u8, n, p);
     if (!pref) noted(app, n, false);
     return ok;
 }

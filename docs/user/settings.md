@@ -1062,6 +1062,18 @@ A draft slice for the view during an edit: the outlines lose the points within 0
 
 The print as it forms: a simulation of the plastic after each exact slice. Off saves the CPU of the run (about 0.4 s for a 3DBenchy), and the Check shows no simulated failures until you run the simulation by hand ("Show the print as it forms"). The G-code is the same.
 
+**`engine.slice_form`** (true or false). Default: `false`
+
+Keep the work of a slice for each part and each level, and make only the changed pieces again. The G-code is the same. Off: the slicer keeps its work as before.
+
+**`engine.verify_slices`** (true or false). Default: `false`
+
+After each slice that used kept work, slice again from the start and compare the G-code. For tests. It doubles the time of a slice.
+
+**`engine.form_budget_mb`** (integer). Default: `256`
+
+The most memory, in MB, of the kept work that only makes the next slice faster. The web app uses at most 96.
+
 **`engine.job_name`** (text). Default: `""`
 
 The name of the print, for {job_name} in the start and end G-code. The command line tool sets it to the model file name.

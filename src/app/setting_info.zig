@@ -452,6 +452,7 @@ const units = [_][2][]const u8{
     .{ "project.resolution", "mm" },
     .{ "engine.gap_closing", "mm" },
     .{ "engine.threads", "threads" },
+    .{ "engine.form_budget_mb", "MB" },
 };
 
 /// The slider ranges: the usual values of the settings that a user tunes
