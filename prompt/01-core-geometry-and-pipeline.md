@@ -44,6 +44,7 @@ Build the Zig core from a mesh to G-code for one part: integer geometry, polygon
 - **Put each part on the bed in the CLI.** A CAD export with its lowest point at z -80 sliced to no layers and failed with `EmptyMesh`.
 - **Leave out a part too low to slice.** A flat name plate of 0.15 mm in a ZIP of the 3DBenchy parts failed the whole plate with "invalid argument". The slice now leaves that part out, and the fit check names it.
 - The arena pool matters: a new arena for each call gets new pages from the operating system for each call, and each page costs a fault.
+- **Put each switch of the process in the key of the work that reads it** ("Put project.fast_offsets in the outline key"). `project.fast_offsets` sets a switch that each offset reads, and the outline key did not have it. A slice after a change of the setting took the outlines and the memos of the other method, and stayed wrong until a plate change. The CLI also never set the switch. Each job now sets it at its start, and `zslice verify --sweep` found the fault.
 
 ## Acceptance checks
 

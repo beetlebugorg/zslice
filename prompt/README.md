@@ -1,6 +1,6 @@
 # A prompt that could build zslice
 
-Describes: main through "Choose a line or a segment for a filament on the line card", 2026-11-24.
+Describes: main through "Close the gate of the nozzles that a machine does not have", 2026-11-24.
 
 ## Read this first
 

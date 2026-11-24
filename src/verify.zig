@@ -52,8 +52,10 @@ pub const Options = struct {
     random: bool = true,
     /// Run the sweep of the settings.
     sweep: bool = false,
-    /// The base states of the sweep: 1 to 3.
-    sweep_bases: usize = 3,
+    /// The base states of the sweep: 1 to 4. The fourth has 4 nozzles,
+    /// and sweeps only the settings of the nozzles: their gate is open
+    /// for nozzles 1 to 3 and closed for the others.
+    sweep_bases: usize = 4,
     /// A layer setting, or "all".
     ranges: ?[]const u8 = null,
     /// Check a load of the 3MF after each eighth step.
@@ -334,6 +336,13 @@ fn nextEdit(a: Allocator, rnd: std.Random, t: *Twin) !Edit {
         67 => return if (parts > 1) .{ .delete = part } else fallback,
         68 => return .arrange,
         69...74 => {
+            // One line edit in three changes the value of an edit that
+            // exists, so a key that has an edit but not its value fails.
+            const have = inc.edits.list.items;
+            if (have.len > 0 and rnd.uintLessThan(u8, 3) == 0) {
+                const e = have[rnd.uintLessThan(usize, have.len)];
+                if (e.kind != .dot) return .{ .line = .{ .key = e.key, .kind = e.kind, .value = 0.5 + @as(f32, @floatCast(r1)), .layer = e.layer, .zc = e.zc } };
+            }
             const keys = inc.toolpaths.path_key.items;
             if (keys.len < 10) return fallback;
             const k = rnd.uintLessThan(usize, keys.len);
@@ -538,6 +547,7 @@ fn setBase(t: *Twin, k: usize) !void {
     const sets: []const [2][]const u8 = switch (k) {
         0 => &.{},
         1 => &.{ .{ "project.support", "everywhere" }, .{ "project.support_style", "tree" }, .{ "project.brim_width", "3" } },
+        3 => &.{.{ "machine.nozzles", "4" }},
         else => &.{ .{ "project.wall_generator", "arachne" }, .{ "project.ironing", "true" }, .{ "project.infill_layers", "2" }, .{ "machine.z_hop", "0.4" } },
     };
     for (t.apps()) |app| {
@@ -567,6 +577,7 @@ fn runSweep(gpa: Allocator, io: Io, models: []const Model, opts: *const Options,
         var case: usize = 0;
         for (zs.app.settings_info) |info| {
             if (info.kind == .text or skipped(opts, info.name)) continue;
+            if (k == 3 and !std.mem.startsWith(u8, info.name, "machine.nozzle.")) continue;
             _ = arena_state.reset(.retain_capacity);
             const values = try zs.app.sweep.valuesOf(arena, info, base_settings, 3);
             if (values.len < 2) continue;

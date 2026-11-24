@@ -58,6 +58,8 @@ Build the settings model, the TOML profiles with inheritance, the formulas, the 
 - The library tool gives the Prusa models what their sources lack: CoreXY for the XL and the CORE One, i3 for the MK and MINI printers, and 330 mm of height for the CORE One L HF of OrcaSlicer.
 - A start G-code of a Creality model that ends in G91 gets a G90 from `printer_library.py`. zslice writes no G90 after the start G-code.
 - `OVERRIDES` and `START_EDITS` in `printer_library.py` have the Creality values from the firmware configurations: the kinematics of the K1, K2, Ender-4, and Ender-6, 280 mm for the Ender-5 S1, the chamber heaters, and the CR-100 prime line. The kinematics of the library shows in the printer picker. The machine profile does not use it.
+- `engine.slice_form` (off), `engine.verify_slices` (off), and `engine.form_budget_mb` (256) are app preferences: no project file, 3MF, history step, or G-code has them. No key reads the six app preferences.
+- `src/settings_tiers.zig` lists, for each setting, the tiers of the kept work that do not read it. A name enters it only with a search of the code of the tier and a pass of `zslice verify --sweep`. `settings.layer_local` lists the layer settings whose override of a range plans only its levels.
 
 ## Lessons
 

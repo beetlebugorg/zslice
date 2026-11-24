@@ -1679,7 +1679,8 @@ fn planStamp(settings: Settings, parts: []const PartInput, overrides: []const se
     hv(&h, extra);
     // The settings of the paths tier: each setting but the patch
     // settings and the app preferences (settings_tiers.zig).
-    @import("form.zig").hashSettings(&h, &settings, .paths);
+    // With engine.slice_form on, the gates of settings_tiers.zig close.
+    @import("form.zig").hashSettingsWith(&h, &settings, .paths, settings.engine.slice_form);
     const changes = struct {
         fn f(hh: *std.hash.Wyhash, list: []const settings_mod.Change) void {
             hv(hh, list.len);

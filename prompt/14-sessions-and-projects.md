@@ -34,6 +34,8 @@ Make the app come back exactly as it was after a reload, a quit, or a crash: the
 - A setting that zslice cannot use in a printdeck.yml stops the load of the plate, with the reason.
 - A file or a link from outside the app (a second start, the Finder, a `zslice://` link) opens after the session is back, on a new plate if the active plate has parts.
 - A link refuses a zslice project: a project replaces the plates and brings its own printer settings.
+- The 3MF line of an edit ends with `zc` (empty for none). An older file has none, and its edits make each level dirty.
+- A plate whose parts have overlapping boxes (and no settings or labels of their own) loads with those parts joined (`threemf.joinOverlapping`), also from a zslice file. A new app with `keep_places` false moves a loaded part that does not fit with the gap. So a reload of a 3MF can give other G-code than the state in memory. Not fixed yet.
 
 ## Lessons
 

@@ -40,6 +40,7 @@ On a 3DBenchy with 8 cores (from the README):
 12. **The Speed section** (part 02). On a 3DBenchy, CPU of a full slice (2026-11-22, a load average of 11): the defaults 1579 ms, `project.fast_offsets` 1406 ms (11 % less), `project.resolution` 0.010 mm 1260 ms (20 % less), both (Faster slicing) 1140 ms (28 % less), `project.gap_fill` off 1091 ms (31 % less), and Arachne walls 1832 ms (16 % more). The Faster slicing switch sets the first two.
 13. **Build time.** The Mac builds its arm64 and x86_64 cores at the same time: a clean build in about 165 s in place of about 320 s on an 8-core Mac.
 14. **Keep the UI thread free.** History steps as snapshots (297 ms to 11 ms per move). The session written on a thread (Linux, 490 to 660 ms off the UI thread). The web session in IndexedDB from the worker (0.5 s off the main thread). Scene bytes made by the worker (88 to 109 ms off the UI thread).
+13. **A key for each level** (`src/form.zig`, `PlateJob.levelKey`, behind `engine.slice_form`, off by default). Each level keeps its stream with the key of all inputs of its plan, in two generations. A key reads every setting, minus a skip list (`src/settings_tiers.zig`): a new setting is in each key by default. A line edit and an override of `project.infill_density` or `project.wall_count` go into the keys of their own levels. On a 3DBenchy (2026-11-24, CPU): one line edit 146 to 49 ms (239 plans to 1), an undo of an infill change 142 to 47 ms (0 plans), the infill of z 5 to 10 mm 143 to 67 ms (26 plans), the walls of z 5 to 10 mm 292 to 218 ms. In wasm, the infill of z 5 to 10 mm went from 81 to 39 ms. The full slice costs 6.433 G instructions, as before.
 
 ## WebAssembly rules
 
@@ -58,6 +59,9 @@ Keep these in each hot loop (from the architecture page):
 - Check that the G-code is the same, byte for byte, before and after a speed change.
 - Use the logs of stalls: `ZSLICE_STALLS=ms` (Linux and Mac) logs each wait of the UI thread over that time, with stacks.
 - Use the benches: `zslice bench part.stl` (full, late, wall count), `--only sim`, `--only paint`, `--only dexel`, `--only patch`, `--only draft`, and `--runs n`.
+- Prove that kept work changes no output: `zslice verify` (two apps, one keeps its work, one slices from the start) after each change to a key, a memo, or a stream. `zig build verify` runs it in the CI.
+- `zslice bench --stages` prints the time of each stage and exact counts (plans, runs, texts, booleans, offsets). Compare the counts first: they do not depend on the load.
+- A key keeps all settings but a proven skip list. Never write a list of the settings that a stage reads.
 
 ## Open work (from the roadmap)
 
@@ -74,3 +78,5 @@ Keep these in each hot loop (from the architecture page):
 3. An orbit, a pan, a zoom, and a slider move hold 60 frames a second on eight Benchies in the web app on a desktop GPU.
 4. No stall over 50 ms on the UI thread during a slice, a move, and a session write.
 5. `zslice bench --only draft` gives the draft and the exact times, and the exact slice after a draft gives the G-code of before.
+6. `zig build verify` passes, and fails when one input leaves a key (for example `project.fast_offsets` out of `engine.outlineKey`).
+7. With `engine.slice_form=true`, `zslice bench --only edit` makes at most 2 plans, `--only undo` 0, and `--only zrange` at most 27, each with `same`.

@@ -289,6 +289,29 @@ comptime {
     }
 }
 
+/// The gates: a gate says that a group of settings has no effect while a
+/// condition on the settings is false. Then the key of the regions and
+/// the paths tiers reads the default of each setting of the group. The
+/// plate job closes the gates only with engine.slice_form on. The text
+/// tier reads all settings.
+///
+/// The gate of the nozzles: `machine.nozzle.K.*` for each K at or over
+/// `machine.nozzles`. Proof: the plan and the paths read a nozzle only
+/// through `Machine.nozzleValue` and `Machine.nozzleOffset` (the index
+/// is a slot nozzle through `Machine.nozzleIndex` and
+/// `SlotNozzles.nozzleOf`), and each of them gives the default for
+/// K >= nozzles. A search of src/ found no other read of
+/// `machine.nozzle[k]` but the setter and the writers of profiles.
+pub fn nozzleGate(comptime name: []const u8, comptime tier: Tier) bool {
+    return std.mem.eql(u8, name, "machine.nozzle") and (tier == .regions or tier == .paths);
+}
+
+/// The nozzles that a gate of the nozzles keeps: those that the machine
+/// has (at least 1).
+pub fn openNozzles(s: *const Settings) usize {
+    return @min(@max(s.machine.nozzles, 1), s.machine.nozzle.len);
+}
+
 /// The tiers that skip a setting, as a mask (bit k: tier k).
 fn maskOf(comptime name: []const u8) u8 {
     @setEvalBranchQuota(1_000_000);

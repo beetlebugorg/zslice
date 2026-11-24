@@ -34,6 +34,8 @@ Keep a docs site from Markdown with no dependencies beyond Python 3, a reference
 - Pin each GitHub Action by its commit hash, with the version in a comment.
 - Write each doc in short, plain sentences, one idea each, in the present tense.
 - The docs have three parts: `docs/user/`, `docs/embedding/`, `docs/internals/`. Keep each current with the code in the same commit.
+- The core CI job runs `zig build verify` after `zig build test`.
+- `tools/corpus_hash.py` writes the G-code hash of each corpus file. A change that must keep the G-code compares the table before and after it.
 
 ## Lessons
 

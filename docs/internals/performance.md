@@ -167,6 +167,26 @@ The 3DBenchy, 239 levels, on 2026-11-24, before the key of each level (commit "A
 | `draftexact` | The exact slice after three drafts | 244.0 | 1365 | 239 | 239 | 239 | 8407 |
 | `move2` | Move the bunny on a plate with the Benchy (5 runs) | 417.0 | 2597 | 465 | 465 | 465 | 25335 |
 
+### With a key for each level (milestone M1)
+
+The same edits with `engine.slice_form=true`, on 2026-11-24, at a load average of 2 to 4. With the setting off, each kind has the counts of the table above (`prefs` plans no level in both). Each kind prints `same`.
+
+| Kind | Wall ms | CPU ms | Plans | Booleans | Before (plans, CPU ms) |
+|---|---|---|---|---|---|
+| `noop` | 12.2 | 48 | 0 | 0 | 0, 51 |
+| `speed` | 12.4 | 48 | 0 | 0 | 0, 49 |
+| `temp` | 12.5 | 48 | 0 | 0 | 0, 48 |
+| `prefs` | 12.1 | 48 | 0 | 0 | 0, 49 (239 plans before the key of the paths left the app preferences) |
+| `edit` | 12.4 | 49 | 1 | 0 | 239, 146 |
+| `undo` | 12.0 | 47 | 0 | 0 | 239, 142 |
+| `zrange` | 16.4 | 67 | 26 | 0 | 239, 143 |
+| `zwalls` | 47.4 | 218 | 25.1 | 710 | 239, 292 |
+| `late` | 53.6 | 145 | 239 | 18 | 239, 141 |
+| `zfil` | 58.8 | 162 | 240 | 19 | 240, 161 (`project.filament` is not local) |
+| `move`, `turnz`, `draftexact`, `move2` | as before | as before | as before | as before | These need the part forms of milestone M2 |
+
+A line edit plans its own level. An override of `project.infill_density` or `project.wall_count` (`settings.layer_local`) plans the levels of its range and the level above the range. An undo and a redo find the stream of each level in the older generation. The time of these edits is now the time of the run and the text of all levels: about 36 ms of CPU.
+
 ## Rules
 
 - Compare CPU times when other programs use the machine. The wall time of a full slice was 500 to 680 ms during these measurements, and its CPU time changed by less than 1 % between rounds.

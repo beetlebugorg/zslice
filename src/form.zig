@@ -141,6 +141,12 @@ pub const KeyBuilder = struct {
         hashSettings(&kb.h, s, tier);
     }
 
+    /// `settings`, with the gates of settings_tiers.zig closed where their
+    /// condition is false.
+    pub fn settingsGated(kb: *KeyBuilder, s: *const Settings, comptime tier: Tier) void {
+        hashSettingsWith(&kb.h, s, tier, true);
+    }
+
     pub fn final(kb: *const KeyBuilder) Key {
         var h = kb.h;
         return h.final() | 1;
@@ -151,12 +157,23 @@ pub const KeyBuilder = struct {
 /// The name of the setting goes in too, so that two settings with the
 /// same value in other places give other keys.
 pub fn hashSettings(h: *std.hash.Wyhash, s: *const Settings, comptime tier: Tier) void {
+    hashSettingsWith(h, s, tier, false);
+}
+
+/// `hashSettings`, with the gates (settings_tiers.zig) if `gated`.
+pub fn hashSettingsWith(h: *std.hash.Wyhash, s: *const Settings, comptime tier: Tier, gated: bool) void {
     @setEvalBranchQuota(2_000_000);
     inline for (@typeInfo(Settings).@"struct".fields) |g| {
         inline for (@typeInfo(g.type).@"struct".fields) |f| {
-            if (comptime !tiers.skips(g.name ++ "." ++ f.name, tier)) {
-                h.update(g.name ++ "." ++ f.name ++ "\x00");
-                settings_mod.hashValue(h, @field(@field(s, g.name), f.name));
+            const name = g.name ++ "." ++ f.name;
+            if (comptime !tiers.skips(name, tier)) {
+                h.update(name ++ "\x00");
+                const v = @field(@field(s, g.name), f.name);
+                if (comptime tiers.nozzleGate(name, tier)) {
+                    // The gate of the nozzles: only the nozzles that the
+                    // machine has (settings_tiers.nozzleGate).
+                    settings_mod.hashValue(h, if (gated) v[0..tiers.openNozzles(s)] else v[0..]);
+                } else settings_mod.hashValue(h, v);
             }
         }
     }
@@ -254,6 +271,30 @@ test "form: equal settings give equal keys" {
         try testing.expectEqual(settingsKey(&a, t), settingsKey(&b, t));
     }
     try testing.expect(settingsKey(&a, .paths) != no_key);
+}
+
+test "form: the gate of the nozzles" {
+    var a: Settings = .{};
+    var b: Settings = .{};
+    // Nozzle 3 of a machine with one nozzle: no effect on the paths.
+    try b.set("machine.nozzle.3.line_width", "0.6");
+    var ka: KeyBuilder = .init(1);
+    ka.settingsGated(&a, .paths);
+    var kb: KeyBuilder = .init(1);
+    kb.settingsGated(&b, .paths);
+    try testing.expectEqual(ka.final(), kb.final());
+    // Not gated: a different key, as each key with the gate open.
+    try testing.expect(settingsKey(&a, .paths) != settingsKey(&b, .paths));
+    // The text reads all nozzles.
+    try testing.expect(settingsKey(&a, .text) != settingsKey(&b, .text));
+    // A machine with 4 nozzles has nozzle 3.
+    a.machine.nozzles = 4;
+    b.machine.nozzles = 4;
+    var kc: KeyBuilder = .init(1);
+    kc.settingsGated(&a, .paths);
+    var kd: KeyBuilder = .init(1);
+    kd.settingsGated(&b, .paths);
+    try testing.expect(kc.final() != kd.final());
 }
 
 test "form: the generations of a level" {

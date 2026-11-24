@@ -54,6 +54,8 @@ The prefixes of `zslice-app.h` (about 3100 lines), with their rough counts: `zs_
 - No app calls the API of a model site. A direct link to one file (an https URL of a model file, or a `zslice://open?file=` link) still downloads with the rules of the links: the user chose that one file.
 - A link refuses a zslice project, opens the model on a new plate if the active plate has parts, and never starts a print. In the GTK, Mac, and Windows apps, a file or a link from outside waits until the session is back.
 - A part has a stable id (`plate.Part.id`). It stays through moves, plate moves, undo, redo, and a reload (the `partid` lines of the 3MF metadata). A copy gets a new id. Never keep a part index across a call.
+- `App.dropWork` drops all kept work: the next slice starts from the mesh. The slice verifier calls it before each slice of its second app.
+- A line edit has `zc`, the z of its layer in 0.01 mm. `zs_app_edit_add_key` gives none (its layer number can be of another slice), so its edit makes each level dirty.
 
 ## Lessons
 
