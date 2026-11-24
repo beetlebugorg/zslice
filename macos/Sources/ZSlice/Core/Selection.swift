@@ -107,6 +107,12 @@ extension Workspace {
             showSelection()
             return
         }
+        // A new line while a slice runs: the core has no key for it yet,
+        // so the next slice finds it by its place in the view.
+        if key == 0 {
+            zs_sel_line_set(model.sel, 0, path, seg)
+            refindKey = viewPlace(of: path)
+        }
         selection?.layer = Int(zs_app_path_layer(model.core, path))
         if let m = markPlace() {
             selection?.x = m.x
@@ -228,6 +234,18 @@ extension Workspace {
         return (Double(pts[2 * k]), Double(pts[2 * k + 1]))
     }
 
+    /// The layer, feature, and middle bead of a path, from the view alone.
+    /// It works while a slice runs (web/app/app.js, refindKey).
+    private func viewPlace(of path: Int) -> RefindKey? {
+        guard let v = canvas.view else { return nil }
+        var a: UInt32 = 0, b: UInt32 = 0
+        let feature = zs_view_path_feature(v, path)
+        guard feature >= 0, zs_view_path_beads(v, path, &a, &b) == 0, b > a,
+              let frame = zs_view_web_frame(v)?.pointee, let beads = frame.instances, b <= frame.instance_count else { return nil }
+        let bead = beads[Int(a + (b - a) / 2)]
+        return RefindKey(layer: zs_view_path_layer(v, path), feature: feature, x: Double(bead.ax), y: Double(bead.ay))
+    }
+
     /// After a new slice: the same line, or none.
     func refindSelection() {
         guard selection != nil else { return }
@@ -264,7 +282,7 @@ extension Workspace {
         lineLog("place", path)
         select(path: path, seg: min(max(wanted.seg, 0), max(0, segs - 1)))
         // The exact slice looks for the first line again.
-        if model.draft { draftLine = wanted }
+        if model.draft, wanted.key != 0 { draftLine = wanted }
     }
 
     /// The slice has no such line. While a held slider of the Selected Line

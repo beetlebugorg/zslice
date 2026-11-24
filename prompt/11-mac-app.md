@@ -62,6 +62,7 @@ Build the native Mac app in `macos/`: a SwiftUI and AppKit shell around the app 
 - **Write nothing from an unedited field.** The text of a value need not parse back to the same string, so a field that lost the focus could change a later-nozzle value.
 - **Keep the Selected Line page under a held slider.** A slice that removes the line waits for the release, then finds the line or ends the selection.
 - **Keep the view out of the column.** `.ignoresSafeArea()` ran the view under the inspector, so its center was off. The view keeps the trailing safe area.
+- **Keep a line picked while a slice starts.** The core has no key for it then, so the slice dropped it. Its place now comes from the view.
 - **Keep the bottom bar whole.** A narrow view beside the column cut off Export. The column leaves the view 720 points, and a narrower window has the row.
 - **Import from a ZIP file, and call no site API.** A model page shows `zs_import_page_text` and Open the Page. A ZIP file from Open, Add Models, a drop, or Open With goes to the list. Cancel is the default button, so Return does not load. Load adds the checked files, then `zs_set_spill`. A 3MF file is also a ZIP file, so the app tells them apart by the extension.
 - **Write no file for a project with no parts.** A responder after the window handles Save and Save As, and says why when every plate is empty.
@@ -97,5 +98,5 @@ Build the native Mac app in `macos/`: a SwiftUI and AppKit shell around the app 
 4. `ZSLICE_RESTORE_DELAY=s` shows that no session file is written during the wait.
 5. `qlmanage -x -p file.gcode` shows the 3D preview.
 6. `ZSLICE_RIGHT_DRAG=1` (a mouse right drag) must orbit. `ZSLICE_RIGHT_DRAG=touch` (a trackpad) must pan. `ZSLICE_INPUT_LOG=1` logs the subtype of each right press on a real trackpad.
-7. `ZSLICE_DOCK_TEST=1` must pass with no skip: a selection keeps the view frame, the camera, and the open state.
+7. `ZSLICE_DOCK_TEST=1` must have no failure on a model with support and two parts, and on one with gaps: a selection keeps the view frame, the camera, and the open state. `ZSLICE_DOCK_TEST=slicepick` must keep each line.
 8. `ZSLICE_BAMBU_OUT` writes the `.gcode.3mf` of each slice of a Bambu Lab plate, as a send builds it.
