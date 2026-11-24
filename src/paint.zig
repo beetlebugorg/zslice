@@ -1047,6 +1047,11 @@ pub const Grid = struct {
 
 /// The distance along the ray to the triangle, or null (the test of
 /// Moller and Trumbore, both sides).
+/// The room of the edge test of `rayTriangle`, in barycentric units. Two
+/// triangles share an edge, and rounding can put a ray outside both. The
+/// ray then goes through the surface and finds a face behind it.
+const edge_room: f32 = 1e-5;
+
 fn rayTriangle(o: V3, d: V3, a: V3, b: V3, c: V3) ?f32 {
     const e1 = sub(b, a);
     const e2 = sub(c, a);
@@ -1056,15 +1061,34 @@ fn rayTriangle(o: V3, d: V3, a: V3, b: V3, c: V3) ?f32 {
     const inv = 1 / det;
     const s = sub(o, a);
     const u = dot(s, p) * inv;
-    if (u < 0 or u > 1) return null;
+    if (u < -edge_room or u > 1 + edge_room) return null;
     const q: V3 = .{ s[1] * e1[2] - s[2] * e1[1], s[2] * e1[0] - s[0] * e1[2], s[0] * e1[1] - s[1] * e1[0] };
     const v = dot(d, q) * inv;
-    if (v < 0 or u + v > 1) return null;
+    if (v < -edge_room or u + v > 1 + edge_room) return null;
     const t = dot(e2, q) * inv;
     return if (t > 0) t else null;
 }
 
 const testing = std.testing;
+
+test "paint: a ray on the shared edge of two triangles hits one of them" {
+    const a: V3 = .{ 60, 60, 0 };
+    const b: V3 = .{ 90, 60, 0 };
+    const c: V3 = .{ 90, 60, 12 };
+    const e: V3 = .{ 60, 60, 12 };
+    const o: V3 = .{ 78.30311, -15.77987, 73.0261 };
+    var misses: usize = 0;
+    for (0..4000) |i| {
+        // A point on the diagonal from a to c.
+        const f = (@as(f32, @floatFromInt(i)) + 0.5) / 4000;
+        const p: V3 = .{ a[0] + f * (c[0] - a[0]), a[1], a[2] + f * (c[2] - a[2]) };
+        var d: V3 = .{ p[0] - o[0], p[1] - o[1], p[2] - o[2] };
+        const len = @sqrt(dot(d, d));
+        for (&d) |*x| x.* /= len;
+        if (rayTriangle(o, d, a, b, c) == null and rayTriangle(o, d, a, c, e) == null) misses += 1;
+    }
+    try testing.expectEqual(@as(usize, 0), misses);
+}
 
 test "paint: the 3MF text of a leaf and of a split triangle" {
     const gpa = testing.allocator;
