@@ -122,14 +122,11 @@ namespace winrt::ZSlice::implementation
 
     // ---- where the page shows ----
 
-    // A click on a line, a part, or a gap: the page, now or at the next
-    // open of the panel.
+    // A click on a line, a part, or a gap: its page of the Inspector. The
+    // long form opens only from "All settings…".
     void MainWindow::GoToSelected()
     {
-        if (SettingsPane().Visibility() == Visibility::Visible)
-            ShowSelected();
-        else
-            selected_wanted = true;
+        RevealSelection();
     }
 
     void MainWindow::ShowBrowserRows(bool show)
@@ -170,7 +167,6 @@ namespace winrt::ZSlice::implementation
         if (settings_page != SettingsPage::Selected)
             selected_from = pane_now;
         ClearSettingsList();
-        selected_wanted = false;
         settings_page = SettingsPage::Selected;
         ShowBrowserRows(false);
         SettingsBack().Visibility(Visibility::Visible);
@@ -198,11 +194,8 @@ namespace winrt::ZSlice::implementation
     {
         if (settings_page != SettingsPage::Selected || selected_page == nullptr)
             return;
-        if (SettingsPane().Visibility() != Visibility::Visible)
-        {
-            selected_wanted = true;
+        if (!SettingsTabShown())
             return;
-        }
         // A value under a slider can remove the line for this slice: the
         // page stays, dimmed, so the slider stays under the pointer.
         if (line_lost && selected_page->kind == SelectedPage::Kind::Line)

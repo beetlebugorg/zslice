@@ -55,6 +55,7 @@
 #include "zs_printer_store.h"
 #include "zs_project_source.h"
 #include "zs_setup.h"
+#include "zs_part_text.h"
 #include "zs_signing.h"
 #include "zs_state.h"
 
@@ -852,6 +853,42 @@ namespace
         r = link::ReadEstimate(t, gcode, cancel);
         CHECK(!r.ok && r.cancelled);
         CHECK(posts(deck).size() == count);
+    }
+
+    // The values of a part and of its regions stay apart.
+    void TestPartText()
+    {
+        std::string text =
+            "Settings of the part:\n"
+            "  project.layer_height = 0.2\n"
+            "  project.wall_count = 0\n"
+            "Volume \"Region 1\":\n"
+            "  project.wall_count = 0\n"
+            "  project.infill_density = 30\n"
+            "Volume \"Region 2\":\n"
+            "  project.wall_count = 0\n"
+            "Volume \"Pick 3\":\n"
+            "  project.wall_count = 2\n"
+            "Volume \"Region x\":\n"
+            "  project.wall_count = 0\n"
+            "Volume \"Logo\":\n"
+            "  project.wall_count = 0\n"
+            "  project.top_layers: not used\n"
+            "not a value = 1\n";
+        PartText p = ReadPartText(text);
+        // A wall count of the part itself stays.
+        CHECK(p.part.size() == 2 && p.part[1].first == "project.wall_count" && p.part[1].second == "0");
+        CHECK(p.volumes.size() == 5);
+        // Three regions give no repeated row.
+        CHECK(p.volumes[0].name == "Region 1" && p.volumes[0].values.size() == 1 && p.volumes[0].values[0].first == "project.infill_density");
+        CHECK(p.volumes[1].values.empty());
+        // A wall count that the user set on a region stays.
+        CHECK(p.volumes[2].values.size() == 1 && p.volumes[2].values[0].second == "2");
+        // Only a body region has the internal value.
+        CHECK(p.volumes[3].values.size() == 1);
+        CHECK(p.volumes[4].values.size() == 1);
+        CHECK(ReadPartText("").part.empty() && ReadPartText("").volumes.empty());
+        CHECK(ReadPartText("  project.layer_height = 0.2\r\n").part.size() == 1 && ReadPartText("  project.layer_height = 0.2\r\n").part[0].second == "0.2");
     }
 
     void TestDetect()
@@ -3145,7 +3182,7 @@ int main(int argc, char **argv)
     };
     Step const steps[] = {
         { "json", TestJson }, { "store", TestStore }, { "addresses", TestAddresses }, { "signing", TestSigning },
-        { "status", TestStatus }, { "key flow", TestKeyFlow }, { "deck", TestDeck }, { "upload", TestUpload }, { "print", TestPrintNet }, { "estimate", TestEstimate },
+        { "status", TestStatus }, { "key flow", TestKeyFlow }, { "deck", TestDeck }, { "upload", TestUpload }, { "print", TestPrintNet }, { "estimate", TestEstimate }, { "part text", TestPartText },
         { "detect", TestDetect }, { "filaments", TestFilaments }, { "mjpeg", TestMjpeg }, { "camera", TestCamera },
         { "discovery", TestDiscovery }, { "bambu", TestBambu }, { "setup", TestSetup }, { "rolls", TestRolls },
         { "usb", TestUsb }, { "h264", TestH264 }, { "rtsp", TestRtsp }, { "open link", TestOpenLink }, { "project", TestProjectSource }, { "file types", TestRegisterApp }, { "hand off", TestHandOff }, { "state move", TestStateMove },

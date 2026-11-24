@@ -541,8 +541,6 @@ namespace winrt::ZSlice::implementation
         }
         HideCards();
         GapCard().Visibility(Visibility::Visible);
-        double box[4] = { x - 12, y - 12, x + 12, y + 12 };
-        PlaceCard(GapCard(), box);
         GoToSelected();
         return true;
     }

@@ -1,6 +1,6 @@
-// The cards over the view: the line card and the part card. A card sits
-// beside what it describes and never covers it. The behavior follows the
-// GTK shell (linux/src/ui/line-card.c and part-card.c).
+// The pages of a line and a part in the Inspector
+// (MainWindow.Inspector.cpp). The behavior follows the GTK shell
+// (linux/src/ui/line-card.c and part-card.c) and web/app/partcard.js.
 //
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
@@ -25,6 +25,12 @@ namespace
         return false;
     }
 
+    // The size of an axis in % of the file, with no sign.
+    double ScalePercent(double scale)
+    {
+        return std::round(std::abs(scale) * 10000) / 100;
+    }
+
     std::wstring PlainDoc(char const *doc)
     {
         std::wstring text = zs::ToWide(doc != nullptr ? doc : "");
@@ -41,9 +47,7 @@ namespace winrt::ZSlice::implementation
     {
         LineClose().Click([this](auto &&, auto &&) { ClearSelection(); });
         PartClose().Click([this](auto &&, auto &&) { ClearSelection(); });
-        MakeCardMovable(LineCard(), LineCardHead(), &line_card_moved);
         WireLineMark();
-        MakeCardMovable(PartCard(), PartCardHead(), &part_card_moved);
 
         LineFade().Click([this](auto &&, auto &&) {
             if (view == nullptr)
@@ -141,7 +145,7 @@ namespace winrt::ZSlice::implementation
         }
         PartEarlier().Click([this](auto &&, auto &&) { MovePartInOrder(-1); });
         PartLater().Click([this](auto &&, auto &&) { MovePartInOrder(1); });
-        auto commit_scale = [this]() {
+        commit_part_scale = [this]() {
             if (!scale_edited || model == nullptr)
                 return;
             scale_edited = false;
@@ -156,9 +160,10 @@ namespace winrt::ZSlice::implementation
             if (end == text.c_str() || !(percent > 0) || zs_app_part_get(app, (size_t)scale_index, &p) != ZS_OK)
                 return;
             double scale = std::clamp(percent, 1.0, 100000.0) / 100;
-            if (std::abs(scale - p.scale_x) < 1e-6)
+            if (std::abs(scale - std::abs(p.scale_x)) < 1e-6 && std::abs(scale - std::abs(p.scale_y)) < 1e-6 && std::abs(scale - std::abs(p.scale_z)) < 1e-6)
                 return;
-            if (zs_app_part_scale(app, (size_t)scale_index, scale, scale, scale) == ZS_OK)
+            // The sign of each axis stays, so a mirrored part stays mirrored.
+            if (zs_app_part_scale(app, (size_t)scale_index, std::copysign(scale, p.scale_x), std::copysign(scale, p.scale_y), std::copysign(scale, p.scale_z)) == ZS_OK)
                 PlateEdited();
         };
         // The part that the field shows when the typing starts.
@@ -172,15 +177,15 @@ namespace winrt::ZSlice::implementation
             if (std::wstring(PartScale().Text()) != scale_shown)
                 scale_edited = true;
         });
-        PartScale().KeyDown([commit_scale](auto &&, Input::KeyRoutedEventArgs const &e) {
+        PartScale().KeyDown([this](auto &&, Input::KeyRoutedEventArgs const &e) {
             if (e.Key() == Windows::System::VirtualKey::Enter)
             {
-                commit_scale();
+                commit_part_scale();
                 e.Handled(true);
             }
         });
-        PartScale().LostFocus([this, commit_scale](auto &&, auto &&) {
-            commit_scale();
+        PartScale().LostFocus([this](auto &&, auto &&) {
+            commit_part_scale();
             scale_part = 0;
             // The card can show another part now.
             FillPartCard();
@@ -301,170 +306,12 @@ namespace winrt::ZSlice::implementation
         });
     }
 
-    void MainWindow::MakeCardMovable(FrameworkElement const &card, FrameworkElement const &head, bool *moved)
-    {
-        struct Drag
-        {
-            bool on = false;
-            double x = 0, y = 0;
-        };
-        auto state = std::make_shared<Drag>();
-        head.PointerPressed([this, card, head, state](auto &&, Input::PointerRoutedEventArgs const &e) {
-            auto at = e.GetCurrentPoint(CardLayer()).Position();
-            state->on = true;
-            state->x = at.X - Canvas::GetLeft(card);
-            state->y = at.Y - Canvas::GetTop(card);
-            head.CapturePointer(e.Pointer());
-            e.Handled(true);
-        });
-        head.PointerMoved([this, card, state, moved](auto &&, Input::PointerRoutedEventArgs const &e) {
-            if (!state->on)
-                return;
-            auto at = e.GetCurrentPoint(CardLayer()).Position();
-            Canvas::SetLeft(card, at.X - state->x);
-            Canvas::SetTop(card, at.Y - state->y);
-            *moved = true;
-            e.Handled(true);
-        });
-        auto end = [head, state](auto &&, Input::PointerRoutedEventArgs const &e) {
-            if (!state->on)
-                return;
-            state->on = false;
-            head.ReleasePointerCapture(e.Pointer());
-        };
-        head.PointerReleased(end);
-        head.PointerCaptureLost(end);
-    }
-
     void MainWindow::HideCards()
     {
         LineCard().Visibility(Visibility::Collapsed);
         PartCard().Visibility(Visibility::Collapsed);
         LineSettings().Children().Clear();
         line_editors.clear();
-    }
-
-    // Beside the box (points of the view), inside the view, and off it.
-    void MainWindow::PlaceCard(FrameworkElement const &card, double const box[4])
-    {
-        double const margin = 10;
-        double left = 60; // the tool strip
-        double right = CardLayer().ActualWidth() - margin;
-        // The panel over the view covers the right of it, with the rail. Its
-        // width is set before it shows.
-        if (panel_mode == PanelMode::Over)
-            right -= SettingsPane().Width();
-        else if (LayerCard().Visibility() == Visibility::Visible)
-            right -= LayerCard().ActualWidth() + 16;
-        // A narrow free area: the card wraps, and stays off the panel.
-        card.MaxWidth(std::max(240.0, right - left));
-        card.UpdateLayout();
-        double w = card.ActualWidth(), h = card.ActualHeight();
-        if (w <= 0 || h <= 0)
-        {
-            card.Measure({ (float)card.MaxWidth(), 10000 });
-            w = card.DesiredSize().Width;
-            h = card.DesiredSize().Height;
-        }
-        double top = margin;
-        double bottom = CardLayer().ActualHeight() - 66; // the plate bar
-        double x, y;
-        double cy = std::clamp((box[1] + box[3] - h) / 2, top, std::max(top, bottom - h));
-        double cx = std::clamp((box[0] + box[2] - w) / 2, left, std::max(left, right - w));
-        if (box[2] + margin + w <= right)
-        {
-            x = box[2] + margin;
-            y = cy;
-        }
-        else if (box[0] - margin - w >= left)
-        {
-            x = box[0] - margin - w;
-            y = cy;
-        }
-        else if (box[1] - margin - h >= top)
-        {
-            x = cx;
-            y = box[1] - margin - h;
-        }
-        else if (box[3] + margin + h <= bottom)
-        {
-            x = cx;
-            y = box[3] + margin;
-        }
-        else
-        {
-            // No free side: the corner farthest from the box.
-            x = (box[0] + box[2]) / 2 > (left + right) / 2 ? left : right - w;
-            y = top;
-        }
-        Canvas::SetLeft(card, std::clamp(x, left, std::max(left, right - w)));
-        Canvas::SetTop(card, std::clamp(y, top, std::max(top, bottom - h)));
-    }
-
-    // The panel opened, closed, or changed: each open card moves clear of
-    // it, unless the user placed the card.
-    void MainWindow::PlaceOpenCards()
-    {
-        PlaceLineCard();
-        PlacePartCard();
-        std::fill(std::begin(measure_box), std::end(measure_box), 0.0);
-        if (MeasureCard().Visibility() == Visibility::Visible)
-            PlaceMeasure();
-        LabelPlace(true);
-        RangePlace(true);
-    }
-
-    void MainWindow::PlaceLineCard()
-    {
-        if (LineCard().Visibility() != Visibility::Visible || line_card_moved || view == nullptr || SelectedPath() < 0)
-            return;
-        double box[4] = { click_x - 12, click_y - 12, click_x + 12, click_y + 12 };
-        float r[4];
-        if (zs_view_path_rect(view, (size_t)SelectedPath(), r))
-        {
-            double s = Scale();
-            box[0] = std::min(box[0], r[0] / s - 12);
-            box[1] = std::min(box[1], r[1] / s - 12);
-            box[2] = std::max(box[2], r[2] / s + 12);
-            box[3] = std::max(box[3], r[3] / s + 12);
-        }
-        PlaceCard(LineCard(), box);
-    }
-
-    void MainWindow::PlacePartCard()
-    {
-        if (PartCard().Visibility() != Visibility::Visible || part_card_moved || view == nullptr || model == nullptr)
-            return;
-        // A narrow view beside a pinned panel: the card stays in the view.
-        PartCard().Width(std::clamp(CardLayer().ActualWidth() - 66, 240.0, 320.0));
-        double box[4] = { 1e9, 1e9, -1e9, -1e9 };
-        double s = Scale();
-        for (int64_t i : SelectedParts())
-        {
-            zs_part p{};
-            if (zs_app_part_get(model->Active(), (size_t)i, &p) != ZS_OK)
-                continue;
-            // The gizmo counts too: the arrows end at 1.5 radii.
-            double ring = 1.5 * (0.62 * std::max({ p.size_x, p.size_y, p.size_z }) + 4);
-            double hx = std::max(p.size_x / 2, ring), hy = std::max(p.size_y / 2, ring);
-            double top = std::max(p.size_z, p.size_z / 2 + ring);
-            for (int k = 0; k < 8; k++)
-            {
-                float qx, qy;
-                if (!zs_view_pixel_of(view, p.x + (k & 1 ? hx : -hx), p.y + (k & 2 ? hy : -hy), k & 4 ? top : 0, &qx, &qy))
-                    continue;
-                box[0] = std::min(box[0], qx / s);
-                box[1] = std::min(box[1], qy / s);
-                box[2] = std::max(box[2], qx / s);
-                box[3] = std::max(box[3], qy / s);
-            }
-        }
-        if (box[0] > box[2])
-        {
-            box[0] = box[2] = CardLayer().ActualWidth() - 40;
-            box[1] = box[3] = 60;
-        }
-        PlaceCard(PartCard(), box);
     }
 
     // The support mark at the selected line: above a support line (the
@@ -649,7 +496,6 @@ namespace winrt::ZSlice::implementation
         FillLineMark();
         PartCard().Visibility(Visibility::Collapsed);
         LineCard().Visibility(Visibility::Visible);
-        PlaceLineCard();
     }
 
     // What a support line holds up, and the warnings of the check at this
@@ -731,6 +577,8 @@ namespace winrt::ZSlice::implementation
         zs_app *app = model->Active();
         bool many = SelectedParts().size() > 1;
         PartSingle().Visibility(many ? Visibility::Collapsed : Visibility::Visible);
+        PartActionsSingle().Visibility(many ? Visibility::Collapsed : Visibility::Visible);
+        PartSettingsSingle().Visibility(many ? Visibility::Collapsed : Visibility::Visible);
         PartsDuplicate().Visibility(many ? Visibility::Visible : Visibility::Collapsed);
         PartsArrange().Visibility(many ? Visibility::Visible : Visibility::Collapsed);
         PartAddSetting().Content(box_value(many ? L"+ Add a setting for these parts" : L"+ Add a setting for this part"));
@@ -761,11 +609,23 @@ namespace winrt::ZSlice::implementation
             if (focused == nullptr || focused != PartScale().try_as<Windows::Foundation::IInspectable>())
             {
                 wchar_t scale[32];
-                swprintf_s(scale, L"%.4g", p.scale_x * 100);
+                swprintf_s(scale, L"%.10g", ScalePercent(p.scale_x));
                 scale_shown = scale;
                 scale_edited = false;
                 PartScale().Text(scale);
             }
+            // An odd count of negative axes is a mirror image.
+            bool mirrored = ((p.scale_x < 0) + (p.scale_y < 0) + (p.scale_z < 0)) % 2 == 1;
+            PartMirrored().Visibility(mirrored ? Visibility::Visible : Visibility::Collapsed);
+            double px = ScalePercent(p.scale_x), py = ScalePercent(p.scale_y), pz = ScalePercent(p.scale_z);
+            bool even = px == py && py == pz;
+            if (!even)
+            {
+                wchar_t note[96];
+                swprintf_s(note, L"Each axis has its own size: X %.10g %%, Y %.10g %%, Z %.10g %%.", px, py, pz);
+                PartScaleNote().Text(note);
+            }
+            PartScaleNote().Visibility(even ? Visibility::Collapsed : Visibility::Visible);
             ShowPose(p);
             // Why the part floats over the bed.
             char float_note[256] = "";
@@ -778,7 +638,6 @@ namespace winrt::ZSlice::implementation
         }
         LineCard().Visibility(Visibility::Collapsed);
         PartCard().Visibility(Visibility::Visible);
-        PlacePartCard();
     }
 
     Microsoft::UI::Xaml::Controls::TextBox MainWindow::PoseBox(int field)

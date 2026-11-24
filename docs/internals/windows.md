@@ -29,13 +29,15 @@ A build with `-p:ZsDevHooks=true` reads `ZSLICE_DO`: steps with `;` between them
 | `src/model/zs_model` | The core as one object: the plate set, the file reads, and the core events. It has no WinRT. |
 | `src/model/zs_signs` | Draws the text of the plate signs into one image with GDI+. |
 | `src/model/zs_part_meshes` | The meshes of the parts, each with a paint session. Paint and Label share them. It has no WinRT. |
+| `src/model/zs_part_text.h` | Reads the text of `zs_app_part_settings`. It keeps the values of a part and of each region apart, and hides the internal `wall_count = 0` of a body region. It has no WinRT. |
 | `src/model/zs_label` | A label: its JSON, its frame, and its shapes. It uses `Windows.Data.Json`. |
 | `src/app/MainWindow.xaml.cpp` | The window: the view in a `SwapChainPanel`, the open flow, and the events of the core. |
 | `src/app/MainWindow.Plates.cpp` | The plate bar, the signs, and the switch of the active plate. |
 | `src/app/MainWindow.Settings.cpp` | The settings pane from the descriptions of the core, the search, and the history. |
 | `src/app/MainWindow.Tools.cpp` | The tool strip, the pointer, the keys, the selection, and Measure. |
 | `src/app/MainWindow.Transform.cpp` | The Move tool: its gizmo, turns, live moves with snap guides, and the keys and wheel of a part. |
-| `src/app/MainWindow.Cards.cpp` | The line card and the part card, placed beside what they describe. |
+| `src/app/MainWindow.Inspector.cpp` | The Inspector: one column beside the view, or a row under it, with its tabs, its slot of pages, the plate summary, and the groups. |
+| `src/app/MainWindow.Cards.cpp` | The pages of a line and a part in the Inspector. |
 | `src/app/MainWindow.Profiles.cpp` | The layer profiles of the settings pane, and their marks on the layer rail. |
 | `src/app/MainWindow.Scope.cpp` | "Settings for" of the settings pane: this print, the global settings, or one part. |
 | `src/app/MainWindow.Selected.cpp` | The Selected page of the pane: a line with its scoped edits, a part, or a gap. A new slice of the same line updates its text in place. |
@@ -86,6 +88,7 @@ A build with `-p:ZsDevHooks=true` reads `ZSLICE_DO`: steps with `;` between them
 - The Label tool keeps a copy of the labels of one part. An edit shows at once, and goes to the core 400 ms after the last change or at the end of a drag, so it is one step of the history.
 - The handles of a label are decals of the core view (`zs_view_label_add`) in the plane of the label, with sizes in points of the screen. A zoom of more than 8 % draws them again. A move or a resize calls `zs_label_snap` at each step, with the face of `zs_label_face`. A drag shares the JSON items of the label, so an SVG source is not written to text at each step.
 - "Place an SVG…" uses `IFileOpenDialog`, for the title and the filter name of the GTK dialog. A drop of an `.svg` file goes to the Label tool when the 3D view is the top element at the point of the drop.
+- **The Inspector.** `SettingsPane` is one column of `WorkArea`, so the view gets the remaining space and no page of a selection can draw over it. `DockCard` puts each page in `InspectorSlot`, in a host of its own, and a change of the visibility of a page queues one `RefreshInspector`. The slot shows the most specific page: label, paint, support, range, part, line, then gap. A selection changes only this content. Only `SetInspectorOpen` opens or closes the column, and only the user calls it. `FrameworkElement::Parent` is null until the window has its content, so the setup names each parent. The test step `insprun` selects each kind at seven window sizes and three cameras, and checks that the view, the camera, and the column stay and that no page lies over the view.
 - The state of Paint, Label, and the filaments is in structs inside their `.cpp` files. `MainWindow.xaml.h` has only a pointer to each and the calls that other files need. Their cards are built in code, so `MainWindow.xaml` has only the filament button.
 - The Support tool keeps a copy of the areas and the trees. It reads them again after a load of the view, an undo, and a switch of the plate. During a drag the copy leads, and the slices wait for the release. A drag of a tree sends its edit at most each 60 ms, and slices at most each 150 ms.
 - The range card edits overrides (`zs_app_override_set`) of the z range from the top of its first layer to the top of its last. An `EditorTarget` gives `MakeEditor` the values of the range in place of the values of the print. A search with a `SearchScope` lists only the settings that pass `only`, and its rows use the target of the scope. A running slice has no toolpaths, so the card keeps the heights of the last slice. `zs_view_load` clears a lit body, so `RangeScene` lights it again after each scene.

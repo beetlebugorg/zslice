@@ -406,7 +406,7 @@ namespace winrt::ZSlice::implementation
         struct SelectedPage;
         std::shared_ptr<SelectedPage> selected_page;
         PanePlace selected_from;
-        bool selected_wanted = false, selected_rebuild = false, selected_filtering = false;
+        bool selected_rebuild = false, selected_filtering = false;
         int selected_scope = 0;
         std::map<std::wstring, bool> selected_sections;
         bool line_lost = false;
@@ -517,13 +517,18 @@ namespace winrt::ZSlice::implementation
         void RangeRelease();
         void RangeScene();
         void RangeRefresh();
-        void RangePlace(bool force = false);
         // The changes of the layers of the card: name and value.
         std::vector<std::pair<std::string, std::string>> RangeChangesNow();
         void RangePaste(std::vector<std::pair<std::string, std::string>> const &changes);
         void RangeClearChanges(std::vector<std::pair<std::string, std::string>> const &changes);
 #ifdef ZS_DEV_HOOKS
         bool RunRangeStep(std::wstring const &verb, std::vector<std::wstring> const &words);
+        bool RunInspectorStep(std::wstring const &verb, std::vector<std::wstring> const &words);
+        void StartInspectorProof();
+        bool LabelDevAdd();
+        bool LabelDevOpen();
+        uint32_t dev_label_id = 0;
+        Microsoft::UI::Dispatching::DispatcherQueueTimer proof_timer{ nullptr };
         bool RunDialogStep(std::wstring const &verb, std::vector<std::wstring> const &words);
         bool RunProfileStep(std::wstring const &verb, std::vector<std::wstring> const &words);
         bool RunScopeStep(std::wstring const &verb, std::vector<std::wstring> const &words);
@@ -729,19 +734,37 @@ namespace winrt::ZSlice::implementation
         void WireView();
         void SetColorMode(int mode);
         void ChooseColorMode(int mode);
-        enum class PanelMode
+        // The Inspector: one column beside the view, or a row under it in a
+        // narrow window (MainWindow.Inspector.cpp).
+        struct InspectorCard
         {
-            Hidden,
-            Over,
-            Pinned
+            int rank = 0;
+            Microsoft::UI::Xaml::FrameworkElement card{ nullptr };
+            Microsoft::UI::Xaml::Controls::Border host{ nullptr };
         };
-        PanelMode panel_mode = PanelMode::Hidden;
-        bool pane_dragging = false;
-        void SetPanelMode(PanelMode mode);
-        void FitPanel();
+        std::vector<InspectorCard> inspector_cards;
+        std::vector<std::function<void()>> inspector_group_load;
+        Microsoft::UI::Xaml::FrameworkElement inspector_now{ nullptr };
+        bool inspector_open = true, sheet_open = false, inspector_settings = false;
+        bool inspector_queued = false, plate_queued = false, pane_dragging = false;
+        std::wstring plate_signature;
+        bool NarrowWindow();
+        bool InspectorShown();
+        void SetInspectorOpen(bool open);
+        void ApplyInspector();
+        void ShowInspectorTab(bool settings);
+        bool SettingsTabShown();
+        void RevealSelection();
+        void DockCard(Microsoft::UI::Xaml::FrameworkElement const &card, int rank);
+        void InspectorChanged();
+        void RefreshInspector();
+        void InspectorPlateChanged();
+        void FillInspectorPlate();
+        Microsoft::UI::Xaml::Controls::StackPanel MakeInspectorGroup(std::wstring const &title, char const *key, Microsoft::UI::Xaml::FrameworkElement const &body, bool remember = false);
+        void WrapInspectorGroup(Microsoft::UI::Xaml::Controls::Panel const &parent, Microsoft::UI::Xaml::FrameworkElement const &body, std::wstring const &title, char const *key);
+        void WireInspector();
         void PanelDragTo(double x);
         void PanelDragEnd();
-        bool PanelEscape();
         void WirePanelModes();
         void ApplySavedPanel();
         void ShowSimItem();
@@ -843,14 +866,10 @@ namespace winrt::ZSlice::implementation
         void LineLightAfterSlice();
         bool PaintBeads(std::vector<float> const &beads, int filament);
         void FillPartCard();
+        std::function<void()> commit_part_scale;
         void FillPartOrder();
         void MovePartInOrder(int direction);
-        void PlaceCard(Microsoft::UI::Xaml::FrameworkElement const &card, double const box[4]);
-        void PlaceLineCard();
-        void PlaceOpenCards();
-        void PlacePartCard();
         void HideCards();
-        void MakeCardMovable(Microsoft::UI::Xaml::FrameworkElement const &card, Microsoft::UI::Xaml::FrameworkElement const &head, bool *moved);
 
         // The filaments, Paint, and Label (MainWindow.Filaments.cpp,
         // MainWindow.Paint.cpp, MainWindow.Label.cpp). Their state is in
@@ -897,7 +916,7 @@ namespace winrt::ZSlice::implementation
         void LabelDropSvg(std::wstring const &path, double x, double y);
         bool LabelKey(Windows::System::VirtualKey key);
         void LabelReload();
-        void LabelPlace(bool force = false);
+        void LabelPlace();
         void LabelOpen(int64_t part, uint32_t id);
         void LabelFilamentsChanged();
         // Copy and paste of the selected label, as its JSON.
@@ -1075,7 +1094,6 @@ namespace winrt::ZSlice::implementation
 #endif
         void SetSelectedLine(int64_t path, int64_t segment);
         double click_x = 0, click_y = 0;
-        bool line_card_moved = false;
         size_t line_key_layer = 0;
         bool run_lit = false;
         size_t run_others = 0;
@@ -1096,7 +1114,6 @@ namespace winrt::ZSlice::implementation
         int line_filament = 0;
         std::string line_chips_key;
         bool line_lit = false;
-        bool part_card_moved = false;
         std::vector<SettingEditor> line_editors;
         // A drag of a tool.
         bool tool_drag = false;
@@ -1123,7 +1140,6 @@ namespace winrt::ZSlice::implementation
         double turn_want = 0, turn_sent = 0;
         double turn_pivot[3] = {};
         int tape_end = -1;
-        double measure_box[4] = { 1e9, 1e9, -1e9, -1e9 };
         double measure[6] = {};
         double measure_radius[2] = {};
         int measure_shape[2] = {};

@@ -602,9 +602,7 @@ namespace winrt::ZSlice::implementation
         p.chips = find(L"Chips").as<VariableSizedWrapGrid>();
         p.notice = find(L"Notice").as<TextBlock>();
         p.hint = find(L"Hint").as<TextBlock>();
-        Canvas::SetLeft(p.card, 64);
-        Canvas::SetTop(p.card, 10);
-        CardLayer().Children().Append(p.card);
+        DockCard(p.card, 1);
 
         find(L"Close").as<Button>().Click([this](auto &&, auto &&) { SetTool(Tool::Select); });
         find(L"Clear").as<Button>().Click([this](auto &&, auto &&) { paint->ClearPaint(); });

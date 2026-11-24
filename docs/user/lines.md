@@ -39,9 +39,9 @@ The other parts of the layer keep their filament. Only the lines of that part on
 
 ## Where the card shows
 
-In the web app, the card of a selection is a page of the **Inspector**, the column beside the view. It never covers the view, and a selection does not move or resize the view. Press N to show or hide the column. In a narrow window, the column is a row under the view. It opens only when you click the panel button in the header. A dot on that button shows that a selection has a page.
+In the web, Mac, and Windows apps, the card of a selection is a page of the **Inspector**, the column beside the view. It never covers the view, and a selection does not move or resize the view. Press N to show or hide the column. In a narrow window, the column is a row under the view. It opens only when you click the panel button in the header. A dot on that button shows that a selection has a page.
 
-In the other apps, the card still opens over the view until they get the Inspector. Drag its top row to move it, and drag its lower right corner to change its size.
+In the GTK app, the card still opens over the view until it gets the Inspector. Drag its top row to move it, and drag its lower right corner to change its size.
 
 ## Select a run
 

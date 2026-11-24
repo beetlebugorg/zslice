@@ -708,7 +708,7 @@ namespace winrt::ZSlice::implementation
         f.part_chips.HorizontalAlignment(HorizontalAlignment::Right);
         Grid::SetColumn(f.part_chips, 1);
         row.Children().Append(f.part_chips);
-        PartSingle().Children().InsertAt(0, row);
+        PartGroupFilament().Children().Append(row);
         f.part_labels = StackPanel();
         f.part_labels.Spacing(2);
         f.part_labels.Visibility(Visibility::Collapsed);

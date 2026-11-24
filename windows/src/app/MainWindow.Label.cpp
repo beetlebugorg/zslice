@@ -435,9 +435,7 @@ namespace winrt::ZSlice::implementation
         VariableSizedWrapGrid chips{ nullptr };
         std::vector<InputField> inputs;
         std::string key, chips_key;
-        bool updating = false, card_queued = false, focus_text = false, card_moved = false;
-        double last_box[4] = { 0, 0, 0, 0 }, last_height = 0;
-        bool has_last_box = false;
+        bool updating = false, card_queued = false, focus_text = false;
 
         // ---- the labels ----
 
@@ -1842,34 +1840,6 @@ namespace winrt::ZSlice::implementation
             zs::Label *l = on && sel >= 0 ? Selected() : nullptr;
             if (l != nullptr && handle_mpp > 0 && std::abs(MmPerPoint(*l) - handle_mpp) > 0.08 * handle_mpp)
                 Redraw();
-            if (l == nullptr || card.Visibility() != Visibility::Visible)
-                return;
-            // The body scrolls in a short view: the card ends over the
-            // bottom bar.
-            double floor = w.Dock().TransformToVisual(w.CardLayer()).TransformPoint({ 0, 0 }).Y;
-            double frame = card.ActualHeight() > 0 ? card.ActualHeight() - scroll.ActualHeight() : 70;
-            double room = std::max(160.0, floor - 2 * card_margin - frame);
-            if (std::abs(scroll.MaxHeight() - room) > 0.5)
-                scroll.MaxHeight(room);
-            if (card_moved)
-                return;
-            double box[4];
-            if (!ScreenBox(box))
-                return;
-            card.UpdateLayout();
-            double height = card.ActualHeight();
-            bool same = has_last_box && std::abs(height - last_height) < 0.5;
-            for (int k = 0; same && k < 4; k++)
-                same = std::abs(box[k] - last_box[k]) < 0.5;
-            if (same)
-                return;
-            std::copy_n(box, 4, last_box);
-            last_height = height;
-            has_last_box = true;
-            w.PlaceCard(card, box);
-            double top = Canvas::GetTop(card), lowest = std::max(card_margin, floor - card_margin - height);
-            if (top > lowest)
-                Canvas::SetTop(card, lowest);
         }
 
         // ---- the card ----
@@ -1881,8 +1851,6 @@ namespace winrt::ZSlice::implementation
                 // Hidden at once: no card of a label that went.
                 card.Visibility(Visibility::Collapsed);
                 key.clear();
-                card_moved = false;
-                has_last_box = false;
                 return;
             }
             if (card_queued)
@@ -1921,12 +1889,6 @@ namespace winrt::ZSlice::implementation
             std::string next = std::to_string(l->id) + ":" + std::to_string(drawing) + ":";
             for (size_t i = 0; i < zs::LabelItemCount(*l); i++)
                 next += zs::LabelItemKind(zs::LabelItem(*l, i)) + ",";
-            // Another label: the card goes back beside it.
-            if (key.empty() || strtoul(key.c_str(), nullptr, 10) != l->id)
-            {
-                card_moved = false;
-                has_last_box = false;
-            }
             if (next != key)
             {
                 key = next;
@@ -1946,7 +1908,6 @@ namespace winrt::ZSlice::implementation
             card.Visibility(Visibility::Visible);
             if (was_hidden)
             {
-                has_last_box = false;
                 card.UpdateLayout();
             }
             Place();
@@ -2492,7 +2453,7 @@ namespace winrt::ZSlice::implementation
         SetRounder(l.relief, 0.01);
         SetRounder(l.depth_mm, 0.001);
         l.relief.Value(zs::label_default_relief);
-        CardLayer().Children().Append(l.card);
+        DockCard(l.card, 0);
 
         // The turn, the relief, and the depth are the first three inputs.
         l.AddInput(l.turn, -1, "turn");
@@ -2557,7 +2518,6 @@ namespace winrt::ZSlice::implementation
             menu.Items().Append(item);
         }
 
-        MakeCardMovable(l.card, find(L"Head").as<FrameworkElement>(), &l.card_moved);
 
         // Esc: in a field, the keys go back to the view. Else the card
         // closes, and the label stays.
@@ -2668,12 +2628,10 @@ namespace winrt::ZSlice::implementation
         label->Reload();
     }
 
-    void MainWindow::LabelPlace(bool force)
+    void MainWindow::LabelPlace()
     {
         if (label == nullptr || !label->on || label->sel < 0)
             return;
-        if (force)
-            label->has_last_box = false;
         label->Place();
     }
 
@@ -2697,6 +2655,24 @@ namespace winrt::ZSlice::implementation
     }
 
 #ifdef ZS_DEV_HOOKS
+    // The label that the test placed on the first part (the step lface).
+    bool MainWindow::LabelDevAdd()
+    {
+        if (tool != Tool::Label)
+            SetTool(Tool::Label);
+        label->Load(0, -1);
+        dev_label_id = label->labels.empty() ? 0 : label->labels.back().id;
+        return dev_label_id != 0;
+    }
+
+    bool MainWindow::LabelDevOpen()
+    {
+        if (dev_label_id == 0)
+            return false;
+        LabelOpen(0, dev_label_id);
+        return label->Selected() != nullptr;
+    }
+
     // The steps of the Label tool. See MainWindow.DevHooks.cpp.
     bool MainWindow::RunLabelStep(std::wstring const &verb, std::vector<std::wstring> const &words)
     {

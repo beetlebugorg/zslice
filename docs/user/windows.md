@@ -37,7 +37,7 @@ The header has the file, the search, the printer, filament, and quality, and the
 | P | Paint | Paint filaments on a part. See [Paint](#paint). |
 | E | Label | Put text or marks on a face of a part. See [Labels](#labels). |
 
-The card of the Support tool is at the top left of the view. It has the kind of the area (**Support grid**, **Support tree**, or **Block**) and **See through the support**. With tree support, drag a dot, a ring, or a segment. The card has **Add a branch**, **Reset support**, and **Delete branch**, and it says when a rule limits an edit.
+The page of the Support tool is in the Inspector. It has the kind of the area (**Support grid**, **Support tree**, or **Block**) and **See through the support**. With tree support, drag a dot, a ring, or a segment. The card has **Add a branch**, **Reset support**, and **Delete branch**, and it says when a rule limits an edit.
 
 With the Select tool, a click on a support line shows that support. **Remove this support** takes a grid support away. For a tree, drag its dots, or right-click a dot for **Delete branch**.
 
@@ -71,7 +71,7 @@ Each click or stroke is one step of the history. Esc closes the tool.
 
 ## Labels
 
-Press **E**, and click a face of a part. A label "LABEL" goes there, and its card opens. Type the text. The view shows each key at once. See [Labels on a part](labels.md) for sizes and costs.
+Press **E**, and click a face of a part. A label "LABEL" goes there, and its page shows in the Inspector. Type the text. The view shows each key at once. See [Labels on a part](labels.md) for sizes and costs.
 
 - **Move**: drag the label. It follows the surface. Hold Shift to keep it in its plane.
 - **Resize**: drag a white corner square. The opposite corner stays. Hold Shift to change the width and the height on their own.
@@ -79,9 +79,9 @@ Press **E**, and click a face of a part. A label "LABEL" goes there, and its car
 - **Smart guides**: a move or a resize snaps to the other labels, the holes, and the centers of the face and the part. A thin pink line shows each snap. Hold Alt for no snap.
 - **Delete**: press Delete, or click **Delete the label**.
 
-The card has the shapes (text, line, bar, ring, ticks, a free line, or an SVG picture), the turn, the print mode (**Ink**, **Raised**, or **Cut in**) with its relief, the filament, the depth, and what the label costs in filament changes. Esc closes the card. Esc again closes the tool.
+The page has the shapes (text, line, bar, ring, ticks, a free line, or an SVG picture), the turn, the print mode (**Ink**, **Raised**, or **Cut in**) with its relief, the filament, the depth, and what the label costs in filament changes. Esc closes the page. Esc again closes the tool.
 
-**Place an SVG…** on the card puts the filled shapes of an SVG file on the label. You can also drop an SVG file on a part: a new label of the picture goes there.
+**Place an SVG…** on the page puts the filled shapes of an SVG file on the label. You can also drop an SVG file on a part: a new label of the picture goes there.
 
 ## See the print
 
@@ -93,7 +93,7 @@ Under the tools are the line colors, Gaps, and Check.
 
 Click the time in the bottom bar for the details of the print. Each main setting is a button that opens the search on it. The details also have the filaments, the time of the slice, a warning with its usual fix, and the changes that you made in at least two other prints, with **Apply**. While the current printer prints, the details start with its camera, the job, the progress, and the time left. The camera plays only while the details are open.
 
-In the settings pane, a printer or filament setting names its owner, such as **Printer · Creality Ender-3**: each printer and each filament keeps its own value.
+In the **Settings** tab, a printer or filament setting names its owner, such as **Printer · Creality Ender-3**: each printer and each filament keeps its own value.
 
 A number applies a moment after you stop typing. Up and Down change its last decimal, Shift or Page Up and Page Down change it ten times as much, and Ctrl uses one decimal more. A red ring means the value is out of its limits, and its tooltip gives them. An amber ring means the value is valid but unusual. You can also type a formula in the field, such as `= {line_width} * 2`.
 
@@ -107,39 +107,39 @@ The bar under the view replays the print at a speed of 1× to 100×. Its slider 
 
 ## Parts
 
-Ctrl and a click selects a part, and Shift and a click adds a part to the selection. The card of a part has its size, its filament, its scale, Duplicate, Split, Cut, Best orientation, Less support, Reset, Make N in all, To a new plate, and Remove. It also lists the labels and the paint of the part. Delete removes the selected parts.
+Ctrl and a click selects a part, and Shift and a click adds a part to the selection. The page of a part has the groups **Position and turn**, **Size and mirror**, **Filament**, **Actions**, and **Settings of this part**. A click on the title of a group collapses it, and the app remembers it. The scale shows with no sign. A mirrored part has a **Mirrored** mark, and a new scale keeps the mirror. It also lists the labels and the paint of the part. Delete removes the selected parts.
 
-When the plate prints one part at a time (`project.print_sequence` is `by_object`) and has two parts or more, the card shows the place of the part, for example "Prints 2 of 3". **Print earlier** and **Print later** move the part in the print order.
+When the plate prints one part at a time (`project.print_sequence` is `by_object`) and has two parts or more, the page shows the place of the part, for example "Prints 2 of 3". **Print earlier** and **Print later** move the part in the print order.
 
-A part that floats over the bed gets a note on its card. A part from a file with modifier volumes or its own settings lists them under **Its volumes and file settings**.
+A part that floats over the bed gets a note on its page. A part from a file with modifier volumes or its own settings lists them under **Its volumes and file settings**. Each region shows apart from the values of the part.
 
 ## Lines
 
-The card of a line shows its planned speed, its real speed, and its flow, and the settings that matter most for it. **Fade the others** shows the line alone. **Don't print this line** and **±10 % plastic** change this line only, and the change stays through new slices. These edits also work while a slice runs.
+The page of a line shows its planned speed, its real speed, and its flow, and the settings that matter most for it. **Fade the others** shows the line alone. **Don't print this line** and **±10 % plastic** change this line only, and the change stays through new slices. These edits also work while a slice runs.
 
 Shift and a click on a line in the Select tool lights its whole run: one extrusion, from a retraction to the next. A note gives the number of lines.
 
 The page of a setting lists the lines that it changes, with their print time and their share of the print. The view fades the other lines while the page is open. A click on a row lists all settings of those lines.
 
-On a printer with more than one nozzle, the title of the card says **main nozzle**, **2nd nozzle**, or the tool, such as **nozzle T2**. A line of a later nozzle shows its speed limits. The printer settings have a section for each nozzle after the first, such as **Second nozzle (T1)**. The filament list picks the nozzle of each filament.
+On a printer with more than one nozzle, the title of the page says **main nozzle**, **2nd nozzle**, or the tool, such as **nozzle T2**. A line of a later nozzle shows its speed limits. The printer settings have a section for each nozzle after the first, such as **Second nozzle (T1)**. The filament list picks the nozzle of each filament.
 
 ## Layers
 
 With the Select tool, press on a line and drag up or down. The body of that line turns yellow, from its layer to the layer under the pointer. Shift+K and Shift+J grow a range of layers up or down from the selected line, or from the top layer. Shift+Up and Shift+Down move the bottom of the layers that show.
 
-A card opens beside the layers. It has the filament of the layers and the settings that can change for some layers. **+ Add a setting for these layers** searches the others. A change is for these layers only and slices at once, and ↺ removes it. With a lit body, the row **This part of the layers** gives that body its own filament. Each other row then has a switch, **This part** or **Whole layers**. A change for this part stays inside the lit body. A setting that a part cannot have stays for the whole layers, and a line under its row says why. Esc, ×, a click elsewhere, or another tool closes the card.
+The page of the layers shows in the Inspector. It has the filament of the layers and the settings that can change for some layers. **+ Add a setting for these layers** searches the others. A change is for these layers only and slices at once, and ↺ removes it. With a lit body, the row **This part of the layers** gives that body its own filament. Each other row then has a switch, **This part** or **Whole layers**. A change for this part stays inside the lit body. A setting that a part cannot have stays for the whole layers, and a line under its row says why. Esc, ×, a click elsewhere, or another tool closes the card.
 
 With a lit body, **+ Add a setting for these layers** says what each result changes. Its **Filament** result has chips for the whole layers and chips for this part of them.
 
-The card of a selected line has a **Filament** row. A chip gives the body of that line its own filament on its layer. **Also the layers above** and **Also the layers below** then give the same filament to the layers where the body goes on.
+The page of a selected line has a **Filament** row. A chip gives the body of that line its own filament on its layer. **Also the layers above** and **Also the layers below** then give the same filament to the layers where the body goes on.
 
-A line at a support mark that you added shows **Support you added** on its card: the kind, the radius, and **Remove**.
+A line at a support mark that you added shows **Support you added** on its page: the kind, the radius, and **Remove**.
 
 ### Layer profiles
 
-A layer profile is a name for some layers and their changes. Right-click a line and choose **New profile from here up** or **New profile from here down**. The settings pane then shows a bar with the name and the layers, and each change in the pane is for these layers only. A setting for the whole print stays dim, and a change to it still changes the whole print. The pencil renames the profile, the bin deletes it and its changes, and **Done** ends the edit.
+A layer profile is a name for some layers and their changes. Right-click a line and choose **New profile from here up** or **New profile from here down**. The **Settings** tab then shows a bar with the name and the layers, and each change in the tab is for these layers only. A setting for the whole print stays dim, and a change to it still changes the whole print. The pencil renames the profile, the bin deletes it and its changes, and **Done** ends the edit.
 
-The pane lists the profiles at the top. The layer slider has an orange mark beside each range with changes. A click on a mark goes to its top layer and opens the range.
+The tab lists the profiles at the top. The layer slider has an orange mark beside each range with changes. A click on a mark goes to its top layer and opens the range.
 
 ## Projects
 
@@ -167,7 +167,7 @@ On a part, the menu adds support, blocks support, makes a layer profile, and pla
 
 Ctrl+C, Ctrl+X, Ctrl+V, and Ctrl+D copy, cut, paste, and duplicate the selected parts. Ctrl+Shift+V pastes them as a new plate. C shows the layers up to the selected line, and Shift+C shows all layers.
 
-With the Label tool, the same keys work on the selected label. A paste puts it on the face under the pointer, or under the first label. With the card of some layers open, Ctrl+C and Ctrl+X take the changes of those layers. Select other layers and press Ctrl+V to give them the same changes.
+With the Label tool, the same keys work on the selected label. A paste puts it on the face under the pointer, or under the first label. With the page of some layers open, Ctrl+C and Ctrl+X take the changes of those layers. Select other layers and press Ctrl+V to give them the same changes.
 
 With the Support tool, the keys work on the selected area. A paste needs the pointer over a part. On a switch or a list of a setting, Ctrl+C copies its value and Ctrl+V pastes a value into it. With only a line selected, Ctrl+C puts the report of the line on the clipboard.
 
@@ -250,15 +250,17 @@ Press Ctrl+, or choose **Preferences** in the main menu.
 
 **General** has the theme, the view at the start of the app, the number of slicer threads, **Draft slices during edits**, **Show the print as it forms after each slice**, and the folder of the settings files.
 
-The part card lists the settings that the part has of its own. Each has its editor, and × gives it the value of the plate again. **+ Add a setting for this part** searches the settings that a part can have. With several parts selected, the edit goes to each of them.
+The part page lists the settings that the part has of its own. Each has its editor, and × gives it the value of the plate again. **+ Add a setting for this part** searches the settings that a part can have. With several parts selected, the edit goes to each of them.
 
-N shows or hides the settings pane. It opens over the view. **Pin** puts it beside the view, and you can drag its left edge to change its width. Esc hides the pane when it is over the view. The app remembers the mode and the width.
+**The Inspector** is the column beside the view, with the tabs **Inspector** and **Settings**. It shows the page of what you selected: a label, the Paint or Support tool, some layers, a part, a line, or a gap. With no selection, it shows the plate and its parts. A selection changes only this page. It never opens, closes, or resizes the column, and the camera stays.
 
-A click on a line, a part, or a gap opens its **Selected** page in the pane. **All settings…** on the line card opens it too. For a line, the page has its speeds with the reason for each, its measurements, and the settings that change it. **How these values come about** at the foot of the page has the reasons for its speeds, its flow, and each setting that the line card shows. The line card says what a support line holds up, and it shows the warnings of the check at the line. **Change for** sets the layers of an edit: this print, this layer, this layer and up, or this layer and down. For a part, it has the place, the quality, and the placement. For a gap, it has the settings that can close it. The arrow at the top goes back to the settings. When a change removes the selected line, its page stays until the exact slice. While you hold a slider, the page stays until you let go.
+N or the button in the header shows or hides the column. A dot on the button shows that a selection has a page. Drag the left edge of the column to change its width, and double-click the edge for the default width. In a window of 760 points or less, the column is a row under the view, and it opens only when you ask. The app remembers the width, the open state, and the collapsed groups.
 
-**Settings for** at the top of the settings pane says what a change is for: **This print**, **Global** (all your prints, under the quality profile), or one part. A setting that the choice cannot have shows and is off. Formulas and global settings stay after a restart.
+**All settings…** on the page of a line opens its long form in the **Settings** tab. For a line, the page has its speeds with the reason for each, its measurements, and the settings that change it. **How these values come about** at the foot of the page has the reasons for its speeds, its flow, and each setting that the line card shows. The line card says what a support line holds up, and it shows the warnings of the check at the line. **Change for** sets the layers of an edit: this print, this layer, this layer and up, or this layer and down. For a part, it has the place, the quality, and the placement. For a gap, it has the settings that can close it. The arrow at the top goes back to the settings. When a change removes the selected line, its page stays until the exact slice. While you hold a slider, the page stays until you let go.
 
-The **Speed** section at the top of the settings pane lists the options that change the time of a slice, with the gain and the cost of each. **Faster slicing** sets all of them to their faster values. It reads **Custom** when one option has another value.
+**Settings for** at the top of the **Settings** tab says what a change is for: **This print**, **Global** (all your prints, under the quality profile), or one part. A setting that the choice cannot have shows and is off. Formulas and global settings stay after a restart.
+
+The **Speed** section at the top of the **Settings** tab lists the options that change the time of a slice, with the gain and the cost of each. **Faster slicing** sets all of them to their faster values. It reads **Custom** when one option has another value.
 
 **Keep filament settings for each roll in the printer** is in Preferences, on the Printers page, and it is on by default. printdeck tells which roll is in the printer. Each roll keeps its own filament settings, and a change of the roll loads them. A new roll starts from the settings before, or from the built-in profile of another material. A project keeps its own filament settings.
 

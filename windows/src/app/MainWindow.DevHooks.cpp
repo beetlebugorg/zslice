@@ -266,6 +266,8 @@ namespace winrt::ZSlice::implementation
     // compiler for one chain of else-if.
     bool MainWindow::RunDialogStep(std::wstring const &verb, std::vector<std::wstring> const &words)
     {
+        if (verb.rfind(L"insp", 0) == 0)
+            return RunInspectorStep(verb, words);
         if (verb == L"dialogtext")
         {
             // The title, text, buttons, and default of the open dialog.
@@ -358,17 +360,6 @@ namespace winrt::ZSlice::implementation
             if (!*hold)
                 ResolveLostLine();
             zs::Log("dev: slider held %d\n", SliderHeld() ? 1 : 0);
-            return true;
-        }
-        if (verb == L"cardrect")
-        {
-            auto rect = [](Microsoft::UI::Xaml::FrameworkElement const &e) {
-                return std::array<double, 4>{ Microsoft::UI::Xaml::Controls::Canvas::GetLeft(e), Microsoft::UI::Xaml::Controls::Canvas::GetTop(e), e.ActualWidth(), e.ActualHeight() };
-            };
-            auto a = rect(LineCard());
-            double pane_left = CardLayer().ActualWidth() - SettingsPane().Width();
-            zs::Log("dev: card x %.0f y %.0f w %.0f h %.0f right %.0f, layer %.0f x %.0f, mode %d pane left %.0f, clear %d\n", a[0], a[1], a[2], a[3], a[0] + a[2], CardLayer().ActualWidth(),
-                    CardLayer().ActualHeight(), (int)panel_mode, pane_left, panel_mode != PanelMode::Over || a[0] + a[2] <= pane_left ? 1 : 0);
             return true;
         }
         if (verb == L"cutlog")
@@ -657,22 +648,18 @@ namespace winrt::ZSlice::implementation
         }
         else if (verb == L"panemode" && !words.empty())
         {
-            SetPanelMode(static_cast<PanelMode>(_wtoi(words[0].c_str())));
+            SetInspectorOpen(_wtoi(words[0].c_str()) != 0);
         }
         else if (verb == L"panedrag" && !words.empty())
         {
             PanelDragTo(Root().ActualWidth() - _wtof(words[0].c_str()));
             PanelDragEnd();
         }
-        else if (verb == L"paneesc")
-        {
-            zs::Log("dev: pane esc %d\n", PanelEscape() ? 1 : 0);
-        }
         else if (verb == L"panestate")
         {
-            zs::Log("dev: pane mode %d width %.0f actual %.0f view %.0f of %.0f visible %d pin %d | prefs %s %s %s\n", (int)panel_mode, SettingsPane().Width(), SettingsPane().ActualWidth(),
-                    ViewPanel().ActualWidth(), Root().ActualWidth(), SettingsPane().Visibility() == Microsoft::UI::Xaml::Visibility::Visible ? 1 : 0, SettingsPin().IsChecked().GetBoolean() ? 1 : 0,
-                    zs::Printers().Pref("panel", "-").c_str(), zs::Printers().Pref("panel_pinned", "-").c_str(), zs::Printers().Pref("panel_width", "-").c_str());
+            zs::Log("dev: pane open %d narrow %d settings %d width %.0f view %.0f x %.0f of %.0f x %.0f dot %d | prefs %s %s\n", InspectorShown() ? 1 : 0, NarrowWindow() ? 1 : 0, inspector_settings ? 1 : 0,
+                    SettingsPane().ActualWidth(), ViewPanel().ActualWidth(), ViewPanel().ActualHeight(), Root().ActualWidth(), Root().ActualHeight(),
+                    InspectorDot().Visibility() == Microsoft::UI::Xaml::Visibility::Visible ? 1 : 0, zs::Printers().Pref("inspector_open", "-").c_str(), zs::Printers().Pref("panel_width", "-").c_str());
         }
         else if (verb == L"sellog")
         {
