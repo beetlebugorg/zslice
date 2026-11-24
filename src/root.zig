@@ -85,6 +85,8 @@ pub const scratch = @import("scratch.zig");
 pub const wasm_heap = @import("wasm_heap.zig");
 pub const engine = @import("engine.zig");
 pub const plate_job = @import("plate_job.zig");
+/// The clocks of `zslice bench --stages` (see stage_clock.zig).
+pub const stage_clock = @import("stage_clock.zig");
 pub const svg = @import("svg.zig");
 /// The filled shapes of an SVG picture, for a label (see svg_path.zig).
 pub const svg_path = @import("svg_path.zig");

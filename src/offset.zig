@@ -43,6 +43,7 @@ const Allocator = std.mem.Allocator;
 const geom = @import("geom.zig");
 const scratch = @import("scratch.zig");
 const clip = @import("clip.zig");
+const stage_clock = @import("stage_clock.zig");
 const Point = geom.Point;
 const Paths = geom.Paths;
 
@@ -77,6 +78,8 @@ pub var fast_offsets = std.atomic.Value(bool).init(false);
 pub fn offset(gpa: Allocator, paths: Paths, delta: i64, opts: Options) Allocator.Error!Paths {
     if (paths.isEmpty()) return .empty;
     if (delta == 0) return paths.clone(gpa);
+    stage_clock.tick(.offsets, 1);
+    stage_clock.tick(.offset_points, paths.points.items.len);
 
     var arena_state = scratch.get(gpa);
     defer arena_state.release();

@@ -55,6 +55,7 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const geom = @import("geom.zig");
 const scratch = @import("scratch.zig");
+const stage_clock = @import("stage_clock.zig");
 const Point = geom.Point;
 const Paths = geom.Paths;
 const cross3 = geom.cross3;
@@ -133,6 +134,8 @@ pub const FillRule = enum {
 /// counterclockwise outer boundaries and clockwise holes. The caller owns
 /// the result.
 pub fn boolean(gpa: Allocator, subject: Paths, clip: Paths, op: Op, rule: FillRule) Allocator.Error!Paths {
+    stage_clock.tick(.booleans, 1);
+    stage_clock.tick(.boolean_points, subject.points.items.len + clip.points.items.len);
     return booleanWith(gpa, subject, clip, op, rule, true);
 }
 

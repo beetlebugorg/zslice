@@ -136,6 +136,14 @@ The 3DBenchy, `zslice bench --only full --runs 5`, the CPU median, on 2026-11-22
 | `project.gap_fill` off | 1091 ms (31 % less) |
 | `project.wall_generator` arachne | 1832 ms (16 % more) |
 
+## The stage clocks
+
+`zslice bench <model> --stages` prints a table after each kind: the wall time, the CPU time, and the calls of each stage for one slice. A last line has the counts: `plans`, `levels_run`, `texts_made`, `booleans`, and `offsets`. The counts are exact. They do not depend on the load of the machine, so use them first to compare two builds. `--only noop` times a slice with no change.
+
+The clocks are in `src/stage_clock.zig`. They are off by default. With the clocks off, a stage reads no clock. The Benchy costs 6.433 G instructions with the clocks in the code and off, and 6.431 G without them. The clocks read the time only on Linux. On each other target the times are zero and the counts work.
+
+Some stages are inside others: `mesh_cut`, `support`, and `islands` are inside `init`. The `plan`, `prepare`, `run`, `text`, and `encode` stages run on all threads, so their CPU time can exceed the wall time of the slice.
+
 ## Rules
 
 - Compare CPU times when other programs use the machine. The wall time of a full slice was 500 to 680 ms during these measurements, and its CPU time changed by less than 1 % between rounds.

@@ -76,7 +76,10 @@ const usage =
     \\            compares the G-code with a new slice. --only verify
     \\            makes each change in turn, and compares the G-code of
     \\            each slice with a new slice. --runs N sets
-    \\            the slices of each kind (default 6).
+    \\            the slices of each kind (default 6). --only noop slices
+    \\            with no change. --stages prints, after each kind, the
+    \\            time of each stage for one slice and the counts of the
+    \\            plans, runs, texts, booleans, and offsets.
     \\  sweep     For each project and filament setting, slice with values
     \\            across its range (the others at their base values), and
     \\            write the print time, the plastic, the cost, the travel,
@@ -117,6 +120,8 @@ const Options = struct {
     points: usize = 5,
     /// slice: refuse a part that does not fit the printer (else warn).
     strict: bool = false,
+    /// bench: print the time of each stage and the counts of the work.
+    stages: bool = false,
 };
 
 pub fn main(init: std.process.Init) !void {
@@ -301,7 +306,7 @@ pub fn main(init: std.process.Init) !void {
     }
     if (is_bench) {
         defer gpa.free(bytes);
-        try bench(gpa, io, err, in_path, bytes, settings, opts.only, opts.runs, opts.copies, opts.output);
+        try bench(gpa, io, err, in_path, bytes, settings, opts.only, opts.runs, opts.copies, opts.output, opts.stages);
         return;
     }
     // A 3MF file: each part that prints is a part of the plate job, with
@@ -553,8 +558,11 @@ const max_runs = 64;
 
 /// Slices in the app core, as the app does after each change of a setting,
 /// and prints the time of each slice and the peak memory (VmHWM).
-fn bench(backing: std.mem.Allocator, io: Io, err: *Io.Writer, name: []const u8, bytes: []const u8, settings: zslice.Settings, only: ?[]const u8, runs: usize, copies: usize, out: ?[]const u8) !void {
+fn bench(backing: std.mem.Allocator, io: Io, err: *Io.Writer, name: []const u8, bytes: []const u8, settings: zslice.Settings, only: ?[]const u8, runs: usize, copies: usize, out: ?[]const u8, stages: bool) !void {
     const App = zslice.app.App;
+    const clock = zslice.stage_clock;
+    clock.on.store(stages, .monotonic);
+    defer clock.on.store(false, .monotonic);
     var counter: CountingAllocator = .{ .backing = backing };
     const gpa = counter.allocator();
     const app = try App.create(gpa, null, null);
@@ -604,6 +612,7 @@ fn bench(backing: std.mem.Allocator, io: Io, err: *Io.Writer, name: []const u8, 
     }
     if (only == null or std.mem.eql(u8, only.?, "full")) {
         // The first slice has no cache. Each one starts new.
+        clock.reset();
         for (times) |*t| {
             // A new model drops the regions of the slice before.
             try app.loadStl(std.fs.path.basename(name), bytes);
@@ -611,17 +620,30 @@ fn bench(backing: std.mem.Allocator, io: Io, err: *Io.Writer, name: []const u8, 
             t.* = try benchSlice(app, io);
         }
         try printTimes(err, "full slice", times);
+        if (stages) try clock.print(err, @floatFromInt(times.len));
     } else {
         try app.loadStl(std.fs.path.basename(name), bytes);
         try addCopies(app, name, bytes, copies);
+    }
+    if (only != null and std.mem.eql(u8, only.?, "noop")) {
+        // A slice with no change.
+        app.settings = settings;
+        _ = try benchSlice(app, io);
+        clock.reset();
+        for (times) |*t| t.* = try benchSlice(app, io);
+        try printTimes(err, "no change", times);
+        if (stages) try clock.print(err, @floatFromInt(times.len));
     }
     for (bench_changes) |c| {
         if (only) |o| if (!std.mem.eql(u8, o, c.key)) continue;
         // Start from the base settings, with a slice that is not timed.
         app.settings = settings;
         _ = try benchSlice(app, io);
+        clock.reset();
         if (std.mem.eql(u8, c.key, "tree")) {
             try benchTree(app, io, err, times);
+            if (stages) try clock.print(err, @floatFromInt(times.len));
+            clock.unpause();
             continue;
         }
         if (std.mem.eql(u8, c.key, "3mf")) {
@@ -657,12 +679,14 @@ fn bench(backing: std.mem.Allocator, io: Io, err: *Io.Writer, name: []const u8, 
             const pts = [_][3]f64{ .{ -1000, -1000, 1 }, .{ 2000, -1000, 1 }, .{ 2000, 2000, 1 }, .{ -1000, 2000, 1 } };
             const idx = try app.areas.add(gpa, .tree, &pts, 1, 4);
             _ = try benchSlice(app, io);
+            clock.reset();
             for (times, 0..) |*t, k| {
                 try app.areas.set(gpa, idx, &pts, 1, 4 + 0.2 * @as(f64, @floatFromInt(k % 6 + 1)));
                 t.* = try benchSlice(app, io);
             }
             try app.areas.remove(gpa, idx);
             try printTimes(err, c.kind, times);
+            if (stages) try clock.print(err, @floatFromInt(times.len));
             continue;
         }
         for (times, 0..) |*t, k| {
@@ -671,12 +695,15 @@ fn bench(backing: std.mem.Allocator, io: Io, err: *Io.Writer, name: []const u8, 
             // value.
             if (k > 0 and k % c.values.len == 0) {
                 app.settings = settings;
+                clock.pause();
                 _ = try benchSlice(app, io);
+                clock.unpause();
             }
             try app.setSetting(c.name, c.values[k % c.values.len]);
             t.* = try benchSlice(app, io);
         }
         try printTimes(err, c.kind, times);
+        if (stages) try clock.print(err, @floatFromInt(times.len));
     }
     if (only != null and std.mem.eql(u8, only.?, "patch")) try benchPatch(gpa, app, io, err, name, bytes, settings);
     if (only != null and std.mem.eql(u8, only.?, "verify")) try benchVerify(gpa, app, io, err, name, bytes, settings, copies);
@@ -714,6 +741,8 @@ fn benchTree(app: *zslice.app.App, io: Io, err: *Io.Writer, times: []Sample) !vo
         t.* = try benchSlice(app, io);
         if (i + 1 == times.len) try err.print("tree slice: {d} layer plans\n", .{zslice.plate_job.plans_made.load(.monotonic) - plans});
     }
+    // The slices of the checks below stay out of the table of the stages.
+    zslice.stage_clock.pause();
     if (app.job) |*pj| try err.print("tree layers made again: {d} of {d}\n", .{ pj.groups[0].job.support_cache.tree_layers.made, pj.groups[0].job.layers.len });
     // The G-code after the edits against a new app with the same trees
     // (from the 3MF of the plate).
@@ -1247,6 +1276,10 @@ fn parseOptions(arena: std.mem.Allocator, err: *Io.Writer, args: []const [:0]con
         const a = args[i];
         if (std.mem.eql(u8, a, "--strict")) {
             opts.strict = true;
+            continue;
+        }
+        if (std.mem.eql(u8, a, "--stages")) {
+            opts.stages = true;
             continue;
         }
         const takes_value = for ([_][]const u8{ "-o", "-s", "--layer", "-m", "--machine", "-f", "--filament", "-p", "--project", "--only", "--runs", "--points", "--copies" }) |o| {

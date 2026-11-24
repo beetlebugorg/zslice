@@ -50,6 +50,7 @@ const settings_mod = @import("settings.zig");
 const layer_mod = @import("layer.zig");
 const gcode = @import("gcode.zig");
 const stream_mod = @import("stream.zig");
+const stage_clock = @import("stage_clock.zig");
 const parallel = @import("parallel.zig");
 const support_mod = @import("support.zig");
 const skel_mod = @import("support_skeleton.zig");
@@ -781,6 +782,8 @@ pub const Job = struct {
             // part that floats over the bed (a lift) keeps its empty
             // layers: support fills them.
             var z_base = bed;
+            const cut_t0 = stage_clock.now();
+            defer stage_clock.add(.mesh_cut, cut_t0);
             var sliced = try slicePart(gpa, mesh, settings, outline_overrides, height, z_base, b, dx, dy, threads, monitor);
             var empty: usize = 0;
             while (empty < sliced.outlines.len and sliced.outlines[empty].isEmpty()) empty += 1;
@@ -817,8 +820,12 @@ pub const Job = struct {
             user = null;
             job.trees_dropped = true;
         }
+        const support_t0 = stage_clock.now();
         job.support = support_mod.computeTrees(gpa, job.outlines, job.layers, &r, threads, marks, &job.support_cache, .{ .user = user, .out = &job.trees }) catch |e| return @as(Error, @errorCast(e));
+        stage_clock.add(.support, support_t0);
         if (!find_islands) return job;
+        const islands_t0 = stage_clock.now();
+        defer stage_clock.add(.islands, islands_t0);
         const grow = @divTrunc(geom.fromMm(r.line_width), 4);
         job.islands_key = islandsKey(job.support, grow);
         if (old) |o| if (o.outline_key == key and o.islands_key == job.islands_key and o.islands_key != 0) {
@@ -1354,6 +1361,8 @@ pub fn emitAll(gpa: Allocator, src: PlanSource, threads: usize, monitor: Monitor
         // state, gets a dry run here.
         while (dried < n and slots[dried % window].compiled.load(.acquire) == dried + 1) {
             const slot = &slots[dried % window];
+            const link_t0 = stage_clock.now();
+            defer stage_clock.add(.link, link_t0);
             slot.start = em;
             slot.start.?.w = undefined;
             const linked = if (slot.assumed) |a| em.at(a) and em.link(&slot.plan.?, &slot.exit, &slot.terms, &slot.prep) else false;
@@ -1376,6 +1385,7 @@ pub fn emitAll(gpa: Allocator, src: PlanSource, threads: usize, monitor: Monitor
                 em.dry = true;
                 em.record = null;
                 em.prep = &slot.prep;
+                stage_clock.tick(.levels_run, 1);
                 const res = em.layer(&slot.plan.?);
                 const again = em.need_plan;
                 if (again) em = before;
@@ -1549,10 +1559,12 @@ const Pipeline = struct {
         const stored: ?*const stream_mod.Stream = if (p.src.streams) |st| (if (st[i].valid) &st[i] else null) else null;
         if (stored) |st| {
             // The plan and the travel answers from the stream.
+            const decode_t0 = stage_clock.now();
             slot.plan = st.decode(p.gpa, &slot.prep, p.src.bind.?, p.src.ctx, i) catch |e| {
                 p.fail(e);
                 return true;
             };
+            stage_clock.add(.decode, decode_t0);
         } else {
             p.planSlot(slot, i) catch |e| {
                 p.fail(e);
@@ -1574,14 +1586,18 @@ const Pipeline = struct {
     fn planSlot(p: *Pipeline, slot: *Slot, i: usize) Error!void {
         if (slot.plan) |*old| old.deinit();
         slot.plan = null;
+        const plan_t0 = stage_clock.now();
         slot.plan = try p.src.plan(p.src.ctx, p.gpa, i);
+        stage_clock.add(.plan, plan_t0);
         if (p.monitor.canceled()) {
             // The plan can be one that stopped early.
             slot.plan.?.deinit();
             slot.plan = null;
             return error.Canceled;
         }
+        const prepare_t0 = stage_clock.now();
         try gcode.prepare(p.gpa, p.src.resolved, &slot.plan.?, &slot.prep);
+        stage_clock.add(.prepare, prepare_t0);
         if (p.src.done) |done| done(p.src.ctx, p.gpa, i);
     }
 
@@ -1611,6 +1627,9 @@ const Pipeline = struct {
 
     /// False: the run needed the outline of a layer from a stream.
     fn run(p: *Pipeline, slot: *Slot, entry: gcode.Entry) Error!bool {
+        const run_t0 = stage_clock.now();
+        defer stage_clock.add(.run, run_t0);
+        stage_clock.tick(.levels_run, 1);
         var discard: Writer.Discarding = .init(&.{});
         var em = p.base.*;
         em.w = &discard.writer;
@@ -1636,6 +1655,8 @@ const Pipeline = struct {
         };
         // The stream of a planned layer, for the next slice.
         if (p.src.streams) |st| if (!slot.prep.replay) {
+            const encode_t0 = stage_clock.now();
+            defer stage_clock.add(.encode, encode_t0);
             st[i].deinit(p.gpa);
             st[i] = stream_mod.Stream.encode(p.gpa, &slot.plan.?, &slot.prep, p.src.bind.?, p.src.ctx, i) catch |e| {
                 p.fail(e);
@@ -1659,6 +1680,8 @@ const Pipeline = struct {
             var w = p.emitted.load(.monotonic);
             while (w < p.n and p.failed() == null and p.slots[w % p.slots.len].written.load(.acquire) == w + 1) {
                 const slot = &p.slots[w % p.slots.len];
+                const out_t0 = stage_clock.now();
+                defer stage_clock.add(.out_sink, out_t0);
                 p.out.writeAll(slot.text.written()) catch |e| {
                     p.fail(e);
                     break;
@@ -1683,6 +1706,9 @@ const Pipeline = struct {
     }
 
     fn text(p: *Pipeline, slot: *Slot) Error!void {
+        const text_t0 = stage_clock.now();
+        defer stage_clock.add(.text, text_t0);
+        stage_clock.tick(.texts_made, 1);
         var em = slot.start.?;
         em.w = &slot.text.writer;
         em.record = null;

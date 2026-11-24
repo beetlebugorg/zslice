@@ -3013,6 +3013,7 @@ pub const App = struct {
     pub fn startSlice(app: *App) StartError!void {
         if (app.mesh == null) return error.NoModel;
         if (app.getState() == .slicing) return error.Busy;
+        const start_t0 = zs.stage_clock.now();
         app.stopWorker();
         app.clearGaps();
         // Keep the last job for its regions, and free the rest.
@@ -3063,6 +3064,7 @@ pub const App = struct {
         // The experiment of a faster offset (project.fast_offsets): a
         // switch of the process, read by each offset of this slice.
         zs.offset.fast_offsets.store(app.settings.project.fast_offsets, .monotonic);
+        zs.stage_clock.add(.start, start_t0);
         if (comptime !has_threads) {
             // No threads: slice now, on the calling thread.
             work(app);
@@ -3522,7 +3524,9 @@ pub const App = struct {
         // The order of the parts on a level depends on the number of
         // filaments (see plate_job.zig).
         zs.settings.hashValue(&edits_hash, app.slice_filaments.len);
+        const init_t0 = zs.stage_clock.now();
         const job_or = zs.PlateJob.init(app.gpa, part, app.slice_parts, .{ .overrides = layer_overrides.items, .monitor = monitor, .old = prev, .streams = edits_hash.final(), .filaments = app.slice_filaments, .left_out = app.slice_left_out[0..app.slice_left_out_n] });
+        zs.stage_clock.add(.init, init_t0);
         // The new job took what it could use. A job that failed (for
         // example, a cancel) can leave the old job without outlines, so the
         // old job goes in each case.
@@ -3783,6 +3787,8 @@ pub const App = struct {
     fn buildScene(app: *App, kind: SceneKind, tp: *const Toolpaths) void {
         const hook = app.scene_hook.load(.acquire) orelse return;
         if (app.cancel_flag.load(.acquire)) return;
+        const scene_t0 = zs.stage_clock.now();
+        defer zs.stage_clock.add(.scene, scene_t0);
         const scene = hook.build(.{
             .settings = &app.slice_settings,
             .filaments = app.slice_filaments,
