@@ -144,6 +144,29 @@ The clocks are in `src/stage_clock.zig`. They are off by default. With the clock
 
 Some stages are inside others: `mesh_cut`, `support`, and `islands` are inside `init`. The `plan`, `prepare`, `run`, `text`, and `encode` stages run on all threads, so their CPU time can exceed the wall time of the slice.
 
+## The time of each edit
+
+`zslice bench <model> --only KIND --runs 7 --stages` times one kind of edit. Each kind of the slice form also compares its last G-code with a slice from the start, and prints `same` or `OTHER`. `web/app/bench-node.mjs` times the same edits in `zslice.wasm` with one thread, in Node.js.
+
+The 3DBenchy, 239 levels, on 2026-11-24, before the key of each level (commit "Add the edit kinds of the bench"), at a load average of 2 to 4. The CPU is the median of 7 slices. The counts are for one slice.
+
+| Kind | Edit | Wall ms | CPU ms | Plans | Runs | Texts | Booleans |
+|---|---|---|---|---|---|---|---|
+| `noop` | No change | 13.3 | 51 | 0 | 239 | 239 | 0 |
+| `speed` | Wall speed | 12.8 | 49 | 0 | 239 | 239 | 0 |
+| `temp` | Nozzle temperature | 12.0 | 48 | 0 | 239 | 239 | 0 |
+| `prefs` | `engine.auto_simulate` | 12.9 | 49 | 0 | 239 | 239 | 0 |
+| `late` | Infill density | 52.0 | 141 | 239 | 239 | 239 | 18 |
+| `edit` | The flow of one line | 54.8 | 146 | 239 | 239 | 239 | 18 |
+| `zrange` | Infill of z 5 to 10 mm | 52.4 | 143 | 239 | 239 | 239 | 18 |
+| `zwalls` | Wall count of z 5 to 10 mm | 78.6 | 292 | 239 | 239 | 239 | 728 |
+| `zfil` | A second filament for z 5 to a top that moves | 58.7 | 161 | 240 | 478 | 239 | 19 |
+| `undo` | Infill density there and back | 51.8 | 142 | 239 | 239 | 239 | 18 |
+| `move` | Move the part | 247.7 | 1371 | 239 | 239 | 239 | 8424 |
+| `turnz` | Turn the part about Z | 256.4 | 1415 | 239 | 239 | 239 | 8410 |
+| `draftexact` | The exact slice after three drafts | 244.0 | 1365 | 239 | 239 | 239 | 8407 |
+| `move2` | Move the bunny on a plate with the Benchy (5 runs) | 417.0 | 2597 | 465 | 465 | 465 | 25335 |
+
 ## Rules
 
 - Compare CPU times when other programs use the machine. The wall time of a full slice was 500 to 680 ms during these measurements, and its CPU time changed by less than 1 % between rounds.

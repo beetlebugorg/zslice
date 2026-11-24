@@ -79,7 +79,14 @@ const usage =
     \\            makes each change in turn, and compares the G-code of
     \\            each slice with a new slice. --runs N sets
     \\            the slices of each kind (default 6). --only noop slices
-    \\            with no change. --stages prints, after each kind, the
+    \\            with no change. The edits of the slice form: edit (the
+    \\            flow of one line), zrange and zwalls (the infill or the
+    \\            walls of z 5 to 10 mm), zfil (a second filament for a
+    \\            range), undo (the infill there and back), prefs
+    \\            (engine.auto_simulate), move, turnz, move2 (moves the
+    \\            model of --second FILE), and draftexact (the exact slice
+    \\            after three drafts). Each one compares its G-code with a
+    \\            slice from the start. --stages prints, after each kind, the
     \\            time of each stage for one slice and the counts of the
     \\            plans, runs, texts, booleans, and offsets.
     \\  verify    Prove that kept work does not change a slice. Two apps get
@@ -133,6 +140,8 @@ const Options = struct {
     strict: bool = false,
     /// bench: print the time of each stage and the counts of the work.
     stages: bool = false,
+    /// bench: a second model on the plate (--only move2).
+    second: ?[]const u8 = null,
 };
 
 pub fn main(init: std.process.Init) !void {
@@ -319,7 +328,7 @@ pub fn main(init: std.process.Init) !void {
     }
     if (is_bench) {
         defer gpa.free(bytes);
-        try bench(gpa, io, err, in_path, bytes, settings, opts.only, opts.runs, opts.copies, opts.output, opts.stages);
+        try bench(gpa, io, err, in_path, bytes, settings, opts.only, opts.runs, opts.copies, opts.output, opts.stages, opts.second);
         return;
     }
     // A 3MF file: each part that prints is a part of the plate job, with
@@ -630,12 +639,100 @@ const bench_changes = [_]struct { key: []const u8, kind: []const u8, name: []con
     .{ .key = "cool", .kind = "layer time", .name = "filament.min_layer_time", .values = .{ "7", "8", "9", "10", "11", "12" } },
 };
 
+/// The edits of the gate tables of the slice form (see benchEdit).
+const edit_kinds = [_][]const u8{ "edit", "zrange", "zwalls", "zfil", "undo", "prefs", "move", "turnz", "move2", "draftexact" };
+
+/// One kind of edit of `edit_kinds`, with a new value for each slice. Each
+/// slice is timed. At the end, the app drops its work and slices again,
+/// and the two G-codes must be equal ("same").
+fn benchEdit(gpa: std.mem.Allocator, app: *zslice.app.App, io: Io, err: *Io.Writer, settings: zslice.Settings, kind: []const u8, times: []Sample, stages: bool, second: ?[]const u8) !void {
+    const clock = zslice.stage_clock;
+    const eq = std.mem.eql;
+    var buf: [64]u8 = undefined;
+    app.settings = settings;
+    if (eq(u8, kind, "move2")) {
+        const path = second orelse fail(err, "--only move2 needs --second <model>\n", .{});
+        const b2 = try Io.Dir.cwd().readFileAlloc(io, path, gpa, .unlimited);
+        defer gpa.free(b2);
+        _ = try app.addStl(std.fs.path.basename(path), b2);
+        _ = try app.arrangePlate();
+    }
+    if (eq(u8, kind, "zfil")) {
+        _ = try zslice.app.filament_slots.add(app);
+        try app.setOverride(5, 10, "project.filament", "2");
+    }
+    if (eq(u8, kind, "zrange")) try app.setOverride(5, 10, "project.infill_density", "0.3");
+    if (eq(u8, kind, "zwalls")) try app.setOverride(5, 10, "project.wall_count", "2");
+    _ = try benchSlice(app, io);
+    // The line of a flow edit: a path in the middle level.
+    var edit_key: u64 = 0;
+    var edit_level: u32 = 0;
+    if (eq(u8, kind, "edit")) {
+        const tp = &app.toolpaths;
+        edit_level = @intCast(tp.layer_ends.items.len / 2);
+        const p0 = tp.layer_ends.items[edit_level - 1];
+        if (p0 + 3 >= tp.path_key.items.len) return error.SliceFailed;
+        edit_key = tp.path_key.items[p0 + 3];
+    }
+    const last = app.plate.count() - 1;
+    const x0 = app.plate.parts.items[0].x;
+    const y0 = app.plate.parts.items[0].y;
+    clock.reset();
+    for (times, 0..) |*t, k| {
+        const kf: f64 = @floatFromInt(k + 1);
+        if (eq(u8, kind, "edit")) {
+            try app.edits.put(gpa, .{ .key = edit_key, .kind = .flow, .value = @floatCast(0.5 + 0.05 * kf), .layer = edit_level });
+        } else if (eq(u8, kind, "zrange")) {
+            try app.setOverride(5, 10, "project.infill_density", try std.fmt.bufPrint(&buf, "{d:.2}", .{0.3 + 0.01 * kf}));
+        } else if (eq(u8, kind, "zwalls")) {
+            try app.setOverride(5, 10, "project.wall_count", try std.fmt.bufPrint(&buf, "{d}", .{3 + k % 4}));
+        } else if (eq(u8, kind, "zfil")) {
+            // The top of the range moves up by 0.2 mm on each slice.
+            for (app.overrides.items) |*o| if (eq(u8, o.name, "project.filament")) {
+                o.z_max = 10 + 0.2 * kf;
+            };
+        } else if (eq(u8, kind, "undo")) {
+            try app.setSetting("project.infill_density", if (k % 2 == 0) "0.3" else "0.2");
+        } else if (eq(u8, kind, "prefs")) {
+            try app.setSetting("engine.auto_simulate", if (k % 2 == 0) "false" else "true");
+        } else if (eq(u8, kind, "move")) {
+            try app.movePart(0, x0 + 1.234 * kf, y0 + 0.5 * kf);
+        } else if (eq(u8, kind, "turnz")) {
+            try app.rotatePart(0, 15 * kf);
+        } else if (eq(u8, kind, "move2")) {
+            try app.movePart(last, app.plate.parts.items[last].x + 0.777, app.plate.parts.items[last].y);
+        } else if (eq(u8, kind, "draftexact")) {
+            // A drag with a live view: three drafts of the infill, then
+            // the exact slice. Only the exact slice is timed.
+            clock.pause();
+            app.setDraft(true);
+            for (0..3) |d| {
+                try app.setSetting("project.infill_density", try std.fmt.bufPrint(&buf, "{d:.3}", .{0.2 + 0.01 * kf + 0.001 * @as(f64, @floatFromInt(d))}));
+                _ = try benchSlice(app, io);
+            }
+            app.setDraft(false);
+            clock.unpause();
+        }
+        t.* = try benchSlice(app, io);
+    }
+    try printTimes(err, kind, times);
+    if (stages) try clock.print(err, @floatFromInt(times.len));
+    // The twin: the same state, sliced from the start.
+    clock.pause();
+    defer clock.unpause();
+    const kept = try gpa.dupe(u8, app.gcode() orelse "");
+    defer gpa.free(kept);
+    app.dropWork();
+    _ = try benchSlice(app, io);
+    try err.print("  G-code against a slice from the start: {s}\n", .{if (eq(u8, kept, app.gcode() orelse "")) "same" else "OTHER"});
+}
+
 /// The most slices of one kind in a bench.
 const max_runs = 64;
 
 /// Slices in the app core, as the app does after each change of a setting,
 /// and prints the time of each slice and the peak memory (VmHWM).
-fn bench(backing: std.mem.Allocator, io: Io, err: *Io.Writer, name: []const u8, bytes: []const u8, settings: zslice.Settings, only: ?[]const u8, runs: usize, copies: usize, out: ?[]const u8, stages: bool) !void {
+fn bench(backing: std.mem.Allocator, io: Io, err: *Io.Writer, name: []const u8, bytes: []const u8, settings: zslice.Settings, only: ?[]const u8, runs: usize, copies: usize, out: ?[]const u8, stages: bool, second: ?[]const u8) !void {
     const App = zslice.app.App;
     const clock = zslice.stage_clock;
     clock.on.store(stages, .monotonic);
@@ -702,6 +799,11 @@ fn bench(backing: std.mem.Allocator, io: Io, err: *Io.Writer, name: []const u8, 
         try app.loadStl(std.fs.path.basename(name), bytes);
         try addCopies(app, name, bytes, copies);
     }
+    if (only) |o| for (edit_kinds) |k| if (std.mem.eql(u8, o, k)) {
+        try benchEdit(gpa, app, io, err, settings, o, times, stages, second);
+        try err.print("peak memory: {d} MB resident (VmHWM), {d} MB allocated\n", .{ peakMb(io), counter.peak.load(.monotonic) >> 20 });
+        return;
+    };
     if (only != null and std.mem.eql(u8, only.?, "noop")) {
         // A slice with no change.
         app.settings = settings;
@@ -1359,7 +1461,7 @@ fn parseOptions(arena: std.mem.Allocator, err: *Io.Writer, args: []const [:0]con
             opts.stages = true;
             continue;
         }
-        const takes_value = for ([_][]const u8{ "-o", "-s", "--layer", "-m", "--machine", "-f", "--filament", "-p", "--project", "--only", "--runs", "--points", "--copies" }) |o| {
+        const takes_value = for ([_][]const u8{ "-o", "-s", "--layer", "-m", "--machine", "-f", "--filament", "-p", "--project", "--only", "--runs", "--points", "--copies", "--second" }) |o| {
             if (std.mem.eql(u8, a, o)) break true;
         } else false;
         if (!takes_value) {
@@ -1385,6 +1487,8 @@ fn parseOptions(arena: std.mem.Allocator, err: *Io.Writer, args: []const [:0]con
         } else if (std.mem.eql(u8, a, "--points")) {
             opts.points = std.fmt.parseInt(usize, v, 10) catch fail(err, "bad point count: {s}\n", .{v});
             if (opts.points < 2 or opts.points > 50) fail(err, "--points must be 2 to 50\n", .{});
+        } else if (std.mem.eql(u8, a, "--second")) {
+            opts.second = v;
         } else if (std.mem.eql(u8, a, "--copies")) {
             opts.copies = std.fmt.parseInt(usize, v, 10) catch fail(err, "bad copy count: {s}\n", .{v});
             if (opts.copies < 1 or opts.copies > 64) fail(err, "--copies must be 1 to 64\n", .{});
