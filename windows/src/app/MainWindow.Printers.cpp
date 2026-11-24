@@ -150,6 +150,10 @@ namespace winrt::ZSlice::implementation
             setup.SaveState();
             RefreshBar();
         });
+        estimate_timer = w.queue.CreateTimer();
+        estimate_timer.IsRepeating(false);
+        estimate_timer.Interval(std::chrono::milliseconds(800));
+        estimate_timer.Tick([this](auto &&, auto &&) { EstimateNow(); });
         RefreshBar();
         w.RefreshSettingValues();
         // ZSLICE_PRINTER starts on a library printer, for tests.
@@ -247,6 +251,11 @@ namespace winrt::ZSlice::implementation
         setup.SaveState();
         if (send_cancel != nullptr)
             send_cancel->Stop();
+        if (estimate_timer != nullptr)
+            estimate_timer.Stop();
+        if (estimate_cancel != nullptr)
+            estimate_cancel->Stop();
+        estimate_cancel = nullptr;
         StopTiles();
         if (page_timer != nullptr)
             page_timer.Stop();
@@ -516,6 +525,15 @@ namespace winrt::ZSlice::implementation
             return;
         // Another printer, or another address: the link follows at once.
         SyncBambuLinks();
+        {
+            zs::SavedPrinter const &now = zs::Printers().Current();
+            std::string key = now.id + "\n" + now.url;
+            if (key != estimate_printer)
+            {
+                estimate_printer = key;
+                EstimateSoon();
+            }
+        }
         std::wstring printer = zs::ToWide(zs::Printers().Current().name);
         printer_button.Content(box_value(printer));
         Name(printer_button, L"Printer: " + printer);

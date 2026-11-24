@@ -247,6 +247,13 @@ namespace winrt::ZSlice::implementation
         winrt::fire_and_forget AskBedClear(std::string printer_id, size_t index, bool from_page, bool busy);
         // The plate can go out. If it cannot, the user gets the reason.
         bool PlateReady(zs_app *app, size_t index);
+        // The estimate of a printdeck printer. A new slice, plate, or
+        // printer drops the old one, and a new one follows after 800 ms.
+        void EstimateSoon();
+        void EstimateNow();
+        // Starts a new estimate if the plate on the view changed.
+        void EstimatePlate(zs_app *app);
+        bool EstimateShown(zs_app *app) const;
         winrt::fire_and_forget ExportGcode();
         // The top layer, or the layers that show, alone on the bed.
         winrt::fire_and_forget ExportTestPrint(bool top_only);
@@ -321,6 +328,13 @@ namespace winrt::ZSlice::implementation
         std::string spool_now;
         double spool_left_now = 0;
         bool low_asking = false, print_asking = false;
+        zs::link::Estimate estimate;
+        bool estimate_ok = false;
+        zs_app *estimate_app = nullptr;
+        // The printer and the address of the estimate.
+        std::string estimate_printer;
+        std::shared_ptr<zs::http::Cancel> estimate_cancel;
+        Microsoft::UI::Dispatching::DispatcherQueueTimer estimate_timer{ nullptr };
         Microsoft::UI::Xaml::Controls::Button back_button{ nullptr };
 
         std::vector<std::shared_ptr<OverlayPanel>> panels;

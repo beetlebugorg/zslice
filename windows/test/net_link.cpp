@@ -753,6 +753,107 @@ namespace
         CHECK(posts == 0);
     }
 
+    // The time of a printdeck printer. It runs only against stubs.
+    void TestEstimate()
+    {
+        std::string reply = R"({"moves":1000,"prep":120,"total":1120,"plan_prints":4})";
+        int status = 200;
+        HttpStub deck([&](Seen const &s) -> Reply {
+            if (s.path == "/api/plugin/printdeck/estimate" && s.method == "POST")
+                return Json(reply, status);
+            return Json("{}", 404);
+        });
+        link::Target t;
+        t.name = "Deck";
+        t.kind = LinkKind::Printdeck;
+        t.url = deck.Url();
+        t.api_key = test_key;
+        std::string gcode;
+        for (int i = 0; i < 2000; i++)
+            gcode += "G1 X" + std::to_string(i % 50) + " Y10 E0.5\n";
+        auto posts = [](HttpStub &stub) {
+            std::vector<Seen> out;
+            for (auto const &s : stub.Log())
+                if (s.method == "POST")
+                    out.push_back(s);
+            return out;
+        };
+        link::EstimateResult r = link::ReadEstimate(t, gcode, nullptr);
+        CHECK(r.ok);
+        CHECK(r.estimate.total == 1120 && r.estimate.prep == 120 && r.estimate.moves == 1000 && r.estimate.plan_prints == 4);
+        auto sent = posts(deck);
+        CHECK(sent.size() == 1);
+        CHECK(sent[0].path == "/api/plugin/printdeck/estimate");
+        CHECK(sent[0].key == test_key);
+        CHECK(Has(sent[0].content_type, "text/plain"));
+        // The body is gzip, smaller than the G-code, and no upload form.
+        CHECK(sent[0].body.size() > 2 && (unsigned char)sent[0].body[0] == 0x1f && (unsigned char)sent[0].body[1] == 0x8b);
+        CHECK(sent[0].body.size() < gcode.size() / 2);
+        CHECK(!Has(sent[0].body, "name=\"print\""));
+        CHECK(!Has(r.message, test_key));
+
+        // An answer with no usable time is no estimate.
+        for (char const *bad : { "{\"total\":0}", "not json", "{}", "{\"total\":-5}", "{\"total\":1e300}", "{\"total\":100,\"prep\":-1}", "{\"total\":100,\"prep\":1e300}" })
+        {
+            reply = bad;
+            CHECK(!link::ReadEstimate(t, gcode, nullptr).ok);
+        }
+        reply = R"({"moves":1000,"prep":120,"total":1120,"plan_prints":4})";
+        // An older printdeck has no such path.
+        status = 404;
+        CHECK(!link::ReadEstimate(t, gcode, nullptr).ok);
+        status = 200;
+
+        // A redirect takes the G-code nowhere.
+        HttpStub elsewhere([](Seen const &) { return Json("{\"total\":5}"); });
+        HttpStub redirect([&](Seen const &) {
+            return Reply{ 307, "", "Location: " + elsewhere.Url() + "/api/plugin/printdeck/estimate\r\n" };
+        });
+        link::Target rt = t;
+        rt.url = redirect.Url();
+        CHECK(!link::ReadEstimate(rt, gcode, nullptr).ok);
+        CHECK(elsewhere.Log().empty());
+
+        // A deck: an address that leads to another printer gets no G-code.
+        std::string list = R"({"printers":[{"name":"TAZ 6","label":"TAZ","url":""},{"name":"X2D","label":"X2D","url":"/printers/x2d"}]})";
+        HttpStub many([&](Seen const &s) -> Reply {
+            if (s.path == "/slicer/printer.json")
+                return Json(list);
+            if (s.method == "POST")
+                return Json(R"({"total":900,"prep":60})");
+            return Json("{}", 404);
+        });
+        link::Target d;
+        d.name = "X2D";
+        d.kind = LinkKind::Printdeck;
+        d.url = many.Url();
+        d.api_key = test_key;
+        CHECK(!link::ReadEstimate(d, gcode, nullptr).ok);
+        CHECK(posts(many).empty());
+        d.url = many.Url() + "/printers/x2d";
+        CHECK(link::ReadEstimate(d, gcode, nullptr).ok);
+        CHECK(posts(many).size() == 1 && posts(many)[0].path == "/printers/x2d/api/plugin/printdeck/estimate");
+
+        // Each other kind of printer gets no request.
+        for (LinkKind kind : { LinkKind::None, LinkKind::OctoPrint, LinkKind::Moonraker, LinkKind::Bambu, LinkKind::Usb })
+        {
+            link::Target no;
+            no.kind = kind;
+            no.url = deck.Url();
+            size_t before = deck.Log().size();
+            CHECK(!link::ReadEstimate(no, gcode, nullptr).ok);
+            CHECK(deck.Log().size() == before);
+        }
+
+        // A canceled estimate sends no G-code.
+        auto cancel = std::make_shared<http::Cancel>();
+        cancel->Stop();
+        size_t count = posts(deck).size();
+        r = link::ReadEstimate(t, gcode, cancel);
+        CHECK(!r.ok && r.cancelled);
+        CHECK(posts(deck).size() == count);
+    }
+
     void TestDetect()
     {
         HttpStub deck([](Seen const &s) -> Reply {
@@ -3044,7 +3145,7 @@ int main(int argc, char **argv)
     };
     Step const steps[] = {
         { "json", TestJson }, { "store", TestStore }, { "addresses", TestAddresses }, { "signing", TestSigning },
-        { "status", TestStatus }, { "key flow", TestKeyFlow }, { "deck", TestDeck }, { "upload", TestUpload }, { "print", TestPrintNet },
+        { "status", TestStatus }, { "key flow", TestKeyFlow }, { "deck", TestDeck }, { "upload", TestUpload }, { "print", TestPrintNet }, { "estimate", TestEstimate },
         { "detect", TestDetect }, { "filaments", TestFilaments }, { "mjpeg", TestMjpeg }, { "camera", TestCamera },
         { "discovery", TestDiscovery }, { "bambu", TestBambu }, { "setup", TestSetup }, { "rolls", TestRolls },
         { "usb", TestUsb }, { "h264", TestH264 }, { "rtsp", TestRtsp }, { "open link", TestOpenLink }, { "project", TestProjectSource }, { "file types", TestRegisterApp }, { "hand off", TestHandOff }, { "state move", TestStateMove },

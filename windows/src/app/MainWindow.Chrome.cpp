@@ -339,19 +339,27 @@ namespace winrt::ZSlice::implementation
             ShowCheckCount(0);
         if (state == ZS_STATE_SLICING || draft)
             return;
+        if (printers != nullptr)
+            printers->EstimatePlate(app);
         ShowBusy(L"");
         zs_stats stats{};
         if (state != ZS_STATE_DONE || zs_app_stats(app, &stats) != ZS_OK)
         {
             SummaryTime().Text(state == ZS_STATE_FAILED ? L"Slice failed" : L"—");
             SummaryDetail().Text(L"");
+            SummaryDeck().Visibility(Visibility::Collapsed);
             SummaryWarnBox().Visibility(Visibility::Collapsed);
             SummaryFacts().Children().Clear();
             SummaryTook().Text(L"");
             UpdateSummaryBadge(false);
             return;
         }
-        SummaryTime().Text(FormatTime(stats.print_time_s));
+        // A printdeck printer knows its own time, with start and heat.
+        bool deck_time = printers != nullptr && printers->EstimateShown(app);
+        SummaryTime().Text(FormatTime(deck_time ? printers->estimate.total : stats.print_time_s));
+        if (deck_time)
+            SummaryDeck().Text(zs::ToWide(zs::Printers().Current().name) + L": with " + FormatTime(printers->estimate.prep) + L" of start and heat. The slice alone: " + FormatTime(stats.print_time_s) + L".");
+        SummaryDeck().Visibility(deck_time ? Visibility::Visible : Visibility::Collapsed);
         double per_g = atof(model->GetSetting("filament.price_per_kg").c_str()) / 1000;
         double per_h = atof(model->GetSetting("machine.hour_rate").c_str());
         double cost = stats.filament_g * per_g + stats.print_time_s / 3600 * per_h;

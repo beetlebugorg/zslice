@@ -394,6 +394,7 @@
                                             <TextBlock x:Name="SummaryCameraNote" FontSize="12" TextWrapping="WrapWholeWords" Foreground="{ThemeResource ZsDim}" Visibility="Collapsed" />
                                         </StackPanel>
                                         <StackPanel x:Name="SummaryFacts" Spacing="4" />
+                                        <TextBlock x:Name="SummaryDeck" FontSize="12" TextWrapping="WrapWholeWords" Foreground="{ThemeResource ZsDim}" Visibility="Collapsed" />
                                         <Border x:Name="SummaryFilaments" />
                                         <TextBlock x:Name="SummaryTook" FontSize="12" Foreground="{ThemeResource ZsDim}" />
                                         <Border x:Name="SummaryWarnBox" Padding="8,6" CornerRadius="6" Background="#B42318" Visibility="Collapsed">

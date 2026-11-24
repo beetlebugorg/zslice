@@ -122,6 +122,79 @@ namespace winrt::ZSlice::implementation
 
     // Uploads the G-code of a plate (-1: the active plate). The file has the
     // signature. It starts a print only with a SendKind from AskBedClear.
+    // ---- the estimate of a printdeck printer ----
+
+    void MainWindow::PrintersUi::EstimateSoon()
+    {
+        // The card drops the old time, after the handler that called this.
+        if (estimate_ok)
+        {
+            std::weak_ptr<PrintersUi> weak = weak_from_this();
+            w.queue.TryEnqueue([weak] {
+                if (auto ui = weak.lock())
+                    ui->w.RefreshSummary();
+            });
+        }
+        estimate_ok = false;
+        estimate_app = w.model->Active();
+        if (estimate_cancel != nullptr)
+            estimate_cancel->Stop();
+        estimate_cancel = nullptr;
+        if (estimate_timer == nullptr)
+            return;
+        estimate_timer.Stop();
+        if (zs::Printers().Current().kind == zs::LinkKind::Printdeck)
+            estimate_timer.Start();
+    }
+
+    void MainWindow::PrintersUi::EstimatePlate(zs_app *app)
+    {
+        if (app != estimate_app)
+            EstimateSoon();
+    }
+
+    bool MainWindow::PrintersUi::EstimateShown(zs_app *app) const
+    {
+        return estimate_ok && app == estimate_app;
+    }
+
+    void MainWindow::PrintersUi::EstimateNow()
+    {
+        zs::SavedPrinter const &printer = zs::Printers().Current();
+        // The machine of a project plate is not the printer of the user.
+        if (printer.kind != zs::LinkKind::Printdeck || follow_stopped || setup.ProjectPlates())
+            return;
+        // A send or a question about a print goes first.
+        if (sending || batch.on || print_asking || low_asking)
+        {
+            estimate_timer.Start();
+            return;
+        }
+        zs_app *app = w.model->Active();
+        if (app != estimate_app || zs_app_state(app) != ZS_STATE_DONE || w.model->IsDraft())
+            return;
+        std::string gcode = CopyGcode(app);
+        if (gcode.empty())
+            return;
+        auto cancel = std::make_shared<zs::http::Cancel>();
+        estimate_cancel = cancel;
+        zs::link::Target target = zs::link::TargetOf(printer);
+        Async(
+            [target, gcode = std::move(gcode), cancel]() mutable { return zs::link::ReadEstimate(target, gcode, cancel); },
+            [cancel, app](PrintersUi &ui, zs::link::EstimateResult &r) {
+                // A newer slice, plate, or printer has its own request.
+                if (ui.estimate_cancel != cancel)
+                    return;
+                ui.estimate_cancel = nullptr;
+                // An older printdeck has no estimates: the time of the slice stays.
+                if (!r.ok || app != ui.w.model->Active())
+                    return;
+                ui.estimate = r.estimate;
+                ui.estimate_ok = true;
+                ui.w.RefreshSummary();
+            });
+    }
+
     // The print needs more plastic than the roll in the printer has left.
     winrt::fire_and_forget MainWindow::PrintersUi::AskLowFilament(std::string printer_id, size_t plate, double need, SendKind kind)
     {

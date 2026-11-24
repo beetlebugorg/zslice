@@ -397,7 +397,7 @@ namespace winrt::ZSlice::implementation
             // A closed port on this computer: a send reaches no printer.
             if (auto *p = zs::Printers().Find(zs::Printers().Current().id))
             {
-                p->kind = zs::LinkKind::OctoPrint;
+                p->kind = words.size() > 3 && words[3] == L"deck" ? zs::LinkKind::Printdeck : zs::LinkKind::OctoPrint;
                 p->url = "http://127.0.0.1:" + (words.size() > 2 ? zs::ToUtf8(words[2]) : std::string("1"));
                 zs::Printers().Save();
                 printers->rolls_printer = p->id;
@@ -406,6 +406,17 @@ namespace winrt::ZSlice::implementation
                 printers->RefreshBar();
                 printers->RefreshPrimary();
             }
+        }
+        else if (verb == L"usbestimate")
+        {
+            // usbestimate [0|1]: leaves or enters project mode first.
+            if (!words.empty())
+            {
+                printers->setup.SetProjectPlates(words[0] == L"1");
+                printers->EstimateSoon();
+            }
+            zs::Log("dev: estimate ok %d time '%s' deck shown %d '%s'\n", printers->estimate_ok ? 1 : 0, zs::ToUtf8(std::wstring(SummaryTime().Text())).c_str(),
+                    SummaryDeck().Visibility() == Visibility::Visible ? 1 : 0, zs::ToUtf8(std::wstring(SummaryDeck().Text())).c_str());
         }
         else if (verb == L"usbprintpage")
             printers->PrintPlate(zs::Printers().Current().id, (size_t)-1, true, !words.empty());

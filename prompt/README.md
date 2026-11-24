@@ -1,6 +1,6 @@
 # A prompt that could build zslice
 
-Describes: main through "Describe the Inspector in the docs", 2026-11-23.
+Describes: main through "Show the printdeck estimate in the Windows app", 2026-11-23.
 
 ## Read this first
 

@@ -9,6 +9,7 @@
 
 #include "pch.h"
 #include "MainWindow.xaml.h"
+#include "MainWindow.Printers.h"
 #if __has_include("MainWindow.g.cpp")
 #include "MainWindow.g.cpp"
 #endif
@@ -334,6 +335,8 @@ namespace winrt::ZSlice::implementation
                 // A draft has no G-code and no simulation: the file, the
                 // session, and the refinements wait for the exact slice.
                 bool draft = model->IsDraft();
+                if (printers != nullptr)
+                    printers->EstimateSoon();
                 model->NoteSliced();
                 WorkSliceEnded(draft);
                 if (!draft)

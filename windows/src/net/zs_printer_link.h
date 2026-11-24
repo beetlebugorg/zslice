@@ -11,7 +11,8 @@
 // Upload always sends print=false, so it starts no print. UploadAndPrint is
 // the one call here that sends print=true. It needs a PrintConfirmed, which
 // only the code that asked the user makes, for that print. It never retries.
-// A USB printer has neither: see zs_usb.h.
+// A USB printer has neither: see zs_usb.h. ReadEstimate sends the G-code to
+// a printdeck for its time, with no print field, so it starts no print.
 //
 // Each call blocks, so it runs on a worker thread. It has no WinRT.
 //
@@ -172,6 +173,27 @@ namespace zs::link
     // start it at once.
     UploadResult UploadAndPrint(Target &target, std::string const &filename, std::string const &bytes, CancelPtr const &cancel,
                                 std::function<void(double)> const &progress, PrintConfirmed yes);
+
+    // ---- the estimate of a printdeck printer ----
+
+    // The time of a print on this printer, from its history, in seconds:
+    // the moves, the steps of its start macro, and the total. plan_prints
+    // is the count of past prints in its factor.
+    struct Estimate
+    {
+        double moves = 0, prep = 0, total = 0;
+        int plan_prints = 0;
+    };
+    struct EstimateResult
+    {
+        bool ok = false;
+        bool cancelled = false;
+        Estimate estimate;
+        std::string message;
+    };
+    // The checks of an upload, then the G-code with gzip to
+    // /api/plugin/printdeck/estimate. Only a printdeck has estimates.
+    EstimateResult ReadEstimate(Target &target, std::string const &gcode, CancelPtr const &cancel);
 
     // Why this printer is or is not verified, for the printer list.
     std::string TrustText(Target const &target);

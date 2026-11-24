@@ -810,6 +810,53 @@ namespace zs::link
         }
     }
 
+    // The checks before G-code leaves this computer: the deck leads to the
+    // printer that the user picked, and the certificate is the known one.
+    static bool CheckBeforeFile(Target &t, std::string const &base, CancelPtr const &cancel, UploadResult &out)
+    {
+        if (t.kind == LinkKind::Printdeck)
+        {
+            // A deck with more printers: the address must lead to the one
+            // that the user picked. A deck with no list cannot be checked.
+            DeckList list;
+            std::string ignored;
+            if (ReadDeck(t, cancel, list, ignored))
+            {
+                std::string why = DeckRefusal(t, list);
+                if (!why.empty())
+                {
+                    out.message = why;
+                    return false;
+                }
+            }
+            if (cancel != nullptr && cancel->Stopped())
+            {
+                out.cancelled = true;
+                out.message = "Canceled.";
+                return false;
+            }
+        }
+        // On https: a small request first, to check the certificate before
+        // the file goes out.
+        if (StartsWith(Lower(base), "https://"))
+        {
+            http::Response r = Get(t, base, t.kind == LinkKind::Moonraker ? "/server/info" : "/api/version", cancel);
+            if (r.status == 0)
+            {
+                out.cancelled = r.cancelled;
+                out.message = r.error;
+                return false;
+            }
+            std::string why;
+            if (!CheckPin(t, r, why))
+            {
+                out.message = why;
+                return false;
+            }
+        }
+        return true;
+    }
+
     static UploadResult Transfer(Target &t, std::string const &filename, std::string const &bytes, CancelPtr const &cancel,
                                  std::function<void(double)> const &progress, bool print)
     {
@@ -837,46 +884,8 @@ namespace zs::link
             out.message = "Set the address of the printer.";
             return out;
         }
-        if (t.kind == LinkKind::Printdeck)
-        {
-            // A deck with more printers: the address must lead to the one
-            // that the user picked. A deck with no list cannot be checked.
-            DeckList list;
-            std::string ignored;
-            if (ReadDeck(t, cancel, list, ignored))
-            {
-                std::string why = DeckRefusal(t, list);
-                if (!why.empty())
-                {
-                    out.message = why;
-                    return out;
-                }
-            }
-            if (cancel != nullptr && cancel->Stopped())
-            {
-                out.cancelled = true;
-                out.message = "Canceled.";
-                return out;
-            }
-        }
-        // On https: a small request first, to check the certificate before
-        // the file goes out.
-        if (StartsWith(Lower(base), "https://"))
-        {
-            http::Response r = Get(t, base, t.kind == LinkKind::Moonraker ? "/server/info" : "/api/version", cancel);
-            if (r.status == 0)
-            {
-                out.cancelled = r.cancelled;
-                out.message = r.error;
-                return out;
-            }
-            std::string why;
-            if (!CheckPin(t, r, why))
-            {
-                out.message = why;
-                return out;
-            }
-        }
+        if (!CheckBeforeFile(t, base, cancel, out))
+            return out;
         http::Form form = http::NewForm();
         form.File("file", filename, bytes);
         // Only UploadAndPrint sets this.
@@ -948,6 +957,96 @@ namespace zs::link
                                 std::function<void(double)> const &progress, PrintConfirmed)
     {
         return Transfer(t, filename, bytes, cancel, progress, true);
+    }
+
+    EstimateResult ReadEstimate(Target &t, std::string const &gcode, CancelPtr const &cancel)
+    {
+        EstimateResult out;
+        if (t.kind != LinkKind::Printdeck)
+        {
+            out.message = "This printer has no estimates.";
+            return out;
+        }
+        std::string base = BaseUrl(t.url);
+        if (base.empty())
+        {
+            out.message = "Set the address of the printer.";
+            return out;
+        }
+        UploadResult check;
+        if (!CheckBeforeFile(t, base, cancel, check))
+        {
+            out.cancelled = check.cancelled;
+            out.message = check.message;
+            return out;
+        }
+        if (cancel != nullptr && cancel->Stopped())
+        {
+            out.cancelled = true;
+            out.message = "Canceled.";
+            return out;
+        }
+        uint8_t *zipped = nullptr;
+        size_t zipped_len = 0;
+        if (zs_gzip(reinterpret_cast<uint8_t const *>(gcode.data()), gcode.size(), &zipped, &zipped_len) != ZS_OK)
+        {
+            out.message = "The G-code could not be packed.";
+            return out;
+        }
+        http::Request req;
+        req.method = "POST";
+        req.url = base + "/api/plugin/printdeck/estimate";
+        req.api_key = t.api_key;
+        req.content_type = "text/plain";
+        req.content_encoding = "gzip";
+        req.body.assign(reinterpret_cast<char const *>(zipped), zipped_len);
+        zs_gzip_free(zipped, zipped_len);
+        req.cancel = cancel;
+        req.timeout_ms = 60000;
+        http::Response r = http::Send(req);
+        if (r.cancelled)
+        {
+            out.cancelled = true;
+            out.message = "Canceled.";
+            return out;
+        }
+        if (r.status == 0)
+        {
+            out.message = r.error;
+            return out;
+        }
+        std::string warning;
+        if (!CheckPin(t, r, warning))
+        {
+            out.message = warning;
+            return out;
+        }
+        if (r.status != 200)
+        {
+            out.message = "The printer answered " + std::to_string(r.status) + ".";
+            return out;
+        }
+        json::Value doc;
+        if (!json::Parse(r.body, doc))
+        {
+            out.message = "The printer sent no estimate.";
+            return out;
+        }
+        Estimate e;
+        e.moves = doc.Num("moves");
+        e.prep = doc.Num("prep");
+        e.total = doc.Num("total");
+        e.plan_prints = (int)std::clamp(doc.Num("plan_prints"), 0.0, 1000000.0);
+        // A time of more than a year is no estimate.
+        constexpr double longest = 366.0 * 24 * 3600;
+        if (!std::isfinite(e.total) || !std::isfinite(e.prep) || e.total <= 0 || e.total > longest || e.prep < 0 || e.prep > longest)
+        {
+            out.message = "The printer sent no estimate.";
+            return out;
+        }
+        out.ok = true;
+        out.estimate = e;
+        return out;
     }
 
     std::string TrustText(Target const &t)
