@@ -107,6 +107,22 @@ pub fn unpause() void {
     on.store(was_on, .monotonic);
 }
 
+/// The calls of a stage since the last `reset`.
+pub fn callsOf(s: Stage) usize {
+    return calls[@intFromEnum(s)].load(.monotonic);
+}
+
+/// A count since the last `reset`.
+pub fn countOf(c: Count) usize {
+    return counts[@intFromEnum(c)].load(.monotonic);
+}
+
+/// The layer plans since the last `reset`.
+pub fn plansMade() usize {
+    const plans_now = if (paused) plans_at_pause else plate_job.plans_made.load(.monotonic);
+    return plans_now - plans_base;
+}
+
 /// One decimal for a mean, and no decimal for a whole number.
 fn mean(x: usize, slices: f64) f64 {
     return @round(@as(f64, @floatFromInt(x)) / slices * 10) / 10;
@@ -122,8 +138,7 @@ pub fn print(w: *std.Io.Writer, slices: f64) std.Io.Writer.Error!void {
         const cpu_ms = @as(f64, @floatFromInt(cpu[i].load(.monotonic))) / 1e6 / slices;
         try w.print("  {s:<9} wall {d:>8.2} ms  cpu {d:>8.2} ms  calls {d:>8.1}\n", .{ name, wall_ms, cpu_ms, @as(f64, @floatFromInt(k)) / slices });
     }
-    const plans_now = if (paused) plans_at_pause else plate_job.plans_made.load(.monotonic);
-    const plans = plans_now - plans_base;
+    const plans = plansMade();
     try w.print("  plans {d}  levels_run {d}  texts_made {d}  booleans {d}  offsets {d}\n", .{
         mean(plans, slices),
         mean(counts[@intFromEnum(Count.levels_run)].load(.monotonic), slices),

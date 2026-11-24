@@ -66,6 +66,20 @@ Mark an item done when its commit is in `main`. Add an item when you find a prob
 - [x] `zig fmt` for the files outside the slicing stages.
 - [ ] `zig fmt --check` fails for `src/engine.zig` and `src/layer.zig`. Run `zig fmt` on them when no other branch changes them.
 
+## The slice verifier
+
+The app keeps work between slices. A key that misses an input gives a wrong slice with no error. `zslice verify` looks for this fault. Two apps get the same edits. The `inc` app keeps its work. The `full` app calls `App.dropWork` before each slice. After each edit, the G-code bytes, each array of the toolpaths, and the statistics must be equal.
+
+| Command | What it does |
+|---|---|
+| `zslice verify <model> --seeds 11,22,33 --steps 40` | Random edits of the user: settings, part settings, z ranges, moves, turns, scales, mirrors, copies, deletes, line edits, filament slots, support marks and areas, paint, undo, redo, drafts, and cancels. |
+| `zslice verify <model> --sweep` | Each value of each setting, from three base states, and back to the base. Writes one TSV line for each value to stderr. |
+| `zslice verify <model> --ranges NAME` | An override of a layer setting on three z ranges, alone and in pairs. `all` tries each layer setting. |
+| `zslice verify <model> --restore` | A third app loads the 3MF of `full` after each eighth step. A difference counts in its own total. |
+| `zslice verify --quick` | The demo part: the sweep of the first base state, and 3 seeds of 40 steps. |
+
+The exit code is 1 after a fault. One seed gives one list of edits, and the summary prints a hash of the list. Do not weaken a compare to make a run pass. A fault means that a key misses an input.
+
 ## Later: files that other work changes now
 
 These files change often. Change them only in small, safe steps.

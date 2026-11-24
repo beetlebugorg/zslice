@@ -87,6 +87,8 @@ pub const engine = @import("engine.zig");
 pub const plate_job = @import("plate_job.zig");
 /// The clocks of `zslice bench --stages` (see stage_clock.zig).
 pub const stage_clock = @import("stage_clock.zig");
+/// The twin-app check of kept work (see verify.zig).
+pub const verify = @import("verify.zig");
 pub const svg = @import("svg.zig");
 /// The filled shapes of an SVG picture, for a label (see svg_path.zig).
 pub const svg_path = @import("svg_path.zig");

@@ -615,6 +615,26 @@ Uniform grid search for the nearest point, ring by ring
 
 **How zslice uses it:** Finds the nearest path start in the greedy path order.
 
+### Differential testing
+
+```ref
+kind: paper
+source: W. McKeeman
+license: Paper (facts and ideas only)
+version: Digital Technical Journal, vol. 10, no. 1, pp. 100-107, 1998
+files: src/verify.zig
+area: slicing
+summary: Two apps get the same edits. One keeps its work, and one slices from the start. A difference in the output is a fault.
+```
+
+W. McKeeman, "Differential Testing for Software", Digital Technical Journal, vol. 10, no. 1, pp. 100-107, 1998. Two programs get the same inputs, and a difference in their outputs shows a fault. The citation comes from papers that cite this one. The text of the paper was not available when this entry was written.
+
+**License:** Paper (facts and ideas only)
+
+**Used in:** `src/verify.zig`
+
+**How zslice uses it:** `zslice verify` gives the same edits to two apps. One app keeps its work between slices, and the other drops its work before each slice. The G-code, the toolpaths, and the statistics must be equal.
+
 ### Memoization
 
 ```ref

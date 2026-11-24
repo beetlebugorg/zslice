@@ -292,6 +292,8 @@ pub const App = struct {
     /// Simulate the print after each slice, on the thread of the slice
     /// (see `auto_simulate`). A change stops it.
     auto_simulate: bool = false,
+    /// The next slice takes no work from the job before (see `dropWork`).
+    drop_work: bool = false,
     /// The simulation of the thread of the slice, when it is done, and if
     /// it waits for `adoptSimulation`.
     sim_pending: ?sim_print.Result = null,
@@ -3022,6 +3024,9 @@ pub const App = struct {
             app.prev_job = j;
             app.job = null;
         }
+        // The result stays until this slice. Its work goes now.
+        if (app.drop_work) app.dropPrevJob();
+        app.drop_work = false;
         app.recycleResults();
         // The mesh of the plate, made again after a change.
         if (app.plate_changed) {
@@ -3441,6 +3446,17 @@ pub const App = struct {
             t.gpa.destroy(t);
         }
     };
+
+    /// Drops all kept work, so that the next slice starts from the mesh.
+    /// The plate, the settings, the result, and the undo list stay. The
+    /// slice verifier calls this before each slice of its `full` app (see
+    /// verify.zig).
+    pub fn dropWork(app: *App) void {
+        app.stopWorker();
+        app.dropPrevJob();
+        if (app.job) |*j| j.dropMemos();
+        app.drop_work = true;
+    }
 
     fn dropPrevJob(app: *App) void {
         if (app.prev_job) |*j| j.deinit();

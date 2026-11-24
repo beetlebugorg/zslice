@@ -24,6 +24,8 @@ const usage =
     \\  zslice demo <out.stl>
     \\  zslice bench <model.stl> [options]
     \\  zslice sweep <model.stl> [options] [--points N] [--only TEXT] [-o out.tsv]
+    \\  zslice verify [model.stl ...] [--seeds 11,22,33] [--steps 40] [--sweep]
+    \\                [--ranges NAME|all] [--restore] [--quick] [-s group.name=value]
     \\  zslice gcode <file.gcode>
     \\
     \\Commands:
@@ -80,6 +82,15 @@ const usage =
     \\            with no change. --stages prints, after each kind, the
     \\            time of each stage for one slice and the counts of the
     \\            plans, runs, texts, booleans, and offsets.
+    \\  verify    Prove that kept work does not change a slice. Two apps get
+    \\            the same edits. One keeps its work, and one slices from
+    \\            the start. The G-code, the toolpaths, and the statistics
+    \\            must be equal. The exit code is 1 after a fault. --sweep
+    \\            tries each value of each setting from three base states.
+    \\            --ranges tries overrides of a layer setting on z ranges.
+    \\            --restore also loads the 3MF after each eighth step.
+    \\            --quick is the sweep of one base state and 3 seeds. With
+    \\            no model, the tool uses the demo part.
     \\  sweep     For each project and filament setting, slice with values
     \\            across its range (the others at their base values), and
     \\            write the print time, the plastic, the cost, the travel,
@@ -215,6 +226,8 @@ pub fn main(init: std.process.Init) !void {
         }.f);
         return;
     }
+
+    if (std.mem.eql(u8, cmd, "verify")) return verifyCommand(arena, gpa, io, err, args[2..]);
 
     const is_profile = std.mem.eql(u8, cmd, "profile");
     const is_bench = std.mem.eql(u8, cmd, "bench");
@@ -525,6 +538,70 @@ fn sweep(gpa: std.mem.Allocator, io: Io, err: *Io.Writer, mesh: *const zslice.Me
             }
         }
     }
+}
+
+/// `zslice verify`: see verify.zig. Exits with 1 after a fault.
+fn verifyCommand(arena: std.mem.Allocator, gpa: std.mem.Allocator, io: Io, err: *Io.Writer, args: []const [:0]const u8) !void {
+    var opts: zslice.verify.Options = .{ .random = false };
+    var models: std.ArrayList(zslice.verify.Model) = .empty;
+    var sets: std.ArrayList([]const u8) = .empty;
+    var seeds: std.ArrayList(u64) = .empty;
+    var quick = false;
+    var explicit_random = false;
+    var i: usize = 0;
+    while (i < args.len) : (i += 1) {
+        const a = args[i];
+        const value = struct {
+            fn f(e: *Io.Writer, list: []const [:0]const u8, k: *usize) []const u8 {
+                k.* += 1;
+                if (k.* >= list.len) fail(e, "{s} needs a value\n", .{list[k.* - 1]});
+                return list[k.*];
+            }
+        }.f;
+        if (std.mem.eql(u8, a, "--sweep")) {
+            opts.sweep = true;
+        } else if (std.mem.eql(u8, a, "--restore")) {
+            opts.restore = true;
+            explicit_random = true;
+        } else if (std.mem.eql(u8, a, "--quick")) {
+            quick = true;
+        } else if (std.mem.eql(u8, a, "--ranges")) {
+            opts.ranges = value(err, args, &i);
+        } else if (std.mem.eql(u8, a, "--steps")) {
+            const v = value(err, args, &i);
+            opts.steps = std.fmt.parseInt(usize, v, 10) catch fail(err, "--steps: {s}\n", .{v});
+            explicit_random = true;
+        } else if (std.mem.eql(u8, a, "--seeds")) {
+            var it = std.mem.tokenizeScalar(u8, value(err, args, &i), ',');
+            while (it.next()) |t| try seeds.append(arena, std.fmt.parseInt(u64, t, 10) catch fail(err, "--seeds: {s}\n", .{t}));
+            explicit_random = true;
+        } else if (std.mem.eql(u8, a, "-s")) {
+            try sets.append(arena, value(err, args, &i));
+        } else if (a.len > 0 and a[0] == '-') {
+            fail(err, "unknown option: {s}\n\n{s}", .{ a, usage });
+        } else {
+            const bytes = try Io.Dir.cwd().readFileAlloc(io, a, arena, .unlimited);
+            try models.append(arena, .{ .name = std.fs.path.basename(a), .bytes = bytes });
+        }
+    }
+    if (models.items.len == 0) {
+        var m = try zslice.mesh.shapes.demo(gpa);
+        defer m.deinit(gpa);
+        var stl: Io.Writer.Allocating = .init(arena);
+        try m.writeStl(&stl.writer);
+        try models.append(arena, .{ .name = "demo.stl", .bytes = stl.written() });
+    }
+    if (quick) {
+        opts.sweep = true;
+        opts.sweep_bases = 1;
+        explicit_random = true;
+    }
+    opts.random = explicit_random or (!opts.sweep and opts.ranges == null);
+    if (seeds.items.len > 0) opts.seeds = seeds.items;
+    opts.sets = sets.items;
+    const r = try zslice.verify.run(gpa, io, models.items, opts, err);
+    try err.flush();
+    if (r.faults > 0 or (opts.restore and r.restore_faults > 0)) std.process.exit(1);
 }
 
 /// The changes that `bench` makes, one for each kind of setting. Each slice
