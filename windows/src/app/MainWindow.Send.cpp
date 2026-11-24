@@ -111,7 +111,7 @@ namespace winrt::ZSlice::implementation
         }
         else
         {
-        add(L"Upload to " + zs::ToWide(printer.name), can_send && !sending && !batch.on && printable && (sliced || state == ZS_STATE_SLICING),
+        add(L"Upload only", can_send && !sending && !batch.on && printable && (sliced || state == ZS_STATE_SLICING),
             [this, id] { SendPlate(id, (size_t)-1); });
         add(L"Send all plates", can_send && !sending && !batch.on, [this] { SendAll(); });
         }
@@ -121,9 +121,9 @@ namespace winrt::ZSlice::implementation
     }
 
     // Uploads the G-code of a plate (-1: the active plate). The file has the
-    // signature, and it goes with print=false.
+    // signature. It starts a print only with a SendKind from AskBedClear.
     // The print needs more plastic than the roll in the printer has left.
-    winrt::fire_and_forget MainWindow::PrintersUi::AskLowFilament(std::string printer_id, size_t plate, double need)
+    winrt::fire_and_forget MainWindow::PrintersUi::AskLowFilament(std::string printer_id, size_t plate, double need, SendKind kind)
     {
         auto keep = shared_from_this();
         low_asking = true;
@@ -149,14 +149,143 @@ namespace winrt::ZSlice::implementation
         }
         low_asking = false;
         if (answer == ContentDialogResult::Primary)
-            SendPlate(printer_id, plate, true);
+            SendPlate(printer_id, plate, true, kind);
     }
 
-    void MainWindow::PrintersUi::SendPlate(std::string const &printer_id, size_t plate, bool low_ok)
+    bool MainWindow::PrintersUi::PlateReady(zs_app *app, size_t index)
+    {
+        std::wstring refusal = w.PlateRefusal(app);
+        if (!refusal.empty())
+        {
+            w.ShowError(refusal);
+            return false;
+        }
+        if (app == nullptr || zs_app_state(app) != ZS_STATE_DONE)
+        {
+            Note(L"No G-code: the plate has no slice yet.");
+            return false;
+        }
+        // A draft has no G-code.
+        if (zs_app_is_draft(app) != 0)
+        {
+            w.model->SliceExact(index);
+            Note(L"The exact slice runs. Send again when it is done.");
+            return false;
+        }
+        return true;
+    }
+
+    void MainWindow::PrintersUi::PrintPlate(std::string const &printer_id, size_t plate, bool from_page, bool busy)
     {
         zs::SavedPrinter *printer = zs::Printers().Find(printer_id);
-        if (printer == nullptr || sending || low_asking)
+        if (printer == nullptr || sending || low_asking || print_asking)
             return;
+        if (printer->kind == zs::LinkKind::Usb)
+        {
+            Note(L"A USB printer prints with Print over USB.");
+            return;
+        }
+        if (printer->kind == zs::LinkKind::None || printer->kind == zs::LinkKind::Bambu)
+        {
+            Note(L"The Windows app cannot send a print to this printer.");
+            return;
+        }
+        if (batch.on)
+        {
+            Note(L"Wait for the plates that go out now.");
+            return;
+        }
+        zs_set *set = w.model->Set();
+        size_t index = plate == (size_t)-1 ? zs_set_active(set) : plate;
+        if (!PlateReady(zs_set_app(set, index), index))
+            return;
+        AskBedClear(printer_id, index, from_page, busy);
+    }
+
+    // A print can start as soon as the file is there: a fresh yes of the
+    // user, each time. Cancel is the default.
+    winrt::fire_and_forget MainWindow::PrintersUi::AskBedClear(std::string printer_id, size_t index, bool from_page, bool busy)
+    {
+        auto keep = shared_from_this();
+        zs::SavedPrinter *printer = zs::Printers().Find(printer_id);
+        zs_set *set = w.model->Set();
+        zs_plate_info info{};
+        if (printer == nullptr || zs_set_plate_info(set, index, &info) != ZS_OK)
+            co_return;
+        uint64_t plate_id = info.id;
+        std::string url = printer->url;
+        zs::LinkKind link = printer->kind;
+        std::wstring name = zs::ToWide(printer->name);
+        bool deck = link == zs::LinkKind::Printdeck;
+        std::wstring title, detail, yes;
+        if (from_page)
+        {
+            std::wstring plate_name = info.name != nullptr && info.name[0] != 0 ? zs::ToWide(info.name) : L"the plate";
+            title = L"Send \"" + plate_name + L"\" to " + name + L"?";
+            detail = L"Is the bed of " + name + L" clear? The print can start when the file is there";
+            detail += deck ? L" (a deck set to ask waits for a press of Print on it)." : L".";
+            if (busy)
+                detail += L"\n\nThe printer looks busy now.";
+            zs::SavedPrinter const &current = zs::Printers().Current();
+            if (current.id != printer_id)
+                detail += L"\n\nThe plate is sliced for " + zs::ToWide(current.name) + L", another printer.";
+            yes = L"Send";
+        }
+        else
+        {
+            title = L"Is the bed of " + name + L" clear?";
+            detail = deck ? L"The print starts when the file is there. A deck set to ask waits for a press of Print on it." : L"The print starts when the file is there.";
+            yes = L"Print";
+        }
+        print_asking = true;
+        ContentDialog dialog;
+        dialog.XamlRoot(w.Content().XamlRoot());
+        w.ThemeDialog(dialog);
+        dialog.Title(box_value(title));
+        TextBlock text;
+        text.TextWrapping(TextWrapping::Wrap);
+        text.Text(detail);
+        dialog.Content(text);
+        dialog.PrimaryButtonText(yes);
+        dialog.CloseButtonText(L"Cancel");
+        dialog.DefaultButton(ContentDialogButton::Close);
+        ContentDialogResult answer = ContentDialogResult::None;
+        try
+        {
+            answer = co_await dialog.ShowAsync();
+        }
+        catch (winrt::hresult_error const &)
+        {
+        }
+        print_asking = false;
+        if (answer != ContentDialogResult::Primary)
+            co_return;
+        // The yes is for this printer at this address, and for this plate.
+        zs::SavedPrinter *now = zs::Printers().Find(printer_id);
+        zs_plate_info after{};
+        if (now == nullptr || now->kind != link || now->url != url || zs_set_plate_info(set, index, &after) != ZS_OK || after.id != plate_id)
+        {
+            Note(L"The printer or the plate changed. Nothing was sent.");
+            co_return;
+        }
+        SendPlate(printer_id, index, false, from_page ? SendKind::Print : SendKind::PrintFromBar);
+    }
+
+    void MainWindow::PrintersUi::SendPlate(std::string const &printer_id, size_t plate, bool low_ok, SendKind kind)
+    {
+        zs::SavedPrinter *printer = zs::Printers().Find(printer_id);
+        if (printer == nullptr || sending || low_asking || print_asking)
+            return;
+#ifdef ZS_DEV_HOOKS
+        // A build with test hooks starts a print only on a stub on this
+        // computer.
+        if (kind != SendKind::Upload && printer->url.rfind("http://127.0.0.1:", 0) != 0)
+        {
+            zs::Log("dev: print refused, not a local stub\n");
+            Note(L"A test build prints only on a stub on this computer.");
+            return;
+        }
+#endif
         // Each line on a USB port runs, so nothing here reaches it.
         if (printer->kind == zs::LinkKind::Usb)
         {
@@ -172,31 +301,15 @@ namespace winrt::ZSlice::implementation
         zs_set *set = w.model->Set();
         size_t index = plate == (size_t)-1 ? zs_set_active(set) : plate;
         zs_app *app = zs_set_app(set, index);
-        std::wstring refusal = w.PlateRefusal(app);
-        if (!refusal.empty())
-        {
-            w.ShowError(refusal);
+        if (!PlateReady(app, index))
             return;
-        }
-        if (app == nullptr || zs_app_state(app) != ZS_STATE_DONE)
-        {
-            Note(L"No G-code: the plate has no slice yet.");
-            return;
-        }
-        // A draft has no G-code.
-        if (zs_app_is_draft(app) != 0)
-        {
-            w.model->SliceExact(index);
-            Note(L"The exact slice runs. Send again when it is done.");
-            return;
-        }
         // The core gives 0 grams for a roll with no known weight.
         if (!low_ok && !batch.on && printer_id == rolls_printer && !spool_now.empty() && spool_left_now > 0)
         {
             zs_stats stats{};
             if (zs_app_stats(app, &stats) == ZS_OK && stats.filament_g > spool_left_now)
             {
-                AskLowFilament(printer_id, index, stats.filament_g);
+                AskLowFilament(printer_id, index, stats.filament_g, kind);
                 return;
             }
         }
@@ -233,12 +346,14 @@ namespace winrt::ZSlice::implementation
         {
             zs::link::UploadResult upload;
             zs::link::Target target;
+            bool from_bar = false;
         };
         Async(
-            [target, file, bytes = std::move(bytes), cancel, post, name]() mutable {
+            [target, file, bytes = std::move(bytes), cancel, post, name, kind]() mutable {
                 Result r;
+                r.from_bar = kind == SendKind::PrintFromBar;
                 auto last = std::make_shared<int>(-1);
-                r.upload = zs::link::Upload(target, file, bytes, cancel, [post, name, last](double f) {
+                auto sent = [post, name, last](double f) {
                     int percent = (int)(f * 100);
                     if (percent == *last)
                         return;
@@ -246,7 +361,9 @@ namespace winrt::ZSlice::implementation
                     post.Post([name, percent](PrintersUi &ui) {
                         ui.Note(L"Sending to " + name + L": " + std::to_wstring(percent) + L" %");
                     });
-                });
+                };
+                r.upload = kind == SendKind::Upload ? zs::link::Upload(target, file, bytes, cancel, sent)
+                                                    : zs::link::UploadAndPrint(target, file, bytes, cancel, sent, zs::link::PrintConfirmed{});
                 r.target = std::move(target);
                 return r;
             },
@@ -260,6 +377,9 @@ namespace winrt::ZSlice::implementation
                     ui.Note(zs::ToWide(r.upload.message));
                 else
                     ui.w.ShowError(L"The file was not sent: " + zs::ToWide(r.upload.message));
+                // The plate of a project prints now.
+                if (r.upload.ok && r.from_bar)
+                    ui.w.ProjectPlateSent();
                 if (ui.batch.on && ui.batch.send)
                 {
                     if (!r.upload.ok)

@@ -351,14 +351,23 @@ namespace winrt::ZSlice::implementation
         w.PrintersHost().Children().Append(page_button);
     }
 
-    // The main button of the bottom bar. A printer that takes files gets an
-    // upload. A USB printer prints from here, after a yes for that print.
+    // The main button of the bottom bar. It prints, after a yes for that
+    // print. A printer with no way to print gets the export.
     void MainWindow::PrintersUi::RefreshPrimary()
     {
         zs::SavedPrinter const &printer = zs::Printers().Current();
         bool usb = printer.kind == zs::LinkKind::Usb;
         bool can_send = printer.kind != zs::LinkKind::None && printer.kind != zs::LinkKind::Bambu && !usb;
-        w.ExportButton().Content(box_value(sending ? std::wstring(L"Sending…") : can_send ? L"Upload to " + zs::ToWide(printer.name) : std::wstring(L"Export G-code…")));
+        std::wstring print_label = printer.kind == zs::LinkKind::Printdeck ? L"Print to Printdeck"
+                                   : printer.kind == zs::LinkKind::OctoPrint ? L"Print to OctoPrint"
+                                   : printer.kind == zs::LinkKind::Moonraker ? L"Print to Moonraker"
+                                                                             : L"Print";
+        w.ExportButton().Content(box_value(sending ? std::wstring(L"Sending…") : can_send ? print_label : std::wstring(L"Export G-code…")));
+        if (can_send)
+            ToolTipService::SetToolTip(w.ExportButton(), box_value(L"Upload the G-code to " + zs::ToWide(printer.name) + L" and start the print" +
+                                                                    (printer.kind == zs::LinkKind::Printdeck ? L" (a deck set to ask waits for a press of Print on it)" : L"")));
+        else
+            ToolTipService::SetToolTip(w.ExportButton(), nullptr);
         if (usb)
             w.ExportButton().Content(box_value(L"Print over USB…"));
         if (sending)
@@ -376,17 +385,20 @@ namespace winrt::ZSlice::implementation
         if (printer.kind == zs::LinkKind::Usb)
             PrintUsb();
         else if (printer.kind != zs::LinkKind::None && printer.kind != zs::LinkKind::Bambu)
-            SendPlate(printer.id, (size_t)-1);
+            PrintPlate(printer.id, (size_t)-1);
         else
             ExportGcode();
     }
 
     void MainWindow::PrintersUi::UploadOnly()
     {
-        if (zs::Printers().Current().kind == zs::LinkKind::Usb)
+        zs::SavedPrinter const &printer = zs::Printers().Current();
+        if (printer.kind == zs::LinkKind::Usb)
             Note(L"A USB printer has no upload. Use Print over USB.");
+        else if (printer.kind != zs::LinkKind::None && printer.kind != zs::LinkKind::Bambu)
+            SendPlate(printer.id, (size_t)-1);
         else
-            PrimaryAction();
+            ExportGcode();
     }
 
     // The spools that a printdeck printer has loaded. The core makes them the
@@ -454,7 +466,8 @@ namespace winrt::ZSlice::implementation
     // project keeps its filaments, and an upload keeps the plate it sends.
     void MainWindow::PrintersUi::FollowSpools(std::string const &name, zs::link::Snapshot const &status)
     {
-        if (status.core == nullptr || sending || batch.on || setup.ProjectPlates())
+        // A question about a print keeps the slice that it asks about.
+        if (status.core == nullptr || sending || batch.on || print_asking || low_asking || setup.ProjectPlates())
             return;
         size_t len = 0;
         if (zs_printer_status_filaments(status.core.get(), nullptr, 0, &len) != ZS_OK)
@@ -484,7 +497,7 @@ namespace winrt::ZSlice::implementation
         zs::RollFacts roll{ status.spool_id, status.spool_name, status.material, status.spool_color, status.diameter };
         FollowSpools(name, status);
         // A send keeps its settings. The next status after it has the roll.
-        if (sending || batch.on)
+        if (sending || batch.on || print_asking || low_asking)
             return;
         std::string note;
         if (!setup.FollowRoll(id, roll, zs::Printers().Pref("follow_roll", "1") == "1", note))

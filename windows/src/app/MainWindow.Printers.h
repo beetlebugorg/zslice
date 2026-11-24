@@ -230,9 +230,23 @@ namespace winrt::ZSlice::implementation
 
         // ---- MainWindow.Send.cpp ----
         void FillSendMenu();
+        // Upload stores the file. Print and PrintFromBar start it, and only
+        // AskBedClear passes them, after a yes for that print.
+        enum class SendKind
+        {
+            Upload,
+            Print,
+            PrintFromBar
+        };
         // low_ok: the user said to send with too little on the roll.
-        void SendPlate(std::string const &printer_id, size_t plate, bool low_ok = false);
-        winrt::fire_and_forget AskLowFilament(std::string printer_id, size_t plate, double need);
+        void SendPlate(std::string const &printer_id, size_t plate, bool low_ok = false, SendKind kind = SendKind::Upload);
+        winrt::fire_and_forget AskLowFilament(std::string printer_id, size_t plate, double need, SendKind kind);
+        // Asks if the bed is clear, then prints. from_page: a card or the
+        // queue of the Printers page. busy: the printer looks busy.
+        void PrintPlate(std::string const &printer_id, size_t plate, bool from_page = false, bool busy = false);
+        winrt::fire_and_forget AskBedClear(std::string printer_id, size_t index, bool from_page, bool busy);
+        // The plate can go out. If it cannot, the user gets the reason.
+        bool PlateReady(zs_app *app, size_t index);
         winrt::fire_and_forget ExportGcode();
         // The top layer, or the layers that show, alone on the bed.
         winrt::fire_and_forget ExportTestPrint(bool top_only);
@@ -306,7 +320,7 @@ namespace winrt::ZSlice::implementation
         // The roll in the current printer, and its grams. 0 is no known weight.
         std::string spool_now;
         double spool_left_now = 0;
-        bool low_asking = false;
+        bool low_asking = false, print_asking = false;
         Microsoft::UI::Xaml::Controls::Button back_button{ nullptr };
 
         std::vector<std::shared_ptr<OverlayPanel>> panels;

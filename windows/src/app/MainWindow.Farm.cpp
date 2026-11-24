@@ -326,8 +326,8 @@ namespace winrt::ZSlice::implementation
 
             StackPanel actions = Row(6);
             actions.Margin(ThicknessHelper::FromLengths(0, 4, 0, 0));
-            // The main button uploads. It never starts a print.
-            tile->action = TextButton(L"Upload the plate", true);
+            // The main button prints, after a yes for that print.
+            tile->action = TextButton(L"Print the plate", true);
             tile->action.IsEnabled(false);
             tile->action.Click([this, weak](auto &&, auto &&) {
                 auto t = weak.lock();
@@ -344,7 +344,7 @@ namespace winrt::ZSlice::implementation
                     });
                     return;
                 }
-                SendPlate(t->id, (size_t)-1);
+                PrintPlate(t->id, (size_t)-1, true);
             });
             actions.Children().Append(tile->action);
             DropDownButton more;
@@ -996,7 +996,7 @@ namespace winrt::ZSlice::implementation
                                                                     : L"Connect zslice: allow it in the web page of the printer"));
                 return;
             }
-            t->action.Content(box_value(L"Upload the plate"));
+            t->action.Content(box_value(L"Print the plate"));
             bool bambu = printer->kind == zs::LinkKind::Bambu;
             t->action.IsEnabled(sliced && t->state == ZS_FARM_IDLE && !bambu);
             wchar_t const *tip = bambu ? L"The Windows app reads a Bambu Lab printer, and sends it nothing."
@@ -1004,7 +1004,7 @@ namespace winrt::ZSlice::implementation
                                  : !sliced ? L"Slice the plate first."
                                  : t->state == ZS_FARM_FINISHED ? L"A print waits on the bed: clear it first."
                                  : t->state != ZS_FARM_IDLE ? L"The printer is busy, or does not answer."
-                                                            : L"Upload the G-code of the active plate. Start the print on the printer.";
+                                                            : L"Upload the G-code of the active plate, and start it after you confirm that the bed is clear";
             ToolTipService::SetToolTip(t->action, box_value(tip));
         };
         auto counts_now = [&] {
@@ -1250,8 +1250,13 @@ namespace winrt::ZSlice::implementation
             go.IsEnabled(info.status == ZS_PLATE_STATUS_DONE && !ids.empty());
             go.Click([this, drop, ids, i](auto &&, auto &&) {
                 int at = drop.SelectedIndex();
-                if (at >= 0 && at < (int)ids.size())
-                    SendPlate(ids[(size_t)at], i);
+                if (at < 0 || at >= (int)ids.size())
+                    return;
+                bool busy = false;
+                for (auto const &tile : tiles)
+                    if (tile->id == ids[(size_t)at])
+                        busy = tile->state != ZS_FARM_IDLE;
+                PrintPlate(ids[(size_t)at], i, true, busy);
             });
             Grid::SetColumn(go, 2);
             row.Children().Append(go);

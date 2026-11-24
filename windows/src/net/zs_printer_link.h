@@ -8,10 +8,10 @@
 // reply (zs_printer_status). The flow follows linux/src/net/printer-link.c
 // and web/app/link.js. See docs/references/formats-and-protocols.md.
 //
-// NOTHING HERE STARTS A PRINT. Upload always sends print=false, and no
-// function here can send anything else. The person starts the print on the
-// printer. A USB printer has no upload: see zs_usb.h, the one path that
-// prints, after a yes of the user for that print.
+// Upload always sends print=false, so it starts no print. UploadAndPrint is
+// the one call here that sends print=true. It needs a PrintConfirmed, which
+// only the code that asked the user makes, for that print. It never retries.
+// A USB printer has neither: see zs_usb.h.
 //
 // Each call blocks, so it runs on a worker thread. It has no WinRT.
 //
@@ -161,6 +161,17 @@ namespace zs::link
     // checked first, and the certificate of an https printer too.
     UploadResult Upload(Target &target, std::string const &filename, std::string const &bytes, CancelPtr const &cancel,
                         std::function<void(double)> const &progress);
+
+    // The proof that the user said yes to this print. Make one only right
+    // after the question that asks for it.
+    struct PrintConfirmed
+    {
+        explicit PrintConfirmed() = default;
+    };
+    // The checks of Upload, then the file with print=true: the printer can
+    // start it at once.
+    UploadResult UploadAndPrint(Target &target, std::string const &filename, std::string const &bytes, CancelPtr const &cancel,
+                                std::function<void(double)> const &progress, PrintConfirmed yes);
 
     // Why this printer is or is not verified, for the printer list.
     std::string TrustText(Target const &target);

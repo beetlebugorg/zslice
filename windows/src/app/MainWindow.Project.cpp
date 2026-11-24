@@ -1223,6 +1223,14 @@ namespace winrt::ZSlice::implementation
         RefreshSigns();
     }
 
+    void MainWindow::ProjectPlateSent()
+    {
+        if (project_ui == nullptr || printers == nullptr || !printers->setup.ProjectPlates())
+            return;
+        if (project_ui->has_active && !project_ui->active.empty())
+            ProjectSetStatus(project_ui->active, "printing");
+    }
+
     // ---- the page ----
 
     // A render after the handler of a control that the render replaces.

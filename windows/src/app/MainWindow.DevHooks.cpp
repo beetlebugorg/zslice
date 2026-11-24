@@ -266,6 +266,28 @@ namespace winrt::ZSlice::implementation
     // compiler for one chain of else-if.
     bool MainWindow::RunDialogStep(std::wstring const &verb, std::vector<std::wstring> const &words)
     {
+        if (verb == L"dialogtext")
+        {
+            // The title, text, buttons, and default of the open dialog.
+            using Tree = Microsoft::UI::Xaml::Media::VisualTreeHelper;
+            std::function<void(Microsoft::UI::Xaml::DependencyObject const &)> walk = [&](Microsoft::UI::Xaml::DependencyObject const &at) {
+                if (auto dialog = at.try_as<Microsoft::UI::Xaml::Controls::ContentDialog>())
+                {
+                    auto title = dialog.Title().try_as<hstring>();
+                    auto body = dialog.Content().try_as<Microsoft::UI::Xaml::Controls::TextBlock>();
+                    zs::Log("dev: dialog title '%s' text '%s' yes '%s' no '%s' default %d\n", title ? zs::ToUtf8(std::wstring(*title)).c_str() : "",
+                            body != nullptr ? zs::ToUtf8(std::wstring(body.Text())).c_str() : "", zs::ToUtf8(std::wstring(dialog.PrimaryButtonText())).c_str(),
+                            zs::ToUtf8(std::wstring(dialog.CloseButtonText())).c_str(), (int)dialog.DefaultButton());
+                    return;
+                }
+                for (int32_t i = 0, n = Tree::GetChildrenCount(at); i < n; i++)
+                    walk(Tree::GetChild(at, i));
+            };
+            for (auto const &popup : Tree::GetOpenPopupsForXamlRoot(Content().XamlRoot()))
+                if (popup.Child() != nullptr)
+                    walk(popup.Child());
+            return true;
+        }
         if (verb == L"historygo" && !words.empty())
         {
             GoToStep((size_t)_wtoi(words[0].c_str()));

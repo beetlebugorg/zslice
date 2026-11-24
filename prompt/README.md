@@ -1,6 +1,6 @@
 # A prompt that could build zslice
 
-Describes: main through "Leave housekeeping commits out of the release notes", 2026-11-23.
+Describes: main through "Add network printing to the Windows app", 2026-11-23.
 
 ## Read this first
 
