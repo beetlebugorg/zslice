@@ -183,7 +183,7 @@ The same edits with `engine.slice_form=true`, on 2026-11-24, at a load average o
 | `zwalls` | 47.4 | 218 | 25.1 | 710 | 239, 292 |
 | `late` | 53.6 | 145 | 239 | 18 | 239, 141 |
 | `zfil` | 58.8 | 162 | 240 | 19 | 240, 161 (`project.filament` is not local) |
-| `move`, `turnz`, `draftexact`, `move2` | as before | as before | as before | as before | These need the part forms of milestone M2 |
+| `move`, `turnz`, `draftexact`, `move2` | as before | as before | as before | as before | See milestone M2 below |
 
 A line edit plans its own level. An override of `project.infill_density` or `project.wall_count` (`settings.layer_local`) plans the levels of its range and the level above the range. An undo and a redo find the stream of each level in the older generation. The time of these edits is now the time of the run and the text of all levels: about 36 ms of CPU.
 
@@ -199,7 +199,25 @@ A filament edit of one line (edit kind 3) is in the hash of all levels, so it pl
 | `linefilmove` | Move a part with a filament edit | 240, 1460 | 240, 1459 |
 | `linefilmirror` | Mirror a part with a filament edit | 240, 1453 | 240, 1454 |
 
-With the setting on, the first two slices of `linefil` plan all levels. The next slices find each stream in the older generation, so the mean is 68.6 plans. A move and a mirror need the part forms of milestone M2.
+With the setting on, the first two slices of `linefil` plan all levels. The next slices find each stream in the older generation, so the mean is 68.6 plans. A move and a mirror of the one part of the plate make its mesh new, also after milestone M2 (see below).
+
+### Parts and lanes (milestone M2)
+
+The same edits with `engine.slice_form=true`, before milestone M2 (main, commit "Add the filament edits of lines to the verifier and the bench") and after it, on 2026-11-24. The two runs ran one after the other at a load average of 8 to 10, so compare the CPU. The CPU is the median of 7 slices. Each kind prints `same`.
+
+| Kind | Before: CPU ms, mesh cuts | After: CPU ms, mesh cuts | What changed |
+|---|---|---|---|
+| `noop` | 53.3, 0 | 51.0, 0 | The start of the slice 3.2 to 0.5 ms, its init 1.8 to 0.2 ms: no copy and no hash of the mesh |
+| `speed`, `temp`, `prefs` | 52 to 53, 0 | 50 to 50, 0 | The same |
+| `edit`, `undo`, `zrange`, `zwalls`, `late` | as M1 | as M1 | The start and the init only |
+| `draftexact` | 1455, 1 | 162, 0 | The exact slice keeps the work of the exact lane: 18 booleans in place of 8407 |
+| `move2` | 2733, 2 | 1491, 1 | The 3DBenchy keeps its outlines, memos, and streams. The bunny slices again |
+| `move`, `turnz` | 1452 and 1500, 1 | 1481 and 1521, 1 | One part: its mesh is new at the new place. Milestone M4 is for this |
+| `linefilmove`, `linefilmirror` | 1468 and 1464, 1 | 1491 and 1479, 1 | The same as `move` |
+
+At a load average of 1 to 4, the same build gave: `noop` 47.7 ms (48.7 before), `draftexact` 137 ms, and `move2` 1397 ms.
+
+The budget (`engine.form_budget_mb`): deck_body, an infill change (`late`, 5 slices) keeps 53 MB of counted work with the default of 256 MB, and 942 ms of CPU (930 ms before the budget). With 16 MB it keeps at most 16.0 MB after each slice, and the slice needs 3050 ms: the memos go after each slice. The peak resident memory of `zslice bench 3DBenchy.stl` with all kinds and the setting on is 200 MB. In zslice.wasm with the setting on, the wasm memory after `web/app/bench-node.mjs` is 215 MB, and the exact slice after three drafts is 80 ms.
 
 ## Rules
 

@@ -43,6 +43,7 @@ Build the web app at `web/app/`: the zslice window as one static page, with the 
 - The page loads only its own scripts, styles, fonts, and wasm. No fonts from Google.
 - The main thread never waits for the worker. Bulk data goes as transferable ArrayBuffers. A frame allocates no JavaScript object.
 - A 3DBenchy slices in about 0.5 s with threads, about 2.2 s with none. A warm-up slice of a small sphere at start makes the first real slice faster. A host must send a cache lifetime for the `.wasm` files so the browser keeps its compiled code.
+- `web/app/bench-node.mjs` times the edits in zslice.wasm with one thread. With `slice_form`, the exact slice after three drafts of the infill is 80 ms for a 3DBenchy, and the wasm memory at the end is 215 MB (2026-11-24). The kept work of the slice form stays under 96 MB in wasm (`form.Budget`).
 - A long menu keeps its place and goes down to the bottom of the window. A menu with less than 240 px of room below its button moves up.
 - The docked search results are 640 px wide. A speed ratio shows its speed ("≈ 75 mm/s") in a column of its own, so the controls of all rows line up.
 - The undock button of the search is a card with a title bar (the path `M2.5 3.5h11v9h-11zM2.5 6.5h11` on a 16-unit grid). The glyph of an external link reads as "open in a new tab".

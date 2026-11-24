@@ -152,6 +152,15 @@ Long-lived memory:
 | Memos | The slice, or until the next slice of an app | The results of the slow steps of a layer |
 | Layer plans and their G-code text | A ring of a few layers for each thread | 16 bytes for each path point |
 
+The budget of the kept work (`engine.form_budget_mb`, `form.Budget`, with `engine.slice_form` on): 256 MB by default, and at most 96 MB in wasm. The budget counts the work that only makes the next slice faster: the memos (by the capacity of their arenas), the older generation of the stream of each level, and all of the job of the draft lane (`App.formBytes`). It does not count the result of the last slice. At the end of each slice, before the shell sees the result, `App.enforceBudget` frees kept work in this order until the count is under the budget:
+
+1. The older stream of each level, the oldest first.
+2. The draft lane: its memos, then the rest of its job.
+3. The memo entries that the last slice did not use (`Memo.keep`).
+4. The memos of the exact lane, from the top layer down.
+
+Each piece that goes has a key, so the next slice makes it again. An eviction changes the time of the next slice, never its result. The free runs on a thread of its own in a build with threads (as `App.trimLater`), so the shell does not wait for it. The wasm memory grows and does not shrink, so in wasm the budget limits the peak. `App.trim` still frees all kept work of a plate that is not on view.
+
 ## Threads
 
 `parallel.forEach(threads, n, ctx, func)` runs `func(ctx, i)` for each i on a set of threads. Each thread takes the next i from one atomic counter.

@@ -119,6 +119,8 @@ const Edit = union(enum) {
     redo,
     draft: struct { n: u8, sets: [3]Set },
     cancel: u32,
+    /// `engine.form_budget_mb` of 1 in `inc` for one slice.
+    budget,
 
     fn write(e: Edit, w: *Io.Writer) Io.Writer.Error!void {
         switch (e) {
@@ -157,13 +159,14 @@ const Edit = union(enum) {
                 for (x.sets[0..x.n]) |s| try w.print(" {s}={s}", .{ s.name, s.value });
             },
             .cancel => |ms| try w.print("cancel after {d} ms", .{ms}),
+            .budget => try w.writeAll("a budget of 1 MB for one slice"),
         }
     }
 
     /// True for an edit of the plate. The other edits change one setting.
     fn isPlate(e: Edit) bool {
         return switch (e) {
-            .set, .undo, .redo, .cancel, .draft => false,
+            .set, .undo, .redo, .cancel, .draft, .budget => false,
             else => true,
         };
     }
@@ -401,6 +404,7 @@ fn nextEdit(a: Allocator, rnd: std.Random, t: *Twin) !Edit {
             for (&d.draft.sets) |*s| s.* = (try pickSet(a, rnd, t.opts, inc.settings)) orelse return fallback;
             return d;
         },
+        96...97 => return .budget,
         else => return .{ .cancel = rnd.uintLessThan(u32, 51) },
     }
 }
@@ -507,7 +511,7 @@ fn apply(app: *App, e: Edit, now_ms: i64) !void {
             return;
         },
         .draft => |x| for (x.sets[0..x.n]) |s| try app.setSetting(s.name, s.value),
-        .cancel => return,
+        .cancel, .budget => return,
     }
     app.undo.note(gpa, if (e == .set) e.set.name else null, e.isPlate());
     _ = app.undo.commit(app, now_ms);
@@ -618,7 +622,12 @@ fn runRandom(gpa: Allocator, io: Io, models: []const Model, opts: *const Options
                 },
                 else => {},
             }
+            // A budget: `inc` frees its kept work after this slice, as the
+            // app does over its budget. The next slices must not change.
+            const budget = t.inc.settings.engine.form_budget_mb;
+            if (e == .budget) t.inc.settings.engine.form_budget_mb = 1;
             const sliced = try t.check(seed, step, e, "");
+            if (e == .budget) t.inc.settings.engine.form_budget_mb = budget;
             if (!sliced) {
                 // A value that no slice accepts: go back, so that the next
                 // steps test a slice.

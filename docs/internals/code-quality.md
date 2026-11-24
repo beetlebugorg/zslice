@@ -72,7 +72,7 @@ The app keeps work between slices. A key that misses an input gives a wrong slic
 
 | Command | What it does |
 |---|---|
-| `zslice verify <model> --seeds 11,22,33 --steps 40` | Random edits of the user: settings, part settings, z ranges, moves, turns, scales, mirrors, copies, deletes, line edits, filament slots, support marks and areas, paint, undo, redo, drafts, and cancels. After each step, each known mesh key must be the key of the mesh now. |
+| `zslice verify <model> --seeds 11,22,33 --steps 40` | Random edits of the user: settings, part settings, z ranges, moves, turns, scales, mirrors, copies, deletes, line edits, filament slots, support marks and areas, paint, undo, redo, drafts, cancels, and a budget of 1 MB for one slice. After each step, each known mesh key must be the key of the mesh now. |
 | `zslice verify <model> --sweep` | Each value of each setting, from three base states, and back to the base. Writes one TSV line for each value to stderr. |
 | `zslice verify <model> --ranges NAME` | An override of a layer setting on three z ranges, alone and in pairs. `all` tries each layer setting. |
 | `zslice verify <model> --restore` | A third app loads the 3MF of `full` after each eighth step. A difference counts in its own total. |

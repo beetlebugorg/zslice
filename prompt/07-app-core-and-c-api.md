@@ -58,6 +58,10 @@ The prefixes of `zslice-app.h` (about 3100 lines), with their rough counts: `zs_
 - A line edit has `zc`, the z of its layer in 0.01 mm. `zs_app_edit_add_key` gives none (its layer number can be of another slice), so its edit makes each level dirty.
 - A filament edit of one line (edit kind 3, `edits.Anchor`) is not level-local. It changes the filament mask of its level (`PlateJob.markLineEdits`), and the mask sets the prime tower and the first filaments of other levels. So it stays in the hash of all levels with the place of its part, also with `engine.slice_form` on. `Edits.levelZc` gives its level only to clear its applied flag. `App.lineAnchor` makes the anchor of a line without a change to the app.
 - `Edits.recall` runs before `PlateJob.init`, so a level that plans again clears the applied flags that the recall gave.
+- Each change of `plate.Part.mesh` calls `Part.touchMesh`: it sets `mesh_key` to 0, and the next slice makes it again. `App.makeSlicePlan` keeps the placed mesh of each part and each volume while `Part.placedKey` (the mesh key and the place) stays (`App.placed`). A stale key keeps a stale mesh, so `zslice verify` checks each key after each step (`App.meshKeysFresh`).
+- With `engine.slice_form` on, a change of the plate keeps the job before. The job of each part gets the work of the old job of the same stable id (`PartInput.id`) if its outline key is the same. `Job.part_key` goes into the key of each level of the part, so a move of one part plans only its levels.
+- The app keeps one job for each lane (`App.prev`, `form.Lane`). A draft slice reads and writes the draft lane, and an exact slice the exact lane. With the setting off, one lane, as before.
+- `App.enforceBudget` frees kept work over `engine.form_budget_mb` (256 MB, at most 96 MB in wasm) at the end of a slice, before the shell sees the result, and the free runs on a thread of its own. An eviction never changes a result.
 
 ## Lessons
 
@@ -94,3 +98,4 @@ The prefixes of `zslice-app.h` (about 3100 lines), with their rough counts: `zs_
 11. `zs_set_spill` puts the parts that do not fit one plate on new plates with the same settings.
 12. The tests of `src/model_import.zig` and `src/c_api/import.zig` pass: the addresses, the text for a page of each site, the ZIP lists, and the plates of a 3MF file. A grep of `src`, `include`, and the shells finds no `graphql`, `getDownloadLink`, or `api.printables`.
 13. The `selection:` and `selection api:` tests pass: a pick after a move, a late reply, a failed plate request, and ids through a delete, undo, redo, a save and a load, and a move to another plate.
+14. With `engine.slice_form=true`, `zslice verify 3DBenchy.stl bunny.stl --seeds 11,22,33,44,55 --steps 40` finds no fault, and the verifier finds a planted fault in `Part.placedKey`, `Part.touchMesh`, `plate_job.partKey`, and the part entries of `PlateJob.levelKey`.

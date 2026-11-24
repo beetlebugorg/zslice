@@ -757,6 +757,7 @@ fn benchEdit(gpa: std.mem.Allocator, app: *zslice.app.App, io: Io, err: *Io.Writ
     }
     try printTimes(err, kind, times);
     if (stages) try clock.print(err, @floatFromInt(times.len));
+    if (stages) try printKept(err, app);
     // The twin: the same state, sliced from the start.
     clock.pause();
     defer clock.unpause();
@@ -769,6 +770,18 @@ fn benchEdit(gpa: std.mem.Allocator, app: *zslice.app.App, io: Io, err: *Io.Writ
 
 /// The most slices of one kind in a bench.
 const max_runs = 64;
+
+/// The most bytes of kept work that the budget counts after one slice of
+/// a bench (App.formBytes), since the last `printKept`.
+var kept_most: usize = 0;
+
+/// Prints the kept work that the budget counts after the last slice, and
+/// the most after one slice.
+fn printKept(err: *Io.Writer, app: *const zslice.app.App) !void {
+    const mb = @as(f64, @floatFromInt(1 << 20));
+    try err.print("  kept work of the budget: {d:.1} MB after the last slice, at most {d:.1} MB\n", .{ @as(f64, @floatFromInt(app.formBytes())) / mb, @as(f64, @floatFromInt(kept_most)) / mb });
+    kept_most = 0;
+}
 
 /// Slices in the app core, as the app does after each change of a setting,
 /// and prints the time of each slice and the peak memory (VmHWM).
@@ -852,6 +865,7 @@ fn bench(backing: std.mem.Allocator, io: Io, err: *Io.Writer, name: []const u8, 
         for (times) |*t| t.* = try benchSlice(app, io);
         try printTimes(err, "no change", times);
         if (stages) try clock.print(err, @floatFromInt(times.len));
+        if (stages) try printKept(err, app);
     }
     for (bench_changes) |c| {
         if (only) |o| if (!std.mem.eql(u8, o, c.key)) continue;
@@ -922,7 +936,18 @@ fn bench(backing: std.mem.Allocator, io: Io, err: *Io.Writer, name: []const u8, 
             t.* = try benchSlice(app, io);
         }
         try printTimes(err, c.kind, times);
-        if (stages) try clock.print(err, @floatFromInt(times.len));
+        if (stages) {
+            try clock.print(err, @floatFromInt(times.len));
+            try printKept(err, app);
+            // The twin: the same state, sliced from the start.
+            clock.pause();
+            const kept = try gpa.dupe(u8, app.gcode() orelse "");
+            defer gpa.free(kept);
+            app.dropWork();
+            _ = try benchSlice(app, io);
+            clock.unpause();
+            try err.print("  G-code against a slice from the start: {s}\n", .{if (std.mem.eql(u8, kept, app.gcode() orelse "")) "same" else "OTHER"});
+        }
     }
     if (only != null and std.mem.eql(u8, only.?, "patch")) try benchPatch(gpa, app, io, err, name, bytes, settings);
     if (only != null and std.mem.eql(u8, only.?, "verify")) try benchVerify(gpa, app, io, err, name, bytes, settings, copies);
@@ -1426,6 +1451,7 @@ fn benchSlice(app: *zslice.app.App, io: Io) !Sample {
     const ms = @as(f64, @floatFromInt(t0.untilNow(io, .awake).toNanoseconds())) / 1e6;
     const c1 = cpuNow();
     if (app.getState() != .done) return error.SliceFailed;
+    kept_most = @max(kept_most, app.formBytes());
     return .{ .wall = ms, .cpu = c1[0] - c0[0], .faults = c1[1] - c0[1] };
 }
 

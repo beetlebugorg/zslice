@@ -3547,17 +3547,146 @@ pub const App = struct {
         thread.detach();
     }
 
-    /// The memory of `trimLater`.
+    /// The bytes of the kept work that the budget counts
+    /// (`engine.form_budget_mb`, see form.Budget): the memos and the older
+    /// streams of the job of the result and of the job of the exact lane,
+    /// and all of the job of the draft lane.
+    pub fn formBytes(app: *const App) usize {
+        var n: usize = 0;
+        if (app.job) |*j| n += j.memoBytes() + j.olderPathsBytes();
+        if (app.prev[0]) |*j| n += j.memoBytes() + j.olderPathsBytes();
+        if (app.prev[1]) |*j| n += j.allBytes();
+        return n;
+    }
+
+    /// Frees kept work until the count of `formBytes` is under the budget,
+    /// with engine.slice_form on. The order (spec section 11.2; the forms
+    /// of the plates that are not on view go by `trim`):
+    ///
+    /// 1. The older generation of the stream of each level, the oldest
+    ///    first.
+    /// 2. The draft lane: its memos, then the rest of its job.
+    /// 3. The memo entries that the last slice did not use (Memo.keep).
+    /// 4. The memos of the exact lane, from the top layer down. (The level
+    ///    on the screen first comes with milestone M5.)
+    ///
+    /// Each piece that goes has a key, so the next slice makes it again:
+    /// the eviction changes the time of a slice, never its result. The
+    /// free runs on a thread of its own in a build with threads.
+    fn enforceBudget(app: *App) void {
+        const e = app.slice_settings.engine;
+        if (!e.slice_form) return;
+        const limit = zs.form.Budget.limit(e.form_budget_mb);
+        if (app.formBytes() <= limit) return;
+        const gpa = app.gpa;
+        const t = gpa.create(Trash) catch {
+            // No memory for the list: free all the kept work now.
+            app.dropPrevJob();
+            if (app.job) |*j| {
+                j.dropMemos();
+                for (j.forms) |*f| f.paths[1].deinit(gpa);
+            }
+            return;
+        };
+        t.* = .{ .gpa = gpa };
+        defer t.release();
+        // The jobs of each lane: the job of the result is in the lane of
+        // its slice.
+        const shown: ?*zs.PlateJob = if (app.job) |*j| j else null;
+        const exact: [2]?*zs.PlateJob = .{ if (app.slice_lane == .exact) shown else null, if (app.prev[0]) |*j| j else null };
+        const draft: [2]?*zs.PlateJob = .{ if (app.slice_lane == .draft) shown else null, if (app.prev[1]) |*j| j else null };
+        // 1. The older streams, the oldest first.
+        older: {
+            var list: std.ArrayList(*zs.form.LevelPaths) = .empty;
+            defer list.deinit(gpa);
+            const all = [4]?*zs.PlateJob{ exact[0], exact[1], draft[0], draft[1] };
+            for (all) |jo| if (jo) |j| for (j.forms) |*f| {
+                if (f.paths[1].stream.mem.len > 0 or f.paths[1].key != zs.form.no_key) list.append(gpa, &f.paths[1]) catch break :older;
+            };
+            std.mem.sort(*zs.form.LevelPaths, list.items, {}, struct {
+                fn oldestFirst(_: void, a: *zs.form.LevelPaths, b: *zs.form.LevelPaths) bool {
+                    return a.age > b.age;
+                }
+            }.oldestFirst);
+            for (list.items) |p| {
+                t.takeStream(p);
+                if (app.formBytes() <= limit) return;
+            }
+        }
+        // 2. The draft lane: its memos, then its outlines and streams.
+        for (draft) |jo| if (jo) |j| {
+            t.takeMemos(j);
+            if (app.formBytes() <= limit) return;
+        };
+        if (app.prev[1]) |j| {
+            t.prev[1] = j;
+            app.prev[1] = null;
+            if (app.formBytes() <= limit) return;
+        }
+        // 3. The memo entries that the last slice did not use.
+        for (exact) |jo| if (jo) |j| for (j.groups) |*g| for (g.job.memos) |*m| {
+            var kept = m.keep(gpa, g.job.gen) catch continue;
+            t.memos.append(gpa, m.*) catch {
+                kept.deinit();
+                continue;
+            };
+            m.* = kept;
+        };
+        if (app.formBytes() <= limit) return;
+        // 4. The memos of the exact lane, from the top layer down.
+        for (exact) |jo| if (jo) |j| for (j.groups) |*g| {
+            var i = g.job.memos.len;
+            while (i > 0) {
+                i -= 1;
+                const m = &g.job.memos[i];
+                if (m.arena.queryCapacity() == 0) continue;
+                t.memos.append(gpa, m.*) catch {
+                    m.deinit();
+                    m.* = .init(gpa);
+                    continue;
+                };
+                m.* = .init(gpa);
+                if (app.formBytes() <= limit) return;
+            }
+        };
+    }
+
+    /// The memory of `trimLater` and `enforceBudget`.
     const Trash = struct {
         gpa: Allocator,
         memos: std.ArrayList(zs.layer.Memo) = .empty,
+        streams: std.ArrayList(zs.stream.Stream) = .empty,
         prev: [2]?zs.PlateJob = .{ null, null },
         gcode: []u8 = &.{},
         paths: Toolpaths = .{},
 
+        /// Takes the stream of a slot out of the form (the key goes
+        /// first, see form.LevelForm).
+        fn takeStream(t: *Trash, p: *zs.form.LevelPaths) void {
+            p.key = zs.form.no_key;
+            t.streams.append(t.gpa, p.stream) catch p.stream.deinit(t.gpa);
+            p.* = .{};
+        }
+
+        /// Takes the memos of a job.
+        fn takeMemos(t: *Trash, j: *zs.PlateJob) void {
+            j.takeMemos(&t.memos) catch j.dropMemos();
+        }
+
+        /// Frees the memory on a thread of its own in a build with
+        /// threads, so the slice and the shell do not wait for it. A test
+        /// frees it now, before its check of the leaks.
+        fn release(t: *Trash) void {
+            if (comptime !has_threads or @import("builtin").is_test) return t.free();
+            const thread = std.Thread.spawn(.{}, Trash.free, .{t}) catch return t.free();
+            thread.detach();
+        }
+
         fn free(t: *Trash) void {
             for (t.memos.items) |*m| m.deinit();
             t.memos.deinit(t.gpa);
+            for (t.streams.items) |*s| s.deinit(t.gpa);
+            t.streams.deinit(t.gpa);
             for (&t.prev) |*p| if (p.*) |*j| j.deinit();
             t.gpa.free(t.gcode);
             t.paths.deinit(t.gpa);
@@ -3743,6 +3872,10 @@ pub const App = struct {
         if (stands_now != null) app.checks_pending.store(true, .release);
         app.part_box = job.bounds() orelse .{ 0, 0, 0, 0 };
         app.job = job;
+        // The kept work goes under the budget before the shell sees the
+        // result: the shell can plan a layer of the job, and that plan
+        // writes the memo of the layer.
+        app.enforceBudget();
         app.edits.remember(app.gpa);
         // The places of the slice that the view shows now.
         app.gpa.free(app.scene_places);
@@ -5835,6 +5968,48 @@ test "app: the exact slice after a draft keeps the work of the exact lane" {
         fresh.stopWorkerForTest();
         try testing.expectEqualStrings(fresh.gcode().?, app.exactGcode().?);
     }
+}
+
+test "app: a budget of 1 MB keeps the kept work under it, and the next slice gives the G-code of a new app" {
+    const gpa = testing.allocator;
+    var mesh = try zs.mesh.shapes.demo(gpa);
+    var bytes: std.Io.Writer.Allocating = .init(gpa);
+    defer bytes.deinit();
+    try mesh.writeStl(&bytes.writer);
+    mesh.deinit(gpa);
+    const app = try App.create(gpa, null, null);
+    defer app.destroy();
+    try app.setSetting("engine.slice_form", "true");
+    try app.setSetting("engine.form_budget_mb", "1");
+    try app.loadStl("demo.stl", bytes.written());
+    for ([_][]const u8{ "0.3", "0.35", "0.3" }) |v| {
+        try app.setSetting("project.infill_density", v);
+        try app.requestSlice();
+        app.stopWorkerForTest();
+        try testing.expect(app.formBytes() <= 1 << 20);
+    }
+    // A budget that each piece is over: no memo and no older stream stay.
+    var sized = app.job.?.memoBytes() + app.job.?.olderPathsBytes();
+    try testing.expect(sized <= 1 << 20);
+    app.slice_settings.engine.form_budget_mb = 1;
+    const memo_bytes = app.job.?.memoBytes();
+    if (memo_bytes > 0) {
+        // Make the count over the budget: a budget of 0 bytes.
+        app.slice_settings.engine.form_budget_mb = 0;
+        app.enforceBudget();
+        sized = app.job.?.memoBytes() + app.job.?.olderPathsBytes();
+        try testing.expectEqual(@as(usize, 0), sized);
+    }
+    try app.setSetting("project.infill_density", "0.4");
+    try app.requestSlice();
+    app.stopWorkerForTest();
+    const fresh = try App.create(gpa, null, null);
+    defer fresh.destroy();
+    try fresh.loadStl("demo.stl", bytes.written());
+    try fresh.setSetting("project.infill_density", "0.4");
+    try fresh.startSlice();
+    fresh.stopWorkerForTest();
+    try testing.expectEqualStrings(fresh.gcode().?, app.gcode().?);
 }
 
 test "app: a support mark adds support where the settings have none" {

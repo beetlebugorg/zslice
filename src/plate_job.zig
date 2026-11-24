@@ -609,6 +609,37 @@ pub const PlateJob = struct {
         return kb.final();
     }
 
+    /// The bytes of the memos of all groups, by the capacity of their
+    /// arenas (see form.Budget).
+    pub fn memoBytes(self: *const PlateJob) usize {
+        var n: usize = 0;
+        for (self.groups) |*g| for (g.job.memos) |*m| {
+            n += m.arena.queryCapacity();
+        };
+        return n;
+    }
+
+    /// The bytes of the older generation of the stream of each level.
+    pub fn olderPathsBytes(self: *const PlateJob) usize {
+        var n: usize = 0;
+        for (self.forms) |*f| n += f.paths[1].stream.mem.len;
+        return n;
+    }
+
+    /// The bytes of all the kept work of the job: the memos, both
+    /// generations of the streams, and the outlines and the surfaces of
+    /// each group. For a job of the draft lane (see form.Budget).
+    pub fn allBytes(self: *const PlateJob) usize {
+        var n = self.memoBytes();
+        for (self.forms) |*f| for (&f.paths) |*p| {
+            n += p.stream.mem.len;
+        };
+        for (self.groups) |*g| for ([_][]const Paths{ g.job.outlines, g.job.tops, g.job.bottoms }) |list| for (list) |*o| {
+            n += o.points.items.len * @sizeOf(geom.Point) + o.ends.items.len * @sizeOf(u32);
+        };
+        return n;
+    }
+
     /// Frees the memos of the job of each group (see Job.dropMemos).
     pub fn dropMemos(self: *PlateJob) void {
         for (self.groups) |*g| g.job.dropMemos();

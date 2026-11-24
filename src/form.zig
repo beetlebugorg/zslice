@@ -113,6 +113,27 @@ pub const LevelForm = struct {
     }
 };
 
+/// The budget of the kept work (`engine.form_budget_mb`, spec section 11).
+/// It counts the pieces that only make the next slice faster: the memos
+/// of the layers (by the capacity of their arenas), the older generation
+/// of the stream of each level, and all of the job of the draft lane. It
+/// does not count the result of the last slice: the outlines, the current
+/// streams, the G-code, and the toolpaths. An eviction changes the time of
+/// the next slice only, never its result: each piece that goes has a key,
+/// and the next slice makes it again.
+pub const Budget = struct {
+    /// The most memory of the kept work in a WebAssembly app (MB). The
+    /// memory of wasm grows and does not shrink, so the budget limits the
+    /// peak.
+    pub const wasm_cap_mb = 96;
+
+    /// The limit in bytes for a setting in MB.
+    pub fn limit(mb: u32) usize {
+        const m: usize = if (comptime @import("builtin").cpu.arch.isWasm()) @min(mb, wasm_cap_mb) else mb;
+        return m << 20;
+    }
+};
+
 /// Frees each form and the slice of them.
 pub fn freeForms(gpa: std.mem.Allocator, forms: []LevelForm) void {
     for (forms) |*f| f.deinit(gpa);
@@ -295,6 +316,12 @@ test "form: the gate of the nozzles" {
     var kd: KeyBuilder = .init(1);
     kd.settingsGated(&b, .paths);
     try testing.expect(kc.final() != kd.final());
+}
+
+test "form: the budget of wasm is at most 96 MB" {
+    const native = !@import("builtin").cpu.arch.isWasm();
+    try testing.expectEqual(@as(usize, if (native) 256 << 20 else 96 << 20), Budget.limit(256));
+    try testing.expectEqual(@as(usize, 16 << 20), Budget.limit(16));
 }
 
 test "form: the generations of a level" {

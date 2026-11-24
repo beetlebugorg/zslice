@@ -34,6 +34,8 @@ Build the Zig core from a mesh to G-code for one part: integer geometry, polygon
 - `zs_status_message` gives the same text for a person in each app.
 - `engine.fitOf` gives the cause when a part does not fit (too high, too wide in X, too deep in Y) and the sizes of the part and of the printer (part 07).
 - A part lower than half of the first layer (`PartTooThin`) is left out of the slice, and the other parts slice.
+- The outline key of a job has the content key of its placed mesh (`Job.Options.mesh_key`). A caller with no key gets the key made in `PlateJob.init`. So an old job of another mesh gives no work, and no caller needs a promise of the same mesh.
+- A memo whose results the last two slices used moves to the next job with no copy (`Memo.keepsAll`). `Memo.keep` copies, and it ran after each slice.
 
 ## Lessons
 
