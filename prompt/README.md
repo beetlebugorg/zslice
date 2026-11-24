@@ -1,6 +1,6 @@
 # A prompt that could build zslice
 
-Describes: main through "Keep a line that is picked while a slice starts", 2026-11-23.
+Describes: main through "Dock the Mac Inspector beside the view", 2026-11-23.
 
 ## Read this first
 

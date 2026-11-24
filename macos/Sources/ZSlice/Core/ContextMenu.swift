@@ -76,7 +76,7 @@ extension Workspace {
             menu.addItem(ClosureItem("Delete Branch") { [weak self] in self?.removePickedSupport() })
             return menu
         }
-        pick(at: p, card: false)
+        pick(at: p)
         var on = MenuTarget.empty
         if let s = selection {
             var info = zs_inspect()
@@ -277,7 +277,7 @@ extension Workspace {
     /// Opens the settings drawer on a scope.
     func editScope(_ scope: SettingScope) {
         model.scope = scope
-        showSettings = true
+        openDock(.settings)
         settingsPath = []
     }
 

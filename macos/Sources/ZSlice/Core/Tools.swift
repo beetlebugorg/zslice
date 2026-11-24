@@ -651,7 +651,7 @@ extension Workspace {
         if snap, path != noPath {
             var m = zs_measure()
             if zs_app_measure(model.core, path, seg, &m) == 0, m.shape == 1 || m.shape == 2 {
-                select(path: path, seg: seg, openCard: false)
+                select(path: path, seg: seg)
                 addTape(TapePoint(x: m.center_x, y: m.center_y, z: pt.2, r: m.radius, shape: m.shape))
                 return
             }
@@ -790,8 +790,8 @@ extension Workspace {
     func scaleParts(_ parts: [Int], by factor: Double) {
         for i in parts {
             guard let p = part(i) else { continue }
-            let s = p.scale_x * factor
-            zs_app_part_scale(model.core, i, s, s, s)
+            // Each axis keeps its sign, so a mirrored part stays mirrored.
+            zs_app_part_scale(model.core, i, p.scale_x * factor, p.scale_y * factor, p.scale_z * factor)
         }
         if let i = selectedPart { selectPart(i) }
         fitAfterSlice = true

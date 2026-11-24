@@ -61,24 +61,8 @@ struct GapSummary: View {
 struct GapCard: View {
     let workspace: Workspace
     let gap: GapInfo
-    /// The height of the free area of the view: a taller card scrolls, so
-    /// it stays clear of the bars and the gap.
-    var maxHeight: CGFloat = .infinity
 
     var body: some View {
-        ViewThatFits(in: .vertical) {
-            content
-            ScrollView { content }
-        }
-        .frame(width: 320)
-        .frame(maxHeight: maxHeight)
-        .fixedSize(horizontal: false, vertical: true)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
-        .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(.separator))
-        .shadow(color: .black.opacity(0.15), radius: 12, y: 4)
-    }
-
-    private var content: some View {
         let model = workspace.model
         return VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .firstTextBaseline) {
@@ -109,8 +93,7 @@ struct GapCard: View {
                 }
             }
         }
-        .padding(14)
-        .frame(width: 320, alignment: .leading)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 

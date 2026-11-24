@@ -344,7 +344,7 @@ struct ViewCommands: Commands {
             Button("Search Settings and Actions…") { workspace?.openSearch() }
                 .keyboardShortcut("f", modifiers: .command)
                 .disabled(workspace == nil)
-            Button(workspace?.showSettings == true ? "Hide Settings" : "Show Settings") { workspace?.showSettings.toggle() }
+            Button(workspace?.dockShown == true ? "Hide the Inspector" : "Show the Inspector") { workspace?.toggleDock() }
                 .keyboardShortcut("i", modifiers: [.command, .option])
                 .disabled(workspace == nil)
             Divider()

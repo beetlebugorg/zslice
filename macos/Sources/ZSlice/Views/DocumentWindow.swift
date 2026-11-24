@@ -18,6 +18,8 @@ struct DocumentWindow: View {
     @State private var workspace = Workspace()
     @State private var loadError: String?
     @State private var dropping = false
+    /// The width of the column that the user last gave it.
+    @State private var inspectorIdeal = max(300, min(560, CGFloat(prefs.object(forKey: "inspectorWidth") as? Double ?? 360)))
 
     /// Loads the file of the document into the plates, and gives the
     /// NSDocument of the window to the model.
@@ -88,6 +90,12 @@ struct DocumentWindow: View {
         workspace.model.document = doc
         workspace.saveGuard = SaveGuard.install(in: w, workspace: workspace, document: doc)
         workspace.watchSlashKey()
+        workspace.windowWidth = w.frame.width
+        NotificationCenter.default.addObserver(forName: NSWindow.didResizeNotification, object: w, queue: .main) { [weak ws = workspace, weak w] _ in
+            MainActor.assumeIsolated {
+                if let ws, let w, ws.windowWidth != w.frame.width { ws.windowWidth = w.frame.width }
+            }
+        }
         let ws = workspace
         NotificationCenter.default.addObserver(forName: NSWindow.willCloseNotification, object: w, queue: .main) { _ in
             MainActor.assumeIsolated {
@@ -187,7 +195,7 @@ struct DocumentWindow: View {
         Color.clear
             // The view ends at the top of the bottom bar, so the signs of
             // the plates are never under it.
-            .background { SliceView(canvas: workspace.canvas).padding(.bottom, workspace.dockHeight).ignoresSafeArea() }
+            .background { SliceView(canvas: workspace.canvas).padding(.bottom, workspace.dockHeight).ignoresSafeArea(edges: [.top, .bottom, .leading]) }
             // The work bar: the draft, the exact slice, and the simulation.
             .overlay(alignment: .top) { WorkBar(work: workspace.model.work) }
             .overlay(alignment: .topLeading) {
@@ -196,7 +204,6 @@ struct DocumentWindow: View {
                     // The legend is in the Colors popover of the tool strip.
                     if workspace.checkOpen {
                         CheckPanel(workspace: workspace)
-                            .panel()
                     }
                 }
                 .padding(12)
@@ -204,7 +211,6 @@ struct DocumentWindow: View {
             .overlay(alignment: .topTrailing) {
                 // Left of the layer slider and its number.
                 GapSummary(workspace: workspace)
-                    .panel()
                     .padding(.top, 12)
                     .padding(.trailing, 92)
             }
@@ -212,7 +218,7 @@ struct DocumentWindow: View {
                 if workspace.layerCount > 0 {
                     LayerSlider(workspace: workspace)
                         .padding(.top, 40)
-                        .padding(.bottom, 86)
+                        .padding(.bottom, max(86, workspace.dockHeight + 12))
                         .padding(.trailing, 12)
                 }
             }
@@ -223,14 +229,22 @@ struct DocumentWindow: View {
                             Spacer()
                             PrintCard(workspace: workspace)
                                 .fixedSize(horizontal: true, vertical: false)
-                                .panel()
                         }
                         .padding(.top, 12)
                         .padding(.trailing, 84)
                         .transition(.move(edge: .bottom).combined(with: .opacity))
                     }
-                    BottomBar(workspace: workspace)
-                        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { workspace.dockHeight = $0 }
+                    VStack(spacing: 0) {
+                        // A narrow window: the row that only the user opens.
+                        if workspace.narrowWindow, workspace.dockRowOpen, !workspace.farmOpen {
+                            Divider()
+                            InspectorColumn(workspace: workspace)
+                                .frame(height: 280)
+                                .background(.bar)
+                        }
+                        BottomBar(workspace: workspace)
+                    }
+                    .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { workspace.dockHeight = $0 }
                 }
                 .animation(.easeOut(duration: 0.15), value: workspace.detailsOpen)
             }
@@ -240,11 +254,9 @@ struct DocumentWindow: View {
                 GeometryReader { geo in
                     TapeOverlay(workspace: workspace, area: geo.size)
                     OpenPlateButton(workspace: workspace)
-                    // The Label tool: the handle of the selected label, and
-                    // its card.
+                    // The Label tool: the handles on the selected label.
                     if workspace.tool == .label, workspace.page == .threeD {
                         LabelHandles(workspace: workspace)
-                        LabelCard(workspace: workspace, area: geo.size)
                     }
                     // The 2D view says so at the top; a click goes back to 3D.
                     if workspace.page == .twoD {
@@ -269,64 +281,8 @@ struct DocumentWindow: View {
                             .position(x: l.at.x + 60, y: l.at.y - 24)
                             .allowsHitTesting(false)
                     }
-                    if let gap = workspace.gapCard {
-                        // Its measured size: a gap with many steps makes a tall
-                        // card, and the card must keep clear of the gap.
-                        GapCard(workspace: workspace, gap: gap, maxHeight: max(160, geo.size.height - 60 - workspace.dockHeight - 24))
-                            .onGeometryChange(for: CGSize.self) { $0.size } action: { workspace.gapCardSize = $0 }
-                            .position(cardPlace(avoiding: workspace.gapScreenBox() ?? CGRect(x: workspace.cardAt.x - 12, y: workspace.cardAt.y - 12, width: 24, height: 24),
-                                                near: workspace.cardAt, size: workspace.gapCardSize, in: geo.size,
-                                                bottom: workspace.dockHeight + 12, panels: workspace.panels))
-                    }
-                    if workspace.tool == .support, workspace.supportPaneOpen, workspace.page == .threeD {
-                        // Beside the tool strip, clear of the details at the right.
-                        // Its top is at the top of the tool strip, under the toolbar: the
-                        // card grows down with the trees.
-                        SupportCard(workspace: workspace)
-                            .fixedSize()
-                            .panel()
-                            .padding(.leading, 95)
-                            .padding(.top, 50)
-                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                    }
-                    if workspace.tool != .support, workspace.supportPick != nil, workspace.page == .threeD {
-                        // Where the card of the Support tool goes.
-                        PickedSupportCard(workspace: workspace)
-                            .fixedSize()
-                            .panel()
-                            .padding(.leading, 95)
-                            .padding(.top, 50)
-                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                    }
-                    if let p = workspace.paint, workspace.page == .threeD {
-                        // At the left, next to the tools, so it never covers the part.
-                        PaintCard(workspace: workspace, paint: p)
-                            .fixedSize()
-                            .panel()
-                            .padding(.leading, 95)
-                            .padding(.top, 50)
-                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                    }
-                    // The Turn, Grab, and Paint tools work on the part itself: no card.
-                    if let i = workspace.selectedPart, workspace.tool != .turn, workspace.tool != .grab, workspace.tool != .paint {
-                        PartCard(workspace: workspace, index: i, area: geo.size)
-                            .id(i)
-                    }
-                    if let r = workspace.rangeCard, workspace.page == .threeD {
-                        RangeCard(workspace: workspace, lo: r.lo, hi: r.hi, area: geo.size)
-                    }
-                    if workspace.cardOpen, let info = workspace.lineInfo {
-                        LineCard(workspace: workspace, info: info, area: geo.size)
-                    }
                 }
-                .ignoresSafeArea()
-                .onGeometryChange(for: CGPoint.self) { $0.frame(in: .global).origin } action: { o in
-                    if workspace.cardsOrigin != o { workspace.cardsOrigin = o }
-                }
-            }
-            // The panels that the cards keep out of.
-            .onPreferenceChange(PanelFramesKey.self) { frames in
-                if workspace.panelFrames != frames { workspace.panelFrames = frames }
+                .ignoresSafeArea(edges: [.top, .bottom, .leading])
             }
             // The search last, over the other controls: the results under
             // the field of the toolbar, or the card of the search.
@@ -346,7 +302,9 @@ struct DocumentWindow: View {
                     }
                 }
             }
-        .frame(minWidth: 720, minHeight: 480)
+        // With the column open the view may get small, so the window can
+        // reach the width where the column becomes a row.
+        .frame(minWidth: workspace.showSettings && !workspace.narrowWindow ? 440 : 720, minHeight: 480)
         .navigationSubtitle(subtitle)
         // Model files dropped on the window go on the active plate; an SVG
         // file on a part becomes a label on its face there.
@@ -425,9 +383,13 @@ struct DocumentWindow: View {
         .sheet(isPresented: Binding(get: { workspace.pairing != nil && !workspace.pickerOpen && !workspace.connectDeckOpen }, set: { if !$0 { workspace.pairing = nil } })) {
             if let id = workspace.pairing { PairSheet(workspace: workspace, printerID: id) }
         }
-        .inspector(isPresented: Binding(get: { workspace.showSettings && !workspace.farmOpen }, set: { workspace.showSettings = $0 })) {
-            InspectorPanel(workspace: workspace)
-                .inspectorColumnWidth(min: 320, ideal: 400, max: 560)
+        .inspector(isPresented: Binding(get: { workspace.showSettings && !workspace.farmOpen && !workspace.narrowWindow },
+                                        set: { if !workspace.narrowWindow { workspace.showSettings = $0 } })) {
+            InspectorColumn(workspace: workspace)
+                .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { w in
+                    if w >= 300 { prefs.set(Double(w), forKey: "inspectorWidth") }
+                }
+                .inspectorColumnWidth(min: 300, ideal: min(inspectorIdeal, workspace.widestColumn), max: workspace.widestColumn)
         }
         // The slice is the UI: a small toolbar, as in the web app. The file
         // at the left, the search in the center, and the printer, the
@@ -451,8 +413,19 @@ struct DocumentWindow: View {
             ToolbarItemGroup(placement: .primaryAction) {
                 Button { workspace.farmOpen.toggle() } label: { Label("Printers", systemImage: "printer.dotmatrix.filled.and.paper") }
                     .help("The printers and their jobs, and the plates to print (⌥⌘P)")
-                Button { workspace.showSettings.toggle() } label: { Label("Settings", systemImage: "sidebar.right") }
-                    .help("Show or hide the settings (N)")
+                Button { workspace.toggleDock() } label: {
+                    Label {
+                        Text("Inspector")
+                    } icon: {
+                        Image(systemName: "sidebar.right")
+                            .overlay(alignment: .topTrailing) {
+                                if workspace.dockHasNews {
+                                    Circle().fill(Color.accentColor).frame(width: 7, height: 7).offset(x: 3, y: -3)
+                                }
+                            }
+                    }
+                }
+                .help(workspace.dockHasNews ? "Show the Inspector: the selection has a page there (N)" : "Show or hide the Inspector (N)")
                 MoreMenu(workspace: workspace)
             }
         }
@@ -469,18 +442,6 @@ struct DocumentWindow: View {
         } message: {
             Text(loadError ?? "")
         }
-    }
-}
-
-/// The drawer: the settings, or the history of the plate.
-struct InspectorPanel: View {
-    let workspace: Workspace
-
-    /// Only the settings: the history, the project, and the printers have
-    /// places of their own (a popover, a sheet, and a page).
-    var body: some View {
-        SettingsInspector(workspace: workspace)
-            .padding(.top, 8)
     }
 }
 

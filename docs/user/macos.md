@@ -36,7 +36,7 @@ From left to right:
 - **The Filament button**: a dot in the color of each filament of the plate. See [Filaments](#filaments).
 - **The Quality menu**: the built-in qualities and yours, and Save as Profile. Each built-in quality has its main points under its name, for example "0.1 mm layers · 3 walls · slower walls · ironed tops". A dot means that this print has changes on top of the quality.
 - **Printers**: the [Printers page](#the-printers-page).
-- **Settings**: the settings drawer.
+- **Inspector**: the column at the right of the window. A dot on the button says that a selection has a page there while the column is closed.
 - **A menu of the rest**: placement, checks, the history, and the keys.
 
 ### The tool strip
@@ -56,7 +56,7 @@ The tools are at the left of the view. Each has a key:
 
 Under the tools, after a line, are the colors of the lines and the legend (a legend icon), Gaps (no key; also View > Show Gaps), and Check. Paint has the palette icon. H and L are free for the vim keys: h and l step the nozzle, or the selected line, back and on, and Shift-H and Shift-L step a whole line.
 
-The × at the top right of a card closes it. Notes of the app show at the bottom of the view, over the bar.
+Notes of the app show at the bottom of the view, over the bar.
 
 ### The bottom bar
 
@@ -72,23 +72,22 @@ After a change, the view gets a quick draft of the slice first, and the exact sl
 
 Click the time to open the details: the notes, the totals, your usual refinements, the main settings, and the filaments. A red badge such as "3 to check" counts the problems of the Check (a warning or worse), the same count as on the Check button of the tool strip. A red badge that says Check means another note on the print, and a blue one counts your usual refinements ("2 refinements"). The details stay shut until you click, so they never cover the part. A blue badge counts your usual refinements.
 
-### The cards
+### The Inspector
 
-A click opens a card for what you clicked: a line, a part, a support, or a range of layers. A card never covers the thing that you clicked. It also keeps out of the details, the check panel, and the card of a tool. Esc or × closes it.
+The Inspector is one column beside the view. The view has the rest of the window, so no panel of a selection covers your model. A selection changes only what the column shows. It never opens, closes, or resizes the column, and the camera stays.
 
-Put a card where you want it, and zslice keeps it there:
+N or Option-Command-I shows or hides it. Drag its edge to change its width. zslice keeps the width, the open state, and the groups that you collapse.
 
-- Drag the head of a card to move it. The next card of that kind opens at the same place, unless there it would cover what you clicked. Then it opens beside that thing for this time.
-- Drag the grip at the lower right corner to resize a card. Its kind keeps the size.
-- Double-click the head to forget the place and the size.
+The column has two tabs:
 
-The line card, the part card, and the card of a range of layers each keep their own place and size.
+- **Inspector** shows the most specific page: a label, paint, a support, a gap, a range of layers, a part, or a line. With no selection, it shows the plate and a list of its parts. Click a part in the list to select it.
+- **Settings** has all settings. Its header has a back button (Command-[) when there is a page to go back to.
 
-### The settings drawer
+The page of a part has groups: Position and turn, Size and mirror, Filament, Actions, and Settings of this part. Values of a region show under the name of the region, apart from the values of the part. The scale has no sign. A Mirrored mark says that the part is a mirror image, and a new scale keeps the mirror.
 
-The drawer is the inspector at the right of the window. It has only the settings, and it always sits beside the view. N or Option-Command-I shows it; Esc or its × hides it. Its header has a back button (Command-[) when there is a page to go back to.
+In a window of 1040 points or less, the column becomes a row under the view. Only you open that row, with N or the toolbar button.
 
-The bar at the top of the drawer picks what the editors change:
+The bar at the top of the Settings tab picks what the editors change:
 
 - **This Print**: the plate.
 - **Global**: your settings for all prints (`global.toml`).
@@ -127,7 +126,7 @@ The keys of the other apps work in the 3D view. A key with Ctrl in the other app
 | Export the G-code | Command-E |
 | Print | Command-P |
 | Search the settings and the actions | `/` or Command-F |
-| The settings drawer | N or Option-Command-I |
+| The Inspector | N or Option-Command-I |
 | The 2D view of one layer, and back to 3D | 2 (or View > 2D View, Command-2) |
 | The 3D view | 3 |
 | Fit the part | Command-0 |
@@ -160,7 +159,7 @@ Return on a number or a text goes into its field with the value selected. Type a
 
 ### A line
 
-A click on a line opens its card in a corner of the view, clear of the line. The card keeps its corner from click to click while that corner stays clear. It has:
+A click on a line shows its page in the Inspector. It has:
 
 - The speed and the flow, the size of the line, the time of its layer, and the fan.
 - Notes: the nozzle of the line, and what a support line holds up ("Holds up: outer wall on layer 64, 7 layers up.").
@@ -308,7 +307,7 @@ The Label tool (E) puts text, a mark, or an SVG picture on the surface of a part
 - Drag a label to move it on the surface (Shift: in its plane). The wheel over the label turns it 1° a step (Shift: 15°); on a trackpad, each 10 points of a scroll is a step. The selected label has handles on the surface: a frame around it, a square at each corner, and a round handle over it. Drag a corner to resize the label about the opposite corner; it keeps its aspect, and Shift resizes each axis on its own. Drag the round handle around the label to turn it (Shift: steps of 15°).
 - A move or a resize snaps to smart guides: the other labels on the face, its holes, and the centers of the face and of the part. Thin pink lines show them. Option moves free.
 - Place an SVG… on the card puts the filled shapes of an SVG file on the label; drop an SVG file on a part to make a label of it there.
-- Delete removes the selected label. Esc closes the card, and Esc again the tool.
+- Delete removes the selected label. Esc clears the selection, and Esc again closes the tool.
 - The card has the shapes (text, a line, a bar, a ring, the ticks of a dial, or a free line), the turn, the filament, the depth, Print (Ink, Raised, or Cut in, with the Relief in mm), and what the label costs: the thinnest stroke, the size of text that prints clean, and the filament changes, minutes, and grams that it adds.
 - Each change is one step of the history. The part card lists the labels of the part; click one to select it.
 

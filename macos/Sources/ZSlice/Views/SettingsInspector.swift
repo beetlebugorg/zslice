@@ -47,7 +47,7 @@ struct SettingsInspector: View {
             ScopeBar(workspace: workspace)
             SearchField(text: $search, prompt: "Search settings")
                 // Esc in the field: clears the search, then hides the pane.
-                .onExitCommand { if search.isEmpty { workspace.showSettings = false } else { search = "" } }
+                .onExitCommand { if search.isEmpty { workspace.dockTab = .inspector } else { search = "" } }
                 .padding(.horizontal, 10)
                 .padding(.bottom, 6)
             if !searching, let last = path.last {
@@ -813,9 +813,6 @@ struct ScopeBar: View {
                 Button("Done") { model.scope = .print }
                     .fixedSize()
             }
-            Button { workspace.showSettings = false } label: { Image(systemName: "xmark") }
-                .buttonStyle(.borderless)
-                .help("Hide the settings (Esc, N)")
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 6)

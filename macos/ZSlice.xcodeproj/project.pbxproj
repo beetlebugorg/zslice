@@ -67,6 +67,7 @@
 		6FD585411DF934186D2A5E77 /* Session.swift in Sources */ = {isa = PBXBuildFile; fileRef = 772880BFB01BD8D0F2940178 /* Session.swift */; };
 		714CAB59DF0D387C99E8EE65 /* Discovery.swift in Sources */ = {isa = PBXBuildFile; fileRef = F817BC998AF3DF2ED3A00C81 /* Discovery.swift */; };
 		725DE7A69253FA54ADC0A3E8 /* PrintFacts.swift in Sources */ = {isa = PBXBuildFile; fileRef = A02DA63545320A3F49007D73 /* PrintFacts.swift */; };
+		729988E5A140E7A5BBB56255 /* InspectorDock.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2382D97F8CA252F1DB7D59F1 /* InspectorDock.swift */; };
 		744A8EAD5D21876D74A92E5B /* Shaders.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEB19535AAD2F45E9ADECD3E /* Shaders.swift */; };
 		7549F4079543B7116DD9BB03 /* SliceModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A58556DEDADD796FCD211AEC /* SliceModel.swift */; };
 		75C49E64D1BFF497AFAD04E1 /* Shaders.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEB19535AAD2F45E9ADECD3E /* Shaders.swift */; };
@@ -184,6 +185,7 @@
 		1CB8A489FC7A3780934475FE /* SpatialCards.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpatialCards.swift; sourceTree = "<group>"; };
 		1EED13BDF9B1407DBC65CD27 /* CoreText.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoreText.swift; sourceTree = "<group>"; };
 		21376CDB4341E7C0BDB42C44 /* SettingsInspector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsInspector.swift; sourceTree = "<group>"; };
+		2382D97F8CA252F1DB7D59F1 /* InspectorDock.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InspectorDock.swift; sourceTree = "<group>"; };
 		23C2372196143DFD904FE90D /* Calibration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Calibration.swift; sourceTree = "<group>"; };
 		257AB626E6F612DEA8D0E728 /* GcodeEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GcodeEditor.swift; sourceTree = "<group>"; };
 		2977A2A862AF9DF5A41EB352 /* SupportCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SupportCard.swift; sourceTree = "<group>"; };
@@ -262,7 +264,7 @@
 		FA1563DC7A7E6004C5F6CF3E /* SupportTrees.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SupportTrees.swift; sourceTree = "<group>"; };
 		FD004E025E974616E983FB82 /* OpenLink.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenLink.swift; sourceTree = "<group>"; };
 		FEB19535AAD2F45E9ADECD3E /* Shaders.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Shaders.swift; sourceTree = "<group>"; };
-		"TEMP_38E159B4-886E-4B01-9E57-D175DD71700D" /* Signing.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Signing.xcconfig; sourceTree = "<group>"; };
+		"TEMP_D9390F2C-A385-4EE5-9CC4-9813F3D66D5E" /* Signing.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Signing.xcconfig; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -389,6 +391,7 @@
 				BE3894912DD445B18809AAE5 /* HistoryGlyph.swift */,
 				E12F5AA52BD7698083B6F05A /* HistoryPage.swift */,
 				156C6E5602F913A1AF78F66C /* HistoryTools.swift */,
+				2382D97F8CA252F1DB7D59F1 /* InspectorDock.swift */,
 				41978BD659132A145BB5BCA3 /* LabelCard.swift */,
 				A6211F5702D17416C9653A1E /* LayerSlider.swift */,
 				9B3ECAE8973F7D689B3C5B4D /* Legend.swift */,
@@ -472,10 +475,10 @@
 			path = Core;
 			sourceTree = "<group>";
 		};
-		"TEMP_AB6A10B3-219E-4161-975B-BFC17945F278" /* macos */ = {
+		"TEMP_8738AE44-59E8-4212-BF4C-C687D3C6C1CA" /* macos */ = {
 			isa = PBXGroup;
 			children = (
-				"TEMP_38E159B4-886E-4B01-9E57-D175DD71700D" /* Signing.xcconfig */,
+				"TEMP_D9390F2C-A385-4EE5-9CC4-9813F3D66D5E" /* Signing.xcconfig */,
 			);
 			path = macos;
 			sourceTree = "<group>";
@@ -697,6 +700,7 @@
 				B6EEC618D96008B743E7E77E /* HistoryGlyph.swift in Sources */,
 				003D6D3ABB6D09C5F59C1A44 /* HistoryPage.swift in Sources */,
 				09B66C5F66EAC1328AF27D9D /* HistoryTools.swift in Sources */,
+				729988E5A140E7A5BBB56255 /* InspectorDock.swift in Sources */,
 				5E7A41B6ED1933AEB4CB74D2 /* Label.swift in Sources */,
 				288D5A711C42E9BFA5943BB9 /* LabelCard.swift in Sources */,
 				D3998BA3DC16B14FA4C28B56 /* LabelTool.swift in Sources */,
@@ -812,7 +816,7 @@
 		};
 		1BF4A7F21A34A94F2F8BE4A1 /* Release */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = "TEMP_38E159B4-886E-4B01-9E57-D175DD71700D" /* Signing.xcconfig */;
+			baseConfigurationReference = "TEMP_D9390F2C-A385-4EE5-9CC4-9813F3D66D5E" /* Signing.xcconfig */;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
 				CLANG_ANALYZER_NONNULL = YES;
@@ -949,7 +953,7 @@
 		};
 		BB3F32C66D957B876F949001 /* Debug */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = "TEMP_38E159B4-886E-4B01-9E57-D175DD71700D" /* Signing.xcconfig */;
+			baseConfigurationReference = "TEMP_D9390F2C-A385-4EE5-9CC4-9813F3D66D5E" /* Signing.xcconfig */;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
 				CLANG_ANALYZER_NONNULL = YES;

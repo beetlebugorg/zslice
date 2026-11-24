@@ -123,14 +123,15 @@ The package is `Package.swift`. `Sources/CZslice/module.modulemap` makes the C A
 | `Views/HistoryTools.swift` | Undo, Redo, and the History button of the bottom bar, with its badge (`History.unsaved(since:)`, the time of `SliceModel.savedAt`) and the popover. |
 | `Views/HistoryGlyph.swift` | The glyph of each kind of step. |
 | `Views/HistoryPage.swift` | The History popover: a head with the count, the steps, the newest first, with their changes, the line edits, and the clear button. |
-| `Views/LineCard.swift` | The card of a selected line, and the placement of the cards. |
+| `Views/InspectorDock.swift` | The Inspector column, its tabs and groups, the choice of its page, and its test. |
+| `Views/LineCard.swift` | The page of a selected line. |
 | `Views/PartCard.swift` | The card of a selected part, or of several parts. |
 | `Views/CutPopover.swift` | Cut, from the part card. |
 | `Views/RangeCard.swift` | The card of a range of layers. |
 | `Views/SupportCard.swift` | The card of the Support tool, and of a picked support. |
 | `Views/PaintCard.swift` | The card of the Paint tool. |
 | `Views/LabelCard.swift` | The card of a label, and its handles to scale and turn it. |
-| `Views/SpatialCards.swift` | The place and the size that each card keeps. |
+| `Views/SpatialCards.swift` | The place and the size of the undocked search card. |
 | `Views/ToolGlyph.swift` | The icons of the tool strip, from the SVG paths of the web app. |
 | `Views/FilamentViews.swift` | The filament chips, and the list of the filaments. |
 | `Views/PrintFacts.swift` | The main settings of the print in the details, each with a popover of editors. |
@@ -253,33 +254,19 @@ The slice is the UI, so the chrome is small. The controls of the window are over
   - A note does not open the details: they would cover the part (as on the web and in the GTK app).
 - **The colors**: the palette picks the colors of the lines (`zs_view_set_mode`): the filament, one color for each line type, or a ramp of the speed, the flow, the layer time, or the line width. The legend lists the line types; a click shows or fades one (`zs_view_focus`), and Option-click shows only it.
 
-### The cards and the panels
+### The Inspector
 
-A card never covers the thing that was clicked, or a panel:
+`Views/InspectorDock.swift` follows `web/app/dock.js`.
 
-- `cardPlace(avoiding:)` puts a card on the first side of the screen box of that thing where it fits whole, in the order right, left, below, above. Then a free corner of the view, then the place with the least overlap. It keeps out of the tool strip and the layer slider.
-- The box of a line is the whole clicked path (`zs_view_path_rect`). The box of a part has its turn rings (0.62 times its largest size, and 4 mm).
-- The line card goes to a corner (`cardCorner`), and keeps its corner while that corner stays clear.
-- The panels are the details, the check panel, the gap summary, and the card of a tool. Each marks itself with `.panel()`, a preference of its frame (`PanelFramesKey`). The window keeps the frames and the origin of the layer of the cards, so the placement can compare them. This is the rule of `freeArea` in web/app/place.js.
-- The Turn, Grab, and Paint tools show no part card.
-- **Spatial cards** (`Views/SpatialCards.swift`, as web/app/spatial.js): the line card, the part card, the range card, and the history card each keep one place and one size (`SpatialStore`, in `prefs` under `spatial.v1`). A drag of the head keeps the place, and the grip at the lower right corner keeps the size; the kept height is a least height. A card opens at its kept place, moved inside the view, unless there it covers the box of the clicked thing; then `cardPlace` places it for this time. A double click on the head forgets both.
-
-### The settings drawer
-
-The drawer of the other apps is a SwiftUI inspector at the right of the window. N in the view, the toolbar button, or View > Show Settings (Option-Command-I) shows it and hides it, and the app keeps the choice. A Mac inspector always sits beside the content, so the drawer has no Pin: it is always pinned.
-
-- Its pages are those of `web/app/settings.js`: the sections of each group, the settings of a section (each with a switch, a menu, or a field with its unit), and the page of one setting (its slider, its formula, its source with Reset, its help (names and values in code marks show in a code font; tooltips and the search use the help without the marks), and the lines that it changes with their share of the print time). The search field finds settings by name or help text.
-- The view shows the lines that the page points at, and fades the others (`zs_view_focus`), on the 3D and the 2D page. A pointer over a row shows the lines of that row. A hidden drawer shows the whole print.
-- `OwnerBadge` (as web/app/settings.js): a list of one printer or filament section starts with a banner, "Printer · *name*" or "Filament · *name*" (`machine.name`, `filament.name`); a mixed list (a search, the search overlay) has the badge on each printer and filament row, and the page of a setting has it with a note. A print setting has none.
-- A speed ratio (a setting `*_speed` that `zs_app_ratio_speed` knows) shows the speed that it gives on this printer next to the percent: "≈ 45 mm/s".
-- A field sends a number after a pause of 450 ms in the typing, on Return, or with the up and down arrow keys; the plate then slices again.
-- The details show the main settings of the print as buttons. Each opens a popover with live editors and a slider. A slider sends its value at most each 90 ms during a drag, so the view follows the drag. The details keep the last numbers while a new slice runs.
-
-### The search, the keys, Gaps, Check, and the context menu
+- `dockKind` picks the page: label, paint, support, gap, range, part, line, or the plate. A selection changes only this value.
+- The view has no safe area at the top, bottom, or leading edge. It keeps the trailing safe area, so it ends at the column.
+- `showSettings` is the open state of the column, in `prefs` under `inspectorOpen`. `dockRowOpen` is the row of a narrow window (1040 points or less). Only the user sets it.
+- The column leaves the view at least 720 points, so the bottom bar stays whole.
+- `ZSLICE_DOCK_TEST=1` runs each kind of selection at each window layout and camera. It compares the frame of the view, the camera, the open state, and a grid of hit tests. `ZSLICE_DOCK_TEST=part` (or another kind) stays on that page for a screenshot.
 
 - The search of the settings and the actions (`SearchOverlay.swift`): its field is always in the toolbar, and `/` (or Command-F) gives it the focus. The results show under it, with a live control for each setting, a slider for a number, and an eye that shows only the lines of a setting. Return on a number or a text focuses its field (the `focusRequest` of `ValueField`); Return or Esc there gives the focus back to the search. The undock button makes the search a card with its own field (the spatial kind "search"); the app keeps the choice (`search.docked`). `SearchState` keeps the text, the selected row, and the place, for both fields. `search.rail` ("left", "right", or "") pins the undocked search to a rail of the view, from under the toolbar to the bottom bar (`SearchOverlay.railWidth`); `place(_:)` moves it ("toolbar", "card", "left", "right"), and the head has a button for each other place. In a rail, `SearchRow` puts the name over the control (`stacked`). `sliceViewClick` closes the results under the toolbar; a card or a rail stays. `ZSLICE_SEARCH_PLACE` sets the place for a test.
 - `?` (or Help > Keyboard Shortcuts) opens the sheet of all the keys of the Mac app. The Mac app owns its table. It has the groups of the web and Linux sheets, in two columns.
-- The card of a gap keeps clear of the gap: `gapScreenBox` gives the screen box of its cells for `cardPlace(avoiding:)`. The place uses the measured size of the card (`gapCardSize`). A card taller than the free area of the view scrolls, so it stays clear of the bars too. `ZSLICE_GAPS=1 ZSLICE_GAP_OPEN=1` opens the card of the largest gap and logs both boxes and whether they overlap.
+- The page of a gap is in the Inspector. `gapScreenBox` gives the screen box of its cells.
 - Gaps (G) shows the gaps of the top layer, and a click on a gap opens the settings that can close it. Check lists the issues of the print, and a click goes to an issue.
 - A right click with no drag, or Control and a click, opens the context menu. It fits what is under the pointer, as `web/app/context-menu.js` does: the support items on a support line, the part items on a line of a part, the plate items on the bed, and the view items each time. Remove This Support runs `zs_app_support_pick` up from the line in steps of 0.5 mm, puts a Block area on that overhang, runs `zs_app_mark_remove_near`, and ends the pick of the Select tool.
 
@@ -360,7 +347,7 @@ Measure puts a tape between two points (`zs_view_surface_point`). A click on a c
 - A click on no label adds one where the ray of the view meets the part (`zs_label_place` on a paint session of the mesh of the part, one for each part, freed after each slice). A press on a label selects it and starts a drag; the drag places it again with `zs_label_place` and keeps the grab offset (Shift: in its plane).
 - The labels show as decals: their outline in the plane (`zs_label_outline`, made again only when the shapes change), mapped onto the frame 0.05 mm out of the surface. `FrameRenderer.drawLabels` fills each label by the nonzero rule in the stencil: the fan of each path counts up or down by its winding, then the color goes where the count is not 0, and that pass sets the stencil back to 0 for the next label. The depth buffer has a stencil for this (`depth32Float_stencil8`). Metal has no fans, so `LabelDecals` makes their triangles.
 - A change draws at once, and goes to the core 400 ms after the last change, or at the end of a drag or a scale (`zs_app_label_update`), as one step of the history; the plate slices. The labels are read again after each slice (an undo slices too).
-- `Views/LabelCard.swift` is the card (the spatial kind "label", with the mode, the relief, and Place an SVG…) and `LabelHandles`, which draws the handles of the selected label. The handles are in the plane of the label, sized in points of the screen (`labelHandles`, as zg_label_handles of the GTK app): a frame 4 points around the outline box, a corner square of 9 points, and a turn handle of 10 points 22 points over the frame. `placeLabelHandle` projects them after each frame. The view of the slice takes the presses: `labelPress` hit-tests the handles in the plane (`labelHandleHit`), and a drag is a move, a resize, or a turn (`LabelDrag`).
+- `Views/LabelCard.swift` is the page of a label (with the mode, the relief, and Place an SVG…) and `LabelHandles`, which draws the handles of the selected label. The handles are in the plane of the label, sized in points of the screen (`labelHandles`, as zg_label_handles of the GTK app): a frame 4 points around the outline box, a corner square of 9 points, and a turn handle of 10 points 22 points over the frame. `placeLabelHandle` projects them after each frame. The view of the slice takes the presses: `labelPress` hit-tests the handles in the plane (`labelHandleHit`), and a drag is a move, a resize, or a turn (`LabelDrag`).
   - At the press of a corner, `grab` keeps the pointer in the plane less the corner of the outline box under the handle; each move gives the resize maths the pointer less `grab`, so the first move scales by 1.
   - A resize keeps the opposite corner; one scale (`scaled`), or with Shift the `stretch` of each axis, then the origin moves by (1 - k) times the anchor. A turn turns `right` about the center of the box (`turned(_:about:)`); `labelTurnSign` reads its sense from the screen cross product of the right and up axes, so the turn follows the pointer from the front or the back.
   - The smart guides: `labelFace` reads `zs_label_face` once while the label stays in its plane (on a curved face at most each 150 ms), and each step of a move or a resize calls `zs_label_snap` with the other labels of the part, the face, and 6 points as the tolerance (`labelSnap`). Option skips it. The guides show as lines until the release.
@@ -481,7 +468,7 @@ Like the GTK shell, the app reads environment variables for tests and screenshot
 - `ZSLICE_SIGN_LOG=1` logs the lines of the signs each time the image is made. `ZSLICE_NO_SIGNS=1` sets no signs, to compare: with a sign, the start view of the core frames the sign too, so its camera looks a little nearer the front of the bed.
 - `ZSLICE_RUN_AT=x,y` (or `center`) is a Shift-click of the Select tool; `ZSLICE_RUN_LOG=1` logs the run, and a plain pick 1.5 s later logs that the run is cleared.
 - `ZSLICE_RANGE_DRAG="x0,y0;x1,y1"` drags over layers from a line with the press, move, and release of the view. `ZSLICE_RANGE_KEYS=n` presses Shift-K n times instead (with `ZSLICE_PICK` for the start line). Then the hook changes the infill of the range, so the body must light again after the slice. `ZSLICE_RANGE_LOG=1` logs each light, and `ZSLICE_RANGE_CLOSE=1` closes the card at the end.
-- `ZSLICE_SPATIAL="kind:x,y,w,h;..."` keeps a place (the top left corner) and a size for a kind of card (`line`, `part`, `range`, `history`), as a drag and a resize do.
+- `ZSLICE_SPATIAL="kind:x,y,w,h;..."` keeps a place (the top left corner) and a size for the search card (`search`), as a drag and a resize do.
 - `ZSLICE_KEYS=chars` types each key in the view, and logs the tool, the layers shown, the range card, and the selected line after it. An upper case letter has Shift, and `^x` is Control-x.
 - `ZSLICE_LAYER_LOG=1` logs the layer count, and the times and path ends of the top three layers, after each slice.
 - `ZSLICE_BED_BELOW=path.png` turns the view to look up from under the bed 2 s after the start, and writes the window there. Use it with `ZSLICE_PRINTER` set to a printer with a bed model.
