@@ -633,27 +633,77 @@ namespace winrt::ZSlice::implementation
             FillHistoryList();
     }
 
-    // One row on a wide view. On a narrow view the replay and the print
-    // each take a row of their own.
+    // The plate bar in fewer points: "1 of 3" and "+". The names for a
+    // screen reader stay whole.
+    void MainWindow::SetPlateBarShort(bool short_labels)
+    {
+        if (plate_bar_short == short_labels)
+            return;
+        plate_bar_short = short_labels;
+        PlateAdd().Content(box_value(short_labels ? L"+" : L"+ Plate"));
+        RefreshPlateName();
+    }
+
+    // One row on a wide view. On a narrow view, two rows: the plates and
+    // the print, then the history and the replay. A third row only when the
+    // plates and the print do not fit side by side: a short bar leaves the
+    // view its height.
     void MainWindow::LayoutDock(double width)
     {
-        bool narrow = width <= 760;
-        // On a narrow view the facts of the print wrap beside the button.
-        SummaryDetail().MaxWidth(narrow ? std::max(120.0, width - ExportButton().ActualWidth() - 76) : std::numeric_limits<double>::infinity());
-        if (dock_laid_out && narrow == dock_narrow)
+        // The bar stays as wide as its content, so the view decides.
+        if (double room = WorkArea().ColumnDefinitions().GetAt(0).ActualWidth(); room > 0)
+            width = room;
+        // Two rows put the plates and the print side by side: the print
+        // needs its button and the time with its badge, and its detail
+        // wraps. Short labels of the plates make room before a third row.
+        auto natural = [](FrameworkElement const &e) {
+            e.Measure({ std::numeric_limits<float>::infinity(), std::numeric_limits<float>::infinity() });
+            return (double)e.DesiredSize().Width;
+        };
+        // The padding, the spaces of the columns, and a margin for rounding.
+        double room = width - 24 - 30 - 8;
+        double head = natural(SummaryTime()) + (SummaryBadge().Visibility() == Visibility::Visible ? natural(SummaryBadge()) + 8 : 0);
+        double print = head + natural(ExportGroup()) + 23;
+        int mode = 0;
+        if (width <= 760)
+        {
+            SetPlateBarShort(false);
+            mode = natural(PlateBar()) + print <= room ? 1 : 2;
+            if (mode == 2)
+            {
+                SetPlateBarShort(true);
+                if (natural(PlateBar()) + print <= room)
+                    mode = 1;
+                else
+                    SetPlateBarShort(false);
+            }
+        }
+        else
+            SetPlateBarShort(false);
+        double detail = mode == 0 ? std::numeric_limits<double>::infinity()
+                        : mode == 1 ? std::max(120.0, room - natural(PlateBar()) - (print - head))
+                                    : std::max(120.0, width - ExportButton().ActualWidth() - 76);
+        SummaryDetail().MaxWidth(detail);
+        if (dock_laid_out && mode == dock_mode)
             return;
         dock_laid_out = true;
-        dock_narrow = narrow;
-        Grid::SetColumn(ScrubRow(), narrow ? 0 : 2);
-        Grid::SetRow(ScrubRow(), narrow ? 1 : 0);
-        Grid::SetColumnSpan(ScrubRow(), narrow ? 4 : 1);
-        ScrubRow().BorderThickness(narrow ? ThicknessHelper::FromUniformLength(0) : ThicknessHelper::FromLengths(1, 0, 0, 0));
-        ScrubRow().Padding(narrow ? ThicknessHelper::FromUniformLength(0) : ThicknessHelper::FromLengths(8, 0, 0, 0));
-        Grid::SetColumn(DockSummary(), narrow ? 0 : 3);
-        Grid::SetRow(DockSummary(), narrow ? 2 : 0);
-        Grid::SetColumnSpan(DockSummary(), narrow ? 4 : 1);
-        DockSummary().BorderThickness(narrow ? ThicknessHelper::FromLengths(0, 1, 0, 0) : ThicknessHelper::FromLengths(1, 0, 0, 0));
-        DockSummary().Padding(narrow ? ThicknessHelper::FromLengths(0, 2, 0, 0) : ThicknessHelper::FromLengths(12, 0, 0, 0));
-        DockSummary().ColumnDefinitions().GetAt(0).Width(narrow ? GridLengthHelper::FromValueAndType(1, GridUnitType::Star) : GridLengthHelper::Auto());
+        dock_mode = mode;
+        auto none = ThicknessHelper::FromUniformLength(0);
+        auto left_line = ThicknessHelper::FromLengths(1, 0, 0, 0);
+        Grid::SetColumn(HistoryTools(), mode == 1 ? 0 : 1);
+        Grid::SetRow(HistoryTools(), mode == 1 ? 1 : 0);
+        HistoryTools().BorderThickness(mode == 1 ? none : left_line);
+        HistoryTools().Padding(mode == 1 ? none : ThicknessHelper::FromLengths(8, 0, 0, 0));
+        Grid::SetColumn(ScrubRow(), mode == 0 ? 2 : mode == 1 ? 1 : 0);
+        Grid::SetRow(ScrubRow(), mode == 0 ? 0 : 1);
+        Grid::SetColumnSpan(ScrubRow(), mode == 0 ? 1 : mode == 1 ? 3 : 4);
+        ScrubRow().BorderThickness(mode == 0 ? left_line : none);
+        ScrubRow().Padding(mode == 0 ? ThicknessHelper::FromLengths(8, 0, 0, 0) : none);
+        Grid::SetColumn(DockSummary(), mode == 2 ? 0 : 3);
+        Grid::SetRow(DockSummary(), mode == 2 ? 2 : 0);
+        Grid::SetColumnSpan(DockSummary(), mode == 2 ? 4 : 1);
+        DockSummary().BorderThickness(mode == 2 ? ThicknessHelper::FromLengths(0, 1, 0, 0) : left_line);
+        DockSummary().Padding(mode == 2 ? ThicknessHelper::FromLengths(0, 2, 0, 0) : ThicknessHelper::FromLengths(12, 0, 0, 0));
+        DockSummary().ColumnDefinitions().GetAt(0).Width(mode == 2 ? GridLengthHelper::FromValueAndType(1, GridUnitType::Star) : GridLengthHelper::Auto());
     }
 }

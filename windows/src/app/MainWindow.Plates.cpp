@@ -212,7 +212,9 @@ namespace winrt::ZSlice::implementation
         if (model == nullptr)
             return;
         size_t n = model->PlateCount(), active = model->ActivePlate();
-        PlateName().Text(L"Plate " + to_hstring(active + 1) + L" of " + to_hstring(n));
+        plate_name_active = active;
+        plate_name_count = n;
+        RefreshPlateName();
         PlatePrev().IsEnabled(active > 0);
         PlateNext().IsEnabled(active + 1 < n);
         PlateAll().Visibility(n > 1 ? Visibility::Visible : Visibility::Collapsed);
@@ -247,5 +249,12 @@ namespace winrt::ZSlice::implementation
         if (rc != ZS_OK)
             zs::Log("shell: the signs of the plates did not load: %s\n", zs_status_string(rc));
         RequestDraw();
+    }
+
+    void MainWindow::RefreshPlateName()
+    {
+        std::wstring numbers = std::to_wstring(plate_name_active + 1) + L" of " + std::to_wstring(plate_name_count);
+        PlateName().Text(plate_bar_short ? numbers : L"Plate " + numbers);
+        Microsoft::UI::Xaml::Automation::AutomationProperties::SetName(PlateName(), L"Plate " + numbers);
     }
 }

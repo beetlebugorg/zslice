@@ -592,7 +592,7 @@
 
                 <!-- Undo, redo, and the history behind a button. A number on
                      the button counts the changes since the last open or save. -->
-                <StackPanel Grid.Column="1" Grid.Row="0" Orientation="Horizontal" Spacing="2" VerticalAlignment="Center"
+                <StackPanel x:Name="HistoryTools" Grid.Column="1" Grid.Row="0" Orientation="Horizontal" Spacing="2" VerticalAlignment="Center"
                             BorderBrush="{ThemeResource ZsLine}" BorderThickness="1,0,0,0" Padding="8,0,0,0">
                     <Button x:Name="UndoButton" Style="{StaticResource ZsFlatPill}" Width="28" Height="28" MinWidth="0" MinHeight="0" Padding="0" CornerRadius="14" IsEnabled="False"
                             AutomationProperties.Name="Undo" ToolTipService.ToolTip="Undo (Ctrl+Z)">

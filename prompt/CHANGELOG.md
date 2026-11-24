@@ -68,3 +68,4 @@ One line for each update: the date, the commit that the folder describes, and th
 | 2026-11-23 | Move the selection cards into a docked Inspector on Windows | README, CHANGELOG, 12: one column or narrow row for each selection page, with groups, region values apart, and a Mirrored mark. |
 | 2026-11-23 | Keep a Mac line that is picked while a slice starts | README, CHANGELOG, 11: the place of the line comes from the view; the dock test has support and several parts. |
 | 2026-11-23 | Keep a line that is picked while a slice starts on Windows | README, CHANGELOG, 12: a lesson: the place of a line picked during a slice comes from the view |
+| 2026-11-23 | Keep the Windows bottom bar to two rows in a narrow view | README, CHANGELOG, 12: two rows of the bottom bar in a narrow view, short plate labels, and a narrow row of 40 % |
