@@ -76,6 +76,7 @@ Build the native Windows app in `windows/`: a WinUI 3 shell in C++/WinRT around 
 
 ## Lessons
 
+- **Keep the place of a line picked while a slice runs.** The app has no toolpaths then, so the pick saved no place. The slice dropped the line, and the first filament click had no effect. The place now comes from the view, as on the web.
 - **`FrameworkElement::Parent` is null until the window has its content.** A setup that read it in the constructor crashed at launch. Name the parent of each panel that moves.
 - **Read saved group states after the preferences load.** The groups of the XAML page exist before the store does, so they first came back open after each restart.
 - **An upload action must not call the main button.** The search upload called `PrimaryAction`, and that action prints. It now calls `UploadOnly`, which stores the file.
