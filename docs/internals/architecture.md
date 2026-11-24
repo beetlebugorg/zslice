@@ -214,3 +214,17 @@ The plate set is in the core (`src/app/plate_set.zig`, `zs_set_*`). A `zs_set` o
 - Projects: `zs_set_project_load` loads all plates of a printdeck.yml, one app for each plate. A plate with no Cura stack gets its parts (for the footprints) and the status cannot.
 - The view: `zs_set_view_sync` gives a view the beds, the clears where another plate came to a place (by id), the flags, the footprints, and the beads of the other plates with a new slice. The set keeps the scene bytes of the last slice of each plate, so a plate that slices again shows its old beads. The web app slices in a worker and draws on the page: `zs_set_sync_write` writes the same sync as bytes, and `zs_view_sync_read` applies it to the view of the page.
 - The shells keep the UI: the plate bar, the labels, the keys, the framing of the camera, and the question before a removal.
+
+## The slice form
+
+The app keeps the work of a slice for the next slice: the outlines of each part, the memo of each layer, and the move stream of each level. A later slice makes a piece again only if its key changed. A key is a 64-bit hash (`std.hash.Wyhash`) of all inputs that the stages of the piece read. `src/form.zig` has the key builder and the kept form of each level.
+
+A key reads every setting, minus a skip list for its tier (`src/settings_tiers.zig`). A setting with no line in that table is in each key. So a new setting can make a slice slower, but it cannot make a slice wrong. The tiers:
+
+| Tier | Piece | Key | Skips |
+|---|---|---|---|
+| Geometry | The outlines of a part | `engine.outlineKey` | All settings but 11 (the layer heights, the shrinkage, the XY offsets, the resolution, the gap closing, the polyholes, `project.fast_offsets`) |
+| Regions, paths | The memo of a layer, the move stream of a level | The value keys of the memo, `plate_job.planStamp` | The patch settings (`settings.patch_settings`) |
+| Text | The G-code of a level | None yet | Nothing |
+
+No tier reads the six app preferences (`engine.threads`, `engine.draft_slices`, `engine.auto_simulate`, `engine.slice_form`, `engine.verify_slices`, `engine.form_budget_mb`). A name enters a skip list only with a search of the code of the tier and a pass of `zslice verify --sweep` (see [The slice verifier](code-quality.md#the-slice-verifier)).

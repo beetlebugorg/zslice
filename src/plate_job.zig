@@ -1604,7 +1604,9 @@ fn planStamp(settings: Settings, parts: []const PartInput, overrides: []const se
     var h = std.hash.Wyhash.init(0x57a3);
     const hv = settings_mod.hashValue;
     hv(&h, extra);
-    settings_mod.hashPlanInputs(&settings, &h);
+    // The settings of the paths tier: each setting but the patch
+    // settings and the app preferences (settings_tiers.zig).
+    @import("form.zig").hashSettings(&h, &settings, .paths);
     const changes = struct {
         fn f(hh: *std.hash.Wyhash, list: []const settings_mod.Change) void {
             hv(hh, list.len);

@@ -641,18 +641,20 @@ W. McKeeman, "Differential Testing for Software", Digital Technical Journal, vol
 kind: idea
 source: General
 license: General technique
-files: src/layer.zig, src/engine.zig
+link: https://doi.org/10.1145/75277.75305
+version: W. Pugh, T. Teitelbaum, "Incremental computation via function caching", POPL 1989, pp. 315-328
+files: src/layer.zig, src/engine.zig, src/form.zig, src/plate_job.zig
 area: slicing
-summary: The memo of each layer, which keeps the slow results between slices.
+summary: The memo of each layer, and the keys of the slice form, which keep the slow results between slices.
 ```
 
-Memoization: keep a result with the inputs that made it, and use it again for the same inputs
+Memoization: keep a result with the inputs that made it, and use it again for the same inputs. W. Pugh and T. Teitelbaum use function caching for incremental computation: a later call with the same inputs takes the result of an earlier call ("Incremental computation via function caching", POPL 1989, read on 2026-11-24).
 
 **License:** General technique
 
-**Used in:** `src/layer.zig`, `src/engine.zig`
+**Used in:** `src/layer.zig`, `src/engine.zig`, `src/form.zig`, `src/plate_job.zig`
 
-**How zslice uses it:** The memo of each layer, which keeps the slow results between slices.
+**How zslice uses it:** The memo of each layer, which keeps the slow results between slices. The slice form (`src/form.zig`) keeps the move stream of each level with a key of all its inputs, and a later slice takes the stream of a level whose key is the same.
 
 ### Arena pools
 

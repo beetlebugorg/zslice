@@ -204,6 +204,21 @@ PrusaSlicer `group_fills` in `src/libslic3r/Fill/Fill.cpp` (the surfaces of a la
 
 ## G-code and settings
 
+### Steps of an object, and the settings that make a step invalid
+
+```ref
+kind: idea
+source: PrusaSlicer
+license: AGPL-3.0
+link: https://github.com/prusa3d/PrusaSlicer/blob/version_2.9.2/src/libslic3r/PrintObject.cpp
+version: version_2.9.2
+files: src/settings_tiers.zig, src/form.zig
+area: slicing
+summary: The work of a slice in steps, and a table from each setting to the steps that it makes invalid; a setting with no line makes each step invalid.
+```
+
+PrusaSlicer splits the work of an object into steps (`PrintObjectStep`: slice, perimeters, infill, support, and others). `PrintObject::invalidate_state_by_config_options` maps each changed option to the steps that it makes invalid, for example `layer_height` to the slice step and `perimeters` to the perimeters step. An option that the function does not know makes all steps invalid. zslice uses the idea in the skip lists of the keys of the slice form: a setting with no line in `src/settings_tiers.zig` is in each key. An idea only; no code is copied.
+
 ### G-code thumbnails
 
 ```ref

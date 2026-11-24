@@ -2134,15 +2134,11 @@ pub fn isPatchSetting(old_name: []const u8) bool {
     return false;
 }
 
-/// Adds each setting to `h`, but no patch setting (see `patch_settings`).
-pub fn hashPlanInputs(s: *const Settings, h: *std.hash.Wyhash) void {
-    @setEvalBranchQuota(200000);
-    inline for (@typeInfo(Settings).@"struct".fields) |g| {
-        inline for (@typeInfo(g.type).@"struct".fields) |f| {
-            if (comptime !isPatchSetting(g.name ++ "." ++ f.name)) hashValue(h, @field(@field(s, g.name), f.name));
-        }
-    }
-}
+/// The tiers of the kept work of a slice (see form.zig): the placed mesh
+/// of a part, its outlines, the work of each layer, the move stream of
+/// each level, and the G-code text of each level. settings_tiers.zig
+/// names the settings that each tier does not read.
+pub const Tier = enum(u3) { mesh, geometry, regions, paths, text };
 
 /// Adds a value to `h`: a number, an enum, a text, or a list or a struct
 /// of them. A text adds its bytes and its length.

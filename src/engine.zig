@@ -51,6 +51,7 @@ const layer_mod = @import("layer.zig");
 const gcode = @import("gcode.zig");
 const stream_mod = @import("stream.zig");
 const stage_clock = @import("stage_clock.zig");
+const form = @import("form.zig");
 const parallel = @import("parallel.zig");
 const support_mod = @import("support.zig");
 const skel_mod = @import("support_skeleton.zig");
@@ -1733,31 +1734,20 @@ const Pipeline = struct {
 };
 
 /// A hash of all inputs of the outlines, except the mesh: the part height
-/// and bottom, the placement, and the settings and overrides that pass 1
-/// uses.
+/// and bottom, the placement, the settings of the geometry tier (each
+/// setting but its skip list in settings_tiers.zig), and the overrides
+/// that pass 1 uses. The geometry tier reads project.fast_offsets: the
+/// offsets read its switch of the process (see initBase).
 fn outlineKey(settings: Settings, outline_overrides: []const settings_mod.Override, height: f64, b: mesh_mod.Bounds3, dx: f64, dy: f64) u64 {
-    var h = std.hash.Wyhash.init(0);
-    const f = settings.filament;
-    const p = settings.project;
-    const e = settings.engine;
-    const values = [_]f64{
-        height,               b.min[0],             b.min[1],          b.min[2],
-        b.max[0],             b.max[1],             b.max[2],          dx,
-        dy,                   p.first_layer_height, p.layer_height,    f.shrinkage_z,
-        f.shrinkage_xy,       f.xy_offset,          f.hole_xy_offset,  p.first_layer_xy_offset,
-        p.resolution,         e.gap_closing,        @floatFromInt(@intFromBool(p.polyholes)),
-        // The offsets read this switch of the process (see initBase).
-        @floatFromInt(@intFromBool(p.fast_offsets)),
-    };
-    h.update(std.mem.sliceAsBytes(&values));
+    var kb: form.KeyBuilder = .init(0);
+    kb.add([_]f64{ height, b.min[0], b.min[1], b.min[2], b.max[0], b.max[1], b.max[2], dx, dy });
+    kb.settings(&settings, .geometry);
     for (outline_overrides) |o| {
-        h.update(std.mem.asBytes(&[2]f64{ o.z_min, o.z_max }));
-        h.update(o.name);
-        h.update("\x00");
-        h.update(o.value);
-        h.update("\x00");
+        kb.add([2]f64{ o.z_min, o.z_max });
+        kb.add(o.name);
+        kb.add(o.value);
     }
-    return h.final();
+    return kb.final();
 }
 
 /// Polyholes (Project.polyholes): each hole of the outline that is a

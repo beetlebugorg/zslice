@@ -89,6 +89,10 @@ pub const plate_job = @import("plate_job.zig");
 pub const stage_clock = @import("stage_clock.zig");
 /// The twin-app check of kept work (see verify.zig).
 pub const verify = @import("verify.zig");
+/// The kept work of a slice and its keys (see form.zig).
+pub const form = @import("form.zig");
+/// The settings that each key of the slice form skips.
+pub const settings_tiers = @import("settings_tiers.zig");
 pub const svg = @import("svg.zig");
 /// The filled shapes of an SVG picture, for a label (see svg_path.zig).
 pub const svg_path = @import("svg_path.zig");

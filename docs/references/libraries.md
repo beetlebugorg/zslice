@@ -28,6 +28,21 @@ Zig standard library
 
 **Notes:** The compiler links the parts that zslice calls into each binary.
 
+### wyhash
+
+```ref
+kind: code
+source: Wang Yi, Zig
+license: The Unlicense (wyhash), MIT (the Zig port)
+link: https://github.com/wangyi-fudan/wyhash
+files: src/form.zig, src/engine.zig, src/plate_job.zig
+texts: licenses/zig-std-MIT.txt
+area: slicing
+summary: The 64-bit hash of the keys of the slice form and of the other keys of kept work, through std.hash.Wyhash.
+```
+
+wyhash is a fast 64-bit hash by Wang Yi, in the public domain under the Unlicense. zslice calls the port of the Zig standard library (`std.hash.Wyhash`, `lib/std/hash/wyhash.zig` of Zig 0.16.0). The header of that file names no source. The port is part of the standard library, under the MIT license of Zig. The keys of the slice form (`src/form.zig`), the outline key, and the plan stamp use it. A key is a hash, not a proof: two different inputs give the same 64-bit key with a chance of about 5e-20.
+
 ### musl libc math functions
 
 ```ref
