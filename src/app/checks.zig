@@ -655,9 +655,9 @@ fn reachIssues(b: *Builder, pj: *const zs.PlateJob, s: zs.Settings) Allocator.Er
         const g = &pj.groups[inst.group];
         // For each nozzle: the least x and its place, the most x and its
         // place, and the top.
-        var low = [_]f64{std.math.inf(f64)} ** max;
-        var high = [_]f64{-std.math.inf(f64)} ** max;
-        var top = [_]f64{0} ** max;
+        var low = @as([max]f64, @splat(std.math.inf(f64)));
+        var high = @as([max]f64, @splat(-std.math.inf(f64)));
+        var top = @as([max]f64, @splat(0));
         var at_low: [max][3]f64 = undefined;
         var at_high: [max][3]f64 = undefined;
         for (g.job.outlines, 0..) |o, i| {

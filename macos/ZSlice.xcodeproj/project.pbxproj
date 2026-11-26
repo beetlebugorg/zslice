@@ -644,7 +644,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "# The Zig core as lib/libzslice.a (arm64 and x86_64). ZIG names\n# Zig 0.16; else the zig of Homebrew.\nexport ZIG=\"${ZIG:-$(command -v zig 2>/dev/null || true)}\"\nfor z in \"$ZIG\" /opt/homebrew/opt/zig@0.16/bin/zig /usr/local/opt/zig@0.16/bin/zig; do\n  if [ -x \"$z\" ] && \"$z\" version | grep -q '^0\\.16'; then export ZIG=\"$z\"; break; fi\ndone\ncd \"$SRCROOT\" && ./build-core.sh\n";
+			shellScript = "# The Zig core as lib/libzslice.a (arm64 and x86_64). ZIG names\n# Zig 0.17; else the zig of Homebrew.\nexport ZIG=\"${ZIG:-$(command -v zig 2>/dev/null || true)}\"\nfor z in \"$ZIG\" /opt/homebrew/opt/zig/bin/zig /usr/local/opt/zig/bin/zig; do\n  if [ -x \"$z\" ] && \"$z\" version | grep -q '^0\\.17'; then export ZIG=\"$z\"; break; fi\ndone\ncd \"$SRCROOT\" && ./build-core.sh\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 

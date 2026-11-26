@@ -334,7 +334,7 @@ pub const Library = struct {
                     var m = try parseModel(rest, @intCast(brands.items.len - 1), gcodes.items.len, beds.items.len);
                     const brand = brands.items[brands.items.len - 1].name;
                     m.title = if (std.ascii.startsWithIgnoreCase(m.name, brand))
-                        try a.dupeZ(u8, m.name)
+                        try a.dupeSentinel(u8, m.name, 0)
                     else
                         try std.fmt.allocPrintSentinel(a, "{s} {s}", .{ brand, m.name }, 0);
                     try models.append(a, m);
@@ -1048,8 +1048,8 @@ const Fields = struct {
 /// byte at their end (the C API gives them as C strings).
 fn parseBed(a: Allocator, text: []const u8) Error!Bed {
     var f: Fields = .init(text);
-    const mesh = try a.dupeZ(u8, f.next());
-    const texture = try a.dupeZ(u8, f.next());
+    const mesh = try a.dupeSentinel(u8, f.next(), 0);
+    const texture = try a.dupeSentinel(u8, f.next(), 0);
     var offset: [3]f64 = .{ 0, 0, 0 };
     var it = std.mem.splitScalar(u8, f.next(), ';');
     for (&offset) |*o| o.* = std.fmt.parseFloat(f64, it.next() orelse "0") catch 0;
@@ -1100,9 +1100,9 @@ fn parseModel(text: []const u8, brand: u32, n_gcodes: usize, n_beds: usize) Erro
     // flavors.
     m.flavor = if (std.mem.eql(u8, flavor, "klipper"))
         .klipper
-    else if (std.ascii.indexOfIgnoreCase(m.firmware, "reprap") != null)
+    else if (std.ascii.findIgnoreCase(m.firmware, "reprap") != null)
         .reprap
-    else if (std.ascii.indexOfIgnoreCase(m.firmware, "repetier") != null)
+    else if (std.ascii.findIgnoreCase(m.firmware, "repetier") != null)
         .repetier
     else
         std.meta.stringToEnum(Flavor, flavor) orelse .marlin;

@@ -839,7 +839,7 @@ pub const jpeg_port = 6000;
 /// 16-byte header (the JPEG size as a little endian u32 first) and the
 /// JPEG.
 pub fn jpegAuth(code: []const u8) [80]u8 {
-    var out = [_]u8{0} ** 80;
+    var out = @as([80]u8, @splat(0));
     std.mem.writeInt(u32, out[0..4], 0x40, .little);
     std.mem.writeInt(u32, out[4..8], 0x3000, .little);
     @memcpy(out[16..20], "bblp");
@@ -893,7 +893,7 @@ test "bambu: the frames of the JPEG stream" {
     var r: JpegReader = .{};
     defer r.deinit(gpa);
     const jpeg = [_]u8{ 0xFF, 0xD8, 1, 2, 3, 0xFF, 0xD9 };
-    var head = [_]u8{0} ** 16;
+    var head = @as([16]u8, @splat(0));
     std.mem.writeInt(u32, head[0..4], jpeg.len, .little);
     try r.feed(gpa, &head);
     try std.testing.expect((try r.next()) == null);
@@ -902,7 +902,7 @@ test "bambu: the frames of the JPEG stream" {
     try r.feed(gpa, jpeg[3..]);
     try std.testing.expectEqualSlices(u8, &jpeg, (try r.next()).?);
     try std.testing.expect((try r.next()) == null);
-    try r.feed(gpa, &([_]u8{0} ** 16));
+    try r.feed(gpa, &(@as([16]u8, @splat(0))));
     try std.testing.expectError(error.BadFrame, r.next());
 }
 

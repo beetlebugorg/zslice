@@ -11,7 +11,7 @@ class ZsliceGtk < Formula
   depends_on "meson" => :build
   depends_on "ninja" => :build
   depends_on "pkgconf" => :build
-  depends_on "zig@0.16" => :build
+  depends_on "zig" => :build
   depends_on "glib"
   depends_on "gtk4"
   depends_on "json-glib"
@@ -21,7 +21,7 @@ class ZsliceGtk < Formula
 
   def install
     # The meson build runs linux/build-core.sh, which runs zig build.
-    ENV.prepend_path "PATH", formula_opt_bin("zig@0.16")
+    ENV.prepend_path "PATH", formula_opt_bin("zig")
     ENV["ZIG_GLOBAL_CACHE_DIR"] = buildpath/".zig-global-cache"
     ENV["ZIG_LOCAL_CACHE_DIR"] = buildpath/".zig-cache"
     system "meson", "setup", "build", "linux", "-Dcore-optimize=ReleaseFast", *std_meson_args

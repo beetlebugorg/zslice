@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Zig 0.17 · zslice</title>
+<meta name="description" content="zslice builds with Zig 0.17.0. This page lists the changes of the move from Zig 0.16.0 and the checks of the move.">
+<link rel="canonical" href="https://zslice.beetlebug.org/internals/zig-0.17/">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"%3E %3Crect width="32" height="32" rx="7" fill="%23171717"/%3E %3Crect x=".5" y=".5" width="31" height="31" rx="6.5" fill="none" stroke="%23ffffff" stroke-opacity=".2"/%3E %3Cg fill="none" stroke-linecap="round" stroke-linejoin="round" stroke-width="4.2"%3E %3Cpath d="M7.5 7.5 H24.5 L7.5 24.5" stroke="%23f4f0e6"/%3E %3Cpath d="M7.5 24.5 H24.5" stroke="%23ff5a1f"/%3E %3C/g%3E %3C/svg%3E">
+<link rel="stylesheet" href="../../site.css">
+</head>
+<body>
+<input type="checkbox" id="menu">
+<header class="top">
+  <a class="brand" href="../../docs.html"><span class="mark">ZSLICE</span><span class="docs">DOCS</span></a>
+  <label class="menu-btn" for="menu">Contents</label>
+  <nav class="top-links"><a href="../../index.html">Open the app</a><a href="../../user/getting-started/">Get started</a><a href="../../roadmap/">Roadmap</a><a href="../../privacy/">Privacy</a><a href="https://github.com/beetlebugorg/zslice">GitHub</a></nav>
+</header>
+<div class="layout">
+<aside class="side"><nav><a href="../../docs.html">Home</a>
+<a href="../../contents/">All documents</a>
+<div class="group">Start</div>
+<a href="../../user/getting-started/"><span class="n">1</span>Your first print</a>
+<div class="group">Everyday tasks</div>
+<a href="../../user/look/"><span class="n">2</span>Look at the print</a>
+<a href="../../user/lines/"><span class="n">3</span>Click a line</a>
+<a href="../../user/change-settings/"><span class="n">4</span>Change a setting</a>
+<a href="../../user/parts/"><span class="n">5</span>Place the parts</a>
+<a href="../../user/support/"><span class="n">6</span>Add support</a>
+<a href="../../user/filaments/"><span class="n">7</span>Print in colors</a>
+<a href="../../user/labels/"><span class="n">8</span>Labels on a part</a>
+<a href="../../user/check/"><span class="n">9</span>Check the print</a>
+<a href="../../user/calibrate/"><span class="n">10</span>Calibrate the filament</a>
+<a href="../../user/plates/"><span class="n">11</span>Plates and files</a>
+<a href="../../user/printers/"><span class="n">12</span>Send to a printer</a>
+<a href="../../user/history/"><span class="n">13</span>Undo and history</a>
+<div class="group">Features</div>
+<a href="../../user/features/"><span class="n">14</span>The best features</a>
+<a href="../../user/print-as-it-forms/"><span class="n">15</span>The print as it forms</a>
+<a href="../../user/projects/"><span class="n">16</span>printdeck projects</a>
+<a href="../../user/farm/"><span class="n">17</span>A print farm</a>
+<div class="group">Reference</div>
+<a href="../../user/keys/">Keys and mouse</a>
+<a href="../../user/settings/">Settings</a>
+<a href="../../user/expert/">Formulas and rules</a>
+<a href="../../user/profiles/">Profiles</a>
+<a href="../../user/setting-coverage/">Cura and OrcaSlicer settings</a>
+<a href="../../user/command-line/">The command line</a>
+<a href="../../user/apps/">Web, Linux, and Mac</a>
+<a href="../../user/macos/">The macOS app</a>
+<a href="../../user/windows/">The Windows app</a>
+<a href="../../user/troubleshooting/">Problems and errors</a>
+<div class="group">Embedding</div>
+<a href="../../embedding/">Overview</a>
+<a href="../../embedding/c/">C</a>
+<a href="../../embedding/zig/">Zig</a>
+<a href="../../embedding/javascript/">JavaScript</a>
+<a href="../../embedding/print-view/">The print view</a>
+<a href="../../embedding/viewer/">The G-code viewer</a>
+<a href="../../embedding/labels/">Labels</a>
+<div class="group">Internals</div>
+<a href="../../internals/architecture/">Architecture</a>
+<a href="../../internals/one-view/">Plan: one view</a>
+<a href="../../internals/selection/">Selection and focus</a>
+<a href="../../internals/how-slicing-works/">How slicing works</a>
+<a href="../../internals/layer-settings/">Settings for some layers</a>
+<a href="../../internals/gcode/">G-code reference</a>
+<a href="../../internals/arachne/">Arachne walls</a>
+<a href="../../internals/print-sim/">The print simulation</a>
+<a href="../../internals/performance/">Speed: the lower bound</a>
+<a href="../../internals/cura-compare/">Compared with other slicers</a>
+<a href="../../internals/contributing/">Contributing</a>
+<a href="../../internals/code-quality/">Code quality</a>
+<a href="../../internals/macos/">The macOS app</a>
+<a href="../../internals/windows/">The Windows app</a>
+<a href="../../internals/open-links/">Links that open a model</a>
+<a href="../../internals/model-import/">Import from a model page</a>
+<a href="../../internals/release/">CI and releases</a>
+<a href="../../internals/zig-0.17/" aria-current="page">Zig 0.17</a>
+<div class="group">Project</div>
+<a href="../../app/">App</a>
+<a href="../../roadmap/">Roadmap</a>
+<a href="../../privacy/">Privacy</a>
+<div class="group">References</div>
+<a href="../../references/">References</a>
+<a href="../../references/explore/">Explorer</a>
+<a href="../../references/libraries/">Libraries and tools</a>
+<a href="../../references/cura/">Cura</a>
+<a href="../../references/orcaslicer/">OrcaSlicer</a>
+<a href="../../references/prusaslicer/">PrusaSlicer</a>
+<a href="../../references/bambu-studio/">Bambu Studio</a>
+<a href="../../references/slicer-techniques/">Slicer techniques</a>
+<a href="../../references/printer-data/">Printer data</a>
+<a href="../../references/klipper-marlin-firmware/">Firmware and G-code</a>
+<a href="../../references/fonts/">Fonts</a>
+<a href="../../references/papers-and-algorithms/">Papers and algorithms</a>
+<a href="../../references/physics-and-materials/">Physics and materials</a>
+<a href="../../references/formats-and-protocols/">Formats and protocols</a>
+<a href="../../references/printables/">Printables</a>
+<a href="../../references/thingiverse/">Thingiverse</a></nav></aside>
+<main>
+<p class="eyebrow">Internals</p>
+<h1>Zig 0.17</h1>
+<p class="lede">zslice builds with Zig 0.17.0. This page lists the changes of the move from Zig 0.16.0 and the checks of the move.</p>
+<nav class="onpage"><b>On this page</b><ol><li><a href="#changes">Changes</a></li><li><a href="#checks">Checks</a></li></ol></nav><h2 id="changes">Changes</h2>
+<ul><li><code>build.zig.zon</code> has <code>.minimum_zig_version = &quot;0.17.0&quot;</code>. Each CI workflow sets Zig 0.17.0. The Homebrew formulas depend on <code>zig</code>, and the Xcode script phase looks for a Zig 0.17 in <code>ZIG</code>, on the path, and in Homebrew.</li><li><code>@cImport</code> is gone. <code>src/render/vulkan_c.h</code> has the Vulkan include, and the build translates it with <code>b.addTranslateC</code> into the module <code>vulkan_c</code> of the C library. <code>src/render/vk.zig</code> imports that module.</li><li><code>@typeInfo</code> of a struct has the arrays <code>field_names</code> and <code>field_types</code>, and an enum has <code>field_names</code> and <code>field_values</code>. <code>src/type_fields.zig</code> zips these arrays into one record for each field, so the loops over the settings read <code>f.name</code> and <code>f.type</code> as before.</li><li>The array repeat operator <code>**</code> is gone. A run of one value is <code>@splat</code>. The repeated strings of the G-code header and of the tests are plain literals.</li><li>The optimize modes are lower case: <code>.debug</code>, <code>.safe</code>, <code>.fast</code>, <code>.small</code>. <code>-Doptimize=ReleaseFast</code> still works on the command line.</li><li><code>std.ascii.indexOfIgnoreCase</code> is <code>std.ascii.findIgnoreCase</code>. <code>std.meta.Int</code> is <code>@Int</code>. <code>Allocator.dupeZ</code> is <code>dupeSentinel(u8, s, 0)</code>. <code>StaticBitSet.initEmpty()</code> is <code>.empty</code>.</li><li><code>std.ArrayList</code> has the field <code>pointer_stability</code>. A list made from its parts sets <code>.pointer_stability = .{}</code>.</li></ul>
+<h2 id="checks">Checks</h2>
+<p>These checks ran on 2026-11-26 on an x86_64 Linux machine with 8 cores. They compare the branch with main 70dd0b3c built by Zig 0.16.0.</p>
+<ul><li><code>zig build test</code>, <code>zig build verify</code>, <code>zig build lib</code>, and <code>zig build web</code> pass. <code>zig build lib</code> builds for <code>x86_64-windows-msvc</code> and <code>aarch64-macos</code>.</li><li><code>tools/corpus_hash.py</code> gives the same G-code hash for each of the 4 files of the test parts (3DBenchy, the bunny, the M3x10 screw, and the KSR test) and for each of the 109 STL files of the Printdeck corpus. All 113 slices have the status <code>ok</code>.</li><li><code>zslice bench 3DBenchy.stl</code>, interleaved runs of each build: in 3 runs, the CPU median of the full slice is 1,415 to 1,427 ms with 0.17.0 and 1,462 to 1,471 ms with 0.16.0. In 7 runs, the least wall time is 238 ms with 0.17.0 and 249 ms with 0.16.0. Other jobs used the machine, so the wall times of single runs vary by up to 50 percent.</li></ul><nav class="pager"><a class="prev" href="../../internals/release/"><span>Previous</span><b>CI and releases</b></a><a class="next" href="../../app/"><span>Next</span><b>App</b></a></nav>
+</main>
+</div>
+<footer>zslice is free software (AGPL-3.0-or-later). <a href="../../privacy/">Privacy</a>: no analytics, no cookies, nothing from other sites. <a href="https://github.com/beetlebugorg/zslice/blob/main/docs/build.py">docs/build.py</a> writes this site from <a href="https://github.com/beetlebugorg/zslice/blob/main/docs/internals/zig-0.17.md">docs/internals/zig-0.17.md</a>.</footer>
+</body>
+</html>

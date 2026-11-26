@@ -27,10 +27,10 @@ aggregateTargets:
         basedOnDependencyAnalysis: false
         script: |
           # The Zig core as lib/libzslice.a (arm64 and x86_64). ZIG names
-          # Zig 0.16; else the zig of Homebrew.
+          # Zig 0.17; else the zig of Homebrew.
           export ZIG="${ZIG:-$(command -v zig 2>/dev/null || true)}"
-          for z in "$ZIG" /opt/homebrew/opt/zig@0.16/bin/zig /usr/local/opt/zig@0.16/bin/zig; do
-            if [ -x "$z" ] && "$z" version | grep -q '^0\.16'; then export ZIG="$z"; break; fi
+          for z in "$ZIG" /opt/homebrew/opt/zig/bin/zig /usr/local/opt/zig/bin/zig; do
+            if [ -x "$z" ] && "$z" version | grep -q '^0\.17'; then export ZIG="$z"; break; fi
           done
           cd "$SRCROOT" && ./build-core.sh
 

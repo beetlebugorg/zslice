@@ -6,11 +6,11 @@ App logic goes in the core, so the three shells do not each have a copy. The she
 
 ## Build
 
-The app needs Zig 0.16 and the Swift 6 tools of Xcode (macOS 14 or later).
+The app needs Zig 0.17 and the Swift 6 tools of Xcode (macOS 14 or later).
 
 ```sh
 cd macos
-ZIG=/path/to/zig-0.16/zig ./build-core.sh   # lib/libzslice.a, for arm64 and x86_64
+ZIG=/path/to/zig-0.17/zig ./build-core.sh   # lib/libzslice.a, for arm64 and x86_64
 ./make-app.sh                                # build/zslice.app
 open build/zslice.app
 ```
@@ -28,7 +28,7 @@ open build/zslice.app
 
 `macos/ZSlice.xcodeproj` builds the same app as the Swift package, as a real app target that Xcode can sign, archive, and notarize. XcodeGen (https://github.com/yonaskolb/XcodeGen) makes it from `macos/project.yml`. After a change of that file, run `xcodegen generate` in `macos/`, and commit both. The project:
 
-- builds the core first. A script phase runs `build-core.sh`. It finds Zig 0.16 in `ZIG`, on the path, or in Homebrew, and keeps `lib/libzslice.a` as it is when the core did not change, so Xcode does not link again.
+- builds the core first. A script phase runs `build-core.sh`. It finds Zig 0.17 in `ZIG`, on the path, or in Homebrew, and keeps `lib/libzslice.a` as it is when the core did not change, so Xcode does not link again.
 - uses the module map of the package (`Sources/CZslice`) and `lib/libzslice.a`.
 - uses `Info.plist` of the package, with the bundle id `org.beetlebug.zslice`.
 - copies `src/printers/beds` to `Resources/beds` after the build, before Xcode signs the app.

@@ -27,7 +27,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  ZIG_VERSION: "0.16.0"
+  ZIG_VERSION: "0.17.0"
 
 jobs:
   # Each app links the core. So a change of the core (src/, include/,

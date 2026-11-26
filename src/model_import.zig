@@ -300,7 +300,7 @@ fn plainText(a: Allocator, text: []const u8, max: usize) Allocator.Error![:0]con
 fn cleanName(a: Allocator, raw: []const u8) Allocator.Error![:0]const u8 {
     var buf: [ol.name_cap]u8 = undefined;
     const name = ol.cleanName(raw, &buf);
-    return a.dupeZ(u8, name);
+    return a.dupeSentinel(u8, name, 0);
 }
 
 /// The plates of a 3MF file: the <plate> elements of the
@@ -468,7 +468,7 @@ fn preselect(list: *List) Allocator.Error!void {
         checked += 1;
     }
     if (threemf > 0 and meshes > 0) {
-        list.note = try a.dupeZ(u8, "This model has 3MF files and STL or OBJ files. They often hold the same parts, so zslice checks the STL and OBJ files only. Check a 3MF file to load it too.");
+        list.note = try a.dupeSentinel(u8, "This model has 3MF files and STL or OBJ files. They often hold the same parts, so zslice checks the STL and OBJ files only. Check a 3MF file to load it too.", 0);
     }
 }
 

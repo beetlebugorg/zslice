@@ -31,6 +31,7 @@
 //! docs/references/orcaslicer.md).
 
 const std = @import("std");
+const type_fields = @import("type_fields.zig");
 const flow = @import("flow.zig");
 
 pub const InfillPattern = enum { lines, grid, triangles, trihexagon, cubic, gyroid, concentric, honeycomb, zigzag, flow, lightning };
@@ -412,7 +413,7 @@ pub const Machine = struct {
     /// (the second nozzle, tool T1) to 15. A value of 0 is the value of
     /// the first nozzle. Entry 0 has no use: the first nozzle has the
     /// settings of the Nozzle section.
-    nozzle: [max_nozzles]Nozzle = [_]Nozzle{.{}} ** max_nozzles,
+    nozzle: [max_nozzles]Nozzle = @as([max_nozzles]Nozzle, @splat(.{})),
 
     // G-code
     /// The pictures of the print at the top of the G-code, for the screen
@@ -1305,7 +1306,7 @@ pub const Settings = struct {
             if (!(v >= l[0] and v <= l[1])) return error.OutOfRange;
         }
         if (nozzleSetting(name)) |ns| return setField(&self.machine.nozzle[ns.k], ns.field, value);
-        inline for (@typeInfo(Settings).@"struct".fields) |g| {
+        inline for (type_fields.structFields(Settings)) |g| {
             if (std.mem.eql(u8, g.name, group)) return setField(&@field(self, g.name), field, value);
         }
         return error.UnknownSetting;
@@ -1399,7 +1400,7 @@ pub const SlotNozzles = struct {
     /// The number of filaments of the plate.
     count: u32 = 1,
     /// The nozzle of the filament of each slot (`Filament.nozzle`).
-    nozzle: [max_slot_nozzles]u8 = [_]u8{0} ** max_slot_nozzles,
+    nozzle: [max_slot_nozzles]u8 = @as([max_slot_nozzles]u8, @splat(0)),
 
     /// The nozzles of the filaments `slots` (each `Filament.nozzle`).
     pub fn of(slots: []const Filament) SlotNozzles {
@@ -1438,9 +1439,9 @@ pub fn nozzleLines(m: Machine, p: Project) NozzleLines {
     const w = if (p.line_width > 0) p.line_width else 1.1 * d;
     const w0 = if (p.first_layer_line_width > 0) p.first_layer_line_width else 1.25 * d;
     var out: NozzleLines = .{
-        .diameter = [_]f64{d} ** max_nozzles,
-        .width = [_]f64{w} ** max_nozzles,
-        .first = [_]f64{w0} ** max_nozzles,
+        .diameter = @as([max_nozzles]f64, @splat(d)),
+        .width = @as([max_nozzles]f64, @splat(w)),
+        .first = @as([max_nozzles]f64, @splat(w0)),
     };
     for (1..max_nozzles) |k| {
         const n = m.nozzle[k];
@@ -1471,7 +1472,7 @@ pub fn nozzleSetting(name: []const u8) ?struct { k: u32, field: []const u8 } {
 /// The names of the settings of a nozzle in the form of the docs, with
 /// "k" for the nozzle: "machine.nozzle.k.diameter".
 pub const nozzle_patterns = blk: {
-    const fields = @typeInfo(Nozzle).@"struct".fields;
+    const fields = type_fields.structFields(Nozzle);
     var out: [fields.len][]const u8 = undefined;
     for (fields, 0..) |f, i| out[i] = "machine.nozzle.k." ++ f.name;
     const final = out;
@@ -1499,7 +1500,7 @@ fn allFinite(v: anytype) bool {
             return true;
         },
         .@"struct" => |st| {
-            inline for (st.fields) |f| {
+            inline for (type_fields.structInfoFields(st)) |f| {
                 if (!allFinite(@field(v, f.name))) return false;
             }
             return true;
@@ -1742,7 +1743,7 @@ test "unixLines: CR and CRLF become LF" {
 
 fn setField(target: anytype, name: []const u8, value: []const u8) Settings.SetError!void {
     const T = @typeInfo(@TypeOf(target)).pointer.child;
-    inline for (@typeInfo(T).@"struct".fields) |f| {
+    inline for (type_fields.structFields(T)) |f| {
         // The nozzles after the first have names of their own (see
         // `nozzleSetting`).
         if (comptime f.type == [max_nozzles]Nozzle) continue;
@@ -2073,9 +2074,9 @@ pub fn limitOf(full_name: []const u8) ?[2]f64 {
 
 test "limits: each number has one, and each default is in it" {
     const d: Settings = .{};
-    inline for (@typeInfo(Settings).@"struct".fields) |g| {
+    inline for (type_fields.structFields(Settings)) |g| {
         const group = @field(d, g.name);
-        inline for (@typeInfo(g.type).@"struct".fields) |f| {
+        inline for (type_fields.structFields(g.type)) |f| {
             const is_number = switch (@typeInfo(f.type)) {
                 .float, .int => true,
                 else => false,
@@ -2158,7 +2159,7 @@ pub fn hashValue(h: *std.hash.Wyhash, v: anytype) void {
             hashValue(h, v.len);
             if (ptr.child == u8) h.update(v) else for (v) |x| hashValue(h, x);
         },
-        .@"struct" => |st| inline for (st.fields) |f| hashValue(h, @field(v, f.name)),
+        .@"struct" => |st| inline for (type_fields.structInfoFields(st)) |f| hashValue(h, @field(v, f.name)),
         else => @compileError("hashValue: " ++ @typeName(T)),
     }
 }
@@ -2575,7 +2576,7 @@ test "the settings of each nozzle after the first" {
     try std.testing.expectEqualStrings("machine.nozzle.k.diameter", patternName("machine.nozzle.4.diameter"));
     // The lines of each nozzle: 1.1 times its diameter.
     var slots: SlotNozzles = .{ .count = 3 };
-    slots.nozzle = .{ 0, 4, 2 } ++ [_]u8{0} ** (max_slot_nozzles - 3);
+    slots.nozzle = .{ 0, 4, 2 } ++ @as([(max_slot_nozzles - 3)]u8, @splat(0));
     s.project.filament = 2;
     const r = try s.resolveFor(slots);
     try std.testing.expectEqual(@as(u32, 4), r.nozzle);
@@ -2624,7 +2625,7 @@ test "a setting that moved loads by its old name" {
         if (nozzleSetting(m[1])) |ns| {
             var buf: [32]u8 = undefined;
             var w: std.Io.Writer = .fixed(&buf);
-            inline for (@typeInfo(Nozzle).@"struct".fields) |f| {
+            inline for (type_fields.structFields(Nozzle)) |f| {
                 if (std.mem.eql(u8, f.name, ns.field)) try w.print("{d}", .{@field(t.machine.nozzle[ns.k], f.name)});
             }
             try std.testing.expectEqualStrings(if (ratio) "0.7" else "7", w.buffered());

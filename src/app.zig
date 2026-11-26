@@ -45,6 +45,7 @@
 //! docs/references/libraries.md).
 
 const std = @import("std");
+const type_fields = @import("type_fields.zig");
 const Allocator = std.mem.Allocator;
 const zs = @import("root.zig");
 const Settings = zs.Settings;
@@ -951,7 +952,7 @@ pub const App = struct {
         // The other lines of the layer: the filament of most of them is
         // the base. This line can have the edit already, so it does not
         // count.
-        var counts = [_]u32{0} ** 256;
+        var counts = @as([256]u32, @splat(0));
         for (lo..hi) |k| {
             if (k != path) counts[t.path_tool.items[k]] += 1;
         }
@@ -2237,11 +2238,11 @@ pub const App = struct {
         inline for (.{ "machine", "filament", "project" }, .{ "machine", "filament", "print" }) |g, scope| {
             const values = @field(app.settings, g);
             const base_values = @field(defaults, g);
-            inline for (@typeInfo(@TypeOf(values)).@"struct".fields) |f| {
+            inline for (type_fields.structFields(@TypeOf(values))) |f| {
                 if (comptime f.type == [zs.settings.max_nozzles]zs.settings.Nozzle) {
                     // The nozzles after the first: machine.nozzle.k.field.
                     for (1..zs.settings.max_nozzles) |k| {
-                        inline for (@typeInfo(zs.settings.Nozzle).@"struct".fields) |nf| {
+                        inline for (type_fields.structFields(zs.settings.Nozzle)) |nf| {
                             const v = @field(@field(values, f.name)[k], nf.name);
                             if (v != @field(@field(base_values, f.name)[k], nf.name)) try w.print("{s}\t{s}.{s}.{d}.{s}\t{d}\n", .{ scope, g, f.name, k, nf.name, v });
                         }
@@ -2476,7 +2477,7 @@ pub const App = struct {
         try zs.profile.apply(a, &q, .project, "(quality)", try a.dupe(u8, text), null, diag);
         const edits = if (keep_edits) try app.diffOf(app.settings, app.base(), "project.") else &.{};
         app.quality = try app.diffOf(q, .{}, "project.");
-        app.quality_name = try a.dupeZ(u8, name);
+        app.quality_name = try a.dupeSentinel(u8, name, 0);
         app.rebase(edits);
     }
 
@@ -3011,15 +3012,15 @@ pub const App = struct {
         const name = zs.settings.currentName(old_name);
         const dot = std.mem.indexOfScalar(u8, name, '.') orelse return error.UnknownSetting;
         if (zs.settings.nozzleSetting(name)) |ns| {
-            inline for (@typeInfo(zs.settings.Nozzle).@"struct".fields) |f| {
+            inline for (type_fields.structFields(zs.settings.Nozzle)) |f| {
                 if (std.mem.eql(u8, f.name, ns.field)) return writeValue(w, @field(settings.machine.nozzle[ns.k], f.name));
             }
             return error.UnknownSetting;
         }
-        inline for (@typeInfo(Settings).@"struct".fields) |g| {
+        inline for (type_fields.structFields(Settings)) |g| {
             if (std.mem.eql(u8, g.name, name[0..dot])) {
                 const group = @field(settings, g.name);
-                inline for (@typeInfo(g.type).@"struct".fields) |f| {
+                inline for (type_fields.structFields(g.type)) |f| {
                     if (comptime f.type == [zs.settings.max_nozzles]zs.settings.Nozzle) continue;
                     if (std.mem.eql(u8, f.name, name[dot + 1 ..])) {
                         return writeValue(w, @field(group, f.name));
@@ -3153,7 +3154,7 @@ pub const App = struct {
         // then the groups over it.
         app.global = try copy(a, other.global);
         app.quality = try copy(a, other.quality);
-        app.quality_name = try a.dupeZ(u8, other.quality_name);
+        app.quality_name = try a.dupeSentinel(u8, other.quality_name, 0);
         app.rebase(&.{});
         var aw: std.Io.Writer.Allocating = .init(app.gpa);
         defer aw.deinit();

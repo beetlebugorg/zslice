@@ -748,19 +748,19 @@ pub const Emitter = struct {
     /// For each tower: the layer whose rows `tower_rows` counts, the z of
     /// its top and of the layer it prints now, its layer count, and the
     /// layer has its loop and grid (see `towerFinish`).
-    tower_layer: [Towers.max]usize = .{std.math.maxInt(usize)} ** Towers.max,
-    tower_rows: [Towers.max]u32 = .{0} ** Towers.max,
-    tower_top: [Towers.max]f64 = .{0} ** Towers.max,
-    tower_z: [Towers.max]f64 = .{0} ** Towers.max,
-    tower_count: [Towers.max]usize = .{0} ** Towers.max,
-    tower_done: [Towers.max]bool = .{false} ** Towers.max,
+    tower_layer: [Towers.max]usize = @splat(std.math.maxInt(usize)),
+    tower_rows: [Towers.max]u32 = @splat(0),
+    tower_top: [Towers.max]f64 = @splat(0),
+    tower_z: [Towers.max]f64 = @splat(0),
+    tower_count: [Towers.max]usize = @splat(0),
+    tower_done: [Towers.max]bool = @splat(false),
     /// A printer with more than one nozzle (`machine.nozzles`): the slot
     /// of the filament in each nozzle, or null before its first load. A
     /// switch to another nozzle flushes from the filament in that nozzle.
-    nozzle_slot: [settings_mod.max_nozzles]?u32 = .{null} ** settings_mod.max_nozzles,
+    nozzle_slot: [settings_mod.max_nozzles]?u32 = @splat(null),
     /// A tool changer (`machine.tool_numbers = nozzle`): the temperature
     /// that the G-code set last for each nozzle, or null: not known.
-    nozzle_target: [settings_mod.max_nozzles]?f64 = .{null} ** settings_mod.max_nozzles,
+    nozzle_target: [settings_mod.max_nozzles]?f64 = @splat(null),
     /// The slots whose nozzle heated before its change in this layer (see
     /// `preheatNext`), as bits.
     preheated: u64 = 0,
@@ -1003,10 +1003,10 @@ pub const Emitter = struct {
         return text;
     }
 
-    const blank16 = "0" ++ " " ** 15;
+    const blank16 = "0               ";
     /// The progress line of a layer before finishBambuProgress: "M73 P0 R0"
     /// and spaces, 20 characters.
-    pub const progress_blank = "M73 P0 R0" ++ " " ** 11;
+    pub const progress_blank = "M73 P0 R0           ";
 
     /// Fills in the progress line of each layer of a Bambu Lab G-code (see
     /// bambuLayer): "M73 P<percent> R<minutes left>", from the start time
@@ -1027,7 +1027,7 @@ pub const Emitter = struct {
             pos = found + key.len - 1;
         }
     }
-    const blank64 = "0" ++ " " ** 63;
+    const blank64 = "0                                                               ";
 
     /// Fills in the fields of the header block of a Bambu Lab G-code (see
     /// bambuBlocks) with the stats of the print: the print time, the
@@ -2124,7 +2124,7 @@ pub const Emitter = struct {
         const lr = lp.resolved orelse self.r;
         const tool = try gpa.alloc(u32, n);
         defer gpa.free(tool);
-        var present = [_]bool{false} ** filaments.max_slots;
+        var present = @as([filaments.max_slots]bool, @splat(false));
         for (lp.paths.items, tool) |path, *t| {
             t.* = @min(self.toolOf(path, lp.pathResolved(path) orelse lr), filaments.max_slots - 1);
             present[t.*] = true;
@@ -2133,8 +2133,8 @@ pub const Emitter = struct {
         const order = self.blockOrder(lp, present, &blocks);
         // The key of each path: the place of its filament in `order`, then
         // its hidden lines first after a change, then its rank.
-        var place = [_]u32{0} ** filaments.max_slots;
-        var before = [_]u32{0} ** filaments.max_slots;
+        var place = @as([filaments.max_slots]u32, @splat(0));
+        var before = @as([filaments.max_slots]u32, @splat(0));
         var prev = self.tool;
         for (order, 0..) |t, k| {
             place[t] = @intCast(k);
@@ -2182,8 +2182,8 @@ pub const Emitter = struct {
             rank[k] = lp.rank[src];
             preps[k] = pr.paths.items[src];
         }
-        lp.paths = .{ .items = new_paths, .capacity = n };
-        lp.points = .{ .points = .{ .items = points, .capacity = points.len }, .ends = .{ .items = ends, .capacity = n } };
+        lp.paths = .{ .items = new_paths, .capacity = n, .pointer_stability = .{} };
+        lp.points = .{ .points = .{ .items = points, .capacity = points.len, .pointer_stability = .{} }, .ends = .{ .items = ends, .capacity = n, .pointer_stability = .{} } };
         lp.rank = rank;
         @memcpy(pr.paths.items, preps);
         @memcpy(pr.lengths.items, lengths);

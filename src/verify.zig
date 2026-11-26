@@ -34,6 +34,7 @@
 //! SPDX-License-Identifier: AGPL-3.0-or-later
 
 const std = @import("std");
+const type_fields = @import("type_fields.zig");
 const zs = @import("root.zig");
 const App = zs.app.App;
 const Toolpaths = zs.app.Toolpaths;
@@ -76,7 +77,7 @@ pub const Result = struct {
     /// A hash of the list of edits of the random mode.
     edits_hash: u64 = 0,
     /// The random edits that both apps applied, for each kind of edit.
-    kinds: [@typeInfo(@typeInfo(Edit).@"union".tag_type.?).@"enum".fields.len]usize = @splat(0),
+    kinds: [@typeInfo(@typeInfo(Edit).@"union".tag_type.?).@"enum".field_names.len]usize = @splat(0),
 };
 
 const Set = struct { name: []const u8, value: []const u8 };
@@ -196,7 +197,7 @@ fn compare(a: *const App, b: *const App) ?Diff {
     const ga = a.gcode() orelse "";
     const gb = b.gcode() orelse "";
     if (std.mem.indexOfDiff(u8, ga, gb)) |k| return .{ .what = "G-code", .offset = k, .level = levelOf(ga, k) };
-    inline for (@typeInfo(Toolpaths).@"struct".fields) |f| {
+    inline for (type_fields.structFields(Toolpaths)) |f| {
         if (comptime !isList(f.type)) continue;
         const x = std.mem.sliceAsBytes(@field(a.toolpaths, f.name).items);
         const y = std.mem.sliceAsBytes(@field(b.toolpaths, f.name).items);

@@ -5,6 +5,7 @@
 //! settings_meta.zig, so a new setting needs no code in a shell.
 
 const std = @import("std");
+const type_fields = @import("../type_fields.zig");
 const zs = @import("../root.zig");
 const meta = @import("../settings_meta.zig");
 const Settings = zs.Settings;
@@ -66,7 +67,7 @@ fn nozzleInfos() []const SettingInfo {
     var list: []const SettingInfo = &.{};
     const Nozzle = zs.settings.Nozzle;
     for (1..zs.settings.max_nozzles) |k| {
-        for (@typeInfo(Nozzle).@"struct".fields) |f| {
+        for (type_fields.structFields(Nozzle)) |f| {
             const pattern = "machine.nozzle.k." ++ f.name;
             const name = std.fmt.comptimePrint("machine.nozzle.{d}.{s}", .{ k, f.name });
             const m = findMeta(pattern);
@@ -103,8 +104,8 @@ const struct_order: []const SettingInfo = blk: {
     // The text of the float defaults takes many comptime steps.
     @setEvalBranchQuota(2_000_000);
     var list: []const SettingInfo = &.{};
-    for (@typeInfo(Settings).@"struct".fields) |g| {
-        for (@typeInfo(g.type).@"struct".fields) |f| {
+    for (type_fields.structFields(Settings)) |g| {
+        for (type_fields.structFields(g.type)) |f| {
             if (f.type == [zs.settings.max_nozzles]zs.settings.Nozzle) {
                 list = list ++ nozzleInfos();
                 continue;
@@ -121,7 +122,7 @@ const struct_order: []const SettingInfo = blk: {
             };
             var choices: []const u8 = "";
             if (kind == .choice) {
-                for (@typeInfo(f.type).@"enum".fields, 0..) |e, i| {
+                for (type_fields.enumFields(f.type), 0..) |e, i| {
                     choices = choices ++ (if (i == 0) "" else "\n") ++ e.name;
                 }
             }
@@ -211,7 +212,7 @@ fn indexIn(comptime list: []const []const u8, comptime name: []const u8) usize {
 }
 
 fn groupIndex(comptime group: []const u8) usize {
-    for (@typeInfo(Settings).@"struct".fields, 0..) |g, i| if (std.mem.eql(u8, g.name, group)) return i;
+    for (type_fields.structFields(Settings), 0..) |g, i| if (std.mem.eql(u8, g.name, group)) return i;
     return 0;
 }
 

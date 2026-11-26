@@ -121,6 +121,7 @@ pub const printers = @import("printers.zig");
 pub const bed = @import("bed.zig");
 pub const discovery = @import("discovery.zig");
 pub const app = @import("app.zig");
+pub const type_fields = @import("type_fields.zig");
 
 pub const Mesh = mesh.Mesh;
 pub const Settings = settings.Settings;

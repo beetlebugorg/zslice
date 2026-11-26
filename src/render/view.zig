@@ -72,6 +72,7 @@
 //! (`setGuides`).
 
 const std = @import("std");
+const type_fields = @import("../type_fields.zig");
 const builtin = @import("builtin");
 const is_web = builtin.cpu.arch.isWasm();
 /// The backend keeps the frame data and the shell draws it (web.zig).
@@ -113,7 +114,7 @@ pub const feature_rgb = [_][3]u8{
 };
 
 /// The number of features: the marks follow them in `feature_rgb`.
-const n_features = @typeInfo(@import("../settings.zig").Feature).@"enum".fields.len;
+const n_features = @typeInfo(@import("../settings.zig").Feature).@"enum".field_names.len;
 /// The codes in the alpha byte of a bead (see shaders/box.vert): a feature
 /// (0 to n_features - 1), a mark (the seam, a travel, a retraction), or an
 /// overlay (always solid, in its own color).
@@ -1723,7 +1724,7 @@ pub const View = struct {
         const sizes = comptime blk: {
             const T = @typeInfo(@TypeOf(sceneLists)).@"fn".return_type.?;
             var out: [20]usize = undefined;
-            for (@typeInfo(T).@"struct".fields, 0..) |f, k| {
+            for (type_fields.structFields(T), 0..) |f, k| {
                 const List = @typeInfo(f.type).pointer.child;
                 out[k] = @sizeOf(@typeInfo(@FieldType(List, "items")).pointer.child);
             }
@@ -3386,7 +3387,7 @@ pub const View = struct {
         if (towers.n == 0) return;
         // Each tower in the color of its first filament, a little darker.
         var colors: [zs_gcode.Towers.max][3]u8 = @splat(.{ filament[0] / 4 * 3, filament[1] / 4 * 3, filament[2] / 4 * 3 });
-        var seen = [_]bool{false} ** zs_gcode.Towers.max;
+        var seen = @as([zs_gcode.Towers.max]bool, @splat(false));
         for (job.slots, 0..) |f, i| {
             if (i >= zs_filaments.max_slots) break;
             const k = towers.of_slot[i];
@@ -3402,7 +3403,7 @@ pub const View = struct {
         // The start G-code loads the filament of the first path.
         var tool: u8 = if (tp.path_tool.items.len > 0) tp.path_tool.items[0] else 0;
         var path: usize = 0;
-        var count = [_]usize{0} ** zs_gcode.Towers.max;
+        var count = @as([zs_gcode.Towers.max]usize, @splat(0));
         for (0..n_layers) |l| {
             const end = tp.layer_ends.items[l];
             const lz: f64 = tp.layer_z.items[l];
@@ -3413,8 +3414,8 @@ pub const View = struct {
             for (towers.items(), 0..) |t, k| shapes[k] = t.layer(lw, lz);
             // The rows of each prime, as gcode.Emitter.towerPurge makes
             // them: each change from the row after the change before.
-            var rows = [_]u32{0} ** zs_gcode.Towers.max;
-            var primed = [_]bool{false} ** zs_gcode.Towers.max;
+            var rows = @as([zs_gcode.Towers.max]u32, @splat(0));
+            var primed = @as([zs_gcode.Towers.max]bool, @splat(false));
             while (path < end) : (path += 1) {
                 const t = if (path < tp.path_tool.items.len) tp.path_tool.items[path] else tool;
                 if (t == tool) continue;
@@ -5903,7 +5904,7 @@ fn rayBoxEntry(o: [3]f32, d: [3]f32, lo: [3]f32, hi: [3]f32) ?f32 {
 /// 0 <= z <= w). The test works in homogeneous coordinates, so a corner
 /// behind the eye gives no wrong answer.
 fn boxInView(mvp: [16]f32, box: View.PickBox) bool {
-    var out = [_]u8{0} ** 6;
+    var out = @as([6]u8, @splat(0));
     for (0..8) |i| {
         const p = [3]f32{
             if (i & 1 != 0) box.hi[0] else box.lo[0],
@@ -7420,7 +7421,7 @@ test "a sign lies in front of its plate, and a click on it finds the plate" {
     var v: View = .{ .renderer = undefined, .width = 800, .height = 600, .headless = true };
     defer v.deinitData();
     try v.setPlates(&.{ .{ 220, 220 }, .{ 220, 220 } }, 0);
-    const pixels = [_]u8{0} ** (4 * 4 * 4);
+    const pixels = @as([(4 * 4 * 4)]u8, @splat(0));
     try v.setSigns(&.{ .{ 0, 0, 4, 1 }, .{ 0, 2, 4, 1 } }, .{ 4, 4 }, &pixels, 1);
     v.frameAll();
     v.setPose(v.goal.?);

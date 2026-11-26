@@ -824,7 +824,7 @@ pub const PlateJob = struct {
         // The family of each slot, and the towers that a change goes to.
         var names: [gcode.Towers.max][8]u8 = undefined;
         var lens: [gcode.Towers.max]usize = undefined;
-        var used = [_]bool{false} ** gcode.Towers.max;
+        var used = @as([gcode.Towers.max]bool, @splat(false));
         var fam_n: usize = 0;
         for (self.slots[0..n_slots], 0..) |f, i| {
             var buf: [8]u8 = undefined;
@@ -880,7 +880,7 @@ pub const PlateJob = struct {
         }
         for (last, 0..) |l, k| used[k] = l != null;
         // Number the used families from 0, in slot order.
-        var map = [_]u8{0} ** gcode.Towers.max;
+        var map = @as([gcode.Towers.max]u8, @splat(0));
         var n: usize = 0;
         for (0..fam_n) |k| if (used[k]) {
             map[k] = @intCast(n);
@@ -904,7 +904,7 @@ pub const PlateJob = struct {
         const h = @max(0.01, @min(p.layer_height, p.first_layer_height));
         const into = self.towerInto();
         const tm = self.towerMasks();
-        var most = [_]f64{0} ** gcode.Towers.max;
+        var most = @as([gcode.Towers.max]f64, @splat(0));
         var tool: u32 = 0; // The start G-code loads filament 1.
         for (0..self.levels.len) |li| {
             const mask = self.levelMask(li, tm);
@@ -990,7 +990,7 @@ pub const PlateJob = struct {
         const gcode = @import("gcode.zig");
         const s = self.resolved.settings;
         const n_slots = @min(self.slots.len, filaments_mod.max_slots);
-        var into = [_]f64{0} ** filaments_mod.max_slots;
+        var into = @as([filaments_mod.max_slots]f64, @splat(0));
         for (self.slots[0..n_slots], 0..) |to, i| {
             into[i] = gcode.tower_prime_mm3;
             if (s.machine.change_gcode.len == 0) for (self.slots[0..n_slots], 0..) |from, j2| {
@@ -1007,7 +1007,7 @@ pub const PlateJob = struct {
     /// filaments but the first one if that one is `tool`. Returns the
     /// purge and the slot that the level ends with.
     fn needAfter(mask: u32, li: usize, tool: u32, into: *const [filaments_mod.max_slots]f64, of_slot: *const [filaments_mod.max_slots]u8, n_slots: usize) struct { need: [@import("gcode.zig").Towers.max]f64, last: u32 } {
-        var need = [_]f64{0} ** @import("gcode.zig").Towers.max;
+        var need = @as([@import("gcode.zig").Towers.max]f64, @splat(0));
         var t = tool;
         for (0..n_slots) |k| {
             const i: u32 = @intCast(if (li % 2 == 0) k else n_slots - 1 - k);
@@ -1201,7 +1201,7 @@ pub const PlateJob = struct {
     /// the AMS mapping, and the print stops. A tool changer heats only the
     /// nozzles with a filament (is_extruder_used of PrusaSlicer).
     pub fn firstOfNozzles(self: *const PlateJob) [settings_mod.max_nozzles]?u32 {
-        var out: [settings_mod.max_nozzles]?u32 = .{null} ** settings_mod.max_nozzles;
+        var out: [settings_mod.max_nozzles]?u32 = @splat(null);
         if (self.slots.len < 2) return out;
         const m = self.resolved.settings.machine;
         const many = m.nozzles >= 2;
@@ -1209,7 +1209,7 @@ pub const PlateJob = struct {
         // when each has its first.
         var left: usize = 0;
         if (many) {
-            var seen: [settings_mod.max_nozzles]bool = .{false} ** settings_mod.max_nozzles;
+            var seen: [settings_mod.max_nozzles]bool = @splat(false);
             for (self.slots) |f| seen[m.nozzleIndex(f.nozzle)] = true;
             for (seen) |b| left += @intFromBool(b);
         } else left = 1;
@@ -2639,7 +2639,7 @@ test "plate job: copies slice once" {
     // Each copy has its walls at its own place.
     var lp = try pj.planLayer(5);
     defer lp.deinit();
-    var outer = [_]usize{0} ** 4;
+    var outer = @as([4]usize, @splat(0));
     for (lp.paths.items, 0..) |p, i| {
         if (p.feature != .outer_wall) continue;
         const part = lp.partOf(p);
@@ -2654,7 +2654,7 @@ test "plate job: copies slice once" {
     // The parts are in print order: sort them by x.
     var rings: usize = 0;
     var k: usize = 0;
-    var xs = [_]f64{0} ** 4;
+    var xs = @as([4]f64, @splat(0));
     while (pj.levelOutline(5, k)) |o| : (k += 1) {
         for (0..o.paths.count()) |ri| {
             xs[k] = geom.toMm(o.paths.get(ri)[0].x + o.dx);
@@ -4570,8 +4570,8 @@ test "tool changer: an XL 5T prints three filaments on three tools" {
     // its box (x 150 to 170), and the lines of the others are on their
     // boxes.
     var tool: u8 = 0;
-    var min_x = [_]f64{std.math.inf(f64)} ** 5;
-    var max_x = [_]f64{-std.math.inf(f64)} ** 5;
+    var min_x = @as([5]f64, @splat(std.math.inf(f64)));
+    var max_x = @as([5]f64, @splat(-std.math.inf(f64)));
     var in_part = false;
     var it = std.mem.splitScalar(u8, g, '\n');
     while (it.next()) |line| {

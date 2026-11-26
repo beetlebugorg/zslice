@@ -1332,7 +1332,7 @@ test "single site and two sites" {
 }
 
 test "timing of a large polygon set" {
-    if (@import("builtin").mode == .Debug) return error.SkipZigTest;
+    if (@import("builtin").mode == .debug) return error.SkipZigTest;
     var prng = std.Random.DefaultPrng.init(41);
     const r = prng.random();
     var segs: std.ArrayList([2]geom.Point) = .empty;

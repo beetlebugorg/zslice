@@ -1808,7 +1808,7 @@ pub const PrintSimStats = extern struct {
 
 fn simStats(app: *const App, st: zs.print_sim.Stats) PrintSimStats {
     const m = app.simulatedMaterial();
-    var name = [_]u8{0} ** 16;
+    var name = @as([16]u8, @splat(0));
     @memcpy(name[0..@min(m.name.len, 15)], m.name[0..@min(m.name.len, 15)]);
     return .{
         .masses = st.masses,
@@ -3730,7 +3730,7 @@ const CuraReader = struct {
     ctx: ?*anyopaque,
     fn readFile(ctx: ?*anyopaque, arena: std.mem.Allocator, path: []const u8) ?[]const u8 {
         const self: *const CuraReader = @ptrCast(@alignCast(ctx.?));
-        const p = arena.dupeZ(u8, path) catch return null;
+        const p = arena.dupeSentinel(u8, path, 0) catch return null;
         var len: usize = 0;
         const bytes = self.read(self.ctx, p, &len) orelse return null;
         return arena.dupe(u8, bytes[0..len]) catch null;
@@ -3774,12 +3774,12 @@ export fn zs_app_cura_compare(a: ?*const App, read: ?ReadFn, ctx: ?*anyopaque, o
 fn cRows(arena: std.mem.Allocator, rows: []const zs.cura_compare.Row) ![]CuraRow {
     const out = try arena.alloc(CuraRow, rows.len);
     for (rows, out) |src, *dst| dst.* = .{
-        .name = (try arena.dupeZ(u8, src.name)).ptr,
-        .zslice_value = (try arena.dupeZ(u8, src.zslice)).ptr,
-        .cura_value = (try arena.dupeZ(u8, src.cura)).ptr,
-        .cura_keys = (try arena.dupeZ(u8, src.cura_keys)).ptr,
-        .from = (try arena.dupeZ(u8, src.from)).ptr,
-        .note = (try arena.dupeZ(u8, src.note)).ptr,
+        .name = (try arena.dupeSentinel(u8, src.name, 0)).ptr,
+        .zslice_value = (try arena.dupeSentinel(u8, src.zslice, 0)).ptr,
+        .cura_value = (try arena.dupeSentinel(u8, src.cura, 0)).ptr,
+        .cura_keys = (try arena.dupeSentinel(u8, src.cura_keys, 0)).ptr,
+        .from = (try arena.dupeSentinel(u8, src.from, 0)).ptr,
+        .note = (try arena.dupeSentinel(u8, src.note, 0)).ptr,
         .differs = @intFromBool(src.differs),
         .formula = @intFromBool(src.formula),
         .in_use_all = @intFromBool(src.in_use_all),
@@ -4382,7 +4382,7 @@ test "C API: the undo list keeps at most max_steps steps and max_plate_bytes of 
     app.undo.max_steps = 3;
     for (0..6) |k| {
         var buf: [16]u8 = undefined;
-        const v = try std.fmt.bufPrintZ(&buf, "0.{d}", .{k + 3});
+        const v = try std.fmt.bufPrintSentinel(&buf, "0.{d}", .{k + 3}, 0);
         try t.expectEqual(ok, zs_app_setting_set(app, "project.infill_density", v.ptr));
         try t.expectEqual(@as(c_int, 1), zs_app_history_commit(app, @intCast(k)));
     }

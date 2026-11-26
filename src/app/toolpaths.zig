@@ -4,6 +4,7 @@
 //! path at a point, for a click in a view.
 
 const std = @import("std");
+const type_fields = @import("../type_fields.zig");
 const Allocator = std.mem.Allocator;
 const zs = @import("../root.zig");
 const feature_names = @import("feature_settings.zig").feature_names;
@@ -124,7 +125,7 @@ pub const Toolpaths = struct {
 
     /// Empties the arrays, and keeps their memory.
     pub fn clearRetainingCapacity(t: *Toolpaths) void {
-        inline for (@typeInfo(Toolpaths).@"struct".fields) |f| {
+        inline for (type_fields.structFields(Toolpaths)) |f| {
             if (@typeInfo(f.type) == .@"struct" and @hasDecl(f.type, "clearRetainingCapacity")) {
                 @field(t, f.name).clearRetainingCapacity();
             }

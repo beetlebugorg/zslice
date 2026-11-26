@@ -565,12 +565,12 @@ test "a name cannot hide its extension" {
 
 test "a long name keeps its extension" {
     var out: [name_cap]u8 = undefined;
-    const long = "a" ** 300 ++ ".step";
+    const long = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.step";
     const name = cleanName(long, &out);
     try testing.expectEqual(@as(usize, name_chars), name.len);
     try testing.expect(std.mem.endsWith(u8, name, "a.step"));
     // Multi-byte characters count as one each.
-    const wide = "\xC3\xBC" ** 200 ++ ".stl";
+    const wide = "üüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüü.stl";
     const w = cleanName(wide, &out);
     try testing.expect(std.mem.endsWith(u8, w, ".stl"));
     try testing.expect(std.unicode.utf8ValidateSlice(w));

@@ -8,7 +8,7 @@ The app needs macOS 14 or later. Build it from the source tree (see [The macOS a
 
 ```sh
 cd macos
-ZIG=/path/to/zig-0.16/zig ./build-core.sh
+ZIG=/path/to/zig-0.17/zig ./build-core.sh
 ./make-app.sh
 open build/zslice.app
 ```

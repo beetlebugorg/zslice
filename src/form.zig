@@ -35,6 +35,7 @@
 //! SPDX-License-Identifier: AGPL-3.0-or-later
 
 const std = @import("std");
+const type_fields = @import("type_fields.zig");
 const settings_mod = @import("settings.zig");
 const tiers = @import("settings_tiers.zig");
 const stream_mod = @import("stream.zig");
@@ -163,8 +164,8 @@ pub fn hashSettings(h: *std.hash.Wyhash, s: *const Settings, comptime tier: Tier
 /// `hashSettings`, with the gates (settings_tiers.zig) if `gated`.
 pub fn hashSettingsWith(h: *std.hash.Wyhash, s: *const Settings, comptime tier: Tier, gated: bool) void {
     @setEvalBranchQuota(2_000_000);
-    inline for (@typeInfo(Settings).@"struct".fields) |g| {
-        inline for (@typeInfo(g.type).@"struct".fields) |f| {
+    inline for (type_fields.structFields(Settings)) |g| {
+        inline for (type_fields.structFields(g.type)) |f| {
             const name = g.name ++ "." ++ f.name;
             if (comptime !tiers.skips(name, tier)) {
                 h.update(name ++ "\x00");
@@ -202,8 +203,8 @@ const prefs = [_][]const u8{ "engine.threads", "engine.draft_slices", "engine.au
 test "form: the geometry key reads the 11 outline settings and no other" {
     @setEvalBranchQuota(2_000_000);
     var n: usize = 0;
-    inline for (@typeInfo(Settings).@"struct".fields) |g| {
-        inline for (@typeInfo(g.type).@"struct".fields) |f| {
+    inline for (type_fields.structFields(Settings)) |g| {
+        inline for (type_fields.structFields(g.type)) |f| {
             const name = g.name ++ "." ++ f.name;
             const read = comptime !tiers.skips(name, .geometry);
             var listed = false;

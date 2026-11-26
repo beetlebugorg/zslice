@@ -837,8 +837,8 @@ test "rtsp: crafted packets do not break the depacketizer" {
     // Too short, a wrong version, CSRCs past the end, an extension past
     // the end, padding past the payload, a wrong payload type.
     try d.packet(gpa, &.{ 0x80, 96, 0, 1 }, 96);
-    try d.packet(gpa, &([_]u8{0x40} ++ [_]u8{0} ** 12), 96);
-    try d.packet(gpa, &([_]u8{0x8F} ++ [_]u8{0} ** 12), 96);
+    try d.packet(gpa, &([_]u8{0x40} ++ @as([12]u8, @splat(0))), 96);
+    try d.packet(gpa, &([_]u8{0x8F} ++ @as([12]u8, @splat(0))), 96);
     var ext = [_]u8{ 0x90, 96, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0xFF, 0xFF };
     try d.packet(gpa, &ext, 96);
     var pad = [_]u8{ 0xA0, 96, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0x65, 200 };
@@ -965,7 +965,7 @@ test "rtsp: crafted answers fail the session" {
     var s = try Session.init(gpa, "rtsps://h/x", "u", "p");
     defer s.deinit();
     try s.feed("RTSP/1.0 200 OK\r\n");
-    const filler = [_]u8{'a'} ** 1024;
+    const filler = @as([1024]u8, @splat('a'));
     var k: usize = 0;
     while (k < 20) : (k += 1) try s.feed(&filler);
     try testing.expectEqual(Failure.too_big, s.failure);

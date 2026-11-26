@@ -126,7 +126,7 @@ pub const Mass = struct { volume: f64, center: V, inertia: M3 };
 
 pub fn massOf(mesh: *const Mesh) Mass {
     // The integrals of 1, x, y, z, x², y², z², xy, yz, zx.
-    var in = [_]f64{0} ** 10;
+    var in = @as([10]f64, @splat(0));
     const vs = mesh.vertices.items;
     for (mesh.faces.items) |f| {
         const p0 = V{ vs[f[0]].x, vs[f[0]].y, vs[f[0]].z };

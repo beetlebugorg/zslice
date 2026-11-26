@@ -34,6 +34,7 @@ Build the Zig core from a mesh to G-code for one part: integer geometry, polygon
 - `zs_status_message` gives the same text for a person in each app.
 - `engine.fitOf` gives the cause when a part does not fit (too high, too wide in X, too deep in Y) and the sizes of the part and of the printer (part 07).
 - A part lower than half of the first layer (`PartTooThin`) is left out of the slice, and the other parts slice.
+- Zig 0.17 gives the fields of a type as separate arrays in `@typeInfo`. The loops over the settings read one record for each field from `src/type_fields.zig` (see [Zig 0.17](../docs/internals/zig-0.17.md)).
 
 ## Lessons
 

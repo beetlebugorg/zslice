@@ -149,7 +149,7 @@ const empty: [:0]u8 = &empty_buf;
 
 fn dupeZ(gpa: Allocator, s: []const u8) Allocator.Error![:0]u8 {
     if (s.len == 0) return empty;
-    return gpa.dupeZ(u8, s);
+    return gpa.dupeSentinel(u8, s, 0);
 }
 
 /// A lock that a thread can wait on. Zig 0.16 has no thread mutex in std

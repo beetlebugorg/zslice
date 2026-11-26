@@ -96,7 +96,7 @@ fn lower(buf: []u8, s: []const u8) []const u8 {
 }
 
 fn containsLower(hay: []const u8, w: []const u8) bool {
-    return std.ascii.indexOfIgnoreCase(hay, w) != null;
+    return std.ascii.findIgnoreCase(hay, w) != null;
 }
 
 /// The score of one word (or phrase, lower case) in a setting: 0 for no

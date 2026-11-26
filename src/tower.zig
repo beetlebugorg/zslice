@@ -83,7 +83,7 @@ pub const Loop = struct {
 pub const Lines = struct {
     pts: [lines_max][2]f64 = undefined,
     n: usize = 0,
-    travel: std.StaticBitSet(lines_max) = .initEmpty(),
+    travel: std.StaticBitSet(lines_max) = .empty,
 
     pub fn add(l: *Lines, p: [2]f64, travel: bool) void {
         if (l.n == lines_max) return;
@@ -118,7 +118,7 @@ pub const Tower = struct {
     /// tower grows on each layer up to it.
     last_layer: usize,
     /// The family of its materials (see filaments.family), for the view.
-    family: [8]u8 = .{0} ** 8,
+    family: [8]u8 = @splat(0),
     /// Its depth in y (mm): `size`, or more for the rows that the most
     /// purge of one layer needs (see PlateJob.towers). 0: `size`.
     depth: f64 = 0,
@@ -191,7 +191,7 @@ pub const Towers = struct {
     list: [max]Tower = undefined,
     n: usize = 0,
     /// The tower of each slot (index in `list`).
-    of_slot: [filaments.max_slots]u8 = .{0} ** filaments.max_slots,
+    of_slot: [filaments.max_slots]u8 = @splat(0),
     /// The most purge (mm³) of each tower on a layer (see `needAt`), from
     /// the plate job. Null: none.
     need_ctx: ?*const anyopaque = null,
@@ -697,7 +697,7 @@ test "tower: the ribs stick out at the corners, and shrink to the diagonal at th
     // middle of each side it is on the box.
     for ([_]f64{ 0.2, 10 }) |z| {
         t.layer(w, z).wallLoop(0, &loop);
-        var corners = [_]bool{false} ** 4;
+        var corners = @as([4]bool, @splat(false));
         for (loop.points()) |p| {
             if (@abs(p[0]) > a0 + 0.5 or @abs(p[1]) > a0 + 0.5) {
                 corners[@as(usize, @intFromBool(p[0] > 0)) + 2 * @as(usize, @intFromBool(p[1] > 0))] = true;

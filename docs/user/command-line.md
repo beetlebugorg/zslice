@@ -4,7 +4,7 @@ The `zslice` tool slices a part with no window. Use it in scripts, on a server, 
 
 ## Build zslice
 
-You need Zig 0.16 (https://ziglang.org/download/).
+You need Zig 0.17 (https://ziglang.org/download/).
 
 ```sh
 git clone https://github.com/beetlebugorg/zslice
