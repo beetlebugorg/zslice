@@ -69,7 +69,7 @@ All features: [The best features](https://zslice.beetlebug.org/user/features/).
 
 - **In your browser:** open [zslice.beetlebug.org](https://zslice.beetlebug.org/), and read [Your first print](https://zslice.beetlebug.org/user/getting-started/).
 - **On your computer:** see [Install](#install).
-- **From the source:** zslice needs Zig 0.16.
+- **From the source:** zslice needs Zig 0.17.
 
 ```sh
 zig build test                          # run the tests

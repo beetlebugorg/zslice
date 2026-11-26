@@ -28,6 +28,7 @@
 //! Memory: 16 bytes for each point and 64 bytes for each path.
 
 const std = @import("std");
+const type_fields = @import("type_fields.zig");
 const Allocator = std.mem.Allocator;
 const geom = @import("geom.zig");
 const gcode = @import("gcode.zig");
@@ -87,7 +88,7 @@ pub const Stream = struct {
 
     fn size(h: Head) usize {
         var n: usize = 0;
-        inline for (@typeInfo(Lists).@"struct".fields) |f| {
+        inline for (type_fields.structFields(Lists)) |f| {
             const T = @typeInfo(f.type).pointer.child;
             n = std.mem.alignForward(usize, n, @alignOf(T)) + @sizeOf(T) * count(h, f.name);
         }
@@ -105,7 +106,7 @@ pub const Stream = struct {
     fn lists(s: *const Stream) Lists {
         var out: Lists = undefined;
         var n: usize = 0;
-        inline for (@typeInfo(Lists).@"struct".fields) |f| {
+        inline for (type_fields.structFields(Lists)) |f| {
             const T = @typeInfo(f.type).pointer.child;
             n = std.mem.alignForward(usize, n, @alignOf(T));
             const len = count(s.head, f.name);
@@ -194,10 +195,10 @@ pub const Stream = struct {
         const a = lp.arena.allocator();
         const pts = try a.alloc(geom.Point, l.points.len);
         for (pts, l.points) |*d, q| d.* = .{ .x = q[0], .y = q[1] };
-        lp.points = .{ .points = .{ .items = pts, .capacity = pts.len }, .ends = .{ .items = l.ends, .capacity = l.ends.len } };
-        lp.paths = .{ .items = l.paths, .capacity = l.paths.len };
-        lp.point_w = .{ .items = l.point_w, .capacity = l.point_w.len };
-        lp.point_z = .{ .items = l.point_z, .capacity = l.point_z.len };
+        lp.points = .{ .points = .{ .items = pts, .capacity = pts.len, .pointer_stability = .{} }, .ends = .{ .items = l.ends, .capacity = l.ends.len, .pointer_stability = .{} } };
+        lp.paths = .{ .items = l.paths, .capacity = l.paths.len, .pointer_stability = .{} };
+        lp.point_w = .{ .items = l.point_w, .capacity = l.point_w.len, .pointer_stability = .{} };
+        lp.point_z = .{ .items = l.point_z, .capacity = l.point_z.len, .pointer_stability = .{} };
         lp.region_part = l.region_part;
         lp.region_layer = l.region_layer;
         lp.region_modifier = l.region_modifier;

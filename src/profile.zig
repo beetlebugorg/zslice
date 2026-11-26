@@ -30,6 +30,7 @@
 //! subset.
 
 const std = @import("std");
+const type_fields = @import("type_fields.zig");
 const Allocator = std.mem.Allocator;
 const toml = @import("toml.zig");
 const settings_mod = @import("settings.zig");
@@ -180,7 +181,7 @@ pub fn movedKeys(arena: Allocator, group: Group, text: []const u8) Allocator.Err
 }
 
 fn isGroup(name: []const u8) bool {
-    inline for (@typeInfo(Settings).@"struct".fields) |g| {
+    inline for (type_fields.structFields(Settings)) |g| {
         if (std.mem.eql(u8, g.name, name)) return true;
     }
     return false;
@@ -271,7 +272,7 @@ pub fn write(settings: Settings, group: Group, w: *std.Io.Writer) std.Io.Writer.
     switch (group) {
         inline else => |g| {
             const values = @field(settings, @tagName(g));
-            inline for (@typeInfo(@TypeOf(values)).@"struct".fields) |f| {
+            inline for (type_fields.structFields(@TypeOf(values))) |f| {
                 if (comptime f.type == [settings_mod.max_nozzles]settings_mod.Nozzle) {
                     // The nozzles after the first that the printer has.
                     for (1..@min(settings.machine.nozzles, settings_mod.max_nozzles)) |k| try writeNozzle(@field(values, f.name)[k], null, k, w);
@@ -306,7 +307,7 @@ pub fn writeChangedFrom(settings: Settings, from: Settings, group: Group, w: *st
         inline else => |g| {
             const values = @field(settings, @tagName(g));
             const defaults = @field(from, @tagName(g));
-            inline for (@typeInfo(@TypeOf(values)).@"struct".fields) |f| {
+            inline for (type_fields.structFields(@TypeOf(values))) |f| {
                 if (comptime f.type == [settings_mod.max_nozzles]settings_mod.Nozzle) {
                     for (1..settings_mod.max_nozzles) |k| try writeNozzle(@field(values, f.name)[k], @field(defaults, f.name)[k], k, w);
                     continue;
@@ -338,7 +339,7 @@ pub fn writeChangedFrom(settings: Settings, from: Settings, group: Group, w: *st
 /// "nozzle.1.diameter = 0.6": each one, or with `from` only the ones that
 /// differ from it.
 fn writeNozzle(n: settings_mod.Nozzle, from: ?settings_mod.Nozzle, k: usize, w: *std.Io.Writer) std.Io.Writer.Error!void {
-    inline for (@typeInfo(settings_mod.Nozzle).@"struct".fields) |f| {
+    inline for (type_fields.structFields(settings_mod.Nozzle)) |f| {
         const v = @field(n, f.name);
         if (from == null or v != @field(from.?, f.name)) {
             const doc = comptime findDoc("machine.nozzle.k." ++ f.name);

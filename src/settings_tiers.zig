@@ -33,6 +33,7 @@
 //! SPDX-License-Identifier: AGPL-3.0-or-later
 
 const std = @import("std");
+const type_fields = @import("type_fields.zig");
 const settings_mod = @import("settings.zig");
 const Settings = settings_mod.Settings;
 const Tier = settings_mod.Tier;
@@ -271,8 +272,8 @@ fn stem(name: []const u8) []const u8 {
 /// True if the setting `name` ("group.field") is a field of `Settings`.
 fn isField(comptime name: []const u8) bool {
     @setEvalBranchQuota(1_000_000);
-    inline for (@typeInfo(Settings).@"struct".fields) |gr| {
-        inline for (@typeInfo(gr.type).@"struct".fields) |f| {
+    inline for (type_fields.structFields(Settings)) |gr| {
+        inline for (type_fields.structFields(gr.type)) |f| {
             if (std.mem.eql(u8, gr.name ++ "." ++ f.name, name)) return true;
         }
     }
@@ -335,8 +336,8 @@ pub fn skips(comptime name: []const u8, comptime tier: Tier) bool {
 /// tier.
 pub fn skipsName(name_in: []const u8, tier: Tier) bool {
     const name = settings_mod.currentName(name_in);
-    inline for (@typeInfo(Settings).@"struct".fields) |gr| {
-        inline for (@typeInfo(gr.type).@"struct".fields) |f| {
+    inline for (type_fields.structFields(Settings)) |gr| {
+        inline for (type_fields.structFields(gr.type)) |f| {
             const full = gr.name ++ "." ++ f.name;
             if (std.mem.eql(u8, full, name) or (std.mem.startsWith(u8, name, full ++ ".") and comptime maskOf(full) != 0)) {
                 return switch (tier) {

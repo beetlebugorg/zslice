@@ -409,7 +409,7 @@ fn jpegSample(gpa: Allocator) ![]u8 {
     var out: std.ArrayList(u8) = .empty;
     defer out.deinit(gpa);
     for (0..2) |_| {
-        var head = [_]u8{0} ** 16;
+        var head = @as([16]u8, @splat(0));
         std.mem.writeInt(u32, head[0..4], jpeg.len, .little);
         try out.appendSlice(gpa, &head);
         try out.appendSlice(gpa, &jpeg);

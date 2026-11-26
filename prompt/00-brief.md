@@ -4,7 +4,7 @@ Give this page to the agent with each part.
 
 ## The product
 
-Build zslice: a slicer for FDM 3D printers, written from scratch in Zig 0.16. It shows the print as the plastic forms it, before you print. It runs in a browser on WebAssembly, and as a native app on Linux, macOS, and Windows. A command line tool and a C library come from the same core. The README and the docs name the web app and the three native apps side by side in their first lines.
+Build zslice: a slicer for FDM 3D printers, written from scratch in Zig 0.17. It shows the print as the plastic forms it, before you print. It runs in a browser on WebAssembly, and as a native app on Linux, macOS, and Windows. A command line tool and a C library come from the same core. The README and the docs name the web app and the three native apps side by side in their first lines.
 
 zslice is an experimental slicer. It has three goals ([README](../README.md)):
 

@@ -286,7 +286,7 @@ pub const Renderer = struct {
     frames_done: u64 = 0,
 
     grid: Buffer = .{},
-    plate_slots: [max_plate_slots]PlateSlot = [_]PlateSlot{.{}} ** max_plate_slots,
+    plate_slots: [max_plate_slots]PlateSlot = @as([max_plate_slots]PlateSlot, @splat(.{})),
     plate_grid: Buffer = .{},
     plate_grid_gen: u32 = 0,
 

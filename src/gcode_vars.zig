@@ -2185,7 +2185,7 @@ test "gcode vars: two nozzles of the X2D: the extruder of each filament, and hot
 
 /// The first filament of each nozzle, from a list of the first nozzles.
 fn firstOf(list: anytype) [settings_mod.max_nozzles]?u32 {
-    var out: [settings_mod.max_nozzles]?u32 = .{null} ** settings_mod.max_nozzles;
+    var out: [settings_mod.max_nozzles]?u32 = @splat(null);
     inline for (list, 0..) |v, k| out[k] = v;
     return out;
 }

@@ -91,6 +91,7 @@ SOURCES = [
     ("docs/internals/open-links.md", "internals/open-links/", "Internals", "Links that open a model"),
     ("docs/internals/model-import.md", "internals/model-import/", "Internals", "Import from a model page"),
     ("docs/internals/release.md", "internals/release/", "Internals", "CI and releases"),
+    ("docs/internals/zig-0.17.md", "internals/zig-0.17/", "Internals", "Zig 0.17"),
     ("docs/app/README.md", "app/", "Project", "App"),
     ("ROADMAP.md", "roadmap/", "Project", "Roadmap"),
     ("PRIVACY.md", "privacy/", "Project", "Privacy"),

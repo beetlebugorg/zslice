@@ -4,6 +4,7 @@
 //! profile files on disk (see `FileResolver`).
 
 const std = @import("std");
+const type_fields = zslice.type_fields;
 const Io = std.Io;
 const zslice = @import("zslice");
 const profile = zslice.profile;
@@ -431,7 +432,7 @@ pub fn main(init: std.process.Init) !void {
                 area += g.area;
                 if (opts.layer == null and total > 40) continue;
                 try err.print("layer {d}: {d:.3} mm2, {d:.2} mm wide, at {d:.2}, {d:.2}{s}, next to", .{ li + 1, g.area, g.width, g.x, g.y, if (g.at_edge) " (edge)" else "" });
-                inline for (@typeInfo(zslice.settings.Feature).@"enum".fields) |f| {
+                inline for (type_fields.enumFields(zslice.settings.Feature)) |f| {
                     if (g.features & (@as(u32, 1) << f.value) != 0) try err.print(" {s}", .{f.name});
                 }
                 try err.print("\n", .{});
@@ -1682,13 +1683,13 @@ fn ReturnPayload(comptime F: type) type {
 
 fn listSettings(w: *Io.Writer) !void {
     const defaults: zslice.Settings = .{};
-    inline for (@typeInfo(zslice.Settings).@"struct".fields) |g| {
+    inline for (type_fields.structFields(zslice.Settings)) |g| {
         const group = @field(defaults, g.name);
-        inline for (@typeInfo(@TypeOf(group)).@"struct".fields) |f| {
+        inline for (type_fields.structFields(@TypeOf(group))) |f| {
             if (comptime f.type == [zslice.settings.max_nozzles]zslice.settings.Nozzle) {
                 // The settings of each nozzle after the first, once, with
                 // k for the nozzle (1 to 15).
-                inline for (@typeInfo(zslice.settings.Nozzle).@"struct".fields) |nf| {
+                inline for (type_fields.structFields(zslice.settings.Nozzle)) |nf| {
                     try w.print("{s}.{s}.k.{s} = {d}\n", .{ g.name, f.name, nf.name, @field(@field(group, f.name)[1], nf.name) });
                 }
                 continue;

@@ -437,7 +437,7 @@ test "a straight path keeps only its ends, and a bend keeps its corner" {
     defer s.deinit(gpa);
     var pts: [11]Disk = undefined;
     for (&pts, 0..) |*p, k| p.* = .{ .x = @floatFromInt(100 * k), .y = 0, .r = 500 + @as(f64, @floatFromInt(10 * k)) };
-    const keep = [_]bool{false} ** 11;
+    const keep = @as([11]bool, @splat(false));
     const last = try s.addChain(gpa, 20, &pts, &keep, true, 20);
     try testing.expectEqual(@as(usize, 2), s.nodes.items.len);
     try testing.expectEqual(@as(u32, 10), s.nodes.items[last].layer);

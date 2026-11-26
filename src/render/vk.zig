@@ -38,10 +38,9 @@
 //! sRGB.
 
 const std = @import("std");
+const type_fields = @import("../type_fields.zig");
 const builtin = @import("builtin");
-pub const c = @cImport({
-    @cInclude("vulkan/vulkan.h");
-});
+pub const c = @import("vulkan_c");
 
 pub const Error = error{
     NoVulkan,
@@ -186,7 +185,7 @@ const Device = struct {
 /// ends in KHR) can be null: an offscreen renderer does not load them.
 fn loadFns(comptime T: type, getter: anytype, handle: anytype) Error!T {
     var out: T = undefined;
-    inline for (@typeInfo(T).@"struct".fields) |f| {
+    inline for (type_fields.structFields(T)) |f| {
         const p = getter(handle, f.name ++ "");
         if (p == null and !comptime std.mem.endsWith(u8, f.name, "KHR")) return error.NoVulkan;
         @field(out, f.name) = @ptrCast(p);
@@ -392,7 +391,7 @@ pub const Renderer = struct {
     grid: Buffer = .{},
     /// The other plates of the row: their bead buffers, and the grid
     /// lines of their beds (Frame.plate_grid) with its generation.
-    plate_slots: [max_plate_slots]PlateSlot = [_]PlateSlot{.{}} ** max_plate_slots,
+    plate_slots: [max_plate_slots]PlateSlot = @as([max_plate_slots]PlateSlot, @splat(.{})),
     plate_grid: Buffer = .{},
     plate_grid_gen: u32 = 0,
 

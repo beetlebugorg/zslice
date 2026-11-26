@@ -639,7 +639,7 @@ noinline fn testCellsWide(arena: Allocator, edges: []const InEdge, items: []cons
     const origin = grid.origin;
     const lanes = box_lanes;
     const V = @Vector(lanes, i32);
-    const Bits = std.meta.Int(.unsigned, lanes);
+    const Bits = @Int(.unsigned, lanes);
     const n = items.len;
     // Room for one full step after the last entry.
     const boxes = try arena.alloc(i32, 4 * (n + lanes));
@@ -775,7 +775,7 @@ noinline fn snapCell(comptime narrow: bool, arena: Allocator, edges: []const InE
         if (boxes) |bx| {
             const lanes = box_lanes;
             const V = @Vector(lanes, i32);
-            const Bits = std.meta.Int(.unsigned, lanes);
+            const Bits = @Int(.unsigned, lanes);
             const px: V = @splat(@intCast(p.x - grid.origin.x));
             const py: V = @splat(@intCast(p.y - grid.origin.y));
             var y = i;

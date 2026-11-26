@@ -265,20 +265,20 @@ pub const Finder = struct {
         for (self.found.items) |*f| {
             if (f.kind == .bambu and std.mem.eql(u8, f.serial, usn)) {
                 if (std.mem.eql(u8, f.address, addr)) return false;
-                f.address = try a.dupeZ(u8, addr);
+                f.address = try a.dupeSentinel(u8, addr, 0);
                 f.url = try std.fmt.allocPrintSentinel(a, "ftps://{s}", .{addr}, 0);
                 return true;
             }
         }
         try self.found.append(a, .{
-            .name = try a.dupeZ(u8, if (name.len > 0) name else usn),
+            .name = try a.dupeSentinel(u8, if (name.len > 0) name else usn, 0),
             .kind = .bambu,
-            .host = try a.dupeZ(u8, addr),
-            .address = try a.dupeZ(u8, addr),
+            .host = try a.dupeSentinel(u8, addr, 0),
+            .address = try a.dupeSentinel(u8, addr, 0),
             .port = 990,
             .url = try std.fmt.allocPrintSentinel(a, "ftps://{s}", .{addr}, 0),
-            .model = try a.dupeZ(u8, bambuModel(model)),
-            .serial = try a.dupeZ(u8, usn),
+            .model = try a.dupeSentinel(u8, bambuModel(model), 0),
+            .serial = try a.dupeSentinel(u8, usn, 0),
         });
         return true;
     }
@@ -307,7 +307,7 @@ pub const Finder = struct {
                     changed = true;
                 }
                 if (f.model.len == 0 and txt.model.len > 0) {
-                    f.model = try a.dupeZ(u8, txt.model);
+                    f.model = try a.dupeSentinel(u8, txt.model, 0);
                     changed = true;
                 }
                 continue;
@@ -317,16 +317,16 @@ pub const Finder = struct {
             try self.found.append(a, .{
                 .name = try instanceLabel(a, inst),
                 .kind = e.value_ptr.*,
-                .host = try a.dupeZ(u8, host),
+                .host = try a.dupeSentinel(u8, host, 0),
                 .address = address,
                 .port = srv.port,
-                .path = try a.dupeZ(u8, path),
+                .path = try a.dupeSentinel(u8, path, 0),
                 .url = if (srv.port == 80)
                     try std.fmt.allocPrintSentinel(a, "http://{s}{s}", .{ address, path }, 0)
                 else
                     try std.fmt.allocPrintSentinel(a, "http://{s}:{d}{s}", .{ address, srv.port, path }, 0),
-                .model = try a.dupeZ(u8, txt.model),
-                .version = try a.dupeZ(u8, txt.version),
+                .model = try a.dupeSentinel(u8, txt.model, 0),
+                .version = try a.dupeSentinel(u8, txt.version, 0),
             });
             changed = true;
         }
@@ -345,7 +345,7 @@ pub const Finder = struct {
                 const kind = kindFromVersion(text) orelse return false;
                 const changed = kind != f.kind or !std.mem.eql(u8, f.version, text);
                 if (kind.rank() >= f.kind.rank()) f.kind = kind;
-                f.version = try a.dupeZ(u8, text);
+                f.version = try a.dupeSentinel(u8, text, 0);
                 return changed;
             },
             .toolhead => {
@@ -365,9 +365,9 @@ pub const Finder = struct {
 /// "OctoPrint 1.11.0 (Printdeck v0.4.0)", "PrusaLink 0.7.0", or
 /// "OctoPrint 1.10.2".
 pub fn kindFromVersion(text: []const u8) ?Kind {
-    if (std.ascii.indexOfIgnoreCase(text, "printdeck") != null) return .printdeck;
-    if (std.ascii.indexOfIgnoreCase(text, "prusalink") != null) return .prusalink;
-    if (std.ascii.indexOfIgnoreCase(text, "octoprint") != null) return .octoprint;
+    if (std.ascii.findIgnoreCase(text, "printdeck") != null) return .printdeck;
+    if (std.ascii.findIgnoreCase(text, "prusalink") != null) return .prusalink;
+    if (std.ascii.findIgnoreCase(text, "octoprint") != null) return .octoprint;
     return null;
 }
 
@@ -417,9 +417,9 @@ fn number(v: std.json.Value) ?f64 {
 /// "Printdeck._octoprint._tcp.local".
 fn instanceLabel(a: Allocator, name: []const u8) Allocator.Error![:0]const u8 {
     for (services) |s| {
-        if (name.len > s.name.len + 1 and std.ascii.endsWithIgnoreCase(name, s.name)) return a.dupeZ(u8, name[0 .. name.len - s.name.len - 1]);
+        if (name.len > s.name.len + 1 and std.ascii.endsWithIgnoreCase(name, s.name)) return a.dupeSentinel(u8, name[0 .. name.len - s.name.len - 1], 0);
     }
-    return a.dupeZ(u8, name);
+    return a.dupeSentinel(u8, name, 0);
 }
 
 fn lower(a: Allocator, text: []const u8) Allocator.Error![]const u8 {

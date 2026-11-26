@@ -1,6 +1,6 @@
 # A prompt that could build zslice
 
-Describes: main through "Add the filament edits of lines to the verifier and the bench", 2026-11-24.
+Describes: main through "Build with Zig 0.17.0", 2026-11-26.
 
 ## Read this first
 

@@ -262,7 +262,7 @@ pub fn inspect(arena: Allocator, t: *const Toolpaths, pj: *const zs.PlateJob, pa
         .flow_limited = flow_limited,
         .holds = holds,
         .nozzle = if (two) @intCast(nozzle + 1) else 0,
-        .nozzle_text = try arena.dupeZ(u8, nt.written()),
+        .nozzle_text = try arena.dupeSentinel(u8, nt.written(), 0),
         .feature = feature,
         .layer = layer,
         .path = path,
@@ -276,13 +276,13 @@ pub fn inspect(arena: Allocator, t: *const Toolpaths, pj: *const zs.PlateJob, pa
         .flow = real * area,
         .start_time = t0,
         .end_time = t1,
-        .title = try arena.dupeZ(u8, name),
-        .explain = try arena.dupeZ(u8, text.written()),
-        .settings = try arena.dupeZ(u8, std.mem.trimEnd(u8, names.written(), "\n")),
+        .title = try arena.dupeSentinel(u8, name, 0),
+        .explain = try arena.dupeSentinel(u8, text.written(), 0),
+        .settings = try arena.dupeSentinel(u8, std.mem.trimEnd(u8, names.written(), "\n"), 0),
         .slow_reason = if (slowed) 1 else if (real < planned * 0.95) 2 else 0,
-        .why_planned = try arena.dupeZ(u8, wp.written()),
-        .why_real = try arena.dupeZ(u8, wr.written()),
-        .why_flow = try arena.dupeZ(u8, wf.written()),
+        .why_planned = try arena.dupeSentinel(u8, wp.written(), 0),
+        .why_real = try arena.dupeSentinel(u8, wr.written(), 0),
+        .why_flow = try arena.dupeSentinel(u8, wf.written(), 0),
     };
 }
 

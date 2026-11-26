@@ -574,7 +574,7 @@ fn num(v: Value, path: []const u8) f64 {
 fn str(a: Allocator, v: Value, path: []const u8) Allocator.Error!?[:0]const u8 {
     const x = get(v, path) orelse return null;
     if (x != .string) return null;
-    return try a.dupeZ(u8, x.string);
+    return try a.dupeSentinel(u8, x.string, 0);
 }
 
 const testing = std.testing;

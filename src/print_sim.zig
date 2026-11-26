@@ -72,6 +72,7 @@
 //! SPDX-License-Identifier: AGPL-3.0-or-later
 
 const std = @import("std");
+const type_fields = @import("type_fields.zig");
 const Allocator = std.mem.Allocator;
 
 pub const V = [3]f32;
@@ -1314,7 +1315,7 @@ fn pathKey(key: u64, path: Path) u64 {
 fn samePlain(comptime T: type, a: T, b: T) bool {
     switch (@typeInfo(T)) {
         .@"struct" => |st| {
-            inline for (st.fields) |f| if (!samePlain(f.type, @field(a, f.name), @field(b, f.name))) return false;
+            inline for (type_fields.structInfoFields(st)) |f| if (!samePlain(f.type, @field(a, f.name), @field(b, f.name))) return false;
             return true;
         },
         .pointer => return std.mem.eql(u8, a, b),

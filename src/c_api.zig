@@ -10,6 +10,7 @@
 //!   allocator (thread-safe), and wasm builds use the wasm allocator.
 
 const std = @import("std");
+const type_fields = @import("type_fields.zig");
 const builtin = @import("builtin");
 const zs = @import("root.zig");
 const Writer = std.Io.Writer;
@@ -133,12 +134,12 @@ export fn zs_setting_names() [*:0]const u8 {
 const setting_names: [:0]const u8 = blk: {
     var text: [:0]const u8 = "";
     @setEvalBranchQuota(2_000_000);
-    for (@typeInfo(zs.Settings).@"struct".fields) |g| {
-        for (@typeInfo(g.type).@"struct".fields) |f| {
+    for (type_fields.structFields(zs.Settings)) |g| {
+        for (type_fields.structFields(g.type)) |f| {
             if (f.type == [zs.settings.max_nozzles]zs.settings.Nozzle) {
                 // The settings of each nozzle after the first.
                 for (1..zs.settings.max_nozzles) |k| {
-                    for (@typeInfo(zs.settings.Nozzle).@"struct".fields) |nf| text = text ++ std.fmt.comptimePrint("{s}.{s}.{d}.{s}\n", .{ g.name, f.name, k, nf.name });
+                    for (type_fields.structFields(zs.settings.Nozzle)) |nf| text = text ++ std.fmt.comptimePrint("{s}.{s}.{d}.{s}\n", .{ g.name, f.name, k, nf.name });
                 }
                 continue;
             }

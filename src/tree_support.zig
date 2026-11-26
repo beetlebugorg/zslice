@@ -109,6 +109,7 @@
 //! code here are new.
 
 const std = @import("std");
+const type_fields = @import("type_fields.zig");
 const Allocator = std.mem.Allocator;
 const geom = @import("geom.zig");
 const offset_mod = @import("offset.zig");
@@ -1514,7 +1515,7 @@ pub const LayerCache = struct {
 /// A key of `seed` and of each value of `p`. Never 0.
 fn paramsKey(seed: u64, p: Params) u64 {
     var h = std.hash.Wyhash.init(seed);
-    inline for (@typeInfo(Params).@"struct".fields) |f| {
+    inline for (type_fields.structFields(Params)) |f| {
         const v = @field(p, f.name);
         const x: f64 = switch (@typeInfo(f.type)) {
             .float => v,

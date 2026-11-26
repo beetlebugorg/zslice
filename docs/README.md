@@ -65,6 +65,7 @@ zslice runs in your browser at [zslice.beetlebug.org](https://zslice.beetlebug.o
 - [Code quality](internals/code-quality.md): the plan to make the code clearer, ranked by value.
 - [The macOS app](internals/macos.md): the SwiftUI shell, its build, and the Metal renderer of the 3D view.
 - [CI and releases](internals/release.md): the CI jobs, how to cut a release, and the secrets of the release.
+- [Zig 0.17](internals/zig-0.17.md): the changes of the move from Zig 0.16 and the checks that the G-code stayed the same.
 
 ## A prompt that could build zslice
 

@@ -40,6 +40,7 @@
 //! docs/references/prusaslicer.md).
 
 const std = @import("std");
+const type_fields = @import("type_fields.zig");
 const Allocator = std.mem.Allocator;
 const Writer = std.Io.Writer;
 const geom = @import("geom.zig");
@@ -3203,7 +3204,7 @@ test "combined infill: each pattern makes tall beads" {
     const gpa = testing.allocator;
     var mesh = try mesh_mod.shapes.demo(gpa);
     defer mesh.deinit(gpa);
-    inline for (@typeInfo(settings_mod.InfillPattern).@"enum".fields) |f| {
+    inline for (type_fields.enumFields(settings_mod.InfillPattern)) |f| {
         // Lightning layers print on their own (see layer.groups).
         if (comptime std.mem.eql(u8, f.name, "lightning")) continue;
         var s: Settings = .{};

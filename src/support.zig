@@ -59,6 +59,7 @@
 //! slicers (see docs/references/). The code is new.
 
 const std = @import("std");
+const type_fields = @import("type_fields.zig");
 const Allocator = std.mem.Allocator;
 const geom = @import("geom.zig");
 const clip = @import("clip.zig");
@@ -194,7 +195,7 @@ pub const Cache = struct {
 fn resultKey(outline_key: u64, r: *const settings_mod.Resolved, marks: []const Mark) u64 {
     var h = std.hash.Wyhash.init(outline_key);
     const p = r.settings.project;
-    inline for (@typeInfo(settings_mod.Project).@"struct".fields) |f| {
+    inline for (type_fields.structFields(settings_mod.Project)) |f| {
         if (comptime std.mem.startsWith(u8, f.name, "support")) h.update(std.mem.asBytes(&@field(p, f.name)));
     }
     h.update(std.mem.asBytes(&r.line_width));

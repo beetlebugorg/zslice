@@ -27,14 +27,14 @@ pub fn build(b: *std.Build) void {
     // zig build verify: the slice verifier (src/verify.zig) on the demo
     // part, in a ReleaseFast build of its own. A fault fails the step.
     {
-        const vmod = b.createModule(.{ .root_source_file = b.path("src/root.zig"), .target = target, .optimize = .ReleaseFast });
+        const vmod = b.createModule(.{ .root_source_file = b.path("src/root.zig"), .target = target, .optimize = .fast });
         addLicenses(b, vmod);
         const vexe = b.addExecutable(.{
             .name = "zslice-verify",
             .root_module = b.createModule(.{
                 .root_source_file = b.path("src/main.zig"),
                 .target = target,
-                .optimize = .ReleaseFast,
+                .optimize = .fast,
                 .imports = &.{.{ .name = "zslice", .module = vmod }},
             }),
         });
@@ -48,7 +48,7 @@ pub fn build(b: *std.Build) void {
     const run_cmd = b.addRunArtifact(exe);
     run_step.dependOn(&run_cmd.step);
     run_cmd.step.dependOn(b.getInstallStep());
-    if (b.args) |args| run_cmd.addArgs(args);
+    run_cmd.addPassthruArgs();
 
     // The C library: static and shared, with the header.
     // The C library links libc, so that its threads are pthreads. A host
@@ -63,6 +63,10 @@ pub fn build(b: *std.Build) void {
     addLicenses(b, c_mod);
     // The Vulkan headers of the renderer (vendor/vulkan, Apache-2.0).
     c_mod.addIncludePath(b.path("vendor/vulkan/include"));
+    // `src/render/vk.zig` imports the translation of `src/render/vulkan_c.h`.
+    const vulkan_c = b.addTranslateC(.{ .root_source_file = b.path("src/render/vulkan_c.h"), .target = target, .optimize = optimize });
+    vulkan_c.addIncludePath(b.path("vendor/vulkan/include"));
+    c_mod.addImport("vulkan_c", vulkan_c.createModule());
     const static_lib = b.addLibrary(.{ .name = "zslice", .linkage = .static, .root_module = c_mod });
     // -Dcompiler-rt puts the compiler-rt of Zig (std/compiler_rt, MIT, as
     // the rest of the Zig standard library) in the static library: the
@@ -82,7 +86,7 @@ pub fn build(b: *std.Build) void {
     // -Dwasm-optimize sets its optimize mode. -Dwasm-cpu sets its CPU
     // features, for example -Dwasm-cpu=baseline+simd128+bulk_memory.
     const wasm_optimize = b.option(std.builtin.OptimizeMode, "wasm-optimize", "The optimize mode of the wasm module") orelse
-        (if (optimize == .Debug) .ReleaseFast else optimize);
+        (if (optimize == .debug) .fast else optimize);
     const wasm_cpu = b.option([]const u8, "wasm-cpu", "The CPU model and features of the wasm module") orelse "baseline";
     // The debug data is 7 MB of a ReleaseFast module. -Dwasm-strip=false
     // keeps it, for a profile with function names.

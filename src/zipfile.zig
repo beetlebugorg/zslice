@@ -528,7 +528,7 @@ test "zip: a long name with a comment reads" {
     const end_at = b.items.len - @sizeOf(zip.EndRecord);
     const cd = std.mem.readInt(u32, b.items[end_at + 16 ..][0..4], .little);
     std.mem.writeInt(u16, b.items[cd + 32 ..][0..2], 1000, .little);
-    try b.insertSlice(gpa, end_at, &([_]u8{' '} ** 1000));
+    try b.insertSlice(gpa, end_at, &(@as([1000]u8, @splat(' '))));
     const list = try readAll(gpa, b.items);
     defer freeAll(gpa, list);
     try std.testing.expectEqualStrings("data", list[0].data);

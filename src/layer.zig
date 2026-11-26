@@ -4990,7 +4990,7 @@ test "thinLinks: a link of a zigzag has half the bead area of a line" {
     try lines.append(s, &.{ .init(0, 500), .init(10_000, 500) });
     var zig: Paths = .empty;
     try zig.append(s, &.{ .init(0, 0), .init(10_000, 0), .init(10_100, 250), .init(10_000, 500), .init(0, 500) });
-    const pw = [_]f32{0.5} ** 5;
+    const pw = @as([5]f32, @splat(0.5));
     const h = 0.2;
     const t = try thinLinks(s, zig, &pw, lines, h);
     const pts = t.paths.get(0);

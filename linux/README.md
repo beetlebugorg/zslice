@@ -5,7 +5,7 @@ A native GTK4 app around the zslice app core. See `docs/app/README.md` for the s
 ## Requirements
 
 - GTK 4.14 or later, with its development files.
-- Zig 0.16 on the `PATH`.
+- Zig 0.17 on the `PATH`.
 - meson and ninja.
 
 ```sh

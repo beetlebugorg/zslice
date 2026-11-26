@@ -465,7 +465,7 @@ pub const Plate = struct {
     /// on the bed there (with `gap` around it) and touches no other part.
     pub fn add(self: *Plate, gpa: Allocator, name: []const u8, mesh: Mesh, bed: [2]f64, gap: f64, keep_file: bool) Allocator.Error!usize {
         var m = mesh;
-        const n = gpa.dupeZ(u8, name) catch |e| {
+        const n = gpa.dupeSentinel(u8, name, 0) catch |e| {
             m.deinit(gpa);
             return e;
         };
@@ -495,7 +495,7 @@ pub const Plate = struct {
     /// index.
     pub fn addPlaced(self: *Plate, gpa: Allocator, name: []const u8, mesh: Mesh, at: threemf.Place, bed: [2]f64, gap: f64) Allocator.Error!usize {
         var m = mesh;
-        const n = gpa.dupeZ(u8, name) catch |e| {
+        const n = gpa.dupeSentinel(u8, name, 0) catch |e| {
             m.deinit(gpa);
             return e;
         };
@@ -535,7 +535,7 @@ pub const Plate = struct {
         var p: Part = src.*;
         // A copy is another part: the plate that takes it gives it an id.
         p.id = 0;
-        p.name = try gpa.dupeZ(u8, src.name);
+        p.name = try gpa.dupeSentinel(u8, src.name, 0);
         errdefer gpa.free(p.name);
         p.mesh = try src.mesh.clone(gpa);
         errdefer p.mesh.deinit(gpa);
@@ -557,7 +557,7 @@ pub const Plate = struct {
             p.volumes.deinit(gpa);
         }
         for (src.volumes.items) |v| {
-            var c: Volume = .{ .name = try gpa.dupeZ(u8, v.name), .mesh = .empty };
+            var c: Volume = .{ .name = try gpa.dupeSentinel(u8, v.name, 0), .mesh = .empty };
             errdefer c.deinit(gpa);
             c.mesh = try v.mesh.clone(gpa);
             if (v.source) |m| c.source = try m.clone(gpa);
@@ -584,7 +584,7 @@ pub const Plate = struct {
             var p: Part = src.*;
             p.source = null;
             p.trees = null;
-            p.name = try gpa.dupeZ(u8, src.name);
+            p.name = try gpa.dupeSentinel(u8, src.name, 0);
             p.mesh = .empty;
             p.meta = &.{};
             p.paint = .{};
@@ -602,7 +602,7 @@ pub const Plate = struct {
             for (src.labels.items) |l| c.labels.appendAssumeCapacity(try src.meshLabel(l).clone(gpa));
             try c.volumes.ensureTotalCapacity(gpa, src.volumes.items.len);
             for (src.volumes.items) |v| {
-                c.volumes.appendAssumeCapacity(.{ .name = try gpa.dupeZ(u8, v.name), .mesh = .empty });
+                c.volumes.appendAssumeCapacity(.{ .name = try gpa.dupeSentinel(u8, v.name, 0), .mesh = .empty });
                 const cv = &c.volumes.items[c.volumes.items.len - 1];
                 cv.mesh = try v.mesh.clone(gpa);
                 cv.meta = try threemf.cloneMeta(gpa, v.meta);
@@ -804,7 +804,7 @@ pub const Plate = struct {
     /// and the metadata after the call (also on an error).
     pub fn addVolume(self: *Plate, gpa: Allocator, i: usize, name: []const u8, mesh: Mesh, meta: []Meta) Allocator.Error!void {
         var v: Volume = .{ .name = undefined, .mesh = mesh, .meta = meta };
-        v.name = gpa.dupeZ(u8, name) catch |e| {
+        v.name = gpa.dupeSentinel(u8, name, 0) catch |e| {
             v.mesh.deinit(gpa);
             threemf.freeMeta(gpa, meta);
             return e;

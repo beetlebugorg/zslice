@@ -36,6 +36,7 @@ Keep a docs site from Markdown with no dependencies beyond Python 3, a reference
 - The docs have three parts: `docs/user/`, `docs/embedding/`, `docs/internals/`. Keep each current with the code in the same commit.
 - The core CI job runs `zig build verify` after `zig build test`.
 - `tools/corpus_hash.py` writes the G-code hash of each corpus file. A change that must keep the G-code compares the table before and after it.
+- The core builds with Zig 0.17.0. Each CI workflow, the Homebrew formulas (`zig`), and the Xcode script phase use it. A move to a new Zig version keeps the G-code hash of each corpus file (see [Zig 0.17](../docs/internals/zig-0.17.md)).
 
 ## Lessons
 

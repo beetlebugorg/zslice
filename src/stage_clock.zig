@@ -25,8 +25,8 @@ pub const Stage = enum { start, init, mesh_cut, support, islands, plan, prepare,
 /// The counts that have no clock.
 pub const Count = enum { booleans, boolean_points, offsets, offset_points, levels_run, texts_made };
 
-const n_stages = @typeInfo(Stage).@"enum".fields.len;
-const n_counts = @typeInfo(Count).@"enum".fields.len;
+const n_stages = @typeInfo(Stage).@"enum".field_names.len;
+const n_counts = @typeInfo(Count).@"enum".field_names.len;
 
 /// True while the clocks run.
 pub var on: std.atomic.Value(bool) = .init(false);

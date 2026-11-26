@@ -1,6 +1,6 @@
 #!/bin/sh
 # Builds the Zig core as one universal static library, lib/libzslice.a,
-# for arm64 and x86_64 Macs. ZIG names the Zig 0.16 compiler.
+# for arm64 and x86_64 Macs. ZIG names the Zig 0.17 compiler.
 # SPDX-License-Identifier: AGPL-3.0-or-later
 set -eu
 cd "$(dirname "$0")/.."
